@@ -203,6 +203,7 @@ pub(crate) async fn operation<C: GenericClient + Sync>(
     op: &WriteOp,
 ) -> Result<(), StoreError> {
     match op {
+        WriteOp::Outbox(op) => super::outbox::write(conn, op).await?,
         WriteOp::Journal(r) => journal(conn, r).await?,
         WriteOp::SeedInstallation(r) => {
             conn.execute("INSERT INTO ledgerlab.installation (singleton,tenant,environment,logical_store_id,mode,admission,dispatch_hold,dispatch_enabled,logical_schema,generation) VALUES (1,$1,$2,$3,$4,$5,$6,$7,1,$8)", &[&(&r.scope.tenant),&(&r.scope.environment),&(&r.logical_store_id),&(&r.mode),&(&r.admission),&(i64::from(r.dispatch_hold)),&(i64::from(r.dispatch_enabled)),&(r.generation)]).await?;

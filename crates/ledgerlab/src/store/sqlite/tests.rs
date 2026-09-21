@@ -693,12 +693,17 @@ async fn seed_rollback_boundaries_preserve_empty_installation() {
 async fn immutable_guards_cover_every_journal_table() {
     let (_dir, store) = fresh().await;
     append(&store).await;
+    let ledger = crate::Ledger {
+        store: crate::Backend::Sqlite(store.clone()),
+    };
+    crate::outbox::tests::exercise_evidence(&ledger).await;
+    drop(ledger);
     let before = dump(&store).await;
     let tables:Vec<String>=sqlx::query_scalar("SELECT DISTINCT tbl_name FROM sqlite_schema WHERE type='trigger' AND name LIKE '%_no_update' ORDER BY tbl_name").fetch_all(&store.inner.readers).await.unwrap();
-    assert_eq!(tables.len(), 18);
+    assert_eq!(tables.len(), 21);
     for table in tables {
         for sql in [
-            format!("UPDATE {table} SET content_hash=content_hash"),
+            format!("UPDATE {table} SET canonical_bytes=canonical_bytes"),
             format!("DELETE FROM {table}"),
         ] {
             let mut tx = store.begin(deadline()).await.unwrap();
@@ -892,7 +897,7 @@ async fn cross_scope_references_strict_types_atoms_and_schema_checks() {
     store.close().await;
     let owner = owner::Owner::acquire(dir.path()).unwrap();
     let mut conn = connect::initial(&owner).await.unwrap();
-    sqlx::query("PRAGMA user_version=2")
+    sqlx::query("PRAGMA user_version=3")
         .execute(&mut conn)
         .await
         .unwrap();

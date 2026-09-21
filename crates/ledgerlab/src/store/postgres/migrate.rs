@@ -2,6 +2,11 @@
 use crate::store::{errors::StoreError, records::Installation};
 use tokio_postgres::{Client, GenericClient};
 pub(crate) const SQL: &str = include_str!("../../../migrations/postgres/0001_first_slice.sql");
+const OUTBOX: &str = include_str!("../../../migrations/postgres/0002_outbox.sql");
+fn outbox_checksum() -> String {
+    ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &OUTBOX)
+        .expect("static SQL text")
+}
 fn checksum() -> String {
     // A framed digest of the exact migration text, independent of economic records.
     ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &SQL)
@@ -27,6 +32,12 @@ pub(crate) async fn create(
     )
     .await?;
     tx.batch_execute(SQL).await?;
+    tx.batch_execute(OUTBOX).await?;
+    tx.execute(
+        "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES (2,$1)",
+        &[&outbox_checksum()],
+    )
+    .await?;
     super::write::operation(
         &tx,
         &crate::store::records::WriteOp::SeedInstallation(installation),
@@ -40,6 +51,7 @@ pub(crate) async fn create(
     // Role name above is an identifier with a strict ASCII allowlist; all values
     // in runtime reads/writes are bound parameters. No runtime migration rights.
     tx.batch_execute(&format!("GRANT USAGE ON SCHEMA ledgerlab TO {runtime_role}; GRANT SELECT ON ALL TABLES IN SCHEMA ledgerlab TO {runtime_role}; GRANT INSERT ON ledgerlab.documents,ledgerlab.snapshots,ledgerlab.events,ledgerlab.delivery_keys,ledgerlab.claims,ledgerlab.effects,ledgerlab.actions,ledgerlab.action_sources,ledgerlab.action_dependencies,ledgerlab.explanations,ledgerlab.intentions,ledgerlab.control_transitions,ledgerlab.chain_revisions,ledgerlab.decision_manifests,ledgerlab.accepted_receipts,ledgerlab.delivery_state TO {runtime_role}; GRANT UPDATE (revision,event_count) ON ledgerlab.chains TO {runtime_role}; GRANT UPDATE (generation) ON ledgerlab.installation TO {runtime_role}; GRANT UPDATE (revision) ON ledgerlab.authority_heads,ledgerlab.binding_heads TO {runtime_role};")).await?;
+    tx.batch_execute(&format!("GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {runtime_role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {runtime_role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports TO {runtime_role};")).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -50,9 +62,11 @@ pub(crate) async fn verify<C: GenericClient + Sync>(client: &C) -> Result<(), St
             &[],
         )
         .await?;
-    if rows.len() != 1
+    if rows.len() != 2
         || rows[0].try_get::<_, i64>(0)? != 1
         || rows[0].try_get::<_, String>(1)? != checksum()
+        || rows[1].try_get::<_, i64>(0)? != 2
+        || rows[1].try_get::<_, String>(1)? != outbox_checksum()
     {
         return Err(StoreError::InvalidStore(
             "PostgreSQL migration checksum mismatch",

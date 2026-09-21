@@ -12,6 +12,9 @@ pub(crate) trait AcceptanceStore: Send + Sync {
         -> impl Future<Output = Result<Self::Tx, StoreError>> + Send;
 }
 pub(crate) trait AcceptanceTx: Sized + Send {
+    fn load_outbox(
+        &mut self,
+    ) -> impl Future<Output = Result<crate::outbox::Snapshot, StoreError>> + Send;
     fn load_installation(
         &mut self,
     ) -> impl Future<Output = Result<Installation, StoreError>> + Send;

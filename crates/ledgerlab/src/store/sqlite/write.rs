@@ -255,6 +255,7 @@ pub(super) async fn journal(
 
 pub(super) async fn operation(conn: &mut SqliteConnection, op: &WriteOp) -> Result<(), StoreError> {
     match op {
+        WriteOp::Outbox(op) => super::outbox::write(conn, op).await?,
         WriteOp::Journal(r) => journal(conn, r).await?,
         WriteOp::SeedInstallation(r) => {
             sqlx::query("INSERT INTO installation (singleton,tenant,environment,logical_store_id,mode,admission,dispatch_hold,dispatch_enabled,logical_schema,generation) VALUES (1,?,?,?,?,?,?,?,1,?)")

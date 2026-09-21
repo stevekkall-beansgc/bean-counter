@@ -257,6 +257,7 @@ pub(crate) struct StoredDelivery {
 
 #[derive(Clone, Debug)]
 pub(crate) enum WriteOp {
+    Outbox(Box<crate::outbox::Mutation>),
     Journal(Box<JournalRecord>),
     // Explicit provisioning is private and separate from the request path.
     #[allow(dead_code)]

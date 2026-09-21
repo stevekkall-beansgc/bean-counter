@@ -3,6 +3,7 @@
 #[path = "proof/connect.rs"]
 pub(crate) mod connect;
 pub(crate) mod migrate;
+mod outbox;
 mod read;
 #[path = "proof/tls.rs"]
 pub(crate) mod tls;

@@ -512,11 +512,11 @@ fn postgres_storage_guards_and_failed_transaction() {
     backend.runtime.block_on(async {
         let mut owner=config(backend.config.database.clone(),true).connect().await.unwrap();
         let tables=owner.client.query("SELECT DISTINCT c.relname FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ledgerlab' AND t.tgname LIKE '%_immutable' ORDER BY c.relname",&[]).await.unwrap();
-        assert_eq!(tables.len(),18);
+        assert_eq!(tables.len(),21);
         for table in tables {
             let name:String=table.get(0);
             assert!(name.bytes().all(|b|b.is_ascii_lowercase()||b==b'_'));
-            for sql in [format!("UPDATE ledgerlab.{name} SET content_hash=content_hash"),format!("DELETE FROM ledgerlab.{name}"),format!("TRUNCATE ledgerlab.{name} CASCADE")] {
+            for sql in [format!("UPDATE ledgerlab.{name} SET canonical_bytes=canonical_bytes"),format!("DELETE FROM ledgerlab.{name}"),format!("TRUNCATE ledgerlab.{name} CASCADE")] {
                 let tx=owner.client.transaction().await.unwrap();
                 let e=tx.batch_execute(&sql).await.unwrap_err();
                 assert_eq!(e.code().map(|c|c.code()),Some("23000"),"{name}: {e}");
@@ -878,5 +878,42 @@ fn postgres_supervisor_transport_cut_and_overlapping_drain() {
             .assert_accepted(&before, &backend.observe().unwrap())
             .unwrap();
         println!("production supervisor cut {iteration}: actual OutcomeUnknown; persisted {}; backend {pid} gone; retry/reopen complete", if durable {"complete; overlapping/cancelled close drained"} else {"none"});
+    }
+}
+
+#[test]
+#[ignore = "requires the explicit local PostgreSQL TLS harness"]
+fn postgres_outbox_delivery_recovery_histories() {
+    use ledgerlab_testkit::stores::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    for case in 0..10 {
+        let mut b = Backend::new(&oracle, false).unwrap();
+        b.accept(&tk::Command::fixture(&oracle, "input").unwrap(), None)
+            .unwrap();
+        let immutable = b.observe().unwrap();
+        let ledger = Ledger {
+            store: crate::Backend::Postgres(b.store.as_ref().unwrap().clone()),
+        };
+        b.runtime
+            .block_on(crate::outbox::tests::scenario(&ledger, case));
+        drop(ledger);
+        let before = b.observe().unwrap();
+        if case == 6 {
+            for row in &immutable.journal {
+                assert!(before.journal.contains(row));
+            }
+            for row in &immutable.indexes {
+                assert!(before.indexes.contains(row));
+            }
+        } else {
+            assert_eq!(immutable.journal, before.journal);
+            assert_eq!(immutable.indexes, before.indexes);
+        }
+        b.reopen().unwrap();
+        let after = b.observe().unwrap();
+        assert_eq!(before.journal, after.journal);
+        assert_eq!(before.indexes, after.indexes);
+        assert_eq!(before.rows, after.rows);
+        println!("PostgreSQL outbox history {case}: passed and preserved after reopen");
     }
 }
