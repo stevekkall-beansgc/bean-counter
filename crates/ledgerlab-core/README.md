@@ -1,4 +1,11 @@
-# Phase 1 pure core
+# Pure core
+
+The frozen Phase 1 acceptance path below remains unchanged. The additive
+`policy::chaining` module supplies the bounded Phase 2 typed pricing API. See
+[Phase 2 core integration notes](../../PHASE-2-CORE.md) for its semantics,
+proposed linked discounts, validation and the required persistence extensions.
+
+## Phase 1 acceptance boundary
 
 This crate implements the frozen completion first slice through a synchronous,
 validated policy/evaluation/record boundary. It reads no files, database, network,
@@ -53,7 +60,7 @@ byte limits, defaults, optional omission, set ordering, timestamps, and local
 relation cardinality. Only completion claim facts and the first-slice record
 family are encoded here. Cross-event topology/authority is coordinator work;
 acquisition/link/reversal facts and further record variants need their reviewed
-contract extensions before evaluation can support them.
+contract extensions before the acceptance assembler can persist them.
 
 ## Resolved dependencies
 

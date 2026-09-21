@@ -1,0 +1,36 @@
+{
+  "status": "proposal-only; not a frozen wire or journal contract",
+  "currency": "USD",
+  "scale": 2,
+  "linked_discount": {
+    "generation_atoms": "100",
+    "publication_atoms": "50",
+    "percent": "20",
+    "outcome_atoms": "-10",
+    "maximum_distinct_claims": 5,
+    "sixth_outcome": "DISCOUNT_EXCEEDS_BASIS",
+    "full_reversal_atoms": "10",
+    "original_publication_after_discount_atoms": "50"
+  },
+  "pay_per_tool": {
+    "funding": "byok",
+    "quantity": "1",
+    "retail_unit_price": "0.10",
+    "supplier_unit_price": "0.03",
+    "retail_atoms": "10",
+    "supplier_atoms": "3",
+    "held_atoms": "100",
+    "consumed_atoms": "3",
+    "released_atoms": "97"
+  },
+  "allocation_view": {
+    "retail_closure_atoms": "200",
+    "cap_credit_atoms": "-20",
+    "basis_atoms": "180",
+    "share_percent": "25",
+    "supplier_share_atoms": "45",
+    "supplier_allocation_atoms": "45",
+    "host_allocation_atoms": "135",
+    "additional_payable_atoms": "0"
+  }
+}

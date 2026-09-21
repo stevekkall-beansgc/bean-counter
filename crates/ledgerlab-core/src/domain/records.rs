@@ -21,7 +21,34 @@ pub struct Roles {
     payer_delegation: Option<String>,
 }
 impl Roles {
-    fn validate(&self) -> Result<()> {
+    /// Explicit six-party mapping; no party is inferred from event evidence.
+    pub fn new(parties: [&str; 6], payer_delegation: Option<String>) -> Result<Self> {
+        let [provider, cost_originator, bearer, payer, beneficiary, recipient] = parties;
+        let roles = Self {
+            provider: provider.into(),
+            cost_originator: cost_originator.into(),
+            bearer: bearer.into(),
+            payer: payer.into(),
+            beneficiary: beneficiary.into(),
+            recipient: recipient.into(),
+            payer_delegation,
+        };
+        roles.validate()?;
+        Ok(roles)
+    }
+    pub fn bearer(&self) -> &str {
+        &self.bearer
+    }
+    pub fn payer(&self) -> &str {
+        &self.payer
+    }
+    pub fn recipient(&self) -> &str {
+        &self.recipient
+    }
+    pub fn payer_delegation(&self) -> Option<&str> {
+        self.payer_delegation.as_deref()
+    }
+    pub(crate) fn validate(&self) -> Result<()> {
         for s in [
             &self.provider,
             &self.cost_originator,

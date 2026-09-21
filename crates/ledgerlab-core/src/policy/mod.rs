@@ -8,6 +8,10 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+/// Typed Phase 2 evaluation. It deliberately does not extend the frozen wire
+/// parser or manufacture Phase 1 journal records for later record families.
+pub mod chaining;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PolicyDto {
