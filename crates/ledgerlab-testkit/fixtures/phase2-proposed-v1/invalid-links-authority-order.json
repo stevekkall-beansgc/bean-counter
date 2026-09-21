@@ -1,0 +1,854 @@
+{
+  "schema": "ledgerlab-phase2-proposal/1",
+  "status": "proposed",
+  "id": "invalid-links-authority-order",
+  "description": "Missing, ambiguous, cyclic, mistyped and source-mismatched links; explicit absent endpoint waits. Forged outcome authority, half-open window boundaries, missing evidence and foreign customer reject.",
+  "config": {
+    "id": "context-v1",
+    "version": "story-context/1",
+    "policy_version": "story-tariff/1",
+    "semantics_version": "ledgerlab-phase2-proposal/1",
+    "chain": "chain-1",
+    "customer": "customer-c",
+    "currency": "USD",
+    "scale": 2,
+    "tier": "standard",
+    "funding": "byok",
+    "retail": {
+      "id": "retail-v1",
+      "agreement": "retail",
+      "assent_ref": "assent-retail",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      },
+      "correction_sources": [
+        "urn:host:app"
+      ]
+    },
+    "rates": [
+      {
+        "kind": "content.generated",
+        "tier": "standard",
+        "unit_price": "1",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "content.generated",
+        "tier": "enterprise",
+        "unit_price": "1",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "standard",
+        "unit_price": "0.30",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "enterprise",
+        "unit_price": "0.30",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "content.published",
+        "tier": "standard",
+        "unit_price": "0.50",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "content.published",
+        "tier": "enterprise",
+        "unit_price": "0.50",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "standard",
+        "unit_price": "0.10",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "enterprise",
+        "unit_price": "0.10",
+        "discount_percent": "20"
+      }
+    ],
+    "premium_atoms": "500",
+    "quality_enabled": false,
+    "quality_percent": "50",
+    "outcome_source": "urn:approved:outcome",
+    "quality_source": "urn:approved:quality",
+    "outcome_window": "1000",
+    "report_grace": "100",
+    "suppliers": [],
+    "evidence": [
+      "assent-retail",
+      "proof-outcome",
+      "proof-quality",
+      "proof-reversal"
+    ],
+    "grants": [
+      {
+        "id": "grant-host",
+        "source": "urn:host:app",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "content.generated",
+          "tool.optimized",
+          "content.published",
+          "tool.completed",
+          "outcome.acquired",
+          "economic.reversal"
+        ],
+        "relations": [
+          "generated_from",
+          "optimized_from",
+          "published_as",
+          "consumes_service",
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-outcome",
+        "source": "urn:approved:outcome",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "outcome.acquired"
+        ],
+        "relations": [
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-quality",
+        "source": "urn:approved:quality",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "proposal.quality_failed"
+        ],
+        "relations": [
+          "quality_of"
+        ]
+      }
+    ]
+  },
+  "events": {
+    "g": {
+      "id": "g",
+      "source": "urn:host:app",
+      "operation": "g",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": []
+    },
+    "p": {
+      "id": "p",
+      "source": "urn:host:app",
+      "operation": "p",
+      "kind": "content.published",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "20",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "published_as",
+          "event": "g",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": []
+    },
+    "missing": {
+      "id": "missing",
+      "source": "urn:host:app",
+      "operation": "missing",
+      "kind": "content.published",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": []
+    },
+    "ambiguous": {
+      "id": "ambiguous",
+      "source": "urn:host:app",
+      "operation": "ambiguous",
+      "kind": "content.published",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "published_as",
+          "event": "g",
+          "source": "urn:host:app"
+        },
+        {
+          "relation": "published_as",
+          "event": "g2",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": []
+    },
+    "self": {
+      "id": "self",
+      "source": "urn:host:app",
+      "operation": "self",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "generated_from",
+          "event": "self",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": []
+    },
+    "wrong-type": {
+      "id": "wrong-type",
+      "source": "urn:host:app",
+      "operation": "wrong-type",
+      "kind": "content.published",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "published_as",
+          "event": "p",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": []
+    },
+    "wrong-source": {
+      "id": "wrong-source",
+      "source": "urn:host:app",
+      "operation": "wrong-source",
+      "kind": "content.published",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "published_as",
+          "event": "g",
+          "source": "urn:wrong"
+        }
+      ],
+      "evidence": []
+    },
+    "no-parent": {
+      "id": "no-parent",
+      "source": "urn:host:app",
+      "operation": "no-parent",
+      "kind": "content.published",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "published_as",
+          "event": "unseen",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": []
+    },
+    "forged": {
+      "id": "forged",
+      "source": "urn:host:app",
+      "operation": "forged",
+      "kind": "outcome.acquired",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "40",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "attributed_to",
+          "event": "p",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": [
+        "proof-outcome"
+      ],
+      "claim": "forged-sale"
+    },
+    "too-early": {
+      "id": "too-early",
+      "source": "urn:approved:outcome",
+      "operation": "too-early",
+      "kind": "outcome.acquired",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "19",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "attributed_to",
+          "event": "p",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": [
+        "proof-outcome"
+      ],
+      "claim": "early-sale"
+    },
+    "at-deadline": {
+      "id": "at-deadline",
+      "source": "urn:approved:outcome",
+      "operation": "at-deadline",
+      "kind": "outcome.acquired",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "1020",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "attributed_to",
+          "event": "p",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": [
+        "proof-outcome"
+      ],
+      "claim": "late-sale"
+    },
+    "no-evidence": {
+      "id": "no-evidence",
+      "source": "urn:approved:outcome",
+      "operation": "no-evidence",
+      "kind": "outcome.acquired",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "40",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "attributed_to",
+          "event": "p",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": [],
+      "claim": "empty-sale"
+    },
+    "wrong-context": {
+      "id": "wrong-context",
+      "source": "urn:host:app",
+      "operation": "wrong-context",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "other-customer",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": []
+    },
+    "missing-proof": {
+      "id": "missing-proof",
+      "source": "urn:host:app",
+      "operation": "missing-proof",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": [
+        "unknown-proof"
+      ]
+    }
+  },
+  "attempts": [
+    {
+      "event": "g",
+      "received": "50"
+    },
+    {
+      "event": "p",
+      "received": "50"
+    },
+    {
+      "event": "missing",
+      "received": "50"
+    },
+    {
+      "event": "ambiguous",
+      "received": "50"
+    },
+    {
+      "event": "self",
+      "received": "50"
+    },
+    {
+      "event": "wrong-type",
+      "received": "50"
+    },
+    {
+      "event": "wrong-source",
+      "received": "50"
+    },
+    {
+      "event": "no-parent",
+      "received": "50"
+    },
+    {
+      "event": "forged",
+      "received": "50"
+    },
+    {
+      "event": "too-early",
+      "received": "50"
+    },
+    {
+      "event": "at-deadline",
+      "received": "1020"
+    },
+    {
+      "event": "no-evidence",
+      "received": "50"
+    },
+    {
+      "event": "wrong-context",
+      "received": "50"
+    },
+    {
+      "event": "missing-proof",
+      "received": "50"
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "g",
+        "state": {
+          "revision": "1",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "100",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "p",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "MISSING_LINK",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "AMBIGUOUS_LINK",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "LINK_CYCLE",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "LINK_TYPE",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "LINK_SOURCE",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "waiting",
+        "code": "DEPENDENCIES_MISSING",
+        "missing": [
+          "unseen"
+        ],
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "OUTCOME_AUTHORITY_CONFLICT",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "OUTCOME_WINDOW",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "OUTCOME_WINDOW",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "OUTCOME_EVIDENCE_REQUIRED",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "CONTEXT_MISMATCH",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "EVIDENCE_MISSING",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "150",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      }
+    ],
+    "journal": [
+      {
+        "id": "g",
+        "event": {
+          "id": "g",
+          "source": "urn:host:app",
+          "operation": "g",
+          "kind": "content.generated",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "10",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [],
+          "evidence": []
+        },
+        "received": "50",
+        "revision": "1",
+        "authority_refs": [
+          "assent-retail",
+          "context-v1",
+          "grant-host",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [],
+        "postings": [
+          {
+            "id": "g/generation.base",
+            "component": "generation.base",
+            "book": "retail",
+            "kind": "charge",
+            "atoms": "100",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": []
+          }
+        ],
+        "explanations": [
+          {
+            "component": "generation.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "100",
+              "denominator": "1"
+            },
+            "rounded_atoms": "100"
+          },
+          {
+            "component": "model.observation",
+            "code": "BYOK_NO_HOST_COST"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "100",
+            "posting_ids": [
+              "g/generation.base"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "p",
+        "event": {
+          "id": "p",
+          "source": "urn:host:app",
+          "operation": "p",
+          "kind": "content.published",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "20",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [
+            {
+              "relation": "published_as",
+              "event": "g",
+              "source": "urn:host:app"
+            }
+          ],
+          "evidence": []
+        },
+        "received": "50",
+        "revision": "2",
+        "authority_refs": [
+          "assent-retail",
+          "context-v1",
+          "grant-host",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [],
+        "postings": [
+          {
+            "id": "p/publication.base",
+            "component": "publication.base",
+            "book": "retail",
+            "kind": "charge",
+            "atoms": "50",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": []
+          }
+        ],
+        "explanations": [
+          {
+            "component": "publication.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "50",
+              "denominator": "1"
+            },
+            "rounded_atoms": "50"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "50",
+            "posting_ids": [
+              "p/publication.base"
+            ]
+          }
+        ]
+      }
+    ],
+    "state": {
+      "revision": "2",
+      "closed": false,
+      "reversed": [],
+      "consumed": {},
+      "totals": {
+        "retail": "150",
+        "supplier": "0",
+        "cost_observation": "0"
+      }
+    }
+  }
+}

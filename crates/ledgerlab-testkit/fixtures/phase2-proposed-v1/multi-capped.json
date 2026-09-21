@@ -1,0 +1,1784 @@
+{
+  "schema": "ledgerlab-phase2-proposal/1",
+  "status": "proposed",
+  "id": "multi-capped",
+  "description": "Multi-stage golden arithmetic with pinned offers/invocations and all six roles. multi-capped. Reversal appends exact negations, preserves consumed exposure and closed state.",
+  "config": {
+    "id": "context-v1",
+    "version": "story-context/1",
+    "policy_version": "story-tariff/1",
+    "semantics_version": "ledgerlab-phase2-proposal/1",
+    "chain": "chain-1",
+    "customer": "customer-c",
+    "currency": "USD",
+    "scale": 2,
+    "tier": "enterprise",
+    "funding": "platform",
+    "retail": {
+      "id": "retail-v1",
+      "agreement": "retail",
+      "assent_ref": "assent-retail",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      },
+      "correction_sources": [
+        "urn:host:app"
+      ]
+    },
+    "rates": [
+      {
+        "kind": "content.generated",
+        "tier": "standard",
+        "unit_price": "0.80",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "content.generated",
+        "tier": "enterprise",
+        "unit_price": "0.80",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "standard",
+        "unit_price": "0.30",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "enterprise",
+        "unit_price": "0.30",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "content.published",
+        "tier": "standard",
+        "unit_price": "0.40",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "content.published",
+        "tier": "enterprise",
+        "unit_price": "0.40",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "standard",
+        "unit_price": "0.10",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "enterprise",
+        "unit_price": "0.10",
+        "discount_percent": "10"
+      }
+    ],
+    "premium_atoms": "200",
+    "quality_enabled": false,
+    "quality_percent": "50",
+    "outcome_source": "urn:approved:outcome",
+    "quality_source": "urn:approved:quality",
+    "outcome_window": "1000",
+    "report_grace": "100",
+    "suppliers": [
+      {
+        "id": "optimizer-v1",
+        "agreement": "optimizer",
+        "policy_version": "story-tariff/1",
+        "assent_ref": "assent-optimizer",
+        "offer_ref": "offer-optimizer",
+        "roles": {
+          "provider": "optimizer-provider",
+          "cost_originator": "optimizer-provider",
+          "bearer": "host-h",
+          "payer": "host-h",
+          "beneficiary": "customer-c",
+          "recipient": "optimizer-provider"
+        },
+        "correction_sources": [
+          "urn:host:app"
+        ],
+        "component": "optimizer",
+        "kind": "tool.optimized",
+        "source": "urn:provider:optimizer",
+        "fee_atoms": "10",
+        "premium_atoms": "5",
+        "share_percent": "0",
+        "share_ceiling_atoms": "50",
+        "invocation": {
+          "id": "invoke-o",
+          "binding": "optimizer-v1",
+          "event": "o",
+          "operation": "o",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "authorized_at": "0",
+          "start_before": "30",
+          "maximum_quantity": "1",
+          "maximum_atoms": "15"
+        }
+      },
+      {
+        "id": "publisher-v1",
+        "agreement": "publisher",
+        "policy_version": "story-tariff/1",
+        "assent_ref": "assent-publisher",
+        "offer_ref": "offer-publisher",
+        "roles": {
+          "provider": "publisher-provider",
+          "cost_originator": "publisher-provider",
+          "bearer": "host-h",
+          "payer": "host-h",
+          "beneficiary": "customer-c",
+          "recipient": "publisher-provider"
+        },
+        "correction_sources": [
+          "urn:host:app"
+        ],
+        "component": "publisher",
+        "kind": "content.published",
+        "source": "urn:provider:publisher",
+        "fee_atoms": "15",
+        "premium_atoms": "0",
+        "share_percent": "25",
+        "share_ceiling_atoms": "50",
+        "invocation": {
+          "id": "invoke-p",
+          "binding": "publisher-v1",
+          "event": "p",
+          "operation": "p",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "authorized_at": "0",
+          "start_before": "30",
+          "maximum_quantity": "1",
+          "maximum_atoms": "65"
+        }
+      }
+    ],
+    "evidence": [
+      "assent-retail",
+      "proof-outcome",
+      "proof-quality",
+      "proof-reversal",
+      "accepted-model-cost",
+      "assent-optimizer",
+      "offer-optimizer",
+      "assent-publisher",
+      "offer-publisher"
+    ],
+    "grants": [
+      {
+        "id": "grant-host",
+        "source": "urn:host:app",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "content.generated",
+          "tool.optimized",
+          "content.published",
+          "tool.completed",
+          "outcome.acquired",
+          "economic.reversal"
+        ],
+        "relations": [
+          "generated_from",
+          "optimized_from",
+          "published_as",
+          "consumes_service",
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-outcome",
+        "source": "urn:approved:outcome",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "outcome.acquired"
+        ],
+        "relations": [
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-quality",
+        "source": "urn:approved:quality",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "proposal.quality_failed"
+        ],
+        "relations": [
+          "quality_of"
+        ]
+      },
+      {
+        "id": "grant-optimizer",
+        "source": "urn:provider:optimizer",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "tool.optimized"
+        ],
+        "relations": [
+          "optimized_from",
+          "published_as"
+        ]
+      },
+      {
+        "id": "grant-publisher",
+        "source": "urn:provider:publisher",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "content.published"
+        ],
+        "relations": [
+          "optimized_from",
+          "published_as"
+        ]
+      }
+    ],
+    "model_cost": {
+      "id": "model-cost-v1",
+      "atoms": "20",
+      "roles": {
+        "provider": "model-supplier",
+        "cost_originator": "model-supplier",
+        "bearer": "host-h",
+        "payer": "host-h",
+        "beneficiary": "customer-c",
+        "recipient": "model-supplier"
+      },
+      "evidence_ref": "accepted-model-cost",
+      "correction_sources": [
+        "urn:host:app"
+      ]
+    },
+    "stage": {
+      "id": "campaign-close",
+      "expected": [
+        "g",
+        "o",
+        "p"
+      ],
+      "cap_atoms": "315"
+    }
+  },
+  "events": {
+    "g": {
+      "id": "g",
+      "source": "urn:host:app",
+      "operation": "g",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": []
+    },
+    "o": {
+      "id": "o",
+      "source": "urn:provider:optimizer",
+      "operation": "o",
+      "kind": "tool.optimized",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "15",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "optimized_from",
+          "event": "g",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": [],
+      "invocation": "invoke-o"
+    },
+    "p": {
+      "id": "p",
+      "source": "urn:provider:publisher",
+      "operation": "p",
+      "kind": "content.published",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "20",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "published_as",
+          "event": "o",
+          "source": "urn:provider:optimizer"
+        }
+      ],
+      "evidence": [],
+      "invocation": "invoke-p"
+    },
+    "a": {
+      "id": "a",
+      "source": "urn:approved:outcome",
+      "operation": "a",
+      "kind": "outcome.acquired",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "40",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "attributed_to",
+          "event": "p",
+          "source": "urn:provider:publisher"
+        }
+      ],
+      "evidence": [
+        "proof-outcome"
+      ],
+      "claim": "sale-1"
+    },
+    "partial": {
+      "id": "partial",
+      "source": "urn:host:app",
+      "operation": "partial",
+      "kind": "economic.reversal",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "80",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": [
+        "proof-reversal"
+      ],
+      "targets": [
+        "g"
+      ]
+    },
+    "r": {
+      "id": "r",
+      "source": "urn:host:app",
+      "operation": "r",
+      "kind": "economic.reversal",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "80",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": [
+        "proof-reversal"
+      ],
+      "targets": [
+        "g",
+        "o",
+        "p",
+        "a"
+      ]
+    },
+    "late": {
+      "id": "late",
+      "source": "urn:host:app",
+      "operation": "late",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [
+        {
+          "relation": "generated_from",
+          "event": "g",
+          "source": "urn:host:app"
+        }
+      ],
+      "evidence": []
+    }
+  },
+  "attempts": [
+    {
+      "event": "g",
+      "received": "50"
+    },
+    {
+      "event": "o",
+      "received": "50"
+    },
+    {
+      "event": "p",
+      "received": "50"
+    },
+    {
+      "event": "a",
+      "received": "50"
+    },
+    {
+      "event": "partial",
+      "received": "80"
+    },
+    {
+      "event": "r",
+      "received": "80"
+    },
+    {
+      "event": "r",
+      "received": "80"
+    },
+    {
+      "event": "late",
+      "received": "50"
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "g",
+        "state": {
+          "revision": "1",
+          "closed": false,
+          "reversed": [],
+          "consumed": {
+            "invoke-o": "0",
+            "invoke-p": "0"
+          },
+          "totals": {
+            "retail": "72",
+            "supplier": "0",
+            "cost_observation": "20"
+          }
+        }
+      },
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "o",
+        "state": {
+          "revision": "2",
+          "closed": false,
+          "reversed": [],
+          "consumed": {
+            "invoke-o": "10",
+            "invoke-p": "0"
+          },
+          "totals": {
+            "retail": "99",
+            "supplier": "10",
+            "cost_observation": "20"
+          }
+        }
+      },
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "p",
+        "state": {
+          "revision": "3",
+          "closed": false,
+          "reversed": [],
+          "consumed": {
+            "invoke-o": "10",
+            "invoke-p": "15"
+          },
+          "totals": {
+            "retail": "135",
+            "supplier": "25",
+            "cost_observation": "20"
+          }
+        }
+      },
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "a",
+        "state": {
+          "revision": "4",
+          "closed": true,
+          "reversed": [],
+          "consumed": {
+            "invoke-o": "15",
+            "invoke-p": "60"
+          },
+          "totals": {
+            "retail": "315",
+            "supplier": "75",
+            "cost_observation": "20"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "REVERSAL_DEPENDENTS_REQUIRED",
+        "missing": [
+          "a"
+        ],
+        "state": {
+          "revision": "4",
+          "closed": true,
+          "reversed": [],
+          "consumed": {
+            "invoke-o": "15",
+            "invoke-p": "60"
+          },
+          "totals": {
+            "retail": "315",
+            "supplier": "75",
+            "cost_observation": "20"
+          }
+        }
+      },
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "r",
+        "state": {
+          "revision": "5",
+          "closed": true,
+          "reversed": [
+            "a",
+            "g",
+            "o",
+            "p"
+          ],
+          "consumed": {
+            "invoke-o": "15",
+            "invoke-p": "60"
+          },
+          "totals": {
+            "retail": "0",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "duplicate",
+        "code": "IDENTITY_DUPLICATE",
+        "receipt": "r",
+        "state": {
+          "revision": "5",
+          "closed": true,
+          "reversed": [
+            "a",
+            "g",
+            "o",
+            "p"
+          ],
+          "consumed": {
+            "invoke-o": "15",
+            "invoke-p": "60"
+          },
+          "totals": {
+            "retail": "0",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      },
+      {
+        "status": "rejected",
+        "code": "STAGE_CLOSED",
+        "state": {
+          "revision": "5",
+          "closed": true,
+          "reversed": [
+            "a",
+            "g",
+            "o",
+            "p"
+          ],
+          "consumed": {
+            "invoke-o": "15",
+            "invoke-p": "60"
+          },
+          "totals": {
+            "retail": "0",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      }
+    ],
+    "journal": [
+      {
+        "id": "g",
+        "event": {
+          "id": "g",
+          "source": "urn:host:app",
+          "operation": "g",
+          "kind": "content.generated",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "10",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [],
+          "evidence": []
+        },
+        "received": "50",
+        "revision": "1",
+        "authority_refs": [
+          "accepted-model-cost",
+          "assent-retail",
+          "context-v1",
+          "grant-host",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [],
+        "postings": [
+          {
+            "id": "g/generation.base",
+            "component": "generation.base",
+            "book": "retail",
+            "kind": "charge",
+            "atoms": "80",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": []
+          },
+          {
+            "id": "g/model.observation",
+            "component": "model.observation",
+            "book": "cost_observation",
+            "kind": "cost",
+            "atoms": "20",
+            "binding": "model-cost-v1",
+            "roles": {
+              "provider": "model-supplier",
+              "cost_originator": "model-supplier",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "model-supplier"
+            },
+            "inputs": []
+          },
+          {
+            "id": "g/generation.discount",
+            "component": "generation.discount",
+            "book": "retail",
+            "kind": "discount",
+            "atoms": "-8",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "g/generation.base"
+            ]
+          }
+        ],
+        "explanations": [
+          {
+            "component": "generation.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "80",
+              "denominator": "1"
+            },
+            "rounded_atoms": "80"
+          },
+          {
+            "component": "model.observation",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "20",
+              "denominator": "1"
+            },
+            "rounded_atoms": "20"
+          },
+          {
+            "component": "generation.discount",
+            "code": "DISCOUNT_APPLIED",
+            "unrounded": {
+              "numerator": "-8",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-8",
+            "basis_atoms": "80"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "72",
+            "posting_ids": [
+              "g/generation.base",
+              "g/generation.discount"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "o",
+        "event": {
+          "id": "o",
+          "source": "urn:provider:optimizer",
+          "operation": "o",
+          "kind": "tool.optimized",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "15",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [
+            {
+              "relation": "optimized_from",
+              "event": "g",
+              "source": "urn:host:app"
+            }
+          ],
+          "evidence": [],
+          "invocation": "invoke-o"
+        },
+        "received": "50",
+        "revision": "2",
+        "authority_refs": [
+          "assent-optimizer",
+          "assent-retail",
+          "context-v1",
+          "grant-optimizer",
+          "invoke-o",
+          "offer-optimizer",
+          "optimizer-v1",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [],
+        "postings": [
+          {
+            "id": "o/optimization.base",
+            "component": "optimization.base",
+            "book": "retail",
+            "kind": "charge",
+            "atoms": "30",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": []
+          },
+          {
+            "id": "o/optimizer.base",
+            "component": "optimizer.base",
+            "book": "supplier",
+            "kind": "cost",
+            "atoms": "10",
+            "binding": "optimizer-v1",
+            "roles": {
+              "provider": "optimizer-provider",
+              "cost_originator": "optimizer-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "optimizer-provider"
+            },
+            "inputs": []
+          },
+          {
+            "id": "o/optimization.discount",
+            "component": "optimization.discount",
+            "book": "retail",
+            "kind": "discount",
+            "atoms": "-3",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "o/optimization.base"
+            ]
+          }
+        ],
+        "explanations": [
+          {
+            "component": "optimization.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "30",
+              "denominator": "1"
+            },
+            "rounded_atoms": "30"
+          },
+          {
+            "component": "optimizer.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "10",
+              "denominator": "1"
+            },
+            "rounded_atoms": "10"
+          },
+          {
+            "component": "optimization.discount",
+            "code": "DISCOUNT_APPLIED",
+            "unrounded": {
+              "numerator": "-3",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-3",
+            "basis_atoms": "30"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "optimizer-v1",
+            "book": "supplier",
+            "roles": {
+              "provider": "optimizer-provider",
+              "cost_originator": "optimizer-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "optimizer-provider"
+            },
+            "atoms": "10",
+            "posting_ids": [
+              "o/optimizer.base"
+            ]
+          },
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "27",
+            "posting_ids": [
+              "o/optimization.base",
+              "o/optimization.discount"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "p",
+        "event": {
+          "id": "p",
+          "source": "urn:provider:publisher",
+          "operation": "p",
+          "kind": "content.published",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "20",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [
+            {
+              "relation": "published_as",
+              "event": "o",
+              "source": "urn:provider:optimizer"
+            }
+          ],
+          "evidence": [],
+          "invocation": "invoke-p"
+        },
+        "received": "50",
+        "revision": "3",
+        "authority_refs": [
+          "assent-publisher",
+          "assent-retail",
+          "context-v1",
+          "grant-publisher",
+          "invoke-p",
+          "offer-publisher",
+          "publisher-v1",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [],
+        "postings": [
+          {
+            "id": "p/publication.base",
+            "component": "publication.base",
+            "book": "retail",
+            "kind": "charge",
+            "atoms": "40",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": []
+          },
+          {
+            "id": "p/publisher.base",
+            "component": "publisher.base",
+            "book": "supplier",
+            "kind": "cost",
+            "atoms": "15",
+            "binding": "publisher-v1",
+            "roles": {
+              "provider": "publisher-provider",
+              "cost_originator": "publisher-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "publisher-provider"
+            },
+            "inputs": []
+          },
+          {
+            "id": "p/publication.discount",
+            "component": "publication.discount",
+            "book": "retail",
+            "kind": "discount",
+            "atoms": "-4",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "p/publication.base"
+            ]
+          }
+        ],
+        "explanations": [
+          {
+            "component": "publication.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "40",
+              "denominator": "1"
+            },
+            "rounded_atoms": "40"
+          },
+          {
+            "component": "publisher.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "15",
+              "denominator": "1"
+            },
+            "rounded_atoms": "15"
+          },
+          {
+            "component": "publication.discount",
+            "code": "DISCOUNT_APPLIED",
+            "unrounded": {
+              "numerator": "-4",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-4",
+            "basis_atoms": "40"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "publisher-v1",
+            "book": "supplier",
+            "roles": {
+              "provider": "publisher-provider",
+              "cost_originator": "publisher-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "publisher-provider"
+            },
+            "atoms": "15",
+            "posting_ids": [
+              "p/publisher.base"
+            ]
+          },
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "36",
+            "posting_ids": [
+              "p/publication.base",
+              "p/publication.discount"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "a",
+        "event": {
+          "id": "a",
+          "source": "urn:approved:outcome",
+          "operation": "a",
+          "kind": "outcome.acquired",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "40",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [
+            {
+              "relation": "attributed_to",
+              "event": "p",
+              "source": "urn:provider:publisher"
+            }
+          ],
+          "evidence": [
+            "proof-outcome"
+          ],
+          "claim": "sale-1"
+        },
+        "received": "50",
+        "revision": "4",
+        "authority_refs": [
+          "assent-optimizer",
+          "assent-publisher",
+          "assent-retail",
+          "context-v1",
+          "grant-outcome",
+          "invoke-o",
+          "invoke-p",
+          "offer-optimizer",
+          "offer-publisher",
+          "optimizer-v1",
+          "publisher-v1",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [
+          "g",
+          "o",
+          "p"
+        ],
+        "postings": [
+          {
+            "id": "a/acquisition.premium",
+            "component": "acquisition.premium",
+            "book": "retail",
+            "kind": "premium",
+            "atoms": "200",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": []
+          },
+          {
+            "id": "a/optimizer.premium",
+            "component": "optimizer.premium",
+            "book": "supplier",
+            "kind": "premium",
+            "atoms": "5",
+            "binding": "optimizer-v1",
+            "roles": {
+              "provider": "optimizer-provider",
+              "cost_originator": "optimizer-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "optimizer-provider"
+            },
+            "inputs": []
+          },
+          {
+            "id": "a/acquisition.cap-credit",
+            "component": "acquisition.cap-credit",
+            "book": "retail",
+            "kind": "credit",
+            "atoms": "-20",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "a/acquisition.premium",
+              "g/generation.base",
+              "g/generation.discount",
+              "o/optimization.base",
+              "o/optimization.discount",
+              "p/publication.base",
+              "p/publication.discount"
+            ]
+          },
+          {
+            "id": "a/publisher.share",
+            "component": "publisher.share",
+            "book": "supplier",
+            "kind": "share",
+            "atoms": "45",
+            "binding": "publisher-v1",
+            "roles": {
+              "provider": "publisher-provider",
+              "cost_originator": "publisher-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "publisher-provider"
+            },
+            "inputs": [
+              "a/acquisition.cap-credit",
+              "a/acquisition.premium"
+            ]
+          }
+        ],
+        "explanations": [
+          {
+            "component": "acquisition.premium",
+            "code": "PREMIUM_APPLIED",
+            "unrounded": {
+              "numerator": "200",
+              "denominator": "1"
+            },
+            "rounded_atoms": "200"
+          },
+          {
+            "component": "optimizer.premium",
+            "code": "PREMIUM_APPLIED",
+            "unrounded": {
+              "numerator": "5",
+              "denominator": "1"
+            },
+            "rounded_atoms": "5"
+          },
+          {
+            "component": "acquisition.cap-credit",
+            "code": "CAP_APPLIED",
+            "unrounded": {
+              "numerator": "-20",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-20",
+            "basis_atoms": "200"
+          },
+          {
+            "component": "publisher.share",
+            "code": "SHARE_APPLIED",
+            "unrounded": {
+              "numerator": "45",
+              "denominator": "1"
+            },
+            "rounded_atoms": "45",
+            "basis_atoms": "180"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "optimizer-v1",
+            "book": "supplier",
+            "roles": {
+              "provider": "optimizer-provider",
+              "cost_originator": "optimizer-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "optimizer-provider"
+            },
+            "atoms": "5",
+            "posting_ids": [
+              "a/optimizer.premium"
+            ]
+          },
+          {
+            "binding": "publisher-v1",
+            "book": "supplier",
+            "roles": {
+              "provider": "publisher-provider",
+              "cost_originator": "publisher-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "publisher-provider"
+            },
+            "atoms": "45",
+            "posting_ids": [
+              "a/publisher.share"
+            ]
+          },
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "180",
+            "posting_ids": [
+              "a/acquisition.cap-credit",
+              "a/acquisition.premium"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "r",
+        "event": {
+          "id": "r",
+          "source": "urn:host:app",
+          "operation": "r",
+          "kind": "economic.reversal",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "80",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [],
+          "evidence": [
+            "proof-reversal"
+          ],
+          "targets": [
+            "g",
+            "o",
+            "p",
+            "a"
+          ]
+        },
+        "received": "80",
+        "revision": "5",
+        "authority_refs": [
+          "assent-retail",
+          "context-v1",
+          "grant-host",
+          "model-cost-v1",
+          "optimizer-v1",
+          "publisher-v1",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [
+          "a",
+          "g",
+          "o",
+          "p"
+        ],
+        "postings": [
+          {
+            "id": "r/reverse/g/generation.base",
+            "component": "generation.base",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "-80",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "g/generation.base"
+            ],
+            "reverses": "g/generation.base"
+          },
+          {
+            "id": "r/reverse/g/model.observation",
+            "component": "model.observation",
+            "book": "cost_observation",
+            "kind": "reversal",
+            "atoms": "-20",
+            "binding": "model-cost-v1",
+            "roles": {
+              "provider": "model-supplier",
+              "cost_originator": "model-supplier",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "model-supplier"
+            },
+            "inputs": [
+              "g/model.observation"
+            ],
+            "reverses": "g/model.observation"
+          },
+          {
+            "id": "r/reverse/g/generation.discount",
+            "component": "generation.discount",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "8",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "g/generation.discount"
+            ],
+            "reverses": "g/generation.discount"
+          },
+          {
+            "id": "r/reverse/o/optimization.base",
+            "component": "optimization.base",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "-30",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "o/optimization.base"
+            ],
+            "reverses": "o/optimization.base"
+          },
+          {
+            "id": "r/reverse/o/optimizer.base",
+            "component": "optimizer.base",
+            "book": "supplier",
+            "kind": "reversal",
+            "atoms": "-10",
+            "binding": "optimizer-v1",
+            "roles": {
+              "provider": "optimizer-provider",
+              "cost_originator": "optimizer-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "optimizer-provider"
+            },
+            "inputs": [
+              "o/optimizer.base"
+            ],
+            "reverses": "o/optimizer.base"
+          },
+          {
+            "id": "r/reverse/o/optimization.discount",
+            "component": "optimization.discount",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "3",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "o/optimization.discount"
+            ],
+            "reverses": "o/optimization.discount"
+          },
+          {
+            "id": "r/reverse/p/publication.base",
+            "component": "publication.base",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "-40",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "p/publication.base"
+            ],
+            "reverses": "p/publication.base"
+          },
+          {
+            "id": "r/reverse/p/publisher.base",
+            "component": "publisher.base",
+            "book": "supplier",
+            "kind": "reversal",
+            "atoms": "-15",
+            "binding": "publisher-v1",
+            "roles": {
+              "provider": "publisher-provider",
+              "cost_originator": "publisher-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "publisher-provider"
+            },
+            "inputs": [
+              "p/publisher.base"
+            ],
+            "reverses": "p/publisher.base"
+          },
+          {
+            "id": "r/reverse/p/publication.discount",
+            "component": "publication.discount",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "4",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "p/publication.discount"
+            ],
+            "reverses": "p/publication.discount"
+          },
+          {
+            "id": "r/reverse/a/acquisition.premium",
+            "component": "acquisition.premium",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "-200",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "a/acquisition.premium"
+            ],
+            "reverses": "a/acquisition.premium"
+          },
+          {
+            "id": "r/reverse/a/optimizer.premium",
+            "component": "optimizer.premium",
+            "book": "supplier",
+            "kind": "reversal",
+            "atoms": "-5",
+            "binding": "optimizer-v1",
+            "roles": {
+              "provider": "optimizer-provider",
+              "cost_originator": "optimizer-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "optimizer-provider"
+            },
+            "inputs": [
+              "a/optimizer.premium"
+            ],
+            "reverses": "a/optimizer.premium"
+          },
+          {
+            "id": "r/reverse/a/acquisition.cap-credit",
+            "component": "acquisition.cap-credit",
+            "book": "retail",
+            "kind": "reversal",
+            "atoms": "20",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "a/acquisition.cap-credit"
+            ],
+            "reverses": "a/acquisition.cap-credit"
+          },
+          {
+            "id": "r/reverse/a/publisher.share",
+            "component": "publisher.share",
+            "book": "supplier",
+            "kind": "reversal",
+            "atoms": "-45",
+            "binding": "publisher-v1",
+            "roles": {
+              "provider": "publisher-provider",
+              "cost_originator": "publisher-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "publisher-provider"
+            },
+            "inputs": [
+              "a/publisher.share"
+            ],
+            "reverses": "a/publisher.share"
+          }
+        ],
+        "explanations": [
+          {
+            "component": "generation.base",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-80",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-80"
+          },
+          {
+            "component": "model.observation",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-20",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-20"
+          },
+          {
+            "component": "generation.discount",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "8",
+              "denominator": "1"
+            },
+            "rounded_atoms": "8"
+          },
+          {
+            "component": "optimization.base",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-30",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-30"
+          },
+          {
+            "component": "optimizer.base",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-10",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-10"
+          },
+          {
+            "component": "optimization.discount",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "3",
+              "denominator": "1"
+            },
+            "rounded_atoms": "3"
+          },
+          {
+            "component": "publication.base",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-40",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-40"
+          },
+          {
+            "component": "publisher.base",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-15",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-15"
+          },
+          {
+            "component": "publication.discount",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "4",
+              "denominator": "1"
+            },
+            "rounded_atoms": "4"
+          },
+          {
+            "component": "acquisition.premium",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-200",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-200"
+          },
+          {
+            "component": "optimizer.premium",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-5",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-5"
+          },
+          {
+            "component": "acquisition.cap-credit",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "20",
+              "denominator": "1"
+            },
+            "rounded_atoms": "20"
+          },
+          {
+            "component": "publisher.share",
+            "code": "EXACT_REVERSAL",
+            "unrounded": {
+              "numerator": "-45",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-45"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "optimizer-v1",
+            "book": "supplier",
+            "roles": {
+              "provider": "optimizer-provider",
+              "cost_originator": "optimizer-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "optimizer-provider"
+            },
+            "atoms": "-15",
+            "posting_ids": [
+              "r/reverse/a/optimizer.premium",
+              "r/reverse/o/optimizer.base"
+            ]
+          },
+          {
+            "binding": "publisher-v1",
+            "book": "supplier",
+            "roles": {
+              "provider": "publisher-provider",
+              "cost_originator": "publisher-provider",
+              "bearer": "host-h",
+              "payer": "host-h",
+              "beneficiary": "customer-c",
+              "recipient": "publisher-provider"
+            },
+            "atoms": "-60",
+            "posting_ids": [
+              "r/reverse/a/publisher.share",
+              "r/reverse/p/publisher.base"
+            ]
+          },
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "-315",
+            "posting_ids": [
+              "r/reverse/a/acquisition.cap-credit",
+              "r/reverse/a/acquisition.premium",
+              "r/reverse/g/generation.base",
+              "r/reverse/g/generation.discount",
+              "r/reverse/o/optimization.base",
+              "r/reverse/o/optimization.discount",
+              "r/reverse/p/publication.base",
+              "r/reverse/p/publication.discount"
+            ]
+          }
+        ]
+      }
+    ],
+    "state": {
+      "revision": "5",
+      "closed": true,
+      "reversed": [
+        "a",
+        "g",
+        "o",
+        "p"
+      ],
+      "consumed": {
+        "invoke-o": "15",
+        "invoke-p": "60"
+      },
+      "totals": {
+        "retail": "0",
+        "supplier": "0",
+        "cost_observation": "0"
+      }
+    }
+  }
+}

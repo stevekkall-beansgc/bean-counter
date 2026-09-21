@@ -1,0 +1,197 @@
+{
+  "schema": "ledgerlab-phase2-proposal/1",
+  "status": "proposed",
+  "id": "unknown-semantics",
+  "description": "Unknown version fails closed before any price or identity is booked.",
+  "config": {
+    "id": "context-v1",
+    "version": "story-context/1",
+    "policy_version": "story-tariff/1",
+    "semantics_version": "ledgerlab-phase2-proposal/99",
+    "chain": "chain-1",
+    "customer": "customer-c",
+    "currency": "USD",
+    "scale": 2,
+    "tier": "enterprise",
+    "funding": "byok",
+    "retail": {
+      "id": "retail-v1",
+      "agreement": "retail",
+      "assent_ref": "assent-retail",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      },
+      "correction_sources": [
+        "urn:host:app"
+      ]
+    },
+    "rates": [
+      {
+        "kind": "content.generated",
+        "tier": "standard",
+        "unit_price": "1",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "content.generated",
+        "tier": "enterprise",
+        "unit_price": "1",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "standard",
+        "unit_price": "0.30",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "enterprise",
+        "unit_price": "0.30",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "content.published",
+        "tier": "standard",
+        "unit_price": "0.50",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "content.published",
+        "tier": "enterprise",
+        "unit_price": "0.50",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "standard",
+        "unit_price": "0.10",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "enterprise",
+        "unit_price": "0.10",
+        "discount_percent": "20"
+      }
+    ],
+    "premium_atoms": "500",
+    "quality_enabled": false,
+    "quality_percent": "50",
+    "outcome_source": "urn:approved:outcome",
+    "quality_source": "urn:approved:quality",
+    "outcome_window": "1000",
+    "report_grace": "100",
+    "suppliers": [],
+    "evidence": [
+      "assent-retail",
+      "proof-outcome",
+      "proof-quality",
+      "proof-reversal"
+    ],
+    "grants": [
+      {
+        "id": "grant-host",
+        "source": "urn:host:app",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "content.generated",
+          "tool.optimized",
+          "content.published",
+          "tool.completed",
+          "outcome.acquired",
+          "economic.reversal"
+        ],
+        "relations": [
+          "generated_from",
+          "optimized_from",
+          "published_as",
+          "consumes_service",
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-outcome",
+        "source": "urn:approved:outcome",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "outcome.acquired"
+        ],
+        "relations": [
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-quality",
+        "source": "urn:approved:quality",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "proposal.quality_failed"
+        ],
+        "relations": [
+          "quality_of"
+        ]
+      }
+    ]
+  },
+  "events": {
+    "g": {
+      "id": "g",
+      "source": "urn:host:app",
+      "operation": "g",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": []
+    }
+  },
+  "attempts": [
+    {
+      "event": "g",
+      "received": "50"
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "status": "rejected",
+        "code": "UNKNOWN_SEMANTICS_VERSION",
+        "state": {
+          "revision": "0",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "0",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      }
+    ],
+    "journal": [],
+    "state": {
+      "revision": "0",
+      "closed": false,
+      "reversed": [],
+      "consumed": {},
+      "totals": {
+        "retail": "0",
+        "supplier": "0",
+        "cost_observation": "0"
+      }
+    }
+  }
+}

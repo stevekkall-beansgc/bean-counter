@@ -215,3 +215,13 @@ Integration calls `run_case` for every entry of `acceptance_cases`, then
 Remove an ignored gate only when it actually invokes that runner and retains the
 result/provenance. Cargo's default test harness does not support a custom
 `--backend` argument; no such nonfunctional command is advertised here.
+
+## Proposed Phase 2 reference histories
+
+The independently versioned [Phase 2 proposal](fixtures/phase2-proposed-v1/README.md)
+adds 29 synthetic histories and a small Python reference calculator, invoked by
+`tests/phase2.rs` during the workspace check. It covers immediate generation,
+later linked acquisition/quality adjustments, paid tools, funding/tier responsibility,
+cap/share, full reversals, retries and negative authority/version cases. These are
+unfrozen semantic projections; they do not extend canonical v1 or certify a Phase 2
+production engine. The quality story is explicitly proposed and disabled by default.

@@ -1,0 +1,307 @@
+{
+  "schema": "ledgerlab-phase2-proposal/1",
+  "status": "proposed",
+  "id": "tier-enterprise",
+  "description": "Accepted customer tier chooses rate and discount: standard 100, enterprise 80-8=72. Caller has no tier/rate override field.",
+  "config": {
+    "id": "context-v1",
+    "version": "story-context/1",
+    "policy_version": "story-tariff/1",
+    "semantics_version": "ledgerlab-phase2-proposal/1",
+    "chain": "chain-1",
+    "customer": "customer-c",
+    "currency": "USD",
+    "scale": 2,
+    "tier": "enterprise",
+    "funding": "byok",
+    "retail": {
+      "id": "retail-v1",
+      "agreement": "retail",
+      "assent_ref": "assent-retail",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      },
+      "correction_sources": [
+        "urn:host:app"
+      ]
+    },
+    "rates": [
+      {
+        "kind": "content.generated",
+        "tier": "standard",
+        "unit_price": "1",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "content.generated",
+        "tier": "enterprise",
+        "unit_price": "0.80",
+        "discount_percent": "10"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "standard",
+        "unit_price": "0.30",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "tool.optimized",
+        "tier": "enterprise",
+        "unit_price": "0.30",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "content.published",
+        "tier": "standard",
+        "unit_price": "0.50",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "content.published",
+        "tier": "enterprise",
+        "unit_price": "0.50",
+        "discount_percent": "20"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "standard",
+        "unit_price": "0.10",
+        "discount_percent": "0"
+      },
+      {
+        "kind": "tool.completed",
+        "tier": "enterprise",
+        "unit_price": "0.10",
+        "discount_percent": "20"
+      }
+    ],
+    "premium_atoms": "500",
+    "quality_enabled": false,
+    "quality_percent": "50",
+    "outcome_source": "urn:approved:outcome",
+    "quality_source": "urn:approved:quality",
+    "outcome_window": "1000",
+    "report_grace": "100",
+    "suppliers": [],
+    "evidence": [
+      "assent-retail",
+      "proof-outcome",
+      "proof-quality",
+      "proof-reversal"
+    ],
+    "grants": [
+      {
+        "id": "grant-host",
+        "source": "urn:host:app",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "content.generated",
+          "tool.optimized",
+          "content.published",
+          "tool.completed",
+          "outcome.acquired",
+          "economic.reversal"
+        ],
+        "relations": [
+          "generated_from",
+          "optimized_from",
+          "published_as",
+          "consumes_service",
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-outcome",
+        "source": "urn:approved:outcome",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "outcome.acquired"
+        ],
+        "relations": [
+          "attributed_to"
+        ]
+      },
+      {
+        "id": "grant-quality",
+        "source": "urn:approved:quality",
+        "active": true,
+        "read": true,
+        "kinds": [
+          "proposal.quality_failed"
+        ],
+        "relations": [
+          "quality_of"
+        ]
+      }
+    ]
+  },
+  "events": {
+    "g": {
+      "id": "g",
+      "source": "urn:host:app",
+      "operation": "g",
+      "kind": "content.generated",
+      "chain": "chain-1",
+      "customer": "customer-c",
+      "occurred": "10",
+      "quantity": "1",
+      "status": "succeeded",
+      "links": [],
+      "evidence": []
+    }
+  },
+  "attempts": [
+    {
+      "event": "g",
+      "received": "50"
+    }
+  ],
+  "expected": {
+    "results": [
+      {
+        "status": "accepted",
+        "code": "ACCEPTED",
+        "receipt": "g",
+        "state": {
+          "revision": "1",
+          "closed": false,
+          "reversed": [],
+          "consumed": {},
+          "totals": {
+            "retail": "72",
+            "supplier": "0",
+            "cost_observation": "0"
+          }
+        }
+      }
+    ],
+    "journal": [
+      {
+        "id": "g",
+        "event": {
+          "id": "g",
+          "source": "urn:host:app",
+          "operation": "g",
+          "kind": "content.generated",
+          "chain": "chain-1",
+          "customer": "customer-c",
+          "occurred": "10",
+          "quantity": "1",
+          "status": "succeeded",
+          "links": [],
+          "evidence": []
+        },
+        "received": "50",
+        "revision": "1",
+        "authority_refs": [
+          "assent-retail",
+          "context-v1",
+          "grant-host",
+          "retail-v1",
+          "story-tariff/1"
+        ],
+        "depends_on": [],
+        "postings": [
+          {
+            "id": "g/generation.base",
+            "component": "generation.base",
+            "book": "retail",
+            "kind": "charge",
+            "atoms": "80",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": []
+          },
+          {
+            "id": "g/generation.discount",
+            "component": "generation.discount",
+            "book": "retail",
+            "kind": "discount",
+            "atoms": "-8",
+            "binding": "retail-v1",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "inputs": [
+              "g/generation.base"
+            ]
+          }
+        ],
+        "explanations": [
+          {
+            "component": "generation.base",
+            "code": "BASE_APPLIED",
+            "unrounded": {
+              "numerator": "80",
+              "denominator": "1"
+            },
+            "rounded_atoms": "80"
+          },
+          {
+            "component": "model.observation",
+            "code": "BYOK_NO_HOST_COST"
+          },
+          {
+            "component": "generation.discount",
+            "code": "DISCOUNT_APPLIED",
+            "unrounded": {
+              "numerator": "-8",
+              "denominator": "1"
+            },
+            "rounded_atoms": "-8",
+            "basis_atoms": "80"
+          }
+        ],
+        "obligations": [
+          {
+            "binding": "retail-v1",
+            "book": "retail",
+            "roles": {
+              "provider": "host-h",
+              "cost_originator": "host-h",
+              "bearer": "customer-c",
+              "payer": "customer-c",
+              "beneficiary": "customer-c",
+              "recipient": "host-h"
+            },
+            "atoms": "72",
+            "posting_ids": [
+              "g/generation.base",
+              "g/generation.discount"
+            ]
+          }
+        ]
+      }
+    ],
+    "state": {
+      "revision": "1",
+      "closed": false,
+      "reversed": [],
+      "consumed": {},
+      "totals": {
+        "retail": "72",
+        "supplier": "0",
+        "cost_observation": "0"
+      }
+    }
+  }
+}
