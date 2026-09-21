@@ -2,8 +2,9 @@
 import copy
 import json
 import subprocess
+import jsonschema
 from pathlib import Path
-from profile import canonical, envelope, reference, strict
+from profile import canonical, content_hash, envelope, key, reference, strict
 from integrity import integrity,rebuild_hash_graph
 from reconstruct import ROOT
 from retained import document_fields
@@ -42,6 +43,9 @@ def run_adversarial(histories,verify):
         base=record(h,'base-evaluation')['body'];m=strict(base['evaluation_utf8'].encode())
         for i in m['invocations']:i['held']['atoms']='3000'
         base['evaluation_utf8']=canonical(m).decode()
+        original=strict(base['original_evaluation_utf8'].encode())
+        for i in original['invocations']:i['held']['atoms']='3000'
+        base['original_evaluation_utf8']=canonical(original).decode()
     add('supplier-contingent-capacity','supplier-separation',held_capacity,'EXPOSURE_EXCEEDED')
     def discount_capacity(h):
         records=h['decisions'][1]['records']
@@ -89,8 +93,11 @@ def run_adversarial(histories,verify):
         h['decisions'][0]['records'].append(envelope('policy-snapshot',old['scope'],b))
     add('new-evidence-cannot-add-family','decision-time-evidence',inject_terms,'UNREFERENCED_NEW_SEED')
     def evidence_money(h):
+        for d in h['decisions']:
+            for r in d['records']:
+                if r['kind']=='evidence' and r['body']['document_id']==record(h,'evidence',0)['body']['document_id']:
+                    r['body']['utf8']=canonical({'synthetic':'nonoperative','proposed_atoms':'9000'}).decode()
         for r in h['decisions'][0]['records']:
-            if r['kind']=='evidence':r['body']['utf8']=canonical({'synthetic':'nonoperative','proposed_atoms':'9000'}).decode()
             if r['kind'] in ('action','claim-revision'):r['body']['amount']['atoms']='9000'
             if r['kind']=='limit-evidence':r['body']['after_premium']='9000'
     add('new-evidence-cannot-set-money','decision-time-evidence',evidence_money,'EXPLANATION_MATH')
@@ -112,10 +119,10 @@ def run_adversarial(histories,verify):
     add('policy-document-terms-mismatch','fixed-success-fee',changed_policy_document,'POLICY_DOCUMENT_TERMS')
     def strip_extensions(h):
         b=record(h,'base-evaluation')['body'];m=strict(b['evaluation_utf8'].encode());m['event']['extensions']={};b['evaluation_utf8']=canonical(m).decode()
-    add('lossless-event-extensions-discarded','lossless-event-and-outcome-terms',strip_extensions,'BASE_EVENT_BYTES')
+    add('lossless-event-extensions-discarded','lossless-event-and-outcome-terms',strip_extensions,'ORIGINAL_EVALUATION_PROJECTION')
     def strip_outcome(h):
         b=record(h,'binding-snapshot')['body'];source=strict(b['binding_utf8'].encode());del source['outcome'];b['binding_utf8']=canonical(source).decode()
-    add('lossless-binding-outcome-discarded','lossless-event-and-outcome-terms',strip_outcome,'BASE_BINDING_MATERIAL')
+    add('lossless-binding-outcome-discarded','lossless-event-and-outcome-terms',strip_outcome,'ORIGINAL_BINDING_MAPPING')
     add('lossless-binding-outcome-projection-changed','lossless-event-and-outcome-terms',
         lambda h:record(h,'binding-snapshot')['body']['outcome'].update(claim_namespace='changed'),
         'BASE_BINDING_PROJECTION')
@@ -136,7 +143,39 @@ def run_adversarial(histories,verify):
     def original_binding(h):
         b=record(h,'base-evaluation')['body'];m=strict(b['evaluation_utf8'].encode())
         m['actions'][0]['binding']['agreement']='unaccepted-agreement';b['evaluation_utf8']=canonical(m).decode()
-    add('original-base-action-binding-substitution','fixed-success-fee',original_binding,'BASE_ACTION_BINDING')
+    add('original-base-action-binding-substitution','fixed-success-fee',original_binding,'ORIGINAL_EVALUATION_PROJECTION')
+    def mappings(h):return record(h,'base-evaluation')['body']['identity_mappings']
+    add('missing-original-identity-mapping','fixed-success-fee',lambda h:mappings(h).pop(),'ORIGINAL_MAPPING_CLOSURE')
+    def duplicate_mapping(h):
+        m=copy.deepcopy(mappings(h)[0]);m['projection']=copy.deepcopy(mappings(h)[1]['projection']);mappings(h).append(m)
+    add('duplicate-original-identity-mapping','fixed-success-fee',duplicate_mapping,'DUPLICATE_ORIGINAL_MAPPING')
+    add('ambiguous-original-projection-mapping','fixed-success-fee',lambda h:mappings(h)[0].update(projection=copy.deepcopy(mappings(h)[1]['projection'])),'AMBIGUOUS_PROJECTION_MAPPING')
+    add('mapping-to-another-candidate-target','fixed-success-fee',lambda h:mappings(h)[0].update(target=record(h,'event',0)['id']),'MAPPING_TARGET')
+    add('mapping-to-another-original-target','fixed-success-fee',lambda h:mappings(h)[0].update(original_target='ev_'+'a'*64),'MAPPING_TARGET')
+    add('invented-original-identity-mapping','fixed-success-fee',lambda h:next(m for m in mappings(h) if m['original_kind']=='action').update(original_id='ac_'+'a'*64),'ORIGINAL_MAPPING_CLOSURE')
+    def swap_action_mapping(h):
+        actions=[m for m in mappings(h) if m['original_kind']=='action']
+        actions[0]['projection'],actions[1]['projection']=actions[1]['projection'],actions[0]['projection']
+    add('cross-binding-original-action-mapping','supplier-separation',swap_action_mapping,'ORIGINAL_ACTION_PROJECTION')
+    add('original-claim-index-inconsistent','fixed-success-fee',lambda h:record(h,'base-identity')['body'].update(original_id='cl_'+'a'*64),'ORIGINAL_IDENTITY_MAPPING')
+    def duplicate_wrapper(h,field):
+        # The valid third decision reuses decision one's doc through a distinct
+        # wrapper. Both wrappers are already retained; no orphan-proof shortcut.
+        old=record(h,'evidence',0)['id'];new=record(h,'evidence',2)['id']
+        if field=='all':
+            record(h,'event',2)['body']['data']['evidence']=[old,new]
+            record(h,'authority-decision',2)['body']['verified_evidence']=[old,new]
+            for r in h['decisions'][2]['records']:
+                if r['kind']=='explanation':r['body']['evidence']=[old,new]
+        elif field=='verified':record(h,'authority-decision',2)['body']['verified_evidence']=[old,new]
+        else:record(h,'explanation',2)['body']['evidence']=[old,new]
+    for field in ('all','verified','explanation'):
+        add('duplicate-resolved-document-'+field,'decision-time-evidence',lambda h,field=field:duplicate_wrapper(h,field),'DUPLICATE_DOCUMENT_EVIDENCE')
+    def duplicate_retry(h):
+        original=byname['decision-time-evidence']
+        p=copy.deepcopy(next(p for p in original['probes'] if p['kind']=='evidence_wrapper_retry'))
+        p['candidate']['data']['evidence'].append(record(h,'evidence',0)['id']);h['probes']=[p]
+    add('duplicate-resolved-document-retry','decision-time-evidence',duplicate_retry,'DUPLICATE_DOCUMENT_EVIDENCE')
     # Book cannot split the economic claim key even if its posting data differ.
     from profile import key
     claim=record(byname['fixed-success-fee'],'claim',0)
@@ -145,5 +184,43 @@ def run_adversarial(histories,verify):
     path=ROOT/'work/validation/v2-rehashed-attacks.json';path.parent.mkdir(parents=True,exist_ok=True)
     path.write_bytes(canonical([c['history'] for c in cases]))
     subprocess.run(['node',str(Path(__file__).with_name('check_hashes.mjs')),str(ROOT),'--histories',str(path)],check=True)
+    scalar_cases=[]
+    def add_scalar(name,original,mutate):
+        h=copy.deepcopy(byname[original]);h['probes']=[];mutate(h);rebuild_hash_graph(h)
+        def hash_row(r):
+            assert key(r['kind'],r['scope'],r['body'])==r['id']
+            assert content_hash(r['kind'],r['body'])==r['content_hash']
+        integrity(h,hash_row)
+        try:verify(h,reference(record(h,'base-acceptance')))
+        except jsonschema.ValidationError:pass
+        else:raise AssertionError('noncanonical scalar accepted: '+name)
+        single=ROOT/'work/validation/v2-scalar-attack.json';single.write_bytes(canonical([h]))
+        result=subprocess.run(['node',str(Path(__file__).with_name('check_hashes.mjs')),str(ROOT),'--histories',str(single)],capture_output=True,text=True)
+        assert result.returncode!=0 and 'ONE_OF' in result.stderr, ('NODE_SCALAR_REJECTION',name,result.stderr)
+        scalar_cases.append(dict(name=name,history=h,expected='CANONICAL_SCALAR_REJECTED'))
+    def scalar_policy(h,field):
+        snapshot=record(h,'policy-snapshot')['body'];rule=next(r for r in snapshot['rules'] if r['code']!='none')
+        if field=='atoms':rule['fixed_atoms']+='\n'
+        else:rule['rate'][field]+='\n'
+        target=record(h,'target-snapshot')['body'];source=strict(target['policy_utf8'].encode())
+        code=next(c for f in source['families'] for c in f['codes'] if c['code']==rule['code'])
+        if field=='atoms':code['amount']['money']['atoms']+='\n'
+        else:code['amount']['rate'][field]+='\n'
+        target['policy_utf8']=canonical(source).decode()
+        proof=next(r for r in h['seed'] if r['kind']=='evidence' and r['body']['document_id']==source['document'])
+        proof['body']['utf8']=canonical({k:v for k,v in source.items() if k!='document'}).decode()
+    add_scalar('coherent-terminal-newline-fixed-atoms','fixed-success-fee',lambda h:scalar_policy(h,'atoms'))
+    for field in ('numerator','denominator'):
+        add_scalar('coherent-terminal-newline-ratio-'+field,'percentage-rebate',lambda h,field=field:scalar_policy(h,field))
+    add_scalar('terminal-newline-explanation-ratio','fixed-success-fee',lambda h:record(h,'explanation',0)['body']['unrounded_atoms'].update(numerator='2500\n'))
+    def original_atoms(h):
+        b=record(h,'base-evaluation')['body']
+        for field in ('evaluation_utf8','original_evaluation_utf8'):
+            source=strict(b[field].encode());source['actions'][0]['amount']['atoms']+='\n';b[field]=canonical(source).decode()
+        record(h,'base-posting')['body']['amount']['atoms']+='\n'
+    add_scalar('terminal-newline-native-and-projected-atoms','fixed-success-fee',original_atoms)
+    scalar_path=ROOT/'work/validation/v2-rehashed-scalar-attacks.json';scalar_path.write_bytes(canonical([c['history'] for c in scalar_cases]))
+    subprocess.run(['node',str(Path(__file__).with_name('check_hashes.mjs')),str(ROOT),'--histories',str(scalar_path),'--hash-only'],check=True)
+    cases+=scalar_cases
     (ROOT/'work/validation/v2-adversarial-results.json').write_text(json.dumps([{'case':c['name'],'integrity':'passed','semantic_rejection':c['expected']} for c in cases],indent=2)+'\n')
     return len(cases)+1

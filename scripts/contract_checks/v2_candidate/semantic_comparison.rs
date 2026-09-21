@@ -60,6 +60,26 @@ fn candidate_lossless_event_binding_policy_and_economics() {
         }).collect();
         let received=Timestamp::parse(material["received_at"].as_str().unwrap()).unwrap();
         let base=bundle.evaluate(c::Input {event:&event,context:&context,history:&[],source_authority:&auth,invocations:&invocations,costs:&[],received_at:&received}).unwrap();
+        let original_bytes=canonical::CanonicalBytes::from_value(&base).unwrap();
+        let restored:c::Evaluation=serde_json::from_slice(original_bytes.as_slice()).unwrap();
+        assert_eq!(canonical::CanonicalBytes::from_value(&restored).unwrap().as_slice(),original_bytes.as_slice());
+        assert_eq!(restored.actions(),base.actions());
+        assert_eq!(restored.explanations(),base.explanations());
+        assert_eq!(restored.deltas(),base.deltas());
+        assert_eq!(restored.consumptions(),base.consumptions());
+        assert_eq!(restored.invocations(),base.invocations());
+        assert_eq!(restored.bundle(),base.bundle());
+        assert_eq!(restored.context(),base.context());
+        assert_eq!(restored.claim_id(),base.claim_id());
+        assert_eq!(restored.closed_stage(),base.closed_stage());
+        if let Ok(dir)=std::env::var("LEDGERLAB_CAPTURE_ORIGINALS") {
+            fs::write(Path::new(&dir).join(format!("{}.json",h["name"].as_str().unwrap())),original_bytes.as_slice()).unwrap();
+        } else {
+            assert_eq!(original_bytes.as_slice(),b["original_evaluation_utf8"].as_str().unwrap().as_bytes(),"complete original Evaluation: {}",h["name"]);
+            let retained:c::Evaluation=serde_json::from_str(b["original_evaluation_utf8"].as_str().unwrap()).unwrap();
+            assert_eq!(retained.actions(),base.actions());
+            assert_eq!(canonical::CanonicalBytes::from_value(&retained).unwrap().as_slice(),original_bytes.as_slice());
+        }
         let target_row=&row("target-snapshot")["body"];
         let source_policy:Value=serde_json::from_str(target_row["policy_utf8"].as_str().unwrap()).unwrap();
         let p=o::Policy {
@@ -78,13 +98,17 @@ fn candidate_lossless_event_binding_policy_and_economics() {
         let mut bad=tv;bad.policy_document=doc("wrong-policy");assert_eq!(o::Target::freeze(&base,p,bad).unwrap_err().code,"TERMS_NOT_VERIFIED");
         let retail_basis=seed.iter().find(|r|r["kind"]=="target-basis"&&r["body"]["book"]=="retail").unwrap();
         assert_eq!(target.retail_basis().atoms().to_string(),retail_basis["body"]["amount"]["atoms"].as_str().unwrap());
-        let mut history=vec![];
+        let mut history=vec![];let mut available=seed.clone();let mut first_request=None;
         for d in h["decisions"].as_array().unwrap() {
             let records=d["records"].as_array().unwrap();let one=|k:&str|&records.iter().find(|r|r["kind"]==k).unwrap()["body"];
+            available.extend(records.iter().cloned());
             let data=&one("event")["data"];let v=one("authority-decision");
-            let evidence=|id:&Value|seed.iter().chain(records).find(|r|r["id"]==*id).unwrap()["body"]["document_id"].as_str().unwrap().to_string();
+            let evidence=|id:&Value|available.iter().find(|r|r["id"]==*id).unwrap()["body"]["document_id"].as_str().unwrap().to_string();
             let request=o::Request {scope:event.scope().clone(),id:data["external_id"].as_str().unwrap().into(),target:event.id().into(),agreement:data["agreement_id"].as_str().unwrap().into(),family:data["family_id"].as_str().unwrap().into(),source:data["source"].as_str().unwrap().into(),occurred_at:Timestamp::parse(data["occurred_at"].as_str().unwrap()).unwrap(),evidence:data["evidence"].as_array().unwrap().iter().map(evidence).collect(),change:if data["type"]=="outcome"{o::Change::Claim{code:data["code"].as_str().unwrap().into()}}else{o::Change::Correct{expected_revision:data["expected_revision_number"].as_str().unwrap().parse().unwrap(),replacement:data["replacement"]["code"].as_str().map(Into::into)}}};
             let verified=o::Verified {scope:request.scope.clone(),target:request.target.clone(),agreement:request.agreement.clone(),family:request.family.clone(),source:request.source.clone(),principal:v["principal"].as_str().unwrap().into(),grant:evidence(&v["grant"]),grant_revision:Revision::parse(v["grant_revision"].as_str().unwrap()).unwrap(),active:v["active"].as_bool().unwrap(),may_read:v["may_read"].as_bool().unwrap(),may_submit:v["may_submit"].as_bool().unwrap(),may_correct:v["may_correct"].as_bool().unwrap(),verified_evidence:v["verified_evidence"].as_array().unwrap().iter().map(evidence).collect(),received_at:Timestamp::parse(v["received_at"].as_str().unwrap()).unwrap(),accepted_at:Timestamp::parse(v["accepted_at"].as_str().unwrap()).unwrap()};
+            let mut duplicate=request.clone();duplicate.evidence.push(request.evidence[0].clone());
+            assert_eq!(o::evaluate(&duplicate,&verified,std::slice::from_ref(&target),std::slice::from_ref(&base),&history).unwrap_err().code,"OUTCOME_EVIDENCE_REQUIRED");
+            if first_request.is_none(){first_request=Some((request.clone(),verified.clone()));}
             let o::Submission::Accepted(result)=o::evaluate(&request,&verified,std::slice::from_ref(&target),std::slice::from_ref(&base),&history).unwrap() else {panic!()};
             assert_eq!(result.current().atoms().to_string(),one("claim-revision")["amount"]["atoms"].as_str().unwrap());
             assert_eq!(result.binding().id,one("claim-revision")["binding_id"].as_str().unwrap());
@@ -92,9 +116,39 @@ fn candidate_lossless_event_binding_policy_and_economics() {
             assert_eq!(result.explanations().len(),records.iter().filter(|r|r["kind"]=="explanation").count());
             history.push(*result);decisions+=1;
         }
+        if h["name"]=="decision-time-evidence" {
+            let (mut retry,verified)=first_request.unwrap();retry.id="different-evidence-wrapper-retry".into();
+            let proof=h["decisions"][2]["records"].as_array().unwrap().iter().find(|r|r["kind"]=="evidence").unwrap();
+            retry.evidence=vec![proof["body"]["document_id"].as_str().unwrap().into()];
+            assert!(matches!(o::evaluate(&retry,&verified,std::slice::from_ref(&target),std::slice::from_ref(&base),&history).unwrap(),o::Submission::Duplicate(0)));
+        }
         count+=1;
     }
-    println!("Candidate comparisons against approved Rust: {count} retained bases and {decisions} decisions; event bytes, complete bindings, policy verification, retail net, actions and explanations.");
+    println!("Candidate comparisons against approved Rust: {count} exact typed Evaluation roundtrips with unchanged original IDs, fields and vectors; {decisions} decisions and duplicate-document rejections; reused-document correction and original-receipt retry; complete bindings, policy verification and economics.");
+}
+
+#[test]
+fn candidate_fully_rehashed_scalar_histories_reject_in_rust() {
+    if std::env::var("LEDGERLAB_CAPTURE_ORIGINALS").is_ok(){return;}
+    let root=std::env::var("LEDGERLAB_CANDIDATE_ROOT").unwrap();
+    let path=Path::new(&root).join("work/validation/v2-rehashed-scalar-attacks.json");
+    let histories:Value=serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    for h in histories.as_array().unwrap() {
+        let mut rejected=false;
+        for row in h["seed"].as_array().unwrap().iter().chain(h["decisions"].as_array().unwrap().iter().flat_map(|d|d["records"].as_array().unwrap().iter())) {
+            let b=&row["body"];
+            if row["kind"]=="policy-snapshot" {
+                for r in b["rules"].as_array().unwrap() {
+                    rejected|=if let Some(a)=r["fixed_atoms"].as_str(){ledgerlab_core::money::parse_atoms(a).is_err()}
+                    else {ExactRatio::from_canonical(r["rate"]["numerator"].as_str().unwrap(),r["rate"]["denominator"].as_str().unwrap()).is_err()};
+                }
+            }
+            if row["kind"]=="explanation" {rejected|=ExactRatio::from_canonical(b["unrounded_atoms"]["numerator"].as_str().unwrap(),b["unrounded_atoms"]["denominator"].as_str().unwrap()).is_err();}
+            if row["kind"]=="base-evaluation" {rejected|=serde_json::from_str::<c::Evaluation>(b["original_evaluation_utf8"].as_str().unwrap()).is_err();}
+        }
+        assert!(rejected,"fully rehashed scalar history must reject");
+    }
+    println!("Approved Rust rejects all {} fully rehashed noncanonical scalar histories.",histories.as_array().unwrap().len());
 }
 fn candidate_window(v:&Value)->o::Window {
     o::Window {starts_at:Timestamp::parse(v["starts_at"].as_str().unwrap()).unwrap(),occurs_before:Timestamp::parse(v["occurs_before"].as_str().unwrap()).unwrap(),received_by:Timestamp::parse(v["received_by"].as_str().unwrap()).unwrap(),accepted_by:Timestamp::parse(v["accepted_by"].as_str().unwrap()).unwrap()}

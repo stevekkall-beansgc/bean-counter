@@ -7,7 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-from retained import document_fields, original_hash
+from retained import document_fields, original_hash, evaluation_projection, original_identities
 from profile import (body, canonical, content_hash, digest, effect_facts, envelope,
                      facts, ident, key, key_input, ordered, reference, row_order, strict)
 
@@ -78,17 +78,43 @@ def build(spec):
             rules.append(dict(id=component,on=base_event['body']['data']['work_type'],component=component,when=[],operation=operation))
         if not rules:rules=[dict(id='base-zero',on=base_event['body']['data']['work_type'],component='base-zero',when=[],operation=dict(kind='base',price=dict(kind='fixed',value='0')))]
         bundle_policies.append(dict(binding=strict(b['body']['binding_utf8'].encode()),rules=rules))
-    base_actions=[]
-    for r in all_postings:
-        b=r['body'];component='base-'+b['book']+'-'+str(b['ordinal'])
-        base_actions.append(dict(id=r['id'],effect_id='ef_'+hashlib.sha256(('synthetic-base-effect:'+spec['name']+':'+component).encode()).hexdigest(),obligation_id=obligations[b['book']]['id'],binding=strict(bindings[b['book']]['body']['binding_utf8'].encode()),kind='charge' if int(b['amount']['atoms'])>=0 else 'discount',component=component,amount=b['amount'],book=b['book'],sources=[base_event['id']],links=[],inputs=[]))
-    base_material=dict(event=base_event['body']['data'],bundle=dict(currency='USD',scale=2,policies=bundle_policies,order=[[pi,ri] for pi,p in enumerate(bundle_policies) for ri in range(len(p['rules']))]),context=dict(document=proofs['base_context']['body']['document_id'],customer='customer',funding='byok'),claim_id='synthetic-base-completion',actions=base_actions,explanations=[dict(binding_id=r['body']['binding_id'],rule_id='base-'+r['body']['book']+'-'+str(r['body']['ordinal']),code='BASE_APPLIED' if int(r['body']['amount']['atoms'])>=0 else 'DISCOUNT_APPLIED',unrounded=dict(numerator=r['body']['amount']['atoms'],denominator='1'),rounded=r['body']['amount']['atoms'],inputs=[],action_ids=[r['id']]) for r in all_postings],deltas=[dict(obligation_id=obligations[book]['id'],amount=bindings[book]['body']['booked_net'],book=book,roles=roles(book),actions=[r['id'] for r in all_postings if r['body']['book']==book]) for book in bindings if bindings[book]['body']['booked_net']['atoms']!='0'],consumptions=[dict(invocation_id='invocation-supplier',consume=money(spec['supplier_base']),release=money('0'))] if 'supplier_base' in spec else [],invocations=[b['body']['supplier_invocation'] for b in bindings.values() if 'supplier_invocation' in b['body']],received_at=T,source_authority=dict(source='urn:synthetic:work',grant=proofs['grant']['body']['document_id'],revision='1',active=True,event_types=[base_event['body']['data']['work_type']],relations=[]),costs=[])
+    base_material=dict(bundle=dict(currency='USD',scale=2,policies=bundle_policies,order=[[pi,ri] for pi,p in enumerate(bundle_policies) for ri in range(len(p['rules']))]),context=dict(document=proofs['base_context']['body']['document_id'],customer='customer',funding='byok'),actions=[],explanations=[],deltas=[],consumptions=[],invocations=[],received_at=T,source_authority=dict(source='urn:synthetic:work',grant=proofs['grant']['body']['document_id'],revision='1',active=True,event_types=[base_event['body']['data']['work_type']],relations=[]),costs=[])
     original_event=dict(schema='ledger-event/1',id=base_event['body']['data']['external_id'],source='urn:synthetic:work',type=base_event['body']['data']['work_type'],chain=spec['name'],customer='customer',operation_id='base',occurred_at=T,status='succeeded',quantity='1',unit='call',links=[],evidence=[],extensions=spec.get('event_extensions',{}))
     if 'supplier_base' in spec:
         original_event.update(binding_id='binding-supplier',invocation_id='invocation-supplier')
     base_material['event']=original_event
     if spec.get('stage')=='capped': base_material['bundle']['policies'][0]['rules'].append(dict(id='cap',on='outcome.acquired',component='cap',when=[],operation=dict(kind='cap',ceiling=decimal_atoms(spec['base']),stage='stage',component='base-retail-0')))
-    evaluation=add('base-evaluation',dict(event_id=base_event['id'],original_event_utf8=canonical(original_event).decode(),original_ingress_utf8=canonical(original_event).decode(),original_event_id='ev_'+original_hash('event',S+['urn:synthetic:work',original_event['id']]),original_event_hash='sha256:'+original_hash('event-content',original_event),original_ingress_hash='sha256:'+original_hash('ingress',original_event),evaluation_utf8=canonical(base_material).decode(),postings=ordered([reference(r) for r in all_postings]),bindings=ordered([reference(b) for b in bindings.values()]),predecessors=[],received_at=T),seed)
+    original_fields={};mappings=[]
+    if spec.get('stage')!='capped':
+        catalog=strict((CANDIDATE/'original-evaluations.json').read_bytes())
+        assert catalog['status']=='candidate-not-frozen' and catalog['semantic_commit']=='1e0ba3f886788c08f427d3aae1d916b341187e76' and catalog['codec']=='approved-evaluation/2-candidate.4'
+        source=catalog['evaluations'][spec['name']]
+        base_material=evaluation_projection(source)
+        original_event=base_material['event']
+        original_fields['original_evaluation_utf8']=canonical(source).decode()
+        original_target=source['event']['event_id']
+        aliases={r['body']['document_id']:r for r in seed if r['kind']=='evidence'}
+        action_map={}
+        for book in bindings:
+            own=[a for a in base_material['actions'] if a['binding']['id']=='binding-'+book]
+            for ordinal,a in enumerate(own):
+                posting=next(r for r in all_postings if r['body']['book']==book and r['body']['ordinal']==ordinal)
+                assert a['amount']==posting['body']['amount']
+                action_map[a['id']]=posting
+        for kind,identity in sorted(original_identities(base_material,original_target)):
+            projection=None
+            if kind=='event' and identity==original_target:projection=base_event
+            elif kind=='document':projection=aliases.get(identity)
+            elif kind=='binding':projection=next((b for b in bindings.values() if b['body']['binding_id']==identity),None)
+            elif kind=='action':projection=action_map.get(identity)
+            elif kind=='obligation':
+                a=next((a for a in base_material['actions'] if a['obligation_id']==identity),None)
+                if a:projection=obligations[a['book']]
+            if projection is None:projection=add('base-identity',dict(target=base_event['id'],original_target=original_target,original_kind=kind,original_id=identity),seed)
+            mappings.append(dict(target=base_event['id'],original_target=original_target,original_kind=kind,original_id=identity,projection=reference(projection)))
+    event_state=source['event'] if mappings else dict(event_utf8=canonical(original_event).decode(),ingress_utf8=canonical(original_event).decode(),event_id='ev_'+original_hash('event',S+['urn:synthetic:work',original_event['id']]),event_hash='sha256:'+original_hash('event-content',original_event),ingress_hash='sha256:'+original_hash('ingress',original_event))
+    original_fields.update({'original_'+k:event_state[k] for k in ('event_utf8','ingress_utf8','event_id','event_hash','ingress_hash')})
+    evaluation=add('base-evaluation',dict(source_state='rejected_preparation' if spec.get('stage')=='capped' else 'accepted',identity_mappings=ordered(mappings),**original_fields,event_id=base_event['id'],evaluation_utf8=canonical(base_material).decode(),postings=ordered([reference(r) for r in all_postings]),bindings=ordered([reference(b) for b in bindings.values()]),predecessors=[],received_at=T),seed)
     source_families=[]
     for row in policies.values():
         p=row['body']
@@ -98,7 +124,7 @@ def build(spec):
     source_policy=dict(policy_terms,document=policy_proof['body']['document_id'])
     frozen=add('target-snapshot',dict(target=base_event['id'],base_evaluation=reference(evaluation),retail_basis=reference(bases['retail']),families=ordered([reference(v) for v in policies.values()]),bindings=ordered([reference(b) for b in bindings.values()]),limits=ordered([dict(binding_id=b['body']['binding_id'],premium=money(spec.get('maximum_premium','10000')),discount_capacity=b['body']['booked_net']) for b in bindings.values()]),accepted_at=T,rated_final=True,verified_assents=[proofs['assent']['id']],verified_offers=[proofs['offer']['id']] if 'supplier_base' in spec else [],verified_delegations=[],finality_evidence=proofs['finality']['id'],policy_utf8=canonical(source_policy).decode(),policy_document=source_policy['document'],policy_document_hash=policy_proof['body']['document_hash'],verified_policy_document=source_policy['document'],policy_evidence=[policy_proof['id']]),seed)
     base_members=sorted([reference(r) for r in seed],key=row_order)
-    base_receipt=dict(schema='ledger-base-receipt/2-candidate.3',target=base_event['id'],base_evaluation=reference(evaluation),target_snapshot=reference(frozen),accepted_at=T,membership_hash=digest('base-membership',base_members))
+    base_receipt=dict(schema='ledger-base-receipt/2-candidate.4',target=base_event['id'],base_evaluation=reference(evaluation),target_snapshot=reference(frozen),accepted_at=T,membership_hash=digest('base-membership',base_members))
     if spec.get('stage')!='capped': add('base-acceptance',dict(target=base_event['id'],base_evaluation=reference(evaluation),target_snapshot=reference(frozen),accepted_at=T,members=base_members,original_receipt_utf8=canonical(base_receipt).decode()),seed)
     for index,step in enumerate(spec['steps']):
         rows=[]; f=step['family']; book=step.get('book','retail'); policy=policies[f]; basis=bases['retail']; target=targets[book]; obligation=obligations[book]
@@ -111,13 +137,18 @@ def build(spec):
             data.update(claim_id=prior['body']['claim_id'],expected_revision=prior['id'],expected_revision_number=prior['body']['number'],replacement=dict(kind='reverse') if step.get('reverse') else dict(kind='code',code=step['code']))
         if step.get('new_evidence'):
             data['evidence']=[evidence('correction' if correcting else 'outcome',rows,dict(synthetic=spec['name'],decision=index+1,observation=step['new_evidence']))['id']]
+        if 'reuse_decision_evidence' in step:
+            import copy
+            original_proof=next(r for r in decisions[step['reuse_decision_evidence']]['records'] if r['kind']=='evidence')
+            fields=copy.deepcopy(original_proof['body']);fields.pop('schema');fields['purpose']='correction'
+            reused=add('evidence',fields,rows);data['evidence']=[reused['id']]
         event=add('event',dict(data=data),rows); E=event['id']; R=ident('receipt',[E]); D=ident('decision-manifest',[E])
         clid=ident('claim',[S,agreement,f,target['id']]); number=str(int(prior['body']['number'])+1) if prior else '1'; rid=ident('claim-revision',[clid,number])
         received=step.get('received_at',timestamp); accepted=step.get('accepted_at',timestamp)
         authority=add('authority-decision',dict(event_id=E,target=target['id'],agreement_id=agreement,family_id=f,source=data['source'],principal='synthetic-authorized-principal',grant=proofs['grant']['id'],grant_revision='1',active=True,may_read=True,may_submit=not correcting,may_correct=correcting,verified_evidence=data['evidence'],received_at=received,accepted_at=accepted),rows)
         admission=add('admission',dict(event_id=E,principal='synthetic-authorized-principal',credential_revision='1',authentication=proofs['authentication']['id'],grant=proofs['grant']['id'],grant_revision='1',target_guard_revision='1',target_state='final_unreversed',aggregate_guard_revision=str(index),authorized_source=data['source'],agreement_id=agreement,payer=roles(book)['payer'],book=book,family_id=f,permission=data['type'],target_snapshot=frozen['id'],authority_decision=authority['id'],binding_id='binding-'+book,received_at=received,accepted_at=accepted,decision='allow',policy_snapshot=policy['id'],basis=basis['id']),rows)
         if not prior:
-            claim=add('claim',dict(target=target['id'],agreement_id=agreement,book=book,family_id=f,first_event=E,original_receipt=R,facts_hash=digest('claim-facts',facts(event['body']))),rows)
+            claim=add('claim',dict(target=target['id'],agreement_id=agreement,book=book,family_id=f,first_event=E,original_receipt=R,facts_hash=digest('claim-facts',facts(event['body'],lambda i:known[canonical(i)]['body']['document_id']))),rows)
         else: claim=known[canonical(clid)]
         add('link',dict(event_id=E,target=target['id'],relation='outcome_of'),rows)
         actions=[]; replacements=[]; inverses=[]
@@ -163,7 +194,7 @@ def build(spec):
         # Complete retained economic inputs: all seed records plus all previous
         # canonical records (bounded); no recursive expansion from output rows.
         replay_refs=ordered([reference(r) for r in seed]+[reference(r) for d in decisions for r in d['records']]+[reference(event),reference(admission),reference(authority)]+[reference(r) for r in rows if r['kind']=='evidence'])
-        replay=add('replay-input',dict(event_id=E,semantics='ledger-outcome-semantics/2-candidate.3',target_snapshot=frozen['id'],authority_decision=authority['id'],inputs=replay_refs,received_at=received,accepted_at=accepted),rows)
+        replay=add('replay-input',dict(event_id=E,semantics='ledger-outcome-semantics/2-candidate.4',target_snapshot=frozen['id'],authority_decision=authority['id'],inputs=replay_refs,received_at=received,accepted_at=accepted),rows)
         net=sum(int(a['body']['amount']['atoms']) for a in actions); intent_ids=[]
         if net:
             aids=ordered([a['id'] for a in actions]); iid=ident('intention',[S,'fake',obligation['id'],aids]); deps=[]
@@ -191,6 +222,16 @@ def build_probes(spec,decisions,policies,bases,proofs,heads,targets):
     for source in spec.get('probes',[]):
         p={**source,'new_records':[]}
         kind=p['kind']
+        if kind=='evidence_wrapper_retry':
+            original=next(r for r in decisions[p['step']]['records'] if r['kind']=='event')
+            proof=next(r for r in decisions[p['step']]['records'] if r['kind']=='evidence')
+            alternative=copy.deepcopy(proof['body']);alternative['purpose']='finality'
+            wrapper=envelope('evidence',S,alternative)
+            p['evidence_records']=[wrapper];p['candidate']=copy.deepcopy(original['body'])
+            p['candidate']['data']['external_id']+='-new-wrapper'
+            p['candidate']['data']['evidence']=[wrapper['id']]
+            p['original_receipt_utf8']=decisions[p['step']]['receipt_utf8']
+            probes.append(p);continue
         if kind in ('identity_retry','semantic_retry','changed_facts','stale_correction'):
             original=next(r for r in decisions[p['step']]['records'] if r['kind']=='event')
             p['candidate']=copy.deepcopy(original['body'])
@@ -230,8 +271,8 @@ def write_review_inventory():
         'docs/adr/candidates/outcome-records-v2.md','PHASE-2-CANONICAL-CANDIDATE.md',
         'scripts/check-contracts.sh','scripts/check-candidate-contracts.sh','ROADMAP.md'])
     paths.update(p for p in Path(__file__).parent.iterdir() if p.suffix in ('.py','.mjs','.rs'))
-    value={'status':'candidate-not-frozen','profile':'2-candidate.3',
-        'independent_review':'pending','previous_candidate_commit':'e8139e6df68880ae9c520ee100a05dcfd0ede673','base_commit':'b35258425970052ed71481eca1f33ef857c61be1','semantic_commit':'1e0ba3f886788c08f427d3aae1d916b341187e76',
+    value={'status':'candidate-not-frozen','profile':'2-candidate.4',
+        'independent_review':'pending','previous_candidate_commit':'09b076a3034064a85fd3da8d626ad02a9fb9a38a','base_commit':'b35258425970052ed71481eca1f33ef857c61be1','semantic_commit':'1e0ba3f886788c08f427d3aae1d916b341187e76',
         'files':{str(p.relative_to(ROOT)):{'bytes':p.stat().st_size,
             'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(paths)}}
     (CANDIDATE/'review-manifest.json').write_text(json.dumps(value,indent=2)+'\n')

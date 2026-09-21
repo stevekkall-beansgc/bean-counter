@@ -4,7 +4,9 @@ This is a retained-record audit, not an acceptance, pricing or persistence API.
 """
 from fractions import Fraction
 from profile import canonical, digest, ordered, reference, row_order, strict
-from retained import validate_documents, original_hash, event_projection, binding_projection, family_projection
+from retained import validate_documents, original_hash, event_projection, binding_projection, family_projection, resolved_evidence
+
+from mappings import verify_mappings
 
 MAX=10**30-1
 
@@ -28,7 +30,7 @@ def window(w,occurred,received,accepted):
     assert received<=w['received_by'] and accepted<=w['accepted_by'], 'OUTCOME_DEADLINE'
 
 def base_receipt(b):
-    return dict(schema='ledger-base-receipt/2-candidate.3',target=b['target'],base_evaluation=b['base_evaluation'],target_snapshot=b['target_snapshot'],accepted_at=b['accepted_at'],membership_hash=digest('base-membership',b['members']))
+    return dict(schema='ledger-base-receipt/2-candidate.4',target=b['target'],base_evaluation=b['base_evaluation'],target_snapshot=b['target_snapshot'],accepted_at=b['accepted_at'],membership_hash=digest('base-membership',b['members']))
 
 def freeze(seed,lookup,deref):
     def only(kind):
@@ -48,6 +50,7 @@ def freeze(seed,lookup,deref):
     assert event['occurred_at']<=bb['received_at']<=tb['accepted_at'], 'INVALID_ACCEPTED_ORDER'
     material=strict(bb['evaluation_utf8'].encode())
     assert canonical(material).decode()==bb['evaluation_utf8'], 'BASE_EVALUATION_BYTES'
+    mapped=verify_mappings(base,material,seed,deref)
     assert {'event','bundle','context','actions','explanations','deltas','consumptions','invocations','received_at','source_authority','costs'} <= set(material), 'BASE_EVALUATION_FIELDS'
     assert not any(r['operation']['kind']=='cap' for p in material['bundle']['policies'] for r in p['rules']), 'OUTCOME_CAP_COMPOSITION'
     assert material['received_at']==bb['received_at'], 'BASE_RECEIVED'
@@ -75,9 +78,9 @@ def freeze(seed,lookup,deref):
         assert m['currency']==currency and m['scale']==scale, 'POLICY_CURRENCY'
     postings=[deref(r) for r in bb['postings']]
     assert bb['postings']==ordered([reference(r) for r in seed if r['kind']=='base-posting']), 'ORIGINAL_BASE_POSTINGS'
-    assert {p['id'] for p in postings}=={a['id'] for a in material['actions'] if a['book'] in ('retail','supplier')}, 'BASE_ACTION_MEMBERSHIP'
+    original_actions={mapped['action',a['id']]['id']:a for a in material['actions'] if a['book'] in ('retail','supplier')}
     for p in postings:
-        b=p['body'];same_unit(b['amount']); a=next(a for a in material['actions'] if a['id']==p['id'])
+        b=p['body'];same_unit(b['amount']); a=original_actions[p['id']]
         assert a['amount']==b['amount'] and a['book']==b['book'] and a['binding']['id']==b['binding_id'] and a['binding']['roles']==b['roles'], 'ORIGINAL_BASE_EVALUATION'
         binding=originals[b['binding_id']]
         assert a['binding']==binding and binding['agreement']==b['agreement_id'] and binding['book']==b['book'], 'BASE_ACTION_BINDING'
@@ -147,6 +150,8 @@ def freeze(seed,lookup,deref):
             assert i['chain']==event['chain_id'] and i['customer']==event['customer'] and i['unit']==b['unit'], 'INVOCATION_SCOPE'
             assert i['authorized_at']<=i['attested_start']<i['start_before'], 'INVOCATION_EXPIRED'
             assert Fraction(event['quantity'])<=Fraction(i['maximum_quantity'])<=Fraction(b['maximum_quantity']), 'QUANTITY'
+    for field in ('verified_assents','verified_offers','verified_delegations','policy_evidence'):
+        resolved_evidence(tb[field],lookup)
     for v in tb['verified_assents']+tb['verified_offers']+tb['verified_delegations']+[tb['finality_evidence']]: lookup(v,'evidence')
     for v in bb['predecessors']: deref(v)
     return target,retail[0],bindings,acceptance

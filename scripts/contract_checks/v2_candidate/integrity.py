@@ -19,7 +19,7 @@ def integrity(history,check_row):
     for r in rows:
         check_row(r);refs(r['body'])
         if r['kind']=='effect':assert r['body']['facts_hash']==digest('effect-facts',effect_facts(known[canonical(r['body']['action_id'])]['body']))
-        if r['kind']=='claim':assert r['body']['facts_hash']==digest('claim-facts',facts(known[canonical(r['body']['first_event'])]['body']))
+        if r['kind']=='claim':assert r['body']['facts_hash']==digest('claim-facts',facts(known[canonical(r['body']['first_event'])]['body'],lambda i:known[canonical(i)]['body']['document_id']))
         if r['kind']=='delivery-key':assert r['body']['ingress_hash']==digest('ingress',r['body']['ingress'])
         if r['kind']=='base-acceptance':assert r['body']['original_receipt_utf8']==canonical(base_receipt(r['body'])).decode()
     for d in history['decisions']:
@@ -75,7 +75,7 @@ def rebuild_hash_graph(history):
                 b['original_event_hash']='sha256:'+original_hash('event-content',original)
                 b['original_ingress_hash']='sha256:'+original_hash('ingress',ingress)
             if k=='effect': b['facts_hash']=digest('effect-facts',effect_facts(known[canonical(b['action_id'])]['body']))
-            if k=='claim': b['facts_hash']=digest('claim-facts',facts(known[canonical(b['first_event'])]['body']))
+            if k=='claim': b['facts_hash']=digest('claim-facts',facts(known[canonical(b['first_event'])]['body'],lambda i:known[canonical(i)]['body']['document_id']))
             if k=='delivery-key':
                 b['ingress']=known[canonical(b['event_id'])]['body'];b['ingress_hash']=digest('ingress',b['ingress'])
             if k=='base-acceptance':

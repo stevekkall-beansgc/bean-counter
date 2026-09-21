@@ -1,16 +1,17 @@
-# Candidate.3 scalar audit
+# Candidate.4 scalar audit
 
 Status: candidate, not frozen. Semantic source: `1e0ba3f`. This is canonical
 storage after approved normalization; it does not redefine ingress normalization.
 Every `$defs` string with a length constraint also has `x-utf8-maxBytes`. Every
-record and embedded typed value passes the same extended schema validator.
+record and embedded typed value passes the same extended schema validator in
+Python and the independent Node implementation.
 
 | Scalar type | Canonical constraint | Approved source |
 |---|---|---|
 | `text`, `retained-identity` | 1–128 UTF-8 bytes; no Unicode controls; no normalization | domain `text` |
 | `source` | 1–256 UTF-8 bytes; absolute ASCII scheme; no whitespace or controls | `validate_source` |
 | `slug` | ASCII `[a-z][a-z0-9_.-]{0,63}` | domain `slug` |
-| Internal IDs/hashes | Fixed prefix and 64 lowercase hex; original doc/event IDs retain v1 formulas | domain `prefixed`, canonical domains |
+| Internal IDs/hashes | Fixed prefix and 64 lowercase hex; all native IDs remain unchanged; original doc/event IDs retain v1 formulas | domain `prefixed`, canonical domains |
 | `decimal` | Nonnegative canonical decimal; coefficient <=30 digits; fractional scale <=18; no sign/exponent/redundant zero | `Decimal::parse` + canonical display |
 | `positive-decimal` | Decimal strictly greater than zero | successful Event quantity; compiled Binding maximum quantity |
 | `decimal-percent` | Decimal in [0,100] | base pricing `Decimal::percent` |
@@ -44,9 +45,29 @@ outcome results, inverses and signed percentage numerators are still permitted.
 Outcome percentages have no base-price 0–100 restriction. Exact multiplication
 and division cross-cancel before checking the approved temporary/result bounds.
 
-The audit covers 61 shared Python/Rust scalar cases, 38 byte boundaries across
-record text fields, additional stored-decimal normalization/sign cases, schema
-coverage and two lossless source round trips. Scalar attacks are correctly
-rejected at schema/value validation, even when their envelope hashes are valid.
-The separate 37 semantic attacks pass schema plus Python/Node complete hash
-integrity before semantic rejection.
+Whole-string canonical spelling is mandatory. Python `re.fullmatch` and every
+schema pattern's absolute-end assertion reject the terminal-newline exception
+of a plain `$` anchor. Node uses its own absolute-end grammar. Integer spelling
+is validated before `int`, `BigInt`, fraction or ratio conversion. The rule
+applies to atoms, ratio numerator/denominator, counters, IDs/hashes, slugs,
+decimals and timestamps, recursively inside retained source bytes. Opaque text
+is not reclassified as a numeric field by its name.
+
+The audit covers 216 shared Python/Node/approved-Rust scalar cases, including
+terminal LF, CR, CRLF, tab, space, C1 and Unicode line separators; eight original
+or candidate ID/hash kinds; all ratio components; positive/nonnegative and
+precision limits. It adds 38 byte boundaries across record text fields, stored
+Decimal normalization cases, schema coverage and two structural source round
+trips. There are 207 scalar/field/normalization negative checks.
+
+Five complete noncanonical scalar histories exercise coherently rewritten fixed
+atoms and policy-document terms, numerator and denominator terms, explanation
+ratios, and native/projected original action atoms. Every affected identity,
+digest, reference, manifest and receipt is rebuilt first. Python and Node prove
+hash-only integrity (205 records/five decisions); Python, Node and approved Rust
+then reject the scalar spellings. These are separate from the 49 semantic attacks
+that pass both schema and complete hash integrity before semantic rejection.
+
+All 23 accepted bases also undergo exact complete typed Evaluation roundtrips
+against the approved core. That proof retains actual IDs, all fields and ordered
+vectors; it does not reduce source equality to monetary values or record counts.

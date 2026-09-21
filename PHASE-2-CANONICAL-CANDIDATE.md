@@ -1,120 +1,115 @@
-# Canonical candidate.3 — independent-review corrections
+# Canonical candidate.4 — final corrective cycle
 
-**Candidate `2-candidate.3`; not frozen. New fresh-context review pending.**
+**Candidate `2-candidate.4`; not frozen. Fresh-context review pending.**
 Branch: `codex/phase2-canonical`.
-Reviewed prior candidate: `e8139e6df68880ae9c520ee100a05dcfd0ede673`.
+Reviewed candidate: `09b076a3034064a85fd3da8d626ad02a9fb9a38a`.
 Authoritative semantics: `1e0ba3f886788c08f427d3aae1d916b341187e76`.
 Integration base: `b35258425970052ed71481eca1f33ef857c61be1`.
 
-The owner authorized correcting the independent review's five findings. Only
-canonical-contract work was performed. `ROADMAP.md` is preserved byte-for-byte.
-Production core, CLI, outbox, stores, migrations, Cargo manifests/lockfile and
-frozen v1 files remain unchanged. No sibling commit was integrated.
+This cycle addresses the fresh review's three blockers. Only canonical-contract
+sources, schemas, synthetic fixtures and review documentation change.
+`ROADMAP.md` remains byte-identical. Production core, CLI, outbox, stores,
+migrations, Cargo manifests/lockfile and all frozen-v1 files remain unchanged.
+The authoritative sibling is read-only at its approved commit; no sibling code
+is integrated. No freeze, merge, push, deployment, later-phase work or spending
+is authorized here.
 
-## Exact schema and validator corrections
+## Corrected contracts
 
-1. **Decision-time evidence.** Evidence records may be appended with a claim or
-   correction. Every new proof must be used by that event, verified by its exact
-   authority observation, named by the explanations, and included in replay and
-   manifest membership. Existing evidence can be reused. New evidence cannot add
-   target families, bindings, policies, money or capacity; seed membership and
-   the original base root stay immutable.
-2. **Original policy verification.** Target snapshots retain full `policy_utf8`,
-   `policy_document`, `policy_document_hash`, `verified_policy_document` and
-   `policy_evidence`. Original Policy.document and the verification observation
-   must agree. Supporting evidence retains original doc identity/hash and bytes.
-   Full policy terms must match their document and family/limit projections.
-3. **Lossless base material.** Base evaluations retain original event/ingress
-   canonical bytes and original v1 identities/hashes. Extensions, links, corrects,
-   supplier nomination and omitted optional fields survive. `binding_utf8`
-   preserves every approved Binding field, including complete `outcome` terms.
-   Closed typed schemas cover the complete retained bundle/rules/operations,
-   context, actions/provenance, explanations, deltas, consumptions, invocations,
-   source authority, costs and optional claim/closed-stage fields. Projections
-   must derive from the source; unknown fields reject rather than disappear.
-4. **Authorized binding references.** Actions and effects carry binding_id,
-   binding_snapshot and component. Every original outcome, replacement and
-   inverse must use the frozen binding for the target/agreement/family, with
-   matching roles, book, currency/scale and family component. Inverses preserve
-   original binding provenance. Base action bindings/components are also checked
-   against complete original bundle material.
-5. **Scalar constraints.** Schema-directed custom keywords enforce UTF-8 byte
-   bounds on all bounded strings, including embedded source values. Positive
-   Binding/work quantities, nonnegative Decimal/exposure/capacity fields,
-   Gregorian timestamps, URI/slug/control constraints, money/ratio/counter bounds
-   and normalized representations are checked consistently. Percentage arithmetic
-   now follows the approved core's cross-cancellation before intermediate bounds.
-   `contracts/candidates/v2/SCALARS.md` documents the complete scalar audit.
+1. **Actual original Evaluation identities.** The candidate retains the complete
+   actual approved-core Evaluation, captured in `original-evaluations.json`,
+   including original event/claim/action/effect/obligation/document identities,
+   provenance, dependencies and all other fields. No candidate posting ID or
+   synthetic claim placeholder replaces an original identity. Every accepted
+   base has explicit canonical one-to-one mappings qualified by original and
+   candidate target. Exact postings, obligations, bindings and evidence are
+   checked against native source; `base-identity` rows cover remaining native
+   identities. Missing, extra, duplicate, ambiguous, cross-target and inconsistent
+   mappings reject even with the entire hash graph rebuilt. The retained source
+   and projection must agree field-for-field after the declared enum/event
+   translation. There are 218 mappings across 23 accepted originals.
+2. **Resolved-document evidence sets.** Request, verified, explanation and retry
+   evidence sets reject repeated original `doc_` IDs, even through distinct
+   valid wrappers. Claim facts hash sorted resolved document IDs. A later
+   correction validly reuses an earlier document through a different wrapper;
+   retrying the original claim with that document returns its original receipt.
+   New evidence remains bound to the exact decision and cannot alter frozen
+   target membership, pricing, capacity or authority.
+3. **Whole-string canonical spelling.** Schema patterns use an absolute end;
+   Python additionally uses fullmatch. Python and independent Node validators
+   check integer/ratio spelling before numeric conversion. Atoms, ratios, IDs,
+   counters, slugs, decimals and timestamps reject trailing newlines/whitespace
+   and alternate spellings, including inside retained source bytes. Direct
+   vectors and fully rehashed histories agree with the approved Rust parsers.
 
-Approved economics remain: retail-net percentage basis for both books, permanent
-book/version-independent claim identity, frozen complete target membership,
-separate inclusive ordinary/correction receipt and acceptance deadlines, exact
-inverse/replacement semantics, zero claim ownership and independent supplier
-capacity. Source Bundle.outcome duration limits remain separate from the approved
-outcome-family windows. Unused bindings need no new premium limit; invocation
-exposure may be less than binding maximum, as in the approved core.
+All earlier corrected economics and guards remain: retail-net percentage basis,
+permanent book/version-independent claim identity, frozen complete target
+membership, inclusive receipt/acceptance deadlines, inverse/replacement behavior,
+zero claim ownership, selected binding provenance and separate supplier capacity.
 
-## Inventory and evidence
+## Inventory and attack evidence
 
-- **26 record kinds; 24 histories; 1,375 record vectors**: 492 seed/preparation
-  records plus 883 appended outcome/correction records (including two new proofs).
-- **42 accepted decisions**, 25 permanent claims, 42 claim revisions, 44 actions
-  and effects, 59 explanations, 37 intentions and 23 original base roots.
-- The capped preparation remains rejected with no accepted base receipt.
-- New valid histories cover decision-time claim/correction evidence, lossless
-  event extensions with complete Binding.outcome terms, and cross-binding
-  corrections with both inverse and replacement actions.
-- **37 fully rehashed attacks** pass Python and Node structural/hash integrity
-  before semantic rejection. They include unverified/unbound evidence, attempted
-  family/money injection, policy identity/hash/terms mismatch, discarded original
-  fields, and unauthorized/cross-family original/replacement/inverse bindings.
-  Node checks 2,498 records and 78 decisions across those attack histories.
-- **110 negative assertions** total: 37 semantic attacks, the book-key invariant,
-  ten malformed JSON inputs and 62 scalar/field/normalization assertions.
-- **61 scalar cases**, **38 record-field byte boundaries**, two lossless source
-  round trips and exact-rational cross-cancellation are checked separately.
+- **27 record kinds; 24 histories; 1,450 record vectors**: 542 seed/preparation
+  records and 908 appended records, including three decision-time proofs.
+- **43 accepted decisions**, 25 permanent outcome claims, 43 revisions, 45 actions
+  and effects, 61 explanations, 38 intentions and 23 original base roots.
+- **23 complete native Evaluation sources**, 218 original-to-projection mappings
+  and 50 `base-identity` rows. The capped preparation remains rejected with no
+  accepted Evaluation or original base receipt.
+- **49 fully rehashed semantic attacks** pass Python and Node schema/hash
+  integrity before semantic rejection: 3,570 records and 109 decisions.
+- **Five fully rehashed scalar histories** pass Python/Node hash-only integrity
+  (205 records/five decisions), then reject in Python, Node and approved Rust.
+- **272 negative assertions**: 49 semantic attacks, five scalar histories, one
+  book-key invariant, ten malformed JSON inputs and 207 scalar/field checks.
+- **216 shared scalar cases**, **38 record-field byte boundaries**, two structural
+  source roundtrips and exact-rational cross-cancellation checks.
 
-## Validation
+## Validation and exact original-core comparison
 
 The complete offline repository suite (`sh scripts/check.sh`) passes formatting,
 workspace/all-feature tests, warnings-denied Clippy, no-default compilation,
-dependency/source boundaries and frozen/candidate audits: **110 Rust tests pass;
-13 opt-in/later gates remain ignored**. Python reconstructs every golden byte;
-Node independently reconstructs identities, hashes, original document/event
-hashes, references, manifests and receipt bytes. Audits never regenerate goldens.
+dependency/source boundaries, all frozen-v1 audits and the candidate audit:
+**110 Rust tests pass; 13 opt-in/later gates remain ignored**. Candidate goldens
+are reconstructed byte-for-byte without regeneration. Independent Node checks
+schema/scalars, all candidate keys/hashes, original document/event hashes,
+references, membership and receipt bytes.
 
-A reproducible comparison runner archives exact approved commit `1e0ba3f` under
-ignored `work/` and appends temporary dev tests there. The authoritative sibling
-remains clean and unchanged. The approved Rust code checks:
+The reproducible comparison runner first audits current candidate bytes, then
+archives exact approved commit `1e0ba3f` under ignored `work/`. Test-only serde
+adapters are appended inside that disposable archive. Every actual approved
+Evaluation is encoded, decoded into the real typed Evaluation, re-encoded and
+compared byte-for-byte with retained original material. All original fields,
+IDs and vectors remain exact; no identity normalization hides differences.
+Fixed-success-fee retains original action
+`ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea`.
 
-- 61 scalar cases against the same accepted/rejected boundary values;
-- all 23 candidate accepted base examples and all 42 decisions: original event
-  bytes/IDs, complete typed bindings including outcome terms, verified policy
-  document, retail basis, monetary results and action/explanation counts;
-- 11 exact deadline/ordering cases and fresh claim/correction evidence;
-- percentage cross-cancellation and policy-document mismatch rejection;
-- the original semantic suite's 86 attempts across 23 histories.
+The approved Rust comparison passes all 23 complete Evaluation roundtrips,
+43 decisions and duplicate-document request rejections, the document-reuse
+correction/original-receipt retry, 216 scalar cases, all five rehashed scalar
+histories, 11 deadline/ordering cases and percentage cross-cancellation. Its
+original semantic suite still checks 86 attempts across 23 histories.
 
-All **99 frozen v1 file hashes**, 60 original vectors, 25 first-slice records,
-29 manifest members, original receipts and 80-atom result remain unchanged.
-No new dependencies or remote infrastructure were used. These contract checks
-do not certify production authentication, concurrency or persistence.
+All **99 frozen-v1 file hashes**, 60 original vectors, 25 first-slice records,
+29 manifest members, original receipts and the 80-atom result remain unchanged.
+No dependencies, remote infrastructure or production behavior were added.
+These examples do not certify production historical decoding, authentication,
+concurrency or persistence.
 
 ## Compatibility and review handoff
 
-Candidate `.2` remains at the prior commit. `.3` changes required fields, schema
-discriminators and hash domains, so candidate IDs/receipts change intentionally.
-There is no automatic migration: missing original material/observations cannot
-be reconstructed from `.2` projections. Re-author only from original retained
-sources, then review. No v1 bytes, formulas, compatibility declarations or support
-claims change. The full design and proposed ADR describe the mapping.
+Candidate `.3` remains at the reviewed prior commit. `.4` changes required fields,
+record kinds, scalar acceptance, retry facts and hash domains, so candidate IDs
+and receipts change intentionally. There is no automatic migration from earlier
+projections: missing original identities/dependencies cannot be recovered by
+substituting candidate IDs or guessing source fields. Re-author from retained
+original material and verified observations, then review. No v1 compatibility
+or support declaration changes.
 
-A **new fresh-context reviewer** must decide whether all five findings are
-resolved. Remaining review/integration questions are the production historical
-codec/v1 journal bridge without rewriting receipts, authentic durable base-root
-retrieval and complete history under locks, and supplier reservation observations
-through the combined coordinator/both-store implementation. The checked typed
-examples are not a complete production decoder certification.
-
-Stop condition: committed candidate and clean worktree. No freeze, merge, push,
-deployment, later-phase implementation or spending is authorized by this report.
+A fresh-context reviewer must decide whether the three blockers are resolved and
+whether freeze is justified. Remaining later-integration questions are the
+production historical codec/v1 journal bridge without rewriting receipts,
+authentic durable base-root retrieval and complete history under locks, and
+supplier reservation observations through the combined coordinator/both-store
+implementation. The stop condition is a committed candidate and clean worktree;
+this report does not authorize freeze or subsequent phases.

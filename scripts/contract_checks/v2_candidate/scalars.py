@@ -42,14 +42,35 @@ def check_scalar(kind, value):
     elif kind == 'ratio':
         if not isinstance(value, dict) or set(value) != {'numerator', 'denominator'}:
             raise ValueError('RATIO')
+        integer_spelling(value['numerator'],True,156)
+        integer_spelling(value['denominator'],False,155)
         n, d = int(value['numerator']), int(value['denominator'])
         if d <= 0 or gcd(n, d) != 1 or max(abs(n).bit_length(), d.bit_length()) > 512:
             raise ValueError('RATIO')
     elif kind == 'nonnegative-money':
+        integer_spelling(value['atoms'],True,31)
         if int(value['atoms']) < 0:
             raise ValueError('NEGATIVE_LIMIT')
+    elif kind in ('atoms','nonnegative-atoms'):
+        integer_spelling(value,kind=='atoms',31 if kind=='atoms' else 30)
+        if abs(int(value))>10**30-1:raise ValueError('ATOMS')
+    elif kind == 'slug':
+        if not isinstance(value,str) or not re.fullmatch(r'[a-z][a-z0-9_.-]{0,63}',value):raise ValueError('SLUG')
     else:
         raise ValueError('UNKNOWN_SCALAR_CONSTRAINT:' + kind)
+
+
+def integer_spelling(value, signed, limit):
+    pattern=r'0|-?[1-9][0-9]*' if signed else r'0|[1-9][0-9]*'
+    if not isinstance(value,str) or len(value)>limit or not re.fullmatch(pattern,value):
+        raise ValueError('CANONICAL_INTEGER')
+
+
+def whole_pattern(validator, pattern, value, schema):
+    # Draft JSON Schema pattern uses search; `$` alone also permits a final LF.
+    # Every candidate pattern is a whole canonical spelling, never a substring.
+    if isinstance(value,str) and not re.fullmatch(pattern,value):
+        yield jsonschema.ValidationError('CANONICAL_SPELLING')
 
 
 def scalar(validator, kind, value, schema):
@@ -83,6 +104,7 @@ def embedded(validator, name, value, schema):
 
 
 Validator = jsonschema.validators.extend(jsonschema.Draft202012Validator, {
+    'pattern': whole_pattern,
     'x-scalar': scalar,
     'x-utf8-maxBytes': byte_limit,
     'x-canonical-maxBytes': canonical_bytes,

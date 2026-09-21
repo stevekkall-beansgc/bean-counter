@@ -1,6 +1,7 @@
 """Semantic scalar boundaries and complete retained-source round trips."""
 import copy
 import json
+import subprocess
 from pathlib import Path
 import jsonschema
 from profile import canonical, envelope, reference, strict
@@ -32,11 +33,30 @@ def cases():
                   ({'numerator':'2','denominator':'4'},False),({'numerator':'1','denominator':'0'},False),
                   ({'numerator':str(2**512-1),'denominator':'1'},True),
                   ({'numerator':str(2**512),'denominator':'1'},False)])
+    add('nonnegative-atoms',[('0',True),('9'*30,True),('-1',False),('-0',False),('01',False)])
+    # The whole spelling must pass BEFORE numeric conversion. In particular,
+    # Python int/Fraction and JavaScript BigInt accept whitespace themselves.
+    samples={'atoms':'2500','nonnegative-atoms':'2500','uint':'1','slug':'success',
+             'decimal':'2.5','positive-decimal':'2.5','decimal-percent':'2.5',
+             'time':'2026-09-21T12:00:00.000000Z','source':'urn:synthetic:work'}
+    for kind,value in samples.items():
+        add(kind,[(value+suffix,False) for suffix in ('\n','\r','\r\n','\t',' ','\x85','\u2028')])
+        add(kind,[(' '+value,False)])
+    for field in ('numerator','denominator'):
+        for suffix in ('\n','\r','\r\n','\t',' ','\x85','\u2028'):
+            value={'numerator':'1','denominator':'2'};value[field]+=suffix
+            add('ratio',[(value,False)])
+    for kind,prefix in [('original-event-id','ev_'),('original-claim-id','cl_'),('original-action-id','ac_'),('original-effect-id','ef_'),('original-obligation-id','ob_'),('document-id','doc_'),('event-id','ev2_'),('hash','sha256:')]:
+        for value,ok in [(prefix+'a'*64,True)]+[(prefix+'a'*64+s,False) for s in ('\n','\r','\t',' ','\x85','\u2028')]+[(prefix+'A'*64,False)]:
+            result.append(dict(kind=kind,value=value,accepted=ok,rust_prefix=prefix))
     return result
 
 
 def run_boundaries(histories, schema, checked_row, verify):
     values=cases(); negative=0
+    path=Path(__file__).resolve().parents[3]/'work/validation/v2-scalar-cases.json'
+    path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(values,ensure_ascii=False))
+    subprocess.run(['node',str(Path(__file__).with_name('scalars.mjs')),str(Path(__file__).resolve().parents[3]/'contracts/candidates/v2/schemas/canonical-records.schema.json'),str(path)],check=True)
     for case in values:
         validator=Validator({'$ref':'#/$defs/'+case['kind'],'$defs':schema['$defs']})
         actual=validator.is_valid(case['value'])
@@ -93,13 +113,13 @@ def run_boundaries(histories, schema, checked_row, verify):
     full['closed_stage']='preserved-stage'
     full['context'].update(tier='enterprise',priority=False,stage=dict(id='stage',expected=[dict(source='urn:synthetic:work',operation_id='base',kind='content.generated',retail_components=['base-retail-0'])],closure_claim_namespace='sale'))
     a=full['actions'][0]
-    a.update(reverses='retained-original',allocation_parent='retained-parent',allocation_recipient='recipient',discount_target='retained-basis')
+    a.update(reverses='ac_'+'a'*64,allocation_parent='ac_'+'b'*64,allocation_recipient='recipient',discount_target='ac_'+'c'*64)
     full['explanations'][0]['basis']={'numerator':'10000','denominator':'1'}
     rule=full['bundle']['policies'][0]['rules'][0]
     rule['matcher']=dict(kind='direct',relation='generated_from',target='content.generated')
     rule['when']=[dict(kind='tier',value='enterprise'),dict(kind='priority',value=False)]
     source=full['bundle']['policies'][0]['binding'];source['roles']['payer_delegation']=next(iter(aliases));source['offer']=next(iter(aliases));source['maximum_exposure']=dict(currency='USD',scale=2,atoms='10000')
-    full['costs']=[dict(binding_id='retained-cost',event_id='retained-event',document=next(iter(aliases)),amount=dict(currency='USD',scale=2,atoms='1'))]
+    full['costs']=[dict(binding_id='retained-cost',event_id='ev_'+'d'*64,document=next(iter(aliases)),amount=dict(currency='USD',scale=2,atoms='1'))]
     Validator({'$ref':'#/$defs/base-material','$defs':schema['$defs']}).validate(full)
     assert strict(canonical(full))==full, 'LOSSLESS_COMPLETE_ROUNDTRIP'
     # This structural sample intentionally does not assert economic admission.

@@ -1,0 +1,4419 @@
+{
+  "status": "candidate-not-frozen",
+  "semantic_commit": "1e0ba3f886788c08f427d3aae1d916b341187e76",
+  "codec": "approved-evaluation/2-candidate.4",
+  "evaluations": {
+    "timing-rejection": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_a079051091d3c842afc8f3c6cacad98a63dcda95474fab762d3aec30e2e802a3",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_bed49c4f94d6299887f6cd3ac4995c023f4868ed336d1547e2e2a70d46bb72fa"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_a079051091d3c842afc8f3c6cacad98a63dcda95474fab762d3aec30e2e802a3",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_30f408f5f1dfb7f7fd944a49d729390e759a55aaf5d7b969b97b33d61e2ce587",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:523fe6dd922cfc4f6e4a63a5b7d103ddf71ea7ec76e7cfa733ec46529204099b",
+        "event_id": "ev_bed49c4f94d6299887f6cd3ac4995c023f4868ed336d1547e2e2a70d46bb72fa",
+        "event_utf8": "{\"chain\":\"timing-rejection\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"timing-rejection-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:fc46cad33c63c46d784bc5395b4012e931c98e8fe39b8a8099e7c1dcd913d541",
+        "ingress_utf8": "{\"chain\":\"timing-rejection\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"timing-rejection-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_9cd89136e4a0860b4fd2ec387005a34f4045fc830f0d5423d9dfc40aaa9eaebe",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "signed-rounding": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "105",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_4e4852d1fe5ac23b55be9b8c70c4d5f3453aa1469524a45f6eaad10c95593954",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_e3139dd5d90551001b4c49580af1f988ad39b0ce91bc003ed80c2d515c4df5cf"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_4e4852d1fe5ac23b55be9b8c70c4d5f3453aa1469524a45f6eaad10c95593954",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "1.05"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_de5d7e023a63833a4335bd2e0c6df202fdfd2ab0d26a5b553a247f223d787770",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "105",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:99e04a257a98788d25dadd53a89e5517e1d3a828f3314ec15d46b4788249c584",
+        "event_id": "ev_e3139dd5d90551001b4c49580af1f988ad39b0ce91bc003ed80c2d515c4df5cf",
+        "event_utf8": "{\"chain\":\"signed-rounding\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"signed-rounding-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:f7496f3f579961b4ffd10ceaacb823e4be7414fa9d197f370512c8f1c1d7f96f",
+        "ingress_utf8": "{\"chain\":\"signed-rounding\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"signed-rounding-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "105",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "105"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_7399d7ea5810d04179f11b44e1769c43c7d825fdcc411637301c28a9eaa8c008",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "fixed-success-fee": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_6510d995afa1957904b5f685216d2124c3591c668edfe19b608dfe16f81badb4",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_858c2b838eeaf41ac66a17d4940b6d7a3307bbb579b72991062d5f8af13d987b"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_6510d995afa1957904b5f685216d2124c3591c668edfe19b608dfe16f81badb4",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_46d3fc21dda29bd0a16e74fc15ec22f461aab6db1984223ea9cd2b1a2f0fbdf3",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:76d8002c2c7f1b6ced8000ad3ebd7020b7c3b32b78e98a7357124a0bd1321e28",
+        "event_id": "ev_858c2b838eeaf41ac66a17d4940b6d7a3307bbb579b72991062d5f8af13d987b",
+        "event_utf8": "{\"chain\":\"fixed-success-fee\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"fixed-success-fee-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:28ac953e841a9e33ae3c8dad5c54639d783ecd3816be6d6025921a783f68f5dd",
+        "ingress_utf8": "{\"chain\":\"fixed-success-fee\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"fixed-success-fee-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_67ceefc7114e71d17cf8a567825c182b3ca61141fdfe1f8a05605360040b2b9b",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "equal-observation-times": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_af12974c44eed3bb7f76802327211ec566faa7a7b717cba6f2a553a37f0f0f40",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_5b066c4088b73f55c6a7e5d80bbd5095268e9ca48320c8a58cc11328517dc3c4"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_af12974c44eed3bb7f76802327211ec566faa7a7b717cba6f2a553a37f0f0f40",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_ee62b0e87eb314004e1162b4daa1a03feea418fd881c496bcb088635cec81913",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:c41333a8f1465297dbad2773a7adbce5ffa87cee3b2fa1ca46bedfffba75b86a",
+        "event_id": "ev_5b066c4088b73f55c6a7e5d80bbd5095268e9ca48320c8a58cc11328517dc3c4",
+        "event_utf8": "{\"chain\":\"equal-observation-times\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"equal-observation-times-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:5fd021f0b1da566634ad549a54b46a0538d5616426deae390579ecc3e45faa1f",
+        "ingress_utf8": "{\"chain\":\"equal-observation-times\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"equal-observation-times-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_7679fc6087e7b3da3f82360476b40e25f5cefbce01b7e28a54c2aa61b0a37b3f",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "percentage-rebate": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_c465da70fa2ea2a121a6cccdaeb851163206e7afe9ee24675c053cc0d84c0b7d",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_ba1f81275f45e4cc04bf3bfb58715401aa0b20113d13bf6d861e241de072711f"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_c465da70fa2ea2a121a6cccdaeb851163206e7afe9ee24675c053cc0d84c0b7d",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_38ba8ea21c1dd3904522829959ae8770dffbefa77fdabc0603c716bdd714a094",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:21679d4e7e17c5e302207fd98bb4539ad935b6f45512cde4cb03bdaf8a9a06ee",
+        "event_id": "ev_ba1f81275f45e4cc04bf3bfb58715401aa0b20113d13bf6d861e241de072711f",
+        "event_utf8": "{\"chain\":\"percentage-rebate\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"percentage-rebate-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:16868719e2587116f505e9f9fc423041e145bdc5bd8cdcf0a3ee9f3bbaa338a4",
+        "ingress_utf8": "{\"chain\":\"percentage-rebate\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"percentage-rebate-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_b6e0b3e8ed3be0cfe96a59005b6f6488e4063a93cab19cf885a3db67c50f5e9c",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "correction-reinstatement": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_41e6a46492c7f938ed4dd0f8740721dc66766c907c460a6a06ac2b50138c197b",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_6149bc5e893fb97b7db31b939022901eec9e89106121f0c42f55114178a78754"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_41e6a46492c7f938ed4dd0f8740721dc66766c907c460a6a06ac2b50138c197b",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_48dddbf6ad66b3ff03041716f8996c56b48ca8d1ff7265e6fb78b58c8edef331",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:acc878e83c0719fbbee12c2303d05cd84283c03f63301f9436c5033eccbff28a",
+        "event_id": "ev_6149bc5e893fb97b7db31b939022901eec9e89106121f0c42f55114178a78754",
+        "event_utf8": "{\"chain\":\"correction-reinstatement\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"correction-reinstatement-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:d3f3ded4f4dafd71a8d233db533f3b3596220af651ca35dea93f350efd1b284c",
+        "ingress_utf8": "{\"chain\":\"correction-reinstatement\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"correction-reinstatement-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_9df229ba07ddee3ccd217c766273362ba49f649ad128b9507351ddc5aa0ebc14",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "lossless-event-and-outcome-terms": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_f6cead3cf868ffecde4742905dc066c9165219f0d527eac5cdd92fc56e626ea9",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "outcome": {
+              "claim_namespace": "sale",
+              "report_grace_us": 604800000000,
+              "source": "urn:synthetic:outcome",
+              "window_us": 7776000000000
+            },
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_83776f4068dc47708981f52b02a05c3ff9b01a92b390e84e58f3fac5f501facc"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_f6cead3cf868ffecde4742905dc066c9165219f0d527eac5cdd92fc56e626ea9",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "outcome": {
+                "claim_namespace": "sale",
+                "report_grace_us": 604800000000,
+                "source": "urn:synthetic:outcome",
+                "window_us": 7776000000000
+              },
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_ecd118dcb68d2704e557bee909cde85194fd43a2d5c16088074a0c0d7362fd46",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:5492a1fb502bce8c28284aa1ca19533ee5b8ede420496c12633b0196411ffb21",
+        "event_id": "ev_83776f4068dc47708981f52b02a05c3ff9b01a92b390e84e58f3fac5f501facc",
+        "event_utf8": "{\"chain\":\"lossless-event-and-outcome-terms\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{\"count\":9007199254740991,\"label\":\"é/😀\",\"policy_version\":\"not operative\",\"source\":\"opaque extension, not authority\",\"verified\":false},\"id\":\"lossless-event-and-outcome-terms-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:3c0145d25cf0922f5d0456b608496a356e7e46d063fdb5074e8ce182ec78ddea",
+        "ingress_utf8": "{\"chain\":\"lossless-event-and-outcome-terms\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{\"count\":9007199254740991,\"label\":\"é/😀\",\"policy_version\":\"not operative\",\"source\":\"opaque extension, not authority\",\"verified\":false},\"id\":\"lossless-event-and-outcome-terms-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_3cc6f8bec923dfea7e615cc682d34a64db6c512de41115ab1b6bac6247367749",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "zero-adjustment": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_2f38ff6d661b986e7312e7a1f6511a614c1455749dbb477b1dd7f67e3220d599",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_4ff077e19d7247a659593c48f6c4138f34bb4146cef87dc84dfa32d7620ba871"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_2f38ff6d661b986e7312e7a1f6511a614c1455749dbb477b1dd7f67e3220d599",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_0fd134877dfedcc7ab4e42c29a095a92ce8e80c4d0453b68ce178f64ab5135ed",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:cd76e892ee0a8eae357a4233e21bdad6ed6d987855bde37384134bb2b668ec97",
+        "event_id": "ev_4ff077e19d7247a659593c48f6c4138f34bb4146cef87dc84dfa32d7620ba871",
+        "event_utf8": "{\"chain\":\"zero-adjustment\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"zero-adjustment-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:49ee391e610c370701788f4accd16ade8a25009d27bd4dfcdcccb5e7557d36ae",
+        "ingress_utf8": "{\"chain\":\"zero-adjustment\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"zero-adjustment-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_37bc85cd53ff78ff46e02d5460446a1d49f6f098029544e5897ec08f6da5982a",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "duplicate-version-retry": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_b44ca1f9757e94eb0cf1e1a9ad6c579acb801b2808c9bf7b089dee0b1b68db42",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_90f3b6c43f17e8a5d8ef204869f2fa5212de8ac7b6613b492c5c2ae3deb81570"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_b44ca1f9757e94eb0cf1e1a9ad6c579acb801b2808c9bf7b089dee0b1b68db42",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_354c53cc910e9d43a4b0695c34261c9b16e6cda60ac5a33e86ded1eca5d003c6",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:4155cf375dec5c7d307b8fb3598db59fc7913a83aba4859f8aaca2dd1ac06f2b",
+        "event_id": "ev_90f3b6c43f17e8a5d8ef204869f2fa5212de8ac7b6613b492c5c2ae3deb81570",
+        "event_utf8": "{\"chain\":\"duplicate-version-retry\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"duplicate-version-retry-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:1431e69ccff206cc1f83fbf47822704e22f4d3485619420ec0a9fc1f8db97c6e",
+        "ingress_utf8": "{\"chain\":\"duplicate-version-retry\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"duplicate-version-retry-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_aabefa3ea7d9f57bb587b29524f353f914a5c8fc6ea3ee1654fbd75569ea21fc",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "correction-timing-rejection": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_b5a37830d7c91c0b3593948d0de9a35ca8e477e4ecc06741f3ebe36696a2b167",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_b6a1741251fb07c35a4c9c693d8f8d9f1e384c04287ac5ec37738733d47195eb"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_b5a37830d7c91c0b3593948d0de9a35ca8e477e4ecc06741f3ebe36696a2b167",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_e7c2bfb90126c597bfe5e487ecab3d9539f962a35e3e3f0a278f5de648969aa6",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:3bfff40fdf204d962a9ad8d4b2e1fe2fe7ee87cec5d4137f1fadc67c50ce65df",
+        "event_id": "ev_b6a1741251fb07c35a4c9c693d8f8d9f1e384c04287ac5ec37738733d47195eb",
+        "event_utf8": "{\"chain\":\"correction-timing-rejection\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"correction-timing-rejection-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:9337147b931b9d339ca557d47e0edde2ecb053571c1b44fb4cc973adcdef20a1",
+        "ingress_utf8": "{\"chain\":\"correction-timing-rejection\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"correction-timing-rejection-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_699f2fa77a8279a78c56c2108c47ff14625243d7e24c837c1d537f18ebcb6f3e",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "supplier-separation": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_c0c8407e6dd8c6dc70a0ad8ff657978c24e2b41f13620923aa9162abf63c108d",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "tool.completed"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_e0525974c779be267c2e27054f8c9c3acf4e2afbace277166d08667644856eb3"
+          ]
+        },
+        {
+          "amount": {
+            "atoms": "3000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-supplier",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_c0c8407e6dd8c6dc70a0ad8ff657978c24e2b41f13620923aa9162abf63c108d",
+            "book": "Supplier",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "tool.completed"
+            ],
+            "id": "binding-supplier",
+            "maximum_exposure": {
+              "atoms": "15000",
+              "currency": "USD",
+              "scale": 2
+            },
+            "maximum_quantity": "1",
+            "offer": "doc_446079958f94298fbbe29d587c64ee1a525fa2a55af5755b3cb8b3b0d9123583",
+            "roles": {
+              "bearer": "host",
+              "beneficiary": "host",
+              "cost_originator": "supplier",
+              "payer": "host",
+              "provider": "supplier",
+              "recipient": "supplier"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Supplier",
+          "component": "base-supplier-0",
+          "effect_id": "ef_51c01ca199b7104eedfde24b835e497207b43f796d4147f2da2acbdd77dfa12b",
+          "id": "ac_a9598bc3b9f3b01998003f625b32233efc0d5534d42fa9b152e46f61639c8163",
+          "inputs": [],
+          "kind": "Cost",
+          "links": [],
+          "obligation_id": "ob_92dd93b2e597ff7fa4e25b4c76197dfe31cb52bfd4e9f3742fc61063498d6db1",
+          "sources": [
+            "ev_e0525974c779be267c2e27054f8c9c3acf4e2afbace277166d08667644856eb3"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_c0c8407e6dd8c6dc70a0ad8ff657978c24e2b41f13620923aa9162abf63c108d",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "tool.completed"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "tool.completed",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          },
+          {
+            "binding": {
+              "agreement": "agreement-supplier",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_c0c8407e6dd8c6dc70a0ad8ff657978c24e2b41f13620923aa9162abf63c108d",
+              "book": "Supplier",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "tool.completed"
+              ],
+              "id": "binding-supplier",
+              "maximum_exposure": {
+                "atoms": "15000",
+                "currency": "USD",
+                "scale": 2
+              },
+              "maximum_quantity": "1",
+              "offer": "doc_446079958f94298fbbe29d587c64ee1a525fa2a55af5755b3cb8b3b0d9123583",
+              "roles": {
+                "bearer": "host",
+                "beneficiary": "host",
+                "cost_originator": "supplier",
+                "payer": "host",
+                "provider": "supplier",
+                "recipient": "supplier"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-supplier-0",
+                "id": "base-supplier-0",
+                "on": "tool.completed",
+                "operation": {
+                  "Base": {
+                    "Fixed": "30"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [
+        {
+          "consume": {
+            "atoms": "3000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "invocation_id": "invocation-supplier",
+          "release": {
+            "atoms": "12000",
+            "currency": "USD",
+            "scale": 2
+          }
+        }
+      ],
+      "context": {
+        "customer": "customer",
+        "document": "doc_746dba801b944f892c14ce9730271d43b9ff0a77cd8a01d0ffbed66028ddc10e",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_a9598bc3b9f3b01998003f625b32233efc0d5534d42fa9b152e46f61639c8163"
+          ],
+          "amount": {
+            "atoms": "3000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Supplier",
+          "obligation_id": "ob_92dd93b2e597ff7fa4e25b4c76197dfe31cb52bfd4e9f3742fc61063498d6db1",
+          "roles": {
+            "bearer": "host",
+            "beneficiary": "host",
+            "cost_originator": "supplier",
+            "payer": "host",
+            "provider": "supplier",
+            "recipient": "supplier"
+          }
+        },
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:b4c9f4cd1686f7b00880a5a23479adf6356228d6297175a80ec21ce3d0160b60",
+        "event_id": "ev_e0525974c779be267c2e27054f8c9c3acf4e2afbace277166d08667644856eb3",
+        "event_utf8": "{\"binding_id\":\"binding-supplier\",\"chain\":\"supplier-separation\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"supplier-separation-base\",\"invocation_id\":\"invocation-supplier\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"tool.completed\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:20af8fef02cac475f032a749d7605a1b505d804092fa6cfa58a6ba6ba71c8d93",
+        "ingress_utf8": "{\"binding_id\":\"binding-supplier\",\"chain\":\"supplier-separation\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"supplier-separation-base\",\"invocation_id\":\"invocation-supplier\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"tool.completed\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        },
+        {
+          "action_ids": [
+            "ac_a9598bc3b9f3b01998003f625b32233efc0d5534d42fa9b152e46f61639c8163"
+          ],
+          "binding_id": "binding-supplier",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "3000",
+          "rule_id": "base-supplier-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "3000"
+          }
+        }
+      ],
+      "invocations": [
+        {
+          "attested_start": "2026-09-21T12:00:00.000000Z",
+          "authorized_at": "2026-09-21T12:00:00.000000Z",
+          "binding_id": "binding-supplier",
+          "chain": "supplier-separation",
+          "customer": "customer",
+          "held": {
+            "atoms": "15000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "id": "invocation-supplier",
+          "maximum_exposure": {
+            "atoms": "15000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "maximum_quantity": "1",
+          "operation_id": "base",
+          "outcome_deadline": "2026-09-25T13:00:00.000000Z",
+          "source": "urn:synthetic:work",
+          "start_before": "2026-09-21T12:01:00.000000Z",
+          "unit": "call"
+        }
+      ],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "tool.completed"
+        ],
+        "grant": "doc_7e9de7e69b329fad1cd6c5bb6794565215485c428c1bba98236096c79a5b49e7",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "two-rule-families": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_ab5757d461e7f89852e2972503fa82b630163dcca5ef490ca9ce655c30947507",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_6d3e0df9e98e2758a71ae12c3dfafe6e704fc798dbea826bb28f3d7f6073ad42"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_ab5757d461e7f89852e2972503fa82b630163dcca5ef490ca9ce655c30947507",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_bdab5a73704aa26a2629f647c044435c3f22dc0b1e0be850a71656512d35c368",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:548c738ae57d162d7cfddf3578688a8b6f36fb560c59aa0880d869fe0e1fd57f",
+        "event_id": "ev_6d3e0df9e98e2758a71ae12c3dfafe6e704fc798dbea826bb28f3d7f6073ad42",
+        "event_utf8": "{\"chain\":\"two-rule-families\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"two-rule-families-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:b3de75da77fa0646e09e3a85133d2599736acb4040ea8122eaee340debecc3a1",
+        "ingress_utf8": "{\"chain\":\"two-rule-families\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"two-rule-families-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_007b8e070110fa7eadad987f018d5b4c066478715f564ca0bc3f90f128917ecc",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "decision-time-evidence": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_5414ca2e86abb3b07da90753a192947bb35a8535eea46f0550b84c64cb0fb231",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_92a232c268f467110bb3f977cff4f2c868741f5aede11aa0c741cf8845fdcfb2"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_5414ca2e86abb3b07da90753a192947bb35a8535eea46f0550b84c64cb0fb231",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_fbfbff880f191a8839446d392ed16b7f2312106ae25c08f63b3410d080fff41b",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:ca04375216134977f9242cd6c58c9bee9351a114a3ac0800122e9961a42702d7",
+        "event_id": "ev_92a232c268f467110bb3f977cff4f2c868741f5aede11aa0c741cf8845fdcfb2",
+        "event_utf8": "{\"chain\":\"decision-time-evidence\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"decision-time-evidence-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:5d6bae760a827ef2c2c20849961ee33b4e771f20926dd1739836d7514f0a795d",
+        "ingress_utf8": "{\"chain\":\"decision-time-evidence\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"decision-time-evidence-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_fc0c62a6e2a98adcb2e96c66290fcae026e78110d4b90c4e163381be82fb0986",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "predeclared-unclaimed-family": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_47c2f9eaebe3736c395880c9592b535ebf630fc7bf4b6621e1ee4de2aa3618a7",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_1acafa054ecc28ee6b85e39de52779fb1a0cc8f5882888d163794a12872d59a5"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_47c2f9eaebe3736c395880c9592b535ebf630fc7bf4b6621e1ee4de2aa3618a7",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_d86dfc003365128a82bfc0c5a8ecf233d5b778da10c96ec70446099310a9847b",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:c32ee9d295d27d671b38fb1b31d3741abab2cb6bf99b63ea62bbde20a5c18749",
+        "event_id": "ev_1acafa054ecc28ee6b85e39de52779fb1a0cc8f5882888d163794a12872d59a5",
+        "event_utf8": "{\"chain\":\"predeclared-unclaimed-family\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"predeclared-unclaimed-family-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:777f62ab1b16263758200dc92ebfcac243decbf5eb00d42ba4c9cd305f15bb25",
+        "ingress_utf8": "{\"chain\":\"predeclared-unclaimed-family\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"predeclared-unclaimed-family-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_936d932d26aad8ae0e879a13df9a1bf2d44b8a6226d3ec98cfffb6869d33cb51",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "full-reversal-reinstatement": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_25de01707348aff917aaef54bb63e2dae9ae8bf8eaa9cf3aa4263835079d9b4d",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_8ec63471dcbd50ceb82517395e7bcd2adfdcd82838e89512d130dc32769f2f4a"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_25de01707348aff917aaef54bb63e2dae9ae8bf8eaa9cf3aa4263835079d9b4d",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_d47146e7014fc911a6c47bf4eef1d97d29b0ba2648f4f9609cacd25610ef5301",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:7fc97650a7fcf5107f84295205f2582293ae9bbac4f1e79af2a227ac605a74c1",
+        "event_id": "ev_8ec63471dcbd50ceb82517395e7bcd2adfdcd82838e89512d130dc32769f2f4a",
+        "event_utf8": "{\"chain\":\"full-reversal-reinstatement\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"full-reversal-reinstatement-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:c2c4b69f726fa08862eb05cf1f36d589db6feea4fc6b557d7c27b72480874803",
+        "ingress_utf8": "{\"chain\":\"full-reversal-reinstatement\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"full-reversal-reinstatement-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_d651c2d1a019a15c737041749d5367b7c96b5eb5c718b36cc1beb05f9545aacb",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "rounded-zero": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "1",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_28dac102167da5aefa0a658710f77d89b136e88b91c88f4abcb93b5d32ae209c",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_de42f8f2de4fbc293d1feb1c63609d1de00eea8824e55caadc1d89021d85f187"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_28dac102167da5aefa0a658710f77d89b136e88b91c88f4abcb93b5d32ae209c",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "0.01"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_ebeec88c7311ad8bb9528e39b1cb9d7264c833383a413032a035375ee37b7469",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "1",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:ff8017bd49630767f6d545b36faf1637ff266ec3c33a0dcadb43a7fc2b94d294",
+        "event_id": "ev_de42f8f2de4fbc293d1feb1c63609d1de00eea8824e55caadc1d89021d85f187",
+        "event_utf8": "{\"chain\":\"rounded-zero\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"rounded-zero-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:a0a44a674a02d73c3012673b7cb2db25235855087da36b686eb20a71688188f8",
+        "ingress_utf8": "{\"chain\":\"rounded-zero\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"rounded-zero-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "1",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "1"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_9f101a73b3b759ddb16fabc6682b1d512bbdfda7627c27317dd0e23648bdce2b",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "aggregate-limit-rejection": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_2fe064f3e4cfa716fa98ad9912d8dff056af9d1d8ea3e26c0cf1beaaccf39a22",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_a4281b8e0e1f402c1474c662c206de57f7127126dd752730c7d8b0585e5d74c0"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_2fe064f3e4cfa716fa98ad9912d8dff056af9d1d8ea3e26c0cf1beaaccf39a22",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_0b6adff9628c3e8555df27ae4c8727caf1ca5b3bf7e01bdc778da92413a0692e",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:724aa41f02862bd04f346c6b86d194650a84e572929e997f81fda5a8dd6fcee4",
+        "event_id": "ev_a4281b8e0e1f402c1474c662c206de57f7127126dd752730c7d8b0585e5d74c0",
+        "event_utf8": "{\"chain\":\"aggregate-limit-rejection\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"aggregate-limit-rejection-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:9b17e70c10f877450d56c2f88155239d747a1fd4b583a7662bff370a42cb1536",
+        "ingress_utf8": "{\"chain\":\"aggregate-limit-rejection\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"aggregate-limit-rejection-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_b0192e2b9337beb1243ba22e2a57b502fedf7c4ff3241c8e108d44f165a6ec65",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "zero-net-base": {
+      "actions": [],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_306f3981ae03c51030a4ec52d8a3f57b4147acc1411293dbeaad2baa45190de2",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-zero",
+                "id": "base-zero",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "0"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_8ebeb34ca2ed0555f5b0a735ee1803f5d477e241cfe3d8b6bde3364c8c227628",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [],
+      "event": {
+        "event_hash": "sha256:711539fc67b6ed61d60ad55b4c33e3085bf78d5340d646cc2177a88f758bbfcb",
+        "event_id": "ev_578e9529de906d925c20ab8b9497c09b274212d7678942e4523a39eb21b1023d",
+        "event_utf8": "{\"chain\":\"zero-net-base\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"zero-net-base-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:366f4d877c8e682d4b2e829b940bff52f1de0be3aa19cd871c2b5f59bb016461",
+        "ingress_utf8": "{\"chain\":\"zero-net-base\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"zero-net-base-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [],
+          "binding_id": "binding-retail",
+          "code": "ZERO_ROUNDED",
+          "inputs": [],
+          "rounded": "0",
+          "rule_id": "base-zero",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "0"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_af0e1600d7d71956ab435593fa6eab1505912c92cc6665651655e85846f542a3",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "correction-replacement": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_2772d71b17252fdb0cd303396034a634093811655364db9d9043ecdfbdf3c9d8",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_6b9190368acfa02db198509054ae1d8e2c908cfed167ebe058b3f9f00dc47908"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_2772d71b17252fdb0cd303396034a634093811655364db9d9043ecdfbdf3c9d8",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_f2a04ec6fc50f4ac36f0ef6ff4a3e808764b99c9baa68ab2d88e48216cfe5dd6",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:1333971322111ad8a28437d5ff2b00fb585615ac5e136011b9ba6a67287d7b82",
+        "event_id": "ev_6b9190368acfa02db198509054ae1d8e2c908cfed167ebe058b3f9f00dc47908",
+        "event_utf8": "{\"chain\":\"correction-replacement\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"correction-replacement-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:abaac5c6c38dec0bb89eb743e08dc950fc99675e04d1364b9e4127e5f5bb1ae6",
+        "ingress_utf8": "{\"chain\":\"correction-replacement\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"correction-replacement-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_b0dd4553068cd292aee7e766a3e44dd1a3d5fe1494cc6541db13fd670a9f9029",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "inclusive-correction-deadlines": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_6ddd04b0688f6b11d6d5104fa6f832cc124ec054721a88e9ac34e6ea9e817e29",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_fb13f99fa28c1bfcfb881e20bda4332500dbb288208c668be56c6159d42930a2"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_6ddd04b0688f6b11d6d5104fa6f832cc124ec054721a88e9ac34e6ea9e817e29",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_4f1e2c7eb5d1cd4099aceadf68ee38e08011bfe5481bc9d935a282fe96022be9",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:ee71cf7d439d14ced893fc585214e44914f0211b278702b07dc6c4643b715422",
+        "event_id": "ev_fb13f99fa28c1bfcfb881e20bda4332500dbb288208c668be56c6159d42930a2",
+        "event_utf8": "{\"chain\":\"inclusive-correction-deadlines\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"inclusive-correction-deadlines-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:846fad966916a9b7529a38ab1d78e5424764d04d35fd128090ba83ef574f8517",
+        "ingress_utf8": "{\"chain\":\"inclusive-correction-deadlines\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"inclusive-correction-deadlines-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_e6bb5b447d0e7b4c6aad01a4718f5d38d0c6c05dd947dad5e28deebd87f094f7",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "retail-net-after-booking-discount": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_fe0dd7dfbd82136d3ced1c6192fabe9e0b31fdf73ed5766d17dae4d0dd13c04f",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_b37256547e00863903bb4c0b22f9e3610a9b76dd9790cd32e570eec1d7338fe6"
+          ]
+        },
+        {
+          "amount": {
+            "atoms": "-2000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_fe0dd7dfbd82136d3ced1c6192fabe9e0b31fdf73ed5766d17dae4d0dd13c04f",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-1",
+          "discount_target": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "effect_id": "ef_f7d058ca859519c4dfd6d9ed07462d7f8f38c03613553b184d04ac711999611e",
+          "id": "ac_72878a471fceca6f1d796cb014181ffbcc3fd43d29d71d7b9731a938c2875875",
+          "inputs": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "kind": "Discount",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_b37256547e00863903bb4c0b22f9e3610a9b76dd9790cd32e570eec1d7338fe6"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ],
+          [
+            0,
+            1
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_fe0dd7dfbd82136d3ced1c6192fabe9e0b31fdf73ed5766d17dae4d0dd13c04f",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              },
+              {
+                "component": "base-retail-1",
+                "id": "base-retail-1",
+                "on": "content.generated",
+                "operation": {
+                  "Discount": {
+                    "amount": {
+                      "Fixed": "20"
+                    },
+                    "component": "base-retail-0",
+                    "mode": "Additive"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_9b5db69a3f9c463e24d4f32a489c967dcbfbba79426d8d09077650421ce27ee5",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_72878a471fceca6f1d796cb014181ffbcc3fd43d29d71d7b9731a938c2875875",
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "8000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:6f2a99c8132253baac125d9d6ef8957c87eda82abab938764e079e3915f1b7a4",
+        "event_id": "ev_b37256547e00863903bb4c0b22f9e3610a9b76dd9790cd32e570eec1d7338fe6",
+        "event_utf8": "{\"chain\":\"retail-net-after-booking-discount\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"retail-net-after-booking-discount-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:03069e27f1bb9c09e11a88584cdc08a10f11f464b6531409fcc511f4f0a17f52",
+        "ingress_utf8": "{\"chain\":\"retail-net-after-booking-discount\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"retail-net-after-booking-discount-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        },
+        {
+          "action_ids": [
+            "ac_72878a471fceca6f1d796cb014181ffbcc3fd43d29d71d7b9731a938c2875875"
+          ],
+          "basis": {
+            "denominator": "1",
+            "numerator": "10000"
+          },
+          "binding_id": "binding-retail",
+          "code": "DISCOUNT_APPLIED",
+          "inputs": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "rounded": "-2000",
+          "rule_id": "base-retail-1",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "-2000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_704a1b75e03ab947bacd00d476e6f5afdbc14b1bbbc13048c8af1ec80de3c3ee",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "cross-binding-corrections": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_6590120ebcd19f904232c4926219117ab3ae708d18325070ac53a29f83ec9f45",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "tool.completed"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_668e387d661ad73feaf83b94a9414273de574e54fa79c411477a59d12c6b6ccb"
+          ]
+        },
+        {
+          "amount": {
+            "atoms": "3000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-supplier",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_6590120ebcd19f904232c4926219117ab3ae708d18325070ac53a29f83ec9f45",
+            "book": "Supplier",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "tool.completed"
+            ],
+            "id": "binding-supplier",
+            "maximum_exposure": {
+              "atoms": "15000",
+              "currency": "USD",
+              "scale": 2
+            },
+            "maximum_quantity": "1",
+            "offer": "doc_7ec33270e9efcaa073d5c81a789ffaa52ef566413bb7597c70f5951f28d038f0",
+            "roles": {
+              "bearer": "host",
+              "beneficiary": "host",
+              "cost_originator": "supplier",
+              "payer": "host",
+              "provider": "supplier",
+              "recipient": "supplier"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Supplier",
+          "component": "base-supplier-0",
+          "effect_id": "ef_51c01ca199b7104eedfde24b835e497207b43f796d4147f2da2acbdd77dfa12b",
+          "id": "ac_a9598bc3b9f3b01998003f625b32233efc0d5534d42fa9b152e46f61639c8163",
+          "inputs": [],
+          "kind": "Cost",
+          "links": [],
+          "obligation_id": "ob_92dd93b2e597ff7fa4e25b4c76197dfe31cb52bfd4e9f3742fc61063498d6db1",
+          "sources": [
+            "ev_668e387d661ad73feaf83b94a9414273de574e54fa79c411477a59d12c6b6ccb"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_6590120ebcd19f904232c4926219117ab3ae708d18325070ac53a29f83ec9f45",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "tool.completed"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "tool.completed",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          },
+          {
+            "binding": {
+              "agreement": "agreement-supplier",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_6590120ebcd19f904232c4926219117ab3ae708d18325070ac53a29f83ec9f45",
+              "book": "Supplier",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "tool.completed"
+              ],
+              "id": "binding-supplier",
+              "maximum_exposure": {
+                "atoms": "15000",
+                "currency": "USD",
+                "scale": 2
+              },
+              "maximum_quantity": "1",
+              "offer": "doc_7ec33270e9efcaa073d5c81a789ffaa52ef566413bb7597c70f5951f28d038f0",
+              "roles": {
+                "bearer": "host",
+                "beneficiary": "host",
+                "cost_originator": "supplier",
+                "payer": "host",
+                "provider": "supplier",
+                "recipient": "supplier"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-supplier-0",
+                "id": "base-supplier-0",
+                "on": "tool.completed",
+                "operation": {
+                  "Base": {
+                    "Fixed": "30"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [
+        {
+          "consume": {
+            "atoms": "3000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "invocation_id": "invocation-supplier",
+          "release": {
+            "atoms": "12000",
+            "currency": "USD",
+            "scale": 2
+          }
+        }
+      ],
+      "context": {
+        "customer": "customer",
+        "document": "doc_160a56ebaf85d5d08583c46535a86b38443d7dffafaa2366938bae70e4bd2411",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_a9598bc3b9f3b01998003f625b32233efc0d5534d42fa9b152e46f61639c8163"
+          ],
+          "amount": {
+            "atoms": "3000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Supplier",
+          "obligation_id": "ob_92dd93b2e597ff7fa4e25b4c76197dfe31cb52bfd4e9f3742fc61063498d6db1",
+          "roles": {
+            "bearer": "host",
+            "beneficiary": "host",
+            "cost_originator": "supplier",
+            "payer": "host",
+            "provider": "supplier",
+            "recipient": "supplier"
+          }
+        },
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:b7e0ce9769c48ba5b87a077f831ce6ea20f9789eadb44065b829b781c20cfd84",
+        "event_id": "ev_668e387d661ad73feaf83b94a9414273de574e54fa79c411477a59d12c6b6ccb",
+        "event_utf8": "{\"binding_id\":\"binding-supplier\",\"chain\":\"cross-binding-corrections\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"cross-binding-corrections-base\",\"invocation_id\":\"invocation-supplier\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"tool.completed\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:0a2389a6c40c75bc6080ac9787c308bfc6800606d524c38897486f6529641add",
+        "ingress_utf8": "{\"binding_id\":\"binding-supplier\",\"chain\":\"cross-binding-corrections\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"cross-binding-corrections-base\",\"invocation_id\":\"invocation-supplier\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"tool.completed\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        },
+        {
+          "action_ids": [
+            "ac_a9598bc3b9f3b01998003f625b32233efc0d5534d42fa9b152e46f61639c8163"
+          ],
+          "binding_id": "binding-supplier",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "3000",
+          "rule_id": "base-supplier-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "3000"
+          }
+        }
+      ],
+      "invocations": [
+        {
+          "attested_start": "2026-09-21T12:00:00.000000Z",
+          "authorized_at": "2026-09-21T12:00:00.000000Z",
+          "binding_id": "binding-supplier",
+          "chain": "cross-binding-corrections",
+          "customer": "customer",
+          "held": {
+            "atoms": "15000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "id": "invocation-supplier",
+          "maximum_exposure": {
+            "atoms": "15000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "maximum_quantity": "1",
+          "operation_id": "base",
+          "outcome_deadline": "2026-09-25T13:00:00.000000Z",
+          "source": "urn:synthetic:work",
+          "start_before": "2026-09-21T12:01:00.000000Z",
+          "unit": "call"
+        }
+      ],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "tool.completed"
+        ],
+        "grant": "doc_89653e65aa5e8119eb9ac8df4f05d13dd7e99bd2ac963a1538705ac9f6c13e71",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    },
+    "inclusive-ordinary-deadlines": {
+      "actions": [
+        {
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "binding": {
+            "agreement": "agreement-retail",
+            "allocation_view": false,
+            "allowed_modifiers": [],
+            "assent": "doc_a58810c511b423e6891675d924edacd45b71a6b8ed98cb9322e81068be815608",
+            "book": "Retail",
+            "correction_sources": [
+              "urn:synthetic:correction"
+            ],
+            "event_types": [
+              "content.generated"
+            ],
+            "id": "binding-retail",
+            "maximum_quantity": "1",
+            "roles": {
+              "bearer": "customer",
+              "beneficiary": "customer",
+              "cost_originator": "host",
+              "payer": "customer",
+              "provider": "host",
+              "recipient": "host"
+            },
+            "sources": [
+              "urn:synthetic:outcome",
+              "urn:synthetic:work"
+            ],
+            "unit": "call"
+          },
+          "book": "Retail",
+          "component": "base-retail-0",
+          "effect_id": "ef_34e7d2fe56f93d30fa56dba62def29453bcfb806d39129cc526a3b297959c19d",
+          "id": "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea",
+          "inputs": [],
+          "kind": "Charge",
+          "links": [],
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "sources": [
+            "ev_3f141243604f16197b3202cc2148975e94c8b024d96eba11137975b625f406a3"
+          ]
+        }
+      ],
+      "bundle": {
+        "currency": "USD",
+        "order": [
+          [
+            0,
+            0
+          ]
+        ],
+        "policies": [
+          {
+            "binding": {
+              "agreement": "agreement-retail",
+              "allocation_view": false,
+              "allowed_modifiers": [],
+              "assent": "doc_a58810c511b423e6891675d924edacd45b71a6b8ed98cb9322e81068be815608",
+              "book": "Retail",
+              "correction_sources": [
+                "urn:synthetic:correction"
+              ],
+              "event_types": [
+                "content.generated"
+              ],
+              "id": "binding-retail",
+              "maximum_quantity": "1",
+              "roles": {
+                "bearer": "customer",
+                "beneficiary": "customer",
+                "cost_originator": "host",
+                "payer": "customer",
+                "provider": "host",
+                "recipient": "host"
+              },
+              "sources": [
+                "urn:synthetic:outcome",
+                "urn:synthetic:work"
+              ],
+              "unit": "call"
+            },
+            "rules": [
+              {
+                "component": "base-retail-0",
+                "id": "base-retail-0",
+                "on": "content.generated",
+                "operation": {
+                  "Base": {
+                    "Fixed": "100"
+                  }
+                },
+                "when": []
+              }
+            ]
+          }
+        ],
+        "scale": 2
+      },
+      "claim_id": "cl_1106ddae67e5fef33eacb4652631a450a965485282cce7dfec4eb811e2f97a20",
+      "consumptions": [],
+      "context": {
+        "customer": "customer",
+        "document": "doc_0c89d816c85cb89e9ac7445cd75688b546b621d2e05f204fff1b017260b75516",
+        "funding": "Byok"
+      },
+      "costs": [],
+      "deltas": [
+        {
+          "actions": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "amount": {
+            "atoms": "10000",
+            "currency": "USD",
+            "scale": 2
+          },
+          "book": "Retail",
+          "obligation_id": "ob_de9d7d45e3540731212a9263a8bdb80af60f0550ea8b00edd4e2cea4bc2a3de2",
+          "roles": {
+            "bearer": "customer",
+            "beneficiary": "customer",
+            "cost_originator": "host",
+            "payer": "customer",
+            "provider": "host",
+            "recipient": "host"
+          }
+        }
+      ],
+      "event": {
+        "event_hash": "sha256:950a73ce994f7ee608c4e702b1797303e2129a97a533c5aa5f6cf1ff599ecac2",
+        "event_id": "ev_3f141243604f16197b3202cc2148975e94c8b024d96eba11137975b625f406a3",
+        "event_utf8": "{\"chain\":\"inclusive-ordinary-deadlines\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"inclusive-ordinary-deadlines-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "ingress_hash": "sha256:a35c26bb141580b93d42c4d619c1dc3ed0234d8d523e574a4d3fc5f9fd8d14e9",
+        "ingress_utf8": "{\"chain\":\"inclusive-ordinary-deadlines\",\"customer\":\"customer\",\"evidence\":[],\"extensions\":{},\"id\":\"inclusive-ordinary-deadlines-base\",\"links\":[],\"occurred_at\":\"2026-09-21T12:00:00.000000Z\",\"operation_id\":\"base\",\"quantity\":\"1\",\"schema\":\"ledger-event/1\",\"source\":\"urn:synthetic:work\",\"status\":\"succeeded\",\"type\":\"content.generated\",\"unit\":\"call\"}",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "source": "urn:synthetic:work"
+      },
+      "explanations": [
+        {
+          "action_ids": [
+            "ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea"
+          ],
+          "binding_id": "binding-retail",
+          "code": "BASE_APPLIED",
+          "inputs": [],
+          "rounded": "10000",
+          "rule_id": "base-retail-0",
+          "unrounded": {
+            "denominator": "1",
+            "numerator": "10000"
+          }
+        }
+      ],
+      "invocations": [],
+      "received_at": "2026-09-21T12:00:00.000000Z",
+      "source_authority": {
+        "active": true,
+        "event_types": [
+          "content.generated"
+        ],
+        "grant": "doc_8549ae82ab7804fbecd3ff6057dfeb2c3f519a651fbf2aeacf34dfb7b3f67cda",
+        "relations": [],
+        "revision": "1",
+        "source": "urn:synthetic:work"
+      }
+    }
+  }
+}

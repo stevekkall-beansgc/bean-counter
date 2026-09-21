@@ -1,5 +1,5 @@
 {
-  "profile": "2-candidate.3",
+  "profile": "2-candidate.4",
   "status": "candidate-not-frozen",
   "accepted": {
     "EXACT_REVERSAL": "Exact stored current Money negated; retained even at zero.",

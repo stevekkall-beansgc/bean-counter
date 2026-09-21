@@ -1,7 +1,7 @@
 # Outcome canonical records — reconciled candidate
 
 **Review candidate, not frozen. Fresh-context independent review pending.**
-Profile `2-candidate.3` corrects candidate `.2` from commit `e8139e6`; it does
+Profile `2-candidate.4` corrects candidate `.3` from commit `09b076a`; it does
 not supersede or alter any v1 contract, fixture, hash or receipt. The changed
 candidate hash domain prevents silent reinterpretation of the earlier draft.
 Only roadmap Phase 1 is being executed; see `ROADMAP.md`.
@@ -99,7 +99,14 @@ are positive. Invocation maximum quantity is nonnegative structurally and must
 cover its nominated positive work quantity. Base-policy percentages are decimals
 in 0–100; approved outcome percentages remain signed exact ratios. Exposure,
 held amounts, booked capacities and premium/discount limits are nonnegative.
-Signed result atoms and signed ratio numerators remain permitted.
+Signed result atoms and signed ratio numerators remain permitted. Every pattern
+matches the entire string, including its absolute end. Atoms, ratio components,
+counters, IDs, hashes, slugs and decimals reject trailing newlines, whitespace,
+control characters, signs or alternate digit spellings before numeric conversion.
+Python uses fullmatch plus absolute-end patterns; independent Node validation
+uses the same schema and absolute-end checks. The same 216 vectors run against
+the approved Rust scalar parsers. Five completely rehashed noncanonical scalar
+histories pass hash-only integrity and reject in all three language validators.
 
 Nesting <=32; record body/evidence <=256 KiB; decision <=4 MiB; resolved input
 <=8 MiB; explanations <=1 MiB. Schema array limits also apply. Target families
@@ -115,7 +122,7 @@ comes from authenticated context. Bodies inherit scope. All references resolve
 in that same scope and local retained records; no network fetch or fallback to
 current configuration. Every internal ID has its kind's prefix.
 
-`H(k,v) = lowercase_hex(SHA256(UTF8("ledgerlab/"+k+"/2-candidate.3") || NUL ||
+`H(k,v) = lowercase_hex(SHA256(UTF8("ledgerlab/"+k+"/2-candidate.4") || NUL ||
 JCS(v)))`; `digest(k,v)="sha256:"+H(k,v)`.
 `ID(kind,v)=prefix+"2_"+H(kind,v)`.
 All body hashes are `digest("record-content",[kind,2,body])` except manifests,
@@ -129,6 +136,7 @@ content-derived IDs but never permanent eligibility identity.
 | binding-snapshot, base-evaluation, target-snapshot | bs, be, ts | `[scope,body]` |
 | event | ev | `[scope,source,external_id]` |
 | base-posting | bp | `[scope,event_id,agreement_id,book,ordinal]` |
+| base-identity | bi | `[scope,target,original_kind,original_id]` |
 | base-acceptance | ba | `[target]` |
 | authority-decision, admission, decision-manifest, receipt | au, ad, dc, rc | `[event_id]` |
 | claim | cl | `[scope,agreement_id,family_id,target]` |
@@ -156,7 +164,10 @@ not alternative sorting orders. Manifest and journal members sort by
 `(kind UTF-8,JCS(id) UTF-8)`. One member per `(kind,id)`. Scope/hash tuples,
 history order, base execution order and explanation ordinals retain order.
 
-`claim.facts_hash=digest("claim-facts",event.data without external_id)`;
+`claim.facts_hash=digest("claim-facts",facts)` where `facts` is event.data
+without external_id, with every evidence wrapper resolved to its original `doc_`
+identity and the resulting document IDs sorted. Duplicate resolved documents
+reject before facts comparison; wrapper purpose never changes retry facts;
 `delivery-key.ingress_hash=digest("ingress",normalized event body)`.
 `effect.facts_hash=digest("effect-facts",action body without schema,event_id,
 effect_id,policy_snapshot)`. The latter retains exact amount, roles, obligation,
@@ -165,11 +176,11 @@ Every indexed or inline copy must agree with its referenced record.
 
 ## Retained base, frozen target and admission
 
-There are 26 closed record kinds. The prior 21 kinds remain: evidence,
+There are 27 closed record kinds. The prior 21 kinds remain: evidence,
 policy-snapshot, event, base-posting, target-basis, admission, claim,
 claim-revision, effect, action, obligation, link, dependency, limit-evidence,
 explanation, replay-input, intention, delivery-key, chain-revision,
-decision-manifest and receipt. Five additions close the earlier target gap:
+decision-manifest and receipt. Six additions close the target and original-identity gaps:
 
 - `binding-snapshot`: original binding identity, agreement/book, six roles,
   verified assent/offer/delegation refs, permitted sources, original booked net,
@@ -177,12 +188,17 @@ decision-manifest and receipt. Five additions close the earlier target gap:
   `binding_utf8` retains every approved `Binding` field, including optional
   `outcome`, offer, exposure and `roles.payer_delegation`; indexing fields are
   derived from it and checked, rather than treated as the original source.
-- `base-evaluation`: exact retained `evaluation_utf8` plus hash-pinned original
+- `base-evaluation`: exact retained `original_evaluation_utf8`, explicit
+  `identity_mappings`, derived `evaluation_utf8`, and hash-pinned original
   postings/bindings/predecessor evaluations and original receipt time. The JSON
   payload contains event, complete bundle/context, base claim, actions,
   explanations, deltas, consumptions, invocations, source authority and costs.
   Empty lists are retained, not guessed during replay. Original source data is
   never replaced by just the basis sum or a current price.
+- `base-identity`: one target-qualified projection for each original identity
+  without a standalone candidate economic row, including base claims and effects.
+  Its required fields are `target`, `original_target`, `original_kind`, and
+  `original_id`; it creates no claim eligibility or monetary effect.
 - `target-snapshot`: the complete policy-family/binding/limit set, original base
   evaluation, retail basis, finality evidence and rated-final observation,
   accepted time, verified assents/offers/delegations. `policy_utf8` retains the
@@ -215,16 +231,58 @@ Extensions allow only the original 16 scalar entries/4096 canonical bytes and
 cannot be accessed as pricing or authority inputs. No unknown field is silently
 removed: unknown economic fields reject; approved extension values are retained.
 
-`evaluation_utf8` has a closed schema-complete representation of the approved
-Evaluation: event; complete bundle and execution order; context and optional
-stage/tier/priority; optional claim and closed stage; actions with full binding,
-kind/component, sources/links/inputs and optional reverse/allocation/discount
-references; explanation inputs and optional numeric fields; deltas; consumptions;
-invocations; receipt time; source authority; and cost evidence. Its event must
-exactly equal the original event bytes. `binding_utf8` must exactly equal its
-complete binding in the retained bundle; original action bindings must match it.
-Ordered original vectors stay ordered inside source bytes, including fields the
-approved model does not deduplicate. Index projections use documented sets.
+`original_evaluation_utf8` preserves the complete actual Evaluation returned by
+the approved core, including its private retained fields, native enum variants,
+original event state, bundle/order, context, claim, actions, explanations, deltas,
+consumptions, invocations, closed stage, receipt time, source authority and costs.
+`original-evaluations.json` contains the 23 captured synthetic evaluations at the
+exact approved commit. This is source material, not a reconstructed monetary
+summary. Original `ev_`, `cl_`, `ac_`, `ef_`, `ob_`, `doc_` and link identities remain
+unchanged everywhere, including action provenance and explanation dependencies.
+For example, fixed-success-fee retains action
+`ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea`.
+No `bp2_` ID or synthetic placeholder is substituted into original material.
+
+The typed contract encoding uses the approved model's serde enum tags; optional
+fields stay absent. Explanation rounded atoms are strings. Event retains scope,
+authenticated source, canonical ingress/event bytes, both hashes and original ID;
+decoding normalizes and resolves it and checks every retained value and byte.
+The disposable codec adds serde derives to the actual approved model and a
+complete Event/Explanation adapter. It does not introduce production code.
+
+`evaluation_utf8` is a derived projection: enum tags are translated to the
+candidate vocabulary and event state is projected to its full original DTO.
+Every other field, identity, optional value and vector remains exact. The entire
+projection must equal the retained source after that deterministic translation.
+Original vector order is preserved even where the original model permits repeat
+values. `binding_utf8` must equal the complete original binding in the bundle;
+original action bindings must match it.
+
+`identity_mappings` is a canonical sorted set of
+`{target,original_target,original_kind,original_id,projection}`. `projection` is a
+full `{kind,id,content_hash}` reference. There is exactly one mapping per distinct
+original internal identity and per binding/invocation label. Original external
+labels, agreements, parties, rule/component/operation IDs remain exact source
+values; they are not assigned a replacement namespace. The complete registry is
+derived from typed original material, excluding opaque extensions. Each mapping
+is qualified by both original and candidate target; the same genuine native ID
+may occur in another target's independently checked evaluation.
+
+The current original event maps to the candidate base event; payable base actions
+to their exact posting (amount, unit, book, binding, agreement, roles and original
+binding-local ordinal); original obligations to the corresponding full obligation;
+bindings to their exact snapshots; and documents to matching retained evidence.
+Remaining internal identities map one-to-one to `base-identity` rows. Native
+sources/inputs still reference native IDs; the mapping table supplies projection
+references without rewriting them. Missing, extra or duplicate original keys,
+ambiguous projection IDs, cross-target mappings, wrong action/binding/obligation/
+document projections and unmapped identity rows reject after complete rehashing.
+All rows and mappings are members of the immutable base-acceptance root.
+
+Accepted bases require `source_state=accepted` and full original Evaluation bytes.
+The rejected cap preparation uses `source_state=rejected_preparation`, carries no
+accepted Evaluation/identity mappings or fabricated base receipt, and never
+enters accepted-base roundtrip counts.
 
 The retained Binding maps `id`/`agreement` to projection
 `binding_id`/`agreement_id`. Original doc references in assent/offer/delegation
@@ -249,7 +307,10 @@ policy evidence references are included in original base membership.
 
 The schema-complete codec and round trips are contract artifacts. The disposable
 approved-core comparison normalizes the actual original event bytes, compiles
-the retained bindings, and compares all candidate base/result economics. It does
+the retained bindings, re-evaluates each of the 23 accepted bases, and compares
+complete canonical original Evaluation bytes after a typed decode/encode
+roundtrip. This checks all fields, IDs and ordered vectors, alongside all 43
+outcome/correction results. It does
 not install a production historical decoder or v1 journal migration bridge.
 
 ### Evidence introduced by a decision
@@ -260,7 +321,13 @@ must be referenced by that exact event and its verifying `authority-decision`;
 every explanation carries that authority decision and the exact request evidence
 set. Replay includes new evidence alongside the current event, admission and
 authority observation. The decision manifest binds all of these records and the
-receipt binds that manifest. Previously retained evidence may be reused.
+receipt binds that manifest. Previously retained evidence may be reused,
+including a later correction that retains a different purpose wrapper for the
+same original document. Request, verified, explanation and retry evidence sets
+are checked for uniqueness after resolving wrappers to `doc_` IDs. Two wrappers
+for one document in the same set reject; reuse across different decisions is
+valid. Claim facts use these resolved document IDs, so changing only a wrapper
+returns the original claim receipt, including after subsequent corrections.
 
 Evidence JSON is inert. It cannot supply a family, policy version, binding, rate,
 amount, capacity or authorization flags. Those come only from frozen membership
@@ -349,7 +416,7 @@ in Python and Node, then require semantic rejection for changed basis, frozen
 membership, revision, supplier discount/held capacity, stale correction,
 ordinary/correction deadline boundaries and version-created eligibility.
 
-Candidate `.3` is submitted for a **separate fresh-context review**, not self-certified
+Candidate `.4` is submitted for a **separate fresh-context review**, not self-certified
 freeze. Required review questions: lossless production base codec and v1 receipt
 mapping; the original-base trust-anchor/read boundary; completeness of retained
 supplier reservation observations; and canonical-to-typed equivalence across
@@ -358,19 +425,23 @@ before allowing a decoder or persistence bridge. The durable roadmap contains
 the later integration, both-store persistence, nonposting comparison, CLI/CSV
 and final independent-review gates.
 
-## Compatibility from candidate.2
+## Compatibility from candidate.3
 
-Candidate `.2` at `e8139e6df68880ae9c520ee100a05dcfd0ede673` failed independent
-review. Its bytes remain in Git history. `.3` changes schema discriminators and
-hash domains, adds required original document/event/binding/policy fields,
-permits decision evidence, adds action/effect binding provenance and explanation
-evidence references, and enforces schema-directed scalar constraints. Candidate
-record IDs and receipts therefore change. No `.2` bytes are silently read as `.3`.
+Candidate `.3` at `09b076a3034064a85fd3da8d626ad02a9fb9a38a` failed independent
+review on original Evaluation identity preservation, resolved-document evidence
+uniqueness and terminal-newline scalar acceptance. Its bytes remain in Git
+history. `.4` changes schema discriminators/hash domains, requires the actual
+original Evaluation and explicit one-to-one mappings, adds `base-identity`,
+normalizes retry facts by original document ID, and rejects noncanonical whole
+scalar spellings. Candidate IDs and receipts therefore change intentionally.
+No `.3` bytes are silently interpreted as `.4`.
 
-There is no automatic migration: `.2` can lack original bytes and verification
-observations, so filling new fields with guesses would be lossy and unauthorized.
-Re-author a candidate from retained original source material and observations,
-then independently review it. Historical v1 bytes, IDs, receipts, schemas,
-compatibility declarations and support claims remain untouched. `ROADMAP.md`
-remains byte-identical to the committed Phase 1 roadmap. A new reviewer decides
-whether the corrected candidate can freeze; this document does not authorize it.
+There is no automatic migration: prior projections cannot recover missing
+original IDs, dependencies or fields. Re-author only from retained original
+source material and verified observations, then independently review it. The
+captured sources and exact approved-core roundtrips make this candidate's
+examples reviewable; they are not production historical-decoder certification.
+Historical v1 bytes, IDs, receipts, schemas, compatibility declarations and
+support claims remain untouched. `ROADMAP.md` remains byte-identical to the
+committed Phase 1 roadmap. A fresh reviewer decides whether this candidate can
+freeze; this document does not authorize it.

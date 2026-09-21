@@ -1,7 +1,7 @@
 # Candidate ADR: reconcile canonical target outcomes with approved semantics
 
 Status: **proposed; not frozen; fresh-context independent review pending**.
-Profile `2-candidate.3` corrects reviewed candidate `.2` in `e8139e6`.
+Profile `2-candidate.4` corrects reviewed candidate `.3` in `09b076a`.
 Semantic authority: `1e0ba3f886788c08f427d3aae1d916b341187e76`.
 
 The earlier candidate diverged from the approved implementation: it used supplier
@@ -14,7 +14,23 @@ Candidate `.2` failed fresh-context review because it forbade new verified
 decision evidence, omitted policy-document verification, discarded original
 event extensions/Binding.outcome terms, failed to bind actions to their selected
 binding, and incompletely enforced scalar byte/decimal bounds. `.3` addresses
-those five findings. This is a proposed correction, not freeze approval.
+those five findings. Fresh review of `.3` then found substituted original
+Evaluation identities, duplicate documents hidden behind distinct evidence
+wrappers and terminal-newline scalar acceptance. `.4` addresses those three
+findings. This remains a proposed correction, not freeze approval.
+
+The `.4` correction retains the actual complete approved-core Evaluation with
+all original IDs and dependencies. A separate, target-qualified one-to-one
+mapping ties native IDs to exact candidate projections; a `base-identity` record
+preserves IDs with no standalone posting row. Every accepted base must roundtrip
+through the actual typed Evaluation without identity substitution. Missing,
+duplicate, ambiguous, cross-target or inconsistent mappings reject.
+
+Evidence uniqueness and retry facts use resolved original `doc_` IDs. Distinct
+wrappers cannot duplicate a document within one request/verified/explanation set;
+legitimate reuse in later decisions remains valid. Scalar grammar checks match
+the entire string before conversion, with Python/Node/Rust parity and completely
+rehashed newline attacks.
 
 Decisions encoded for review:
 
@@ -56,14 +72,15 @@ Decisions encoded for review:
 
 Canonical profile changes are intentionally versioned in the candidate hash
 domain. Existing v1 contracts and compatibility declarations stay untouched.
-No automatic `.2` migration can recover missing original values; re-author only
+No automatic `.3` migration can recover missing original values; re-author only
 from retained source material, then review. The complete field dictionary, ordering, IDs and membership are in
 [the reconciled design](../../design/CANONICAL-RECORDS-V2-CANDIDATE.md).
 
 Open reviewer questions concern the proposed historical base-material codec,
 v1-to-target reference mapping without receipt rewriting, authentic durable
 base-root retrieval, supplier reservation observation completeness and combined
-canonical-to-typed equivalence. These require a separate fresh-context reviewer
+production canonical-to-typed equivalence beyond the 23 exact synthetic
+Evaluation roundtrips certified here. These require a separate fresh-context reviewer
 and the later integration/persistence gates in `ROADMAP.md`.
 
 Neither these checks nor the author's self-review certify a freeze. No merge,

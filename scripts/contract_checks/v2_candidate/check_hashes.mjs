@@ -1,11 +1,14 @@
 // Independent candidate byte/hash and structured-key reconstruction. No Python,
 // Rust, computed vectors or expected digests supply hash/identity preimages.
+import {validate} from './scalars.mjs';
 import {createHash} from 'node:crypto';
 import {readFileSync,readdirSync} from 'node:fs';
 import {join} from 'node:path';
 import assert from 'node:assert/strict';
 const root=process.argv[2]||'.', dir=join(root,'contracts/candidates/v2/goldens');
-const prefix={'evidence':'ed','policy-snapshot':'po','event':'ev','base-posting':'bp','target-basis':'tb','admission':'ad','claim':'cl','claim-revision':'rv','effect':'ef','action':'ac','obligation':'ob','limit-evidence':'li','explanation':'xp','replay-input':'rp','intention':'in','decision-manifest':'dc','receipt':'rc','binding-snapshot':'bs','base-evaluation':'be','target-snapshot':'ts','base-acceptance':'ba','authority-decision':'au'};
+const schema=JSON.parse(readFileSync(join(root,'contracts/candidates/v2/schemas/canonical-records.schema.json')));
+const hashOnly=process.argv.includes('--hash-only');
+const prefix={'base-identity':'bi','evidence':'ed','policy-snapshot':'po','event':'ev','base-posting':'bp','target-basis':'tb','admission':'ad','claim':'cl','claim-revision':'rv','effect':'ef','action':'ac','obligation':'ob','limit-evidence':'li','explanation':'xp','replay-input':'rp','intention':'in','decision-manifest':'dc','receipt':'rc','binding-snapshot':'bs','base-evaluation':'be','target-snapshot':'ts','base-acceptance':'ba','authority-decision':'au'};
 function jcs(x) {
   if(Array.isArray(x)) return '['+x.map(jcs).join(',')+']';
   if(x!==null && typeof x==='object') return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+jcs(x[k])).join(',')+'}';
@@ -14,7 +17,7 @@ function jcs(x) {
   return JSON.stringify(x);
 }
 const raw=b=>createHash('sha256').update(b).digest('hex');
-const hash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/2-candidate.3`),Buffer.from([0]),Buffer.from(jcs(v))]));
+const hash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/2-candidate.4`),Buffer.from([0]),Buffer.from(jcs(v))]));
 const originalHash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/1`),Buffer.from([0]),Buffer.from(jcs(v))]));
 const id=(k,v)=>prefix[k]+'2_'+hash(k,v);
 const cmp=(a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b));
@@ -25,6 +28,7 @@ function derive(r) {
   switch(k) {
     case 'evidence': case 'policy-snapshot': case 'target-basis': case 'replay-input': case 'binding-snapshot': case 'base-evaluation': case 'target-snapshot': return id(k,[s,b]);
     case 'event': return id(k,[s,b.data.source,b.data.external_id]);
+    case 'base-identity': return id(k,[s,b.target,b.original_kind,b.original_id]);
     case 'base-posting': return id(k,[s,b.event_id,b.agreement_id,b.book,b.ordinal]);
     case 'claim': return id(k,[s,b.agreement_id,b.family_id,b.target]);
     case 'claim-revision': return id(k,[b.claim_id,b.number]);
@@ -51,6 +55,7 @@ for(const [filename,history] of entries) {
   for(const group of [history.seed,...history.decisions.map(d=>d.records)]) {
     assert.deepEqual([...group].sort(order),group);
     for(const r of group) {
+      if(!hashOnly)validate(schema,r);
       assert.deepEqual(derive(r),r.id,`${filename}: ${r.kind} identity`);
       const actual='sha256:'+hash(r.kind==='decision-manifest'?'decision-content':'record-content',r.kind==='decision-manifest'?r.body:[r.kind,2,r.body]);
       assert.equal(actual,r.content_hash);
@@ -72,8 +77,14 @@ for(const [filename,history] of entries) {
   }
   for(const r of known.values()) {
     references(r.body);
-    for(const field of ['utf8','evaluation_utf8','binding_utf8','policy_utf8','original_event_utf8','original_ingress_utf8']) {
+    for(const field of ['utf8','evaluation_utf8','binding_utf8','policy_utf8','original_event_utf8','original_ingress_utf8','original_evaluation_utf8']) {
       if(field in r.body) assert.equal(jcs(JSON.parse(r.body[field])),r.body[field],'lossless canonical source');
+    }
+    if(r.kind==='claim') {
+      const event=known.get(jcs(['event',r.body.first_event])).body;
+      const facts=Object.fromEntries(Object.entries(event.data).filter(([k])=>k!=='external_id'));
+      facts.evidence=facts.evidence.map(i=>known.get(jcs(['evidence',i])).body.document_id).sort((a,b)=>cmp(jcs(a),jcs(b)));
+      assert.equal(r.body.facts_hash,'sha256:'+hash('claim-facts',facts));
     }
     if(r.kind==='evidence') {
       const b=r.body,h=originalHash('document',[b.document_type,b.document_version,JSON.parse(b.utf8)]);
@@ -89,7 +100,7 @@ for(const [filename,history] of entries) {
     if(r.kind==='base-acceptance') {
       const b=r.body;
       assert.deepEqual(b.members,history.seed.filter(r=>r.kind!=='base-acceptance').map(ref).sort(order));
-      const receipt={schema:'ledger-base-receipt/2-candidate.3',target:b.target,base_evaluation:b.base_evaluation,target_snapshot:b.target_snapshot,accepted_at:b.accepted_at,membership_hash:'sha256:'+hash('base-membership',b.members)};
+      const receipt={schema:'ledger-base-receipt/2-candidate.4',target:b.target,base_evaluation:b.base_evaluation,target_snapshot:b.target_snapshot,accepted_at:b.accepted_at,membership_hash:'sha256:'+hash('base-membership',b.members)};
       assert.equal(b.original_receipt_utf8,jcs(receipt));
     }
   }

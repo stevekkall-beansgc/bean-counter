@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from math import gcd
 
-PROFILE = '2-candidate.3'
+PROFILE = '2-candidate.4'
 SEMANTIC_COMMIT = '1e0ba3f886788c08f427d3aae1d916b341187e76'
 PREFIX = dict(zip(
     ['evidence','policy-snapshot','event','base-posting','target-basis','admission',
@@ -13,6 +13,7 @@ PREFIX = dict(zip(
      'explanation','replay-input','intention','decision-manifest','receipt'],
     ['ed','po','ev','bp','tb','ad','cl','rv','ef','ac','ob','li','xp','rp','in','dc','rc']))
 
+PREFIX['base-identity']='bi'
 PREFIX.update({'binding-snapshot':'bs','base-evaluation':'be','target-snapshot':'ts','base-acceptance':'ba','authority-decision':'au'})
 
 def strict(raw):
@@ -55,6 +56,7 @@ def reference(row): return {k:row[k] for k in ('kind','id','content_hash')}
 def key_input(kind,s,b):
     if kind in ('evidence','policy-snapshot','target-basis','replay-input','binding-snapshot','base-evaluation','target-snapshot'):
         value=[s,b]
+    elif kind=='base-identity': value=[s,b['target'],b['original_kind'],b['original_id']]
     elif kind=='event': value=[s,b['data']['source'],b['data']['external_id']]
     elif kind=='base-posting': value=[s,b['event_id'],b['agreement_id'],b['book'],b['ordinal']]
     elif kind=='claim': value=[s,b['agreement_id'],b['family_id'],b['target']]
@@ -85,6 +87,9 @@ def content_hash(kind,b):
 def envelope(kind,scope,b):
     return {'kind':kind,'scope':scope,'id':key(kind,scope,b),'body':b,'content_hash':content_hash(kind,b)}
 
-def facts(event): return {k:v for k,v in event['data'].items() if k!='external_id'}
+def facts(event, resolve):
+    value={k:v for k,v in event['data'].items() if k!='external_id'}
+    value['evidence']=ordered([resolve(i) for i in value['evidence']])
+    return value
 def effect_facts(action):
     return {k:v for k,v in action.items() if k not in ('schema','event_id','effect_id','policy_snapshot')}

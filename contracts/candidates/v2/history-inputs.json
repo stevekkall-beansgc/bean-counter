@@ -660,6 +660,24 @@
             "1"
           ],
           "new_evidence": "verified correction after ordinary claim"
+        },
+        {
+          "family": "success",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ],
+          "reuse_decision_evidence": 0
+        }
+      ],
+      "probes": [
+        {
+          "kind": "evidence_wrapper_retry",
+          "step": 0,
+          "expected": "DUPLICATE_CLAIM"
         }
       ]
     },

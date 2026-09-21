@@ -12,12 +12,12 @@ from profile import (canonical, content_hash, digest, effect_facts, facts, key,
 from reconstruct import CANDIDATE, ROOT, files
 from semantics import freeze, window, bounded, exact_percentage
 from scalars import Validator
-from retained import validate_documents
+from retained import validate_documents, resolved_evidence
 
 SCHEMA=strict((CANDIDATE/'schemas/canonical-records.schema.json').read_bytes())
 jsonschema.Draft202012Validator.check_schema(SCHEMA)
 VALIDATOR=Validator(SCHEMA)
-SET_FIELDS={'rules','evidence','postings','live_action_ids','inverse_action_ids','current_before','action_ids','inputs','depends_on','actions','intention_ids','families','bindings','limits','replacement_codes','sources','correction_sources','predecessors','verified_assents','verified_offers','verified_delegations','verified_evidence','event_types','allowed_modifiers','policy_evidence'}
+SET_FIELDS={'rules','evidence','postings','live_action_ids','inverse_action_ids','current_before','action_ids','inputs','depends_on','actions','intention_ids','families','bindings','limits','replacement_codes','sources','correction_sources','predecessors','verified_assents','verified_offers','verified_delegations','verified_evidence','event_types','allowed_modifiers','policy_evidence','identity_mappings'}
 
 def check_order(value,name=''):
     if isinstance(value,dict):
@@ -77,7 +77,7 @@ def verify(history, trusted_base=None):
     for ix,decision in enumerate(history['decisions']):
         assert set(decision)=={'records','receipt_utf8'}
         rows=decision['records']
-        assert not {r['kind'] for r in rows} & {'policy-snapshot','base-posting','target-basis','obligation','target-snapshot','base-evaluation','base-acceptance','binding-snapshot'}, 'UNREFERENCED_NEW_SEED'
+        assert not {r['kind'] for r in rows} & {'policy-snapshot','base-posting','target-basis','obligation','target-snapshot','base-evaluation','base-acceptance','binding-snapshot','base-identity'}, 'UNREFERENCED_NEW_SEED'
         prior_rows=list(known.values()); insert(rows)
         validate_documents(rows)
         def all_kind(k): return [r for r in rows if r['kind']==k]
@@ -119,10 +119,11 @@ def verify(history, trusted_base=None):
             assert not all_kind('claim'), 'CLAIM_REINSERTED'
         else:
             assert rb['number']=='1' and 'previous' not in rb, 'INITIAL_REVISION'
-            assert cb['first_event']==E and cb['facts_hash']==digest('claim-facts',facts(eb)), 'CLAIM_FACTS'
+            assert cb['first_event']==E and cb['facts_hash']==digest('claim-facts',facts(eb,lambda i:lookup(i,'evidence')['body']['document_id'])), 'CLAIM_FACTS'
             assert one('claim')['id']==cl['id']
         for proof,kind in [(ab['authentication'],'authentication'),(ab['grant'],'grant'),(pb['assent'],'assent')]:
             assert lookup(proof,'evidence')['body']['purpose']==kind, 'EVIDENCE_PURPOSE'
+        requested_documents=resolved_evidence(data['evidence'],lookup)
         for proof in data['evidence']:
             lookup(proof,'evidence')  # Verified evidence may be reused by a correction.
         assert data['evidence'] or not pb['evidence_required'], 'OUTCOME_EVIDENCE_REQUIRED'
@@ -131,7 +132,8 @@ def verify(history, trusted_base=None):
         assert all(au[k]==data[k] for k in ('target','agreement_id','family_id','source')), 'OUTCOME_AUTHORITY'
         assert au['active'] and au['may_read'] and au['may_correct' if correction else 'may_submit'], 'OUTCOME_AUTHORITY'
         assert all(au[k]==ab[k] for k in ('principal','grant','grant_revision','received_at','accepted_at')), 'AUTHORITY_OBSERVATIONS'
-        assert set(data['evidence'])<=set(au['verified_evidence']), 'OUTCOME_EVIDENCE_REQUIRED'
+        verified_documents=resolved_evidence(au['verified_evidence'],lookup)
+        assert set(requested_documents)<=set(verified_documents), 'OUTCOME_EVIDENCE_REQUIRED'
         for proof in au['verified_evidence']:lookup(proof,'evidence')
         # New immutable evidence must belong to this exact request/verification.
         # It cannot change the frozen target or carry operative decision fields.
@@ -199,6 +201,7 @@ def verify(history, trusted_base=None):
             assert xb['unrounded_atoms']=={'numerator':str(q.numerator),'denominator':str(q.denominator)} and xb['rounded_atoms']==str(round_away(q)), 'EXPLANATION_MATH'
             assert xb['event_id']==E and xb['claim_id']==cl['id'] and xb['revision_id']==revision['id'] and xb['limit_evidence']==limits['id'] and xb['policy_snapshot']==policy['id'] and xb['basis']==basis['id'], 'EXPLANATION_REFS'
             assert xb['action_ids']==aids, 'EXPLANATION_ACTIONS'
+            assert resolved_evidence(xb['evidence'],lookup)==requested_documents, 'EXPLANATION_EVIDENCE'
             assert xb['authority_decision']==authority['id'] and xb['evidence']==data['evidence'], 'EXPLANATION_EVIDENCE'
         deps=[]
         for a in actions:
@@ -219,7 +222,7 @@ def verify(history, trusted_base=None):
             i=intents[0]; ib=i['body']; assert ib['amount']=={**rb['amount'],'atoms':str(net)} and ib['event_id']==E and ib['idempotency_key']==i['id'], 'INTENTION_AMOUNT'
             assert ib['action_ids']==ordered([a['id'] for a in actions]) and all(a['body']['obligation_id']==ib['obligation_id'] for a in actions), 'INTENTION_ACTIONS'
             assert ib['depends_on']==ordered(claim_intents.get(cl['id'],[])), 'EXPORT_DEPENDENCIES'
-            assert ib['payload']=={'schema':'ledger-obligation-delta/2-candidate.3','obligation_id':ib['obligation_id'],'amount':ib['amount'],'actions':ordered([{'action_id':a['id'],'amount':a['body']['amount']} for a in actions])}, 'INTENTION_PAYLOAD'
+            assert ib['payload']=={'schema':'ledger-obligation-delta/2-candidate.4','obligation_id':ib['obligation_id'],'amount':ib['amount'],'actions':ordered([{'action_id':a['id'],'amount':a['body']['amount']} for a in actions])}, 'INTENTION_PAYLOAD'
             claim_intents.setdefault(cl['id'],[]).append(i['id'])
         delivery=one('delivery-key')['body']; assert delivery['event_id']==E and delivery['ingress']==eb and delivery['ingress_hash']==digest('ingress',eb) and delivery['source']==data['source'] and delivery['external_id']==data['external_id'], 'DELIVERY_BYTES'
         manifest=one('decision-manifest'); mb=manifest['body']; receipt=one('receipt'); recb=receipt['body']; chain=one('chain-revision')['body']
@@ -238,14 +241,24 @@ def verify(history, trusted_base=None):
         assert len(canonical(decision))<=4*1024*1024, 'DECISION_BYTES'
     for p in history['probes']:
         assert p['new_records']==[], 'REJECTED_OR_RETRY_APPENDED'
+        probe_evidence={r['id']:r for r in p.get('evidence_records',[])}
+        for r in probe_evidence.values():checked_row(r)
+        validate_documents(list(probe_evidence.values()))
+        def probe_lookup(i,kind=None):return probe_evidence[i] if i in probe_evidence else lookup(i,kind)
         if 'candidate' in p:
+            resolved_evidence(p['candidate']['data']['evidence'],probe_lookup)
             Validator({'$ref':'#/$defs/event','$defs':SCHEMA['$defs']}).validate(p['candidate'])
+        if p['kind']=='evidence_wrapper_retry':
+            original=next(r for r in history['decisions'][p['step']]['records'] if r['kind']=='event')
+            assert facts(p['candidate'],lambda i:probe_lookup(i,'evidence')['body']['document_id'])==facts(original['body'],lambda i:lookup(i,'evidence')['body']['document_id']), 'RETRY_DOCUMENT_FACTS'
+            assert p['expected']=='DUPLICATE_CLAIM' and p['original_receipt_utf8']==history['decisions'][p['step']]['receipt_utf8'], 'RETRY_RECEIPT'
+            continue
         if p['kind'] in ('identity_retry','semantic_retry','changed_facts','stale_correction'):
             original=next(r for r in history['decisions'][p['step']]['records'] if r['kind']=='event')
             cb=p['candidate']['data']
             if p['kind']=='identity_retry': assert canonical(p['candidate'])==canonical(original['body']) and p['expected']=='DUPLICATE_IDENTITY'
-            if p['kind']=='semantic_retry': assert facts(p['candidate'])==facts(original['body']) and cb['external_id']!=original['body']['data']['external_id'] and p['expected']=='DUPLICATE_CLAIM'
-            if p['kind']=='changed_facts': assert facts(p['candidate'])!=facts(original['body']) and p['expected']=='CLAIM_CONFLICT'
+            if p['kind']=='semantic_retry': assert facts(p['candidate'],lambda i:lookup(i,'evidence')['body']['document_id'])==facts(original['body'],lambda i:lookup(i,'evidence')['body']['document_id']) and cb['external_id']!=original['body']['data']['external_id'] and p['expected']=='DUPLICATE_CLAIM'
+            if p['kind']=='changed_facts': assert facts(p['candidate'],lambda i:lookup(i,'evidence')['body']['document_id'])!=facts(original['body'],lambda i:lookup(i,'evidence')['body']['document_id']) and p['expected']=='CLAIM_CONFLICT'
             if p['kind']=='stale_correction': assert cb['expected_revision']!=heads[cb['claim_id']]['id'] and p['expected']=='STALE_CORRECTION'
         if p['kind'].endswith('_retry'):
             checked_row(p['current_policy'])
