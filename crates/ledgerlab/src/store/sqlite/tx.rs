@@ -54,33 +54,6 @@ impl SqliteTx {
     fn conn(&mut self) -> &mut SqliteConnection {
         self.transaction.as_mut().expect("live transaction")
     }
-    pub async fn load_installation(&mut self) -> Result<Installation, StoreError> {
-        checked_read!(self, read::installation(self.conn()))
-    }
-    pub async fn load_chain(&mut self, s: &Scope, id: &str) -> Result<Option<Chain>, StoreError> {
-        checked_read!(self, read::chain(self.conn(), s, id))
-    }
-    pub async fn load_document(
-        &mut self,
-        s: &Scope,
-        id: &str,
-    ) -> Result<Option<(String, CanonicalRecord)>, StoreError> {
-        checked_read!(self, read::document(self.conn(), s, id))
-    }
-    pub async fn load_authority(
-        &mut self,
-        s: &Scope,
-        id: &str,
-    ) -> Result<Option<AuthorityHead>, StoreError> {
-        checked_read!(self, read::authority(self.conn(), s, id))
-    }
-    pub async fn load_binding(
-        &mut self,
-        s: &Scope,
-        id: &str,
-    ) -> Result<Option<BindingHead>, StoreError> {
-        checked_read!(self, read::binding(self.conn(), s, id))
-    }
     pub async fn load_delivery(
         &mut self,
         s: &Scope,
@@ -90,6 +63,41 @@ impl SqliteTx {
     }
 }
 impl AcceptanceTx for SqliteTx {
+    async fn load_installation(&mut self) -> Result<Installation, StoreError> {
+        checked_read!(self, read::installation(self.conn()))
+    }
+    async fn load_chain(&mut self, s: &Scope, id: &str) -> Result<Option<Chain>, StoreError> {
+        checked_read!(self, read::chain(self.conn(), s, id))
+    }
+    async fn load_document(
+        &mut self,
+        s: &Scope,
+        id: &str,
+    ) -> Result<Option<(String, CanonicalRecord)>, StoreError> {
+        checked_read!(self, read::document(self.conn(), s, id))
+    }
+    async fn load_authority(
+        &mut self,
+        s: &Scope,
+        id: &str,
+    ) -> Result<Option<AuthorityHead>, StoreError> {
+        checked_read!(self, read::authority(self.conn(), s, id))
+    }
+    async fn load_binding(
+        &mut self,
+        s: &Scope,
+        id: &str,
+    ) -> Result<Option<BindingHead>, StoreError> {
+        checked_read!(self, read::binding(self.conn(), s, id))
+    }
+    async fn load_grant_document(
+        &mut self,
+        s: &Scope,
+        id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        checked_read!(self, read::grant_document(self.conn(), s, id))
+    }
+
     async fn write(&mut self, op: &WriteOp) -> Result<(), StoreError> {
         if self.failed {
             return Err(StoreError::Integrity(

@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 description = "Pure deterministic Ledger Lab validation, canonical records, and exact evaluation."
 
+[features]
+test-failpoints = []
+
 [dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"

@@ -209,7 +209,7 @@ fn row(v: &Value) -> JournalRecord {
         row,
     }
 }
-fn installation() -> Installation {
+pub(crate) fn installation() -> Installation {
     Installation {
         scope: scope(),
         logical_store_id: "store-demo-slice".into(),
@@ -223,7 +223,7 @@ fn installation() -> Installation {
 fn state() -> Value {
     serde_json::from_str(STATE).unwrap()
 }
-fn seed() -> Vec<WriteOp> {
+pub(crate) fn seed() -> Vec<WriteOp> {
     let mut ops: Vec<_> = values(SEED_DOCS)
         .iter()
         .chain(values(SEED_ROWS).iter())

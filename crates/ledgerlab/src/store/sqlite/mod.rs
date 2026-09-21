@@ -4,7 +4,7 @@ mod migrate;
 mod owner;
 mod read;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod tx;
 mod write;
 
@@ -96,6 +96,33 @@ impl SqliteStore {
         }
         self.inner.writer.close().await;
         self.inner.readers.close().await;
+    }
+    #[cfg(test)]
+    pub(crate) async fn test_write_locked(&self, path: &Path) -> Result<bool, StoreError> {
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(path.join("local.db"))
+            .create_if_missing(false)
+            .busy_timeout(Duration::ZERO);
+        let mut conn = sqlx::SqliteConnection::connect_with(&options).await?;
+        let result = match conn.begin_with("BEGIN IMMEDIATE").await {
+            Ok(tx) => {
+                tx.rollback().await?;
+                false
+            }
+            Err(sqlx::Error::Database(e)) => e.code().is_some_and(|c| c == "5"),
+            Err(e) => return Err(e.into()),
+        };
+        conn.close().await?;
+        Ok(result)
+    }
+    #[cfg(test)]
+    pub(crate) async fn test_pool_probe(&self) -> Result<(String, bool), StoreError> {
+        let mut conn = self.inner.writer.acquire().await?;
+        conn.ping().await?;
+        let ptr: String = sqlx::query_scalar("SELECT id FROM temp.test_connection_id")
+            .fetch_one(&mut *conn)
+            .await?;
+        Ok((ptr, conn.is_in_transaction()))
     }
     /// On ambiguity, absence means unresolved; callers must not infer rollback.
     pub async fn lookup_identity(

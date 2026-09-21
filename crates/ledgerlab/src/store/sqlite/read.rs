@@ -150,3 +150,18 @@ pub(super) async fn delivery(
     })
     .transpose()
 }
+
+pub(super) async fn grant_document(
+    c: &mut SqliteConnection,
+    s: &Scope,
+    id: &str,
+) -> Result<Option<String>, StoreError> {
+    Ok(sqlx::query_scalar(
+        "SELECT grant_doc FROM source_grants WHERE tenant=? AND environment=? AND id=?",
+    )
+    .bind(&s.tenant)
+    .bind(&s.environment)
+    .bind(id)
+    .fetch_optional(c)
+    .await?)
+}

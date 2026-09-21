@@ -794,6 +794,12 @@ fn record_sort(records: &mut [Record]) -> Result<()> {
 
 /// Assemble records from the same typed evaluation path used by `policy::evaluate`.
 pub fn assemble(input: &ResolvedInput) -> Result<DecisionPlan> {
+    assemble_inner(input, None)
+}
+pub(crate) fn assemble_inner(
+    input: &ResolvedInput,
+    failure: Option<&'static str>,
+) -> Result<DecisionPlan> {
     input.validate()?;
     let e = &input.event;
     let scope = e.scope();
@@ -874,7 +880,7 @@ pub fn assemble(input: &ResolvedInput) -> Result<DecisionPlan> {
     let ingress = canonical::parse(e.candidate().ingress_bytes().as_slice())?;
     records.push(Record::generic("delivery-key",scope,json!([scope,e.source(),e.dto().id]),json!({"schema":"ledger-delivery-key/1","scope":scope,"source":e.source(),"external_id":e.dto().id,"canonical_event_id":event_id,"kind":"original","ingress":ingress,"ingress_hash":e.candidate().ingress_hash()}))?);
     records.push(Record::generic("claim",scope,json!(claim_id),json!({"schema":"ledger-claim/1","id":claim_id,"scope":scope,"source":e.source(),"operation_id":e.candidate().operation_id(),"kind":"completion","token":"completion","event_id":event_id,"facts_hash":canonical::digest(Domain::ClaimFacts,&claim_facts)?}))?);
-    let steps = policy.evaluate_steps(e, context)?;
+    let steps = policy.evaluate_steps(e, context, failure)?;
     let mut actions: Vec<Action> = Vec::new();
     let mut explanations = Vec::new();
     let mut effect_facts = Vec::new();

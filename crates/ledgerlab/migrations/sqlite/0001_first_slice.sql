@@ -372,4 +372,11 @@ CREATE TRIGGER accepted_receipts_no_update BEFORE UPDATE ON accepted_receipts BE
 CREATE TRIGGER accepted_receipts_no_delete BEFORE DELETE ON accepted_receipts BEGIN SELECT RAISE(ABORT,'IMMUTABLE_RECORD'); END;
 CREATE TRIGGER installation_identity BEFORE UPDATE OF tenant,environment,logical_store_id,mode ON installation BEGIN SELECT RAISE(ABORT,'IMMUTABLE_STORE_IDENTITY'); END;
 CREATE TRIGGER chain_identity BEFORE UPDATE OF tenant,environment,id,customer,currency,scale,binding_set_doc,context_doc ON chains BEGIN SELECT RAISE(ABORT,'IMMUTABLE_CHAIN_CONTEXT'); END;
+CREATE TABLE dispatcher_head (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ owner TEXT, generation INTEGER NOT NULL CHECK(generation>=0),
+ lease_until_us INTEGER, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+ CHECK((owner IS NULL AND lease_until_us IS NULL) OR (owner IS NOT NULL AND lease_until_us IS NOT NULL))
+) STRICT;
+INSERT INTO dispatcher_head (singleton,generation,enabled) VALUES (1,0,0);
 PRAGMA user_version=1;

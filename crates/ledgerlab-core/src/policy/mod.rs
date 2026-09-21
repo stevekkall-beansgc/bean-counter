@@ -262,7 +262,12 @@ impl CompiledPolicy {
             rules,
         })
     }
-    pub(crate) fn evaluate_steps(&self, event: &Event, context: &Context) -> Result<Vec<Step>> {
+    pub(crate) fn evaluate_steps(
+        &self,
+        event: &Event,
+        context: &Context,
+        failure: Option<&'static str>,
+    ) -> Result<Vec<Step>> {
         if event.dto().status == Some(Completion::Failed) {
             return Ok(vec![Step {
                 rule: None,
@@ -352,6 +357,11 @@ impl CompiledPolicy {
                 }
             }
             booked[index] = rounded;
+            if code == "BASE_APPLIED" {
+                if let Some(code) = failure {
+                    return Err(Error::new(code, "injected after completed base evaluation"));
+                }
+            }
             steps.push(Step {
                 rule: Some(index),
                 code: if rounded == 0 { "ZERO_ROUNDED" } else { code },
@@ -367,4 +377,25 @@ impl CompiledPolicy {
 /// Evaluate one fully resolved, validated input with no environmental access.
 pub fn evaluate(input: &crate::domain::ResolvedInput) -> Result<crate::domain::DecisionPlan> {
     crate::domain::assemble(input)
+}
+
+/// Deterministic failure data for conformance tests; never reads external state.
+#[cfg(feature = "test-failpoints")]
+#[derive(Clone, Copy)]
+pub enum EvaluationFault {
+    InvalidAfterBase,
+    OverflowAfterBase,
+}
+#[cfg(feature = "test-failpoints")]
+pub fn evaluate_with_fault(
+    input: &crate::domain::ResolvedInput,
+    fault: EvaluationFault,
+) -> Result<crate::domain::DecisionPlan> {
+    crate::domain::assemble_inner(
+        input,
+        Some(match fault {
+            EvaluationFault::InvalidAfterBase => "EVALUATION_INVALID",
+            EvaluationFault::OverflowAfterBase => "ARITHMETIC_OVERFLOW",
+        }),
+    )
 }

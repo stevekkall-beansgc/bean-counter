@@ -1,5 +1,5 @@
 use crate::oracle::{check, HarnessError, Result};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Full row inventory read from storage. Keys and values are deterministic,
 /// lossless per-dialect encodings of primary keys and ALL persisted columns.
@@ -21,6 +21,9 @@ pub struct Snapshot {
     /// Original mappings are in journal; later operational aliases are separate.
     pub aliases: Vec<Alias>,
     pub rows: RowInventory,
+    /// Explicitly absent later-phase tables, verified against the full schema inventory.
+    /// Absence is legal only for the fixed zero-row later-phase family below.
+    pub absent_tables: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +40,12 @@ pub struct Alias {
 impl Snapshot {
     pub fn validate_inventory(&self) -> Result<()> {
         check(!self.rows.is_empty(), "missing physical row inventory")?;
+        for table in &self.absent_tables {
+            check(
+                LATER_TABLES.contains(&table.as_str()) && !self.rows.contains_key(table),
+                "invalid absent-table declaration",
+            )?;
+        }
         for (table, rows) in &self.rows {
             check(!table.is_empty(), "empty table name")?;
             check(
@@ -48,6 +57,9 @@ impl Snapshot {
     }
 
     pub fn row_count(&self, table: &str) -> Result<usize> {
+        if self.absent_tables.contains(table) && LATER_TABLES.contains(&table) {
+            return Ok(0);
+        }
         self.rows
             .get(table)
             .map(BTreeMap::len)
@@ -64,7 +76,7 @@ impl Snapshot {
     ) -> Result<()> {
         after.validate_inventory()?;
         check(
-            self.rows.keys().eq(after.rows.keys()),
+            self.rows.keys().eq(after.rows.keys()) && self.absent_tables == after.absent_tables,
             "table inventory changed",
         )?;
         for (table, old) in &self.rows {
@@ -100,7 +112,8 @@ impl Snapshot {
         }
         for table in deltas.keys() {
             check(
-                self.rows.contains_key(table),
+                self.rows.contains_key(table)
+                    || (deltas[table] == 0 && self.absent_tables.contains(table)),
                 format!("delta references missing table {table}"),
             )?;
         }
@@ -114,3 +127,24 @@ impl Snapshot {
         )
     }
 }
+
+/// No schema is invented for later record families solely to satisfy a zero count.
+pub const LATER_TABLES: &[&str] = &[
+    "offers",
+    "payer_delegations",
+    "invocations",
+    "invocation_heads",
+    "reservations",
+    "stage_heads",
+    "links",
+    "action_links",
+    "intention_dependencies",
+    "dispatch_attempts",
+    "delivery_observations",
+    "inbox",
+    "projection_rows",
+    "projection_checkpoints",
+    "transfer_sessions",
+    "fake_receipts",
+    "diagnostics",
+];

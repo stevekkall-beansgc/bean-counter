@@ -12,6 +12,34 @@ pub(crate) trait AcceptanceStore: Send + Sync {
         -> impl Future<Output = Result<Self::Tx, StoreError>> + Send;
 }
 pub(crate) trait AcceptanceTx: Sized + Send {
+    fn load_installation(
+        &mut self,
+    ) -> impl Future<Output = Result<Installation, StoreError>> + Send;
+    fn load_chain(
+        &mut self,
+        scope: &Scope,
+        id: &str,
+    ) -> impl Future<Output = Result<Option<Chain>, StoreError>> + Send;
+    fn load_authority(
+        &mut self,
+        scope: &Scope,
+        id: &str,
+    ) -> impl Future<Output = Result<Option<AuthorityHead>, StoreError>> + Send;
+    fn load_binding(
+        &mut self,
+        scope: &Scope,
+        id: &str,
+    ) -> impl Future<Output = Result<Option<BindingHead>, StoreError>> + Send;
+    fn load_document(
+        &mut self,
+        scope: &Scope,
+        id: &str,
+    ) -> impl Future<Output = Result<Option<(String, CanonicalRecord)>, StoreError>> + Send;
+    fn load_grant_document(
+        &mut self,
+        scope: &Scope,
+        id: &str,
+    ) -> impl Future<Output = Result<Option<String>, StoreError>> + Send;
     fn write(&mut self, op: &WriteOp) -> impl Future<Output = Result<(), StoreError>> + Send;
     fn load_identity(
         &mut self,

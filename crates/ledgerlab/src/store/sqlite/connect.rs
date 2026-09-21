@@ -59,6 +59,21 @@ pub(super) async fn pool(owner: Arc<Owner>, reader: bool) -> Result<SqlitePool, 
                 verify(conn, reader)
                     .await
                     .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                #[cfg(test)]
+                if !reader {
+                    static NEXT: std::sync::atomic::AtomicU64 =
+                        std::sync::atomic::AtomicU64::new(1);
+                    let id = NEXT
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        .to_string();
+                    sqlx::query("CREATE TEMP TABLE test_connection_id (id TEXT NOT NULL)")
+                        .execute(&mut *conn)
+                        .await?;
+                    sqlx::query("INSERT INTO test_connection_id VALUES (?)")
+                        .bind(id)
+                        .execute(&mut *conn)
+                        .await?;
+                }
                 Ok(())
             })
         })

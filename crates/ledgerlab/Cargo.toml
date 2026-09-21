@@ -3,7 +3,7 @@ name = "ledgerlab"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Shared acceptance facade and concrete stores; Phase 0 scaffold only."
+description = "Shared acceptance facade and concrete stores; bounded Phase 1 slice."
 
 [lints]
 workspace = true
@@ -13,6 +13,9 @@ ledgerlab-core.workspace = true
 sqlx = { version = "=0.9.0", default-features = false, features = ["sqlite", "runtime-tokio", "migrate"] }
 tokio = { version = "=1.53.1", features = ["rt", "sync", "time", "macros"] }
 
-[dev-dependencies]
 serde_json = "=1.0.151"
+
+[dev-dependencies]
+ledgerlab-core = { workspace = true, features = ["test-failpoints"] }
+ledgerlab-testkit = { path = "../ledgerlab-testkit" }
 tempfile = "=3.27.0"
