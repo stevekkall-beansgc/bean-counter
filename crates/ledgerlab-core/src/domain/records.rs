@@ -1034,12 +1034,14 @@ pub(crate) fn assemble_inner(
     let mut action_ids: Vec<_> = actions.iter().map(|a| a.id.clone()).collect();
     canonical::sort_set(&mut action_ids)?;
     let mut intentions = Vec::new();
-    if !actions.is_empty() {
-        let amount = actions
-            .iter()
-            .try_fold(Money::new(&policy.currency, policy.scale, 0)?, |sum, a| {
-                sum.checked_add(&a.amount)
-            })?;
+    // This bounded slice has one retail binding/obligation. Keep every action
+    // and explanation, but a zero net obligation has nothing to deliver.
+    let amount = actions
+        .iter()
+        .try_fold(Money::new(&policy.currency, policy.scale, 0)?, |sum, a| {
+            sum.checked_add(&a.amount)
+        })?;
+    if amount.atoms() != 0 {
         let id = canonical::identity(
             Domain::Intention,
             &json!([scope, "fake", obligation_id, action_ids]),

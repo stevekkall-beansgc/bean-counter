@@ -14,6 +14,7 @@ use ledgerlab_testkit::{
     stores as tk, FixtureOracle, HarnessError,
 };
 use serde_json::Value;
+use sqlx::Connection;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::{runtime::Runtime, time::Instant};
 
@@ -53,6 +54,13 @@ impl tk::BackendFactory for Factory {
 }
 impl Backend {
     fn new(oracle: &FixtureOracle, real: bool) -> ledgerlab_testkit::Result<Self> {
+        Self::new_with_seed(oracle, real, crate::store::sqlite::tests::seed())
+    }
+    fn new_with_seed(
+        oracle: &FixtureOracle,
+        real: bool,
+        seed: Vec<crate::store::records::WriteOp>,
+    ) -> ledgerlab_testkit::Result<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -70,7 +78,7 @@ impl Backend {
                 .begin(Instant::now() + Duration::from_secs(5))
                 .await
                 .map_err(err)?;
-            for op in crate::store::sqlite::tests::seed() {
+            for op in seed {
                 tx.write(&op).await.map_err(err)?;
             }
             tx.commit().await.map_err(|e| err(format!("{e:?}")))?;
@@ -802,4 +810,81 @@ fn sqlite_alias_write_cancellation() {
     let oracle = FixtureOracle::workspace().unwrap();
     let mut backend = Backend::new(&oracle, false).unwrap();
     check_alias_cancellation(&mut backend, &oracle);
+}
+
+#[test]
+fn sqlite_review_histories_and_collisions() {
+    use super::review_tests as review;
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    for zero in [false, true] {
+        let expected = review::expected(zero, if zero { 1 } else { 2 });
+        let mut backend = Backend::new_with_seed(&oracle, false, review::seed(&expected)).unwrap();
+        review::history(&mut backend, &expected);
+        for (suffix, sql) in [
+            ("inactive", "UPDATE binding_heads SET active=0,revision=2"),
+            (
+                "changed",
+                "UPDATE binding_heads SET active=1,revision=3,selector_doc=(SELECT id FROM documents WHERE kind='policy')",
+            ),
+        ] {
+            backend.runtime.block_on(async {
+                let mut conn = sqlx::SqliteConnection::connect_with(
+                    &sqlx::sqlite::SqliteConnectOptions::new()
+                        .filename(backend.directory.path().join("local.db")),
+                )
+                .await
+                .unwrap();
+                sqlx::query(sql).execute(&mut conn).await.unwrap();
+                conn.close().await.unwrap();
+            });
+            review::binding_retries(&mut backend, &expected, suffix);
+        }
+        let after = backend.observe().unwrap();
+        backend.reopen().unwrap();
+        after
+            .assert_exact(&backend.observe().unwrap(), "binding retries reopen")
+            .unwrap();
+    }
+    for field in 0..3 {
+        let mut backend = Backend::new(&oracle, false).unwrap();
+        backend
+            .runtime
+            .block_on(review::collisions(backend.store.as_ref().unwrap(), field));
+        let after = backend.observe().unwrap();
+        assert_eq!(after.row_count("documents").unwrap(), 7);
+        assert_eq!(after.row_count("events").unwrap(), 0);
+        backend.reopen().unwrap();
+        after
+            .assert_exact(&backend.observe().unwrap(), "collision rollback reopen")
+            .unwrap();
+    }
+}
+#[test]
+fn sqlite_review_distinct_race() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    let expected = super::review_tests::expected(false, 2);
+    for _ in 0..8 {
+        let mut backend = Backend::new(&oracle, false).unwrap();
+        backend.runtime.block_on(async {
+            let store = backend.store.as_ref().unwrap();
+            let contender = store.test_contender().await.unwrap();
+            let stores = vec![
+                (
+                    store.clone(),
+                    Some(store.test_pool_probe().await.unwrap().0),
+                ),
+                (
+                    contender.clone(),
+                    Some(contender.test_pool_probe().await.unwrap().0),
+                ),
+            ];
+            super::review_tests::distinct_race(stores, &expected).await;
+            contender.close().await;
+        });
+        super::review_tests::assert_history(&backend.observe().unwrap(), &expected);
+        backend.reopen().unwrap();
+        super::review_tests::assert_history(&backend.observe().unwrap(), &expected);
+    }
 }

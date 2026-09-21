@@ -1,5 +1,9 @@
 # Phase 1 integration — bounded acceptance slice complete
 
+Subsequent independent review repairs and fresh validation are recorded in
+[PHASE-1-REVIEW-FIXES.md](PHASE-1-REVIEW-FIXES.md). The counts below describe
+the original integration checkpoint.
+
 21 September 2026. Branch `codex/phase1-integration`, isolated worktree
 `ledger-lab-v0-integration`. The **first SQLite vertical slice is complete for
 the assigned frozen completion scenario**, and the same coordinator has passing

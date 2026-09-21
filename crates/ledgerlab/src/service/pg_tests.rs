@@ -29,6 +29,7 @@ struct Backend {
     oracle: FixtureOracle,
     pending: Option<Hooks>,
     affected: i32,
+    version_text: String,
     uncertain: Option<(i32, tk::Outcome)>,
 }
 fn err(e: impl std::fmt::Display) -> HarnessError {
@@ -92,6 +93,13 @@ impl tk::BackendFactory for Factory {
 }
 impl Backend {
     fn new(oracle: &FixtureOracle, real: bool) -> ledgerlab_testkit::Result<Self> {
+        Self::new_with_seed(oracle, real, crate::store::sqlite::tests::seed())
+    }
+    fn new_with_seed(
+        oracle: &FixtureOracle,
+        real: bool,
+        seed: Vec<crate::store::records::WriteOp>,
+    ) -> ledgerlab_testkit::Result<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -102,7 +110,7 @@ impl Backend {
             DATABASE.fetch_add(1, Ordering::Relaxed)
         );
         let config = config(database.clone(), false);
-        let store = runtime.block_on(async {
+        let (store, version_text) = runtime.block_on(async {
             let admin = self::config("ledgerlab".into(), true)
                 .connect()
                 .await
@@ -123,12 +131,22 @@ impl Backend {
                 .await
                 .map_err(err)?;
             let tx = owner.client.transaction().await.map_err(err)?;
-            for op in crate::store::sqlite::tests::seed() {
+            for op in seed {
                 postgres::write::operation(&tx, &op).await.map_err(err)?;
             }
             tx.commit().await.map_err(err)?;
             owner.discard().await;
-            PostgresStore::open(config.clone()).await.map_err(err)
+            let store = PostgresStore::open(config.clone()).await.map_err(err)?;
+            let expected: i32 = std::env::var("LEDGERLAB_PG_TEST_MAJOR").expect("explicit intended PostgreSQL major").parse().unwrap();
+            assert!(matches!(expected, 17 | 18));
+            assert_eq!(store.version / 10000, expected, "queried server must match intended run");
+            let session = config.connect().await.map_err(err)?;
+            let row = session.client.query_one("SELECT current_setting('server_version'), version()", &[]).await.map_err(err)?;
+            let version_text: String = row.get(0);
+            static EVIDENCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+            EVIDENCE.get_or_init(|| println!("queried PostgreSQL: server_version_num={} server_version={} version={}; expected_major={expected}", store.version, version_text, row.get::<_, String>(1)));
+            session.discard().await;
+            Ok::<_, HarnessError>((store, version_text))
         })?;
         Ok(Self {
             runtime,
@@ -137,6 +155,7 @@ impl Backend {
             oracle: oracle.clone(),
             pending: None,
             affected: 0,
+            version_text,
             uncertain: None,
         })
     }
@@ -200,7 +219,7 @@ impl Drop for Backend {
 impl tk::AcceptanceBackend for Backend {
     fn evidence(&self) -> tk::BackendEvidence {
         let v = self.store.as_ref().unwrap().version;
-        tk::BackendEvidence {kind:if v>=180000 {tk::BackendKind::Postgres18}else{tk::BackendKind::Postgres17},location:format!("local test database {}",self.config.database),engine_version:v.to_string(),version_number:v as u32,durability:"verified TLS, primary, permanent tables, fsync/full_page_writes/synchronous_commit=on; SERIALIZABLE".into()}
+        tk::BackendEvidence {kind:if v>=180000 {tk::BackendKind::Postgres18}else{tk::BackendKind::Postgres17},location:format!("local test database {}",self.config.database),engine_version:self.version_text.clone(),version_number:v as u32,durability:"verified TLS, primary, permanent tables, fsync/full_page_writes/synchronous_commit=on; SERIALIZABLE".into()}
     }
     fn observe(&mut self) -> ledgerlab_testkit::Result<Snapshot> {
         let data=self.runtime.block_on(async {
@@ -463,11 +482,15 @@ fn postgres_storage_guards_and_failed_transaction() {
         tx.write(&crate::store::sqlite::tests::schedule()[0])
             .await
             .unwrap();
-        let e = tx
-            .write(&crate::store::sqlite::tests::seed()[0])
-            .await
-            .unwrap_err();
-        assert!(matches!(e,StoreError::Postgres(e) if e.code().is_some_and(|c|c.code()=="23505")));
+        // Documents may now be reused. A duplicate immutable association still
+        // exercises a real 23505 using only the runtime role's writable tables.
+        let association = crate::store::sqlite::tests::schedule().remove(1);
+        tx.write(&association).await.unwrap();
+        let e = tx.write(&association).await.unwrap_err();
+        assert!(
+            matches!(&e,StoreError::Postgres(e) if e.code().is_some_and(|c|c.code()=="23505")),
+            "expected real unique violation: {e:?}"
+        );
         assert!(matches!(tx.commit().await, Err(CommitError::RolledBack(_))));
         assert!(matches!(
             PostgresStore::open(config(backend.config.database.clone(), true)).await,
@@ -618,5 +641,242 @@ fn postgres_driver_commit_drop_recovers_none_or_complete() {
         oracle
             .assert_accepted(&before, &backend.observe().unwrap())
             .unwrap();
+    }
+}
+
+#[test]
+#[ignore = "requires explicit isolated local PostgreSQL with verified test CA and restricted runtime role"]
+fn postgres_review_histories_and_collisions() {
+    use super::review_tests as review;
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    for zero in [false, true] {
+        let expected = review::expected(zero, if zero { 1 } else { 2 });
+        let mut backend = Backend::new_with_seed(&oracle, false, review::seed(&expected)).unwrap();
+        review::history(&mut backend, &expected);
+        for (suffix, sql) in [
+            ("inactive", "UPDATE ledgerlab.binding_heads SET active=0,revision=2"),
+            ("changed", "UPDATE ledgerlab.binding_heads SET active=1,revision=3,selector_doc=(SELECT id FROM ledgerlab.documents WHERE kind='policy')")
+        ] {
+            backend.runtime.block_on(async {
+                let session = config(backend.config.database.clone(), true).connect().await.unwrap();
+                session.client.batch_execute(sql).await.unwrap();
+                session.discard().await;
+            });
+            review::binding_retries(&mut backend, &expected, suffix);
+        }
+        let after = backend.observe().unwrap();
+        backend.reopen().unwrap();
+        after
+            .assert_exact(&backend.observe().unwrap(), "binding retries reopen")
+            .unwrap();
+    }
+    for field in 0..3 {
+        let mut backend = Backend::new(&oracle, false).unwrap();
+        backend
+            .runtime
+            .block_on(review::collisions(backend.store.as_ref().unwrap(), field));
+        let after = backend.observe().unwrap();
+        assert_eq!(after.row_count("documents").unwrap(), 7);
+        assert_eq!(after.row_count("events").unwrap(), 0);
+        backend.reopen().unwrap();
+        after
+            .assert_exact(&backend.observe().unwrap(), "collision rollback reopen")
+            .unwrap();
+    }
+}
+#[test]
+#[ignore = "requires explicit isolated local PostgreSQL with verified test CA and restricted runtime role"]
+fn postgres_review_distinct_race() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    let expected = super::review_tests::expected(false, 2);
+    for _ in 0..8 {
+        let mut backend = Backend::new(&oracle, false).unwrap();
+        backend.runtime.block_on(async {
+            let store = backend.store.as_ref().unwrap();
+            super::review_tests::distinct_race(
+                vec![(store.clone(), None), (store.clone(), None)],
+                &expected,
+            )
+            .await;
+        });
+        super::review_tests::assert_history(&backend.observe().unwrap(), &expected);
+        backend.reopen().unwrap();
+        super::review_tests::assert_history(&backend.observe().unwrap(), &expected);
+    }
+}
+
+#[test]
+#[ignore = "requires explicit isolated local PostgreSQL with verified test CA and restricted runtime role"]
+fn postgres_supervisor_transport_cut_and_overlapping_drain() {
+    use crate::store::{
+        errors::{CommitError, StoreError},
+        ports::{AcceptanceStore, AcceptanceTx},
+    };
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    for iteration in 0..12 {
+        let mut backend = Backend::new(&oracle, false).unwrap();
+        let before = backend.observe().unwrap();
+        let durable = iteration % 2 == 1;
+        let pid = backend.runtime.block_on(async {
+            let relay = super::pg_transport_tests::Relay::start(backend.config.port).await;
+            let mut settings = backend.config.clone();
+            settings.port = relay.port;
+            let store = PostgresStore::open(settings).await.unwrap();
+            let mut tx = store
+                .begin(Instant::now() + Duration::from_secs(5))
+                .await
+                .unwrap();
+            let pid = tx.pid;
+            tx.load_installation().await.unwrap();
+            tx.load_authority(&scope(), "demo-source-grant-v1")
+                .await
+                .unwrap();
+            tx.load_binding(&scope(), "demo-retail-selector")
+                .await
+                .unwrap();
+            tx.load_chain(&scope(), "demo-slice").await.unwrap();
+            for op in crate::store::sqlite::tests::schedule() {
+                tx.write(&op).await.unwrap();
+            }
+            relay
+                .mode
+                .store(if durable { 2 } else { 1 }, Ordering::SeqCst);
+            // This is the real owned PostgresTx handle. Its registered supervisor
+            // sends COMMIT, classifies the driver result, and discards the session.
+            let committing = tokio::spawn(tx.commit());
+            tokio::time::timeout(Duration::from_secs(2), relay.intercepted.notified())
+                .await
+                .unwrap();
+            if durable {
+                assert!(!committing.is_finished(), "COMMIT response is withheld");
+                let observer = backend.config.connect().await.unwrap();
+                let deadline = Instant::now() + Duration::from_secs(2);
+                loop {
+                    let count: i64 = observer
+                        .client
+                        .query_one("SELECT count(*) FROM ledgerlab.accepted_receipts", &[])
+                        .await
+                        .unwrap()
+                        .get(0);
+                    if count == 1 {
+                        break;
+                    }
+                    assert!(
+                        Instant::now() < deadline,
+                        "commit must be durable before cutting reply"
+                    );
+                    tokio::task::yield_now().await;
+                }
+                observer.discard().await;
+                let mut first = Box::pin(store.clone().close());
+                assert!(matches!(
+                    first.as_mut().poll(&mut Context::from_waker(Waker::noop())),
+                    Poll::Pending
+                ));
+                let mut second = Box::pin(store.clone().close());
+                assert!(
+                    matches!(
+                        second
+                            .as_mut()
+                            .poll(&mut Context::from_waker(Waker::noop())),
+                        Poll::Pending
+                    ),
+                    "overlapping close must await the same drain"
+                );
+                drop(first); // A cancelled closer must not detach registered work.
+                assert!(matches!(
+                    second
+                        .as_mut()
+                        .poll(&mut Context::from_waker(Waker::noop())),
+                    Poll::Pending
+                ));
+                assert!(matches!(
+                    store.begin(Instant::now() + Duration::from_secs(1)).await,
+                    Err(StoreError::WritesDisabled)
+                ));
+                relay.cut().await;
+                assert!(
+                    matches!(committing.await.unwrap(), Err(CommitError::OutcomeUnknown)),
+                    "production classifier must preserve ambiguity"
+                );
+                tokio::time::timeout(Duration::from_secs(6), second)
+                    .await
+                    .unwrap();
+            } else {
+                relay.cut().await;
+                assert!(
+                    matches!(committing.await.unwrap(), Err(CommitError::OutcomeUnknown)),
+                    "production classifier must not invent rollback certainty"
+                );
+                store.clone().close().await;
+            }
+            // A fresh production transaction crosses the original chain lock
+            // before absence is used. The server, not the selected cut, decides.
+            let mut replacement = backend
+                .store
+                .as_ref()
+                .unwrap()
+                .begin(Instant::now() + Duration::from_secs(5))
+                .await
+                .unwrap();
+            replacement.load_installation().await.unwrap();
+            replacement
+                .load_authority(&scope(), "demo-source-grant-v1")
+                .await
+                .unwrap();
+            replacement
+                .load_binding(&scope(), "demo-retail-selector")
+                .await
+                .unwrap();
+            replacement
+                .load_chain(&scope(), "demo-slice")
+                .await
+                .unwrap();
+            let found = replacement
+                .load_identity(&scope(), "urn:demo:app", "generation-1")
+                .await
+                .unwrap();
+            assert_eq!(found.is_some(), durable);
+            replacement.rollback().await.unwrap();
+            pid
+        });
+        assert!(
+            backend.pid_gone(pid).unwrap(),
+            "drain must discard the original backend"
+        );
+        let observed = backend.observe().unwrap();
+        if durable {
+            oracle.assert_accepted(&before, &observed).unwrap();
+        } else {
+            before
+                .assert_exact(&observed, "production COMMIT request cut")
+                .unwrap();
+        }
+        let result = backend
+            .accept(&tk::Command::fixture(&oracle, "input").unwrap(), None)
+            .unwrap();
+        assert_eq!(
+            result.outcome,
+            if durable {
+                tk::Outcome::Duplicate {
+                    kind: tk::DuplicateKind::Identity,
+                    receipt: oracle.receipt.clone(),
+                }
+            } else {
+                tk::Outcome::Accepted(oracle.receipt.clone())
+            }
+        );
+        backend.reopen().unwrap();
+        oracle
+            .assert_accepted(&before, &backend.observe().unwrap())
+            .unwrap();
+        println!("production supervisor cut {iteration}: actual OutcomeUnknown; persisted {}; backend {pid} gone; retry/reopen complete", if durable {"complete; overlapping/cancelled close drained"} else {"none"});
     }
 }

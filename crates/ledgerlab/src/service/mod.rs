@@ -19,3 +19,8 @@ mod pg_tests;
 
 #[cfg(test)]
 mod race_tests;
+
+#[cfg(test)]
+mod pg_transport_tests;
+#[cfg(test)]
+mod review_tests;

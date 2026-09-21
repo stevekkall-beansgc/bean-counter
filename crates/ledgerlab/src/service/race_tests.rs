@@ -210,6 +210,18 @@ where
     S: AcceptanceStore + 'static,
     S::Tx: ConnectionId + 'static,
 {
+    let commands = vec![command.clone(); stores.len()];
+    race_commands(stores, &commands).await
+}
+pub(super) async fn race_commands<S>(
+    stores: Vec<(S, Option<String>)>,
+    commands: &[tk::Command],
+) -> ledgerlab_testkit::Result<tk::RaceEvidence>
+where
+    S: AcceptanceStore + 'static,
+    S::Tx: ConnectionId + 'static,
+{
+    assert_eq!(stores.len(), commands.len());
     let trace = Arc::new(Trace::default());
     let count = stores.len();
     let mut tasks = Vec::new();
@@ -229,7 +241,7 @@ where
             id: Mutex::new(String::new()),
             trace: trace.clone(),
         });
-        let command = tests::Backend::command(command);
+        let command = tests::Backend::command(&commands[index]);
         tasks.push(tokio::spawn(async move {
             let store = Store {
                 inner,

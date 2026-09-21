@@ -73,12 +73,16 @@ struct Inner {
     slots: Arc<Semaphore>,
     closed: AtomicBool,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    draining: tokio::sync::Mutex<Vec<JoinHandle<()>>>,
     #[cfg(test)]
     last_pid: std::sync::atomic::AtomicI32,
 }
 impl Drop for Inner {
     fn drop(&mut self) {
         for task in self.tasks.get_mut().expect("task registry").drain(..) {
+            task.abort();
+        }
+        for task in self.draining.get_mut().drain(..) {
             task.abort();
         }
     }
@@ -110,6 +114,7 @@ impl PostgresStore {
                 slots: Arc::new(Semaphore::new(5)),
                 closed: AtomicBool::new(false),
                 tasks: Mutex::new(Vec::new()),
+                draining: tokio::sync::Mutex::new(Vec::new()),
                 #[cfg(test)]
                 last_pid: std::sync::atomic::AtomicI32::new(pid),
             }),
@@ -124,9 +129,15 @@ impl PostgresStore {
     pub async fn close(self) {
         self.inner.closed.store(true, Ordering::Release);
         self.inner.slots.close();
-        let tasks = std::mem::take(&mut *self.inner.tasks.lock().expect("task registry"));
-        for task in tasks {
+        // All close callers await the same drain. Keep handles in the owner
+        // across awaits so cancelling one close cannot detach supervised work.
+        let mut draining = self.inner.draining.lock().await;
+        draining.extend(std::mem::take(
+            &mut *self.inner.tasks.lock().expect("task registry"),
+        ));
+        while let Some(task) = draining.last_mut() {
             let _ = task.await;
+            draining.pop();
         }
     }
     /// Primary lookup is observational only: absence is never a rollback result.

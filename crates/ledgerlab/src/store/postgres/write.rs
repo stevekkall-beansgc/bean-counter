@@ -9,7 +9,19 @@ pub(super) async fn journal<C: GenericClient + Sync>(
     let b = &record.canonical;
     match &record.row {
         JournalRow::Document { id, kind } => {
-            conn.execute("INSERT INTO ledgerlab.documents (tenant,environment,id,kind,canonical_bytes,content_hash,schema_version) VALUES ($1,$2,$3,$4,$5,$6,1)", &[&(&s.tenant),&(&s.environment),&(id),&(kind),&(&b.canonical_bytes),&(&b.content_hash)]).await?;
+            let inserted = conn.execute("INSERT INTO ledgerlab.documents (tenant,environment,id,kind,canonical_bytes,content_hash,schema_version) VALUES ($1,$2,$3,$4,$5,$6,1) ON CONFLICT (tenant,environment,id) DO NOTHING", &[&s.tenant,&s.environment,id,kind,&b.canonical_bytes,&b.content_hash]).await?;
+            if inserted == 0 {
+                // SERIALIZABLE either observes the immutable winner or aborts
+                // with a serialization conflict for a whole-transaction retry.
+                let existing = conn.query_one("SELECT kind,canonical_bytes,content_hash,schema_version FROM ledgerlab.documents WHERE tenant=$1 AND environment=$2 AND id=$3", &[&s.tenant,&s.environment,id]).await?;
+                if existing.try_get::<_, String>(0)? != *kind
+                    || existing.try_get::<_, Vec<u8>>(1)? != b.canonical_bytes
+                    || existing.try_get::<_, String>(2)? != b.content_hash
+                    || existing.try_get::<_, i64>(3)? != 1
+                {
+                    return Err(StoreError::Integrity("immutable document collision"));
+                }
+            }
         }
         JournalRow::Party {
             id,

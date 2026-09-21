@@ -1,5 +1,5 @@
 use crate::store::{errors::StoreError, records::*};
-use sqlx::SqliteConnection;
+use sqlx::{Row, SqliteConnection};
 
 pub(super) async fn journal(
     conn: &mut SqliteConnection,
@@ -9,10 +9,23 @@ pub(super) async fn journal(
     let b = &record.canonical;
     match &record.row {
         JournalRow::Document { id, kind } => {
-            sqlx::query("INSERT INTO documents (tenant,environment,id,kind,canonical_bytes,content_hash,schema_version) VALUES (?,?,?,?,?,?,1)")
+            let inserted = sqlx::query("INSERT INTO documents (tenant,environment,id,kind,canonical_bytes,content_hash,schema_version) VALUES (?,?,?,?,?,?,1) ON CONFLICT (tenant,environment,id) DO NOTHING")
                 .bind(&s.tenant).bind(&s.environment)
                 .bind(id).bind(kind)
-                .bind(&b.canonical_bytes).bind(&b.content_hash).execute(conn).await?;
+                .bind(&b.canonical_bytes).bind(&b.content_hash).execute(&mut *conn).await?.rows_affected();
+            if inserted == 0 {
+                // BEGIN IMMEDIATE serializes writers; never mutate an immutable
+                // document or silently accept a same-ID collision.
+                let existing = sqlx::query("SELECT kind,canonical_bytes,content_hash,schema_version FROM documents WHERE tenant=? AND environment=? AND id=?")
+                    .bind(&s.tenant).bind(&s.environment).bind(id).fetch_one(conn).await?;
+                if existing.try_get::<String, _>(0)? != *kind
+                    || existing.try_get::<Vec<u8>, _>(1)? != b.canonical_bytes
+                    || existing.try_get::<String, _>(2)? != b.content_hash
+                    || existing.try_get::<i64, _>(3)? != 1
+                {
+                    return Err(StoreError::Integrity("immutable document collision"));
+                }
+            }
         }
         JournalRow::Party {
             id,

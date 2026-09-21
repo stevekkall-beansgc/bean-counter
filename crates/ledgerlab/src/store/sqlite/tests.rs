@@ -52,7 +52,7 @@ fn accepted() -> Vec<Value> {
 fn one(kind: &str) -> Value {
     accepted().into_iter().find(|v| v["kind"] == kind).unwrap()
 }
-fn row(v: &Value) -> JournalRecord {
+pub(crate) fn row(v: &Value) -> JournalRecord {
     let b = &v["body"];
     let row = match v["kind"].as_str().unwrap() {
         "document" => JournalRow::Document {

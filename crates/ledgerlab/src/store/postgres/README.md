@@ -3,7 +3,8 @@
 This concrete private adapter implements the shared acceptance port with typed,
 bound tokio-postgres queries. It uses its own PostgreSQL migration and SQL. The
 coordinator resolves authority and economics; the adapter does neither. See
-`PHASE-1-STATUS.md` for executed evidence and remaining gates.
+`PHASE-1-STATUS.md` for the integration checkpoint and
+`PHASE-1-REVIEW-FIXES.md` for subsequent review fixes and fresh evidence.
 
 ## Configuration and initialization
 
@@ -54,14 +55,17 @@ rollback, never automatic economic duplicates.
 
 Every session is discarded and its driver joined after its transaction. There
 is no connection reuse after ambiguity, or after ordinary completion. Close
-stops admission and joins registered work. Request cancellation, transport loss,
+stops admission and joins registered work. Overlapping close callers await the
+same drain, and cancelling a closer retains task handles for the next closer.
+Request cancellation, transport loss,
 OS process death and power loss remain different events; local tests do not
 certify physical power-loss behavior.
 
 ## Local evidence
 
 The explicit opt-in `service::pg_tests` adapter initializes fresh isolated real
-databases from the frozen seed only. A separate repeatable-read observer reads
+databases from the frozen seed or an independently rehashed 100% discount variant.
+A separate repeatable-read observer reads
 every physical table/column and compares the resulting bytes and projections
 with the independent testkit. The transaction-state probe observes its target
 from a different connection and has an open-transaction negative control.
@@ -74,7 +78,20 @@ COMMIT/socket-cut trials per server version. Those trials pass the replacement
 through the original chain lock, then require exactly no journal or one complete
 journal before same-identity retry and reopen.
 
-Set explicit `LEDGERLAB_PG_TEST_PORT`, `LEDGERLAB_PG_TEST_PASSWORD` and
+Review regressions add two distinct decisions sharing one snapshot, an independent
+100% discount with actions but no intention/delivery, retries after binding changes,
+three integrity-collision variants, and eight overlapping distinct-operation trials.
+The production-supervisor transport test runs twelve opaque TLS relay cuts: six
+before COMMIT reaches the server and six after durable commit while its reply is
+withheld. It asserts the real `PostgresTx` result, backend disappearance, original
+identity retry and reopen; durable cases overlap two close calls and cancel one.
+
+Every database initializer queries and asserts `server_version_num` against an
+explicit intended major. Each suite process prints that number, `server_version`
+and `version()`; the returned backend evidence retains the queried version text.
+
+Set explicit `LEDGERLAB_PG_TEST_MAJOR` (18 or 17), `LEDGERLAB_PG_TEST_PORT`,
+`LEDGERLAB_PG_TEST_PASSWORD` and
 `LEDGERLAB_PG_TEST_CA` for an isolated localhost server with the migration owner
 `postgres`, database `ledgerlab`, and restricted role `ledgerlab_phase1_runtime`.
 Tests create only uniquely named synthetic databases; successful cases remove
@@ -82,7 +99,7 @@ their own database. Test secrets, certificates, databases and detailed logs stay
 under ignored local operational directories.
 
 ```sh
-cargo test -p ledgerlab --all-features --locked --offline service::pg_tests:: -- --ignored --nocapture
+cargo test -p ledgerlab --all-features --locked --offline service::pg_tests:: -- --ignored --nocapture --test-threads=1
 sh crates/ledgerlab/src/store/postgres/proof/run.sh
 ```
 
