@@ -182,9 +182,10 @@ fn from_history(h: &Value) -> Fixture {
             &base,
             &all,
             &auth,
+            false,
         )
         .unwrap_or_else(|e| panic!("lifecycle step {index}: {e}"));
-        let Prepared::Append(plan, false) = result else {
+        let Some(Prepared::Append(plan, false)) = result else {
             panic!("expected validated new decision")
         };
         apply(&mut snapshot, &plan);

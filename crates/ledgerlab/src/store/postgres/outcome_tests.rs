@@ -659,6 +659,100 @@ impl coordinator::OutcomeAuthority for SyntheticAuthority {
     }
 }
 
+struct ReadOnlyAuthority(SyntheticAuthority);
+impl coordinator::OutcomeAuthority for ReadOnlyAuthority {
+    fn verify(
+        &self,
+        c: &coordinator::OutcomeCommand,
+        snapshot: &OutcomeSnapshot,
+        write: bool,
+    ) -> Result<coordinator::AuthorityProof, crate::ServiceError> {
+        if write {
+            return Err(crate::ServiceError::Unavailable);
+        }
+        self.0.verify(c, snapshot, false)
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 17/18 TLS service"]
+async fn postgres_outcome_host_write_denial_preserves_every_physical_cell() {
+    let mut f = Fixture::new().await;
+    let v = validated::lifecycle();
+    provision(&mut f, &v).await;
+    let allowed = SyntheticAuthority(v.proofs.clone());
+    let denied = ReadOnlyAuthority(SyntheticAuthority(v.proofs.clone()));
+    for (i, command) in v.commands.iter().enumerate() {
+        let before = physical(&f).await;
+        assert_eq!(
+            coordinator::run(&f.store, command, &denied).await,
+            Err(crate::ServiceError::Unavailable),
+            "fresh stage {i} requires host write authorization"
+        );
+        assert_eq!(physical(&f).await, before, "denied stage {i}");
+        f.store.clone().close().await;
+        f.owner.discard().await;
+        f.owner = config(&f.name, true).connect().await.unwrap();
+        f.store = PostgresStore::open(config(&f.name, false)).await.unwrap();
+        assert_eq!(physical(&f).await, before, "reopened denied stage {i}");
+        assert!(matches!(
+            coordinator::run(&f.store, command, &allowed).await.unwrap(),
+            coordinator::OutcomeResult::Accepted(_)
+        ));
+        let accepted = physical(&f).await;
+        assert_eq!(
+            coordinator::run(&f.store, command, &denied).await.unwrap(),
+            coordinator::OutcomeResult::Duplicate(v.plans[i].delivery().clone())
+        );
+        assert_eq!(physical(&f).await, accepted, "read-only retry stage {i}");
+    }
+    let before = physical(&f).await;
+    let mut alias = v.commands[1].clone();
+    alias.principal.can_submit = false;
+    if let coordinator::OutcomeOperation::Economic { ingress, .. } = &mut alias.operation {
+        let mut event: Value = serde_json::from_slice(ingress).unwrap();
+        event["data"]["external_id"] = json!("host-write-denied-ordinary-alias");
+        *ingress = bytes(&event).unwrap();
+    }
+    let coordinator::OutcomeResult::Duplicate(delivery) =
+        coordinator::run(&f.store, &alias, &denied).await.unwrap()
+    else {
+        panic!("read-only ordinary alias must preserve original receipts")
+    };
+    assert_eq!(delivery.canonical_key, v.plans[1].delivery().key);
+    assert_eq!(
+        delivery.economic_receipt,
+        v.plans[1].delivery().economic_receipt
+    );
+    assert_eq!(
+        delivery.settlement_receipt,
+        v.plans[1].delivery().settlement_receipt
+    );
+    let after = physical(&f).await;
+    for ((name, old), (next_name, new)) in before.iter().zip(&after) {
+        assert_eq!(name, next_name);
+        if matches!(
+            name.as_str(),
+            "outcome_deliveries" | "acceptance_delivery_namespace"
+        ) {
+            assert_eq!(new.len(), old.len() + 1);
+        } else {
+            assert_eq!(old, new, "read-only alias changed {name}");
+        }
+    }
+    f.store.clone().close().await;
+    f.owner.discard().await;
+    f.owner = config(&f.name, true).connect().await.unwrap();
+    f.store = PostgresStore::open(config(&f.name, false)).await.unwrap();
+    assert_eq!(physical(&f).await, after);
+    assert_eq!(
+        coordinator::run(&f.store, &alias, &denied).await.unwrap(),
+        coordinator::OutcomeResult::Duplicate(delivery)
+    );
+    assert_eq!(physical(&f).await, after);
+    f.finish().await;
+}
+
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL 17/18 TLS service"]
 async fn outcome_durable_independent_oracle() {

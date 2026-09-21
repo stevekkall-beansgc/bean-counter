@@ -227,6 +227,7 @@ struct Authority {
     read_only: bool,
     deny_read: bool,
     deny_early: bool,
+    deny_write: bool,
 }
 impl Authority {
     fn new(f: &fixture::Fixture) -> Self {
@@ -235,11 +236,20 @@ impl Authority {
             read_only: false,
             deny_read: false,
             deny_early: false,
+            deny_write: false,
         }
     }
 }
 impl OutcomeAuthority for Authority {
-    fn verify(&self, c: &OutcomeCommand, _: &OutcomeSnapshot, _: bool) -> Result<AuthorityProof> {
+    fn verify(
+        &self,
+        c: &OutcomeCommand,
+        _: &OutcomeSnapshot,
+        write: bool,
+    ) -> Result<AuthorityProof> {
+        if write && self.deny_write {
+            return Err(ServiceError::Rejection("HOST_WRITE_DENIED".into()));
+        }
         if self.deny_read {
             return Err(ServiceError::Rejection("READ_UNAUTHORIZED".into()));
         }
@@ -284,6 +294,7 @@ async fn transaction_path_matches_validated_plans_and_stable_identity() {
     retry.received_at = Timestamp::parse("2026-10-21T12:00:00.000000Z").unwrap();
     retry.accepted_at = retry.received_at.clone();
     a.read_only = true;
+    a.deny_write = true;
     let before = s.0.lock().unwrap().commits;
     assert_eq!(
         run(&s, &retry, &a).await.unwrap(),
@@ -324,6 +335,7 @@ async fn semantic_alias_after_correction_and_closure_keeps_first_pair() {
     alias.received_at = Timestamp::parse("2026-10-21T12:00:00.000000Z").unwrap();
     alias.accepted_at = alias.received_at.clone();
     a.read_only = true;
+    a.deny_write = true;
     let before = s.0.lock().unwrap().snapshot.records.clone();
     let OutcomeResult::Duplicate(d) = run(&s, &alias, &a).await.unwrap() else {
         panic!()
@@ -666,4 +678,138 @@ async fn deadline_is_strict_and_repeated_close_is_a_nonmonetary_observation() {
             .unwrap(),
         prior
     );
+}
+
+// Deliberately different read/write proofs: new work must use the latter, not
+// merely call the host and discard its result. Complete locks are checked at the
+// host boundary, before any accepted plan reaches the transaction append seam.
+struct ModeAuthority {
+    read: AuthorityProof,
+    write: AuthorityProof,
+    locks: Vec<OutcomeLock>,
+    write_calls: Mutex<usize>,
+}
+impl OutcomeAuthority for ModeAuthority {
+    fn verify(
+        &self,
+        _: &OutcomeCommand,
+        snapshot: &OutcomeSnapshot,
+        write: bool,
+    ) -> Result<AuthorityProof> {
+        if write {
+            assert_eq!(
+                snapshot
+                    .heads
+                    .iter()
+                    .map(|h| h.lock.clone())
+                    .collect::<Vec<_>>(),
+                self.locks
+            );
+            *self.write_calls.lock().unwrap() += 1;
+            Ok(self.write.clone())
+        } else {
+            Ok(self.read.clone())
+        }
+    }
+}
+#[tokio::test]
+async fn host_write_proof_is_used_under_complete_locks_for_all_four_operations() {
+    let f = fixture();
+    for i in 0..4 {
+        let s = Store::new(&f);
+        let normal = Authority::new(&f);
+        for c in &f.commands[..i] {
+            accepted(&s, c, &normal).await;
+        }
+        let mut read = f.proofs[i].clone();
+        read.authority["permissions"] = json!(["read"]);
+        read.authority["evidence"] = json!([]);
+        read.verified_terms.clear();
+        read.finality = false;
+        read.authorized_early_close = false;
+        let mut write = f.proofs[i].clone();
+        write.authority["permissions"] = match i {
+            0 | 1 => json!(["read", "submit"]),
+            2 => json!(["correct", "read"]),
+            _ => json!(["close", "read"]),
+        };
+        let a = ModeAuthority {
+            read,
+            write: write.clone(),
+            locks: f.plans[i].resolution().locks.clone(),
+            write_calls: Mutex::new(0),
+        };
+        let OutcomeResult::Accepted(d) = run(&s, &f.commands[i], &a).await.unwrap() else {
+            panic!("fresh step {i}")
+        };
+        assert_eq!(*a.write_calls.lock().unwrap(), 1);
+        let receipt: Value = serde_json::from_slice(&d.settlement_receipt).unwrap();
+        let m = s.0.lock().unwrap();
+        let observation = m
+            .snapshot
+            .records
+            .iter()
+            .map(|r| serde_json::from_slice::<Value>(r).unwrap())
+            .find(|r| reference(r) == receipt["body"]["observation"])
+            .unwrap();
+        assert_eq!(
+            observation["body"]["authority"], write.authority,
+            "step {i}: use the write proof"
+        );
+    }
+}
+#[tokio::test]
+async fn invalid_host_write_proof_terms_finality_evidence_and_closure_rights_never_append() {
+    let f = fixture();
+    for (i, omit_finality) in [(0, false), (0, true), (1, false), (2, false), (3, false)] {
+        let s = Store::new(&f);
+        let normal = Authority::new(&f);
+        for c in &f.commands[..i] {
+            accepted(&s, c, &normal).await;
+        }
+        let mut write = f.proofs[i].clone();
+        match i {
+            0 if omit_finality => write.finality = false,
+            0 => write.verified_terms.clear(),
+            1 | 2 => write.authority["evidence"] = json!([]),
+            _ => write.authorized_early_close = false,
+        }
+        let a = ModeAuthority {
+            read: f.proofs[i].clone(),
+            write,
+            locks: f.plans[i].resolution().locks.clone(),
+            write_calls: Mutex::new(0),
+        };
+        let before = {
+            let m = s.0.lock().unwrap();
+            (
+                m.appends,
+                m.commits,
+                m.snapshot.records.clone(),
+                m.snapshot.heads.clone(),
+                m.snapshot.anchors.clone(),
+                m.deliveries.clone(),
+            )
+        };
+        assert!(
+            run(&s, &f.commands[i], &a).await.is_err(),
+            "step {i}: invalid write proof accepted"
+        );
+        assert_eq!(*a.write_calls.lock().unwrap(), 1);
+        let after = {
+            let m = s.0.lock().unwrap();
+            (
+                m.appends,
+                m.commits,
+                m.snapshot.records.clone(),
+                m.snapshot.heads.clone(),
+                m.snapshot.anchors.clone(),
+                m.deliveries.clone(),
+            )
+        };
+        assert_eq!(
+            before, after,
+            "step {i}: rejection changed state or reached append"
+        );
+    }
 }

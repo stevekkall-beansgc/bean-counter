@@ -1,5 +1,11 @@
 # Product Phase 3 bounded integration candidate
 
+The independent review of candidate `930497b1d21e684a7814c2edcd72f7676b9d2937`
+returned FAIL for P1/R1: fresh acceptance never invoked the host verifier in write
+mode. The bounded successor fix and its validation scope are documented in
+`PRODUCT-PHASE-3-R1.md`. The results below remain historical evidence for the
+reviewed candidate; a focused independent re-review of the successor is required.
+
 Status: validated bounded local integration candidate; independent review and
 external host gates remain. No release or Phase 4 approval.
 

@@ -616,8 +616,9 @@ async fn prepare<T: OutcomeTx, A: OutcomeAuthority>(
         return Ok(Prepared::More(needed));
     }
     let proof = authority.verify(c, &snapshot, false)?;
-    // Semantic duplicates are evaluated with read rights before write permission.
-    let prepared = build(
+    // Resolve ordinary semantic aliases with read rights only. The lookup pass
+    // cannot construct a fresh decision: it disables both economic write rights.
+    if let Some(prepared) = build(
         c,
         event,
         command,
@@ -628,8 +629,27 @@ async fn prepare<T: OutcomeTx, A: OutcomeAuthority>(
         &base,
         &records,
         &proof,
-    )?;
-    Ok(prepared)
+        true,
+    )? {
+        return Ok(prepared);
+    }
+    // Full lock discovery has completed above. Ask the host, then validate and
+    // use THIS proof for all new economics, registration terms and closure rights.
+    let write_proof = authority.verify(c, &snapshot, true)?;
+    build(
+        c,
+        event,
+        command,
+        key,
+        &snapshot,
+        &resolve,
+        &mut economic_records,
+        &base,
+        &records,
+        &write_proof,
+        false,
+    )?
+    .ok_or_else(integrity)
 }
 fn ingress(c: &OutcomeCommand, event: &Value) -> Result<Vec<u8>> {
     if let OutcomeOperation::FinalBase { seed } = &c.operation {
@@ -1094,11 +1114,20 @@ fn build(
     base_proposal: &Base,
     all: &Records,
     proof: &AuthorityProof,
-) -> Result<Prepared> {
+    lookup_only: bool,
+) -> Result<Option<Prepared>> {
     use OutcomeLockClass as L;
     use OutcomeLockMode as M;
     let registering = matches!(c.operation, OutcomeOperation::FinalBase { .. });
     let kind = text(&command["kind"])?;
+    // Registration/closure have no semantic alias. Identity lookup already ran.
+    // None requests host write authorization before validating/building new work.
+    if lookup_only && !matches!(c.operation, OutcomeOperation::Economic { .. }) {
+        return Ok(None);
+    }
+    // Validate the selected host proof once at the planning boundary. Fresh work
+    // requires write rights before any accepted economic decision is constructed.
+    verify_proof(c, snapshot, proof, all, &key.source, !lookup_only, kind)?;
     let mut history = vec![];
     let mut prior = vec![];
     let mut owned = None;
@@ -1189,10 +1218,12 @@ fn build(
         let req = b::request(&active, base, &event["data"])?;
         // Verified rights come exclusively from the mandatory host proof tied to a
         // locked current grant. Ingress flags never enter this value.
-        verify_proof(c, snapshot, proof, all, &key.source, false, kind)?;
         let perms = array(&proof.authority["permissions"])?;
         let authority = json!({"event_id":core(codec::key(codec::ECONOMIC,"event",&active.scope,event))?,"target":c.target,"agreement_id":event["data"]["agreement_id"],"family_id":event["data"]["family_id"],"source":key.source,"principal":c.principal.principal_id,"grant":proof.authority["grant"]["id"],"grant_revision":proof.authority["grant_revision"],"active":true,"may_read":true,"may_submit":perms.contains(&json!("submit")),"may_correct":perms.contains(&json!("correct")),"verified_evidence":event["data"]["evidence"],"received_at":c.received_at,"accepted_at":c.accepted_at});
         for e in array(&event["data"]["evidence"])? {
+            if lookup_only {
+                continue;
+            }
             let doc = active.document(e)?;
             check(array(&proof.authority["evidence"])?.iter().any(|r| {
                 active
@@ -1200,7 +1231,12 @@ fn build(
                     .is_ok_and(|r| r["body"]["document_id"] == doc)
             }))?;
         }
-        let verified = b::verified(&active, &req, &authority)?;
+        let mut verified = b::verified(&active, &req, &authority)?;
+        if lookup_only {
+            verified.may_submit = false;
+            verified.may_correct = false;
+            verified.verified_evidence.clear();
+        }
         let evaluated = match o::evaluate(
             &req,
             &verified,
@@ -1210,11 +1246,12 @@ fn build(
         ) {
             Ok(v) => v,
             Err(e) if e.code == "CLAIM_CONFLICT" => {
-                return Ok(Prepared::End(OutcomeResult::SemanticConflict))
+                return Ok(Some(Prepared::End(OutcomeResult::SemanticConflict)))
             }
             Err(e) if e.code == "IDENTITY_CONFLICT" => {
-                return Ok(Prepared::End(OutcomeResult::IdentityConflict))
+                return Ok(Some(Prepared::End(OutcomeResult::IdentityConflict)))
             }
+            Err(_) if lookup_only => return Ok(None),
             Err(e) => return Err(ServiceError::Rejection(e.code.into())),
         };
         match evaluated {
@@ -1254,7 +1291,7 @@ fn build(
                     economic_receipt: Some(bytes(econ_receipt)?),
                     settlement_receipt: bytes(settlement)?,
                 };
-                return Ok(Prepared::Append(
+                return Ok(Some(Prepared::Append(
                     ValidatedOutcomePlan {
                         resolve: resolve.clone(),
                         anchors: snapshot.anchors.clone(),
@@ -1265,10 +1302,10 @@ fn build(
                         delivery,
                     },
                     true,
-                ));
+                )));
             }
             o::Submission::Accepted(decision) => {
-                verify_proof(c, snapshot, proof, all, &key.source, true, kind)?;
+                check(!lookup_only)?;
                 let policy = active
                     .rows
                     .iter()
@@ -1306,8 +1343,6 @@ fn build(
                 )?;
             }
         }
-    } else {
-        verify_proof(c, snapshot, proof, all, &key.source, true, kind)?;
     }
     if registering {
         for r in active
@@ -1527,7 +1562,7 @@ fn build(
         scoped_ref(scoped(c), &reference(&base.acceptance))?,
         scoped_ref(scoped(c), &registration)?,
     ];
-    Ok(Prepared::Append(
+    Ok(Some(Prepared::Append(
         ValidatedOutcomePlan {
             resolve: resolve.clone(),
             anchors,
@@ -1538,7 +1573,7 @@ fn build(
             delivery,
         },
         false,
-    ))
+    )))
 }
 
 #[cfg(test)]

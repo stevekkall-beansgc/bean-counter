@@ -487,6 +487,56 @@ impl crate::service::accept::outcome::OutcomeAuthority for SyntheticAuthority {
     }
 }
 #[tokio::test]
+async fn host_write_denial_preserves_every_physical_cell() {
+    use crate::service::accept::outcome::{run, OutcomeResult};
+    let f = fixture::lifecycle();
+    let (dir, mut store) = prepared(&f).await;
+    for (i, command) in f.commands.iter().enumerate() {
+        let before = dump(&store).await;
+        let denied = SyntheticAuthority {
+            proof: f.proofs[i].clone(),
+            write_allowed: false,
+        };
+        assert_eq!(
+            run(&store, command, &denied).await,
+            Err(crate::ServiceError::Unavailable),
+            "fresh step {i} must ask host for write authority"
+        );
+        assert_eq!(
+            dump(&store).await,
+            before,
+            "denied step {i} changed physical state"
+        );
+        store.close().await;
+        store = SqliteStore::open(dir.path()).await.unwrap();
+        assert_eq!(
+            dump(&store).await,
+            before,
+            "denied step {i} changed reopened state"
+        );
+        let allowed = SyntheticAuthority {
+            write_allowed: true,
+            ..denied.clone()
+        };
+        assert!(matches!(
+            run(&store, command, &allowed).await.unwrap(),
+            OutcomeResult::Accepted(_)
+        ));
+        let accepted = dump(&store).await;
+        assert!(matches!(
+            run(&store, command, &denied).await.unwrap(),
+            OutcomeResult::Duplicate(_)
+        ));
+        assert_eq!(
+            dump(&store).await,
+            accepted,
+            "read-only retry step {i} wrote"
+        );
+    }
+    store.close().await;
+}
+
+#[tokio::test]
 async fn coordinator_on_sqlite_retries_aliases_and_conflicts_preserve_receipts() {
     use crate::service::accept::outcome::{run, OutcomeOperation, OutcomeResult};
     let f = fixture::lifecycle();
@@ -520,7 +570,7 @@ async fn coordinator_on_sqlite_retries_aliases_and_conflicts_preserve_receipts()
     }
     let auth = SyntheticAuthority {
         proof: f.proofs[1].clone(),
-        write_allowed: true,
+        write_allowed: false,
     };
     let mut conflict = f.commands[1].clone();
     let OutcomeOperation::Economic { ingress, .. } = &mut conflict.operation else {
