@@ -1,0 +1,1212 @@
+[
+  {
+    "name": "correction-consumes",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          0
+        ],
+        "value": "2"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          1
+        ],
+        "value": "800"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          2
+        ],
+        "value": "200"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "transition"
+        ],
+        "value": [
+          "500",
+          "0"
+        ]
+      }
+    ],
+    "expected": "TRANSITION_PRESENCE"
+  },
+  {
+    "name": "correction-releases",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          0
+        ],
+        "value": "2"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          2
+        ],
+        "value": "0"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          3
+        ],
+        "value": "700"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "transition"
+        ],
+        "value": [
+          "0",
+          "700"
+        ]
+      }
+    ],
+    "expected": "TRANSITION_PRESENCE"
+  },
+  {
+    "name": "correction-replenishes",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          0
+        ],
+        "value": "2"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          1
+        ],
+        "value": "100"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          2
+        ],
+        "value": "900"
+      },
+      {
+        "path": [
+          "steps",
+          2,
+          "transition"
+        ],
+        "value": [
+          "0",
+          "0"
+        ]
+      }
+    ],
+    "expected": "TRANSITION_PRESENCE"
+  },
+  {
+    "name": "correction-revision-only",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "expected",
+          0
+        ],
+        "value": "2"
+      }
+    ],
+    "expected": "RESULT"
+  },
+  {
+    "name": "ordinary-auto-release",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          2
+        ],
+        "value": "0"
+      },
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          3
+        ],
+        "value": "700"
+      },
+      {
+        "path": [
+          "steps",
+          1,
+          "transition"
+        ],
+        "value": [
+          "200",
+          "700"
+        ]
+      }
+    ],
+    "expected": "TRANSITION_STATE"
+  },
+  {
+    "name": "ordinary-clips-consumption",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          1
+        ],
+        "value": "200"
+      },
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          2
+        ],
+        "value": "800"
+      },
+      {
+        "path": [
+          "steps",
+          1,
+          "transition"
+        ],
+        "value": [
+          "100",
+          "0"
+        ]
+      }
+    ],
+    "expected": "TRANSITION_STATE"
+  },
+  {
+    "name": "ordinary-revision-skip",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          0
+        ],
+        "value": "2"
+      }
+    ],
+    "expected": "TRANSITION_STATE"
+  },
+  {
+    "name": "zero-ordinary-no-slot-transition",
+    "history": "accepted-zero-is-ordinary",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected"
+        ],
+        "value": [
+          "0",
+          "100",
+          "900",
+          "0",
+          {
+            "a": "open",
+            "b": "open"
+          }
+        ]
+      }
+    ],
+    "expected": "TRANSITION_STATE"
+  },
+  {
+    "name": "release-more-than-held",
+    "history": "deadline-closes-unclaimed",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected"
+        ],
+        "value": [
+          "1",
+          "99",
+          "0",
+          "901",
+          {
+            "a": "closed",
+            "b": "closed"
+          }
+        ]
+      },
+      {
+        "path": [
+          "steps",
+          1,
+          "transition"
+        ],
+        "value": [
+          "0",
+          "901"
+        ]
+      }
+    ],
+    "expected": "TRANSITION_STATE"
+  },
+  {
+    "name": "closure-at-inclusive-deadline",
+    "history": "deadline-closes-unclaimed",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "time"
+        ],
+        "value": "2026-09-23T13:00:00.000000Z"
+      }
+    ],
+    "expected": "CLOSE_DEADLINE"
+  },
+  {
+    "name": "closure-at-earliest-member-deadline",
+    "history": "different-member-deadlines",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "time"
+        ],
+        "value": "2026-09-23T13:00:00.000001Z"
+      }
+    ],
+    "expected": "CLOSE_DEADLINE"
+  },
+  {
+    "name": "early-close-without-agreed-right",
+    "history": "explicit-early-close",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "early_authorized"
+        ],
+        "value": false
+      }
+    ],
+    "expected": "CLOSE_AUTHORITY"
+  },
+  {
+    "name": "closure-without-close-permission",
+    "history": "explicit-early-close",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "permissions"
+        ],
+        "value": [
+          "read",
+          "submit"
+        ]
+      }
+    ],
+    "expected": "WRITE_AUTHORITY"
+  },
+  {
+    "name": "stale-close-expected-revision",
+    "history": "explicit-early-close",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "expected_revision"
+        ],
+        "value": "0"
+      }
+    ],
+    "expected": "EXPECTED_REVISION"
+  },
+  {
+    "name": "ordinary-slot-reused",
+    "history": "two-positive-ordinary",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "family"
+        ],
+        "value": "a"
+      }
+    ],
+    "expected": "ORDINARY_CLOSED"
+  },
+  {
+    "name": "post-hoc-unclaimed-family",
+    "history": "explicit-early-close",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          3,
+          "family"
+        ],
+        "value": "b"
+      },
+      {
+        "path": [
+          "steps",
+          3,
+          "amount"
+        ],
+        "value": "100"
+      }
+    ],
+    "expected": "POST_HOC_ORIGINAL"
+  },
+  {
+    "name": "ordinary-after-explicit-closure",
+    "history": "explicit-early-close",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          3,
+          "kind"
+        ],
+        "value": "ordinary"
+      },
+      {
+        "path": [
+          "steps",
+          3,
+          "family"
+        ],
+        "value": "b"
+      },
+      {
+        "path": [
+          "steps",
+          3,
+          "amount"
+        ],
+        "value": "100"
+      }
+    ],
+    "expected": "ORDINARY_CLOSED"
+  },
+  {
+    "name": "reversal-does-not-restore-held",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          4,
+          "amount"
+        ],
+        "value": "0"
+      },
+      {
+        "path": [
+          "steps",
+          5,
+          "amount"
+        ],
+        "value": "800"
+      }
+    ],
+    "expected": "HELD_CAPACITY"
+  },
+  {
+    "name": "economic-ceiling-still-enforced",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "amount"
+        ],
+        "value": "801"
+      }
+    ],
+    "expected": "ECONOMIC_CEILING"
+  },
+  {
+    "name": "revoked-authority",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "active"
+        ],
+        "value": false
+      }
+    ],
+    "expected": "AUTHORITY"
+  },
+  {
+    "name": "zero-grant-revision",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "grant_revision"
+        ],
+        "value": "0"
+      }
+    ],
+    "expected": "AUTHORITY"
+  },
+  {
+    "name": "no-read-permission",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "permissions"
+        ],
+        "value": [
+          "submit"
+        ]
+      }
+    ],
+    "expected": "READ_AUTHORITY"
+  },
+  {
+    "name": "post-hoc-no-correction-permission",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "permissions"
+        ],
+        "value": [
+          "read",
+          "submit"
+        ]
+      }
+    ],
+    "expected": "WRITE_AUTHORITY"
+  },
+  {
+    "name": "broken-base-conservation",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "initial",
+          2
+        ],
+        "value": "899"
+      }
+    ],
+    "expected": "CONSERVATION"
+  },
+  {
+    "name": "wrong-unit",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "observation_patch"
+        ],
+        "value": {
+          "unit": {
+            "currency": "EUR",
+            "scale": 2
+          }
+        }
+      }
+    ],
+    "expected": "UNIT"
+  },
+  {
+    "name": "substitute-registration-root",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "observation_patch"
+        ],
+        "value": {
+          "registration": {
+            "kind": "reservation-receipt",
+            "id": "rsr1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      }
+    ],
+    "expected": "PREFIX"
+  },
+  {
+    "name": "missing-replay",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "receipt_patch"
+        ],
+        "value": {
+          "replay": []
+        }
+      }
+    ],
+    "expected": "REPLAY_CLOSURE"
+  },
+  {
+    "name": "extra-replay",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "receipt_patch"
+        ],
+        "value": {
+          "replay": [
+            {
+              "kind": "evidence",
+              "id": "ed2_6b272371a06ff73888fe95235fa0910df0c7f25c3bf58527a8f3e44c84177337",
+              "content_hash": "sha256:6b272371a06ff73888fe95235fa0910df0c7f25c3bf58527a8f3e44c84177337"
+            }
+          ]
+        }
+      }
+    ],
+    "expected": "REPLAY_CLOSURE"
+  },
+  {
+    "name": "noncanonical-revision",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          0
+        ],
+        "value": "01"
+      }
+    ],
+    "expected": "SCHEMA"
+  },
+  {
+    "name": "noncanonical-atoms",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          1
+        ],
+        "value": "+300"
+      }
+    ],
+    "expected": "SCHEMA"
+  },
+  {
+    "name": "revision-overflow",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          0
+        ],
+        "value": "9223372036854775808"
+      }
+    ],
+    "expected": "TRANSITION_STATE"
+  },
+  {
+    "name": "negative-held",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "expected",
+          2
+        ],
+        "value": "-1"
+      }
+    ],
+    "expected": "SCHEMA"
+  },
+  {
+    "name": "amount-overflow",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "amount"
+        ],
+        "value": "1000000000000000000000000000000"
+      }
+    ],
+    "expected": "ECONOMIC_ATOMS"
+  },
+  {
+    "name": "receipt-before-observation",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "received_at"
+        ],
+        "value": "2026-09-21T13:00:00.000001Z"
+      }
+    ],
+    "expected": "TIME_ORDER"
+  },
+  {
+    "name": "ordinary-after-accepted-by",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "time"
+        ],
+        "value": "2026-09-23T13:00:00.000001Z"
+      }
+    ],
+    "expected": "ORDINARY_DEADLINE"
+  },
+  {
+    "name": "unknown-economic-field",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "observation_patch"
+        ],
+        "value": {
+          "rate": "2"
+        }
+      }
+    ],
+    "expected": "SCHEMA"
+  },
+  {
+    "name": "null-field",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "observation_patch"
+        ],
+        "value": {
+          "unit": null
+        }
+      }
+    ],
+    "expected": "SCALAR"
+  },
+  {
+    "name": "changed-economic-ingress",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          1,
+          "observation_patch"
+        ],
+        "value": {
+          "command": {
+            "kind": "ordinary",
+            "source": "urn:synthetic:settlement",
+            "external_id": "ordinary-a",
+            "invocation_id": "invocation-one",
+            "economic_ingress_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "family": {
+              "agreement_id": "supplier-agreement",
+              "family_id": "a",
+              "target": "ev2_53460003e32cdc93e7daa93db62afe70b7859db03fbc26b9735a53e5089077bf"
+            }
+          },
+          "request_hash": "sha256:bb4047d28ea6b0611db55a0a4d212dcfafef760d496c0ee04c074ed1d42778be"
+        }
+      }
+    ],
+    "expected": "ECONOMIC_INGRESS"
+  },
+  {
+    "name": "post-hoc-reuses-ordinary-delivery",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "id"
+        ],
+        "value": "ordinary-a"
+      }
+    ],
+    "expected": "DELIVERY_IDENTITY_REUSED"
+  },
+  {
+    "name": "closure-reuses-ordinary-delivery",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          6,
+          "id"
+        ],
+        "value": "ordinary-a"
+      }
+    ],
+    "expected": "DELIVERY_IDENTITY_REUSED"
+  },
+  {
+    "name": "closure-reuses-post-hoc-delivery",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          6,
+          "id"
+        ],
+        "value": "higher-correction"
+      }
+    ],
+    "expected": "DELIVERY_IDENTITY_REUSED"
+  },
+  {
+    "name": "post-hoc-reuses-registration-delivery",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "id"
+        ],
+        "value": "base"
+      }
+    ],
+    "expected": "DELIVERY_IDENTITY_REUSED"
+  },
+  {
+    "name": "later-post-hoc-reuses-earlier-post-hoc-delivery",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          3,
+          "id"
+        ],
+        "value": "higher-correction"
+      }
+    ],
+    "expected": "DELIVERY_IDENTITY_REUSED"
+  },
+  {
+    "name": "identical-close-retry-appended-as-new-step",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps"
+        ],
+        "value": [
+          {
+            "kind": "register",
+            "id": "base",
+            "time": "2026-09-21T13:00:00.000000Z",
+            "expected": [
+              "0",
+              "100",
+              "900",
+              "0",
+              {
+                "a": "open",
+                "b": "open"
+              }
+            ]
+          },
+          {
+            "kind": "ordinary",
+            "id": "ordinary-a",
+            "time": "2026-09-21T13:00:00.000000Z",
+            "expected": [
+              "1",
+              "300",
+              "700",
+              "0",
+              {
+                "a": "claimed",
+                "b": "open"
+              }
+            ],
+            "family": "a",
+            "amount": "200",
+            "transition": [
+              "200",
+              "0"
+            ]
+          },
+          {
+            "kind": "post_hoc",
+            "id": "higher-correction",
+            "time": "2026-09-21T13:00:00.000000Z",
+            "expected": [
+              "1",
+              "300",
+              "700",
+              "0",
+              {
+                "a": "claimed",
+                "b": "open"
+              }
+            ],
+            "family": "a",
+            "amount": "700"
+          },
+          {
+            "kind": "post_hoc",
+            "id": "reversal",
+            "time": "2026-09-21T13:00:00.000000Z",
+            "expected": [
+              "1",
+              "300",
+              "700",
+              "0",
+              {
+                "a": "claimed",
+                "b": "open"
+              }
+            ],
+            "family": "a",
+            "amount": "0"
+          },
+          {
+            "kind": "post_hoc",
+            "id": "reinstatement",
+            "time": "2026-09-21T13:00:00.000000Z",
+            "expected": [
+              "1",
+              "300",
+              "700",
+              "0",
+              {
+                "a": "claimed",
+                "b": "open"
+              }
+            ],
+            "family": "a",
+            "amount": "250"
+          },
+          {
+            "kind": "ordinary",
+            "id": "discount-b",
+            "time": "2026-09-21T13:00:00.000000Z",
+            "expected": [
+              "2",
+              "300",
+              "700",
+              "0",
+              {
+                "a": "claimed",
+                "b": "claimed"
+              }
+            ],
+            "family": "b",
+            "amount": "-50",
+            "transition": [
+              "0",
+              "0"
+            ]
+          },
+          {
+            "kind": "close",
+            "id": "release",
+            "time": "2026-09-23T13:00:00.000001Z",
+            "expected": [
+              "3",
+              "300",
+              "0",
+              "700",
+              {
+                "a": "claimed",
+                "b": "claimed"
+              }
+            ],
+            "reason": "deadline",
+            "transition": [
+              "0",
+              "700"
+            ]
+          },
+          {
+            "kind": "post_hoc",
+            "id": "after-release",
+            "time": "2026-09-23T13:00:00.000002Z",
+            "expected": [
+              "3",
+              "300",
+              "0",
+              "700",
+              {
+                "a": "claimed",
+                "b": "claimed"
+              }
+            ],
+            "family": "a",
+            "amount": "800"
+          },
+          {
+            "kind": "close",
+            "id": "already-closed",
+            "time": "2026-09-23T13:00:00.000003Z",
+            "expected": [
+              "3",
+              "300",
+              "0",
+              "700",
+              {
+                "a": "claimed",
+                "b": "claimed"
+              }
+            ],
+            "reason": "deadline"
+          },
+          {
+            "kind": "close",
+            "id": "already-closed",
+            "time": "2026-09-23T13:00:00.000003Z",
+            "expected": [
+              "3",
+              "300",
+              "0",
+              "700",
+              {
+                "a": "claimed",
+                "b": "claimed"
+              }
+            ],
+            "reason": "deadline"
+          }
+        ]
+      }
+    ],
+    "expected": "DELIVERY_IDENTITY_REUSED"
+  },
+  {
+    "name": "one-reference-id-two-content-hashes",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          2,
+          "receipt_patch"
+        ],
+        "value": {
+          "replay": [
+            {
+              "kind": "reservation-receipt",
+              "id": "rsr1_55ffa9480460495167f55a83ad9f129456849406c8ac296fd8b0e01e5db11f02",
+              "content_hash": "sha256:29d3acc76c41ee5e7ee78e0df83f16a63a12af7a5e2d4259de2d653dd7bbd03c"
+            },
+            {
+              "kind": "receipt",
+              "id": "rc2_2d84a7da4d5f40806bcec07ca2a2827c0fa9f5de293e71a2d93de0a0d57a5a4c",
+              "content_hash": "sha256:2d84a7da4d5f40806bcec07ca2a2827c0fa9f5de293e71a2d93de0a0d57a5a4c"
+            },
+            {
+              "kind": "receipt",
+              "id": "rc2_5086857e49afb5ae42b1ac02f625fb52c2f4afd9c7140c42ad3ddf92bcce47c3",
+              "content_hash": "sha256:5086857e49afb5ae42b1ac02f625fb52c2f4afd9c7140c42ad3ddf92bcce47c3"
+            },
+            {
+              "kind": "evidence",
+              "id": "ed2_5b55a49803ac0be1c20a69f9e772ff360b236600430b01ba74606085f14f6529",
+              "content_hash": "sha256:5b55a49803ac0be1c20a69f9e772ff360b236600430b01ba74606085f14f6529"
+            },
+            {
+              "kind": "reservation-transition",
+              "id": "rst1_6c79bde0bd1c1d75bc65cf35f652a22736c6b949e13e46d1edb1663a89306ece",
+              "content_hash": "sha256:64a13da641b188eeda37c3d2013b2acf744842125b43475a43f06db25f2a0783"
+            },
+            {
+              "kind": "binding-snapshot",
+              "id": "bs2_68bafac82a10f139fa8a3d2c2acbb7496ecc48a968b5ff56f5bb9dde3ec96438",
+              "content_hash": "sha256:68bafac82a10f139fa8a3d2c2acbb7496ecc48a968b5ff56f5bb9dde3ec96438"
+            },
+            {
+              "kind": "evidence",
+              "id": "ed2_69b89d207d06d9b98cd17482b9ff860fe57e188b6012b57a0e1df3a1c2d5becb",
+              "content_hash": "sha256:69b89d207d06d9b98cd17482b9ff860fe57e188b6012b57a0e1df3a1c2d5becb"
+            },
+            {
+              "kind": "target-snapshot",
+              "id": "ts2_7adb02b7625cd0ef672d5681c3650018dd4dcb60cb7444218b15d0088ac09017",
+              "content_hash": "sha256:7adb02b7625cd0ef672d5681c3650018dd4dcb60cb7444218b15d0088ac09017"
+            },
+            {
+              "kind": "reservation-observation",
+              "id": "rso1_77b2ecea258271197e2810f9f00a7911ee02755e660264214912f35644eec748",
+              "content_hash": "sha256:a00cac0462bf38140508499bd7f94eb81b1334b03612d162542ef9353b64bcde"
+            },
+            {
+              "kind": "reservation-observation",
+              "id": "rso1_bc59c9ac90b502fe5268d12626cca3a7ca455a0441a29d023a994164f4eaa671",
+              "content_hash": "sha256:aa9ba5b76ecc00893023e20b61f14995f9733b6a475ee8971033270f89cfcf36"
+            },
+            {
+              "kind": "reservation-receipt",
+              "id": "rsr1_7aec473e0ca7461d76be53b3546aa79151b46ab9921f42a5af1517a565f410d5",
+              "content_hash": "sha256:ac67ab16a2c47a683021125c1e38004230406d20e0e6744e7a573924d828eeac"
+            },
+            {
+              "kind": "base-acceptance",
+              "id": "ba2_b91f94a3c28cdc2b12234e180cd2eeb51705a18a0dd249e1f8466b5294d7ecb0",
+              "content_hash": "sha256:b91f94a3c28cdc2b12234e180cd2eeb51705a18a0dd249e1f8466b5294d7ecb0"
+            },
+            {
+              "kind": "evidence",
+              "id": "ed2_e9f746746aef2f7c4bcadf9f83edf5e9ccbe163220c4c515d700f20d52a1cf5c",
+              "content_hash": "sha256:e9f746746aef2f7c4bcadf9f83edf5e9ccbe163220c4c515d700f20d52a1cf5c"
+            },
+            {
+              "kind": "receipt",
+              "id": "rc2_eaf4b85ee98af02f4dd1a0195120c7ab77ee9338a9061b6e7864870d59ae15c7",
+              "content_hash": "sha256:eaf4b85ee98af02f4dd1a0195120c7ab77ee9338a9061b6e7864870d59ae15c7"
+            },
+            {
+              "kind": "reservation-observation",
+              "id": "rso1_617b533c76938b248c759c8b196fc615b8e2aa611dbc64f7621bbf2c725ef34a",
+              "content_hash": "sha256:f89449fc8d852bed9d1356f48b99aa738ef8c5c8ceb57449c92e396d25f807e8"
+            },
+            {
+              "kind": "reservation-receipt",
+              "id": "rsr1_55ffa9480460495167f55a83ad9f129456849406c8ac296fd8b0e01e5db11f02",
+              "content_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            }
+          ]
+        }
+      }
+    ],
+    "expected": "REFERENCE_IDENTITY_CONFLICT"
+  },
+  {
+    "name": "later-transition-reuses-earlier-revision-identity",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          5,
+          "expected",
+          0
+        ],
+        "value": "1"
+      }
+    ],
+    "expected": "RECORD_IDENTITY_REUSED"
+  },
+  {
+    "name": "later-closure-reuses-earlier-closure-delivery",
+    "history": "ordinary-corrections-release",
+    "changes": [
+      {
+        "path": [
+          "steps",
+          8,
+          "id"
+        ],
+        "value": "release"
+      }
+    ],
+    "expected": "DELIVERY_IDENTITY_REUSED"
+  }
+]

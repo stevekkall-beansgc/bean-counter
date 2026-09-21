@@ -13,6 +13,12 @@ pub(crate) enum StoreError {
     InvalidStore(&'static str),
     Integrity(&'static str),
     WritesDisabled,
+    /// A locked observation no longer matches. Retry only after rollback.
+    #[allow(dead_code)] // Constructed by separately owned outcome adapters.
+    ExpectedCurrent,
+    /// Existing delivery belongs to another profile in the shared namespace.
+    #[allow(dead_code)] // Constructed by separately owned outcome adapters.
+    DeliveryConflict,
 }
 impl StoreError {
     pub fn retryable_after_rollback(&self) -> bool {
@@ -21,7 +27,10 @@ impl StoreError {
                 e.code().map(|c| c.code()),
                 Some("40001" | "40P01" | "55P03" | "23505")
             ),
-            Self::Overloaded | Self::Deadline | Self::Database(sqlx::Error::PoolTimedOut) => true,
+            Self::ExpectedCurrent
+            | Self::Overloaded
+            | Self::Deadline
+            | Self::Database(sqlx::Error::PoolTimedOut) => true,
             Self::Database(sqlx::Error::Database(e)) => e
                 .code()
                 .and_then(|s| s.parse::<u32>().ok())

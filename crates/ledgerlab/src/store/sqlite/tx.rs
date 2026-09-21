@@ -49,9 +49,12 @@ pub(crate) struct SqliteTx {
     pub(super) slot: Option<OwnedSemaphorePermit>,
     pub(super) deadline: Instant,
     pub(super) failed: bool,
+    pub(super) outcome_locks: Vec<crate::store::outcomes::OutcomeLock>,
+    #[cfg(test)]
+    pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
 impl SqliteTx {
-    fn conn(&mut self) -> &mut SqliteConnection {
+    pub(super) fn conn(&mut self) -> &mut SqliteConnection {
         self.transaction.as_mut().expect("live transaction")
     }
     #[cfg(test)]

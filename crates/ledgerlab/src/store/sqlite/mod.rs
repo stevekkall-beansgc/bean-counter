@@ -3,6 +3,7 @@ mod connect;
 mod inspect;
 pub(crate) mod migrate;
 mod outbox;
+mod outcomes;
 mod owner;
 mod read;
 #[cfg(test)]
@@ -181,6 +182,9 @@ impl AcceptanceStore for SqliteStore {
             slot: Some(slot),
             deadline,
             failed: false,
+            outcome_locks: Vec::new(),
+            #[cfg(test)]
+            outcome_fault: None,
         })
     }
 }

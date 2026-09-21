@@ -2,19 +2,24 @@ use crate::domain::{Event, Revision, Roles, Timestamp};
 use crate::money::{Decimal, ExactRatio, Money};
 use crate::wire::{EventKind, Relation};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
 pub enum Book {
     Retail,
     Supplier,
     CostObservation,
     Allocation,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Funding {
     Byok,
     Platform,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum ActionKind {
     Charge,
     Cost,
@@ -25,7 +30,8 @@ pub enum ActionKind {
     Allocation,
     Reversal,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Predicate {
     Tier(String),
     Funding(Funding),
@@ -34,7 +40,8 @@ pub enum Predicate {
 }
 
 /// Only the fixed paths from detailed design §10 are supported.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Matcher {
     Direct {
         relation: Relation,
@@ -43,23 +50,27 @@ pub enum Matcher {
     /// acquired -> published -> optimized, with attributed_to / published_as.
     AcquisitionOptimization,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Price {
     Fixed(Decimal),
     Unit { rate: Decimal, unit: String },
     Percent { percent: Decimal, component: String },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum DiscountMode {
     Additive,
     Sequential,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum DiscountAmount {
     Fixed(Decimal),
     Percent(Decimal),
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Operation {
     Base(Price),
     Premium(Price),
@@ -87,16 +98,19 @@ pub enum Operation {
     /// Uses retained cost evidence, never an estimate or a payable.
     ObserveCost,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Rule {
     pub id: String,
     pub on: EventKind,
     pub component: String,
     pub when: Vec<Predicate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub matcher: Option<Matcher>,
     pub operation: Operation,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutcomeTerms {
     pub source: String,
     pub window_us: u64,
@@ -105,61 +119,74 @@ pub struct OutcomeTerms {
 }
 /// Retained accepted terms, resolved and authenticated by the coordinator.
 /// Document IDs are references, not proof that a counterparty assented.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Binding {
     pub id: String,
     pub agreement: String,
     pub book: Book,
     pub roles: Roles,
     pub assent: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offer: Option<String>,
     pub sources: Vec<String>,
     pub event_types: Vec<EventKind>,
     pub unit: String,
     pub maximum_quantity: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maximum_exposure: Option<Money>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<OutcomeTerms>,
     pub correction_sources: Vec<String>,
     pub allowed_modifiers: Vec<String>,
     pub allocation_view: bool,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Policy {
     pub binding: Binding,
     pub rules: Vec<Rule>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Bundle {
     pub(super) currency: String,
     pub(super) scale: u8,
     pub(super) policies: Vec<Policy>,
     pub(super) order: Vec<(usize, usize)>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExpectedOperation {
     pub source: String,
     pub operation_id: String,
     pub kind: EventKind,
     pub retail_components: Vec<String>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Stage {
     pub id: String,
     pub expected: Vec<ExpectedOperation>,
     pub closure_claim_namespace: String,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Context {
     pub document: String,
     pub customer: String,
     pub funding: Funding,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<Stage>,
 }
 /// Currently active source/link rights. Supply only after locking/rechecking
 /// the authenticated principal's actual grant. Historical terms are separate.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SourceAuthority {
     pub source: String,
     pub grant: String,
@@ -168,7 +195,8 @@ pub struct SourceAuthority {
     pub event_types: Vec<EventKind>,
     pub relations: Vec<Relation>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Invocation {
     pub id: String,
     pub binding_id: String,
@@ -183,10 +211,13 @@ pub struct Invocation {
     pub authorized_at: Timestamp,
     pub start_before: Timestamp,
     pub attested_start: Timestamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome_deadline: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_event: Option<String>,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CostEvidence {
     pub binding_id: String,
     pub event_id: String,
@@ -204,7 +235,8 @@ pub struct Input<'a> {
     pub costs: &'a [CostEvidence],
     pub received_at: &'a Timestamp,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Action {
     pub(super) id: String,
     pub(super) effect_id: String,
@@ -217,9 +249,13 @@ pub struct Action {
     pub(super) sources: Vec<String>,
     pub(super) links: Vec<String>,
     pub(super) inputs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) reverses: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) allocation_parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) allocation_recipient: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) discount_target: Option<String>,
 }
 impl Action {
@@ -279,7 +315,8 @@ pub struct Explanation {
 }
 /// Amount grouped only within this decision. Observations/allocations never
 /// create payable deltas; a zero net also produces no delta.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObligationDelta {
     pub obligation_id: String,
     pub book: Book,
@@ -287,7 +324,8 @@ pub struct ObligationDelta {
     pub amount: Money,
     pub actions: Vec<String>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Consumption {
     pub invocation_id: String,
     pub consume: Money,
@@ -295,18 +333,22 @@ pub struct Consumption {
 }
 /// Economic output only, never a receipt, intention, or accepted journal plan.
 /// Keep this result as history only when the containing decision really commits.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Evaluation {
     pub(super) event: Event,
     pub(super) bundle: Bundle,
     pub(super) context: Context,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) claim_id: Option<String>,
     pub(super) actions: Vec<Action>,
     pub(super) explanations: Vec<Explanation>,
     pub(super) deltas: Vec<ObligationDelta>,
     pub(super) consumptions: Vec<Consumption>,
     pub(super) invocations: Vec<Invocation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) closed_stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) received_at: Option<Timestamp>,
     pub(super) source_authority: SourceAuthority,
     pub(super) costs: Vec<CostEvidence>,
@@ -350,5 +392,25 @@ impl Evaluation {
     }
     pub fn closed_stage(&self) -> Option<&str> {
         self.closed_stage.as_deref()
+    }
+}
+
+impl serde::Serialize for Explanation {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut v = serde_json::json!({"binding_id":self.binding_id,"code":self.code,"inputs":self.inputs,"action_ids":self.action_ids});
+        let map = v.as_object_mut().unwrap();
+        if let Some(x) = &self.rule_id {
+            map.insert("rule_id".into(), serde_json::json!(x));
+        }
+        if let Some(x) = &self.basis {
+            map.insert("basis".into(), serde_json::json!(x));
+        }
+        if let Some(x) = &self.unrounded {
+            map.insert("unrounded".into(), serde_json::json!(x));
+        }
+        if let Some(x) = self.rounded {
+            map.insert("rounded".into(), serde_json::json!(x.to_string()));
+        }
+        serde::Serialize::serialize(&v, s)
     }
 }

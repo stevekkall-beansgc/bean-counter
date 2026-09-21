@@ -225,6 +225,8 @@ impl tk::AcceptanceBackend for Backend {
         let data=self.runtime.block_on(async {
             let mut session=self.config.connect().await.map_err(err)?;
             let tx=session.client.build_transaction().isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).read_only(true).start().await.map_err(err)?;
+            let mirrored:bool=tx.query_one("WITH expected AS (SELECT tenant,environment,source,external_id,'v1'::text AS profile FROM ledgerlab.delivery_keys UNION ALL SELECT tenant,environment,source,external_id,'outcome'::text FROM ledgerlab.outcome_deliveries) SELECT NOT EXISTS ((SELECT * FROM ledgerlab.acceptance_delivery_namespace EXCEPT SELECT * FROM expected) UNION ALL (SELECT * FROM expected EXCEPT SELECT * FROM ledgerlab.acceptance_delivery_namespace))", &[]).await.map_err(err)?.get(0);
+            if !mirrored { return Err(err("shared delivery namespace differs from exact delivery projections")); }
             let tables=tx.query("SELECT c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ledgerlab' AND c.relkind='r' ORDER BY c.relname",&[]).await.map_err(err)?;
             let mut data=serde_json::Map::new();
             for row in tables {
@@ -512,11 +514,13 @@ fn postgres_storage_guards_and_failed_transaction() {
     backend.runtime.block_on(async {
         let mut owner=config(backend.config.database.clone(),true).connect().await.unwrap();
         let tables=owner.client.query("SELECT DISTINCT c.relname FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ledgerlab' AND t.tgname LIKE '%_immutable' ORDER BY c.relname",&[]).await.unwrap();
-        assert_eq!(tables.len(),22);
+        assert_eq!(tables.len(),27);
         for table in tables {
             let name:String=table.get(0);
             assert!(name.bytes().all(|b|b.is_ascii_lowercase()||b==b'_'));
-            for sql in [format!("UPDATE ledgerlab.{name} SET canonical_bytes=canonical_bytes"),format!("DELETE FROM ledgerlab.{name}"),format!("TRUNCATE ledgerlab.{name} CASCADE")] {
+            let column:String=owner.client.query_one("SELECT attname FROM pg_catalog.pg_attribute WHERE attrelid=$1::text::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum LIMIT 1", &[&format!("ledgerlab.{name}")]).await.unwrap().get(0);
+            assert!(column.bytes().all(|b|b.is_ascii_lowercase()||b==b'_'));
+            for sql in [format!("UPDATE ledgerlab.{name} SET {column}={column}"),format!("DELETE FROM ledgerlab.{name}"),format!("TRUNCATE ledgerlab.{name} CASCADE")] {
                 let tx=owner.client.transaction().await.unwrap();
                 let e=tx.batch_execute(&sql).await.unwrap_err();
                 assert_eq!(e.code().map(|c|c.code()),Some("23000"),"{name}: {e}");

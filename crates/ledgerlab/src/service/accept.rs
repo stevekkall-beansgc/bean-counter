@@ -239,14 +239,20 @@ async fn prepare<T: AcceptanceTx>(
     {
         return Err(reject("SOURCE_UNAUTHORIZED"));
     }
-    if let Some(stored) = hooks
+    let stored_identity = match hooks
         .call(
             "identity",
             tx.load_identity(&s, c.source(), c.external_id()),
         )
         .await
-        .map_err(store_error)?
     {
+        Ok(stored) => stored,
+        Err(crate::store::errors::StoreError::DeliveryConflict) => {
+            return Ok(Work::End(AcceptResult::Conflict(ConflictKind::Identity)));
+        }
+        Err(error) => return Err(store_error(error)),
+    };
+    if let Some(stored) = stored_identity {
         let key = retained_record(&stored.key, "delivery-key")?;
         if key["schema"] != "ledger-delivery-key/1"
             || key["scope"] != json!([s.tenant, s.environment])
@@ -499,3 +505,11 @@ mod integrity_tests {
         );
     }
 }
+
+pub(crate) mod outcome;
+
+mod outcome_base;
+
+mod outcome_economic;
+
+mod outcome_settlement;

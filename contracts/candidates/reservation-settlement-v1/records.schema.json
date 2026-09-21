@@ -1,0 +1,1319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:reservation-settlement:1-candidate",
+  "title": "Reservation settlement / 1: unfrozen candidate",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "reservation-observation"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^rso1_[0-9a-f]{64}(?![\\s\\S])"
+        },
+        "body": {
+          "$ref": "#/$defs/reservation-observation"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "reservation-transition"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^rst1_[0-9a-f]{64}(?![\\s\\S])"
+        },
+        "body": {
+          "$ref": "#/$defs/reservation-transition"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "reservation-receipt"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^rsr1_[0-9a-f]{64}(?![\\s\\S])"
+        },
+        "body": {
+          "$ref": "#/$defs/reservation-receipt"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ]
+    }
+  ],
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "x-utf8-maxBytes": 128
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "x-utf8-maxBytes": 256
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "atoms": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,29})(?![\\s\\S])"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})(?![\\s\\S])",
+      "x-maximum": "9223372036854775807"
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z(?![\\s\\S])"
+    },
+    "scope": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "$ref": "#/$defs/text"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}(?![\\s\\S])"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        }
+      },
+      "required": [
+        "currency",
+        "scale"
+      ]
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "family_id": {
+          "$ref": "#/$defs/text"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^ev2_[0-9a-f]{64}(?![\\s\\S])"
+        }
+      },
+      "required": [
+        "agreement_id",
+        "family_id",
+        "target"
+      ]
+    },
+    "reference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "evidence"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ed2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "policy-snapshot"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^po2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "event"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ev2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "base-posting"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^bp2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "target-basis"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^tb2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "admission"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ad2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "claim"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^cl2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "claim-revision"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^rv2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "effect"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ef2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ac2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "obligation"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ob2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "link"
+            },
+            "id": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 5
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "dependency"
+            },
+            "id": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 5
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "limit-evidence"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^li2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "explanation"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^xp2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "replay-input"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^rp2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "intention"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^in2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "delivery-key"
+            },
+            "id": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 5
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "chain-revision"
+            },
+            "id": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 5
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "decision-manifest"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^dc2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "receipt"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^rc2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "binding-snapshot"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^bs2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "base-evaluation"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^be2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "target-snapshot"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ts2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "base-acceptance"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^ba2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "authority-decision"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^au2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "base-identity"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^bi2_[0-9a-f]{64}(?![\\s\\S])",
+              "x-utf8-maxBytes": 80
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "reservation-observation"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^rso1_[0-9a-f]{64}(?![\\s\\S])"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "reservation-transition"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^rst1_[0-9a-f]{64}(?![\\s\\S])"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "reservation-receipt"
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^rsr1_[0-9a-f]{64}(?![\\s\\S])"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        }
+      ]
+    },
+    "family": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/key"
+        },
+        "accepted_by": {
+          "$ref": "#/$defs/time"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "claimed",
+            "closed"
+          ]
+        },
+        "ordinary_receipt": {
+          "$ref": "#/$defs/reference"
+        }
+      },
+      "required": [
+        "key",
+        "accepted_by",
+        "status"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "claimed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ordinary_receipt"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "ordinary_receipt"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "maximum": {
+          "$ref": "#/$defs/atoms"
+        },
+        "consumed": {
+          "$ref": "#/$defs/atoms"
+        },
+        "held": {
+          "$ref": "#/$defs/atoms"
+        },
+        "released": {
+          "$ref": "#/$defs/atoms"
+        },
+        "families": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/family"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "revision",
+        "maximum",
+        "consumed",
+        "held",
+        "released",
+        "families"
+      ]
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base_acceptance": {
+          "$ref": "#/$defs/reference"
+        },
+        "binding_snapshot": {
+          "$ref": "#/$defs/reference"
+        },
+        "target_snapshot": {
+          "$ref": "#/$defs/reference"
+        },
+        "invocation_authorization": {
+          "$ref": "#/$defs/reference"
+        }
+      },
+      "required": [
+        "base_acceptance",
+        "binding_snapshot",
+        "target_snapshot",
+        "invocation_authorization"
+      ]
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "principal": {
+          "$ref": "#/$defs/text"
+        },
+        "grant": {
+          "$ref": "#/$defs/reference"
+        },
+        "grant_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "read",
+              "submit",
+              "correct",
+              "close"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "principal",
+        "grant",
+        "grant_revision",
+        "active",
+        "permissions",
+        "evidence"
+      ]
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "register"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            },
+            "external_id": {
+              "$ref": "#/$defs/text"
+            },
+            "invocation_id": {
+              "$ref": "#/$defs/text"
+            },
+            "economic_ingress_hash": {
+              "$ref": "#/$defs/hash"
+            }
+          },
+          "required": [
+            "kind",
+            "source",
+            "external_id",
+            "invocation_id",
+            "economic_ingress_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "ordinary"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            },
+            "external_id": {
+              "$ref": "#/$defs/text"
+            },
+            "invocation_id": {
+              "$ref": "#/$defs/text"
+            },
+            "economic_ingress_hash": {
+              "$ref": "#/$defs/hash"
+            },
+            "family": {
+              "$ref": "#/$defs/key"
+            }
+          },
+          "required": [
+            "kind",
+            "source",
+            "external_id",
+            "invocation_id",
+            "economic_ingress_hash",
+            "family"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "post_hoc"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            },
+            "external_id": {
+              "$ref": "#/$defs/text"
+            },
+            "invocation_id": {
+              "$ref": "#/$defs/text"
+            },
+            "economic_ingress_hash": {
+              "$ref": "#/$defs/hash"
+            },
+            "family": {
+              "$ref": "#/$defs/key"
+            }
+          },
+          "required": [
+            "kind",
+            "source",
+            "external_id",
+            "invocation_id",
+            "economic_ingress_hash",
+            "family"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "close"
+            },
+            "source": {
+              "$ref": "#/$defs/source"
+            },
+            "external_id": {
+              "$ref": "#/$defs/text"
+            },
+            "invocation_id": {
+              "$ref": "#/$defs/text"
+            },
+            "reason": {
+              "enum": [
+                "deadline",
+                "authorized"
+              ]
+            },
+            "expected_revision": {
+              "$ref": "#/$defs/revision"
+            }
+          },
+          "required": [
+            "kind",
+            "source",
+            "external_id",
+            "invocation_id",
+            "reason",
+            "expected_revision"
+          ]
+        }
+      ]
+    },
+    "reservation-observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-reservation-observation/reservation-settlement/1"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "request_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        },
+        "unit": {
+          "$ref": "#/$defs/unit"
+        },
+        "before": {
+          "$ref": "#/$defs/state"
+        },
+        "authority": {
+          "$ref": "#/$defs/authority"
+        },
+        "received_at": {
+          "$ref": "#/$defs/time"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        },
+        "registration": {
+          "$ref": "#/$defs/reference"
+        },
+        "previous": {
+          "$ref": "#/$defs/reference"
+        },
+        "economic_receipt": {
+          "$ref": "#/$defs/reference"
+        }
+      },
+      "required": [
+        "schema",
+        "command",
+        "request_hash",
+        "anchor",
+        "unit",
+        "before",
+        "authority",
+        "received_at",
+        "accepted_at"
+      ]
+    },
+    "reservation-transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-reservation-transition/reservation-settlement/1"
+        },
+        "invocation_id": {
+          "$ref": "#/$defs/text"
+        },
+        "observation": {
+          "$ref": "#/$defs/reference"
+        },
+        "before": {
+          "$ref": "#/$defs/state"
+        },
+        "after": {
+          "$ref": "#/$defs/state"
+        },
+        "consume": {
+          "$ref": "#/$defs/atoms"
+        },
+        "release": {
+          "$ref": "#/$defs/atoms"
+        }
+      },
+      "required": [
+        "schema",
+        "invocation_id",
+        "observation",
+        "before",
+        "after",
+        "consume",
+        "release"
+      ]
+    },
+    "reservation-receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-reservation-receipt/reservation-settlement/1"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "external_id": {
+          "$ref": "#/$defs/text"
+        },
+        "invocation_id": {
+          "$ref": "#/$defs/text"
+        },
+        "request_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "observation": {
+          "$ref": "#/$defs/reference"
+        },
+        "transition": {
+          "$ref": "#/$defs/reference"
+        },
+        "result": {
+          "$ref": "#/$defs/state"
+        },
+        "replay": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 0,
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "economic_receipt": {
+          "$ref": "#/$defs/reference"
+        }
+      },
+      "required": [
+        "schema",
+        "source",
+        "external_id",
+        "invocation_id",
+        "request_hash",
+        "observation",
+        "result",
+        "replay"
+      ]
+    }
+  }
+}

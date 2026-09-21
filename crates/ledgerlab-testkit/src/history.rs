@@ -53,6 +53,23 @@ impl Snapshot {
                 format!("empty primary key: {table}"),
             )?;
         }
+        if let Some(namespace) = self.rows.get("acceptance_delivery_namespace") {
+            let mut expected = BTreeSet::new();
+            for table in ["delivery_keys", "outcome_deliveries"] {
+                if let Some(rows) = self.rows.get(table) {
+                    for key in rows.keys() {
+                        check(
+                            expected.insert(key),
+                            "delivery key occupied by both profiles",
+                        )?;
+                    }
+                }
+            }
+            check(
+                namespace.keys().collect::<BTreeSet<_>>() == expected,
+                "shared delivery namespace must exactly mirror delivery keys",
+            )?;
+        }
         Ok(())
     }
 
@@ -81,7 +98,15 @@ impl Snapshot {
         )?;
         for (table, old) in &self.rows {
             let new = &after.rows[table];
-            let expected = deltas.get(table).copied().unwrap_or(0);
+            // Additive backend uniqueness arbiter: one operational mirror per
+            // delivery, with exact key coverage checked above. Retain every row
+            // and the ordinary immutable no-rewrite/no-delete checks below.
+            let expected = if table == "acceptance_delivery_namespace" {
+                deltas.get("delivery_keys").copied().unwrap_or(0)
+                    + deltas.get("outcome_deliveries").copied().unwrap_or(0)
+            } else {
+                deltas.get(table).copied().unwrap_or(0)
+            };
             check(
                 new.len() == old.len() + expected,
                 format!(
@@ -148,3 +173,27 @@ pub const LATER_TABLES: &[&str] = &[
     "fake_receipts",
     "diagnostics",
 ];
+
+#[cfg(test)]
+mod namespace_tests {
+    use super::*;
+    #[test]
+    fn shared_namespace_rejects_missing_extra_and_cross_profile_keys() {
+        let rows = |keys: &[u8]| keys.iter().map(|k| (vec![*k], vec![*k])).collect();
+        let mut s = Snapshot::default();
+        s.rows.insert("delivery_keys".into(), rows(&[1]));
+        s.rows.insert("outcome_deliveries".into(), rows(&[2]));
+        s.rows
+            .insert("acceptance_delivery_namespace".into(), rows(&[1, 2]));
+        assert!(s.validate_inventory().is_ok());
+        for keys in [vec![1], vec![1, 2, 3]] {
+            s.rows
+                .insert("acceptance_delivery_namespace".into(), rows(&keys));
+            assert!(s.validate_inventory().is_err());
+        }
+        s.rows
+            .insert("acceptance_delivery_namespace".into(), rows(&[1, 2]));
+        s.rows.insert("outcome_deliveries".into(), rows(&[1, 2]));
+        assert!(s.validate_inventory().is_err());
+    }
+}

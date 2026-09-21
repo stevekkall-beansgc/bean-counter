@@ -4,6 +4,7 @@
 pub(crate) mod connect;
 pub(crate) mod migrate;
 mod outbox;
+mod outcomes;
 mod read;
 #[path = "proof/tls.rs"]
 pub(crate) mod tls;
@@ -206,4 +207,11 @@ async fn verify_role(client: &tokio_postgres::Client) -> Result<(), StoreError> 
         ));
     }
     Ok(())
+}
+
+impl crate::store::outcomes::OutcomeStore for PostgresStore {
+    type Tx = PostgresTx;
+    async fn begin_outcome(&self, deadline: Instant) -> Result<PostgresTx, StoreError> {
+        self.begin(deadline).await
+    }
 }

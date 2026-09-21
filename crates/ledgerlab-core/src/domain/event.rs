@@ -400,3 +400,30 @@ fn validate_link_cardinality(dto: &EventDto) -> Result<()> {
     }
     Ok(())
 }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RetainedEvent {
+    scope: crate::domain::Scope,
+    source: String,
+    ingress_utf8: String,
+    event_utf8: String,
+    event_id: String,
+    event_hash: String,
+    ingress_hash: String,
+}
+impl serde::Serialize for Event {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        RetainedEvent {
+            scope: self.scope().clone(),
+            source: self.source().into(),
+            ingress_utf8: String::from_utf8(self.candidate().ingress_bytes().as_slice().to_vec())
+                .unwrap(),
+            event_utf8: String::from_utf8(self.bytes().as_slice().to_vec()).unwrap(),
+            event_id: self.id().into(),
+            event_hash: self.content_hash().into(),
+            ingress_hash: self.candidate().ingress_hash().into(),
+        }
+        .serialize(s)
+    }
+}

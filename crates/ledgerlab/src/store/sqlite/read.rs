@@ -8,7 +8,14 @@ pub(super) async fn identity(
     external: &str,
 ) -> Result<Option<StoredIdentity>, StoreError> {
     let row=sqlx::query("SELECT k.canonical_event_id,k.ingress_hash,r.canonical_bytes,r.content_hash,k.canonical_bytes,k.content_hash FROM delivery_keys k JOIN accepted_receipts r ON r.tenant=k.tenant AND r.environment=k.environment AND r.event_id=k.canonical_event_id WHERE k.tenant=? AND k.environment=? AND k.source=? AND k.external_id=?")
-        .bind(&s.tenant).bind(&s.environment).bind(source).bind(external).fetch_optional(c).await?;
+        .bind(&s.tenant).bind(&s.environment).bind(source).bind(external).fetch_optional(&mut *c).await?;
+    if row.is_none() {
+        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM outcome_deliveries WHERE tenant=? AND environment=? AND source=? AND external_id=?)")
+            .bind(&s.tenant).bind(&s.environment).bind(source).bind(external).fetch_one(&mut *c).await?;
+        if occupied {
+            return Err(StoreError::DeliveryConflict);
+        }
+    }
     row.map(|r| {
         Ok(StoredIdentity {
             key: CanonicalRecord {

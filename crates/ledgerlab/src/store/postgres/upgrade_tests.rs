@@ -52,8 +52,15 @@ async fn dump(client: &Client) -> Vec<(String, Vec<String>)> {
 
 #[tokio::test]
 #[ignore = "requires explicit isolated PostgreSQL 17/18 TLS test database"]
-async fn postgres_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
-    for (v, lose_ack) in [(1_i64, false), (1, true), (2, false), (2, true)] {
+async fn postgres_schema_upgrade_populated_1_2_3_rollback_reopen_retry() {
+    for (v, lose_ack) in [
+        (1_i64, false),
+        (1, true),
+        (2, false),
+        (2, true),
+        (3, false),
+        (3, true),
+    ] {
         let database = format!(
             "ledgerlab_upgrade_{}_{}_{}",
             std::process::id(),
@@ -77,11 +84,20 @@ async fn postgres_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
         )
         .await
         .unwrap();
-        if v == 2 {
+        if v >= 2 {
             tx.batch_execute(OUTBOX).await.unwrap();
             tx.execute(
                 "INSERT INTO ledgerlab.migration_history VALUES (2,$1)",
                 &[&outbox_checksum()],
+            )
+            .await
+            .unwrap();
+        }
+        if v >= 3 {
+            tx.batch_execute(SAFETY).await.unwrap();
+            tx.execute(
+                "INSERT INTO ledgerlab.migration_history VALUES (3,$1)",
+                &[&safety_checksum()],
             )
             .await
             .unwrap();
@@ -96,7 +112,7 @@ async fn postgres_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
         }
         tx.batch_execute(&format!("REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA ledgerlab TO {ROLE}; GRANT SELECT ON ALL TABLES IN SCHEMA ledgerlab TO {ROLE}; GRANT INSERT ON ledgerlab.delivery_keys TO {ROLE}; UPDATE ledgerlab.delivery_state SET state='rejected', attempts=20;")).await.unwrap();
         grant_base_runtime(&tx, ROLE).await.unwrap();
-        if v == 2 {
+        if v >= 2 {
             tx.batch_execute("UPDATE ledgerlab.dispatcher_head SET revision=7")
                 .await
                 .unwrap();
@@ -177,7 +193,7 @@ async fn postgres_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
 
         owner
             .client
-            .batch_execute("CREATE TABLE ledgerlab.delivery_quarantines (collision INTEGER)")
+            .batch_execute("CREATE TABLE ledgerlab.outcome_records (collision INTEGER)")
             .await
             .unwrap();
         let collision = dump(&owner.client).await;
@@ -189,7 +205,7 @@ async fn postgres_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
         assert_eq!(dump(&owner.client).await, collision, "DDL/history rollback");
         owner
             .client
-            .batch_execute("DROP TABLE ledgerlab.delivery_quarantines")
+            .batch_execute("DROP TABLE ledgerlab.outcome_records")
             .await
             .unwrap();
 
@@ -216,7 +232,7 @@ async fn postgres_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
             .await
             .unwrap()
             .get(0);
-        assert_eq!(revision, if v == 2 { 7 } else { 0 });
+        assert_eq!(revision, if v >= 2 { 7 } else { 0 });
         let after = dump(&owner.client).await;
         for row in before {
             assert!(after.contains(&row), "changed retained table {}", row.0);

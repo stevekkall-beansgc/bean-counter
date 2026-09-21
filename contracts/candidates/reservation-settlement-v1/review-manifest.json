@@ -1,0 +1,58 @@
+{
+  "schema": "ledger-reservation-settlement-review/1",
+  "profile": "reservation-settlement/1",
+  "status": "candidate-not-frozen",
+  "reviewed_base": "6194376a053b8a27887a9b09459054a7af3a1769",
+  "predecessor_report": "376246608024409276dbad2f322ad5adb9a59e9e",
+  "frozen_registry_sha256": "e19f512e99e28e7ff74e5d20673ae4bde0bcd5721a103f00db34aa91f2300567",
+  "files": {
+    "PRODUCT-PHASE-3-COORDINATOR-BLOCKER.md": {
+      "bytes": 10340,
+      "sha256": "ec553d017f6f8849935c95ed670b68d8ed23cd18809a45bc74445d83a0ba2a66"
+    },
+    "contracts/candidates/reservation-settlement-v1/PORT.md": {
+      "bytes": 7569,
+      "sha256": "cae8abd1a3de4bc360f9cb7ecec5be54fe81a28e99cbdd7defc0028acfa1a3aa"
+    },
+    "contracts/candidates/reservation-settlement-v1/README.md": {
+      "bytes": 20947,
+      "sha256": "cde03a7b444f2772a25b8b58fc0cf7ad63e1058c83820814e18714db42285bfd"
+    },
+    "contracts/candidates/reservation-settlement-v1/adversarial.json": {
+      "bytes": 26107,
+      "sha256": "579f91aff9adb6a8537e1207ae9fe6118de5a41683e7d0b2e145fb213c73cb80"
+    },
+    "contracts/candidates/reservation-settlement-v1/histories.json": {
+      "bytes": 24434,
+      "sha256": "d04163099f0f827cd91317f478a923a7a63c9f3ac6625ecdea29c5f151b214c9"
+    },
+    "contracts/candidates/reservation-settlement-v1/lookup-cases.json": {
+      "bytes": 3602,
+      "sha256": "5784d334c6d373c92bcdf9d0ab7e956d778937abb5c2a90e6e97cf4343338e32"
+    },
+    "contracts/candidates/reservation-settlement-v1/records.schema.json": {
+      "bytes": 31330,
+      "sha256": "361c8e8a0f3f25af4deb790b73d6544afbba592e5687d8f68881d69d1cf51aa5"
+    },
+    "contracts/candidates/reservation-settlement-v1/vectors.json": {
+      "bytes": 1049676,
+      "sha256": "dda072418bdd5a3059c9d083f490b80bacdb35319bd535cf951bc2ccbbc4287c"
+    },
+    "scripts/check-reservation-settlement.sh": {
+      "bytes": 482,
+      "sha256": "762fe0de7f1b2106846d9a49d0838bc7569cfa6a43a42bb9af61e56d03184f5c"
+    },
+    "scripts/reservation_settlement/audit.py": {
+      "bytes": 17580,
+      "sha256": "c981fd4bf5bdfdd3f688141bce1c218149d8142aa1da468ce1632359b73b4858"
+    },
+    "scripts/reservation_settlement/codec.py": {
+      "bytes": 7754,
+      "sha256": "fe295e89292ad4a32e84bc4c89d5de789a82d8f1c0ed26ddcfbcd1ea7f53a7e3"
+    },
+    "scripts/reservation_settlement/verify.mjs": {
+      "bytes": 15325,
+      "sha256": "70c584bf1bccfb941243b9e7cd013e379ec41246c6aff48996e9d326a02fb90e"
+    }
+  }
+}

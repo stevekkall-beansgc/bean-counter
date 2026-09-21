@@ -1,0 +1,1168 @@
+{
+  "status": "candidate-not-frozen",
+  "fixture_boundary": "synthetic trusted economic/authority observations; not v2 journal conformance",
+  "histories": [
+    {
+      "name": "ordinary-corrections-release",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "ordinary-a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "200",
+          "transition": [
+            "200",
+            "0"
+          ]
+        },
+        {
+          "kind": "post_hoc",
+          "id": "higher-correction",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "700"
+        },
+        {
+          "kind": "post_hoc",
+          "id": "reversal",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "0"
+        },
+        {
+          "kind": "post_hoc",
+          "id": "reinstatement",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "250"
+        },
+        {
+          "kind": "ordinary",
+          "id": "discount-b",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "b",
+          "amount": "-50",
+          "transition": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "release",
+          "time": "2026-09-23T13:00:00.000001Z",
+          "expected": [
+            "3",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "reason": "deadline",
+          "transition": [
+            "0",
+            "700"
+          ]
+        },
+        {
+          "kind": "post_hoc",
+          "id": "after-release",
+          "time": "2026-09-23T13:00:00.000002Z",
+          "expected": [
+            "3",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "a",
+          "amount": "800"
+        },
+        {
+          "kind": "close",
+          "id": "already-closed",
+          "time": "2026-09-23T13:00:00.000003Z",
+          "expected": [
+            "3",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "reason": "deadline"
+        }
+      ]
+    },
+    {
+      "name": "explicit-early-close",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "ordinary-a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "200",
+          "transition": [
+            "200",
+            "0"
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "authorized-close",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "closed"
+            }
+          ],
+          "reason": "authorized",
+          "early_authorized": true,
+          "transition": [
+            "0",
+            "700"
+          ]
+        },
+        {
+          "kind": "post_hoc",
+          "id": "post-close-correction",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "closed"
+            }
+          ],
+          "family": "a",
+          "amount": "750"
+        }
+      ]
+    },
+    {
+      "name": "deadline-closes-unclaimed",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "deadline-close",
+          "time": "2026-09-23T13:00:00.000001Z",
+          "expected": [
+            "1",
+            "100",
+            "0",
+            "900",
+            {
+              "a": "closed",
+              "b": "closed"
+            }
+          ],
+          "reason": "deadline",
+          "transition": [
+            "0",
+            "900"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "accepted-zero-is-ordinary",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "zero-a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "0",
+          "transition": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "zero-b",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "b",
+          "amount": "0",
+          "transition": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "release",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "3",
+            "100",
+            "0",
+            "900",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "reason": "authorized",
+          "early_authorized": true,
+          "transition": [
+            "0",
+            "900"
+          ]
+        },
+        {
+          "kind": "post_hoc",
+          "id": "zero-to-premium",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "3",
+            "100",
+            "0",
+            "900",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "a",
+          "amount": "800"
+        }
+      ]
+    },
+    {
+      "name": "discounts-never-replenish",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "discount-a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "-100",
+          "transition": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "close",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "100",
+            "0",
+            "900",
+            {
+              "a": "claimed",
+              "b": "closed"
+            }
+          ],
+          "reason": "authorized",
+          "early_authorized": true,
+          "transition": [
+            "0",
+            "900"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two-positive-ordinary",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "200",
+          "transition": [
+            "200",
+            "0"
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "b",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "900",
+            "100",
+            "0",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "b",
+          "amount": "600",
+          "transition": [
+            "600",
+            "0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "last-inclusive-deadline-ordinary",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "a",
+          "time": "2026-09-23T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "200",
+          "transition": [
+            "200",
+            "0"
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "close",
+          "time": "2026-09-23T13:00:00.000001Z",
+          "expected": [
+            "2",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "closed"
+            }
+          ],
+          "reason": "deadline",
+          "transition": [
+            "0",
+            "700"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "full-held-consumption",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "900",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "1000",
+            "0",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "900",
+          "transition": [
+            "900",
+            "0"
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "b",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "1000",
+            "0",
+            "0",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "b",
+          "amount": "0",
+          "transition": [
+            "0",
+            "0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "maximum-atom-boundary",
+      "maximum": "999999999999999999999999999999",
+      "base_consumed": "999999999999999999999999999998",
+      "base_released": "0",
+      "premium_ceiling": "1",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "999999999999999999999999999998",
+        "1",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "999999999999999999999999999998",
+            "1",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "one-atom",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "999999999999999999999999999999",
+            "0",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "1",
+          "transition": [
+            "1",
+            "0"
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "zero",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "999999999999999999999999999999",
+            "0",
+            "0",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "b",
+          "amount": "0",
+          "transition": [
+            "0",
+            "0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero-capacity-discount",
+      "maximum": "100",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "0",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "0",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "0",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "100",
+            "0",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "-1",
+          "transition": [
+            "0",
+            "0"
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "b",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "100",
+            "0",
+            "0",
+            {
+              "a": "claimed",
+              "b": "claimed"
+            }
+          ],
+          "family": "b",
+          "amount": "0",
+          "transition": [
+            "0",
+            "0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "different-member-deadlines",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-24T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "close",
+          "time": "2026-09-24T13:00:00.000001Z",
+          "expected": [
+            "1",
+            "100",
+            "0",
+            "900",
+            {
+              "a": "closed",
+              "b": "closed"
+            }
+          ],
+          "reason": "deadline",
+          "transition": [
+            "0",
+            "900"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "late-post-hoc-after-expiry",
+      "maximum": "1000",
+      "base_consumed": "100",
+      "base_released": "0",
+      "premium_ceiling": "800",
+      "families": [
+        {
+          "id": "a",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        },
+        {
+          "id": "b",
+          "accepted_by": "2026-09-23T13:00:00.000000Z"
+        }
+      ],
+      "initial": [
+        "0",
+        "100",
+        "900",
+        "0",
+        {
+          "a": "open",
+          "b": "open"
+        }
+      ],
+      "steps": [
+        {
+          "kind": "register",
+          "id": "base",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "0",
+            "100",
+            "900",
+            "0",
+            {
+              "a": "open",
+              "b": "open"
+            }
+          ]
+        },
+        {
+          "kind": "ordinary",
+          "id": "a",
+          "time": "2026-09-21T13:00:00.000000Z",
+          "expected": [
+            "1",
+            "300",
+            "700",
+            "0",
+            {
+              "a": "claimed",
+              "b": "open"
+            }
+          ],
+          "family": "a",
+          "amount": "200",
+          "transition": [
+            "200",
+            "0"
+          ]
+        },
+        {
+          "kind": "close",
+          "id": "close",
+          "time": "2026-09-23T13:00:00.000001Z",
+          "expected": [
+            "2",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "closed"
+            }
+          ],
+          "reason": "deadline",
+          "transition": [
+            "0",
+            "700"
+          ]
+        },
+        {
+          "kind": "post_hoc",
+          "id": "correction",
+          "time": "2026-09-24T13:00:00.000000Z",
+          "expected": [
+            "2",
+            "300",
+            "0",
+            "700",
+            {
+              "a": "claimed",
+              "b": "closed"
+            }
+          ],
+          "family": "a",
+          "amount": "600"
+        }
+      ]
+    }
+  ]
+}

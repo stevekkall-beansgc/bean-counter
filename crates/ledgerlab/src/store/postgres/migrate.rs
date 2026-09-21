@@ -4,6 +4,11 @@ use tokio_postgres::{Client, GenericClient};
 pub(crate) const SQL: &str = include_str!("../../../migrations/postgres/0001_first_slice.sql");
 const OUTBOX: &str = include_str!("../../../migrations/postgres/0002_outbox.sql");
 const SAFETY: &str = include_str!("../../../migrations/postgres/0003_outbox_safety.sql");
+const OUTCOMES: &str = include_str!("../../../migrations/postgres/0004_outcomes.sql");
+fn outcomes_checksum() -> String {
+    ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &OUTCOMES)
+        .expect("static SQL text")
+}
 fn safety_checksum() -> String {
     ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &SAFETY)
         .expect("static SQL text")
@@ -39,6 +44,12 @@ pub(crate) async fn create(
     tx.batch_execute(SQL).await?;
     tx.batch_execute(OUTBOX).await?;
     tx.batch_execute(SAFETY).await?;
+    tx.batch_execute(OUTCOMES).await?;
+    tx.execute(
+        "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES (4,$1)",
+        &[&outcomes_checksum()],
+    )
+    .await?;
     tx.execute(
         "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES (3,$1)",
         &[&safety_checksum()],
@@ -62,12 +73,13 @@ pub(crate) async fn create(
     // Role name above is an identifier with a strict ASCII allowlist; all values
     // in runtime reads/writes are bound parameters. No runtime migration rights.
     grant_base_runtime(&tx, runtime_role).await?;
+    grant_outcomes(&tx, runtime_role).await?;
     tx.batch_execute(&format!("GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {runtime_role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {runtime_role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {runtime_role};")).await?;
     tx.commit().await?;
     Ok(())
 }
 pub(crate) async fn verify<C: GenericClient + Sync>(client: &C) -> Result<(), StoreError> {
-    if version(client).await? != 3 {
+    if version(client).await? != 4 {
         return Err(StoreError::InvalidStore(
             "unsupported PostgreSQL write schema",
         ));
@@ -81,8 +93,13 @@ async fn version<C: GenericClient + Sync>(client: &C) -> Result<i64, StoreError>
             &[],
         )
         .await?;
-    let checksums = [checksum(), outbox_checksum(), safety_checksum()];
-    if rows.is_empty() || rows.len() > 3 {
+    let checksums = [
+        checksum(),
+        outbox_checksum(),
+        safety_checksum(),
+        outcomes_checksum(),
+    ];
+    if rows.is_empty() || rows.len() > 4 {
         return Err(StoreError::InvalidStore(
             "PostgreSQL migration checksum mismatch",
         ));
@@ -172,6 +189,7 @@ async fn upgrade_client(
     for (v, sql, hash) in [
         (2_i64, OUTBOX, outbox_checksum()),
         (3, SAFETY, safety_checksum()),
+        (4, OUTCOMES, outcomes_checksum()),
     ] {
         if v > from {
             tx.batch_execute(sql).await?;
@@ -185,6 +203,7 @@ async fn upgrade_client(
     // Grant only operational permissions introduced after schema 1; retain all
     // existing runtime grants and never give the runtime migration ownership.
     tx.batch_execute(&format!("GRANT SELECT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {role}; GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {role};")).await?;
+    grant_outcomes(&tx, role).await?;
     verify(&tx).await?;
     tx.commit()
         .await
@@ -193,7 +212,7 @@ async fn upgrade_client(
     if lose_ack {
         return Err(UpgradeError::OutcomeUnknown);
     }
-    Ok(if from == 3 {
+    Ok(if from == 4 {
         UpgradeResult::AlreadyCurrent
     } else {
         UpgradeResult::Upgraded
@@ -209,5 +228,10 @@ async fn grant_base_runtime<C: GenericClient + Sync>(
     runtime_role: &str,
 ) -> Result<(), StoreError> {
     tx.batch_execute(&format!("GRANT USAGE ON SCHEMA ledgerlab TO {runtime_role}; GRANT SELECT ON ALL TABLES IN SCHEMA ledgerlab TO {runtime_role}; GRANT INSERT ON ledgerlab.documents,ledgerlab.snapshots,ledgerlab.events,ledgerlab.delivery_keys,ledgerlab.claims,ledgerlab.effects,ledgerlab.actions,ledgerlab.action_sources,ledgerlab.action_dependencies,ledgerlab.explanations,ledgerlab.intentions,ledgerlab.control_transitions,ledgerlab.chain_revisions,ledgerlab.decision_manifests,ledgerlab.accepted_receipts,ledgerlab.delivery_state TO {runtime_role}; GRANT UPDATE (revision,event_count) ON ledgerlab.chains TO {runtime_role}; GRANT UPDATE (generation) ON ledgerlab.installation TO {runtime_role}; GRANT UPDATE (revision) ON ledgerlab.authority_heads,ledgerlab.binding_heads TO {runtime_role};")).await?;
+    Ok(())
+}
+
+async fn grant_outcomes<C: GenericClient + Sync>(tx: &C, role: &str) -> Result<(), StoreError> {
+    tx.batch_execute(&format!("GRANT SELECT ON ledgerlab.outcome_scope_locks,ledgerlab.outcome_heads,ledgerlab.outcome_records,ledgerlab.outcome_members,ledgerlab.outcome_anchors,ledgerlab.outcome_deliveries,ledgerlab.acceptance_delivery_namespace,ledgerlab.outcome_held_intentions TO {role}; GRANT INSERT ON ledgerlab.outcome_scope_locks,ledgerlab.outcome_heads,ledgerlab.outcome_records,ledgerlab.outcome_members,ledgerlab.outcome_anchors,ledgerlab.outcome_deliveries,ledgerlab.outcome_held_intentions TO {role}; GRANT UPDATE (revision,value) ON ledgerlab.outcome_heads TO {role}; GRANT UPDATE (key) ON ledgerlab.outcome_scope_locks TO {role};")).await?;
     Ok(())
 }

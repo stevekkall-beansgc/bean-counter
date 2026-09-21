@@ -383,3 +383,19 @@ pub fn digest(domain: Domain, value: &impl Serialize) -> Result<String> {
 pub fn identity(domain: Domain, value: &impl Serialize) -> Result<String> {
     Ok(format!("{}_{}", domain.prefix()?, hash(domain, value)?))
 }
+
+/// Frozen outcome profiles use explicit domains; this does not change v1 hashes.
+pub fn outcome_digest(profile: &str, domain: &str, value: &impl Serialize) -> Result<String> {
+    if !["2-candidate.4", "reservation-settlement/1"].contains(&profile)
+        || domain.is_empty()
+        || !domain.bytes().all(|c| c.is_ascii_lowercase() || c == b'-')
+    {
+        return Err(Error::new("HASH_DOMAIN", "unsupported outcome domain"));
+    }
+    let mut h = Sha256::new();
+    h.update(format!("ledgerlab/{domain}/{profile}\0").as_bytes());
+    h.update(CanonicalBytes::from_value(value)?.as_slice());
+    Ok(format!("sha256:{}", hex(&h.finalize())))
+}
+
+pub mod outcome;

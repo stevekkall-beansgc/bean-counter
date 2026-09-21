@@ -1,10 +1,10 @@
 # SQLite acceptance and outbox boundary
 
-This lane persists the frozen completion slice. It does not implement the acceptance coordinator, evaluate policy, check submission/receipt permissions, infer duplicates, or authorize seed/administrative writes. Its types are crate-private. Runtime queries use concrete SQLx SQLite parameters and typed result decoding; there is no SQLx Any or offline query metadata.
+This adapter persists the frozen completion slice and the additive outcome protocol described below. It does not implement the acceptance coordinator, evaluate policy, check submission/receipt permissions, infer duplicates, or authorize seed/administrative writes. Its types are crate-private. Runtime queries use concrete SQLx SQLite parameters and typed result decoding; there is no SQLx Any or offline query metadata.
 
 ## Integration seam
 
-- `SqliteStore::create(existing_directory, Installation)` exclusively creates `local.db`, installs backend schema 3 and the installation row. Logical economic schema 1 and migration 0001 are unchanged; 0002 adds outbox state/evidence; 0003 adds permanent quarantine and terminal guards. It refuses an existing database. `open(directory)` never creates or migrates a database: it verifies the linked build, pragmas, all three migration checksums, STRICT tables, integrity, foreign keys and installation presence. Older backend-schema-1/2 stores require the explicit fenced `maintenance::upgrade_sqlite` owner operation; see `PHASE-2-OUTBOX-MERGE.md`. Keep the whole durable local directory, including WAL/SHM. This is ordinary reopen/recovery, not a backup/restore implementation.
+- `SqliteStore::create(existing_directory, Installation)` exclusively creates `local.db`, installs backend schema 4 and the installation row. Logical economic schema 1 and migration 0001 are unchanged; 0002 adds outbox state/evidence; 0003 adds permanent quarantine and terminal guards; additive 0004 stores the reviewed outcome and reservation-settlement projections. It refuses an existing database. `open(directory)` never creates or migrates a database: it verifies the linked build, pragmas, all four migration checksums, STRICT tables, integrity, foreign keys and installation presence. Older backend-schema-1/2/3 stores require the explicit fenced `maintenance::upgrade_sqlite` owner operation; see `PHASE-2-OUTBOX-MERGE.md`. Keep the whole durable local directory, including WAL/SHM. This is ordinary reopen/recovery, not a backup/restore implementation.
 - `AcceptanceStore::begin(deadline)` returns an owned `SqliteTx`. The write pool has exactly one connection; a 65-permit gate permits one active writer and 64 queued requests. Acquisition is bounded by 500 ms and the caller's deadline. SQLite busy timeout is 250 ms. The caller supplies its five-second acceptance deadline.
 - The pool begins with SQLx's tracked literal `BEGIN IMMEDIATE`. All mutations use this gate. SQLx uses its own connection worker; no application query threads are created. The read pool has at most two read-only/query-only connections. Read operations are bounded by two seconds and the acceptance deadline.
 - `records.rs` contains `Scope`, `CanonicalRecord`, the closed first-slice `JournalRow` projections and `WriteOp`. Each journal write is one awaited statement, so the coordinator/testkit can place before/after failpoints at all 27 physical operations. No projection is derived from mutable policy in the store. Schema/body/ID/hash agreement, money calculations, snapshot completeness, 29 manifest members, and document rehashing on read remain the core/coordinator's responsibility. The boundary retains bytes and hashes verbatim.
@@ -21,7 +21,7 @@ Each read/write sets a poison bit **before** awaiting SQL. Cancellation or failu
 
 After commit starts, a registered Tokio task owns the transaction, permit and store owner. Caller cancellation drops the reply receiver but the task continues under a five-second drain deadline. No await separates spawning from registration; `close()` joins the registered task before closing pools. Any error/timeout after commit send conservatively reports `OutcomeUnknown`, disables writes and closes the writer pool. This includes deferred-FK commit errors even when SQLite would allow a more precise classification. The coordinator can resolve outcome after reopen. No database error becomes an economic duplicate automatically.
 
-The host provides Tokio; the facade does not create a runtime. Before shutdown, stop admission and rollback/drop outstanding non-commit transactions, then call `close()` to drain pools and release ownership. Holding an idle transaction indefinitely can delay this drain. The OS owner guard is also retained by outstanding transactions/pool callbacks; dropping the facade cannot release it while a transaction survives. Runtime teardown or OS process death is distinct from ordinary request cancellation; this lane has not certified power-loss behavior or injected process kills.
+The host provides Tokio; the facade does not create a runtime. Before shutdown, stop admission and rollback/drop outstanding non-commit transactions, then call `close()` to drain pools and release ownership. Holding an idle transaction indefinitely can delay this drain. The OS owner guard is also retained by outstanding transactions/pool callbacks; dropping the facade cannot release it while a transaction survives. Runtime teardown or OS process death is distinct from ordinary request cancellation; the Phase 3 tests below inject process kills, but this lane has not certified power-loss behavior.
 
 `owner.lock` uses stable `std::fs::File::try_lock` on the verified Rust 1.98.1 toolchain. Tests prove conflict both on a second file descriptor and in another process. The final owner guard explicitly unlocks before closing its descriptor, so a descriptor temporarily inherited by an unrelated concurrently spawning subprocess cannot prolong ownership after the store drains. Outstanding transactions and pool callbacks still retain the guard until cleanup. The lock inode is never unlinked/replaced; canonical directory/path and symlink checks reject supported path switches. Deliberately hostile hardlink/filesystem races and bypass by the OS file owner are outside the storage contract.
 
@@ -57,7 +57,7 @@ sh scripts/check.sh
 cargo test -p ledgerlab --locked --offline linked_sqlite_reopen -- --nocapture
 ```
 
-The first lane check reached/passed Rust and boundary checks, then lacked Python `jsonschema` on the default path. The existing prepared contract dependencies above resolve that environment issue; no frozen fixture was changed. Current combined results are in `PHASE-2-INTEGRATION-STATUS.md`. Bounded outbox dispatch/reconciliation and in-memory fake recovery are exercised; process-durable destination storage, process-kill/power-loss recovery, complete backup/restore, scheduling, all-platform runs and MSRV remain gates.
+The first lane check reached/passed Rust and boundary checks, then lacked Python `jsonschema` on the default path. The existing prepared contract dependencies above resolve that environment issue; no frozen fixture was changed. Current combined results are in `PHASE-2-INTEGRATION-STATUS.md`. Bounded outbox dispatch/reconciliation and in-memory fake recovery are exercised; process-durable destination storage, power-loss recovery, complete backup/restore, scheduling, all-platform runs and MSRV remain gates. Phase 3 adds bounded process-kill evidence for outcome persistence below.
 
 ## Integrated coordinator evidence
 
@@ -74,3 +74,107 @@ construction retains one writer pool. A separate original storage test also runs
 Both require one complete winner and unchanged original receipts on retries.
 
 Current outbox query bounds, quarantine, reconciliation and upgrade gates: [OUTBOX-HARDENING.md](../../../../../OUTBOX-HARDENING.md).
+
+## Product Phase 3 outcome adapter
+
+The additive implementation in `outcomes.rs` implements the shared private
+`store::outcomes::{OutcomeStore, OutcomeTx}` seam. Its only append input is the
+coordinator-owned `ValidatedOutcomePlan`, whose constructor is inaccessible to
+this adapter. It never evaluates a price, interprets an authority flag, derives
+supplier consumption, decides closure eligibility or makes a duplicate decision.
+The exact shared interface commits are recorded in the lane handoff.
+
+Backend schema 4 adds scoped immutable envelope storage for the 27 frozen outcome
+kinds plus the three `reservation-settlement/1` kinds, immutable partition
+membership and original anchors, composite delivery indexes, and opaque guarded
+heads. All nine head classes use the coordinator's canonical scoped key bytes and
+complete value bytes. No v1 authority/binding projection is invented. The existing
+installation admission fence remains authoritative and is read by the coordinator
+in the same transaction. Original migrations 0001–0003 are unchanged; maintenance
+upgrades populated schema 1/2/3 explicitly and ordinary open never migrates.
+
+The plan supplies its exact `(scope,target,invocation_id)` partition and original
+anchors. The adapter retains envelopes verbatim and mechanically extracts scoped
+kind/ID/hash indexes. Immutable identity is `(scope,kind,id)`; a new hash cannot
+create another identity. Reused records must have identical bytes and hash.
+Existing anchors cannot be replaced or enlarged. Reads return all partition
+members plus explicitly required current records, never a selected economic
+summary. SQL count/byte preflight rejects an oversized history before fetching
+it; record count is capped at 4096, total history at 8 MiB, and required references
+at 1024. The coordinator retains responsibility for tighter frozen per-record,
+replay and decision bounds and complete index/body/hash/reference validation.
+
+Every declared head is compared against its observed revision and complete value,
+including unchanged heads and locked absence, before any append. Proposed head
+writes must correspond to declared write locks and use compare-and-swap. In
+particular, the coordinator supplies an unchanged reservation observation for a
+post-hoc correction; this adapter does not derive a reservation update from its
+economic delta. The frozen coordinator validates which head writes are permitted.
+
+Composite delivery rows reference the original economic receipt (when present)
+and mandatory settlement receipt. An alias must point directly to its original
+delivery and preserve both original receipt envelopes. It cannot append economic
+or settlement rows or change heads. Additive reciprocal triggers prevent existing
+v1 delivery keys and outcome/control deliveries from claiming the same scoped
+source/label. No missing settlement companion is treated as legacy fallback or
+absence. Lookup returns original observations; the coordinator checks read rights,
+compares exact command/ingress bytes, and classifies retry/conflict.
+
+All operations reuse tracked `BEGIN IMMEDIATE`, the exclusive directory owner,
+poison-before-await transaction handling and registered bounded commit drain.
+There is no second production writer or background settlement task. `MoreLocks`
+requires coordinator rollback and ordered restart; SQLite's existing database
+writer lock already excludes concurrent writers. Expected-current mismatch is
+retryable only after confirmed rollback and full re-resolution. Unknown commit
+is never repaired by a compensating capacity release or a new delivery identity.
+
+The test-only append boundary instrument surrounds each actual immutable insert,
+partition/anchor insert, mutable head statement and delivery-index insert. It is
+compiled out of production. Each loop item is exposed; statement batching does
+not hide failure positions. Tests that write physical fixtures directly are
+explicitly labeled storage-primitive evidence and do not certify an accepted
+composite transaction or independent authorization. Complete-plan conformance
+must use the coordinator's genuine validated plan builder and independent oracle.
+
+
+### Phase 3 real-store evidence
+
+Ten storage-primitive tests preserve all 112 frozen settlement envelopes and six
+existing economic histories across reopen. They cover scoped immutable identity,
+all nine complete head observations including locked absence and changed bytes at
+the same revision, reciprocal delivery conflicts, missing companion failure,
+Missing/MoreLocks resolution, oversized history rejection, cancelled reads and
+unknown deferred-reference commit results.
+
+Eleven further test entries use the coordinator's genuine `fixture::lifecycle()`
+plans and mandatory test authority verifier. The fresh synthetic base is rated
+through the unchanged core; no accepted plan is fabricated in the adapter. This
+proves the supplied synthetic authorizations only, not real-world assent.
+
+- Base, positive ordinary result, correction and explicit closure retain complete
+  immutable envelopes, original composite receipts, anchors and heads on reopen.
+- All 360 before/after physical mutation positions across these four plans are
+  tested both for injected failure with poisoned commit and actual task
+  cancellation. Reopen must equal the complete pre-transaction database.
+- Eight subprocess kills cover each plan before commit after its head writes and
+  after durable commit before its reply. Reopen yields the exact prior database or
+  the original complete committed pair. This is not power-loss certification.
+- A second physical test pool under the same retained owner exercises real writer
+  contention; a stale validated plan must fail expected-current checks and leave
+  the winner unchanged. Production still has one writer pool.
+- The live shared coordinator executes the four-step lifecycle, same-ID retries
+  after closure with write permission denied, identity conflict and semantic alias
+  after correction/closure. Alias retries preserve the original receipt pair.
+- Ordinary zero claims its permanent family slot without actions or intentions;
+  later authorized correction changes economics without changing reservation.
+  Zero-net correction retains inverse and replacement actions without an
+  intention. Failure between the two actions leaves the complete database
+  unchanged. Reversal after explicit release never replenishes capacity.
+- A cancelled commit reply is drained before close; reopening resolves original
+  receipts. The separate original unknown-commit tests remain in the full suite.
+
+The populated schema 1/2/3 upgrade test has six histories (ordinary and lost
+acknowledgement for each version), retaining original rows and receipts. A schema
+3 collision deliberately occurs at the third additive table, proving rollback of
+partial DDL. Migration checksums, explicit fencing, reopen and retry remain
+required. All original SQLite and PostgreSQL migrations are byte-identical.

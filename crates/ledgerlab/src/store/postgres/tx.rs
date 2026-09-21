@@ -1,6 +1,7 @@
 //! A registered bounded task owns the driver's borrowed Transaction. Its public
 //! private-port handle is owned, Send, poison-on-cancel, and never self-referential.
-use super::{read, write, Inner};
+use super::{outcomes, read, write, Inner};
+use crate::store::outcomes::*;
 use crate::store::{
     errors::{CommitError, StoreError},
     ports::AcceptanceTx,
@@ -38,7 +39,21 @@ enum Value {
     Identity(Option<StoredIdentity>),
     Claim(Option<StoredClaim>),
 }
+enum OutcomeOp {
+    #[cfg(test)]
+    FailAt(usize),
+    Locks(Vec<OutcomeLock>),
+    Lookup(ScopedDelivery),
+    Resolve(OutcomeResolve),
+    Append(Box<ValidatedOutcomePlan>),
+}
+enum OutcomeValue {
+    Unit,
+    Delivery(Box<Option<StoredCompositeDelivery>>),
+    Resolution(OutcomeResolution),
+}
 enum Command {
+    Outcome(OutcomeOp, oneshot::Sender<Result<OutcomeValue, StoreError>>),
     Read(Read, oneshot::Sender<Result<Value, StoreError>>),
     Write(WriteOp, oneshot::Sender<Result<(), StoreError>>),
     Commit(oneshot::Sender<Result<(), CommitError>>),
@@ -166,12 +181,53 @@ async fn drive(
     deadline: Instant,
 ) {
     let mut failed = false;
+    let mut held = outcomes::Locked::default();
+    let mut steps = outcomes::Steps::default();
     loop {
         let command = match timeout_at(deadline, commands.recv()).await {
             Ok(Some(c)) => c,
             _ => break,
         };
         match command {
+            Command::Outcome(op, reply) => {
+                if failed {
+                    let _ = reply.send(Err(StoreError::Integrity("failed PG transaction")));
+                    continue;
+                }
+                let result = timeout_at(
+                    deadline.min(Instant::now() + Duration::from_secs(2)),
+                    async {
+                        clamp(&tx, deadline).await?;
+                        Ok(match op {
+                            #[cfg(test)]
+                            OutcomeOp::FailAt(at) => {
+                                steps.fail_at = Some(at);
+                                OutcomeValue::Unit
+                            }
+                            OutcomeOp::Locks(scopes) => {
+                                outcomes::lock(&tx, &mut held, &scopes).await?;
+                                OutcomeValue::Unit
+                            }
+                            OutcomeOp::Lookup(key) => {
+                                OutcomeValue::Delivery(Box::new(outcomes::lookup(&tx, &key).await?))
+                            }
+                            OutcomeOp::Resolve(q) => OutcomeValue::Resolution(
+                                outcomes::resolve(&tx, &mut held, &q).await?,
+                            ),
+                            OutcomeOp::Append(plan) => {
+                                outcomes::append(&tx, &held, &plan, &mut steps).await?;
+                                OutcomeValue::Unit
+                            }
+                        })
+                    },
+                )
+                .await
+                .unwrap_or(Err(StoreError::Deadline));
+                failed = result.is_err();
+                if reply.send(result).is_err() {
+                    break;
+                }
+            }
             Command::Read(request, reply) => {
                 if failed {
                     let _ = reply.send(Err(StoreError::Integrity("failed PG transaction")));
@@ -396,5 +452,55 @@ impl AcceptanceTx for PostgresTx {
             .send(Command::Commit(reply))
             .map_err(|_| CommitError::OutcomeUnknown)?;
         receive.await.unwrap_or(Err(CommitError::OutcomeUnknown))
+    }
+}
+
+impl PostgresTx {
+    #[cfg(test)]
+    pub(super) async fn fail_outcome_at(&mut self, at: usize) -> Result<(), StoreError> {
+        self.outcome(OutcomeOp::FailAt(at)).await?;
+        Ok(())
+    }
+    async fn outcome(&mut self, op: OutcomeOp) -> Result<OutcomeValue, StoreError> {
+        if self.failed {
+            return Err(StoreError::Integrity("failed or cancelled PG handle"));
+        }
+        self.failed = true;
+        let (reply, receive) = oneshot::channel();
+        self.sender
+            .send(Command::Outcome(op, reply))
+            .map_err(|_| StoreError::WritesDisabled)?;
+        let value = receive.await.map_err(|_| StoreError::WritesDisabled)??;
+        self.failed = false;
+        Ok(value)
+    }
+}
+impl OutcomeTx for PostgresTx {
+    async fn lock_scopes(&mut self, scopes: &[OutcomeLock]) -> Result<(), StoreError> {
+        self.outcome(OutcomeOp::Locks(scopes.to_vec())).await?;
+        Ok(())
+    }
+    async fn lookup_outcome_delivery(
+        &mut self,
+        key: &ScopedDelivery,
+    ) -> Result<Option<StoredCompositeDelivery>, StoreError> {
+        match self.outcome(OutcomeOp::Lookup(key.clone())).await? {
+            OutcomeValue::Delivery(v) => Ok(*v),
+            _ => unreachable!(),
+        }
+    }
+    async fn resolve_outcome(
+        &mut self,
+        request: &OutcomeResolve,
+    ) -> Result<OutcomeResolution, StoreError> {
+        match self.outcome(OutcomeOp::Resolve(request.clone())).await? {
+            OutcomeValue::Resolution(v) => Ok(v),
+            _ => unreachable!(),
+        }
+    }
+    async fn append_outcome(&mut self, plan: &ValidatedOutcomePlan) -> Result<(), StoreError> {
+        self.outcome(OutcomeOp::Append(Box::new(plan.clone())))
+            .await?;
+        Ok(())
     }
 }

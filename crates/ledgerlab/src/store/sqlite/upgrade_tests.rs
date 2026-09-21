@@ -57,7 +57,7 @@ async fn legacy(v: usize) -> (tempfile::TempDir, SqliteConnection) {
         .execute(&mut *tx)
         .await
         .unwrap();
-    if v == 2 {
+    if v >= 2 {
         sqlx::query("UPDATE dispatcher_head SET revision=7")
             .execute(&mut *tx)
             .await
@@ -68,8 +68,15 @@ async fn legacy(v: usize) -> (tempfile::TempDir, SqliteConnection) {
 }
 
 #[tokio::test]
-async fn sqlite_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
-    for (v, lose_ack) in [(1, false), (1, true), (2, false), (2, true)] {
+async fn sqlite_schema_upgrade_populated_1_2_and_3_rollback_reopen_retry() {
+    for (v, lose_ack) in [
+        (1, false),
+        (1, true),
+        (2, false),
+        (2, true),
+        (3, false),
+        (3, true),
+    ] {
         let (dir, mut conn) = legacy(v).await;
         let before = dump(&mut conn).await;
         assert!(sqlite::SqliteStore::open(dir.path()).await.is_err());
@@ -108,12 +115,19 @@ async fn sqlite_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
                 .await
                 .unwrap();
         }
-        // Fail migration 3 after migration 2 has run, exercising atomic rollback
-        // of DDL, user_version and history together on the actual upgrade path.
-        sqlx::query("CREATE TABLE delivery_quarantines (collision INTEGER) STRICT")
-            .execute(&mut conn)
-            .await
-            .unwrap();
+        // Fail migration 3 after migration 2, or migration 4 after its first
+        // two tables. DDL, user_version and history must roll back together.
+        let collision_table = if v == 3 {
+            "outcome_deliveries"
+        } else {
+            "delivery_quarantines"
+        };
+        sqlx::query(AssertSqlSafe(format!(
+            "CREATE TABLE {collision_table} (collision INTEGER) STRICT"
+        )))
+        .execute(&mut conn)
+        .await
+        .unwrap();
         let collision = dump(&mut conn).await;
         assert_eq!(
             upgrade_sqlite(dir.path(), "store-demo-slice").await,
@@ -121,7 +135,7 @@ async fn sqlite_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
         );
         assert_eq!(version(&mut conn).await.unwrap(), v as i64);
         assert_eq!(dump(&mut conn).await, collision);
-        sqlx::query("DROP TABLE delivery_quarantines")
+        sqlx::query(AssertSqlSafe(format!("DROP TABLE {collision_table}")))
             .execute(&mut conn)
             .await
             .unwrap();
@@ -184,7 +198,7 @@ async fn sqlite_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(revision, if v == 2 { 7 } else { 0 });
+        assert_eq!(revision, if v >= 2 { 7 } else { 0 });
         let after = dump(&mut conn).await;
         for row in before {
             assert!(after.contains(&row), "changed retained table {}", row.0);

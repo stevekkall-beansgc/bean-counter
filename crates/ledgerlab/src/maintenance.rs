@@ -45,7 +45,7 @@ impl From<tokio_postgres::Error> for UpgradeError {
     }
 }
 
-/// Upgrade exact SQLite schema 1/2 to 3 under the directory's exclusive owner.
+/// Upgrade exact SQLite schema 1/2/3 to 4 under the directory's exclusive owner.
 /// Once started, cancellation of the caller does not cancel maintenance. The
 /// supervised operation retains ownership through completion and driver cleanup.
 pub async fn upgrade_sqlite(
@@ -59,7 +59,7 @@ pub async fn upgrade_sqlite(
         .unwrap_or(Err(UpgradeError::OutcomeUnknown))
 }
 
-/// Upgrade exact PostgreSQL schema 1/2 to 3 with a migration-owner connection.
+/// Upgrade exact PostgreSQL schema 1/2/3 to 4 with a migration-owner connection.
 /// The runtime role remains non-owning and cannot perform this operation.
 /// Cancellation of the caller leaves the bounded supervisor running.
 pub async fn upgrade_postgres(

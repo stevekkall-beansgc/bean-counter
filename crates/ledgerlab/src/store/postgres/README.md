@@ -1,5 +1,7 @@
 # PostgreSQL first-slice adapter
 
+The additive schema-4 outcome primitives are described in [POSTGRES-PHASE-3.md](../../../../../POSTGRES-PHASE-3.md). The historical first-slice details below describe the schema-3 baseline.
+
 This concrete private adapter implements the shared acceptance port with typed,
 bound tokio-postgres queries. It uses its own PostgreSQL migration and SQL. The
 coordinator resolves authority and economics; the adapter does neither. See

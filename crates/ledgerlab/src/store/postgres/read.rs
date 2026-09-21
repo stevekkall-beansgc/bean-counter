@@ -8,6 +8,12 @@ pub(super) async fn identity<C: GenericClient + Sync>(
     external: &str,
 ) -> Result<Option<StoredIdentity>, StoreError> {
     let row=c.query_opt("SELECT k.canonical_event_id,k.ingress_hash,r.canonical_bytes,r.content_hash,k.canonical_bytes,k.content_hash FROM ledgerlab.delivery_keys k JOIN ledgerlab.accepted_receipts r ON r.tenant=k.tenant AND r.environment=k.environment AND r.event_id=k.canonical_event_id WHERE k.tenant=$1 AND k.environment=$2 AND k.source=$3 AND k.external_id=$4", &[&(&s.tenant),&(&s.environment),&(source),&(external)]).await?;
+    if row.is_none() {
+        let occupied:bool=c.query_one("SELECT EXISTS(SELECT 1 FROM ledgerlab.acceptance_delivery_namespace WHERE tenant=$1 AND environment=$2 AND source=$3 AND external_id=$4 AND profile='outcome')", &[&s.tenant,&s.environment,&source,&external]).await?.try_get(0)?;
+        if occupied {
+            return Err(StoreError::DeliveryConflict);
+        }
+    }
     row.map(|r| {
         Ok(StoredIdentity {
             key: CanonicalRecord {

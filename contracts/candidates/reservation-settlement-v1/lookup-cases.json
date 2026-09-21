@@ -1,0 +1,139 @@
+[
+  {
+    "name": "ordinary-retry-after-corrections",
+    "history": "ordinary-corrections-release",
+    "after_step": 4,
+    "request_step": 1,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "duplicate",
+    "original_step": 1
+  },
+  {
+    "name": "ordinary-retry-after-closure",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 1,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "duplicate",
+    "current_write_authority": false,
+    "observed_at": "2026-09-30T13:00:00.000000Z",
+    "original_step": 1
+  },
+  {
+    "name": "post-hoc-retry-before-stale-claim-guard",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 2,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "duplicate",
+    "current_write_authority": false,
+    "original_step": 2
+  },
+  {
+    "name": "closure-retry-before-stale-reservation-guard",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 6,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "duplicate",
+    "current_write_authority": false,
+    "original_step": 6
+  },
+  {
+    "name": "noop-closure-original-receipt",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 8,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "duplicate",
+    "original_step": 8
+  },
+  {
+    "name": "unknown-commit-proven-durable",
+    "history": "ordinary-corrections-release",
+    "after_step": 1,
+    "request_step": 1,
+    "may_read": true,
+    "absence_confirmed": false,
+    "expected": "duplicate",
+    "original_step": 1
+  },
+  {
+    "name": "unknown-commit-proven-absent",
+    "history": "ordinary-corrections-release",
+    "after_step": 0,
+    "request_step": 1,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "absent"
+  },
+  {
+    "name": "unknown-commit-absence-not-yet-conclusive",
+    "history": "ordinary-corrections-release",
+    "after_step": 0,
+    "request_step": 1,
+    "may_read": true,
+    "absence_confirmed": false,
+    "expected": "outcome_unknown"
+  },
+  {
+    "name": "read-denied-no-receipt-disclosure",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 1,
+    "may_read": false,
+    "absence_confirmed": true,
+    "expected": "unauthorized"
+  },
+  {
+    "name": "different-ingress-even-with-same-command-hash",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 1,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "identity_conflict",
+    "ingress_override": "{\"kind\":\"ordinary\",\"id\":\"ordinary-a\",\"amount\":\"999\"}"
+  },
+  {
+    "name": "changed-close-expected-revision",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 6,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "identity_conflict",
+    "command_patch": {
+      "expected_revision": "0"
+    }
+  },
+  {
+    "name": "changed-close-reason",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 6,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "identity_conflict",
+    "command_patch": {
+      "reason": "authorized"
+    }
+  },
+  {
+    "name": "unseen-label-reserves-nothing",
+    "history": "ordinary-corrections-release",
+    "after_step": 8,
+    "request_step": 1,
+    "may_read": true,
+    "absence_confirmed": true,
+    "expected": "absent",
+    "command_patch": {
+      "external_id": "unseen"
+    }
+  }
+]

@@ -1,0 +1,168 @@
+{
+  "schema": "ledger-reservation-contract-freeze/1",
+  "status": "frozen-unreleased",
+  "profile": "reservation-settlement/1",
+  "reviewed_commit": "d311d9622b527863c79fd5e5820f5b890ab2c6b1",
+  "phase2_base": "6194376a053b8a27887a9b09459054a7af3a1769",
+  "approval": {
+    "reviewer_task": "01a0c585-75f4-7cd0-ad22-f01dd8efb86d",
+    "verdict": "PASS",
+    "scope": "exact successor safe for contract-only freeze",
+    "report": {
+      "path": "docs/reviews/reservation-settlement-1/amendment-review.md",
+      "bytes": 7586,
+      "sha256": "a42e07398b9ca33827fc645a3c464a64c51a6d3d8922f125d37cfd06c94dcd93"
+    }
+  },
+  "conformance": {
+    "reviewer_task": "01a0c551-f10d-73c3-871c-7242c663e851",
+    "verdict": "PASS",
+    "r1": "closed",
+    "review_commit": "6a81c93f15211b89bbc9812c5e39645026ba19d6",
+    "source_path": "crates/ledgerlab-testkit/oracle/phase3/reviews/d311d96/REVIEW.md",
+    "report": {
+      "path": "docs/reviews/reservation-settlement-1/conformance-review.md",
+      "bytes": 6263,
+      "sha256": "9aa74852750cf70ece429a9575deaba0adb99c16ee0193a0a58297015336190f"
+    }
+  },
+  "oracle": {
+    "task": "01a0c551-f10d-73c3-871c-7242c663e851",
+    "commit": "6ae64d14fac96068caa3e0d91a70f5e6ba23143d",
+    "files": {
+      "crates/ledgerlab-testkit/oracle/phase3/lifecycle.py": {
+        "bytes": 10152,
+        "sha256": "68a598b8f92c17f0b41e2abc3b1d98a19bdd2c195b4c8c061e63a99cb44f3c4a"
+      },
+      "crates/ledgerlab-testkit/oracle/phase3/test_lifecycle.py": {
+        "bytes": 6774,
+        "sha256": "a670f01b9f13e8c8ec4ed700772150bc50ed423f9f8599ef27e1425a9ff95b9e"
+      },
+      "crates/ledgerlab-testkit/oracle/phase3/LIFECYCLE.md": {
+        "bytes": 8744,
+        "sha256": "d95ff61c28a244e48593aa12d61c2ead9d9d925f64df869d72c210277526ec49"
+      }
+    }
+  },
+  "authorization": {
+    "owner_task": "01a0bf74-3b70-72b2-a1b0-ee6fb5f99dfb",
+    "scope": "reviewed contract-only freeze",
+    "allowed": [
+      "separate approval/freeze manifest",
+      "status overlay",
+      "read-only manifest checker",
+      "aggregate offline check wiring"
+    ],
+    "prohibited": [
+      "reviewed candidate edits",
+      "legacy registry or validator edits",
+      "SQL",
+      "runtime",
+      "production ports",
+      "main merge",
+      "push",
+      "tag",
+      "publication",
+      "deployment",
+      "service registration",
+      "spending"
+    ]
+  },
+  "review_manifest": {
+    "path": "contracts/candidates/reservation-settlement-v1/review-manifest.json",
+    "bytes": 2458,
+    "sha256": "90d1c6b73d6692f6c366735bfc2188d9e8c50d5038c7fb6f5629c85ffa3d8b22"
+  },
+  "legacy": {
+    "path": "contracts/freeze.json",
+    "bytes": 24449,
+    "sha256": "e19f512e99e28e7ff74e5d20673ae4bde0bcd5721a103f00db34aa91f2300567",
+    "frozen_files": 159
+  },
+  "files": {
+    "PRODUCT-PHASE-3-COORDINATOR-BLOCKER.md": {
+      "bytes": 10340,
+      "sha256": "ec553d017f6f8849935c95ed670b68d8ed23cd18809a45bc74445d83a0ba2a66"
+    },
+    "contracts/candidates/reservation-settlement-v1/PORT.md": {
+      "bytes": 7569,
+      "sha256": "cae8abd1a3de4bc360f9cb7ecec5be54fe81a28e99cbdd7defc0028acfa1a3aa"
+    },
+    "contracts/candidates/reservation-settlement-v1/README.md": {
+      "bytes": 20947,
+      "sha256": "cde03a7b444f2772a25b8b58fc0cf7ad63e1058c83820814e18714db42285bfd"
+    },
+    "contracts/candidates/reservation-settlement-v1/adversarial.json": {
+      "bytes": 26107,
+      "sha256": "579f91aff9adb6a8537e1207ae9fe6118de5a41683e7d0b2e145fb213c73cb80"
+    },
+    "contracts/candidates/reservation-settlement-v1/histories.json": {
+      "bytes": 24434,
+      "sha256": "d04163099f0f827cd91317f478a923a7a63c9f3ac6625ecdea29c5f151b214c9"
+    },
+    "contracts/candidates/reservation-settlement-v1/lookup-cases.json": {
+      "bytes": 3602,
+      "sha256": "5784d334c6d373c92bcdf9d0ab7e956d778937abb5c2a90e6e97cf4343338e32"
+    },
+    "contracts/candidates/reservation-settlement-v1/records.schema.json": {
+      "bytes": 31330,
+      "sha256": "361c8e8a0f3f25af4deb790b73d6544afbba592e5687d8f68881d69d1cf51aa5"
+    },
+    "contracts/candidates/reservation-settlement-v1/vectors.json": {
+      "bytes": 1049676,
+      "sha256": "dda072418bdd5a3059c9d083f490b80bacdb35319bd535cf951bc2ccbbc4287c"
+    },
+    "scripts/check-reservation-settlement.sh": {
+      "bytes": 482,
+      "sha256": "762fe0de7f1b2106846d9a49d0838bc7569cfa6a43a42bb9af61e56d03184f5c"
+    },
+    "scripts/reservation_settlement/audit.py": {
+      "bytes": 17580,
+      "sha256": "c981fd4bf5bdfdd3f688141bce1c218149d8142aa1da468ce1632359b73b4858"
+    },
+    "scripts/reservation_settlement/codec.py": {
+      "bytes": 7754,
+      "sha256": "fe295e89292ad4a32e84bc4c89d5de789a82d8f1c0ed26ddcfbcd1ea7f53a7e3"
+    },
+    "scripts/reservation_settlement/verify.mjs": {
+      "bytes": 15325,
+      "sha256": "70c584bf1bccfb941243b9e7cd013e379ec41246c6aff48996e9d326a02fb90e"
+    },
+    "contracts/candidates/reservation-settlement-v1/review-manifest.json": {
+      "bytes": 2458,
+      "sha256": "90d1c6b73d6692f6c366735bfc2188d9e8c50d5038c7fb6f5629c85ffa3d8b22"
+    }
+  },
+  "controls": {
+    "RESERVATION-SETTLEMENT-FREEZE.md": {
+      "bytes": 4736,
+      "sha256": "3135194c59b24648cfabea0766400c7774841de80416902d4d646fe20c9aaa27"
+    },
+    "docs/reviews/reservation-settlement-1/amendment-review.md": {
+      "bytes": 7586,
+      "sha256": "a42e07398b9ca33827fc645a3c464a64c51a6d3d8922f125d37cfd06c94dcd93"
+    },
+    "docs/reviews/reservation-settlement-1/conformance-review.md": {
+      "bytes": 6263,
+      "sha256": "9aa74852750cf70ece429a9575deaba0adb99c16ee0193a0a58297015336190f"
+    },
+    "scripts/check.sh": {
+      "bytes": 685,
+      "sha256": "ec304cb86f041acaece8c90f574a3f0e467342b61bd2b148fcd9f24862756dbe"
+    },
+    "scripts/contract_checks/check_reservation_freeze.py": {
+      "bytes": 11806,
+      "sha256": "d01c09e5e3ae990251912e20d649e467b89db09164ab0c9121ce2c3e46a6be35"
+    }
+  },
+  "aggregate": {
+    "path": "scripts/check.sh",
+    "reviewed_prefix": {
+      "bytes": 501,
+      "sha256": "e84e435c91fbd6fe5a250aa37ae847f17e511c73523cb804d28ec2d0c24af1aa"
+    },
+    "append_utf8": "# Separately frozen reservation amendment; legacy contract gates stay unchanged.\npython3 scripts/contract_checks/check_reservation_freeze.py\nsh scripts/check-reservation-settlement.sh\n"
+  },
+  "historical_labels": "Historical candidate labels remain unchanged; this separate manifest and status overlay establish current status.",
+  "change_policy": "Normative, schema, ID/hash-domain, vector or semantic changes require fresh independent review; no runtime implementation is authorized."
+}
