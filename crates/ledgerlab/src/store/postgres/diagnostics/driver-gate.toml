@@ -1,0 +1,18 @@
+# Test-only harness materialized under ignored work/. Not a production crate.
+[package]
+name = "ledgerlab-postgres-driver-gate"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "../../crates/ledgerlab/src/store/postgres/diagnostics/driver_gate.rs"
+
+[dev-dependencies]
+sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres"] }
+tokio = { version = "=1.53.1", features = ["rt", "macros", "time", "net", "io-util"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem"] }
