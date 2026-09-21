@@ -1,0 +1,38 @@
+Ledger Lab — chain events, compose pricing, explain the result locally.
+
+Usage: ledger [--config PATH] [--format text|json] COMMAND
+
+  init [DIR] --demo          Create a new/empty local sandbox (default: .)
+  accept FILE|-             Accept one event from a JSON file or stdin
+  preview FILE|-            Estimate without journal writes or commit
+  explain EVENT_ID          Read a stored event (external or canonical ID)
+  explain --chain CHAIN_ID  Read accepted decisions in chain order
+
+Global options may appear before or after the command:
+  --config PATH             Config file (default: ./ledger.yaml)
+  --format text|json        Human output or one stable ledger-cli/1 JSON object
+  --json                    Alias for --format json
+  --no-color                Accepted; output is always plain text
+  --help, -h                Show help, including after a command
+  --version                 Show internal development version
+
+Start: ledger init ledger-demo --demo
+Then: cd ledger-demo
+      ledger preview examples/generated.json
+      ledger accept examples/generated.json
+      ledger explain --chain demo-slice
+
+An AI generation is charged initially; a later linked outcome can add a
+premium or discount. Optional paid tools and BYOK/platform-funded responsibility
+fit the same chain. This branch runs the Phase 1 generation slice only:
+100 USD atoms charged, -20 discount, 80 held for fake export. Later linked
+outcomes and supplier authority require Phase 2/3. No payment is executed.
+
+No Docker, Node, cloud account, provider key, or server is required.
+Config uses strict JSON syntax in ledger.yaml (a YAML 1.2 subset).
+Preview is an estimate, never a receipt; opening/locking may touch SQLite
+sidecars. File inputs are regular files, at most 256 KiB.
+
+Exit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;
+4 conflict; 5 waiting; 6 unauthorized; 7 busy/unavailable; 8 outcome unknown;
+9 integrity failure. Retry unknown outcomes with the same event identity.

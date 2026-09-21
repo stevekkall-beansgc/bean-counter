@@ -68,7 +68,7 @@ where
             }
             Err(e) => return Err(store_error(e)),
         };
-        let work = prepare(&mut tx, &candidate, cmd, hooks).await;
+        let work = prepare(&mut tx, &candidate, cmd, hooks, false).await;
         match work {
             Ok(Work::End(result)) => {
                 hooks
@@ -91,6 +91,7 @@ where
                     e => Err(e),
                 };
             }
+            Ok(Work::Preview(_)) => unreachable!("accept never requests a preview"),
             Ok(Work::Commit(result)) => {
                 if let Err(e) = hooks.before_commit() {
                     hooks
@@ -126,6 +127,7 @@ where
 enum Work {
     End(AcceptResult),
     Commit(AcceptResult),
+    Preview(Vec<Value>),
 }
 async fn document<T: AcceptanceTx>(
     tx: &mut T,
@@ -152,7 +154,7 @@ async fn document<T: AcceptanceTx>(
 }
 // Retained duplicate data crosses the same integrity boundary as documents.
 // Recompute canonical bytes and framed hashes before returning an old receipt.
-fn retained_record(record: &CanonicalRecord, kind: &str) -> Result<Value, ServiceError> {
+pub(super) fn retained_record(record: &CanonicalRecord, kind: &str) -> Result<Value, ServiceError> {
     let body =
         canonical::parse(&record.canonical_bytes).map_err(|_| ServiceError::IntegrityFailure)?;
     if CanonicalBytes::from_value(&body)
@@ -184,6 +186,7 @@ async fn prepare<T: AcceptanceTx>(
     c: &Candidate,
     cmd: &AcceptCommand,
     hooks: &Hooks,
+    preview: bool,
 ) -> Result<Work, ServiceError> {
     let s = scope(c);
     // SQLite BEGIN IMMEDIATE already holds the complete writer scope. Other stores
@@ -309,10 +312,12 @@ async fn prepare<T: AcceptanceTx>(
                 observed_us: cmd.received_at.micros(),
             },
         };
-        hooks
-            .call("alias", tx.write(&WriteOp::Journal(Box::new(record))))
-            .await
-            .map_err(store_error)?;
+        if !preview {
+            hooks
+                .call("alias", tx.write(&WriteOp::Journal(Box::new(record))))
+                .await
+                .map_err(store_error)?;
+        }
         return Ok(Work::Commit(AcceptResult::Duplicate {
             kind: DuplicateKind::Semantic,
             receipt: stored.receipt.canonical_bytes,
@@ -376,6 +381,21 @@ async fn prepare<T: AcceptanceTx>(
     )
     .map_err(core)?;
     let plan = hooks.evaluate(&input).map_err(core)?;
+    if preview {
+        let records = plan
+            .records()
+            .iter()
+            .map(|r| canonical::parse(r.bytes()?.as_slice()))
+            .collect::<ledgerlab_core::Result<Vec<_>>>()
+            .map_err(core)?;
+        // A candidate receipt is never exposed as evidence of acceptance.
+        return Ok(Work::Preview(
+            records
+                .into_iter()
+                .filter(|r| r["kind"] != "receipt")
+                .collect(),
+        ));
+    }
     for (name, item, op) in project::writes(&plan, &event, cmd.received_at.micros()) {
         hooks.write(name, item, false)?;
         hooks
@@ -387,6 +407,62 @@ async fn prepare<T: AcceptanceTx>(
     Ok(Work::Commit(AcceptResult::Accepted {
         receipt: plan.receipt().bytes().map_err(core)?.into_vec(),
     }))
+}
+
+/// Shares normalization, locked authority checks and evaluation with acceptance.
+/// No write call and no commit occurs, including the semantic-alias path.
+pub(crate) async fn preview<S: AcceptanceStore>(
+    store: &S,
+    cmd: &AcceptCommand,
+) -> Result<PreviewResult, ServiceError>
+where
+    S::Tx: 'static,
+{
+    let candidate = match domain::normalize(
+        &cmd.bytes,
+        cmd.principal.scope.clone(),
+        &cmd.principal.source,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(PreviewResult::Rejected {
+                code: e.code.into(),
+            })
+        }
+    };
+    let hooks = Hooks::default();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    for attempt in 0..5 {
+        let mut tx = match store.begin(deadline).await {
+            Ok(tx) => tx,
+            Err(e) if e.retryable_after_rollback() && attempt < 4 && Instant::now() < deadline => {
+                continue
+            }
+            Err(e) => return Err(store_error(e)),
+        };
+        let result = prepare(&mut tx, &candidate, cmd, &hooks, true).await;
+        tx.rollback().await.map_err(store_error)?;
+        return match result {
+            Ok(Work::Preview(records)) => Ok(PreviewResult::WouldAccept { records }),
+            Ok(Work::End(result) | Work::Commit(result)) => match result {
+                AcceptResult::Duplicate { kind, receipt } => {
+                    let body = canonical::parse(&receipt).map_err(core)?;
+                    Ok(PreviewResult::Duplicate {
+                        kind,
+                        event_id: text(&body, "event_id")?.into(),
+                    })
+                }
+                AcceptResult::Conflict(kind) => Ok(PreviewResult::Conflict(kind)),
+                AcceptResult::Rejected { code } => Ok(PreviewResult::Rejected { code }),
+                AcceptResult::Waiting { missing } => Ok(PreviewResult::Waiting { missing }),
+                AcceptResult::Accepted { .. } => unreachable!("preview skips the write plan"),
+            },
+            Err(ServiceError::Retryable) if attempt < 4 && Instant::now() < deadline => continue,
+            Err(ServiceError::Rejection(code)) => Ok(PreviewResult::Rejected { code }),
+            Err(e) => Err(e),
+        };
+    }
+    Err(ServiceError::Retryable)
 }
 
 #[cfg(test)]

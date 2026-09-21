@@ -687,6 +687,10 @@ name = "ledgerlab-cli"
 version = "0.0.0"
 dependencies = [
  "ledgerlab",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

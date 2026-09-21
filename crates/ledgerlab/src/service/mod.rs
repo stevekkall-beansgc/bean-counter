@@ -20,6 +20,8 @@ mod pg_tests;
 #[cfg(test)]
 mod race_tests;
 
+pub(crate) mod demo;
+pub(crate) mod inspect;
 #[cfg(test)]
 mod pg_transport_tests;
 #[cfg(test)]

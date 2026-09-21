@@ -1,5 +1,6 @@
 //! Concrete SQLite persistence. `README.md` describes the coordinator integration seam.
 mod connect;
+mod inspect;
 mod migrate;
 mod outbox;
 mod owner;
@@ -47,10 +48,14 @@ impl SqliteStore {
     #[allow(dead_code)] // Explicit provisioning; opening never invokes it.
     pub async fn create(path: &Path, installation: Installation) -> Result<Self, StoreError> {
         let owner = Arc::new(owner::Owner::acquire(path)?);
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&owner.database)?;
+        let mut file = OpenOptions::new();
+        file.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            file.mode(0o600);
+        }
+        file.open(&owner.database)?;
         let mut conn = connect::initial(&owner).await?;
         connect::verify(&mut conn, false).await?;
         migrate::create(&mut conn).await?;

@@ -1,5 +1,6 @@
 //! One bounded acceptance coordinator over concrete durable stores.
 #![forbid(unsafe_code)]
+pub mod local;
 pub mod outbox;
 mod service;
 mod store;
@@ -50,6 +51,25 @@ pub enum AcceptResult {
         code: String,
     },
     /// No identity or economic reservation is made. Pending promotion is later scope.
+    Waiting {
+        missing: Vec<String>,
+    },
+}
+/// Noncommitting estimate; never contains a receipt. Records are prospective
+/// canonical envelopes from the core, excluding the candidate receipt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PreviewResult {
+    WouldAccept {
+        records: Vec<serde_json::Value>,
+    },
+    Duplicate {
+        kind: DuplicateKind,
+        event_id: String,
+    },
+    Conflict(ConflictKind),
+    Rejected {
+        code: String,
+    },
     Waiting {
         missing: Vec<String>,
     },
@@ -113,6 +133,14 @@ impl Ledger {
         match &self.store {
             Backend::Sqlite(store) => service::accept::run(store, &command, &hooks).await,
             Backend::Postgres(store) => service::accept::run(store, &command, &hooks).await,
+        }
+    }
+    /// Evaluate using the current locked context without journal writes or commit.
+    /// Store opening/locking can still touch filesystem metadata and SQLite WAL.
+    pub async fn preview(&self, command: AcceptCommand) -> Result<PreviewResult, ServiceError> {
+        match &self.store {
+            Backend::Sqlite(store) => service::accept::preview(store, &command).await,
+            Backend::Postgres(store) => service::accept::preview(store, &command).await,
         }
     }
     pub async fn close(self) {

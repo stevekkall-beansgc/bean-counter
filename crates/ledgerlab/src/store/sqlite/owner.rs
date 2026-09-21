@@ -23,12 +23,14 @@ impl Owner {
         }
         let lockpath = directory.join("owner.lock");
         reject_symlink(&lockpath)?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&lockpath)?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let lock = options.open(&lockpath)?;
         lock.try_lock().map_err(|e| match e {
             std::fs::TryLockError::WouldBlock => StoreError::Owned,
             std::fs::TryLockError::Error(e) => StoreError::Io(e),

@@ -2,7 +2,7 @@
 
 Chain events. Compose pricing. Export the result anywhere.
 
-Ledger Lab is an Apache-2.0 event-native economic engine in development. This repository contains the **Phase 0 contract freeze and a compiling Rust scaffold**. It does not yet accept events, evaluate policies, open databases, serve HTTP, or move money. The `ledger` executable reports that status and exits 2.
+Ledger Lab is an Apache-2.0 event-native economic engine in development. This repository contains the **frozen Phase 0 contracts, the completed bounded Phase 1 acceptance slice, and a local SQLite developer CLI**. `ledger init --demo`, `accept`, `preview`, and `explain` run without Docker, Node, a cloud account, or a paid provider. No HTTP service or payment execution is included. See the [local quickstart](docs/quickstart.md) for the runnable workflow and current limits.
 
 The frozen first slice is a synthetic generation event: base 100 USD atoms, enterprise discount −20, net 80, one held fake-export intention. The separate onboarding chain totals 120 atoms. Do not conflate them.
 
@@ -17,7 +17,7 @@ python3 -m pip install -r scripts/requirements-contracts.txt
 sh scripts/check.sh
 ```
 
-The Rust scaffold has no external dependencies and builds offline. Python packages may need an initial download; subsequent contract checks do not use the network. On the prepared development machine, source `work/toolchain/activate.sh` and select the installed verified compiler alias with `export RUSTUP_TOOLCHAIN=stable`; checks require its actual version to match 1.98.1. The `work/` toolchain/cache is intentionally untracked and is not a portable repository prerequisite.
+The Rust workspace uses pinned dependencies and builds offline once its dependency cache is populated. Python packages may need an initial download; subsequent contract checks do not use the network. On the prepared development machine, source `work/toolchain/activate.sh` and select the installed verified compiler alias with `export RUSTUP_TOOLCHAIN=stable`; checks require its actual version to match 1.98.1. The `work/` toolchain/cache is intentionally untracked and is not a portable repository prerequisite.
 
 ## Start contributing
 

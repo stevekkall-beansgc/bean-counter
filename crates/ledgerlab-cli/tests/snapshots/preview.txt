@@ -1,0 +1,5 @@
+Preview: would_accept (can accept: true). Nothing committed.
+Estimate from current locked context; no receipt, journal writes, or commit. Acceptance rechecks state. Opening/locking may touch SQLite sidecars.
+  generation.base: 100 USD atoms (scale 2), retail
+  generation.discount: -20 USD atoms (scale 2), retail
+  Export intention in_848f5bcafa2f73068fd08eaf67eef3578afc4d4996dd5899e329687279fbedf8: 80 USD atoms to fake (no delivery performed)
