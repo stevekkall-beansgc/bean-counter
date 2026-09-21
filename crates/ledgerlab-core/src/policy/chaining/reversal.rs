@@ -106,6 +106,9 @@ pub fn reverse(
         consumptions: vec![],
         invocations: vec![],
         closed_stage: None,
+        received_at: None,
+        source_authority: authority.clone(),
+        costs: vec![],
     };
     for (source, original) in originals {
         let effect_id =

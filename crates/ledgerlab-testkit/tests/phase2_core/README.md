@@ -90,3 +90,10 @@ source work/toolchain/activate.sh
 export RUSTUP_TOOLCHAIN=stable
 cargo test -p ledgerlab-testkit --test phase2_core --locked --offline -- --nocapture
 ```
+
+Approved v0 target adjustments now have their own `phase2_outcomes` differential
+suite. The historical linked-discount proposal is superseded. This legacy adapter
+also runs five live regression histories produced by `oracle/phase2/regressions.py`:
+receipt ordering, failed/reversed publication, supplier target paths, and reversal
+under changed current prices/roles/permissions. Every attempt compares full
+projected journals and state against the independent reference.

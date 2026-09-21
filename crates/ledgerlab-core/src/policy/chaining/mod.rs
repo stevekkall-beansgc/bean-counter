@@ -10,6 +10,9 @@ mod evaluate;
 mod model;
 mod reversal;
 
+/// Final-base outcome claims and atomic authorized corrections.
+pub mod outcomes;
+
 pub use model::*;
 pub use reversal::reverse;
 

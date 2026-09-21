@@ -102,6 +102,7 @@ class Reference:
         self.deliveries = {}
         self.claims = {}
         self.reversed = set()
+        self.original_bindings = {}
         self.closed = False
         self.consumed = {s['invocation']['id']: 0 for s in config['suppliers']}
 
@@ -223,6 +224,7 @@ class Reference:
         return dict(status='accepted', code='ACCEPTED', receipt=event['id'])
 
     def emit(self, decision, component, book, kind, exact, binding, inputs=(), basis=None, code=None, reverses=None):
+        self.original_bindings[(decision['id'], binding['id'])] = deepcopy(binding)
         exact = rational(exact)
         atoms = round_atoms(exact)
         explanation = dict(component=component, code=code or {
@@ -315,6 +317,7 @@ class Reference:
     def acquisition(self, event, received, decision):
         cfg = self.config
         parent = self.accepted()[next(l['event'] for l in event['links'] if l['relation'] == 'attributed_to')]['event']
+        require(parent['status'] == 'succeeded', 'OUTCOME_AUTHORITY')
         self.outcome_authority(event, received, cfg['outcome_source'], parent, cfg['outcome_window'])
         retail = cfg['retail']
         closure = self.emit(decision, 'acquisition.premium', 'retail', 'premium', int(cfg['premium_atoms']), retail)
@@ -322,6 +325,15 @@ class Reference:
         for supplier in cfg['suppliers']:
             self.supplier_authority(supplier, decision)
             require(supplier['invocation']['event'] in self.accepted(), 'SUPPLIER_COMPLETION_REQUIRED')
+            if int(supplier['premium_atoms']) or decimal(supplier['share_percent']):
+                completion = self.accepted()[supplier['invocation']['event']]['event']
+                require(completion['status'] == 'succeeded', 'OUTCOME_AUTHORITY')
+                require(completion['id'] not in self.reversed, 'REVERSED_DEPENDENCY')
+                allowed = completion['id'] == parent['id'] or (
+                    completion['kind'] == 'tool.optimized' and any(
+                        l['relation'] == 'published_as' and l['event'] == completion['id']
+                        and l['source'] == completion['source'] for l in parent['links']))
+                require(allowed, 'SUPPLIER_TARGET_PATH')
             amount = 0
             if int(supplier['premium_atoms']):
                 amount = self.emit(decision, supplier['component'] + '.premium', 'supplier', 'premium',
@@ -387,12 +399,9 @@ class Reference:
                    and set(d['depends_on']) & targets}
         if missing:
             raise Refusal('REVERSAL_DEPENDENTS_REQUIRED', missing=missing)
-        bindings = {b['id']: b for b in [self.config['retail'], *self.config['suppliers']]}
-        if 'model_cost' in self.config:
-            bindings[self.config['model_cost']['id']] = self.config['model_cost']
         for original in originals:
             for row in original['postings']:
-                binding = bindings[row['binding']]
+                binding = self.original_bindings[(original['id'], row['binding'])]
                 require(event['source'] in binding['correction_sources'], 'CORRECTION_UNAUTHORIZED')
                 self.emit(decision, row['component'], row['book'], 'reversal', -int(row['atoms']), binding,
                           [row['id']], reverses=row['id'])

@@ -215,10 +215,19 @@ class Phase2Tests(unittest.TestCase):
         old=deepcopy(model.journal); consumed=deepcopy(model.consumed)
         model.config['premium_atoms']='9999'
         model.config['suppliers'][0]['correction_sources']=[]
-        self.assertEqual(model.submit(f['events']['r'],'90')['code'],'CORRECTION_UNAUTHORIZED')
-        self.assertEqual(model.journal,old)
-        model.config['suppliers'][0]['correction_sources']=['urn:host:app']
+        model.config['suppliers'][0]['roles']['recipient']='changed-today'
         self.assertEqual(model.submit(f['events']['r'],'90')['status'],'accepted')
+        original_rows={p['id']:p for d in old for p in d['postings']}
+        for row in model.journal[-1]['postings']:
+            self.assertEqual(row['roles'],original_rows[row['reverses']]['roles'])
+        unauthorized=deepcopy(f['config'])
+        unauthorized['suppliers'][0]['correction_sources']=[]
+        denied=Reference(unauthorized)
+        for id in ['g','o','p','a']: self.assertEqual(denied.submit(f['events'][id],'50')['status'],'accepted')
+        denied.config['suppliers'][0]['correction_sources']=['urn:host:app']
+        before=deepcopy(denied.journal)
+        self.assertEqual(denied.submit(f['events']['r'],'90')['code'],'CORRECTION_UNAUTHORIZED')
+        self.assertEqual(denied.journal,before)
         self.assertEqual(model.consumed,consumed)
         self.assertTrue(model.closed)
         self.assertEqual(set(model.state()['totals'].values()),{'0'})

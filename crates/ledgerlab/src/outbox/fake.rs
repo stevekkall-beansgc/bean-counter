@@ -107,12 +107,44 @@ impl MemoryDestination {
             .map(|(_, r)| r.clone())
             .collect()
     }
-    pub(crate) fn inventory(&self, store: &str, mode: Mode) -> Option<Vec<Receipt>> {
+    pub(crate) fn lookup(&self, store: &str, key: &str, mode: Mode) -> Outcome {
         if matches!(mode, Mode::UnknownLookup) {
-            None
-        } else {
-            Some(self.receipts(store))
+            return Outcome::Unknown;
         }
+        self.inner
+            .lock()
+            .expect("fake lock")
+            .receipts
+            .get(&(store.into(), key.into()))
+            .map_or(Outcome::Absent, |r| Outcome::Delivered(r.clone()))
+    }
+    pub(crate) fn keys_page(&self, store: &str, after: &str) -> Vec<String> {
+        self.inner
+            .lock()
+            .expect("fake lock")
+            .receipts
+            .range((
+                std::ops::Bound::Excluded((store.into(), after.into())),
+                std::ops::Bound::Unbounded,
+            ))
+            .take_while(|((s, _), _)| s == store)
+            .take(PAGE_SIZE)
+            .map(|((_, key), _)| key.clone())
+            .collect()
+    }
+    pub(crate) fn inventory_digest(&self, store: &str, mode: Mode) -> Result<Option<String>> {
+        if matches!(mode, Mode::UnknownLookup) {
+            return Ok(None);
+        }
+        let data = self.inner.lock().map_err(|_| Error::Unavailable)?;
+        let mut hash = digest(&json!(["fake-inventory-v2", store]))?;
+        for ((s, _), r) in data.receipts.range((store.to_owned(), String::new())..) {
+            if s != store {
+                break;
+            }
+            hash = digest(&json!([hash, r.request.value(), r.remote_id]))?;
+        }
+        Ok(Some(hash))
     }
     #[cfg(test)]
     pub(crate) fn insert_receipt(&self, request: Request) {
@@ -123,16 +155,5 @@ impl MemoryDestination {
                 remote_id: "test-remote".into(),
             },
         );
-    }
-}
-
-pub(crate) fn inventory_value(receipts: &Option<Vec<Receipt>>) -> Value {
-    match receipts {
-        None => Value::Null,
-        Some(r) => Value::Array(
-            r.iter()
-                .map(|r| json!({"request":r.request.value(),"remote_id":r.remote_id}))
-                .collect(),
-        ),
     }
 }

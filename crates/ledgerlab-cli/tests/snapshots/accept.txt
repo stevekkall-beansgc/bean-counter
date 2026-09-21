@@ -1,4 +1,3 @@
-Estimate only — nothing committed.
 Customer charges:
   demo-customer -> demo-host: USD 0.80 net obligation for generation charge and customer tier discount.
   demo-customer -> demo-host: USD 1.00 — generation charge.
@@ -9,5 +8,6 @@ Observed provider costs:
   None recorded.
 Allocations:
   None recorded.
-Preview: would_accept (can accept: true).
-Estimate from current locked context; no receipt, journal writes, or commit. Acceptance rechecks state. Opening/locking may touch SQLite sidecars.
+Event: generation-1 | Chain: demo-slice | Revision: 1
+Accepted; receipt saved.
+Dispatch is held; no payment is executed. Use --json for the exact receipt.

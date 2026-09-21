@@ -30,3 +30,5 @@ Independent calculations, all in integer atoms:
 Canonical acquisition/reversal facts, authority snapshots, stage and invocation
 transitions, allocation encoding and complete manifests still need reviewed
 extensions and independent byte verification before Phase 3 persistence.
+
+The linked-discount example is historical and superseded by the approved frozen-target outcome API. It is not an active v0 pricing path. See `../../src/policy/chaining/outcomes/README.md` and the testkit `phase2-outcomes-v0` fixtures.

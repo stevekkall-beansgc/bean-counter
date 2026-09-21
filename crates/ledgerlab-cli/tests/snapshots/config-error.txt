@@ -1,0 +1,1 @@
+CONFIG: ledger.json: config storage.extra: unknown field; remove it. Next: check this config and storage.data_dir; use --config PATH for an existing config or ledger init NEW_DIR --demo.

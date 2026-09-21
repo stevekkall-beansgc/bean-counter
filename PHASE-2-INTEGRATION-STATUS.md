@@ -1,3 +1,7 @@
+> Historical engineering-phase report. For the current owner-roadmap Phase 2
+> combined candidate and exact gates, see [Product Phase 2 integration](PRODUCT-PHASE-2-INTEGRATION.md).
+> Counts and deferred-work statements below describe the earlier integration only.
+
 # Phase 2 integration candidate
 
 21 September 2026. Work is confined to the supplied

@@ -93,6 +93,9 @@ impl Bundle {
             consumptions: vec![],
             invocations: input.invocations.to_vec(),
             closed_stage: None,
+            received_at: Some(input.received_at.clone()),
+            source_authority: input.source_authority.clone(),
+            costs: input.costs.to_vec(),
         };
         if event.dto().status == Some(Completion::Failed) {
             // Even failed work must be inside its accepted source/unit/quantity
@@ -145,6 +148,11 @@ impl Bundle {
             }
             let matched = match_rule(event, rule.matcher, input.history)?;
             if rule.matcher.is_some() && matched.is_none() {
+                require(
+                    event.dto().kind != EventKind::Acquired || b.book != Book::Supplier,
+                    "SUPPLIER_TARGET_PATH",
+                    "supplier outcome requires its declared completion link path",
+                )?;
                 step.code = "NO_MATCH";
                 result.explanations.push(step);
                 continue;
@@ -224,54 +232,11 @@ impl Bundle {
                         None,
                     )
                 }
-                Operation::LinkedDiscount { amount, component } => {
-                    let target = matched.as_ref().expect("compiled matcher").target;
-                    let original = target
-                        .actions
-                        .iter()
-                        .find(|a| {
-                            a.binding.agreement == b.agreement
-                                && a.book == Book::Retail
-                                && a.component == *component
-                                && matches!(a.kind, ActionKind::Charge | ActionKind::Premium)
-                        })
-                        .ok_or_else(|| {
-                            Error::new("POLICY_MISSING_BASIS", "matched booked component")
-                        })?;
-                    require(
-                        !is_reversed(&original.id, input.history),
-                        "ALREADY_REVERSED",
-                        "discount basis",
-                    )?;
-                    let mut net = original.amount.atoms();
-                    step.inputs.push(original.id.clone());
-                    for d in input.history {
-                        for a in &d.actions {
-                            if a.discount_target.as_ref() == Some(&original.id)
-                                && !is_reversed(&a.id, input.history)
-                            {
-                                net = add_atoms(net, a.amount.atoms())?;
-                                step.inputs.push(a.id.clone());
-                            }
-                        }
-                    }
-                    for a in &result.actions {
-                        if a.discount_target.as_ref() == Some(&original.id) {
-                            net = add_atoms(net, a.amount.atoms())?;
-                            step.inputs.push(a.id.clone());
-                        }
-                    }
-                    require(net >= 0, "NEGATIVE_BASIS", "linked component net")?;
-                    let ratio = discount_value(amount, self.scale, original.amount.atoms())?;
-                    require(
-                        add_atoms(net, ratio.round_atoms()?)? >= 0,
-                        "DISCOUNT_EXCEEDS_BASIS",
-                        "linked component remaining balance",
-                    )?;
-                    step.basis = Some(ExactRatio::integer(original.amount.atoms()));
-                    step.code = "DISCOUNT_APPLIED";
-                    discount_target = Some(original.id.clone());
-                    (ActionKind::Discount, ratio, None)
+                Operation::LinkedDiscount { .. } => {
+                    return Err(Error::new(
+                        "OUTCOME_TARGET_REQUIRED",
+                        "use frozen-target outcome families",
+                    ));
                 }
                 Operation::Cap {
                     ceiling,
@@ -843,6 +808,29 @@ fn validate_binding(b: &Binding, input: &Input<'_>, matched: Option<&Evaluation>
             "OUTCOME_AUTHORITY",
             "successful publication",
         )?;
+        require(
+            !publication
+                .actions
+                .iter()
+                .any(|a| is_reversed(&a.id, input.history)),
+            "REVERSED_DEPENDENCY",
+            "publication reversed",
+        )?;
+        if let Some(target) = matched {
+            require(
+                target.event.dto().status == Some(Completion::Succeeded),
+                "OUTCOME_AUTHORITY",
+                "successful matched work",
+            )?;
+            require(
+                !target
+                    .actions
+                    .iter()
+                    .any(|a| is_reversed(&a.id, input.history)),
+                "REVERSED_DEPENDENCY",
+                "matched work reversed",
+            )?;
+        }
         let published = publication
             .event
             .dto()
@@ -863,6 +851,11 @@ fn validate_binding(b: &Binding, input: &Input<'_>, matched: Option<&Evaluation>
             occurred >= published && occurred < deadline,
             "OUTCOME_WINDOW",
             "half-open occurrence interval",
+        )?;
+        require(
+            input.received_at.micros() >= occurred,
+            "INVALID_RECEIVED_ORDER",
+            "outcome receipt precedes occurrence",
         )?;
         require(
             input.received_at.micros()

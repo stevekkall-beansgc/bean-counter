@@ -9,7 +9,7 @@ use std::{
     process::ExitCode,
 };
 
-const HELP: &str = "Ledger Lab — chain events, compose pricing, explain the result locally.\n\nUsage: ledger [--config PATH] [--format text|json] COMMAND\n\n  init [DIR] --demo          Create a new/empty local sandbox (default: .)\n  accept FILE|-             Accept one event from a JSON file or stdin\n  preview FILE|-            Estimate without journal writes or commit\n  explain EVENT_ID          Read a stored event (external or canonical ID)\n  explain --chain CHAIN_ID  Read accepted decisions in chain order\n\nGlobal options may appear before or after the command:\n  --config PATH             Config file (default: ./ledger.yaml)\n  --format text|json        Human output or one stable ledger-cli/1 JSON object\n  --json                    Alias for --format json\n  --no-color                Accepted; output is always plain text\n  --help, -h                Show help, including after a command\n  --version                 Show internal development version\n\nStart: ledger init ledger-demo --demo\nThen: cd ledger-demo\n      ledger preview examples/generated.json\n      ledger accept examples/generated.json\n      ledger explain --chain demo-slice\n\nAn AI generation is charged initially; a later linked outcome can add a\npremium or discount. Optional paid tools and BYOK/platform-funded responsibility\nfit the same chain. Local commands currently support the generation demo:\n100 USD atoms charged, -20 discount, 80 held for fake export. Linked events,\noutcomes and reversals cannot yet be saved or previewed. No payment is executed.\n\nNo Docker, Node, cloud account, provider key, or server is required.\nConfig uses strict JSON syntax in ledger.yaml (a YAML 1.2 subset).\nPreview is an estimate, never a receipt; opening/locking may touch SQLite\nsidecars. File inputs are regular files, at most 256 KiB.\n\nExit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;\n4 conflict; 5 waiting; 6 unauthorized; 7 busy/unavailable; 8 outcome unknown;\n9 integrity failure. Retry unknown outcomes with the same event identity.\n";
+const HELP: &str = "Ledger Lab — chain events, compose pricing, explain the result locally.\n\nUsage: ledger [--config PATH] [--format text|json] COMMAND\n\n  init [DIR] --demo          Create a new/empty local sandbox (default: .)\n  accept FILE|-             Accept one event from a JSON file or stdin\n  preview FILE|-            Estimate without journal writes or commit\n  explain EVENT_ID          Read a stored event (external or canonical ID)\n  explain --chain CHAIN_ID  Read accepted decisions in chain order\n\nGlobal options may appear before or after the command:\n  --config PATH             Config file (default: ./ledger.json)\n  --format text|json        Human output or one stable ledger-cli/1 JSON object\n  --json                    Alias for --format json\n  --no-color                Accepted; output is always plain text\n  --help, -h                Show help, including after a command\n  --version                 Show internal development version\n\nStart: ledger init ledger-demo --demo\nThen: cd ledger-demo\n      ledger preview examples/generated.json\n      ledger accept examples/generated.json\n      ledger explain --chain demo-slice\n\nLocal commands support only the synthetic Phase 1 generation demo:\ndemo-customer owes demo-host USD 0.80 for generation (USD 1.00 charge\nless USD 0.20 customer discount). Dispatch is held; no payment is executed.\nUpcoming story (documentation only): generation -> publication -> acquisition,\na separate customer discount, paid tools and BYOK/platform-funded responsibility.\nLinked events, outcomes and reversals cannot yet be saved or previewed.\n\nNo Docker, Node, cloud account, provider key, or server is required.\nConfig uses strict JSON in ledger.json. Legacy JSON-in-YAML files require\n--config ledger.yaml explicitly. Building requires Rust and a native C toolchain;\noffline builds require dependencies already cached. See docs/quickstart.md.\nPreview is an estimate, never a receipt; opening/locking may touch SQLite\nsidecars. File inputs are regular files, at most 256 KiB.\n\nExit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;\n4 conflict; 5 waiting; 6 unauthorized; 7 busy/unavailable; 8 outcome unknown;\n9 integrity failure. Retry unknown outcomes with the same event identity.\n";
 struct Args {
     command: String,
     rest: Vec<String>,
@@ -18,7 +18,7 @@ struct Args {
 }
 fn parse(raw: &[String]) -> Result<Args, &'static str> {
     let mut rest = Vec::new();
-    let mut config = PathBuf::from("ledger.yaml");
+    let mut config = PathBuf::from("ledger.json");
     let mut json = false;
     let mut i = 0;
     let mut seen_config = false;
@@ -87,10 +87,10 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             {
                 return Ok(error("USAGE", "usage: ledger init [DIR] --demo", 2));
             }
-            if a.config != Path::new("ledger.yaml") {
+            if a.config != Path::new("ledger.json") {
                 return Ok(error(
                     "USAGE",
-                    "init creates DIR/ledger.yaml; --config is for application commands",
+                    "init creates DIR/ledger.json; --config is for application commands",
                     2,
                 ));
             }
@@ -100,9 +100,15 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
                 .find(|s| s.as_str() != "--demo")
                 .map(Path::new)
                 .unwrap_or(Path::new("."));
-            LocalLedger::init_demo(path).await?;
+            if let Err(e) = LocalLedger::init_demo(path).await {
+                return Ok(output::file_error(
+                    e,
+                    path,
+                    "choose a new or empty directory with an existing writable parent",
+                ));
+            }
             return Ok((
-                json!({"schema":"ledger-cli/1","status":"initialized","config":path.join("ledger.yaml"),"demo":true,"chain":"demo-slice","dispatch":"held"}),
+                json!({"schema":"ledger-cli/1","status":"initialized","config":path.join("ledger.json"),"demo":true,"chain":"demo-slice","dispatch":"held"}),
                 0,
             ));
         }
@@ -122,16 +128,27 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     }
     // Read before opening so stdin is never held under the SQLite owner lock.
     let input = if matches!(a.command.as_str(), "accept" | "preview") {
-        Some(if a.rest[0] == "-" {
-            local::read_bounded(std::io::stdin().lock(), local::EVENT_LIMIT)?
+        let read = if a.rest[0] == "-" {
+            local::read_bounded(std::io::stdin().lock(), local::EVENT_LIMIT)
         } else {
-            local::read_file(Path::new(&a.rest[0]), local::EVENT_LIMIT)?
-        })
+            local::read_file(Path::new(&a.rest[0]), local::EVENT_LIMIT)
+        };
+        match read {
+            Ok(bytes) => Some(bytes),
+            Err(e) => return Ok(output::file_error(
+                e,
+                Path::new(&a.rest[0]),
+                "supply a readable regular JSON event file of at most 256 KiB, or use - for stdin",
+            )),
+        }
     } else {
         None
     };
-    let ledger = LocalLedger::open(&a.config).await?;
-    let result = match a.command.as_str() {
+    let ledger = match LocalLedger::open(&a.config).await {
+        Ok(ledger) => ledger,
+        Err(e) => return Ok(output::file_error(e, &a.config, "check this config and storage.data_dir; use --config PATH for an existing config or ledger init NEW_DIR --demo")),
+    };
+    let mut result = match a.command.as_str() {
         "accept" => ledger.accept(input.unwrap()).await.map(output::accept),
         "preview" => ledger.preview(input.unwrap()).await.map(output::preview),
         "explain" => {
@@ -156,6 +173,21 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         }
         _ => unreachable!(),
     };
+    if let Ok((value, _)) = &mut result {
+        if value["status"] == "rejected" || value["outcome"] == "rejected" {
+            output::event_guidance(value, &a.rest[0]);
+        }
+        // Human receipts use the verified retained projection. This is a read,
+        // never repricing, and a read failure cannot undo successful acceptance.
+        if !a.json && (value["status"] == "accepted" || value["status"] == "duplicate") {
+            if let Some(id) = value["receipt"]["event_id"].as_str() {
+                match ledger.explain(ExplainTarget::Event(id.into())).await {
+                    Ok(history) => value["human_history"] = history,
+                    Err(_) => value["human_warning"] = json!("Receipt committed, but its breakdown could not be read. Retry identical input with --json to retrieve the receipt, then ledger explain EVENT_ID."),
+                }
+            }
+        }
+    }
     ledger.close().await;
     result
 }

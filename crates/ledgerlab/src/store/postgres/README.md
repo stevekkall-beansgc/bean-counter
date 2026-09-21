@@ -19,16 +19,16 @@ filesystem or platform trust settings. No insecure profile is implemented.
 
 Opening checks PostgreSQL 17/18, the authoritative writable primary, negotiated
 TLS, fsync/full_page_writes/synchronous_commit, permanent tables, the exact
-checksums of both migrations and installation identity. The runtime role cannot own the
+checksums of all three migrations and installation identity. The runtime role cannot own the
 schema/tables, create schema objects, or delete/truncate retained tables. Runtime
 SQL qualifies `ledgerlab`; startup search_path is `pg_catalog`.
 
 `migrate::create` is a separate private migration-owner entry point for an empty
 database. It takes a transaction-scoped advisory migration lock, installs backend
-schema 2, records both migration digests and grants narrow rights to an existing
+schema 3, records all three migration digests and grants narrow rights to an existing
 runtime role. Logical economic schema 1 and migration 0001 are unchanged; 0002
-adds outbox state/evidence. `open` never creates, migrates, repairs or seeds, and
-rejects old backend-schema-1 stores pending explicit upgrade support. Provisioning and seed
+adds outbox state/evidence; 0003 adds permanent quarantine and terminal guards. `open` never creates, migrates, repairs or seeds, and
+rejects old backend-schema-1/2 stores pending explicit upgrade support. Provisioning and seed
 operations remain private integration seams; no administration CLI/API was added.
 Seed/accepted fixture data are used only in tests, never in production migrations.
 
@@ -110,3 +110,7 @@ The standalone proof tests synthetic TLS/protocol peers and exact trust-root
 membership. Real-store tests establish persistence evidence separately. Public
 CA server handshakes, OS process-kill/power-loss tests and the full native target
 matrix are not claimed.
+
+Current outbox query bounds, quarantine, reconciliation and upgrade gates: [OUTBOX-HARDENING.md](../../../../../OUTBOX-HARDENING.md).
+
+The explicit fenced `maintenance::upgrade_postgres` operation upgrades exact schema 1/2 to 3 with the migration owner and existing restricted runtime role. See [PHASE-2-OUTBOX-MERGE.md](../../../../../PHASE-2-OUTBOX-MERGE.md) for prerequisites, uncertainty resolution and populated-database evidence.

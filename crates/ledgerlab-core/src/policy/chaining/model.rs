@@ -68,8 +68,8 @@ pub enum Operation {
         component: String,
         mode: DiscountMode,
     },
-    /// Proposed typed-only extension: an outcome appends a discount against the
-    /// explicitly matched predecessor's booked component. No wire DSL extension.
+    /// Superseded proposal, rejected with OUTCOME_TARGET_REQUIRED. Use outcomes.
+    /// Retained only to produce an explicit migration error for typed callers.
     LinkedDiscount {
         amount: DiscountAmount,
         component: String,
@@ -307,8 +307,29 @@ pub struct Evaluation {
     pub(super) consumptions: Vec<Consumption>,
     pub(super) invocations: Vec<Invocation>,
     pub(super) closed_stage: Option<String>,
+    pub(super) received_at: Option<Timestamp>,
+    pub(super) source_authority: SourceAuthority,
+    pub(super) costs: Vec<CostEvidence>,
 }
 impl Evaluation {
+    pub fn bundle(&self) -> &Bundle {
+        &self.bundle
+    }
+    pub fn context(&self) -> &Context {
+        &self.context
+    }
+    pub fn invocations(&self) -> &[Invocation] {
+        &self.invocations
+    }
+    pub fn received_at(&self) -> Option<&Timestamp> {
+        self.received_at.as_ref()
+    }
+    pub fn source_authority(&self) -> &SourceAuthority {
+        &self.source_authority
+    }
+    pub fn costs(&self) -> &[CostEvidence] {
+        &self.costs
+    }
     pub fn event(&self) -> &Event {
         &self.event
     }

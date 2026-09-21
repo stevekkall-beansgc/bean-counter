@@ -1,0 +1,1604 @@
+{
+  "version": "phase2-outcomes-v0/1",
+  "histories": [
+    {
+      "name": "fixed-success-fee",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        },
+        {
+          "id": "one"
+        },
+        {
+          "id": "alias"
+        },
+        {
+          "id": "different",
+          "code": "no"
+        },
+        {
+          "id": "one",
+          "code": "no"
+        }
+      ],
+      "anchors": [
+        {
+          "status": "accepted",
+          "code": null
+        },
+        {
+          "status": "duplicate",
+          "code": null
+        },
+        {
+          "status": "duplicate",
+          "code": null
+        },
+        {
+          "status": "rejected",
+          "code": "CLAIM_CONFLICT"
+        },
+        {
+          "status": "rejected",
+          "code": "IDENTITY_CONFLICT"
+        }
+      ]
+    },
+    {
+      "name": "percentage-retail-net",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "rebate",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "-25"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "rebate",
+          "family": "rebate"
+        }
+      ],
+      "anchors": [
+        {
+          "status": "accepted",
+          "code": null
+        }
+      ]
+    },
+    {
+      "name": "correction-reinstatement",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        },
+        {
+          "id": "undo",
+          "revision": 1,
+          "replacement": null
+        },
+        {
+          "id": "alias"
+        },
+        {
+          "id": "stale",
+          "revision": 1,
+          "replacement": "yes"
+        },
+        {
+          "id": "restore",
+          "revision": 2,
+          "replacement": "yes"
+        },
+        {
+          "id": "restore",
+          "revision": 2,
+          "replacement": "yes"
+        },
+        {
+          "id": "zero",
+          "revision": 3,
+          "replacement": "no"
+        },
+        {
+          "id": "again",
+          "revision": 4,
+          "replacement": "yes"
+        }
+      ],
+      "anchors": [
+        {
+          "status": "accepted",
+          "code": null
+        },
+        {
+          "status": "accepted",
+          "code": null
+        },
+        {
+          "status": "duplicate",
+          "code": null
+        },
+        {
+          "status": "rejected",
+          "code": "STALE_CORRECTION"
+        },
+        {
+          "status": "accepted",
+          "code": null
+        },
+        {
+          "status": "duplicate",
+          "code": null
+        },
+        {
+          "status": "accepted",
+          "code": null
+        },
+        {
+          "status": "accepted",
+          "code": null
+        }
+      ]
+    },
+    {
+      "name": "multiple-family-bounds",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "quality",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "-50"
+              }
+            }
+          },
+          {
+            "family": "delivery",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "-40"
+              }
+            }
+          },
+          {
+            "family": "service",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "-1"
+              }
+            }
+          },
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          },
+          {
+            "family": "expedite",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "30"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "a",
+          "family": "quality"
+        },
+        {
+          "id": "b",
+          "family": "delivery"
+        },
+        {
+          "id": "c",
+          "family": "service"
+        },
+        {
+          "id": "undo-a",
+          "revision": 1,
+          "replacement": null,
+          "family": "quality"
+        },
+        {
+          "id": "c",
+          "family": "service"
+        },
+        {
+          "id": "reinstate-a",
+          "revision": 2,
+          "replacement": "yes",
+          "family": "quality"
+        },
+        {
+          "id": "fee"
+        },
+        {
+          "id": "fee2",
+          "family": "expedite"
+        },
+        {
+          "id": "voidfee",
+          "revision": 1,
+          "replacement": null
+        },
+        {
+          "id": "fee2",
+          "family": "expedite"
+        }
+      ]
+    },
+    {
+      "name": "supplier-separation",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "retail-rebate",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "-25"
+              }
+            }
+          },
+          {
+            "family": "supplier-rebate",
+            "binding": "supplier",
+            "codes": {
+              "yes": {
+                "fixed": "-10"
+              }
+            }
+          },
+          {
+            "family": "supplier-over",
+            "binding": "supplier",
+            "codes": {
+              "yes": {
+                "fixed": "-31"
+              }
+            }
+          },
+          {
+            "family": "supplier-share",
+            "binding": "supplier",
+            "codes": {
+              "yes": {
+                "percent": "25"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "r",
+          "family": "retail-rebate"
+        },
+        {
+          "id": "s",
+          "family": "supplier-rebate",
+          "agreement": "supplier"
+        },
+        {
+          "id": "s-undo",
+          "revision": 1,
+          "replacement": null,
+          "family": "supplier-rebate",
+          "agreement": "supplier"
+        },
+        {
+          "id": "supplier-not-retail",
+          "family": "supplier-rebate"
+        },
+        {
+          "id": "s-too-much",
+          "family": "supplier-over",
+          "agreement": "supplier"
+        },
+        {
+          "id": "s-share",
+          "family": "supplier-share",
+          "agreement": "supplier"
+        }
+      ]
+    },
+    {
+      "name": "timing-and-authority",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "early-receipt",
+          "received": 19
+        },
+        {
+          "id": "early-accept",
+          "accepted": 20
+        },
+        {
+          "id": "deadline",
+          "accepted": 121
+        },
+        {
+          "id": "occurrence",
+          "occurred": 100,
+          "received": 101,
+          "accepted": 102
+        },
+        {
+          "id": "no-proof",
+          "evidence": []
+        },
+        {
+          "id": "bad-proof",
+          "evidence_verified": false
+        },
+        {
+          "id": "no-submit",
+          "may_submit": false
+        },
+        {
+          "id": "no-scope",
+          "scope_verified": false
+        },
+        {
+          "id": "unknown",
+          "code": "unknown"
+        },
+        {
+          "id": "one"
+        },
+        {
+          "id": "no-correct",
+          "revision": 1,
+          "replacement": null,
+          "may_correct": false
+        },
+        {
+          "id": "late-correct",
+          "revision": 1,
+          "replacement": null,
+          "occurred": 200,
+          "received": 201,
+          "accepted": 202
+        },
+        {
+          "id": "late-correction",
+          "revision": 2,
+          "replacement": "yes",
+          "occurred": 900,
+          "received": 1000,
+          "accepted": 1201
+        },
+        {
+          "id": "one",
+          "received": 9999,
+          "accepted": 9999,
+          "may_submit": false
+        }
+      ]
+    },
+    {
+      "name": "version-does-not-renew-claim",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        },
+        {
+          "id": "alias",
+          "current_version": "v99",
+          "current_price": "999",
+          "current_roles": "attacker"
+        },
+        {
+          "id": "changed",
+          "code": "no",
+          "current_version": "v99"
+        },
+        {
+          "id": "undo",
+          "revision": 1,
+          "replacement": null,
+          "current_version": "v99",
+          "current_roles": "attacker"
+        },
+        {
+          "id": "restore",
+          "revision": 2,
+          "replacement": "yes",
+          "current_price": "999"
+        }
+      ]
+    },
+    {
+      "name": "zero-dollar-permanent-claim",
+      "base": {
+        "atoms": "1",
+        "booking_discount": "0",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "-0.1"
+              },
+              "fee": {
+                "fixed": "20"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        },
+        {
+          "id": "alias"
+        },
+        {
+          "id": "changed",
+          "code": "fee"
+        },
+        {
+          "id": "fee",
+          "revision": 1,
+          "replacement": "fee"
+        },
+        {
+          "id": "zero",
+          "revision": 2,
+          "replacement": "yes"
+        }
+      ]
+    },
+    {
+      "name": "signed-half-rounding",
+      "base": {
+        "atoms": "1",
+        "booking_discount": "0",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "minus",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "-50"
+              }
+            }
+          },
+          {
+            "family": "plus",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "50"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "discount",
+          "family": "minus"
+        },
+        {
+          "id": "premium",
+          "family": "plus"
+        }
+      ]
+    },
+    {
+      "name": "missing-target-retry",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        },
+        {
+          "operation": "make_available"
+        },
+        {
+          "id": "one"
+        }
+      ],
+      "available": false
+    },
+    {
+      "name": "failed-target",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30",
+        "status": "failed"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        }
+      ]
+    },
+    {
+      "name": "not-final-target",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30",
+        "final": false
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        }
+      ]
+    },
+    {
+      "name": "cap-composition-rejected",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30",
+        "capped": true
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        }
+      ]
+    },
+    {
+      "name": "unverified-target-terms",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30",
+        "verified_terms": false
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        }
+      ]
+    },
+    {
+      "name": "supplier-link-path-rejected",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30",
+        "supplier_path": false
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "supplier",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one",
+          "agreement": "supplier"
+        }
+      ]
+    },
+    {
+      "name": "reversed-work-target",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "operation": "reverse_base"
+        },
+        {
+          "id": "one"
+        }
+      ]
+    },
+    {
+      "name": "target-scope-and-family",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "missing",
+          "target": "missing"
+        },
+        {
+          "id": "other",
+          "tenant": "other"
+        },
+        {
+          "id": "family",
+          "family": "unknown"
+        },
+        {
+          "id": "agreement",
+          "agreement": "other"
+        },
+        {
+          "id": "source",
+          "source": "urn:other"
+        },
+        {
+          "id": "one"
+        }
+      ]
+    },
+    {
+      "name": "restricted-corrections",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            },
+            "replacements": [
+              "yes"
+            ],
+            "allow_reversal": false
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "missing",
+          "revision": 1,
+          "replacement": null
+        },
+        {
+          "id": "one"
+        },
+        {
+          "id": "reverse",
+          "revision": 1,
+          "replacement": null
+        },
+        {
+          "id": "replace",
+          "revision": 1,
+          "replacement": "no"
+        },
+        {
+          "id": "same",
+          "revision": 1,
+          "replacement": "yes"
+        }
+      ]
+    },
+    {
+      "name": "premium-bound-required",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": null,
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        }
+      ]
+    },
+    {
+      "name": "zero-net-target",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "100",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          },
+          {
+            "family": "rebate",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "-100"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        },
+        {
+          "id": "rebate",
+          "family": "rebate"
+        }
+      ]
+    },
+    {
+      "name": "exact-rational-percent",
+      "base": {
+        "atoms": "300",
+        "booking_discount": "0",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "percent": "-1/3"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "fraction"
+        }
+      ]
+    },
+    {
+      "name": "failed-correction-keeps-current",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              },
+              "huge": {
+                "fixed": "999"
+              }
+            }
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "one"
+        },
+        {
+          "id": "bad",
+          "revision": 1,
+          "replacement": "huge"
+        },
+        {
+          "id": "valid",
+          "revision": 1,
+          "replacement": null
+        }
+      ]
+    },
+    {
+      "name": "premium-cannot-fund-extra-rebate",
+      "base": {
+        "atoms": "100",
+        "booking_discount": "20",
+        "supplier": "30"
+      },
+      "policy": {
+        "version": "v1",
+        "premium_limit": "60",
+        "supplier_limit": "50",
+        "families": [
+          {
+            "family": "success",
+            "binding": "retail",
+            "codes": {
+              "yes": {
+                "fixed": "40"
+              },
+              "no": {
+                "fixed": "0"
+              }
+            }
+          },
+          {
+            "family": "rebate",
+            "codes": {
+              "yes": {
+                "fixed": "-81"
+              }
+            },
+            "binding": "retail"
+          }
+        ]
+      },
+      "roles": {
+        "retail": [
+          "host",
+          "host",
+          "customer",
+          "customer",
+          "customer",
+          "host"
+        ],
+        "supplier": [
+          "supplier",
+          "supplier",
+          "host",
+          "host",
+          "customer",
+          "supplier"
+        ]
+      },
+      "steps": [
+        {
+          "id": "fee"
+        },
+        {
+          "id": "rebate",
+          "family": "rebate"
+        }
+      ]
+    }
+  ]
+}

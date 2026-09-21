@@ -22,6 +22,7 @@ pub const CONFIG_LIMIT: u64 = 65_536;
 #[derive(Debug)]
 pub enum LocalError {
     Config(&'static str),
+    Diagnostic(String),
     Io(std::io::Error),
     Service(ServiceError),
 }
@@ -29,6 +30,7 @@ impl std::fmt::Display for LocalError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Config(s) => f.write_str(s),
+            Self::Diagnostic(s) => f.write_str(s),
             Self::Io(e) => write!(f, "local file operation failed: {e}"),
             Self::Service(e) => e.fmt(f),
         }
@@ -61,7 +63,8 @@ impl LocalLedger {
     /// Provision only the frozen synthetic sandbox. Refuses a nonempty destination.
     /// A failed initialization is left visible for inspection; it is never overwritten.
     pub async fn init_demo(path: &Path) -> Result<()> {
-        check_path(path)?;
+        let path = normalize_path(path)?;
+        let path = path.as_path();
         if path.exists() {
             if !path.is_dir() || fs::read_dir(path)?.next().is_some() {
                 return Err(LocalError::Config(
@@ -86,27 +89,34 @@ impl LocalLedger {
         });
         let mut bytes = serde_json::to_vec_pretty(&config).expect("config JSON");
         bytes.push(b'\n');
-        // JSON is the dependency-free YAML 1.2 subset supported in this bounded CLI.
-        write_new(&path.join("ledger.yaml"), &bytes)?;
+        // The filename describes the syntax actually accepted by the strict parser.
+        write_new(&path.join("ledger.json"), &bytes)?;
         write_new(&path.join("README.md"), DEMO_README.as_bytes())?;
         Ok(())
     }
     pub async fn open(config_path: &Path) -> Result<Self> {
-        check_path(config_path)?;
+        let config_path = normalize_path(config_path)?;
+        let config_path = config_path.as_path();
         let bytes = read_file(config_path, CONFIG_LIMIT)?;
         let v = canonical::parse(&bytes).map_err(|_| {
             LocalError::Config(
-                "ledger.yaml must contain strict JSON (the supported YAML 1.2 subset)",
+                "config $: use strict JSON with quoted keys and no duplicates; copy a fresh ledger init --demo config",
             )
         })?;
         keys(
             &v,
+            "",
             &["schema", "mode", "identity", "storage", "auth", "dispatch"],
         )?;
-        keys(&v["identity"], &["tenant", "environment", "store_id"])?;
-        keys(&v["storage"], &["backend", "data_dir"])?;
+        keys(
+            &v["identity"],
+            "identity",
+            &["tenant", "environment", "store_id"],
+        )?;
+        keys(&v["storage"], "storage", &["backend", "data_dir"])?;
         keys(
             &v["auth"],
+            "auth",
             &[
                 "principal_id",
                 "source",
@@ -114,42 +124,58 @@ impl LocalLedger {
                 "binding_selector",
             ],
         )?;
-        keys(&v["dispatch"], &["enabled", "destination"])?;
-        if v["schema"] != "ledger/v1"
-            || v["mode"] != "sandbox"
-            || v["storage"]["backend"] != "sqlite"
-            || v["dispatch"]["enabled"] != false
-            || v["dispatch"]["destination"] != "fake"
-        {
-            return Err(LocalError::Config("unsupported config: ledger/v1 local SQLite sandbox with dispatch disabled is required"));
+        keys(&v["dispatch"], "dispatch", &["enabled", "destination"])?;
+        for (pointer, expected) in [
+            ("/schema", json!("ledger/v1")),
+            ("/mode", json!("sandbox")),
+            ("/storage/backend", json!("sqlite")),
+            ("/dispatch/enabled", json!(false)),
+            ("/dispatch/destination", json!("fake")),
+        ] {
+            if v.pointer(pointer) != Some(&expected) {
+                return Err(LocalError::Diagnostic(format!(
+                    "config {}: set to {expected}",
+                    pointer[1..].replace('/', ".")
+                )));
+            }
         }
         let identity = &v["identity"];
         let auth = &v["auth"];
-        let store_id = field(identity, "store_id")?;
-        let scope = Scope::new(field(identity, "tenant")?, field(identity, "environment")?)
-            .map_err(|_| LocalError::Config("invalid config scope"))?;
+        let store_id = field(identity, "store_id", "identity.store_id")?;
+        let scope = Scope::new(
+            field(identity, "tenant", "identity.tenant")?,
+            field(identity, "environment", "identity.environment")?,
+        )
+        .map_err(|_| LocalError::Config("identity.tenant/environment: use valid scope identifiers from the generated config"))?;
         let principal = PrincipalContext {
             scope,
-            principal_id: field(auth, "principal_id")?.into(),
-            source: field(auth, "source")?.into(),
-            authority_head: field(auth, "authority_head")?.into(),
+            principal_id: field(auth, "principal_id", "auth.principal_id")?.into(),
+            source: field(auth, "source", "auth.source")?.into(),
+            authority_head: field(auth, "authority_head", "auth.authority_head")?.into(),
             can_submit: true,
             can_read: true,
         };
-        let selector = field(auth, "binding_selector")?.into();
-        let relative = Path::new(field(&v["storage"], "data_dir")?);
-        if relative.is_absolute()
-            || relative
-                .components()
-                .any(|c| !matches!(c, Component::Normal(_)))
-        {
-            return Err(LocalError::Config(
-                "storage.data_dir must be a relative path without traversal",
-            ));
-        }
+        let selector = field(auth, "binding_selector", "auth.binding_selector")?.into();
+        let relative = Path::new(field(&v["storage"], "data_dir", "storage.data_dir")?);
         let parent = config_path.parent().unwrap_or(Path::new("."));
-        let data = parent.join(relative);
-        check_path(&data)?;
+        if relative.is_absolute() {
+            return Err(LocalError::Config("storage.data_dir: use a relative directory inside the config directory, such as .ledger"));
+        }
+        // Inspect every original component before collapsing `..`: a symlink
+        // must never disappear during lexical normalization.
+        let data = normalize_path(&parent.join(relative))?;
+        let mut depth = 0usize;
+        for component in relative.components() {
+            match component {
+                Component::Normal(_) => depth += 1,
+                Component::CurDir => (),
+                Component::ParentDir if depth > 0 => depth -= 1,
+                _ => return Err(LocalError::Config("storage.data_dir: path escapes the config directory; use .ledger or a contained subdirectory")),
+            }
+        }
+        if depth == 0 || !data.starts_with(parent) {
+            return Err(LocalError::Config("storage.data_dir: select a dedicated directory inside the config directory, such as .ledger"));
+        }
         // Reject unsafe or absent files before opening; startup never creates a database.
         private_existing(&data, true)?;
         private_existing(&data.join("local.db"), false)?;
@@ -211,28 +237,42 @@ impl LocalLedger {
         self.ledger.close().await;
     }
 }
-fn field<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
+fn field<'a>(v: &'a Value, k: &str, path: &str) -> Result<&'a str> {
     v[k].as_str()
         .filter(|s| !s.is_empty() && s.len() <= 256)
-        .ok_or(LocalError::Config(
-            "config requires nonempty bounded strings",
-        ))
+        .ok_or_else(|| {
+            LocalError::Diagnostic(format!(
+                "config {path}: supply a nonempty string of at most 256 UTF-8 bytes"
+            ))
+        })
 }
-fn keys(v: &Value, expected: &[&str]) -> Result<()> {
+fn keys(v: &Value, group: &str, expected: &[&str]) -> Result<()> {
+    let label = if group.is_empty() { "$" } else { group };
     let o = v
         .as_object()
-        .ok_or(LocalError::Config("config group must be an object"))?;
-    if o.len() != expected.len() || o.keys().any(|k| !expected.contains(&k.as_str())) {
-        return Err(LocalError::Config("unknown or missing config field"));
+        .ok_or_else(|| LocalError::Diagnostic(format!("config {label}: supply a JSON object")))?;
+    for key in expected {
+        if !o.contains_key(*key) {
+            return Err(LocalError::Diagnostic(format!("config {label}.{key}: missing field; copy this field from a fresh ledger init --demo config")));
+        }
+    }
+    for key in o.keys() {
+        if !expected.contains(&key.as_str()) {
+            return Err(LocalError::Diagnostic(format!(
+                "config {label}.{key}: unknown field; remove it"
+            )));
+        }
     }
     Ok(())
 }
 pub fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>> {
-    check_path(path)?;
-    if !fs::symlink_metadata(path)?.is_file() {
-        return Err(LocalError::Config("input must be a regular file"));
+    let normalized = normalize_path(path)?;
+    if !fs::symlink_metadata(&normalized)?.is_file() {
+        return Err(LocalError::Config(
+            "input must be a regular file; choose a JSON file or use - for stdin",
+        ));
     }
-    read_bounded(File::open(path)?, limit)
+    read_bounded(File::open(normalized)?, limit)
 }
 pub fn read_bounded(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
@@ -244,27 +284,38 @@ pub fn read_bounded(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
-fn check_path(path: &Path) -> Result<()> {
-    let mut prefix = PathBuf::new();
+/// Normalize explicit paths while rejecting symlinks before any `..` collapse.
+/// Relative input/config/init paths are explicit user choices; storage is further
+/// confined to the config directory by `open`.
+fn normalize_path(path: &Path) -> Result<PathBuf> {
+    let mut prefix = if path.is_absolute() {
+        PathBuf::new()
+    } else {
+        std::env::current_dir()?
+    };
     for c in path.components() {
         if c == Component::ParentDir {
-            return Err(LocalError::Config(
-                "parent traversal is not supported in local paths",
-            ));
+            if !fs::metadata(&prefix)?.is_dir() || !prefix.pop() {
+                return Err(LocalError::Config(
+                    "path: cannot traverse this parent; choose an existing directory",
+                ));
+            }
+        } else {
+            prefix.push(c);
         }
-        prefix.push(c);
         match fs::symlink_metadata(&prefix) {
             Ok(m) if m.file_type().is_symlink() => {
-                return Err(LocalError::Config(
-                    "symlinks are not supported in local paths",
-                ))
+                return Err(LocalError::Diagnostic(format!(
+                    "path {}: symlinks are not supported; use the real directory or file path",
+                    prefix.display()
+                )));
             }
             Ok(_) => (),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
             Err(e) => return Err(e.into()),
         }
     }
-    Ok(())
+    Ok(prefix)
 }
 fn private_existing(path: &Path, directory: bool) -> Result<()> {
     let m = fs::symlink_metadata(path)?;
@@ -353,7 +404,7 @@ fn timestamp(seconds: u64, micros: u32) -> Result<Timestamp> {
     ))
     .map_err(|_| LocalError::Config("invalid system timestamp"))
 }
-const DEMO_README: &str = "# Ledger Lab local demo\n\nRun `ledger preview examples/generated.json`, then `ledger accept examples/generated.json` and `ledger explain --chain demo-slice`. Retry accept to see the same receipt. Add `--format json` for automation.\n\nSynthetic generation: 100 USD atoms charged, -20 enterprise discount, 80 held for fake export. No payment or export delivery occurs. All fixtures use a fixed demo/sandbox namespace and must never be combined with other ledgers.\n\nThe product story is an AI generation charged initially, with a later linked outcome adding a premium or discount. Optional paid tools and BYOK/platform-funded responsibility fit the same chain. Local commands currently support the generation demo. Linked events, outcomes and reversals cannot yet be saved or previewed. BYOK here creates no host supplier payable.\n\nledger.yaml uses JSON syntax (a YAML 1.2 subset), schema ledger/v1. It contains local host identity, no credentials. Pricing and accepted synthetic terms live in SQLite; editing config cannot reprice history. Keep the whole private .ledger directory together.\n";
+const DEMO_README: &str = "# Ledger Lab local demo\n\nRun `ledger preview examples/generated.json`, then `ledger accept examples/generated.json` and `ledger explain --chain demo-slice`. Retry accept to see the same receipt. Add `--format json` for automation.\n\nSynthetic generation: demo-customer owes demo-host USD 0.80 (USD 1.00 generation charge less USD 0.20 customer tier discount). Supplier obligations and observed provider costs: none recorded. Dispatch is held. No payment or export delivery occurs. All fixtures use a fixed demo/sandbox namespace and must never be combined with other ledgers.\n\nUpcoming, documentation-only story: generation -> publication -> acquisition, a separate customer discount and a paid tool obligation with explicit BYOK/platform-funded responsibility. Local commands currently support the generation demo. Linked events, outcomes and reversals cannot yet be saved or previewed. BYOK here creates no host supplier payable.\n\nledger.json uses strict JSON syntax, schema ledger/v1. It contains local host identity, no credentials. Pricing and accepted synthetic terms live in SQLite; editing config cannot reprice history. Keep the whole private .ledger directory together.\n";
 #[cfg(test)]
 mod tests {
     use super::*;

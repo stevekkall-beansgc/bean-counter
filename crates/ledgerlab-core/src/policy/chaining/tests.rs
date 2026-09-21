@@ -656,53 +656,6 @@ fn funding_changes_price_and_preserves_unknown_cost() {
     assert_eq!(r.deltas().len(), 1);
 }
 #[test]
-fn later_linked_discount_appends_and_cannot_overdraw_previous_component() {
-    let mut adjustment = rule(
-        K::Acquired,
-        "acquisition.discount",
-        Operation::LinkedDiscount {
-            amount: DiscountAmount::Percent(d("20")),
-            component: "publication.base".into(),
-        },
-    );
-    adjustment.matcher = Some(Matcher::Direct {
-        relation: R::AttributedTo,
-        target: K::Published,
-    });
-    let b = retail(vec![
-        base(K::Generated, "generation.base", "1"),
-        base(K::Published, "publication.base", "0.50"),
-        adjustment,
-    ]);
-    let c = context();
-    let mut history = vec![];
-    for e in [generated(), published()] {
-        history.push(run(&b, &e, &c, &history, &[], &[]).unwrap());
-    }
-    let original = history[1].actions()[0].clone();
-    for i in 0..5 {
-        let r = run(
-            &b,
-            &acquired(&format!("a{i}"), &format!("sale-{i}")),
-            &c,
-            &history,
-            &[],
-            &[],
-        )
-        .unwrap();
-        assert_eq!(amounts(&r), vec![-10]);
-        assert!(r.actions()[0].inputs().contains(&original.id().into()));
-        history.push(r);
-    }
-    assert_eq!(history[1].actions()[0], original);
-    assert_eq!(
-        run(&b, &acquired("a6", "sale-6"), &c, &history, &[], &[])
-            .unwrap_err()
-            .code,
-        "DISCOUNT_EXCEEDS_BASIS"
-    );
-}
-#[test]
 fn outcome_authority_window_and_canonical_claim_are_explicit() {
     let b = retail(vec![
         base(K::Generated, "generation.base", "1"),
@@ -1228,46 +1181,6 @@ fn share_rounds_then_ceilings_and_cannot_be_charged_to_customer() {
 }
 
 #[test]
-fn reversal_of_linked_discount_restores_only_its_actual_balance() {
-    let mut adjustment = rule(
-        K::Acquired,
-        "acquisition.discount",
-        Operation::LinkedDiscount {
-            amount: DiscountAmount::Fixed(d("0.50")),
-            component: "publication.base".into(),
-        },
-    );
-    adjustment.matcher = Some(Matcher::Direct {
-        relation: R::AttributedTo,
-        target: K::Published,
-    });
-    let b = retail(vec![
-        base(K::Generated, "generation.base", "1"),
-        base(K::Published, "publication.base", "0.50"),
-        adjustment,
-    ]);
-    let c = context();
-    let mut h = vec![];
-    for e in [generated(), published(), acquired("a1", "sale-1")] {
-        h.push(run(&b, &e, &c, &h, &[], &[]).unwrap());
-    }
-    let e = event(
-        "r",
-        K::Reversal,
-        "urn:host",
-        json!({"targets":[h[2].event().id()],"reason":"invalid outcome","evidence":[doc()]}),
-    );
-    h.push(reverse(&e, &h, &authority(&e)).unwrap());
-    h.push(run(&b, &acquired("a2", "sale-2"), &c, &h, &[], &[]).unwrap());
-    assert_eq!(
-        run(&b, &acquired("a3", "sale-3"), &c, &h, &[], &[])
-            .unwrap_err()
-            .code,
-        "DISCOUNT_EXCEEDS_BASIS"
-    );
-}
-
-#[test]
 fn invocation_capacity_and_terms_remain_pinned_after_completion() {
     let (b, c, e, mut iv) = multi("3.15", false);
     let mut h = vec![];
@@ -1468,13 +1381,17 @@ fn proposed_fixture_values_drive_economic_examples() {
         };
         assert_eq!(a.amount().atoms(), atom("allocation_view", key));
     }
+    // Historical linked-discount numbers remain in the proposal fixture, but
+    // its component basis/renewable claims are superseded by outcomes v0.
+}
+
+#[test]
+fn superseded_linked_discount_requires_frozen_target_api() {
     let mut adjustment = rule(
         K::Acquired,
-        "acquisition.discount",
+        "adjustment",
         Operation::LinkedDiscount {
-            amount: DiscountAmount::Percent(d(fixture["linked_discount"]["percent"]
-                .as_str()
-                .unwrap())),
+            amount: DiscountAmount::Percent(d("20")),
             component: "publication.base".into(),
         },
     );
@@ -1482,25 +1399,17 @@ fn proposed_fixture_values_drive_economic_examples() {
         relation: R::AttributedTo,
         target: K::Published,
     });
-    let b = retail(vec![
-        base(K::Generated, "generation.base", "1"),
-        base(K::Published, "publication.base", "0.50"),
-        adjustment,
-    ]);
-    let c = context();
-    let mut h = vec![];
-    for e in [generated(), published(), acquired("a", "sale")] {
-        h.push(run(&b, &e, &c, &h, &[], &[]).unwrap());
-    }
     assert_eq!(
-        h[2].actions()[0].amount().atoms(),
-        atom("linked_discount", "outcome_atoms")
-    );
-    assert_eq!(
-        h[1].actions()[0].amount().atoms(),
-        atom(
-            "linked_discount",
-            "original_publication_after_discount_atoms"
+        Bundle::compile(
+            "USD",
+            2,
+            vec![Policy {
+                binding: binding("retail", Book::Retail),
+                rules: vec![base(K::Published, "publication.base", "1"), adjustment]
+            }]
         )
+        .unwrap_err()
+        .code,
+        "OUTCOME_TARGET_REQUIRED"
     );
 }

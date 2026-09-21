@@ -1,5 +1,8 @@
 # Assigned Phase 2 reliability slice: delivery and recovery primitives
 
+Historical implementation report. Current hardening, schema 3 and operational
+state rules are documented in [OUTBOX-HARDENING.md](OUTBOX-HARDENING.md).
+
 21 September 2026. Isolated `codex/outbox-recovery`, based on
 `dce3ec4feda4025ab6e98ef23608b9e6f812aeb1`. This implements the assigned bounded
 slice of detailed design §§13–15 and ADRs 010/011. It does not close the full

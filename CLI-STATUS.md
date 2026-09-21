@@ -72,11 +72,11 @@ findings are fixed. No frozen oracle was changed or assertion weakened.
 
 ## Compromises and integration notes
 
-- Phase 2 is absent on this base. The CLI passes generic event bytes to the
+- Phase 2 persistence is absent; the base includes a pure typed Phase 2 core. The CLI passes generic event bytes to the
   existing facade and displays its results. Later linked outcomes, supplier
   authority, paid tools and platform funding remain explicit integration work.
   The running BYOK demo is the first generation slice, not the $1.20 future chain.
-- `ledger.yaml` is strict JSON syntax, a YAML 1.2 subset, with schema `ledger/v1`.
+- `ledger.json` is strict JSON with schema `ledger/v1`. Legacy JSON configs named `ledger.yaml` require explicit `--config ledger.yaml`.
   This bounded local profile documents its host-selector fields and rejects
   unsupported settings. No general YAML parser or new dependency version was
   introduced; the lockfile adds only direct edges to already pinned packages.

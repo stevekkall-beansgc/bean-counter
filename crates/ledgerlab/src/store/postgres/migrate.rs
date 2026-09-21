@@ -3,6 +3,11 @@ use crate::store::{errors::StoreError, records::Installation};
 use tokio_postgres::{Client, GenericClient};
 pub(crate) const SQL: &str = include_str!("../../../migrations/postgres/0001_first_slice.sql");
 const OUTBOX: &str = include_str!("../../../migrations/postgres/0002_outbox.sql");
+const SAFETY: &str = include_str!("../../../migrations/postgres/0003_outbox_safety.sql");
+fn safety_checksum() -> String {
+    ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &SAFETY)
+        .expect("static SQL text")
+}
 fn outbox_checksum() -> String {
     ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &OUTBOX)
         .expect("static SQL text")
@@ -33,6 +38,12 @@ pub(crate) async fn create(
     .await?;
     tx.batch_execute(SQL).await?;
     tx.batch_execute(OUTBOX).await?;
+    tx.batch_execute(SAFETY).await?;
+    tx.execute(
+        "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES (3,$1)",
+        &[&safety_checksum()],
+    )
+    .await?;
     tx.execute(
         "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES (2,$1)",
         &[&outbox_checksum()],
@@ -50,27 +61,39 @@ pub(crate) async fn create(
     .await?;
     // Role name above is an identifier with a strict ASCII allowlist; all values
     // in runtime reads/writes are bound parameters. No runtime migration rights.
-    tx.batch_execute(&format!("GRANT USAGE ON SCHEMA ledgerlab TO {runtime_role}; GRANT SELECT ON ALL TABLES IN SCHEMA ledgerlab TO {runtime_role}; GRANT INSERT ON ledgerlab.documents,ledgerlab.snapshots,ledgerlab.events,ledgerlab.delivery_keys,ledgerlab.claims,ledgerlab.effects,ledgerlab.actions,ledgerlab.action_sources,ledgerlab.action_dependencies,ledgerlab.explanations,ledgerlab.intentions,ledgerlab.control_transitions,ledgerlab.chain_revisions,ledgerlab.decision_manifests,ledgerlab.accepted_receipts,ledgerlab.delivery_state TO {runtime_role}; GRANT UPDATE (revision,event_count) ON ledgerlab.chains TO {runtime_role}; GRANT UPDATE (generation) ON ledgerlab.installation TO {runtime_role}; GRANT UPDATE (revision) ON ledgerlab.authority_heads,ledgerlab.binding_heads TO {runtime_role};")).await?;
-    tx.batch_execute(&format!("GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {runtime_role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {runtime_role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports TO {runtime_role};")).await?;
+    grant_base_runtime(&tx, runtime_role).await?;
+    tx.batch_execute(&format!("GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {runtime_role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {runtime_role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {runtime_role};")).await?;
     tx.commit().await?;
     Ok(())
 }
 pub(crate) async fn verify<C: GenericClient + Sync>(client: &C) -> Result<(), StoreError> {
+    if version(client).await? != 3 {
+        return Err(StoreError::InvalidStore(
+            "unsupported PostgreSQL write schema",
+        ));
+    }
+    Ok(())
+}
+async fn version<C: GenericClient + Sync>(client: &C) -> Result<i64, StoreError> {
     let rows = client
         .query(
             "SELECT version,checksum FROM ledgerlab.migration_history ORDER BY version",
             &[],
         )
         .await?;
-    if rows.len() != 2
-        || rows[0].try_get::<_, i64>(0)? != 1
-        || rows[0].try_get::<_, String>(1)? != checksum()
-        || rows[1].try_get::<_, i64>(0)? != 2
-        || rows[1].try_get::<_, String>(1)? != outbox_checksum()
-    {
+    let checksums = [checksum(), outbox_checksum(), safety_checksum()];
+    if rows.is_empty() || rows.len() > 3 {
         return Err(StoreError::InvalidStore(
             "PostgreSQL migration checksum mismatch",
         ));
+    }
+    for (i, row) in rows.iter().enumerate() {
+        if row.try_get::<_, i64>(0)? != i as i64 + 1 || row.try_get::<_, String>(1)? != checksums[i]
+        {
+            return Err(StoreError::InvalidStore(
+                "PostgreSQL migration checksum mismatch",
+            ));
+        }
     }
     let temporary:bool=client.query_one("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ledgerlab' AND c.relkind='r' AND c.relpersistence <> 'p')",&[]).await?.try_get(0)?;
     if temporary {
@@ -82,5 +105,109 @@ pub(crate) async fn verify<C: GenericClient + Sync>(client: &C) -> Result<(), St
     if installation.logical_store_id.is_empty() {
         return Err(StoreError::InvalidStore("missing installation identity"));
     }
+    Ok(rows.len() as i64)
+}
+
+pub(crate) async fn upgrade(
+    config: super::PostgresConfig,
+    expected_id: &str,
+    role: &str,
+) -> Result<crate::maintenance::UpgradeResult, crate::maintenance::UpgradeError> {
+    let mut session = config.connect().await?;
+    let result = upgrade_client(
+        &mut session.client,
+        expected_id,
+        role,
+        #[cfg(test)]
+        false,
+    )
+    .await;
+    session.discard().await;
+    result
+}
+async fn upgrade_client(
+    client: &mut Client,
+    expected_id: &str,
+    role: &str,
+    #[cfg(test)] lose_ack: bool,
+) -> Result<crate::maintenance::UpgradeResult, crate::maintenance::UpgradeError> {
+    use crate::maintenance::{UpgradeError, UpgradeResult};
+    if role.is_empty()
+        || role.len() > 63
+        || !role
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        return Err(UpgradeError::Refused);
+    }
+    super::verify_server(client).await?;
+    let tx = client
+        .build_transaction()
+        .isolation_level(tokio_postgres::IsolationLevel::Serializable)
+        .start()
+        .await?;
+    tx.batch_execute("SET LOCAL statement_timeout='10s'; SET LOCAL lock_timeout='500ms'; SET LOCAL idle_in_transaction_session_timeout='10s'; SELECT pg_advisory_xact_lock(714215261);").await?;
+    // Match application lock order: installation first, dispatcher second.
+    tx.query_one(
+        "SELECT singleton FROM ledgerlab.installation WHERE singleton=1 FOR UPDATE",
+        &[],
+    )
+    .await?;
+    let installation = super::read::installation(&tx).await?;
+    let stopped: bool = tx.query_one("SELECT owner IS NULL AND lease_until_us IS NULL AND enabled=0 FROM ledgerlab.dispatcher_head WHERE singleton=1 FOR UPDATE", &[]).await?.get(0);
+    if expected_id.is_empty()
+        || installation.logical_store_id != expected_id
+        || installation.admission != "frozen"
+        || !installation.dispatch_hold
+        || installation.dispatch_enabled
+        || !stopped
+    {
+        return Err(UpgradeError::Refused);
+    }
+    let safe: bool = tx.query_one("SELECT NOT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolreplication OR has_schema_privilege(r.oid,'ledgerlab','CREATE') OR has_schema_privilege(r.oid,'public','CREATE') OR EXISTS(SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ledgerlab' AND (pg_has_role(r.oid,c.relowner,'USAGE') OR (c.relkind='r' AND (has_table_privilege(r.oid,c.oid,'TRUNCATE') OR has_table_privilege(r.oid,c.oid,'DELETE')))))) FROM pg_catalog.pg_roles r WHERE r.rolname=$1", &[&role]).await?.get(0);
+    if !safe {
+        return Err(UpgradeError::Refused);
+    }
+    let from = version(&tx).await?;
+    for (v, sql, hash) in [
+        (2_i64, OUTBOX, outbox_checksum()),
+        (3, SAFETY, safety_checksum()),
+    ] {
+        if v > from {
+            tx.batch_execute(sql).await?;
+            tx.execute(
+                "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES ($1,$2)",
+                &[&v, &hash],
+            )
+            .await?;
+        }
+    }
+    // Grant only operational permissions introduced after schema 1; retain all
+    // existing runtime grants and never give the runtime migration ownership.
+    tx.batch_execute(&format!("GRANT SELECT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {role}; GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {role};")).await?;
+    verify(&tx).await?;
+    tx.commit()
+        .await
+        .map_err(|_| UpgradeError::OutcomeUnknown)?;
+    #[cfg(test)]
+    if lose_ack {
+        return Err(UpgradeError::OutcomeUnknown);
+    }
+    Ok(if from == 3 {
+        UpgradeResult::AlreadyCurrent
+    } else {
+        UpgradeResult::Upgraded
+    })
+}
+
+#[cfg(test)]
+#[path = "upgrade_tests.rs"]
+mod upgrade_tests;
+
+async fn grant_base_runtime<C: GenericClient + Sync>(
+    tx: &C,
+    runtime_role: &str,
+) -> Result<(), StoreError> {
+    tx.batch_execute(&format!("GRANT USAGE ON SCHEMA ledgerlab TO {runtime_role}; GRANT SELECT ON ALL TABLES IN SCHEMA ledgerlab TO {runtime_role}; GRANT INSERT ON ledgerlab.documents,ledgerlab.snapshots,ledgerlab.events,ledgerlab.delivery_keys,ledgerlab.claims,ledgerlab.effects,ledgerlab.actions,ledgerlab.action_sources,ledgerlab.action_dependencies,ledgerlab.explanations,ledgerlab.intentions,ledgerlab.control_transitions,ledgerlab.chain_revisions,ledgerlab.decision_manifests,ledgerlab.accepted_receipts,ledgerlab.delivery_state TO {runtime_role}; GRANT UPDATE (revision,event_count) ON ledgerlab.chains TO {runtime_role}; GRANT UPDATE (generation) ON ledgerlab.installation TO {runtime_role}; GRANT UPDATE (revision) ON ledgerlab.authority_heads,ledgerlab.binding_heads TO {runtime_role};")).await?;
     Ok(())
 }

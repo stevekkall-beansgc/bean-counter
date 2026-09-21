@@ -512,7 +512,7 @@ fn postgres_storage_guards_and_failed_transaction() {
     backend.runtime.block_on(async {
         let mut owner=config(backend.config.database.clone(),true).connect().await.unwrap();
         let tables=owner.client.query("SELECT DISTINCT c.relname FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ledgerlab' AND t.tgname LIKE '%_immutable' ORDER BY c.relname",&[]).await.unwrap();
-        assert_eq!(tables.len(),21);
+        assert_eq!(tables.len(),22);
         for table in tables {
             let name:String=table.get(0);
             assert!(name.bytes().all(|b|b.is_ascii_lowercase()||b==b'_'));
@@ -886,7 +886,7 @@ fn postgres_supervisor_transport_cut_and_overlapping_drain() {
 fn postgres_outbox_delivery_recovery_histories() {
     use ledgerlab_testkit::stores::AcceptanceBackend;
     let oracle = FixtureOracle::workspace().unwrap();
-    for case in 0..10 {
+    for case in 0..11 {
         let mut b = Backend::new(&oracle, false).unwrap();
         b.accept(&tk::Command::fixture(&oracle, "input").unwrap(), None)
             .unwrap();
@@ -984,4 +984,122 @@ fn postgres_preview_preserves_all_cells_with_outbox_schema() {
     drop(ledger);
     b.reopen().unwrap();
     assert_eq!(b.observe().unwrap(), booked);
+}
+
+#[test]
+#[ignore = "requires explicit isolated PostgreSQL 17/18 TLS test database"]
+fn postgres_outbox_terminal_rejection_regressions() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    for restore in [false, true] {
+        let mut b = Backend::new(&oracle, false).unwrap();
+        b.accept(&tk::Command::fixture(&oracle, "input").unwrap(), None)
+            .unwrap();
+        let before = b.observe().unwrap();
+        let ledger = Ledger {
+            store: crate::Backend::Postgres(b.store.as_ref().unwrap().clone()),
+        };
+        b.runtime
+            .block_on(crate::outbox::tests::rejection_regression(&ledger, restore));
+        drop(ledger);
+        let after = b.observe().unwrap();
+        assert_eq!(before.journal, after.journal);
+        assert_eq!(before.indexes, after.indexes);
+        b.reopen().unwrap();
+        after
+            .assert_exact(&b.observe().unwrap(), "terminal rejection reopen")
+            .unwrap();
+    }
+}
+#[test]
+#[ignore = "requires explicit isolated PostgreSQL 17/18 TLS test database"]
+fn postgres_outbox_quarantine_rejected_exhausted_unknown() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    for mode in [
+        crate::outbox::fake::Mode::Reject,
+        crate::outbox::fake::Mode::FailBeforeReceipt,
+        crate::outbox::fake::Mode::LoseResponse,
+    ] {
+        let mut b = Backend::new(&oracle, false).unwrap();
+        b.accept(&tk::Command::fixture(&oracle, "input").unwrap(), None)
+            .unwrap();
+        let before = b.observe().unwrap();
+        let ledger = Ledger {
+            store: crate::Backend::Postgres(b.store.as_ref().unwrap().clone()),
+        };
+        b.runtime
+            .block_on(crate::outbox::tests::quarantine_regression(&ledger, mode));
+        drop(ledger);
+        let after = b.observe().unwrap();
+        for row in before.journal {
+            assert!(after.journal.contains(&row));
+        }
+        for row in before.indexes {
+            assert!(after.indexes.contains(&row));
+        }
+        b.reopen().unwrap();
+        after
+            .assert_exact(&b.observe().unwrap(), "quarantine reopen")
+            .unwrap();
+    }
+}
+#[test]
+#[ignore = "requires explicit isolated PostgreSQL 17/18 TLS test database"]
+fn postgres_outbox_controls_survive_1001_intentions() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    let mut b =
+        Backend::new_with_seed(&oracle, false, crate::outbox::tests::capacity_seed()).unwrap();
+    let ledger = Ledger {
+        store: crate::Backend::Postgres(b.store.as_ref().unwrap().clone()),
+    };
+    b.runtime
+        .block_on(crate::outbox::tests::capacity_regression(&ledger));
+    drop(ledger);
+    let after = b.observe().unwrap();
+    b.reopen().unwrap();
+    after
+        .assert_exact(&b.observe().unwrap(), "large inventory reopen")
+        .unwrap();
+}
+
+#[test]
+#[ignore = "requires explicit isolated PostgreSQL 17/18 TLS test database"]
+fn postgres_outbox_storage_bytes_and_cross_page_dependencies() {
+    let oracle = FixtureOracle::workspace().unwrap();
+    for large in [false, true] {
+        let b = Backend::new(&oracle, false).unwrap();
+        let ledger = Ledger {
+            store: crate::Backend::Postgres(b.store.as_ref().unwrap().clone()),
+        };
+        b.runtime
+            .block_on(crate::outbox::tests::storage_paging_regression(
+                &ledger, large,
+            ));
+    }
+}
+
+#[test]
+#[ignore = "requires explicit isolated PostgreSQL 17/18 TLS test database"]
+fn postgres_outbox_reconciliation_later_page_failure_rolls_back_every_cell() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    let mut b = Backend::new(&oracle, false).unwrap();
+    let ledger = Ledger {
+        store: crate::Backend::Postgres(b.store.as_ref().unwrap().clone()),
+    };
+    b.runtime
+        .block_on(crate::outbox::tests::prepare_bad_page(&ledger));
+    let before = b.observe().unwrap();
+    b.runtime
+        .block_on(crate::outbox::tests::reject_bad_page(&ledger));
+    drop(ledger);
+    before
+        .assert_exact(&b.observe().unwrap(), "later reconciliation page rollback")
+        .unwrap();
+    b.reopen().unwrap();
+    before
+        .assert_exact(&b.observe().unwrap(), "later page rollback reopen")
+        .unwrap();
 }

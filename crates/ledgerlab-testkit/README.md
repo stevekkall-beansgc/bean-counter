@@ -231,3 +231,18 @@ that feeds 21 aligned histories to the production typed core and compares comple
 common projections after every step. All 29 histories have explicit dispositions;
 quality proposals and coordinator-only checks are not translated into production
 semantics. No oracle code is linked into production.
+
+## Approved Phase 2 v0 outcomes
+
+The [approved outcome histories](fixtures/phase2-outcomes-v0/README.md) and
+`tests/phase2_outcomes.rs` exercise the pure frozen-target API independently of
+the older proposal histories. The live standard-library Python Fraction oracle
+compares every submission and the entire immutable journal, including current
+claim revisions, retained roles, exact explanations, duplicates and rejections.
+The suite also replays every accepted revision from its original inputs.
+
+The older linked-discount component-basis API is now explicitly rejected; its
+historical fixture is not used to define approved v0 economics. Five live legacy
+regression histories compare previously divergent receipt ordering, failed or
+reversed work, supplier link paths and current-config reversal behavior.
+No Phase 0/1 frozen files, canonical schemas or persistence interfaces changed.

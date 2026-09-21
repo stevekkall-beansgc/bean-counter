@@ -116,8 +116,11 @@ where
     }
 }
 impl<T: AcceptanceTx> AcceptanceTx for Tx<T> {
-    async fn load_outbox(&mut self) -> Result<crate::outbox::Snapshot, StoreError> {
-        self.inner.load_outbox().await
+    async fn load_outbox(
+        &mut self,
+        query: crate::outbox::Query,
+    ) -> Result<crate::outbox::Snapshot, StoreError> {
+        self.inner.load_outbox(query).await
     }
     async fn load_installation(&mut self) -> Result<Installation, StoreError> {
         self.inner.load_installation().await

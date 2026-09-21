@@ -17,7 +17,7 @@ use tokio::{
 use tokio_postgres::{IsolationLevel, Transaction};
 
 enum Read {
-    Outbox,
+    Outbox(crate::outbox::Query),
     Installation,
     Chain(Scope, String),
     Authority(Scope, String),
@@ -135,7 +135,7 @@ pub(super) async fn start(
 }
 async fn read_one(tx: &Transaction<'_>, request: Read) -> Result<Value, StoreError> {
     Ok(match request {
-        Read::Outbox => Value::Outbox(super::outbox::read(tx).await?),
+        Read::Outbox(query) => Value::Outbox(super::outbox::read(tx, query).await?),
         Read::Installation => Value::Installation(read::installation(tx).await?),
         Read::Chain(s, id) => Value::Chain(read::chain(tx, &s, &id).await?),
         Read::Authority(s, id) => Value::Authority(read::authority(tx, &s, &id).await?),
@@ -263,8 +263,11 @@ impl PostgresTx {
     }
 }
 impl AcceptanceTx for PostgresTx {
-    async fn load_outbox(&mut self) -> Result<crate::outbox::Snapshot, StoreError> {
-        match self.read(Read::Outbox).await? {
+    async fn load_outbox(
+        &mut self,
+        query: crate::outbox::Query,
+    ) -> Result<crate::outbox::Snapshot, StoreError> {
+        match self.read(Read::Outbox(query)).await? {
             Value::Outbox(v) => Ok(v),
             _ => unreachable!(),
         }

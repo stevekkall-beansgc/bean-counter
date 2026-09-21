@@ -1,6 +1,6 @@
 //! Bounded fake-only delivery and recovery. No economic evaluation occurs here.
 //! The embedding host supplies trusted UTC microseconds and owns scheduling.
-//! This slice has a 1,000-intention / 8 MiB scan limit and an independent in-memory fake;
+//! Reads use keyset pages capped at 64 intentions / 8 MiB and an independent in-memory fake;
 //! it is not a backup tool or a process-durable destination implementation.
 pub mod fake;
 #[cfg(test)]
@@ -80,6 +80,8 @@ pub struct Delivery {
     pub(crate) generation: i64,
     pub(crate) until: Option<i64>,
     pub last_observation: Option<String>,
+    /// Permanent operator isolation; never satisfies a delivery dependency.
+    pub quarantine: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct Lease {
@@ -107,6 +109,10 @@ pub struct Report {
     pub digest: String,
     pub unresolved: Vec<String>,
     pub orphan_keys: Vec<String>,
+    /// Lists above are bounded samples; these counts cover the entire inventory.
+    pub unresolved_count: i64,
+    pub orphan_count: i64,
+    pub intention_count: i64,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Intention {
@@ -131,9 +137,32 @@ pub(crate) struct Snapshot {
     pub items: Vec<(Intention, Delivery)>,
     pub report: Option<(String, Vec<u8>)>,
 }
+pub(crate) const PAGE_SIZE: usize = 64;
+#[derive(Clone, Debug)]
+pub(crate) enum Query {
+    Control,
+    Page { after: String, due: Option<i64> },
+    Key(String),
+}
+impl Query {
+    pub(crate) fn page(after: &str) -> Self {
+        Self::Page {
+            after: after.into(),
+            due: None,
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub(crate) enum Sweep {
+    Leases,
+    Expired(i64),
+    Restore,
+}
 #[derive(Clone, Debug)]
 pub(crate) struct Mutation {
     pub snapshot: Snapshot,
+    pub sweep: Option<Sweep>,
+    pub quarantine: Option<(String, String, Vec<u8>)>,
     pub attempt: Option<(String, i64, i64, String, Vec<u8>)>,
     pub observation: Vec<u8>,
     pub report: Option<(String, Vec<u8>)>,
@@ -188,23 +217,39 @@ fn plus(v: i64, n: i64) -> Result<i64> {
 fn retry_delay(attempt: i64) -> i64 {
     (1_000_000_i64 << (attempt - 1).clamp(0, 9)).min(300_000_000)
 }
-fn fingerprint(s: &Snapshot) -> Result<String> {
+fn fingerprint_start(s: &Snapshot) -> Result<String> {
     digest(&json!([
+        "reconciliation-v2",
         s.installation.logical_store_id,
         s.installation.generation.to_string(),
-        s.head.generation.to_string(),
-        s.items
-            .iter()
-            .map(|(i, d)| json!([
-                i.id,
-                i.hash,
-                d.state.name(),
-                d.attempts.to_string(),
-                d.next_attempt_us.to_string(),
-                d.last_observation
-            ]))
-            .collect::<Vec<_>>()
+        s.head.generation.to_string()
     ]))
+}
+fn fingerprint_item(previous: &str, i: &Intention, d: &Delivery) -> Result<String> {
+    digest(&json!([
+        previous,
+        i.id,
+        i.hash,
+        d.state.name(),
+        d.attempts.to_string(),
+        d.next_attempt_us.to_string(),
+        d.last_observation,
+        d.quarantine
+    ]))
+}
+/// Rejection is a permanent fact, independent of subsequent inventory availability.
+/// Delivered mappings are rechecked after restore; quarantine is a separate permanent veto.
+fn reconciled_state(d: &Delivery, request: &Request, outcome: &fake::Outcome) -> State {
+    if d.state == State::Rejected {
+        return State::Rejected;
+    }
+    match outcome {
+        fake::Outcome::Delivered(r) if &r.request == request => State::Delivered,
+        fake::Outcome::Delivered(_) | fake::Outcome::Rejected => State::Rejected,
+        fake::Outcome::Absent if d.attempts >= 20 => State::Rejected,
+        fake::Outcome::Absent => State::Pending,
+        fake::Outcome::Unknown | fake::Outcome::Fenced => State::Unknown,
+    }
 }
 pub use workflow::Outbox;
 

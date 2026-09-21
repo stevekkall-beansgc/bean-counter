@@ -9,7 +9,7 @@ Usage: ledger [--config PATH] [--format text|json] COMMAND
   explain --chain CHAIN_ID  Read accepted decisions in chain order
 
 Global options may appear before or after the command:
-  --config PATH             Config file (default: ./ledger.yaml)
+  --config PATH             Config file (default: ./ledger.json)
   --format text|json        Human output or one stable ledger-cli/1 JSON object
   --json                    Alias for --format json
   --no-color                Accepted; output is always plain text
@@ -22,14 +22,17 @@ Then: cd ledger-demo
       ledger accept examples/generated.json
       ledger explain --chain demo-slice
 
-An AI generation is charged initially; a later linked outcome can add a
-premium or discount. Optional paid tools and BYOK/platform-funded responsibility
-fit the same chain. Local commands currently support the generation demo:
-100 USD atoms charged, -20 discount, 80 held for fake export. Linked events,
-outcomes and reversals cannot yet be saved or previewed. No payment is executed.
+Local commands support only the synthetic Phase 1 generation demo:
+demo-customer owes demo-host USD 0.80 for generation (USD 1.00 charge
+less USD 0.20 customer discount). Dispatch is held; no payment is executed.
+Upcoming story (documentation only): generation -> publication -> acquisition,
+a separate customer discount, paid tools and BYOK/platform-funded responsibility.
+Linked events, outcomes and reversals cannot yet be saved or previewed.
 
 No Docker, Node, cloud account, provider key, or server is required.
-Config uses strict JSON syntax in ledger.yaml (a YAML 1.2 subset).
+Config uses strict JSON in ledger.json. Legacy JSON-in-YAML files require
+--config ledger.yaml explicitly. Building requires Rust and a native C toolchain;
+offline builds require dependencies already cached. See docs/quickstart.md.
 Preview is an estimate, never a receipt; opening/locking may touch SQLite
 sidecars. File inputs are regular files, at most 256 KiB.
 

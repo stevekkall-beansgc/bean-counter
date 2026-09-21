@@ -103,60 +103,174 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
             super::error(&code, "request rejected", exit)
         }
         LocalError::Config(message) => super::error("CONFIG", message, 2),
+        LocalError::Diagnostic(message) => super::error("CONFIG", &message, 2),
         LocalError::Io(e) => super::error("IO", &format!("local file operation failed: {e}"), 2),
     }
 }
 fn string(v: &Value) -> &str {
     v.as_str().unwrap_or("?")
 }
-fn posting(out: &mut String, v: &Value) {
-    out.push_str(&format!(
-        "  {}: {} {} atoms (scale {}), {}\n",
-        string(&v["component"]),
-        string(&v["amount"]["atoms"]),
-        string(&v["amount"]["currency"]),
-        v["amount"]["scale"],
-        string(&v["book"])
-    ));
+// Decimal placement only: no summing, repricing, rounding, or floating point.
+fn money(v: &Value) -> String {
+    let atoms = string(&v["atoms"]);
+    let sign = if atoms.starts_with('-') { "-" } else { "" };
+    let digits = atoms.trim_start_matches('-');
+    let scale = v["scale"].as_u64().unwrap_or(0) as usize;
+    let padded = format!("{:0>width$}", digits, width = scale + 1);
+    let number = if scale == 0 {
+        padded
+    } else {
+        let at = padded.len() - scale;
+        format!("{}.{}", &padded[..at], &padded[at..])
+    };
+    format!("{} {sign}{number}", string(&v["currency"]))
 }
-fn intention(out: &mut String, v: &Value) {
-    out.push_str(&format!(
-        "  Export intention {}: {} {} atoms to {} (no delivery performed)\n",
-        string(&v["id"]),
-        string(&v["amount"]["atoms"]),
-        string(&v["amount"]["currency"]),
-        string(&v["destination_id"])
-    ));
+fn reason(v: &Value) -> &str {
+    match string(&v["component"]) {
+        "generation.base" => "generation charge",
+        "generation.discount" => "customer tier discount",
+        other => other,
+    }
+}
+fn economics(out: &mut String, postings: &[Value], intentions: &[Value]) {
+    for (book, label) in [
+        ("retail", "Customer charges"),
+        ("supplier", "Supplier obligations"),
+        ("cost_observation", "Observed provider costs"),
+        ("allocation", "Allocations"),
+    ] {
+        let entries: Vec<_> = postings.iter().filter(|p| p["book"] == book).collect();
+        out.push_str(&format!("{label}:\n"));
+        if entries.is_empty() {
+            out.push_str("  None recorded.\n");
+            continue;
+        }
+        for i in intentions.iter().filter(|i| i["payload"]["book"] == book) {
+            let roles = &i["payload"]["roles"];
+            out.push_str(&format!(
+                "  {} -> {}: {} net obligation for {}.\n",
+                string(&roles["payer"]),
+                string(&roles["recipient"]),
+                money(&i["amount"]),
+                entries
+                    .iter()
+                    .map(|p| reason(p))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ));
+        }
+        for p in entries {
+            if book == "cost_observation" {
+                out.push_str(&format!(
+                    "  {}: {} observed; bearer {} (observation alone creates no payable).\n",
+                    string(&p["roles"]["provider"]),
+                    money(&p["amount"]),
+                    string(&p["roles"]["bearer"])
+                ));
+            } else {
+                out.push_str(&format!(
+                    "  {} -> {}: {} — {}.\n",
+                    string(&p["roles"]["payer"]),
+                    string(&p["roles"]["recipient"]),
+                    money(&p["amount"]),
+                    reason(p)
+                ));
+            }
+        }
+    }
+}
+fn history(out: &mut String, v: &Value) {
+    if let Some(events) = v["events"].as_array() {
+        for e in events {
+            economics(
+                out,
+                e["postings"].as_array().unwrap(),
+                e["intentions"].as_array().unwrap(),
+            );
+            if e["postings"].as_array().unwrap().is_empty() {
+                out.push_str(
+                    "No charge booked for this event; use --json for the retained explanation.\n",
+                );
+            }
+            out.push_str(&format!(
+                "Event: {} | Chain: {} | Revision: {}\n",
+                string(&e["event"]["id"]),
+                string(&e["event"]["chain"]),
+                string(&e["receipt"]["revision"])
+            ));
+        }
+    }
+}
+pub fn file_error(e: LocalError, path: &std::path::Path, next: &str) -> (Value, u8) {
+    let (mut value, code) = local_error(e);
+    if code == 2 {
+        value["message"] = json!(format!(
+            "{}: {}. Next: {next}.",
+            path.display(),
+            string(&value["message"])
+        ));
+    }
+    (value, code)
+}
+pub fn event_guidance(v: &mut Value, path: &str) {
+    let next = match string(&v["code"]) {
+        "UNSUPPORTED_SLICE" => "event.type/links: local commands support only the generation demo. Linked events, outcomes and reversals cannot yet be saved or previewed; use examples/generated.json. See docs/upcoming-story.md for the documentation-only story",
+        "SOURCE_UNAUTHORIZED" => "event.source or auth context: use the source provisioned in your sandbox and check config auth.source; changing a source does not grant authority",
+        _ => "event input: compare this file with examples/generated.json and contracts/schemas/v1/event.schema.json; use strict JSON, string quantities, valid fields and supported generation facts",
+    };
+    v["message"] = json!(format!("{path}: {next}."));
 }
 pub fn text(v: &Value) -> String {
     let mut out = String::new();
     match string(&v["status"]) {
-        "initialized" => out.push_str(&format!("Initialized synthetic SQLite demo: {}\nNext: preview examples/generated.json, accept it, then explain --chain demo-slice.\nDispatch is held; no payment is executed.\n",string(&v["config"]))),
-        "accepted"|"duplicate" => {
-            out.push_str(if v["status"]=="accepted" {"Accepted.\n"} else {"Already recorded; original receipt returned.\n"});
-            out.push_str(&format!("Event: {}\nReceipt: {}\nChain: {} revision {}\nUse ledger explain {} for postings and export intentions.\n",string(&v["receipt"]["event_id"]),string(&v["receipt"]["id"]),string(&v["receipt"]["chain_id"]),string(&v["receipt"]["revision"]),string(&v["receipt"]["event_id"])));
+        "initialized" => out.push_str(&format!("Initialized synthetic SQLite demo: {}\nNext: ledger preview examples/generated.json, ledger accept examples/generated.json, then ledger explain --chain demo-slice.\nDispatch is held; no payment is executed.\n",string(&v["config"]))),
+        "accepted" | "duplicate" => {
+            history(&mut out, &v["human_history"]);
+            out.push_str(if v["status"] == "accepted" { "Accepted; receipt saved.\n" } else { "Already recorded; original receipt returned.\n" });
+            if let Some(warning) = v["human_warning"].as_str() {
+                out.push_str(&format!("{warning}\nEvent: {}\n", string(&v["receipt"]["event_id"])));
+            }
+            out.push_str("Dispatch is held; no payment is executed. Use --json for the exact receipt.\n");
         },
         "preview" => {
-            out.push_str(&format!("Preview: {} (can accept: {}). Nothing committed.\n{}\n",string(&v["outcome"]),v["can_accept"],string(&v["warning"])));
-            if let Some(records)=v["records"].as_array() { for r in records { match string(&r["kind"]) { "action"=>posting(&mut out,&r["body"]),"intention"=>intention(&mut out,&r["body"]),_=>() } } }
-            for field in ["code","message","kind","missing","event_id"] { if let Some(value)=v.get(field) { out.push_str(&format!("{field}: {value}\n")); } }
+            out.push_str("Estimate only — nothing committed.\n");
+            if let Some(records) = v["records"].as_array() {
+                let bodies = |kind| records.iter().filter(|r| r["kind"] == kind).map(|r| r["body"].clone()).collect::<Vec<_>>();
+                economics(&mut out, &bodies("action"), &bodies("intention"));
+            }
+            out.push_str(&format!("Preview: {} (can accept: {}).\n{}\n", string(&v["outcome"]), v["can_accept"], string(&v["warning"])));
+            if v["outcome"] == "duplicate" { out.push_str("Already recorded; no new charge. Use ledger explain EVENT_ID for the saved breakdown.\n"); }
+            for field in ["code", "message", "kind", "missing"] { if let Some(value) = v.get(field) { out.push_str(&format!("{field}: {value}\n")); } }
         },
         "explained" => {
-            for e in v["events"].as_array().unwrap() {
-                out.push_str(&format!("Event {} ({})\nSource event: {}\nDecision: {} (revision {})\nLinks: {}\n",string(&e["event"]["id"]),string(&e["event_id"]),e["event"],string(&e["decision"]["id"]),string(&e["decision"]["revision"]),e["links"]));
-                for p in e["postings"].as_array().unwrap() { posting(&mut out,p); }
-                for x in e["explanations"].as_array().unwrap() { out.push_str(&format!("  {}\n",string(&x["code"]))); }
-                for i in e["intentions"].as_array().unwrap() { intention(&mut out,i); }
-                out.push_str(&format!("Receipt: {}\n",string(&e["receipt"]["id"])));
-            }
+            history(&mut out, v);
+            out.push_str("Read from saved decisions; no repricing. No payment is executed by this command.\nUse --json for source events, exact atoms, IDs and retained explanations.\n");
         },
-        _ => out.push_str(&format!("{}\n",serde_json::to_string_pretty(v).unwrap())),
+        _ => out.push_str(&format!("{}\n", serde_json::to_string_pretty(v).unwrap())),
     }
     out
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn money_preserves_large_signed_values_and_scale_without_floats() {
+        for (atoms, scale, expected) in [
+            ("-1", 2, "USD -0.01"),
+            ("0", 2, "USD 0.00"),
+            (
+                "999999999999999999999999999999",
+                18,
+                "USD 999999999999.999999999999999999",
+            ),
+            ("123", 0, "USD 123"),
+        ] {
+            assert_eq!(
+                money(&json!({"atoms": atoms, "scale": scale, "currency": "USD"})),
+                expected
+            );
+        }
+    }
     #[test]
     fn unknown_result_preserves_retry_identity() {
         let (v, c) = local_error(LocalError::Service(ServiceError::OutcomeUnknown {

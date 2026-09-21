@@ -700,7 +700,7 @@ async fn immutable_guards_cover_every_journal_table() {
     drop(ledger);
     let before = dump(&store).await;
     let tables:Vec<String>=sqlx::query_scalar("SELECT DISTINCT tbl_name FROM sqlite_schema WHERE type='trigger' AND name LIKE '%_no_update' ORDER BY tbl_name").fetch_all(&store.inner.readers).await.unwrap();
-    assert_eq!(tables.len(), 21);
+    assert_eq!(tables.len(), 22);
     for table in tables {
         for sql in [
             format!("UPDATE {table} SET canonical_bytes=canonical_bytes"),
@@ -895,18 +895,21 @@ async fn cross_scope_references_strict_types_atoms_and_schema_checks() {
         tx.rollback().await.unwrap();
     }
     store.close().await;
-    let owner = owner::Owner::acquire(dir.path()).unwrap();
-    let mut conn = connect::initial(&owner).await.unwrap();
-    sqlx::query("PRAGMA user_version=3")
-        .execute(&mut conn)
-        .await
-        .unwrap();
-    conn.close().await.unwrap();
-    drop(owner);
-    assert!(matches!(
-        SqliteStore::open(dir.path()).await,
-        Err(StoreError::InvalidStore("unsupported SQLite write schema"))
-    ));
+    for sql in [
+        "PRAGMA user_version=1",
+        "PRAGMA user_version=2",
+        "PRAGMA user_version=99",
+    ] {
+        let owner = owner::Owner::acquire(dir.path()).unwrap();
+        let mut conn = connect::initial(&owner).await.unwrap();
+        sqlx::query(sql).execute(&mut conn).await.unwrap();
+        conn.close().await.unwrap();
+        drop(owner);
+        assert!(matches!(
+            SqliteStore::open(dir.path()).await,
+            Err(StoreError::InvalidStore("unsupported SQLite write schema"))
+        ));
+    }
 }
 
 #[cfg(unix)]

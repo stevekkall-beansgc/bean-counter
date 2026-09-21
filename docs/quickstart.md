@@ -4,49 +4,86 @@ Ledger Lab records work, applies its agreed price, and explains the immutable
 receipt. The `ledger` binary runs locally with SQLite. Running it requires no
 Docker, Node, cloud account, hosted service, model key, or paid provider.
 
-The local commands support the completed Phase 1 generation slice. The product story
-is an AI generation charged initially, followed by a linked outcome that can add
-a premium or discount. Optional paid tools and BYOK/platform-funded responsibility
-belong in the same chain. The branch includes a pure Phase 2 evaluator, but its
-results cannot yet be saved or previewed through these commands. Linked events
-return `UNSUPPORTED_SLICE` without changing stored state. The demo's BYOK context
-creates no host supplier payable. See the [integration status](../PHASE-2-INTEGRATION-STATUS.md)
-for the unresolved discount semantics and missing persistence definitions.
+The local commands support only the completed Phase 1 generation slice. The
+pure Phase 2 evaluator is not connected to persistence or CLI preview. Linked
+events return `UNSUPPORTED_SLICE` without changing stored state. See the
+[upcoming story](upcoming-story.md) for a documentation-only generation →
+publication → acquisition example, separate customer discount, paid tool and
+BYOK/platform-funded responsibilities.
 
-## Build and run
+## Smallest local build and five-minute workflow
 
-From a repository checkout with the verified Rust development toolchain and
-cached dependencies:
+No binary is published. Build from this repository. You need the pinned **Rust
+1.98.1** toolchain (not an MSRV promise), Cargo, and a working native C compiler,
+linker and platform SDK for bundled SQLite. On macOS, installed Command Line
+Tools must work; selecting a license-blocked Xcode installation will fail. If
+standalone tools are already installed, a shell-local
+`export DEVELOPER_DIR=/Library/Developer/CommandLineTools` may select them.
+There is no Docker, cloud account, credential, telemetry setup or paid service.
+Node and Python are needed only for the full repository audit below.
+
+A fresh machine must first obtain Rust and the locked dependencies, or receive
+an already populated offline toolchain/cache. With rustup already installed,
+the explicit preparation is:
+
+```sh
+rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+cargo fetch --locked
+```
+
+These two preparation steps may download public packages. They are **not
+offline** and their time is not part of the five-minute workflow. No registry
+login is needed. An uncached `--offline` build fails; it cannot bootstrap itself.
+Once prepared, the smallest runnable local build (no installer needed) is:
 
 ```sh
 cargo build -p ledgerlab-cli --locked --offline
 export PATH="$PWD/target/debug:$PATH"
-ledger init ledger-demo --demo
+ledger init ./ledger-demo --demo
 cd ledger-demo
-ledger preview examples/generated.json
-ledger accept examples/generated.json
+ledger preview ./examples/generated.json
+ledger accept ./examples/generated.json
 ledger explain --chain demo-slice
-ledger accept examples/generated.json --format json
-cat examples/generated.json | ledger accept - --format json
+ledger accept ./examples/generated.json --json
+cat examples/generated.json | ledger accept - --json
 ```
 
-`ledger init --demo` also works inside an empty directory. Initialization refuses
-nonempty destinations, including existing ledgers. It creates `ledger.yaml`,
-`examples/generated.json`, a short README, `.gitignore`, and private `.ledger`
-SQLite state. No event has been accepted until you run `accept`.
+The five-minute hands-on workflow starts with the built binary; a clean build's
+duration depends on the machine. To install a local development binary into a
+chosen directory instead of extending PATH, from the repository root:
 
-Expected postings are **100 USD atoms charged, −20 discounted**, with one
-**80-atom intention held for fake export**. Scale 2 means 100 atoms is $1.00.
-Retrying returns the original receipt without a new economic decision. This is
-the frozen first-slice example; it is separate from the later $1.20 onboarding
-chain in the design. No exporter or payment call runs.
+```sh
+cargo install --path crates/ledgerlab-cli --locked --offline --debug --root "$PWD/work/install"
+export PATH="$PWD/work/install/bin:$PATH"
+```
+
+This compiles locally and does not publish anything. The installed binary needs
+no Rust/Cargo, Node or Python at runtime on its compatible native platform.
+Cross-platform binary certification remains a release gate.
+
+`ledger init --demo` also works inside an empty directory. Initialization refuses
+nonempty destinations. It creates `ledger.json`, `examples/generated.json`, a
+short README, `.gitignore`, and private `.ledger` SQLite state. No event has been
+accepted until you run `accept`; dispatch stays disabled/held.
+
+The text view leads with **demo-customer → demo-host: USD 0.80**, followed by
+**USD 1.00 generation charge** and **USD −0.20 customer tier discount**.
+Supplier obligations and observed provider costs are separate and empty here.
+The net amount comes from the facade's intention, never a CLI sum. `--json`
+retains exact atoms, IDs, internal reason codes, records and receipt schemas.
+Retrying returns the original receipt without a new economic decision. This
+frozen first slice is separate from the design's later USD 1.20 onboarding chain.
+No exporter or payment call runs.
 
 `explain generation-1` accepts an external event ID in the configured source;
 canonical `ev_…` IDs and semantic delivery aliases also work. `explain --chain
  demo-slice` returns accepted events in revision order. The JSON view includes
 source events, immutable decision manifests, postings, links, intentions,
 explanations, original snapshot/input documents, and receipts. It never reprices
-history. The text view summarizes these records and prints the full source event.
+history. The text view formats saved parties and money; it does not re-evaluate pricing.
+Human acceptance reads the same verified stored breakdown after receiving a
+receipt. If that read fails, acceptance remains successful and tells you how to
+retrieve the original receipt; it must never suggest that commit was rolled back.
 
 Use a new delivery ID **and** new `operation_id` for genuinely distinct work.
 Reusing the operation with matching facts is a semantic duplicate. Reusing an
@@ -57,12 +94,21 @@ unsupported; they must be added to the core/coordinator rather than the CLI.
 
 ## Configuration and local ownership
 
-`ledger.yaml` has schema `ledger/v1`. This bounded CLI accepts **strict JSON
-syntax**, a YAML 1.2 subset, using the existing parser. General YAML syntax,
-unknown/duplicate fields, environment expansion, shell interpolation, real mode,
-PostgreSQL config, and enabled dispatch are rejected. JSON avoids a new parser
-or dependency version. `--config PATH` is explicit and defaults to
-`./ledger.yaml`; there is no ambient home/environment config search.
+`ledger.json` has schema `ledger/v1` and accepts **strict JSON**, including
+rejection of unknown and duplicate fields. `--config PATH` defaults to
+`./ledger.json`; there is no ambient home/environment search. Existing configs
+named `ledger.yaml` remain usable with **`--config ledger.yaml` explicitly**.
+There is no automatic fallback: a stale second file cannot silently take over.
+The legacy name does not enable YAML syntax. Rename an old JSON config to
+`ledger.json` to adopt the default; its content and relative storage path need
+not change.
+
+General YAML syntax, environment expansion, shell interpolation, real mode,
+PostgreSQL config and enabled dispatch are rejected. File errors name the chosen
+path and a next action; configuration errors also name the offending field.
+The facade currently exposes only a code for event rejections, so those errors
+identify the input file and suggest the matching example/schema; they do not
+invent a precise parser location that the facade did not provide.
 
 The generated fields are `schema`, `mode`, `identity`, `storage`, `auth`, and
 `dispatch`. `auth` contains trusted local host selectors (`principal_id`,
@@ -71,13 +117,28 @@ access supplies the host identity; acceptance still checks retained grants under
 lock. This local convenience read API must not become a remote read endpoint.
 Prices and accepted synthetic terms live in the database, not the config.
 
-Storage paths resolve relative to the configuration file. They must be relative
-and contain no parent traversal. Input/config/storage paths reject symlinks;
-regular files are required. Input events are limited to 256 KiB and configuration
-to 64 KiB. On Unix, generated directories are 0700 and files 0600; opening rejects
+Explicit input, config and init paths support `.` and `..` after normalization;
+for example, from the generated `examples` directory:
+
+```sh
+ledger --config ../ledger.json preview ./generated.json
+```
+
+Storage paths resolve relative to the config file and must stay **inside that
+directory**, in a dedicated subdirectory: `./.ledger` and
+`examples/../.ledger` work; `../shared`, an absolute storage path and `.` do not.
+The safety check inspects every original component before collapsing `..`, so
+`symlink/../file` still rejects. Input/config/storage/init paths reject symlinks;
+use a real path. Existing components traversed with `..` must be directories.
+Inputs must be regular files, limited to 256 KiB (config: 64 KiB).
+
+On Unix, generated directories are 0700 and files 0600; opening rejects
 group/world-accessible data directories or database files. Native Windows ACL
 hardening and certification remain a platform gate. Existing parent directory
-permissions are not changed. The supplied destination's parent must exist.
+permissions are not changed. The init destination's parent must exist.
+Local path checks are guardrails against accidental unsafe paths, not protection
+against a hostile process concurrently replacing directories owned by the same
+user. Keep local files under your control.
 
 Each command owns the SQLite directory exclusively and closes it before exit.
 Concurrent owners return busy/unavailable. Keep the entire `.ledger` directory
@@ -153,13 +214,24 @@ There is no signal-drain handler in this bounded CLI.
   adds a test-only edge to the pinned serde_json package. Frozen contracts/fixtures
   remain unchanged; the new core API is a separate typed evaluation surface.
 
-Validation commands on the prepared development machine:
+Full offline repository audit (after preparing Rust/dependency caches and the
+Python packages, which may require an initial public download):
 
 ```sh
-source work/toolchain/activate.sh
-export RUSTUP_TOOLCHAIN=stable
-scripts/check.sh
+python3 -m venv work/check-venv
+. work/check-venv/bin/activate
+python3 -m pip install -r scripts/requirements-contracts.txt
+sh scripts/check.sh
 ```
+
+The audit needs Python 3.11+, the pinned packages, Node, rustfmt and Clippy.
+Only the final `check.sh` is the offline audit; creating a venv is local but
+installing uncached Python packages is not offline. Real PostgreSQL/TLS tests
+that require an explicit test server remain separately gated.
+The untracked `work/toolchain/activate.sh` on a prepared machine is an optional,
+machine-specific convenience, **not a file a fresh checkout includes**. If a
+verified `stable` alias is used locally, check `rustc --version` is exactly
+1.98.1 before setting `RUSTUP_TOOLCHAIN=stable` for that shell.
 
 The full repository audit also uses its prepared Python packages and Node as
 **development test tools**, not product runtime dependencies. CLI integration

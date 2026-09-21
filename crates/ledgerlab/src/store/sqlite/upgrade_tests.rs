@@ -1,0 +1,212 @@
+//! Real populated legacy files, built from original migration bytes and frozen
+//! independent rows. No current-schema store is downgraded to simulate age.
+use super::*;
+use crate::{
+    maintenance::*,
+    store::{
+        records::WriteOp,
+        sqlite::{self, tests},
+    },
+};
+use sqlx::{AssertSqlSafe, Connection};
+
+async fn dump(conn: &mut SqliteConnection) -> Vec<(String, Vec<String>)> {
+    let tables: Vec<String> = sqlx::query_scalar("SELECT name FROM sqlite_schema WHERE type='table' AND name<>'_sqlx_migrations' ORDER BY name").fetch_all(&mut *conn).await.unwrap();
+    let mut rows = vec![];
+    for table in tables {
+        let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info(?) WHERE NOT (?='dispatcher_head' AND name='revision') ORDER BY cid")
+            .bind(&table).bind(&table).fetch_all(&mut *conn).await.unwrap();
+        let expr = cols
+            .iter()
+            .map(|c| format!("quote({c})"))
+            .collect::<Vec<_>>()
+            .join("||'|'||");
+        let values = sqlx::query_scalar(AssertSqlSafe(format!(
+            "SELECT {expr} FROM {table} ORDER BY 1"
+        )))
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap();
+        rows.push((table, values));
+    }
+    rows
+}
+async fn legacy(v: usize) -> (tempfile::TempDir, SqliteConnection) {
+    let dir = tempfile::tempdir().unwrap();
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(dir.path().join("local.db"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+    let migrations = migrator().iter().take(v).cloned().collect::<Vec<_>>();
+    Migrator::with_migrations(migrations)
+        .run(&mut conn)
+        .await
+        .unwrap();
+    let mut tx = conn.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    let mut installation = tests::installation();
+    installation.admission = "frozen".into();
+    for op in std::iter::once(WriteOp::SeedInstallation(installation))
+        .chain(tests::seed())
+        .chain(tests::schedule())
+    {
+        sqlite::write::operation(&mut tx, &op).await.unwrap();
+    }
+    // Retain a terminal outcome from the old implementation across the upgrade.
+    sqlx::query("UPDATE delivery_state SET state='rejected', attempts=20")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    if v == 2 {
+        sqlx::query("UPDATE dispatcher_head SET revision=7")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    tx.commit().await.unwrap();
+    (dir, conn)
+}
+
+#[tokio::test]
+async fn sqlite_schema_upgrade_populated_1_and_2_rollback_reopen_retry() {
+    for (v, lose_ack) in [(1, false), (1, true), (2, false), (2, true)] {
+        let (dir, mut conn) = legacy(v).await;
+        let before = dump(&mut conn).await;
+        assert!(sqlite::SqliteStore::open(dir.path()).await.is_err());
+        assert_eq!(dump(&mut conn).await, before, "open must not migrate");
+
+        let owner_guard = sqlite::owner::Owner::acquire(dir.path()).unwrap();
+        assert_eq!(
+            upgrade_sqlite(dir.path(), "store-demo-slice").await,
+            Err(UpgradeError::Refused)
+        );
+        drop(owner_guard);
+        for (set, restore) in [
+            (
+                "UPDATE installation SET dispatch_hold=0",
+                "UPDATE installation SET dispatch_hold=1",
+            ),
+            (
+                "UPDATE installation SET dispatch_enabled=1",
+                "UPDATE installation SET dispatch_enabled=0",
+            ),
+            (
+                "UPDATE dispatcher_head SET owner='old-worker', lease_until_us=1",
+                "UPDATE dispatcher_head SET owner=NULL, lease_until_us=NULL",
+            ),
+        ] {
+            sqlx::query(AssertSqlSafe(set))
+                .execute(&mut conn)
+                .await
+                .unwrap();
+            assert_eq!(
+                upgrade_sqlite(dir.path(), "store-demo-slice").await,
+                Err(UpgradeError::Refused)
+            );
+            sqlx::query(AssertSqlSafe(restore))
+                .execute(&mut conn)
+                .await
+                .unwrap();
+        }
+        // Fail migration 3 after migration 2 has run, exercising atomic rollback
+        // of DDL, user_version and history together on the actual upgrade path.
+        sqlx::query("CREATE TABLE delivery_quarantines (collision INTEGER) STRICT")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        let collision = dump(&mut conn).await;
+        assert_eq!(
+            upgrade_sqlite(dir.path(), "store-demo-slice").await,
+            Err(UpgradeError::Refused)
+        );
+        assert_eq!(version(&mut conn).await.unwrap(), v as i64);
+        assert_eq!(dump(&mut conn).await, collision);
+        sqlx::query("DROP TABLE delivery_quarantines")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            upgrade_sqlite(dir.path(), "wrong-store").await,
+            Err(UpgradeError::Refused)
+        );
+        sqlx::query("UPDATE installation SET admission='open'")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            upgrade_sqlite(dir.path(), "store-demo-slice").await,
+            Err(UpgradeError::Refused)
+        );
+        sqlx::query("UPDATE installation SET admission='frozen'")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE _sqlx_migrations SET checksum=x'00' WHERE version=1")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            upgrade_sqlite(dir.path(), "store-demo-slice").await,
+            Err(UpgradeError::Refused)
+        );
+        sqlx::query("UPDATE _sqlx_migrations SET checksum=? WHERE version=1")
+            .bind(migrator().migrations[0].checksum.as_ref())
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(dump(&mut conn).await, before);
+        if lose_ack {
+            assert_eq!(
+                upgrade_connection(&mut conn, "store-demo-slice", true).await,
+                Err(UpgradeError::OutcomeUnknown)
+            );
+        }
+        conn.close().await.unwrap();
+        if !lose_ack {
+            assert_eq!(
+                upgrade_sqlite(dir.path(), "store-demo-slice").await,
+                Ok(UpgradeResult::Upgraded)
+            );
+        }
+        // Repeating after an absent caller acknowledgement is safe and resolves
+        // the history instead of replaying any economic write or DDL.
+        assert_eq!(
+            upgrade_sqlite(dir.path(), "store-demo-slice").await,
+            Ok(UpgradeResult::AlreadyCurrent)
+        );
+        let mut conn = SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new().filename(dir.path().join("local.db")),
+        )
+        .await
+        .unwrap();
+        let revision: i64 = sqlx::query_scalar("SELECT revision FROM dispatcher_head")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(revision, if v == 2 { 7 } else { 0 });
+        let after = dump(&mut conn).await;
+        for row in before {
+            assert!(after.contains(&row), "changed retained table {}", row.0);
+        }
+        assert!(sqlx::query("UPDATE delivery_state SET state='pending'")
+            .execute(&mut conn)
+            .await
+            .is_err());
+        assert!(sqlx::query("UPDATE delivery_state SET attempts=0")
+            .execute(&mut conn)
+            .await
+            .is_err());
+        // Owner explicitly reopens admission only; dispatch remains held.
+        sqlx::query("UPDATE installation SET admission='open'")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        let stable = dump(&mut conn).await;
+        let ledger = crate::Ledger::open_sqlite(dir.path()).await.unwrap();
+        assert_original_retry(&ledger).await;
+        assert_eq!(dump(&mut conn).await, stable, "no duplicate economics");
+        ledger.close().await;
+        conn.close().await.unwrap();
+    }
+}

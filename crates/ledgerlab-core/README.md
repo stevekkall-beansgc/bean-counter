@@ -1,5 +1,9 @@
 # Pure core
 
+Approved Phase 2 v0 target adjustments are documented in
+[outcomes](src/policy/chaining/outcomes/README.md). That contract supersedes the
+old linked-discount proposal; the old operator now rejects explicitly.
+
 The frozen Phase 1 acceptance path below remains unchanged. The additive
 `policy::chaining` module supplies the bounded Phase 2 typed pricing API. See
 [Phase 2 core integration notes](../../PHASE-2-CORE.md) for its semantics,

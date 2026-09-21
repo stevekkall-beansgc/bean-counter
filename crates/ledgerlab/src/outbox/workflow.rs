@@ -73,18 +73,17 @@ fn store_error(e: StoreError) -> Error {
 }
 async fn transaction<S: AcceptanceStore, T>(
     store: &S,
-    f: impl FnOnce(Snapshot) -> Result<(T, Mutation)>,
+    query: Query,
+    seconds: u64,
+    f: impl AsyncFnOnce(&mut S::Tx, Snapshot) -> Result<(T, Mutation)>,
 ) -> Result<T> {
     let mut tx = store
-        .begin(Instant::now() + Duration::from_secs(5))
+        .begin(Instant::now() + Duration::from_secs(seconds))
         .await
         .map_err(store_error)?;
     let result = async {
-        let s = tx.load_outbox().await.map_err(store_error)?;
-        if s.items.len() > 1000 {
-            return Err(Error::ScanLimit);
-        }
-        let (result, mutation) = f(s)?;
+        let s = tx.load_outbox(query).await.map_err(store_error)?;
+        let (result, mutation) = f(&mut tx, s).await?;
         tx.write(&WriteOp::Outbox(Box::new(mutation)))
             .await
             .map_err(store_error)?;
@@ -107,26 +106,57 @@ async fn transaction<S: AcceptanceStore, T>(
 }
 macro_rules! transact {
     ($this:ident, $f:expr) => {
+        transact!($this, Query::Control, 5, $f)
+    };
+    ($this:ident, $query:expr, $seconds:expr, $f:expr) => {
         match &$this.ledger.store {
-            Backend::Sqlite(s) => transaction(s, $f).await,
-            Backend::Postgres(s) => transaction(s, $f).await,
+            Backend::Sqlite(s) => transaction(s, $query, $seconds, $f).await,
+            Backend::Postgres(s) => transaction(s, $query, $seconds, $f).await,
         }
     };
 }
-async fn read_snapshot<S: AcceptanceStore>(store: &S) -> Result<Snapshot> {
+async fn read_snapshot<S: AcceptanceStore>(store: &S, query: Query) -> Result<Snapshot> {
     let mut tx = store
         .begin(Instant::now() + Duration::from_secs(5))
         .await
         .map_err(store_error)?;
-    let result = tx.load_outbox().await.map_err(store_error);
+    let result = tx.load_outbox(query).await.map_err(store_error);
+    tx.rollback().await.map_err(store_error)?;
+    result
+}
+async fn read_deliveries<S: AcceptanceStore>(store: &S) -> Result<Vec<Delivery>> {
+    let mut tx = store
+        .begin(Instant::now() + Duration::from_secs(5))
+        .await
+        .map_err(store_error)?;
+    let result = async {
+        let mut rows = Vec::new();
+        let mut after = String::new();
+        loop {
+            let page = tx
+                .load_outbox(Query::page(&after))
+                .await
+                .map_err(store_error)?;
+            if page.items.is_empty() {
+                break;
+            }
+            if rows.len() + page.items.len() > 1000 {
+                return Err(Error::ScanLimit);
+            }
+            after = page.items.last().unwrap().0.id.clone();
+            rows.extend(page.items.into_iter().map(|(_, d)| d));
+        }
+        Ok(rows)
+    }
+    .await;
     tx.rollback().await.map_err(store_error)?;
     result
 }
 macro_rules! snapshot {
-    ($this:ident) => {
+    ($this:ident, $query:expr) => {
         match &$this.ledger.store {
-            Backend::Sqlite(s) => read_snapshot(s).await,
-            Backend::Postgres(s) => read_snapshot(s).await,
+            Backend::Sqlite(s) => read_snapshot(s, $query).await,
+            Backend::Postgres(s) => read_snapshot(s, $query).await,
         }
     };
 }
@@ -134,6 +164,8 @@ fn mutation(mut s: Snapshot, event: Value) -> Result<Mutation> {
     s.head.revision = plus(s.head.revision, 1)?;
     Ok(Mutation {
         snapshot: s,
+        sweep: None,
+        quarantine: None,
         attempt: None,
         observation: bytes(&event)?,
         report: None,
@@ -161,7 +193,7 @@ impl Outbox<'_> {
         if owner.is_empty() || owner.len() > 128 || owner.chars().any(char::is_control) {
             return Err(Error::InvalidInput);
         }
-        transact!(self, |mut s: Snapshot| {
+        transact!(self, async |_, mut s: Snapshot| {
             if s.installation.dispatch_hold
                 || !s.installation.dispatch_enabled
                 || s.installation.admission != "open"
@@ -181,11 +213,6 @@ impl Outbox<'_> {
             s.head.owner = Some(owner.into());
             s.head.until = Some(plus(now, 15_000_000)?);
             s.head.enabled = true;
-            for (_, d) in &mut s.items {
-                if d.state == State::Leased {
-                    clear(d, State::Unknown);
-                }
-            }
             // Advance the independent fake fence before commit. Unknown/rolled-back
             // commits may stop an old worker early, but cannot let it act late.
             self.destination.fence(
@@ -199,14 +226,13 @@ impl Outbox<'_> {
                 generation: s.head.generation,
                 restore_generation: s.installation.generation,
             };
-            Ok((
-                lease,
-                mutation(s, json!({"kind":"acquired","at":now.to_string()}))?,
-            ))
+            let mut m = mutation(s, json!({"kind":"acquired","at":now.to_string()}))?;
+            m.sweep = Some(Sweep::Leases);
+            Ok((lease, m))
         })
     }
     pub async fn renew(&self, lease: &Lease, now: i64) -> Result<()> {
-        transact!(self, |mut s: Snapshot| {
+        transact!(self, async |_, mut s: Snapshot| {
             if !valid(&s, lease, now) {
                 return Err(Error::Fenced);
             }
@@ -221,41 +247,41 @@ impl Outbox<'_> {
     }
     /// A committed attempt is the only way to obtain a send capability.
     pub async fn claim(&self, lease: &Lease, now: i64) -> Result<Option<Attempt>> {
-        transact!(self, |mut s: Snapshot| {
+        transact!(self, async |tx, mut s: Snapshot| {
             if !valid(&s, lease, now) {
                 return Err(Error::Fenced);
             }
-            for (_, d) in &mut s.items {
-                if d.state == State::Leased && d.until.is_some_and(|u| now >= u) {
-                    clear(d, State::Unknown);
-                }
-            }
+            let mut after = String::new();
             let mut picked = None;
-            for (index, (i, d)) in s.items.iter().enumerate() {
-                if !matches!(d.state, State::Pending | State::Retry | State::Held)
-                    || d.next_attempt_us > now
-                {
-                    continue;
+            loop {
+                s = tx
+                    .load_outbox(Query::Page {
+                        after: after.clone(),
+                        due: Some(now),
+                    })
+                    .await
+                    .map_err(store_error)?;
+                if s.items.is_empty() {
+                    break;
                 }
-                let (request, deps) = i.request(&s)?;
-                if deps
-                    .iter()
-                    .any(|id| !s.items.iter().any(|(i, _)| &i.id == id))
-                {
-                    return Err(Error::Integrity);
+                for (index, (i, _)) in s.items.iter().enumerate() {
+                    let (request, deps) = i.request(&s)?;
+                    let mut ready = true;
+                    for id in deps {
+                        let dependency =
+                            tx.load_outbox(Query::Key(id)).await.map_err(store_error)?;
+                        let (_, d) = dependency.items.first().ok_or(Error::Integrity)?;
+                        ready &= d.state == State::Delivered && d.quarantine.is_none();
+                    }
+                    if ready {
+                        picked = Some((index, request));
+                        break;
+                    }
                 }
-                if deps.iter().any(|id| {
-                    !s.items
-                        .iter()
-                        .any(|(i, d)| &i.id == id && d.state == State::Delivered)
-                }) {
-                    continue;
+                if picked.is_some() {
+                    break;
                 }
-                if d.attempts >= 20 {
-                    continue;
-                }
-                picked = Some((index, request));
-                break;
+                after = s.items.last().unwrap().0.id.clone();
             }
             let mut attempt = None;
             let mut evidence = None;
@@ -284,13 +310,14 @@ impl Outbox<'_> {
             }
             let mut m = mutation(s, json!({"kind":"claim","at":now.to_string()}))?;
             m.attempt = evidence;
+            m.sweep = Some(Sweep::Expired(now));
             Ok((attempt, m))
         })
     }
     /// The fake receives outside any ledger transaction. Fencing and stable-key
     /// deduplication are atomic at that independent destination.
     pub async fn send(&self, attempt: &Attempt, now: i64, mode: Mode) -> Result<Outcome> {
-        let s = snapshot!(self)?;
+        let s = snapshot!(self, Query::Key(attempt.request.key.clone()))?;
         if !valid(&s, &attempt.lease, now) || !current_attempt(&s, attempt, now) {
             return Err(Error::Fenced);
         }
@@ -298,39 +325,44 @@ impl Outbox<'_> {
     }
     /// Late observations are retained, but cannot change delivery state.
     pub async fn observe(&self, a: &Attempt, now: i64, result: Outcome) -> Result<State> {
-        transact!(self, |mut s: Snapshot| {
-            let current = valid(&s, &a.lease, now) && current_attempt(&s, a, now);
-            let observation = json!({"kind":if current {"response"} else {"late_response"},"key":a.request.key,"attempt":a.number.to_string(),"generation":a.lease.generation.to_string(),"at":now.to_string(),"outcome":outcome_value(&result)});
-            let mut state = State::Unknown;
-            if current {
-                let d = &mut s
-                    .items
-                    .iter_mut()
-                    .find(|(i, _)| i.id == a.request.key)
-                    .ok_or(Error::Integrity)?
-                    .1;
-                state = match &result {
-                    Outcome::Delivered(r) if r.request == a.request => State::Delivered,
-                    Outcome::Delivered(_) | Outcome::Rejected => State::Rejected,
-                    Outcome::Absent if d.attempts < 20 => {
-                        d.next_attempt_us = plus(now, retry_delay(d.attempts))?;
-                        State::Retry
-                    }
-                    Outcome::Absent => State::Rejected,
-                    Outcome::Unknown | Outcome::Fenced => State::Unknown,
-                };
-                clear(d, state);
-                d.last_observation = Some(digest(&observation)?);
-            }
-            Ok((
+        transact!(
+            self,
+            Query::Key(a.request.key.clone()),
+            5,
+            async |_, mut s: Snapshot| {
+                let current = valid(&s, &a.lease, now) && current_attempt(&s, a, now);
+                let observation = json!({"kind":if current {"response"} else {"late_response"},"key":a.request.key,"attempt":a.number.to_string(),"generation":a.lease.generation.to_string(),"at":now.to_string(),"outcome":outcome_value(&result)});
+                let mut state = State::Unknown;
                 if current {
-                    Ok(state)
-                } else {
-                    Err(Error::Fenced)
-                },
-                mutation(s, observation)?,
-            ))
-        })?
+                    let d = &mut s
+                        .items
+                        .iter_mut()
+                        .find(|(i, _)| i.id == a.request.key)
+                        .ok_or(Error::Integrity)?
+                        .1;
+                    state = match &result {
+                        Outcome::Delivered(r) if r.request == a.request => State::Delivered,
+                        Outcome::Delivered(_) | Outcome::Rejected => State::Rejected,
+                        Outcome::Absent if d.attempts < 20 => {
+                            d.next_attempt_us = plus(now, retry_delay(d.attempts))?;
+                            State::Retry
+                        }
+                        Outcome::Absent => State::Rejected,
+                        Outcome::Unknown | Outcome::Fenced => State::Unknown,
+                    };
+                    clear(d, state);
+                    d.last_observation = Some(digest(&observation)?);
+                }
+                Ok((
+                    if current {
+                        Ok(state)
+                    } else {
+                        Err(Error::Fenced)
+                    },
+                    mutation(s, observation)?,
+                ))
+            }
+        )?
     }
     pub async fn dispatch_one(&self, lease: &Lease, now: i64, mode: Mode) -> Result<Option<State>> {
         let Some(a) = self.claim(lease, now).await? else {
@@ -340,9 +372,9 @@ impl Outbox<'_> {
         self.observe(&a, now, outcome).await.map(Some)
     }
     /// Hold dispatch and revoke capabilities. Restore also advances the installation
-    /// generation and invalidates *all* mappings, including previously delivered.
+    /// generation and invalidates receipt mappings, preserving rejection and quarantine.
     pub async fn hold(&self, restore: bool, now: i64) -> Result<()> {
-        transact!(self, |mut s: Snapshot| {
+        transact!(self, async |_, mut s: Snapshot| {
             if restore {
                 s.installation.generation = plus(s.installation.generation, 1)?;
             }
@@ -358,83 +390,119 @@ impl Outbox<'_> {
             s.head.owner = None;
             s.head.until = None;
             s.head.enabled = false;
-            for (_, d) in &mut s.items {
-                if restore || d.state == State::Leased {
-                    clear(d, State::Unknown);
-                }
-            }
             self.destination.fence(
                 &s.installation.logical_store_id,
                 s.head.generation,
                 i64::MIN,
             )?;
-            Ok((
-                (),
-                mutation(
-                    s,
-                    json!({"kind":if restore {"restore_hold"} else {"pause"},"at":now.to_string()}),
-                )?,
-            ))
+            let mut m = mutation(
+                s,
+                json!({"kind":if restore {"restore_hold"} else {"pause"},"at":now.to_string()}),
+            )?;
+            m.sweep = Some(if restore {
+                Sweep::Restore
+            } else {
+                Sweep::Leases
+            });
+            Ok(((), m))
         })
     }
-    /// Reconcile the entire bounded intention set and the destination inventory.
-    /// An unknown inventory can never produce a resume-capable report.
+    /// Reconcile all intentions with bounded keyset reads, evidence pages and samples.
+    /// The transaction retains the hold on cancellation, conflict or incomplete inventory.
     pub async fn reconcile(&self, now: i64, mode: Mode) -> Result<Report> {
-        // Inventory access is an in-memory independent read. No sending occurs.
-        transact!(self, |mut s: Snapshot| {
+        transact!(self, Query::Control, 60, async |tx, mut s: Snapshot| {
             if !s.installation.dispatch_hold || s.head.owner.is_some() {
                 return Err(Error::Held);
             }
-            let inventory = self
-                .destination
-                .inventory(&s.installation.logical_store_id, mode);
-            let mut unresolved = Vec::new();
-            let mut orphan_keys = Vec::new();
+            let store = s.installation.logical_store_id.clone();
+            let inventory = self.destination.inventory_digest(&store, mode)?;
+            let mut fingerprint = fingerprint_start(&s)?;
+            let mut report = Report {
+                digest: String::new(),
+                unresolved: Vec::new(),
+                orphan_keys: Vec::new(),
+                unresolved_count: 0,
+                orphan_count: 0,
+                intention_count: 0,
+            };
             let mut observations = Vec::new();
-            let requests = s
-                .items
-                .iter()
-                .map(|(i, _)| i.request(&s).map(|(r, _)| r))
-                .collect::<Result<Vec<_>>>()?;
-            for ((_, d), request) in s.items.iter_mut().zip(&requests) {
-                let state = match &inventory {
-                    None => State::Unknown,
-                    Some(receipts) => {
-                        match receipts.iter().find(|r| r.request.key == request.key) {
-                            Some(r) if &r.request == request => State::Delivered,
-                            Some(_) => State::Rejected,
-                            None if d.state == State::Rejected || d.attempts >= 20 => {
-                                State::Rejected
-                            }
-                            None => State::Pending,
+            let mut after = String::new();
+            loop {
+                s = tx
+                    .load_outbox(Query::page(&after))
+                    .await
+                    .map_err(store_error)?;
+                if s.items.is_empty() {
+                    break;
+                }
+                let mut page = Vec::new();
+                for index in 0..s.items.len() {
+                    let request = s.items[index].0.request(&s)?.0;
+                    let outcome = self.destination.lookup(&store, &request.key, mode);
+                    let (i, d) = &mut s.items[index];
+                    let state = reconciled_state(d, &request, &outcome);
+                    if matches!(state, State::Unknown | State::Rejected) && d.quarantine.is_none() {
+                        report.unresolved_count = plus(report.unresolved_count, 1)?;
+                        if report.unresolved.len() < PAGE_SIZE {
+                            report.unresolved.push(i.id.clone());
                         }
                     }
-                };
-                if matches!(state, State::Unknown | State::Rejected) {
-                    unresolved.push(d.intention_id.clone());
+                    let remote = match &outcome {
+                        Outcome::Delivered(r) => Some(r),
+                        _ => None,
+                    };
+                    let evidence = json!({"key":request.key,"state":state.name(),"quarantine":d.quarantine,
+                        "expected_request_hash":request.request_hash,"remote_request_hash":remote.map(|r|&r.request.request_hash),
+                        "remote_id":remote.map(|r|&r.remote_id),"observed_us":now.to_string()});
+                    clear(d, state);
+                    d.last_observation = Some(digest(&evidence)?);
+                    fingerprint = fingerprint_item(&fingerprint, i, d)?;
+                    if observations.len() < PAGE_SIZE {
+                        observations.push(evidence.clone());
+                    }
+                    page.push(evidence);
+                    report.intention_count = plus(report.intention_count, 1)?;
                 }
-                clear(d, state);
-                let remote = inventory
-                    .as_ref()
-                    .and_then(|receipts| receipts.iter().find(|r| r.request.key == request.key));
-                let evidence = json!({"key":request.key,"state":state.name(),"expected_request_hash":request.request_hash,"remote_request_hash":remote.map(|r|&r.request.request_hash),"remote_id":remote.map(|r|&r.remote_id),"observed_us":now.to_string()});
-                d.last_observation = Some(digest(&evidence)?);
-                observations.push(evidence);
+                after = s.items.last().unwrap().0.id.clone();
+                let m = mutation(
+                    s,
+                    json!({"kind":"reconciliation_page","at":now.to_string(),"observations":page}),
+                )?;
+                tx.write(&WriteOp::Outbox(Box::new(m)))
+                    .await
+                    .map_err(store_error)?;
             }
-            if let Some(receipts) = &inventory {
-                for r in receipts {
-                    if !requests.iter().any(|i| i.key == r.request.key) {
-                        orphan_keys.push(r.request.key.clone());
+            // Stream only remote keys; no complete receipt or request collection is loaded.
+            after.clear();
+            loop {
+                let keys = self.destination.keys_page(&store, &after);
+                if keys.is_empty() {
+                    break;
+                }
+                for key in &keys {
+                    let local = tx
+                        .load_outbox(Query::Key(key.clone()))
+                        .await
+                        .map_err(store_error)?;
+                    if local.items.is_empty() {
+                        report.orphan_count = plus(report.orphan_count, 1)?;
+                        if report.orphan_keys.len() < PAGE_SIZE {
+                            report.orphan_keys.push(key.clone());
+                        }
                     }
                 }
+                after = keys.last().unwrap().clone();
             }
-            let body = json!({"kind":"reconciliation","sequence":plus(s.head.revision,1)?.to_string(),"store":s.installation.logical_store_id,"generation":s.installation.generation.to_string(),"fingerprint":fingerprint(&s)?,"inventory":digest(&fake::inventory_value(&inventory))?,"complete":inventory.is_some() && unresolved.is_empty() && orphan_keys.is_empty(),"unresolved":unresolved,"orphans":orphan_keys,"observations":observations});
+            if self.destination.inventory_digest(&store, mode)? != inventory {
+                return Err(Error::StaleReport);
+            }
+            let body = json!({"kind":"reconciliation","version":2,"sequence":plus(s.head.revision,1)?.to_string(),
+                "store":store,"generation":s.installation.generation.to_string(),"fingerprint":fingerprint,
+                "inventory":inventory,"complete":inventory.is_some() && report.unresolved_count==0 && report.orphan_count==0,
+                "unresolved":report.unresolved,"orphans":report.orphan_keys,"observations":observations,
+                "intention_count":report.intention_count.to_string(),"unresolved_count":report.unresolved_count.to_string(),"orphan_count":report.orphan_count.to_string()});
             let hash = digest(&body)?;
-            let report = Report {
-                digest: hash.clone(),
-                unresolved,
-                orphan_keys,
-            };
+            report.digest = hash.clone();
             let mut m = mutation(
                 s,
                 json!({"kind":"reconciled","digest":hash,"at":now.to_string()}),
@@ -443,22 +511,84 @@ impl Outbox<'_> {
             Ok((report, m))
         })
     }
+    /// Permanent isolation of one unresolved intention. The trusted host authenticates
+    /// the operator; this cannot retry, erase a rejection or attest economic settlement.
+    /// expected_observation prevents resolving an intention whose evidence changed.
+    pub async fn quarantine(
+        &self,
+        intention_id: &str,
+        expected_observation: &str,
+        operator: &str,
+        reason: &str,
+        now: i64,
+    ) -> Result<String> {
+        if operator.trim().is_empty()
+            || operator.len() > 128
+            || operator.chars().any(char::is_control)
+            || reason.trim().is_empty()
+            || reason.len() > 2048
+            || reason.chars().any(char::is_control)
+        {
+            return Err(Error::InvalidInput);
+        }
+        transact!(
+            self,
+            Query::Key(intention_id.into()),
+            5,
+            async |_, s: Snapshot| {
+                if !s.installation.dispatch_hold || s.head.owner.is_some() {
+                    return Err(Error::Held);
+                }
+                let (i, d) = s.items.first().ok_or(Error::InvalidInput)?;
+                if d.quarantine.is_some()
+                    || d.last_observation.as_deref() != Some(expected_observation)
+                {
+                    return Err(Error::StaleReport);
+                }
+                if !matches!(d.state, State::Rejected | State::Unknown) {
+                    return Err(Error::InvalidInput);
+                }
+                let event = json!({"kind":"quarantine","store":s.installation.logical_store_id,
+                "generation":s.installation.generation.to_string(),"key":i.id,"intention_hash":i.hash,
+                "previous_state":d.state.name(),"attempts":d.attempts.to_string(),"observation":expected_observation,
+                "operator":operator,"reason":reason,"at":now.to_string()});
+                let hash = digest(&event)?;
+                let mut m = mutation(s, event.clone())?;
+                m.quarantine = Some((intention_id.into(), hash.clone(), bytes(&event)?));
+                Ok((hash, m))
+            }
+        )
+    }
     pub async fn resume(&self, report_digest: &str, now: i64) -> Result<()> {
-        transact!(self, |mut s: Snapshot| {
+        transact!(self, Query::Control, 60, async |tx, mut s: Snapshot| {
             if !s.installation.dispatch_hold || s.installation.admission != "open" {
                 return Err(Error::Held);
             }
             let (hash, body) = s.report.as_ref().ok_or(Error::StaleReport)?;
             let v: Value = serde_json::from_slice(body).map_err(|_| Error::Integrity)?;
-            if hash != report_digest
-                || digest(&v)? != *hash
-                || v["fingerprint"] != fingerprint(&s)?
+            if hash != report_digest || digest(&v)? != *hash || v["version"] != 2 {
+                return Err(Error::StaleReport);
+            }
+            let mut fingerprint = fingerprint_start(&s)?;
+            let mut after = String::new();
+            loop {
+                let page = tx
+                    .load_outbox(Query::page(&after))
+                    .await
+                    .map_err(store_error)?;
+                if page.items.is_empty() {
+                    break;
+                }
+                for (i, d) in &page.items {
+                    fingerprint = fingerprint_item(&fingerprint, i, d)?;
+                }
+                after = page.items.last().unwrap().0.id.clone();
+            }
+            if v["fingerprint"] != fingerprint
                 || v["inventory"]
-                    != digest(&fake::inventory_value(
-                        &self
-                            .destination
-                            .inventory(&s.installation.logical_store_id, Mode::Normal),
-                    ))?
+                    != json!(self
+                        .destination
+                        .inventory_digest(&s.installation.logical_store_id, Mode::Normal)?)
             {
                 return Err(Error::StaleReport);
             }
@@ -477,15 +607,31 @@ impl Outbox<'_> {
             ))
         })
     }
+    /// Complete small-installation query, retaining the original 1,000-row bound.
+    /// Large callers must use deliveries_after; control operations have no row cap.
     pub async fn deliveries(&self) -> Result<Vec<Delivery>> {
-        Ok(snapshot!(self)?.items.into_iter().map(|(_, d)| d).collect())
+        match &self.ledger.store {
+            Backend::Sqlite(s) => read_deliveries(s).await,
+            Backend::Postgres(s) => read_deliveries(s).await,
+        }
+    }
+    /// At most 64 rows / 8 MiB of intention input. Continue after the last returned ID
+    /// until empty; use a reconciliation report for an atomic complete-set assessment.
+    pub async fn deliveries_after(&self, after: &str) -> Result<Vec<Delivery>> {
+        Ok(snapshot!(self, Query::page(after))?
+            .items
+            .into_iter()
+            .map(|(_, d)| d)
+            .collect())
     }
 }
+
 fn current_attempt(s: &Snapshot, a: &Attempt, now: i64) -> bool {
     now < a.until
         && s.items.iter().any(|(i, d)| {
             i.id == a.request.key
                 && d.state == State::Leased
+                && d.quarantine.is_none()
                 && d.attempts == a.number
                 && d.generation == a.lease.generation
                 && d.owner.as_ref() == Some(&a.lease.owner)

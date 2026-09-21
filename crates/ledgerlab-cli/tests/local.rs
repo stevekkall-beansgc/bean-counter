@@ -225,14 +225,14 @@ fn config_is_relative_strict_and_identity_checked() {
         dir,
         &[
             "--config",
-            "demo/ledger.yaml",
+            "demo/ledger.json",
             "accept",
             "demo/examples/generated.json",
         ],
         None,
         0,
     );
-    let path = dir.join("demo/ledger.yaml");
+    let path = dir.join("demo/ledger.json");
     let bytes = fs::read(&path).unwrap();
     let v: Value = serde_json::from_slice(&bytes).unwrap();
     for (field, value) in [
@@ -245,7 +245,7 @@ fn config_is_relative_strict_and_identity_checked() {
         fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
         run(
             dir,
-            &["--config", "demo/ledger.yaml", "explain", "generation-1"],
+            &["--config", "demo/ledger.json", "explain", "generation-1"],
             None,
             2,
         );
@@ -255,7 +255,7 @@ fn config_is_relative_strict_and_identity_checked() {
     fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
     run(
         dir,
-        &["--config", "demo/ledger.yaml", "explain", "generation-1"],
+        &["--config", "demo/ledger.json", "explain", "generation-1"],
         None,
         2,
     );
@@ -264,7 +264,7 @@ fn config_is_relative_strict_and_identity_checked() {
     fs::write(&path, serde_json::to_vec(&changed).unwrap()).unwrap();
     run(
         dir,
-        &["--config", "demo/ledger.yaml", "explain", "generation-1"],
+        &["--config", "demo/ledger.json", "explain", "generation-1"],
         None,
         2,
     );
@@ -275,14 +275,14 @@ fn config_is_relative_strict_and_identity_checked() {
     .unwrap();
     run(
         dir,
-        &["--config", "demo/ledger.yaml", "explain", "generation-1"],
+        &["--config", "demo/ledger.json", "explain", "generation-1"],
         None,
         2,
     );
     fs::write(path, bytes).unwrap();
     run(
         dir,
-        &["--config", "demo/ledger.yaml", "explain", "generation-1"],
+        &["--config", "demo/ledger.json", "explain", "generation-1"],
         None,
         0,
     );
@@ -322,7 +322,7 @@ fn private_permissions_symlinks_and_owner_contention() {
     use std::os::unix::fs::{symlink, PermissionsExt};
     let d = init();
     let dir = d.path();
-    for name in ["ledger.yaml", "examples/generated.json", ".ledger/local.db"] {
+    for name in ["ledger.json", "examples/generated.json", ".ledger/local.db"] {
         assert_eq!(
             fs::metadata(dir.join(name)).unwrap().permissions().mode() & 0o777,
             0o600
@@ -339,7 +339,7 @@ fn private_permissions_symlinks_and_owner_contention() {
     symlink("examples/generated.json", dir.join("linked.json")).unwrap();
     run(dir, &["accept", "linked.json"], None, 2);
     symlink(".ledger", dir.join("linked-state")).unwrap();
-    let path = dir.join("ledger.yaml");
+    let path = dir.join("ledger.json");
     let bytes = fs::read(&path).unwrap();
     let mut v: Value = serde_json::from_slice(&bytes).unwrap();
     v["storage"]["data_dir"] = json!("linked-state");
@@ -420,6 +420,18 @@ fn explains_retained_history_and_detects_tampering_without_rerating() {
         run(dir, &["explain", "generation-1"], None, 9)["code"],
         "INTEGRITY_FAILURE"
     );
+    // Restore current read authority so acceptance can return the old receipt.
+    sql(dir, "UPDATE authority_heads SET active=1,revision=3");
+    // A failed human breakdown read must not relabel a committed retry as a
+    // failed acceptance. Its original machine receipt remains retrievable.
+    let before = db(dir);
+    let human = invoke(dir, &["accept", "examples/generated.json"], None);
+    assert!(human.status.success());
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert!(text.contains("original receipt returned"));
+    assert!(text.contains("breakdown could not be read"));
+    assert!(!text.contains("USD 0.80"));
+    assert_eq!(db(dir), before);
 }
 
 #[test]
@@ -476,7 +488,7 @@ fn migrated_cli_ledger_coexists_with_fake_outbox_and_preserves_receipts() {
             .unwrap()
             .1
             .len(),
-        2
+        3
     );
     assert_eq!(
         before
@@ -528,4 +540,232 @@ fn linked_events_stop_at_facade_boundary_without_any_state_change() {
             "{command} must not reserve a Phase 2 identity or decision"
         );
     }
+}
+
+#[test]
+fn explicit_relative_paths_and_contained_storage_normalize_safely() {
+    let d = temp();
+    let root = d.path();
+    fs::create_dir(root.join("scratch")).unwrap();
+    run(root, &["init", "./scratch/../demo", "--demo"], None, 0);
+    let demo = root.join("demo");
+    let config = demo.join("ledger.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+    for storage in ["./.ledger", "examples/../.ledger"] {
+        value["storage"]["data_dir"] = json!(storage);
+        fs::write(&config, serde_json::to_vec(&value).unwrap()).unwrap();
+        let before = db(&demo);
+        run(
+            &demo.join("examples"),
+            &["--config", "../ledger.json", "preview", "./generated.json"],
+            None,
+            0,
+        );
+        run(
+            root,
+            &[
+                "--config",
+                "./scratch/../demo/ledger.json",
+                "preview",
+                "demo/examples/../examples/generated.json",
+            ],
+            None,
+            0,
+        );
+        assert_eq!(db(&demo), before);
+    }
+    run(
+        &demo.join("examples"),
+        &["--config", "../ledger.json", "accept", "./generated.json"],
+        None,
+        0,
+    );
+}
+
+#[test]
+fn storage_escape_and_invalid_targets_do_not_write_anything() {
+    let d = init();
+    let dir = d.path();
+    let path = dir.join("ledger.json");
+    let mut config: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let before = db(dir);
+    for storage in [
+        "../outside",
+        ".",
+        "examples/../../outside",
+        "/tmp",
+        "examples/generated.json/../.ledger",
+    ] {
+        config["storage"]["data_dir"] = json!(storage);
+        fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let v = run(dir, &["preview", "examples/generated.json"], None, 2);
+        assert!(v["message"].as_str().unwrap().contains("ledger.json"));
+        assert_eq!(db(dir), before);
+    }
+    assert!(!dir.parent().unwrap().join("outside").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinks_cannot_be_hidden_by_parent_normalization() {
+    use std::os::unix::fs::symlink;
+    let d = init();
+    let dir = d.path();
+    symlink("examples", dir.join("shortcut")).unwrap();
+    let before = db(dir);
+    for args in [
+        vec!["preview", "shortcut/../examples/generated.json"],
+        vec![
+            "--config",
+            "shortcut/../ledger.json",
+            "explain",
+            "generation-1",
+        ],
+        vec!["init", "shortcut/../new-demo", "--demo"],
+    ] {
+        let result = run(dir, &args, None, 2);
+        assert!(result["message"].as_str().unwrap().contains("symlink"));
+    }
+    let config = dir.join("ledger.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+    value["storage"]["data_dir"] = json!("shortcut/../.ledger");
+    fs::write(config, serde_json::to_vec(&value).unwrap()).unwrap();
+    run(dir, &["preview", "examples/generated.json"], None, 2);
+    assert_eq!(db(dir), before);
+    assert!(!dir.join("new-demo").exists());
+}
+
+#[test]
+fn legacy_json_config_requires_explicit_selection() {
+    let d = init();
+    let dir = d.path();
+    assert!(!dir.join("ledger.yaml").exists());
+    fs::rename(dir.join("ledger.json"), dir.join("ledger.yaml")).unwrap();
+    let before = db(dir);
+    run(dir, &["preview", "examples/generated.json"], None, 2);
+    run(
+        dir,
+        &[
+            "--config",
+            "ledger.yaml",
+            "preview",
+            "examples/generated.json",
+        ],
+        None,
+        0,
+    );
+    fs::write(dir.join("ledger.yaml"), "schema: ledger/v1\n").unwrap();
+    let v = run(
+        dir,
+        &[
+            "--config",
+            "ledger.yaml",
+            "preview",
+            "examples/generated.json",
+        ],
+        None,
+        2,
+    );
+    assert!(v["message"].as_str().unwrap().contains("strict JSON"));
+    assert_eq!(db(dir), before);
+}
+
+#[test]
+fn config_errors_name_path_field_and_recovery_action() {
+    let d = init();
+    let dir = d.path();
+    let path = dir.join("ledger.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for (pointer, value, field, action) in [
+        (
+            "/storage/backend",
+            json!("postgres"),
+            "storage.backend",
+            "set to",
+        ),
+        (
+            "/dispatch/enabled",
+            json!(true),
+            "dispatch.enabled",
+            "set to",
+        ),
+        (
+            "/auth/source",
+            json!(null),
+            "auth.source",
+            "nonempty string",
+        ),
+    ] {
+        let mut config = original.clone();
+        *config.pointer_mut(pointer).unwrap() = value;
+        fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let result = run(dir, &["preview", "examples/generated.json"], None, 2);
+        let message = result["message"].as_str().unwrap();
+        for part in ["ledger.json", field, action] {
+            assert!(message.contains(part), "{message}");
+        }
+    }
+    let mut config = original.clone();
+    config["storage"]
+        .as_object_mut()
+        .unwrap()
+        .remove("data_dir");
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let v = run(dir, &["preview", "examples/generated.json"], None, 2);
+    assert!(v["message"]
+        .as_str()
+        .unwrap()
+        .contains("storage.data_dir: missing field"));
+    config = original;
+    config["storage"]["extra"] = json!(true);
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let v = run(dir, &["preview", "examples/generated.json"], None, 2);
+    assert!(v["message"]
+        .as_str()
+        .unwrap()
+        .contains("storage.extra: unknown field; remove it"));
+    let human = invoke(dir, &["preview", "examples/generated.json"], None);
+    assert!(human.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8(human.stderr).unwrap(),
+        include_str!("snapshots/config-error.txt")
+    );
+}
+
+#[test]
+fn human_acceptance_reads_saved_money_and_keeps_machine_receipt() {
+    let d = init();
+    let dir = d.path();
+    let human = invoke(dir, &["accept", "examples/generated.json"], None);
+    assert!(human.status.success());
+    assert_eq!(
+        String::from_utf8(human.stdout).unwrap(),
+        include_str!("snapshots/accept.txt")
+    );
+    let before = db(dir);
+    let retry = invoke(dir, &["accept", "examples/generated.json"], None);
+    let retry = String::from_utf8(retry.stdout).unwrap();
+    assert!(retry.contains("Already recorded; original receipt returned."));
+    assert!(retry.contains("demo-customer -> demo-host: USD 0.80"));
+    let json = run(dir, &["accept", "examples/generated.json"], None, 0);
+    assert!(json.get("human_history").is_none());
+    assert_eq!(
+        json["receipt"],
+        serde_json::from_str::<Value>(include_str!(
+            "../../../fixtures/journals/first-slice/receipt.json"
+        ))
+        .unwrap()
+    );
+    assert_eq!(db(dir), before);
+    // A failed work event has no postings: never manufacture the demo's charge.
+    let fresh = init();
+    let mut e = event(fresh.path());
+    e["status"] = json!("failed");
+    e["quantity"] = json!("0");
+    let bytes = serde_json::to_vec(&e).unwrap();
+    let human = invoke(fresh.path(), &["accept", "-"], Some(&bytes));
+    assert!(human.status.success());
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert!(text.contains("No charge booked"));
+    assert!(!text.contains("USD 0.80"));
 }

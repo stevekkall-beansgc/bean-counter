@@ -233,3 +233,53 @@ fn proposal_inventory_and_compile_boundaries_are_explicit() {
         );
     }
 }
+
+#[test]
+fn reviewed_discrepancies_match_live_oracle_at_each_attempt() {
+    let output = std::process::Command::new("python3")
+        .arg("-B")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("oracle/phase2/regressions.py"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let cases: Vec<Value> = serde_json::from_slice(&output.stdout).unwrap();
+    for case in cases {
+        let name = text(&case, "name");
+        let mut a = Adapter::new(case["config"].clone(), case["events"].clone()).unwrap();
+        for step in case["steps"].as_array().unwrap() {
+            if !step["config"].is_null() {
+                let mut changed =
+                    Adapter::new(step["config"].clone(), case["events"].clone()).unwrap();
+                changed.history = a.history;
+                a = changed;
+            }
+            let result = a.evaluate(&text(step, "event"), &text(step, "received"));
+            match step["result"]["status"].as_str().unwrap() {
+                "accepted" => a.history.push(result.unwrap()),
+                "rejected" => assert_eq!(
+                    result.unwrap_err().code,
+                    core_refusal(&text(&step["result"], "code")),
+                    "{name}"
+                ),
+                other => panic!("unexpected {name} disposition {other}"),
+            }
+            let actual: Vec<_> = a.history.iter().map(|d| a.projection(d)).collect();
+            let expected: Vec<_> = step["journal"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(expected_projection)
+                .collect();
+            assert_eq!(
+                actual, expected,
+                "{name}: full journal after {}",
+                step["event"]
+            );
+            assert_eq!(a.state(), step["result"]["state"], "{name}: every state");
+        }
+    }
+}

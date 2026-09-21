@@ -64,8 +64,11 @@ impl SqliteTx {
     }
 }
 impl AcceptanceTx for SqliteTx {
-    async fn load_outbox(&mut self) -> Result<crate::outbox::Snapshot, StoreError> {
-        checked_read!(self, super::outbox::read(self.conn()))
+    async fn load_outbox(
+        &mut self,
+        query: crate::outbox::Query,
+    ) -> Result<crate::outbox::Snapshot, StoreError> {
+        checked_read!(self, super::outbox::read(self.conn(), query))
     }
     async fn load_installation(&mut self) -> Result<Installation, StoreError> {
         checked_read!(self, read::installation(self.conn()))

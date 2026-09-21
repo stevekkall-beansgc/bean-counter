@@ -1,7 +1,7 @@
 //! Concrete SQLite persistence. `README.md` describes the coordinator integration seam.
 mod connect;
 mod inspect;
-mod migrate;
+pub(crate) mod migrate;
 mod outbox;
 mod owner;
 mod read;

@@ -1,10 +1,13 @@
-Event generation-1 (ev_f4810ef7aa53d2de62eabc0067824efcd635f5f830901d9f1ae09b204ef1cb8b)
-Source event: {"chain":"demo-slice","customer":"demo-customer","evidence":[],"extensions":{},"id":"generation-1","links":[],"operation_id":"generation-1","quantity":"1","schema":"ledger-event/1","source":"urn:demo:app","status":"succeeded","type":"content.generated","unit":"call"}
-Decision: dc_2b34a8ec22d757c7a07a02e9bac1a6f5810a2c5e9716ea0783158472be600982 (revision 1)
-Links: []
-  generation.base: 100 USD atoms (scale 2), retail
-  generation.discount: -20 USD atoms (scale 2), retail
-  BASE_APPLIED
-  DISCOUNT_APPLIED
-  Export intention in_848f5bcafa2f73068fd08eaf67eef3578afc4d4996dd5899e329687279fbedf8: 80 USD atoms to fake (no delivery performed)
-Receipt: rc_01b0da31e91538160d2fbe857c6b69358457d6ec3a0dc85c7689385e031954ae
+Customer charges:
+  demo-customer -> demo-host: USD 0.80 net obligation for generation charge and customer tier discount.
+  demo-customer -> demo-host: USD 1.00 — generation charge.
+  demo-customer -> demo-host: USD -0.20 — customer tier discount.
+Supplier obligations:
+  None recorded.
+Observed provider costs:
+  None recorded.
+Allocations:
+  None recorded.
+Event: generation-1 | Chain: demo-slice | Revision: 1
+Read from saved decisions; no repricing. No payment is executed by this command.
+Use --json for source events, exact atoms, IDs and retained explanations.

@@ -59,7 +59,6 @@ impl Bundle {
         let mut order = Vec::new();
         let mut cap_count = 0;
         let mut share_count = 0;
-        let mut linked_discount_count = 0;
         for (pi, policy) in policies.iter().enumerate() {
             let b = &policy.binding;
             text(&b.id, 128)?;
@@ -226,33 +225,11 @@ impl Bundle {
                         local_basis(component, 2)?;
                         modifier(b, &rule.component)?;
                     }
-                    Operation::LinkedDiscount { amount, component } => {
-                        linked_discount_count += 1;
-                        validate_discount(amount, scale)?;
-                        slug(component)?;
-                        require(
-                            rule.on == EventKind::Acquired
-                                && rule.matcher.is_some()
-                                && b.book == Book::Retail,
-                            "POLICY_UNSUPPORTED_OP",
-                            "linked discount requires explicit outcome match and retail terms",
-                        )?;
-                        let target = match rule.matcher.expect("checked") {
-                            Matcher::Direct { target, .. } => target,
-                            Matcher::AcquisitionOptimization => EventKind::Optimized,
-                        };
-                        require(
-                            policy.rules.iter().any(|r| {
-                                r.on == target
-                                    && r.component == *component
-                                    && matches!(
-                                        r.operation,
-                                        Operation::Base(_) | Operation::Premium(_)
-                                    )
-                            }),
-                            "POLICY_MISSING_BASIS",
-                            "matched predecessor component",
-                        )?;
+                    Operation::LinkedDiscount { .. } => {
+                        return Err(Error::new(
+                            "OUTCOME_TARGET_REQUIRED",
+                            "superseded proposal: use frozen-target outcome families",
+                        ));
                     }
                     Operation::Cap {
                         ceiling,
@@ -349,11 +326,6 @@ impl Bundle {
             order.len() <= 64 && nodes <= 256 && cap_count <= 1 && share_count <= 1,
             "POLICY_LIMIT",
             "rules, AST, one cap/share",
-        )?;
-        require(
-            cap_count == 0 || linked_discount_count == 0,
-            "POLICY_UNSUPPORTED_OP",
-            "proposed linked discounts cannot alter a capped stage",
         )?;
         order.sort_by_key(|&(p, r)| {
             (
