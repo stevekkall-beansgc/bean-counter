@@ -1,10 +1,13 @@
 # Phase 1 integration checkpoint — stopped, incomplete
 
 **21 September follow-up:** the ActiveCommitAbsent accounting defect is repaired;
-see [the bounded repair report](PHASE-1-DISCARD-GATE.md). All 83 SQLite acceptance
-cases pass. A separate intermittent owner/reopen failure, also reproduced at the
-original checkpoint, keeps the default parallel validation gate red. The report
-below preserves the original 20 September checkpoint evidence.
+see [the bounded repair report](PHASE-1-DISCARD-GATE.md). The separate SQLite
+owner/reopen failure is also repaired; see [the parallel gate report](PHASE-1-PARALLEL-GATE.md).
+All 83 acceptance cases, 45 cancellation cases, 21 original SQLite storage tests
+and 2 ownership regressions pass. Twenty unrestricted parallel workspace runs and
+the default check script pass. Integration may resume from this gate; the other
+Phase 1 gates remain open. The report below preserves the original 20 September
+checkpoint evidence.
 
 20 September 2026. Branch `codex/phase1-integration`. This is a reviewable partial
 integration, not a completed Phase 1 slice or a release candidate.

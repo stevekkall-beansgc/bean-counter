@@ -23,7 +23,7 @@ After commit starts, a registered Tokio task owns the transaction, permit and st
 
 The host provides Tokio; the facade does not create a runtime. Before shutdown, stop admission and rollback/drop outstanding non-commit transactions, then call `close()` to drain pools and release ownership. Holding an idle transaction indefinitely can delay this drain. The OS owner guard is also retained by outstanding transactions/pool callbacks; dropping the facade cannot release it while a transaction survives. Runtime teardown or OS process death is distinct from ordinary request cancellation; this lane has not certified power-loss behavior or injected process kills.
 
-`owner.lock` uses stable `std::fs::File::try_lock` on the verified Rust 1.98.1 toolchain. Tests prove conflict both on a second file descriptor and in another process. The lock inode is never unlinked/replaced; canonical directory/path and symlink checks reject supported path switches. Deliberately hostile hardlink/filesystem races and bypass by the OS file owner are outside the storage contract.
+`owner.lock` uses stable `std::fs::File::try_lock` on the verified Rust 1.98.1 toolchain. Tests prove conflict both on a second file descriptor and in another process. The final owner guard explicitly unlocks before closing its descriptor, so a descriptor temporarily inherited by an unrelated concurrently spawning subprocess cannot prolong ownership after the store drains. Outstanding transactions and pool callbacks still retain the guard until cleanup. The lock inode is never unlinked/replaced; canonical directory/path and symlink checks reject supported path switches. Deliberately hostile hardlink/filesystem races and bypass by the OS file owner are outside the storage contract.
 
 ## Resolved build and evidence
 
@@ -40,7 +40,7 @@ Verified locally on ARM64 macOS 26 with Rust 1.98.1; no MSRV or cross-platform c
 
 Linked compile options are printed by `linked_sqlite_reopen_and_exact_journal`. Verified `THREADSAFE=1`, `ENABLE_API_ARMOR`, FK/trigger/WAL support and actual STRICT behavior. Every connection verifies WAL, FULL synchronous, foreign keys ON, normal locking, 250 ms busy timeout, read-uncommitted OFF and its reader/writer query-only setting. On macOS, fullfsync must read back ON. Version/source mismatches fail startup. This is the minimum patched line required by the first-slice contract, not a claim that 3.51.3 is the newest SQLite release.
 
-The 21 test entries include a subprocess lock probe. Real file-backed evidence covers:
+The 21 original test entries include a subprocess lock probe. Two additional owner regressions retain a duplicated OS descriptor through final guard destruction and through a real store close with an outstanding transaction. They require immediate reopen after cleanup and continued exclusion while a live owner remains. Real file-backed evidence covers:
 
 - Complete 25-record acceptance plus seed records, byte-identical original receipt and all retained bodies/hashes after reopen; action atoms independently sum to 80.
 - All 28 cut positions spanning 27 writes (the 54 before/after labels share adjacent cut states), compared against a full SQL database dump after explicit rollback and reopen. Separate dropped-transaction and cancelled-write-future passes, and every initializer cut, leave no residue.

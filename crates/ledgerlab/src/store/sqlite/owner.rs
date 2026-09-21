@@ -6,7 +6,7 @@ use std::{
 
 /// Never unlink this lock file. The OS lock, not its contents or PID, is authority.
 pub(super) struct Owner {
-    _lock: File,
+    lock: File,
     pub directory: PathBuf,
     pub database: PathBuf,
 }
@@ -55,7 +55,7 @@ impl Owner {
             reject_symlink(&directory.join(name))?;
         }
         Ok(Self {
-            _lock: lock,
+            lock,
             directory,
             database,
         })
@@ -68,6 +68,16 @@ impl Owner {
         Ok(())
     }
 }
+impl Drop for Owner {
+    fn drop(&mut self) {
+        // Closing alone leaves the OS lock held by descriptors inherited during
+        // a concurrent subprocess spawn, even with close-on-exec. Only the final
+        // owner guard reaches here; transactions and pool callbacks retain it
+        // until cleanup. Unlock the shared OS lock before closing our descriptor.
+        // If unlock fails, descriptor close remains the fail-closed fallback.
+        let _ = self.lock.unlock();
+    }
+}
 fn reject_symlink(path: &Path) -> Result<(), StoreError> {
     match fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_symlink() => {
@@ -76,5 +86,85 @@ fn reject_symlink(path: &Path) -> Result<(), StoreError> {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn close_drains_transaction_before_unlocking_duplicated_descriptor() {
+        use crate::store::{
+            ports::{AcceptanceStore, AcceptanceTx},
+            sqlite::{tests::installation, SqliteStore},
+        };
+        use std::{
+            future::Future,
+            task::{Context, Poll, Waker},
+            time::Duration,
+        };
+        use tokio::time::Instant;
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = SqliteStore::create(directory.path(), installation())
+            .await
+            .unwrap();
+        let inherited = store.inner._owner.lock.try_clone().unwrap();
+        let tx = store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
+        let mut close = Box::pin(store.close());
+        assert!(matches!(
+            close.as_mut().poll(&mut Context::from_waker(Waker::noop())),
+            Poll::Pending
+        ));
+        assert!(matches!(
+            Owner::acquire(directory.path()),
+            Err(StoreError::Owned)
+        ));
+        tx.rollback().await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), close)
+            .await
+            .expect("close drained the outstanding transaction");
+        let reopened = SqliteStore::open(directory.path())
+            .await
+            .expect("drained store released its lock");
+        drop(inherited);
+        assert!(matches!(
+            Owner::acquire(directory.path()),
+            Err(StoreError::Owned)
+        ));
+        reopened.close().await;
+    }
+
+    #[test]
+    fn final_owner_releases_lock_despite_duplicated_descriptor() {
+        let directory = tempfile::tempdir().unwrap();
+        let owner = Arc::new(Owner::acquire(directory.path()).unwrap());
+        let retained_owner = Arc::clone(&owner);
+        // A duplicate shares the OS lock just like the descriptor inherited by
+        // a concurrently spawning subprocess before close-on-exec takes effect.
+        let inherited = owner.lock.try_clone().unwrap();
+        drop(owner);
+        assert!(matches!(
+            Owner::acquire(directory.path()),
+            Err(StoreError::Owned)
+        ));
+        drop(retained_owner);
+        let replacement = Owner::acquire(directory.path()).expect("final owner released its lock");
+        assert!(matches!(
+            Owner::acquire(directory.path()),
+            Err(StoreError::Owned)
+        ));
+        drop(inherited);
+        assert!(matches!(
+            Owner::acquire(directory.path()),
+            Err(StoreError::Owned)
+        ));
+        drop(replacement);
+        drop(Owner::acquire(directory.path()).unwrap());
     }
 }
