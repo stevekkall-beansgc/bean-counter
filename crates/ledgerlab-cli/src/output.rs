@@ -21,6 +21,11 @@ fn rejection(code: &str) -> u8 {
         3
     }
 }
+fn explain_boundary(v: &mut Value) {
+    if v["code"] == "UNSUPPORTED_SLICE" {
+        v["message"] = json!("Linked events, outcomes and reversals cannot yet be saved or previewed. Local commands support the generation demo.");
+    }
+}
 pub fn accept(result: AcceptResult) -> (Value, u8) {
     let (mut v, c) = match result {
         AcceptResult::Accepted { receipt } => (
@@ -38,6 +43,7 @@ pub fn accept(result: AcceptResult) -> (Value, u8) {
         }
         AcceptResult::Waiting { missing } => (json!({"status":"waiting","missing":missing}), 5),
     };
+    explain_boundary(&mut v);
     v["schema"] = json!("ledger-cli/1");
     (v, c)
 }
@@ -67,6 +73,7 @@ pub fn preview(result: PreviewResult) -> (Value, u8) {
             5,
         ),
     };
+    explain_boundary(&mut v);
     v["schema"] = json!("ledger-cli/1");
     v["status"] = json!("preview");
     v["committed"] = json!(false);
@@ -132,7 +139,7 @@ pub fn text(v: &Value) -> String {
         "preview" => {
             out.push_str(&format!("Preview: {} (can accept: {}). Nothing committed.\n{}\n",string(&v["outcome"]),v["can_accept"],string(&v["warning"])));
             if let Some(records)=v["records"].as_array() { for r in records { match string(&r["kind"]) { "action"=>posting(&mut out,&r["body"]),"intention"=>intention(&mut out,&r["body"]),_=>() } } }
-            for field in ["code","kind","missing","event_id"] { if let Some(value)=v.get(field) { out.push_str(&format!("{field}: {value}\n")); } }
+            for field in ["code","message","kind","missing","event_id"] { if let Some(value)=v.get(field) { out.push_str(&format!("{field}: {value}\n")); } }
         },
         "explained" => {
             for e in v["events"].as_array().unwrap() {

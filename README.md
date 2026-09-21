@@ -2,7 +2,7 @@
 
 Chain events. Compose pricing. Export the result anywhere.
 
-Ledger Lab is an Apache-2.0 event-native economic engine in development. This repository contains the **frozen Phase 0 contracts, the completed bounded Phase 1 acceptance slice, and a local SQLite developer CLI**. `ledger init --demo`, `accept`, `preview`, and `explain` run without Docker, Node, a cloud account, or a paid provider. No HTTP service or payment execution is included. See the [local quickstart](docs/quickstart.md) for the runnable workflow and current limits.
+Ledger Lab is an Apache-2.0 event-native economic engine in development. This repository contains the **frozen Phase 0 contracts, the completed bounded Phase 1 acceptance slice, a typed pure Phase 2 core, proposed reference histories, bounded outbox primitives, and a local SQLite developer CLI**. `ledger init --demo`, `accept`, `preview`, and `explain` run without Docker, Node, a cloud account, or a paid provider. Those commands still save and preview only the Phase 1 generation slice; the Phase 2 persistence bridge is not defined. No HTTP service or payment execution is included. See the [local quickstart](docs/quickstart.md) and [Phase 2 integration status](PHASE-2-INTEGRATION-STATUS.md) for the runnable workflow, verified integration and remaining decisions.
 
 The frozen first slice is a synthetic generation event: base 100 USD atoms, enterprise discount −20, net 80, one held fake-export intention. The separate onboarding chain totals 120 atoms. Do not conflate them.
 

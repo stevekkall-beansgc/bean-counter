@@ -4,12 +4,14 @@ Ledger Lab records work, applies its agreed price, and explains the immutable
 receipt. The `ledger` binary runs locally with SQLite. Running it requires no
 Docker, Node, cloud account, hosted service, model key, or paid provider.
 
-This branch supports the completed Phase 1 generation slice. The product story
+The local commands support the completed Phase 1 generation slice. The product story
 is an AI generation charged initially, followed by a linked outcome that can add
 a premium or discount. Optional paid tools and BYOK/platform-funded responsibility
-belong in the same chain. Those later event/authority families await Phase 2/3;
-this demo does not pretend to implement them. Its BYOK context creates no host
-supplier payable.
+belong in the same chain. The branch includes a pure Phase 2 evaluator, but its
+results cannot yet be saved or previewed through these commands. Linked events
+return `UNSUPPORTED_SLICE` without changing stored state. The demo's BYOK context
+creates no host supplier payable. See the [integration status](../PHASE-2-INTEGRATION-STATUS.md)
+for the unresolved discount semantics and missing persistence definitions.
 
 ## Build and run
 
@@ -127,22 +129,29 @@ There is no signal-drain handler in this bounded CLI.
 ## Integration seams and validation
 
 - `LocalLedger::init_demo` is synthetic-only provisioning; it uses the existing
-  migration and private typed store writes. No public raw append API was added.
+  backend-schema-2 migrations and private typed store writes. Normal open verifies
+  both migration checksums; it does not upgrade older schema-1 installations.
 - `LocalLedger` loads host context and wraps `Ledger::accept`; the CLI does no
   normalization, authority decisions, pricing, rounding, or totals.
 - `Ledger::preview` is a separate result type over the same coordinator preparation
-  path for both library backends. SQLite CLI integration is exercised here;
-  PostgreSQL preview has no new real-server validation claim.
+  path for both library backends. SQLite CLI integration and fresh/duplicate/alias/
+  unsupported preview on real PostgreSQL 18 and 17 preserve all database cells,
+  including the new outbox tables.
 - Local explanation reads have an explicit SQLite seam. They check canonical
   bytes/hashes, displayed manifest membership and receipt references, but are not
   a full-ledger verifier or original-semantics replay. PostgreSQL remains available
   through the existing library API, not required for onboarding.
-- Phase 2 integration should extend coordinator preparation/record families and
-  stored-read projections. Then add reviewed linked demo inputs and tests. Keep
+- The library outbox can dispatch and reconcile the existing held intention using
+  an independent in-memory fake. The CLI requires dispatch to remain held and has
+  no export command. An explicit library pause is required before local commands
+  reopen a ledger whose dispatch was enabled. This fake is not process-durable.
+- The next Phase 2 bridge needs reviewed canonical records, coordinator preparation,
+  and stored-read projections. Then add reviewed linked demo inputs and tests. Keep
   the CLI a formatter of facade results; do not add another economic model.
 - Only existing pinned Tokio/serde_json/tempfile/SQLx packages were added as direct CLI
-  dependencies; no new package/version was selected. The lockfile changes only
-  the CLI's dependency edges. Core and frozen contracts/fixtures are unchanged.
+  dependencies; no new package/version was selected. The comparison adapter also
+  adds a test-only edge to the pinned serde_json package. Frozen contracts/fixtures
+  remain unchanged; the new core API is a separate typed evaluation surface.
 
 Validation commands on the prepared development machine:
 

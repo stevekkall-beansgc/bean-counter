@@ -225,3 +225,9 @@ later linked acquisition/quality adjustments, paid tools, funding/tier responsib
 cap/share, full reversals, retries and negative authority/version cases. These are
 unfrozen semantic projections; they do not extend canonical v1 or certify a Phase 2
 production engine. The quality story is explicitly proposed and disabled by default.
+
+The integration adds a [test-only representation adapter](tests/phase2_core/README.md)
+that feeds 21 aligned histories to the production typed core and compares complete
+common projections after every step. All 29 histories have explicit dispositions;
+quality proposals and coordinator-only checks are not translated into production
+semantics. No oracle code is linked into production.

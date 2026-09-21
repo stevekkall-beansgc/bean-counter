@@ -421,3 +421,111 @@ fn explains_retained_history_and_detects_tampering_without_rerating() {
         "INTEGRITY_FAILURE"
     );
 }
+
+#[test]
+fn migrated_cli_ledger_coexists_with_fake_outbox_and_preserves_receipts() {
+    use ledgerlab::{
+        outbox::{
+            fake::{MemoryDestination, Mode},
+            State,
+        },
+        Ledger,
+    };
+    let d = init();
+    let dir = d.path();
+    let receipt = run(dir, &["accept", "examples/generated.json"], None, 0)["receipt"].clone();
+    let explanation = run(dir, &["explain", "generation-1"], None, 0);
+    let fake = MemoryDestination::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let ledger = Ledger::open_sqlite(&dir.join(".ledger")).await.unwrap();
+        let outbox = ledger.outbox(&fake);
+        let deliveries = outbox.deliveries().await.unwrap();
+        let now = deliveries[0].next_attempt_us;
+        assert_eq!(deliveries[0].state, State::Held);
+        let report = outbox.reconcile(now, Mode::Normal).await.unwrap();
+        outbox.resume(&report.digest, now).await.unwrap();
+        let lease = outbox.acquire("comparison-worker", now).await.unwrap();
+        assert_eq!(
+            outbox
+                .dispatch_one(&lease, now, Mode::LoseResponse)
+                .await
+                .unwrap(),
+            Some(State::Unknown)
+        );
+        // Local commands require a held installation. Pausing is explicit and
+        // must preserve the independent fake's receipt through reopen.
+        outbox.hold(false, now + 1).await.unwrap();
+        let report = outbox.reconcile(now + 2, Mode::Normal).await.unwrap();
+        assert!(report.unresolved.is_empty());
+        assert_eq!(
+            outbox.deliveries().await.unwrap()[0].state,
+            State::Delivered
+        );
+        ledger.close().await;
+    });
+    assert_eq!(fake.receipts("store-demo-slice").len(), 1);
+    let before = db(dir);
+    assert_eq!(
+        before
+            .iter()
+            .find(|(t, _)| t == "_sqlx_migrations")
+            .unwrap()
+            .1
+            .len(),
+        2
+    );
+    assert_eq!(
+        before
+            .iter()
+            .find(|(t, _)| t == "dispatch_attempts")
+            .unwrap()
+            .1
+            .len(),
+        1
+    );
+    assert_eq!(run(dir, &["explain", "generation-1"], None, 0), explanation);
+    assert_eq!(
+        run(dir, &["accept", "examples/generated.json"], None, 0)["receipt"],
+        receipt
+    );
+    assert_eq!(
+        run(dir, &["preview", "examples/generated.json"], None, 0)["outcome"],
+        "duplicate"
+    );
+    assert_eq!(
+        db(dir),
+        before,
+        "CLI reads/retries must preserve outbox evidence and economics"
+    );
+}
+
+#[test]
+fn linked_events_stop_at_facade_boundary_without_any_state_change() {
+    let d = init();
+    let dir = d.path();
+    run(dir, &["accept", "examples/generated.json"], None, 0);
+    let before = db(dir);
+    let mut linked = event(dir);
+    linked["id"] = json!("linked-generation");
+    linked["operation_id"] = json!("linked-generation");
+    linked["links"] =
+        json!([{"relation":"generated_from","from":{"source":"urn:demo:app","id":"generation-1"}}]);
+    for command in ["accept", "preview"] {
+        let result = send(dir, command, &linked, 3);
+        assert_eq!(result["code"], "UNSUPPORTED_SLICE");
+        assert!(result["message"]
+            .as_str()
+            .unwrap()
+            .contains("generation demo"));
+        assert!(result.get("receipt").is_none());
+        assert_eq!(
+            db(dir),
+            before,
+            "{command} must not reserve a Phase 2 identity or decision"
+        );
+    }
+}

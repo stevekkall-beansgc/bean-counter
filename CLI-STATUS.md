@@ -1,5 +1,9 @@
 # Local CLI handoff
 
+This is the original lane report. The [Phase 2 integration status](PHASE-2-INTEGRATION-STATUS.md)
+supersedes its base-specific absence and validation statements: pure Phase 2 core
+and outbox are now integrated, while CLI acceptance still uses the Phase 1 facade.
+
 21 September 2026. Branch `codex/dev-cli`, based on
 `dce3ec4feda4025ab6e98ef23608b9e6f812aeb1`. Work was confined to the supplied
 `ledger-lab-v0-cli` worktree. No merge, push, publication or deployment.

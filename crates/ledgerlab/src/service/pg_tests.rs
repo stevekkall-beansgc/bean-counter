@@ -917,3 +917,71 @@ fn postgres_outbox_delivery_recovery_histories() {
         println!("PostgreSQL outbox history {case}: passed and preserved after reopen");
     }
 }
+
+#[test]
+#[ignore = "requires explicit isolated local PostgreSQL with verified test CA and restricted runtime role"]
+fn postgres_preview_preserves_all_cells_with_outbox_schema() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    let mut b = Backend::new(&oracle, false).unwrap();
+    let input = tk::Command::fixture(&oracle, "input").unwrap();
+    let original = tests::Backend::command(&input);
+    let ledger = Ledger {
+        store: crate::Backend::Postgres(b.store.as_ref().unwrap().clone()),
+    };
+    let before = b.observe().unwrap();
+    let result = b
+        .runtime
+        .block_on(ledger.preview(original.clone()))
+        .unwrap();
+    let PreviewResult::WouldAccept { records } = result else {
+        panic!("fresh preview must evaluate");
+    };
+    assert!(records.iter().all(|r| r["kind"] != "receipt"));
+    assert_eq!(
+        b.observe().unwrap(),
+        before,
+        "fresh preview must preserve every stored cell"
+    );
+    b.accept(&input, None).unwrap();
+    let booked = b.observe().unwrap();
+    assert!(matches!(
+        b.runtime
+            .block_on(ledger.preview(original.clone()))
+            .unwrap(),
+        PreviewResult::Duplicate {
+            kind: DuplicateKind::Identity,
+            ..
+        }
+    ));
+    let mut alias = original.clone();
+    let mut value: Value = serde_json::from_slice(&alias.bytes).unwrap();
+    value["id"] = json!("unreserved-preview-alias");
+    alias.bytes = serde_json::to_vec(&value).unwrap();
+    assert!(matches!(
+        b.runtime.block_on(ledger.preview(alias)).unwrap(),
+        PreviewResult::Duplicate {
+            kind: DuplicateKind::Semantic,
+            ..
+        }
+    ));
+    let mut linked = original;
+    value["operation_id"] = json!("linked-preview");
+    value["links"] =
+        json!([{"relation":"generated_from","from":{"source":"urn:demo:app","id":"generation-1"}}]);
+    linked.bytes = serde_json::to_vec(&value).unwrap();
+    assert_eq!(
+        b.runtime.block_on(ledger.preview(linked)).unwrap(),
+        PreviewResult::Rejected {
+            code: "UNSUPPORTED_SLICE".into()
+        }
+    );
+    assert_eq!(
+        b.observe().unwrap(),
+        booked,
+        "duplicate/alias/unsupported previews must not mutate any cell"
+    );
+    drop(ledger);
+    b.reopen().unwrap();
+    assert_eq!(b.observe().unwrap(), booked);
+}

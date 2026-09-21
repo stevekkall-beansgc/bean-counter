@@ -4,7 +4,8 @@ This concrete private adapter implements the shared acceptance port with typed,
 bound tokio-postgres queries. It uses its own PostgreSQL migration and SQL. The
 coordinator resolves authority and economics; the adapter does neither. See
 `PHASE-1-STATUS.md` for the integration checkpoint and
-`PHASE-1-REVIEW-FIXES.md` for subsequent review fixes and fresh evidence.
+`PHASE-1-REVIEW-FIXES.md` for subsequent review fixes. The current combined evidence
+and outbox/preview boundaries are in `PHASE-2-INTEGRATION-STATUS.md`.
 
 ## Configuration and initialization
 
@@ -18,14 +19,16 @@ filesystem or platform trust settings. No insecure profile is implemented.
 
 Opening checks PostgreSQL 17/18, the authoritative writable primary, negotiated
 TLS, fsync/full_page_writes/synchronous_commit, permanent tables, the exact
-migration checksum and installation identity. The runtime role cannot own the
+checksums of both migrations and installation identity. The runtime role cannot own the
 schema/tables, create schema objects, or delete/truncate retained tables. Runtime
 SQL qualifies `ledgerlab`; startup search_path is `pg_catalog`.
 
 `migrate::create` is a separate private migration-owner entry point for an empty
-database. It takes a transaction-scoped advisory migration lock, installs schema
-1, records the migration digest and grants narrow rights to an existing runtime
-role. `open` never creates, migrates, repairs or seeds. Provisioning and seed
+database. It takes a transaction-scoped advisory migration lock, installs backend
+schema 2, records both migration digests and grants narrow rights to an existing
+runtime role. Logical economic schema 1 and migration 0001 are unchanged; 0002
+adds outbox state/evidence. `open` never creates, migrates, repairs or seeds, and
+rejects old backend-schema-1 stores pending explicit upgrade support. Provisioning and seed
 operations remain private integration seams; no administration CLI/API was added.
 Seed/accepted fixture data are used only in tests, never in production migrations.
 
@@ -72,7 +75,7 @@ from a different connection and has an open-transaction negative control.
 
 The suite covers the 83 acceptance cases, 45 main-path await cancellations,
 semantic-alias cancellation, four-request barrier races with actual lock-timeout
-responses from distinct backend PIDs, poisoned transactions, all 18 immutable
+responses from distinct backend PIDs, poisoned transactions, all 21 immutable
 UPDATE/DELETE/TRUNCATE guards, role rejection, and 12 abandoned real-driver
 COMMIT/socket-cut trials per server version. Those trials pass the replacement
 through the original chain lock, then require exactly no journal or one complete
