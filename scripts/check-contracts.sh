@@ -5,3 +5,5 @@ python3 scripts/contract_checks/check_design.py \
   --design docs/design/sources/LEDGER-LAB-V0-DETAILED-DESIGN.md \
   --output work/validation/document-checks.json
 python3 scripts/contract_checks/check_phase0.py
+# Additive candidate audit; never updates the frozen v1 inventory.
+sh scripts/check-candidate-contracts.sh

@@ -1,0 +1,2340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:canonical-records:2-candidate.1",
+  "title": "Candidate only; independent review pending",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "evidence"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ed2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/evidence"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "policy-snapshot"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^po2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/policy-snapshot"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "event"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ev2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/event"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "base-posting"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^bp2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/base-posting"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "target-basis"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^tb2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/target-basis"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "admission"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ad2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/admission"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "claim"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^cl2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/claim"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "claim-revision"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^rv2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/claim-revision"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "effect"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ef2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/effect"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "action"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ac2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/action"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "obligation"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ob2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/obligation"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "link"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5
+        },
+        "body": {
+          "$ref": "#/$defs/link"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "dependency"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5
+        },
+        "body": {
+          "$ref": "#/$defs/dependency"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "limit-evidence"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^li2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/limit-evidence"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "explanation"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^xp2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/explanation"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "replay-input"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^rp2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/replay-input"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "intention"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^in2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/intention"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "delivery-key"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5
+        },
+        "body": {
+          "$ref": "#/$defs/delivery-key"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "chain-revision"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 5
+        },
+        "body": {
+          "$ref": "#/$defs/chain-revision"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "decision-manifest"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^dc2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/decision-manifest"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "receipt"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^rc2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/receipt"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "event-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ev2_[0-9a-f]{64}$"
+    },
+    "policy-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^po2_[0-9a-f]{64}$"
+    },
+    "basis-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^tb2_[0-9a-f]{64}$"
+    },
+    "posting-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^bp2_[0-9a-f]{64}$"
+    },
+    "admission-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ad2_[0-9a-f]{64}$"
+    },
+    "claim-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^cl2_[0-9a-f]{64}$"
+    },
+    "revision-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^rv2_[0-9a-f]{64}$"
+    },
+    "action-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ac2_[0-9a-f]{64}$"
+    },
+    "effect-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ef2_[0-9a-f]{64}$"
+    },
+    "obligation-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ob2_[0-9a-f]{64}$"
+    },
+    "intention-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^in2_[0-9a-f]{64}$"
+    },
+    "explanation-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^xp2_[0-9a-f]{64}$"
+    },
+    "replay-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^rp2_[0-9a-f]{64}$"
+    },
+    "limit-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^li2_[0-9a-f]{64}$"
+    },
+    "decision-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^dc2_[0-9a-f]{64}$"
+    },
+    "receipt-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^rc2_[0-9a-f]{64}$"
+    },
+    "evidence-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ed2_[0-9a-f]{64}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "slug": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+    },
+    "hash": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "scope": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "$ref": "#/$defs/text"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "atoms": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 31,
+      "pattern": "^(0|-?[1-9][0-9]{0,29})$"
+    },
+    "uint": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 19,
+      "pattern": "^(0|[1-9][0-9]{0,18})$"
+    },
+    "time": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 27,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "ratio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 156,
+          "pattern": "^(0|-?[1-9][0-9]{0,154})$"
+        },
+        "denominator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 155,
+          "pattern": "^[1-9][0-9]{0,154}$"
+        }
+      }
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "currency",
+        "scale",
+        "atoms"
+      ],
+      "properties": {
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "atoms": {
+          "$ref": "#/$defs/atoms"
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "cost_originator",
+        "bearer",
+        "payer",
+        "beneficiary",
+        "recipient"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/text"
+        },
+        "cost_originator": {
+          "$ref": "#/$defs/text"
+        },
+        "bearer": {
+          "$ref": "#/$defs/text"
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "beneficiary": {
+          "$ref": "#/$defs/text"
+        },
+        "recipient": {
+          "$ref": "#/$defs/text"
+        }
+      }
+    },
+    "rule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "kind",
+            "fixed_atoms"
+          ],
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/slug"
+            },
+            "kind": {
+              "const": "fixed"
+            },
+            "fixed_atoms": {
+              "$ref": "#/$defs/atoms"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "kind",
+            "rate"
+          ],
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/slug"
+            },
+            "kind": {
+              "const": "percentage"
+            },
+            "rate": {
+              "$ref": "#/$defs/ratio"
+            }
+          }
+        }
+      ]
+    },
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/slug"
+        },
+        "id": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 5
+            }
+          ]
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    "member": {
+      "$ref": "#/$defs/ref"
+    },
+    "scope-fields": {
+      "$ref": "#/$defs/scope"
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "purpose",
+        "media_type",
+        "utf8"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-evidence/2-candidate.1"
+        },
+        "purpose": {
+          "enum": [
+            "assent",
+            "grant",
+            "authentication",
+            "finality",
+            "outcome",
+            "correction",
+            "supplier_authorization",
+            "delegation"
+          ]
+        },
+        "media_type": {
+          "const": "text/plain;charset=utf-8"
+        },
+        "utf8": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        }
+      }
+    },
+    "policy-snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "agreement_id",
+        "currency",
+        "scale",
+        "book",
+        "family_id",
+        "policy_version",
+        "rules",
+        "rounding",
+        "basis_kind",
+        "roles",
+        "assent",
+        "submission_source",
+        "correction_source",
+        "window_start",
+        "window_end",
+        "report_before",
+        "correct_before",
+        "max_premium_atoms",
+        "max_discount_atoms"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-policy-snapshot/2-candidate.1"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "family_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "policy_version": {
+          "$ref": "#/$defs/uint"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rule"
+          },
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "rounding": {
+          "const": "nearest_ties_away"
+        },
+        "basis_kind": {
+          "const": "original_booked_net"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "submission_source": {
+          "$ref": "#/$defs/source"
+        },
+        "correction_source": {
+          "$ref": "#/$defs/source"
+        },
+        "window_start": {
+          "$ref": "#/$defs/time"
+        },
+        "window_end": {
+          "$ref": "#/$defs/time"
+        },
+        "report_before": {
+          "$ref": "#/$defs/time"
+        },
+        "correct_before": {
+          "$ref": "#/$defs/time"
+        },
+        "max_premium_atoms": {
+          "$ref": "#/$defs/atoms"
+        },
+        "max_discount_atoms": {
+          "$ref": "#/$defs/atoms"
+        },
+        "supplier_authorization": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "delegation": {
+          "$ref": "#/$defs/evidence-id"
+        }
+      }
+    },
+    "base-data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "source",
+        "external_id",
+        "chain_id",
+        "occurred_at",
+        "evidence",
+        "customer",
+        "operation_id",
+        "status",
+        "quantity",
+        "unit"
+      ],
+      "properties": {
+        "type": {
+          "const": "base"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "external_id": {
+          "$ref": "#/$defs/text"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/time"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence-id"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "customer": {
+          "$ref": "#/$defs/text"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/text"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "quantity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+        },
+        "unit": {
+          "$ref": "#/$defs/slug"
+        }
+      }
+    },
+    "outcome-data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "source",
+        "external_id",
+        "chain_id",
+        "payer",
+        "occurred_at",
+        "evidence",
+        "target",
+        "agreement_id",
+        "book",
+        "family_id",
+        "code"
+      ],
+      "properties": {
+        "type": {
+          "const": "outcome"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "external_id": {
+          "$ref": "#/$defs/text"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/time"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence-id"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "family_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "code": {
+          "$ref": "#/$defs/slug"
+        }
+      }
+    },
+    "correction-data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "source",
+        "external_id",
+        "chain_id",
+        "payer",
+        "occurred_at",
+        "evidence",
+        "target",
+        "agreement_id",
+        "book",
+        "family_id",
+        "code",
+        "claim_id",
+        "expected_revision",
+        "corrected_at"
+      ],
+      "properties": {
+        "type": {
+          "const": "correction"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "external_id": {
+          "$ref": "#/$defs/text"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/time"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence-id"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "family_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "code": {
+          "$ref": "#/$defs/slug"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/revision-id"
+        },
+        "corrected_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "data"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-event/2-candidate.1"
+        },
+        "data": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/base-data"
+            },
+            {
+              "$ref": "#/$defs/outcome-data"
+            },
+            {
+              "$ref": "#/$defs/correction-data"
+            }
+          ]
+        }
+      }
+    },
+    "base-posting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "agreement_id",
+        "book",
+        "ordinal",
+        "amount",
+        "roles"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-base-posting/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        }
+      }
+    },
+    "target-basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "target",
+        "agreement_id",
+        "book",
+        "payer",
+        "amount",
+        "postings",
+        "finality",
+        "finality_evidence",
+        "stage"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-target-basis/2-candidate.1"
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "postings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "finality": {
+          "enum": [
+            "final",
+            "provisional"
+          ]
+        },
+        "finality_evidence": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "stage": {
+          "enum": [
+            "uncapped",
+            "capped"
+          ]
+        }
+      }
+    },
+    "admission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "principal",
+        "credential_revision",
+        "authentication",
+        "grant",
+        "grant_revision",
+        "target_guard_revision",
+        "target_state",
+        "aggregate_guard_revision",
+        "authorized_source",
+        "agreement_id",
+        "payer",
+        "book",
+        "family_id",
+        "permission",
+        "received_at",
+        "accepted_at",
+        "decision",
+        "policy_snapshot",
+        "basis"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-admission/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "principal": {
+          "$ref": "#/$defs/text"
+        },
+        "credential_revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "authentication": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "grant": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "grant_revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "target_guard_revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "target_state": {
+          "const": "final_unreversed"
+        },
+        "aggregate_guard_revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "authorized_source": {
+          "$ref": "#/$defs/source"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "family_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "permission": {
+          "enum": [
+            "outcome",
+            "correction"
+          ]
+        },
+        "received_at": {
+          "$ref": "#/$defs/time"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        },
+        "decision": {
+          "const": "allow"
+        },
+        "policy_snapshot": {
+          "$ref": "#/$defs/policy-id"
+        },
+        "basis": {
+          "$ref": "#/$defs/basis-id"
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "target",
+        "agreement_id",
+        "book",
+        "family_id",
+        "first_event",
+        "original_receipt",
+        "facts_hash"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-claim/2-candidate.1"
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "family_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "first_event": {
+          "$ref": "#/$defs/event-id"
+        },
+        "original_receipt": {
+          "$ref": "#/$defs/receipt-id"
+        },
+        "facts_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    "claim-revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "claim_id",
+        "number",
+        "event_id",
+        "code",
+        "policy_snapshot",
+        "basis",
+        "admission",
+        "live_action_ids",
+        "inverse_action_ids",
+        "amount",
+        "original_receipt"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-claim-revision/2-candidate.1"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "number": {
+          "$ref": "#/$defs/uint"
+        },
+        "previous": {
+          "$ref": "#/$defs/revision-id"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "code": {
+          "$ref": "#/$defs/slug"
+        },
+        "policy_snapshot": {
+          "$ref": "#/$defs/policy-id"
+        },
+        "basis": {
+          "$ref": "#/$defs/basis-id"
+        },
+        "admission": {
+          "$ref": "#/$defs/admission-id"
+        },
+        "live_action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "inverse_action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "original_receipt": {
+          "$ref": "#/$defs/receipt-id"
+        }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "claim_id",
+        "revision_id",
+        "slot",
+        "action_id",
+        "facts_hash"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-effect/2-candidate.1"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/revision-id"
+        },
+        "slot": {
+          "enum": [
+            "replacement",
+            "inverse"
+          ]
+        },
+        "action_id": {
+          "$ref": "#/$defs/action-id"
+        },
+        "facts_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "effect_id",
+        "revision_id",
+        "claim_id",
+        "slot",
+        "amount",
+        "obligation_id",
+        "book",
+        "agreement_id",
+        "family_id",
+        "roles",
+        "policy_snapshot",
+        "basis"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-action/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "effect_id": {
+          "$ref": "#/$defs/effect-id"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/revision-id"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "slot": {
+          "enum": [
+            "replacement",
+            "inverse"
+          ]
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "obligation_id": {
+          "$ref": "#/$defs/obligation-id"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "family_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "policy_snapshot": {
+          "$ref": "#/$defs/policy-id"
+        },
+        "basis": {
+          "$ref": "#/$defs/basis-id"
+        },
+        "reverses": {
+          "$ref": "#/$defs/action-id"
+        }
+      }
+    },
+    "obligation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "agreement_id",
+        "book",
+        "currency",
+        "scale",
+        "roles"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-obligation/2-candidate.1"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "target",
+        "relation"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-link/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "relation": {
+          "const": "outcome_of"
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "dependent",
+        "input",
+        "reason"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-dependency/2-candidate.1"
+        },
+        "dependent": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/action-id"
+            },
+            {
+              "$ref": "#/$defs/explanation-id"
+            }
+          ]
+        },
+        "input": {
+          "$ref": "#/$defs/ref"
+        },
+        "reason": {
+          "enum": [
+            "frozen_basis",
+            "exact_inverse",
+            "prior_revision",
+            "aggregate_limit"
+          ]
+        }
+      }
+    },
+    "limit-evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "target",
+        "agreement_id",
+        "book",
+        "currency",
+        "scale",
+        "current_before",
+        "before_premium",
+        "before_discount",
+        "after_premium",
+        "after_discount",
+        "maximum_premium",
+        "maximum_discount"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-limit-evidence/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "current_before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "replacing": {
+          "$ref": "#/$defs/revision-id"
+        },
+        "before_premium": {
+          "$ref": "#/$defs/atoms"
+        },
+        "before_discount": {
+          "$ref": "#/$defs/atoms"
+        },
+        "after_premium": {
+          "$ref": "#/$defs/atoms"
+        },
+        "after_discount": {
+          "$ref": "#/$defs/atoms"
+        },
+        "maximum_premium": {
+          "$ref": "#/$defs/atoms"
+        },
+        "maximum_discount": {
+          "$ref": "#/$defs/atoms"
+        }
+      }
+    },
+    "explanation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "ordinal",
+        "claim_id",
+        "revision_id",
+        "code",
+        "policy_snapshot",
+        "basis",
+        "unrounded_atoms",
+        "rounded_atoms",
+        "rounding",
+        "action_ids",
+        "limit_evidence"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-explanation/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "ordinal": {
+          "const": 0
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "revision_id": {
+          "$ref": "#/$defs/revision-id"
+        },
+        "code": {
+          "enum": [
+            "FIXED_APPLIED",
+            "PERCENTAGE_APPLIED",
+            "ZERO_ADJUSTMENT",
+            "CORRECTION_REPLACED",
+            "CORRECTION_ZERO"
+          ]
+        },
+        "policy_snapshot": {
+          "$ref": "#/$defs/policy-id"
+        },
+        "basis": {
+          "$ref": "#/$defs/basis-id"
+        },
+        "unrounded_atoms": {
+          "$ref": "#/$defs/ratio"
+        },
+        "rounded_atoms": {
+          "$ref": "#/$defs/atoms"
+        },
+        "rounding": {
+          "const": "nearest_ties_away"
+        },
+        "action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 2,
+          "uniqueItems": true
+        },
+        "limit_evidence": {
+          "$ref": "#/$defs/limit-id"
+        }
+      }
+    },
+    "replay-input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "semantics",
+        "inputs",
+        "received_at",
+        "accepted_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-replay-input/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "semantics": {
+          "const": "ledger-outcome-semantics/2-candidate.1"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1,
+          "maxItems": 512,
+          "uniqueItems": true
+        },
+        "received_at": {
+          "$ref": "#/$defs/time"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "intention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "destination",
+        "obligation_id",
+        "action_ids",
+        "amount",
+        "depends_on",
+        "idempotency_key",
+        "payload"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-intention/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "destination": {
+          "$ref": "#/$defs/slug"
+        },
+        "obligation_id": {
+          "$ref": "#/$defs/obligation-id"
+        },
+        "action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/intention-id"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/intention-id"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "obligation_id",
+            "amount",
+            "actions"
+          ],
+          "properties": {
+            "schema": {
+              "const": "ledger-obligation-delta/2-candidate.1"
+            },
+            "obligation_id": {
+              "$ref": "#/$defs/obligation-id"
+            },
+            "amount": {
+              "$ref": "#/$defs/money"
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action_id",
+                  "amount"
+                ],
+                "properties": {
+                  "action_id": {
+                    "$ref": "#/$defs/action-id"
+                  },
+                  "amount": {
+                    "$ref": "#/$defs/money"
+                  }
+                }
+              },
+              "minItems": 1,
+              "maxItems": 128,
+              "uniqueItems": true
+            }
+          }
+        }
+      }
+    },
+    "delivery-key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "source",
+        "external_id",
+        "event_id",
+        "ingress",
+        "ingress_hash",
+        "original_receipt"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-delivery-key/2-candidate.1"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "external_id": {
+          "$ref": "#/$defs/text"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "ingress": {
+          "$ref": "#/$defs/event"
+        },
+        "ingress_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "original_receipt": {
+          "$ref": "#/$defs/receipt-id"
+        }
+      }
+    },
+    "chain-revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "chain_id",
+        "number",
+        "event_id",
+        "decision_id"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-chain-revision/2-candidate.1"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "number": {
+          "$ref": "#/$defs/uint"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "decision_id": {
+          "$ref": "#/$defs/decision-id"
+        }
+      }
+    },
+    "decision-manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "chain_id",
+        "revision",
+        "accepted_at",
+        "members",
+        "explanation_ids"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-decision-manifest/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/member"
+          },
+          "minItems": 1,
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "explanation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/explanation-id"
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "decision_id",
+        "chain_id",
+        "revision",
+        "accepted_at",
+        "event_hash",
+        "decision_hash",
+        "claim_id",
+        "claim_revision",
+        "action_ids",
+        "intention_ids"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-receipt/2-candidate.1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "decision_id": {
+          "$ref": "#/$defs/decision-id"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        },
+        "event_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "decision_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "claim_revision": {
+          "$ref": "#/$defs/revision-id"
+        },
+        "action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "intention_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/intention-id"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

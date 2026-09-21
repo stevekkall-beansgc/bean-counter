@@ -1,0 +1,47 @@
+{
+  "profile": "2-candidate.1",
+  "status": "candidate-not-frozen",
+  "accepted": {
+    "FIXED_APPLIED": "A nonzero fixed rule result was booked.",
+    "PERCENTAGE_APPLIED": "A nonzero exact percentage result was rounded once and booked.",
+    "ZERO_ADJUSTMENT": "The permanent claim and zero revision were accepted without money actions.",
+    "CORRECTION_REPLACED": "An expected-current correction appended any exact inverse and a nonzero replacement.",
+    "CORRECTION_ZERO": "An expected-current correction appended any exact inverse and a zero live revision."
+  },
+  "duplicate": {
+    "DUPLICATE_IDENTITY": "Return the exact original receipt for this accepted normalized command; no canonical append.",
+    "DUPLICATE_CLAIM": "Return the first claim receipt for the same original semantic facts under a new delivery label; no canonical append."
+  },
+  "conflict": {
+    "IDENTITY_CONFLICT": "Existing scoped source/delivery ID has different canonical ingress.",
+    "CLAIM_CONFLICT": "The permanent target/agreement/book/family slot already has different original facts; use an explicit correction.",
+    "STALE_CLAIM_REVISION": "Correction does not name the current immutable revision ID.",
+    "ALREADY_REVERSED": "A stored live action already has an inverse."
+  },
+  "rejected": {
+    "SOURCE_AUTHORITY": "Current authenticated principal lacks permission for the designated source, family, book or correction.",
+    "ASSENT_REQUIRED": "The exact payer/agreement requires retained valid assent evidence.",
+    "SUPPLIER_AUTHORITY": "Supplier economics require separately retained authorization and explicit supplier correction authority.",
+    "PAYER_DELEGATION": "Bearer differs from payer without retained scoped delegation.",
+    "EVIDENCE_REQUIRED": "Retained evidence is missing or cannot be resolved locally.",
+    "OUTCOME_CODE": "Outcome code is absent from the original pinned policy.",
+    "TARGET_NOT_FINAL": "Target is provisional, reversed or otherwise ineligible for a frozen basis.",
+    "OUTCOME_WINDOW": "Occurrence is outside the pinned half-open window.",
+    "REPORT_TOO_LATE": "Original report receipt is at or beyond report_before.",
+    "CORRECTION_TOO_LATE": "Correction time or report receipt is at or beyond correct_before.",
+    "CLOCK_ORDER": "Occurrence/correction, receipt and acceptance times violate the retained ordering rules.",
+    "AGGREGATE_LIMIT": "Gross live premium or discount would exceed its independent pinned aggregate maximum.",
+    "LIMIT_TERMS_MISMATCH": "Families for the target/agreement/book disagree on aggregate maxima.",
+    "CAP_OUTCOME_INCOMPATIBLE": "A target participates in a capped stage; this profile forbids outcome composition even for zero or nonbinding cap cases.",
+    "PIN_CHANGED": "A correction attempts to change its original basis or policy snapshot.",
+    "MONEY_UNIT": "Referenced currency or scale is inconsistent.",
+    "INPUT_LIMIT": "A numeric, byte, nesting, cardinality, precision or evidence bound is exceeded.",
+    "INVALID_CANONICAL_RECORD": "Strict JSON, closed schema, structured identity, hash, ordering, reference, dependency, manifest or exact inverse verification failed."
+  },
+  "notes": [
+    "These are candidate outcome-contract codes, not changes to frozen v1 codes or HTTP mappings.",
+    "Rejected and conflict results append no accepted canonical rows, consume no claim identity and produce no accepted receipt.",
+    "Late reporting does not assert that real-world debt vanished; external authority review is outside this candidate.",
+    "Audit assertion labels are diagnostic invariants; unlisted internal labels map to INVALID_CANONICAL_RECORD rather than becoming new public codes."
+  ]
+}

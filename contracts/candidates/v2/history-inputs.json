@@ -1,0 +1,450 @@
+{
+  "status": "candidate-not-frozen",
+  "description": "Synthetic hand-authored contract histories. Amounts and exact intermediates are literals, not evaluator outputs. Seed targets stand for already accepted base records.",
+  "histories": [
+    {
+      "name": "fixed-success-fee",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "percentage-rebate",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "rate": [
+            "-1",
+            "10"
+          ],
+          "atoms": "-1000",
+          "exact": [
+            "-1000",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "correction-reinstatement",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "success",
+          "correct": true,
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "correction-replacement",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "extra_rules": [
+            {
+              "code": "partial",
+              "kind": "fixed",
+              "fixed_atoms": "1000"
+            }
+          ],
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "partial",
+          "correct": true,
+          "atoms": "1000",
+          "exact": [
+            "1000",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "partial",
+          "correct": true,
+          "atoms": "1000",
+          "exact": [
+            "1000",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "success",
+          "correct": true,
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two-rule-families",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        },
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "rate": [
+            "-1",
+            "10"
+          ],
+          "atoms": "-1000",
+          "exact": [
+            "-1000",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero-adjustment",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "none",
+          "fixed": "2500",
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "success",
+          "correct": true,
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "kind": "identity_retry",
+          "step": 0,
+          "current_policy_version": "2",
+          "expected": "DUPLICATE_IDENTITY"
+        },
+        {
+          "kind": "semantic_retry",
+          "step": 0,
+          "current_policy_version": "2",
+          "expected": "DUPLICATE_CLAIM"
+        }
+      ]
+    },
+    {
+      "name": "rounded-zero",
+      "base": "1",
+      "steps": [
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "rate": [
+            "-1",
+            "10"
+          ],
+          "atoms": "0",
+          "exact": [
+            "-1",
+            "10"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "signed-rounding",
+      "base": "105",
+      "steps": [
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "rate": [
+            "-1",
+            "10"
+          ],
+          "atoms": "-11",
+          "exact": [
+            "-21",
+            "2"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "supplier-separation",
+      "base": "10000",
+      "supplier_base": "3000",
+      "steps": [
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "rate": [
+            "-1",
+            "10"
+          ],
+          "atoms": "-1000",
+          "exact": [
+            "-1000",
+            "1"
+          ]
+        },
+        {
+          "family": "supplier-rebate",
+          "book": "supplier",
+          "code": "rebate",
+          "rate": [
+            "-1",
+            "10"
+          ],
+          "atoms": "-300",
+          "exact": [
+            "-300",
+            "1"
+          ]
+        },
+        {
+          "family": "rebate",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        },
+        {
+          "family": "supplier-rebate",
+          "book": "supplier",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "duplicate-version-retry",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "kind": "identity_retry",
+          "step": 0,
+          "current_policy_version": "2",
+          "expected": "DUPLICATE_IDENTITY"
+        },
+        {
+          "kind": "semantic_retry",
+          "step": 0,
+          "current_policy_version": "2",
+          "expected": "DUPLICATE_CLAIM"
+        },
+        {
+          "kind": "identity_retry",
+          "step": 1,
+          "current_policy_version": "2",
+          "expected": "DUPLICATE_IDENTITY"
+        },
+        {
+          "kind": "changed_facts",
+          "step": 0,
+          "expected": "CLAIM_CONFLICT"
+        },
+        {
+          "kind": "stale_correction",
+          "step": 1,
+          "expected": "STALE_CLAIM_REVISION"
+        }
+      ]
+    },
+    {
+      "name": "timing-rejection",
+      "base": "10000",
+      "steps": [],
+      "probes": [
+        {
+          "kind": "timing",
+          "occurred_at": "2026-09-21T11:59:59.999999Z",
+          "received_at": "2026-09-21T13:00:00.000000Z",
+          "expected": "OUTCOME_WINDOW"
+        },
+        {
+          "kind": "timing",
+          "occurred_at": "2026-09-22T12:00:00.000000Z",
+          "received_at": "2026-09-22T12:00:01.000000Z",
+          "expected": "OUTCOME_WINDOW"
+        },
+        {
+          "kind": "timing",
+          "occurred_at": "2026-09-21T13:00:00.000000Z",
+          "received_at": "2026-09-23T12:00:00.000000Z",
+          "expected": "REPORT_TOO_LATE"
+        }
+      ]
+    },
+    {
+      "name": "cap-incompatibility",
+      "base": "10000",
+      "steps": [],
+      "probes": [
+        {
+          "kind": "cap",
+          "stage": "capped",
+          "expected": "CAP_OUTCOME_INCOMPATIBLE"
+        }
+      ],
+      "stage": "capped"
+    },
+    {
+      "name": "correction-timing-rejection",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ],
+      "probes": [
+        {
+          "kind": "correction_timing",
+          "corrected_at": "2026-09-24T12:00:00.000000Z",
+          "expected": "CORRECTION_TOO_LATE"
+        }
+      ]
+    },
+    {
+      "name": "aggregate-limit-rejection",
+      "base": "10000",
+      "maximum_premium": "3000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ],
+      "additional_policies": [
+        {
+          "family": "bonus",
+          "fixed": "1000"
+        }
+      ],
+      "probes": [
+        {
+          "kind": "aggregate_limit",
+          "family": "bonus",
+          "proposed_atoms": "1000",
+          "expected": "AGGREGATE_LIMIT"
+        }
+      ]
+    }
+  ]
+}

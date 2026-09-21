@@ -1,0 +1,124 @@
+{
+  "status": "candidate-not-frozen",
+  "profile": "2-candidate.1",
+  "independent_review": "pending",
+  "base_commit": "b35258425970052ed71481eca1f33ef857c61be1",
+  "files": {
+    "PHASE-2-CANONICAL-CANDIDATE.md": {
+      "bytes": 8040,
+      "sha256": "f052519ed293b7f41aefa55a4736b095b560ca7695e50ee1a45724a97186947d"
+    },
+    "contracts/candidates/v2/README.md": {
+      "bytes": 2733,
+      "sha256": "ac51dafeea0e39ccc4bed0f2a3ca20420bdc17e1d0b33e265c41e716d72dc705"
+    },
+    "contracts/candidates/v2/goldens/aggregate-limit-rejection.json": {
+      "bytes": 32445,
+      "sha256": "e6ee3f110770aee9125ab4fb894112e6ed590284914a4b4d453cba04b9961cb5"
+    },
+    "contracts/candidates/v2/goldens/cap-incompatibility.json": {
+      "bytes": 7089,
+      "sha256": "99c01abe4734377eb9de002dba0ad5c8bf11da8724d1592c2957e9308cfb83cc"
+    },
+    "contracts/candidates/v2/goldens/correction-reinstatement.json": {
+      "bytes": 103781,
+      "sha256": "06852381e06bf58c29366be2ac234e956c13d889fc5a330cafa8a5880e05ed08"
+    },
+    "contracts/candidates/v2/goldens/correction-replacement.json": {
+      "bytes": 167579,
+      "sha256": "3344259bd56cbb172f4c20284e814084b9f3168a9824d56684ae72d84bbda7fc"
+    },
+    "contracts/candidates/v2/goldens/correction-timing-rejection.json": {
+      "bytes": 31059,
+      "sha256": "8a8ec032e7edb0bede17c9650628e007173d20f1bba583a453b7406c8f0fd95a"
+    },
+    "contracts/candidates/v2/goldens/duplicate-version-retry.json": {
+      "bytes": 72686,
+      "sha256": "60adb32ddcf9d16734857f3039fc15c9952f5c65deead0e64a692a85b55ba48a"
+    },
+    "contracts/candidates/v2/goldens/fixed-success-fee.json": {
+      "bytes": 29750,
+      "sha256": "e27baf620728f4aef73607722e0aad533ec123b4682a507594bbbab59f94b63c"
+    },
+    "contracts/candidates/v2/goldens/inventory.json": {
+      "bytes": 1822,
+      "sha256": "a3cba769d0200f1be85f0a0b16fdb4237f4cfaf9a6822508b593c0524fcedd50"
+    },
+    "contracts/candidates/v2/goldens/percentage-rebate.json": {
+      "bytes": 29781,
+      "sha256": "fc401313e18ad6fc1bc09c07f1936b4eb9b3e9c35089ecb6e2ba0aa0a9463883"
+    },
+    "contracts/candidates/v2/goldens/rounded-zero.json": {
+      "bytes": 24862,
+      "sha256": "81e2f162b51b87de39685ffaa295632e950d0b4cf2fbc2b0b0850a6168a55dd8"
+    },
+    "contracts/candidates/v2/goldens/signed-rounding.json": {
+      "bytes": 29711,
+      "sha256": "75a3a8964b58e777a6dc84ae54e6412ba55b1dfa94b5b0913c84827c25179284"
+    },
+    "contracts/candidates/v2/goldens/supplier-separation.json": {
+      "bytes": 159985,
+      "sha256": "64fe74fc6cee204ac418b864e85c7ccd12bb24d522f0bdd43dd31996652113c0"
+    },
+    "contracts/candidates/v2/goldens/timing-rejection.json": {
+      "bytes": 8760,
+      "sha256": "5074efefb75285e5867635b35b65ab540730dc88cceae4039b121427bed079b6"
+    },
+    "contracts/candidates/v2/goldens/two-rule-families.json": {
+      "bytes": 104124,
+      "sha256": "8c89f4a8222c5298922dc7d836c11facabdfdca57eb4bad94b619c4a144f2857"
+    },
+    "contracts/candidates/v2/goldens/vectors.json": {
+      "bytes": 1131465,
+      "sha256": "78363b2028a2e0e9186cd0f233a079de1bb295bc31c6f87e7e3265425dd60e2e"
+    },
+    "contracts/candidates/v2/goldens/zero-adjustment.json": {
+      "bytes": 60146,
+      "sha256": "046b024db6f6c1ed548da98beb0342b6da4ac54ff3ac422f24520607b086885b"
+    },
+    "contracts/candidates/v2/history-inputs.json": {
+      "bytes": 9363,
+      "sha256": "fc8b7ebf7a6d72bcf3b663cf88cdc3b867ccf5a879ca9003ad16ec913b7e5ca8"
+    },
+    "contracts/candidates/v2/reason-codes.json": {
+      "bytes": 3699,
+      "sha256": "d368e8fbd59fce8fac2908723b1885a69e7be707104eb155934eb1366d9247c1"
+    },
+    "contracts/candidates/v2/schemas/canonical-records.schema.json": {
+      "bytes": 50583,
+      "sha256": "e4cf7ff710e90160dabba8d20440442ccecb1595949822db461e1d39778efcb3"
+    },
+    "docs/adr/candidates/outcome-records-v2.md": {
+      "bytes": 3219,
+      "sha256": "2424cc1406e957f8bc049212372a9779f66c040f4d9e0cd559b0b571f562b8e4"
+    },
+    "docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md": {
+      "bytes": 24224,
+      "sha256": "aed8a1201bad2ab8a601effb6c10fdd366f422ca007d9a3700e91865b588da59"
+    },
+    "scripts/check-candidate-contracts.sh": {
+      "bytes": 96,
+      "sha256": "270960e95c4311b5f97d18de44e932c2c1417bdba5286949fb7fb343162cfef1"
+    },
+    "scripts/check-contracts.sh": {
+      "bytes": 361,
+      "sha256": "d364765bfeca30aa08dac2f63a0dee688ba1d49e02a733108609eef121f8e9b7"
+    },
+    "scripts/contract_checks/v2_candidate/audit.py": {
+      "bytes": 26135,
+      "sha256": "0547be98f21a3487a94592b8d80a44c5a134921e31c5cc6fa92063a59f3095bf"
+    },
+    "scripts/contract_checks/v2_candidate/check_hashes.mjs": {
+      "bytes": 5317,
+      "sha256": "db949f0bee900c8042ee39b31a163f2730d7a17d6e476c279b2afc76cefc563f"
+    },
+    "scripts/contract_checks/v2_candidate/profile.py": {
+      "bytes": 5789,
+      "sha256": "dd54e77d48fe9ef911307c8e7c68fc31df5686cc721b98df9c86093f67537c0e"
+    },
+    "scripts/contract_checks/v2_candidate/reconstruct.py": {
+      "bytes": 17012,
+      "sha256": "ae64dcf4ee2773eddc2a97add814fc27ebc096b8c2c2bf3c36b4e9e8d4c5e06e"
+    }
+  }
+}
