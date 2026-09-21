@@ -8,6 +8,8 @@ mod outcomes;
 mod read;
 #[path = "proof/tls.rs"]
 pub(crate) mod tls;
+#[cfg(test)]
+pub(crate) mod trace;
 mod tx;
 pub(crate) mod write;
 

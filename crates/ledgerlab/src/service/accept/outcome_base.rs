@@ -65,6 +65,7 @@ pub(super) fn members(v: &[Value]) -> Result<Vec<Value>> {
     refs.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
     Ok(refs.into_iter().map(|v| v.2).collect())
 }
+#[derive(Clone)]
 pub(super) struct Records {
     pub rows: Vec<Value>,
     map: BTreeMap<Vec<u8>, usize>,
@@ -308,6 +309,8 @@ pub(super) struct Base {
     pub basis: Value,
 }
 pub(super) fn decode_base(records: &Records, anchor: &Value) -> Result<Base> {
+    #[cfg(test)]
+    let _trace = crate::store::postgres::trace::Span::new("decode_base");
     let acceptance = records.deref(anchor)?.clone();
     check(acceptance["kind"] == "base-acceptance")?;
     let ab = &acceptance["body"];

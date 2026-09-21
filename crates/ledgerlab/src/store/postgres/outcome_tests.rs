@@ -1377,3 +1377,189 @@ async fn postgres_outcome_cancel_pending_delivery_rolls_back_all_companions() {
     println!("P3 cancelled actual pending delivery INSERT: every companion/namespace/head rolled back and backend discarded");
     f.finish().await;
 }
+
+// The diagnostic observer runs on a separate OS thread/runtime so synchronous
+// coordinator work cannot prevent it from observing server lock/idle state.
+struct RaceObserver {
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl RaceObserver {
+    fn start(config: PostgresConfig) -> Self {
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        let (ready, receive) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
+                let session = config.connect().await.unwrap();
+                ready.send(()).unwrap();
+                while !flag.load(Ordering::Acquire) {
+                    let rows = session.client.query("SELECT json_build_object('pid',pid,'state',state,'wait_type',wait_event_type,'wait_event',wait_event,'blockers',pg_blocking_pids(pid),'xact_ms',extract(epoch from clock_timestamp()-xact_start)*1000,'query_ms',extract(epoch from clock_timestamp()-query_start)*1000,'query',query)::text FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND state<>'idle' ORDER BY pid",&[]).await.unwrap();
+                    for row in rows { postgres::trace::log(format_args!("server {}",row.get::<_,String>(0))); }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                session.discard().await;
+            });
+        });
+        receive.recv().unwrap();
+        Self {
+            stop,
+            thread: Some(thread),
+        }
+    }
+}
+impl Drop for RaceObserver {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            thread.join().unwrap();
+        }
+    }
+}
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 17/18 TLS service; correlated R2 diagnosis"]
+async fn postgres_outcome_correlated_race_and_exact_failed_pair_state() {
+    let mut f = Fixture::new().await;
+    let mut control = Fixture::new().await;
+    let v = validated::lifecycle();
+    provision(&mut f, &v).await;
+    provision(&mut control, &v).await;
+    assert_eq!(physical(&f).await, physical(&control).await);
+    let authority = SyntheticAuthority(v.proofs.clone());
+    let mut expected = OutcomeSnapshot {
+        anchors: vec![],
+        records: v.provisioned_records.clone(),
+        heads: v.provisioned_heads.clone(),
+    };
+    for (index, command) in v.commands.iter().enumerate() {
+        let before = physical(&f).await;
+        let observer = RaceObserver::start(config(&f.name, true));
+        let started = Instant::now();
+        let (a, b) = tokio::join!(
+            postgres::trace::scope(
+                format!("stage{index}-left"),
+                coordinator::run(&f.store, command, &authority)
+            ),
+            postgres::trace::scope(
+                format!("stage{index}-right"),
+                coordinator::run(&f.store, command, &authority)
+            )
+        );
+        let result = |r: &Result<coordinator::OutcomeResult, crate::ServiceError>| match r {
+            Ok(coordinator::OutcomeResult::Accepted(_)) => "Accepted".to_string(),
+            Ok(coordinator::OutcomeResult::Duplicate(_)) => "Duplicate".to_string(),
+            other => format!("{other:?}"),
+        };
+        println!(
+            "R2 pair database={} stage={index} elapsed_ms={} left={} right={}",
+            f.name,
+            started.elapsed().as_millis(),
+            result(&a),
+            result(&b)
+        );
+        drop(observer);
+        // Build an exact physical reference by persisting the same validating
+        // fixture plan once in a separate provisioned database, with no race.
+        let mut tx = ready(&control.store, &v.plans[index]).await;
+        tx.append_outcome(&v.plans[index]).await.unwrap();
+        tx.commit().await.unwrap();
+        let complete = physical(&control).await;
+        let actual = physical(&f).await;
+        let committed = actual == complete;
+        assert!(
+            committed || actual == before,
+            "partial or unexpected physical race state at {index}"
+        );
+        if committed {
+            validated::apply(&mut expected, &v.plans[index]);
+        }
+        f.store.clone().close().await;
+        f.owner.discard().await;
+        f.owner = config(&f.name, true).connect().await.unwrap();
+        f.store = PostgresStore::open(config(&f.name, false)).await.unwrap();
+        assert_eq!(physical(&f).await, actual, "reopen changed stage {index}");
+        assert_snapshot(&f.store, v.plans[index].resolution(), &expected).await;
+        if let Ok(path) = std::env::var("LEDGERLAB_R2_EVIDENCE_DIR") {
+            std::fs::create_dir_all(&path).unwrap();
+            let major = std::env::var("LEDGERLAB_PG_TEST_MAJOR").unwrap();
+            let evidence = json!({"stage":index,"left":result(&a),"right":result(&b),"complete":committed,"before":before,"actual":actual,"sequential_control":complete});
+            std::fs::write(
+                format!("{path}/pg{major}-stage{index}.json"),
+                serde_json::to_vec_pretty(&evidence).unwrap(),
+            )
+            .unwrap();
+        }
+        println!("R2 state stage={index}: exact {} physical state, all tables and reopened snapshot checked before result assertion",if committed {"complete"} else {"prior"});
+        if a.is_err() || b.is_err() {
+            f.finish().await;
+            control.finish().await;
+            panic!(
+                "R2 failed pair after state inspection: left={} right={}",
+                result(&a),
+                result(&b)
+            );
+        }
+        assert_eq!(
+            [&a, &b]
+                .iter()
+                .filter(|r| matches!(r, Ok(coordinator::OutcomeResult::Accepted(_))))
+                .count(),
+            1
+        );
+        for r in [a, b] {
+            let d = match r.unwrap() {
+                coordinator::OutcomeResult::Accepted(d)
+                | coordinator::OutcomeResult::Duplicate(d) => d,
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(&d, v.plans[index].delivery());
+        }
+    }
+    f.finish().await;
+    control.finish().await;
+}
+
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL 17/18 TLS service"]
+async fn postgres_outcome_stale_snapshot_restarts_at_lock_before_planning() {
+    let mut f = Fixture::new().await;
+    let v = validated::lifecycle();
+    provision(&mut f, &v).await;
+    let mut register = ready(&f.store, &v.plans[0]).await;
+    register.append_outcome(&v.plans[0]).await.unwrap();
+    register.commit().await.unwrap();
+    let mut stale = f
+        .store
+        .begin_outcome(Instant::now() + Duration::from_secs(5))
+        .await
+        .unwrap();
+    // Establish the SERIALIZABLE snapshot before a different transaction updates
+    // the reservation/target heads. The immutable scope guard remains unchanged.
+    stale.load_installation().await.unwrap();
+    let mut winner = ready(&f.store, &v.plans[1]).await;
+    winner.append_outcome(&v.plans[1]).await.unwrap();
+    winner.commit().await.unwrap();
+    let complete = physical(&f).await;
+    let result = stale.lock_scopes(&v.plans[1].resolution().locks).await;
+    let rejected_at_lock = matches!(&result, Err(StoreError::Postgres(e)) if e.code().is_some_and(|c| c.code()=="40001"));
+    println!("R2 deterministic stale-snapshot lock result: {result:?}");
+    stale.rollback().await.unwrap();
+    assert_eq!(physical(&f).await, complete);
+    f.store.clone().close().await;
+    f.store = PostgresStore::open(config(&f.name, false)).await.unwrap();
+    assert_eq!(physical(&f).await, complete);
+    let original = coordinator::run(
+        &f.store,
+        &v.commands[1],
+        &ReadOnlyAuthority(SyntheticAuthority(v.proofs.clone())),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        original,
+        coordinator::OutcomeResult::Duplicate(v.plans[1].delivery().clone())
+    );
+    assert_eq!(physical(&f).await, complete);
+    f.finish().await;
+    assert!(rejected_at_lock,"stale SERIALIZABLE snapshot reached planning instead of restarting during lock acquisition");
+}

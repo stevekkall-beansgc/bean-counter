@@ -82,6 +82,8 @@ pub(super) async fn start(
             return Err(StoreError::WritesDisabled);
         }
         let config = owner.config.clone();
+        #[cfg(test)]
+        let trace_label = super::trace::label();
         let handle = tokio::spawn(async move {
             let _permit = permit;
             let mut session = match timeout_at(deadline, config.connect()).await {
@@ -113,6 +115,9 @@ pub(super) async fn start(
             match timeout_at(deadline, result).await {
                 Ok(Ok((tx, pid))) => {
                     if ready.send(Ok(pid)).is_ok() {
+                        #[cfg(test)]
+                        super::trace::scope(trace_label, drive(tx, receiver, deadline, pid)).await;
+                        #[cfg(not(test))]
                         drive(tx, receiver, deadline).await;
                     } else {
                         let _ = timeout_at(Instant::now() + Duration::from_secs(5), tx.rollback())
@@ -132,6 +137,13 @@ pub(super) async fn start(
         tasks.push(handle);
     }
     let pid = started.await.map_err(|_| StoreError::WritesDisabled)??;
+    #[cfg(test)]
+    super::trace::log(format_args!(
+        "begin pid={pid} remaining_ms={}",
+        deadline
+            .saturating_duration_since(Instant::now())
+            .as_millis()
+    ));
     #[cfg(test)]
     owner.last_pid.store(pid, Ordering::Release);
     if owner.closed.load(Ordering::Acquire) {
@@ -179,6 +191,7 @@ async fn drive(
     tx: Transaction<'_>,
     mut commands: mpsc::UnboundedReceiver<Command>,
     deadline: Instant,
+    #[cfg(test)] pid: i32,
 ) {
     let mut failed = false;
     let mut held = outcomes::Locked::default();
@@ -186,8 +199,37 @@ async fn drive(
     loop {
         let command = match timeout_at(deadline, commands.recv()).await {
             Ok(Some(c)) => c,
-            _ => break,
+            _ => {
+                #[cfg(test)]
+                super::trace::log(format_args!(
+                    "driver_exit pid={pid} remaining_ms={} channel_closed={}",
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis(),
+                    commands.is_closed()
+                ));
+                break;
+            }
         };
+        #[cfg(test)]
+        let operation = match &command {
+            Command::Outcome(OutcomeOp::Locks(_), _) => "locks",
+            Command::Outcome(OutcomeOp::Resolve(_), _) => "resolve",
+            Command::Outcome(OutcomeOp::Lookup(_), _) => "lookup",
+            Command::Outcome(OutcomeOp::Append(_), _) => "append",
+            Command::Outcome(OutcomeOp::FailAt(_), _) => "failpoint",
+            Command::Read(_, _) => "read",
+            Command::Write(_, _) => "write",
+            Command::Commit(_) => "commit",
+            Command::Rollback(_) => "rollback",
+        };
+        #[cfg(test)]
+        super::trace::log(format_args!(
+            "op_start pid={pid} op={operation} remaining_ms={}",
+            deadline
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+        ));
         match command {
             Command::Outcome(op, reply) => {
                 if failed {
@@ -223,6 +265,14 @@ async fn drive(
                 )
                 .await
                 .unwrap_or(Err(StoreError::Deadline));
+                #[cfg(test)]
+                super::trace::log(format_args!(
+                    "op_end pid={pid} op={operation} remaining_ms={} result={:?}",
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis(),
+                    result.as_ref().map(|_| ())
+                ));
                 failed = result.is_err();
                 if reply.send(result).is_err() {
                     break;
@@ -242,6 +292,14 @@ async fn drive(
                 )
                 .await
                 .unwrap_or(Err(StoreError::Deadline));
+                #[cfg(test)]
+                super::trace::log(format_args!(
+                    "op_end pid={pid} op={operation} remaining_ms={} result={:?}",
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis(),
+                    result.as_ref().map(|_| ())
+                ));
                 failed = result.is_err();
                 if reply.send(result).is_err() {
                     break;
@@ -261,6 +319,14 @@ async fn drive(
                 )
                 .await
                 .unwrap_or(Err(StoreError::Deadline));
+                #[cfg(test)]
+                super::trace::log(format_args!(
+                    "op_end pid={pid} op={operation} remaining_ms={} result={:?}",
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis(),
+                    result.as_ref().map(|_| ())
+                ));
                 failed = result.is_err();
                 if reply.send(result).is_err() {
                     break;
@@ -271,6 +337,13 @@ async fn drive(
                     .await
                     .map_err(|_| StoreError::WritesDisabled)
                     .and_then(|r| r.map_err(StoreError::from));
+                #[cfg(test)]
+                super::trace::log(format_args!(
+                    "op_end pid={pid} op={operation} remaining_ms={} result={result:?}",
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                ));
                 let _ = reply.send(result);
                 return;
             }
@@ -294,6 +367,13 @@ async fn drive(
                         _ => Err(CommitError::OutcomeUnknown),
                     }
                 };
+                #[cfg(test)]
+                super::trace::log(format_args!(
+                    "op_end pid={pid} op={operation} remaining_ms={} result={result:?}",
+                    deadline
+                        .saturating_duration_since(Instant::now())
+                        .as_millis()
+                ));
                 let _ = reply.send(result);
                 return;
             }
@@ -301,7 +381,13 @@ async fn drive(
     }
     // Closed handle or expired admission: no COMMIT has been issued. Explicit
     // rollback is bounded; the enclosing session is discarded in every case.
-    let _ = timeout_at(Instant::now() + Duration::from_secs(5), tx.rollback()).await;
+    let rollback = timeout_at(Instant::now() + Duration::from_secs(5), tx.rollback()).await;
+    #[cfg(test)]
+    super::trace::log(format_args!(
+        "driver_exit_rollback pid={pid} result={rollback:?}"
+    ));
+    #[cfg(not(test))]
+    let _ = rollback;
 }
 impl PostgresTx {
     async fn read(&mut self, request: Read) -> Result<Value, StoreError> {

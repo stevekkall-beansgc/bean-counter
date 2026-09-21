@@ -1,5 +1,10 @@
 # Phase 3 R1: enforce host write authorization
 
+Independent re-review closed R1 on `8335b0d94432ab4679109cb761703f1ade7a5dbe`
+but returned CONDITIONAL for R2 concurrency failures. The bounded diagnosis and
+successor correction are documented in `PRODUCT-PHASE-3-R2.md`; results below
+remain historical R1 evidence.
+
 This bounded successor addresses P1/R1 in the independent review of
 `930497b1d21e684a7814c2edcd72f7676b9d2937`. That candidate only invoked the
 mandatory host verifier with `write=false`, so a host that allowed reads but

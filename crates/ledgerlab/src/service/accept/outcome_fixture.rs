@@ -166,11 +166,16 @@ fn from_history(h: &Value) -> Fixture {
             locks: locks.clone(),
         };
         let all = Records::new(&snapshot.records, json!(key.scope)).unwrap();
-        let mut proposal = Records::new(
+        let proposal = Records::new(
             &seed.iter().map(|r| bytes(r).unwrap()).collect::<Vec<_>>(),
             json!(key.scope),
         )
         .unwrap();
+        let registered = if index == 0 {
+            None
+        } else {
+            Some(registered_history(&snapshot, &command, &all).unwrap())
+        };
         let result = build(
             &command,
             &event,
@@ -178,9 +183,10 @@ fn from_history(h: &Value) -> Fixture {
             &key,
             &snapshot,
             &resolve,
-            &mut proposal,
+            &proposal,
             &base,
             &all,
+            registered.as_ref(),
             &auth,
             false,
         )
@@ -194,7 +200,7 @@ fn from_history(h: &Value) -> Fixture {
         proofs.push(auth);
     }
     let all = Records::new(&snapshot.records, json!(scoped(&command))).unwrap();
-    validate_registered(&snapshot, &command, &all).unwrap();
+    registered_history(&snapshot, &command, &all).unwrap();
     Fixture {
         provisioned_heads: initial_heads,
         provisioned_records: initial_records,

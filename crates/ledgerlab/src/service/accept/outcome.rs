@@ -315,10 +315,9 @@ fn operation(c: &OutcomeCommand) -> Result<(Value, Value, ScopedDelivery)> {
     Ok((event, command, key))
 }
 fn proof_records(records: &Records, c: &OutcomeCommand) -> Result<Records> {
-    let mut output = Records::new(
-        &records.rows.iter().map(bytes).collect::<Result<Vec<_>>>()?,
-        records.scope.clone(),
-    )?;
+    // These rows already passed canonical decoding when the locked snapshot was
+    // loaded. Copy the validated values; newly supplied evidence is decoded below.
+    let mut output = records.clone();
     if let OutcomeOperation::Economic { evidence, .. } = &c.operation {
         for raw in evidence {
             let r = core(codec::decode(raw))?;
@@ -395,6 +394,8 @@ fn verify_proof(
     Ok(())
 }
 fn classified(e: StoreError) -> ServiceError {
+    #[cfg(test)]
+    crate::store::postgres::trace::log(format_args!("classify {e:?}"));
     crate::service::store_error(e)
 }
 fn unknown(k: &ScopedDelivery) -> ServiceError {
@@ -414,6 +415,14 @@ pub(crate) async fn run<S: OutcomeStore, A: OutcomeAuthority>(
     let mut locks = normalize_locks(baseline_locks(c)?)?;
     let deadline = Instant::now() + Duration::from_secs(5);
     for attempt in 0..5 {
+        #[cfg(test)]
+        crate::store::postgres::trace::log(format_args!(
+            "attempt={attempt} locks={} remaining_ms={}",
+            locks.len(),
+            deadline
+                .saturating_duration_since(Instant::now())
+                .as_millis()
+        ));
         if Instant::now() >= deadline {
             return Err(ServiceError::Retryable);
         }
@@ -423,6 +432,18 @@ pub(crate) async fn run<S: OutcomeStore, A: OutcomeAuthority>(
             Err(e) => return Err(classified(e)),
         };
         let result = prepare(&mut tx, c, authority, &event, &command, &key, &locks).await;
+        #[cfg(test)]
+        crate::store::postgres::trace::log(format_args!(
+            "prepared attempt={attempt} remaining_ms={} result={:?}",
+            deadline
+                .saturating_duration_since(Instant::now())
+                .as_millis(),
+            result.as_ref().map(|p| match p {
+                Prepared::More(_) => "more",
+                Prepared::End(_) => "end",
+                Prepared::Append(_, _) => "append",
+            })
+        ));
         match result {
             Ok(Prepared::More(next)) => {
                 tx.rollback().await.map_err(classified)?;
@@ -538,7 +559,7 @@ async fn prepare<T: OutcomeTx, A: OutcomeAuthority>(
         false,
         text(&command["kind"])?,
     )?;
-    if current(
+    let registered = if current(
         &snapshot,
         c,
         OutcomeLockClass::Target,
@@ -564,8 +585,10 @@ async fn prepare<T: OutcomeTx, A: OutcomeAuthority>(
         }) {
             return Ok(Prepared::More(needed));
         }
-        validate_registered(&snapshot, c, &records)?;
-    }
+        Some(validate_registered(&snapshot, c, retained, econ, base)?)
+    } else {
+        None
+    };
     let stored = match tx.lookup_outcome_delivery(key).await {
         Ok(v) => v,
         Err(StoreError::DeliveryConflict) => {
@@ -588,26 +611,24 @@ async fn prepare<T: OutcomeTx, A: OutcomeAuthority>(
             },
         ));
     }
-    let (mut economic_records, base) = if let OutcomeOperation::FinalBase { seed } = &c.operation {
+    let seed = if let OutcomeOperation::FinalBase { seed } = &c.operation {
         let seed_records = Records::new(seed, json!(key.scope))?;
         let base = b::decode_base(
             &seed_records,
             &reference(seed_records.one("base-acceptance")?),
         )?;
         check(base.snapshot["body"]["target"] == c.target)?;
-        (seed_records, base)
+        Some((seed_records, base))
     } else {
-        let target = current(
-            &snapshot,
-            c,
-            OutcomeLockClass::Target,
-            vec![json!(c.target)],
-        )?
-        .ok_or_else(integrity)?;
-        let base = b::decode_base(&records, &target["base"])?;
-        (economic_only(&records)?, base)
+        None
     };
-    let needed = full_locks(c, &base, &economic_records)?;
+    let (economic_records, base) = if let Some((records, base)) = &seed {
+        (records, base)
+    } else {
+        let retained = registered.as_ref().ok_or_else(integrity)?;
+        (&retained.records, &retained.base)
+    };
+    let needed = full_locks(c, base, economic_records)?;
     if needed.iter().any(|l| {
         !locks
             .iter()
@@ -625,9 +646,10 @@ async fn prepare<T: OutcomeTx, A: OutcomeAuthority>(
         key,
         &snapshot,
         &resolve,
-        &mut economic_records,
-        &base,
+        economic_records,
+        base,
         &records,
+        registered.as_ref(),
         &proof,
         true,
     )? {
@@ -643,9 +665,10 @@ async fn prepare<T: OutcomeTx, A: OutcomeAuthority>(
         key,
         &snapshot,
         &resolve,
-        &mut economic_records,
-        &base,
+        economic_records,
+        base,
         &records,
+        registered.as_ref(),
         &write_proof,
         false,
     )?
@@ -810,6 +833,8 @@ fn historical_records(
     c: &OutcomeCommand,
     all: &Records,
 ) -> Result<Records> {
+    #[cfg(test)]
+    let _trace = crate::store::postgres::trace::Span::new("historical_records");
     let t = current(snapshot, c, OutcomeLockClass::Target, vec![json!(c.target)])?
         .ok_or_else(integrity)?;
     let refs = array(&t["records"])?;
@@ -849,16 +874,38 @@ fn historical_records(
     )?;
     Records::new(&raw, all.scope.clone())
 }
-fn validate_registered(
+// A replay result belongs only to this locked snapshot. Reuse it for identity,
+// semantic lookup and fresh planning; never carry it across rollback/re-resolution.
+struct Registered {
+    records: Records,
+    base: Base,
+    decisions: Vec<o::Decision>,
+    settlement: Vec<Value>,
+}
+#[cfg(test)]
+fn registered_history(
     snapshot: &OutcomeSnapshot,
     c: &OutcomeCommand,
     all: &Records,
-) -> Result<(Records, Base, Vec<o::Decision>, Vec<Value>)> {
+) -> Result<Registered> {
     let records = historical_records(snapshot, c, all)?;
     let economic = economic_only(&records)?;
     let target = current(snapshot, c, OutcomeLockClass::Target, vec![json!(c.target)])?
         .ok_or_else(integrity)?;
     let base = b::decode_base(&economic, &target["base"])?;
+    validate_registered(snapshot, c, records, economic, base)
+}
+fn validate_registered(
+    snapshot: &OutcomeSnapshot,
+    c: &OutcomeCommand,
+    records: Records,
+    economic: Records,
+    base: Base,
+) -> Result<Registered> {
+    #[cfg(test)]
+    let _trace = crate::store::postgres::trace::Span::new("validate_registered");
+    let target = current(snapshot, c, OutcomeLockClass::Target, vec![json!(c.target)])?
+        .ok_or_else(integrity)?;
     check(base.snapshot["body"]["target"] == c.target)?;
     let groups = decision_groups(&economic, &base)?;
     let decisions = economic::replay(&economic, &base, &groups)?;
@@ -1017,7 +1064,12 @@ fn validate_registered(
             && reservation.revision.as_deref() == last["body"]["result"]["revision"].as_str(),
     )?;
     validate_economic_heads(snapshot, c, &economic, &base)?;
-    Ok((economic, base, decisions, prefix))
+    Ok(Registered {
+        records: economic,
+        base,
+        decisions,
+        settlement: prefix,
+    })
 }
 fn validate_economic_heads(
     s: &OutcomeSnapshot,
@@ -1110,12 +1162,15 @@ fn build(
     key: &ScopedDelivery,
     snapshot: &OutcomeSnapshot,
     resolve: &OutcomeResolve,
-    new_records: &mut Records,
+    new_records: &Records,
     base_proposal: &Base,
     all: &Records,
+    registered: Option<&Registered>,
     proof: &AuthorityProof,
     lookup_only: bool,
 ) -> Result<Option<Prepared>> {
+    #[cfg(test)]
+    let _trace = crate::store::postgres::trace::Span::new("build");
     use OutcomeLockClass as L;
     use OutcomeLockMode as M;
     let registering = matches!(c.operation, OutcomeOperation::FinalBase { .. });
@@ -1128,19 +1183,16 @@ fn build(
     // Validate the selected host proof once at the planning boundary. Fresh work
     // requires write rights before any accepted economic decision is constructed.
     verify_proof(c, snapshot, proof, all, &key.source, !lookup_only, kind)?;
-    let mut history = vec![];
-    let mut prior = vec![];
-    let mut owned = None;
-    if !registering {
-        let (r, b, h, p) = validate_registered(snapshot, c, all)?;
-        owned = Some((r, b));
-        history = h;
-        prior = p;
-    }
-    let (records, base) = if let Some((r, b)) = &owned {
-        (r, b)
+    let (records, base, history, prior) = if registering {
+        (new_records, base_proposal, &[][..], &[][..])
     } else {
-        (&*new_records, base_proposal)
+        let retained = registered.ok_or_else(integrity)?;
+        (
+            &retained.records,
+            &retained.base,
+            retained.decisions.as_slice(),
+            retained.settlement.as_slice(),
+        )
     };
     if registering {
         for observed in &snapshot.heads {
@@ -1192,10 +1244,8 @@ fn build(
             check(proof.verified_terms.contains(&required))?;
         }
     }
-    let mut active = Records::new(
-        &records.rows.iter().map(bytes).collect::<Result<Vec<_>>>()?,
-        records.scope.clone(),
-    )?;
+    // Retain the validated immutable envelopes; decode only new raw evidence.
+    let mut active = records.clone();
     let mut evidence = vec![];
     if let OutcomeOperation::Economic { evidence: raw, .. } = &c.operation {
         for raw in raw {
@@ -1242,7 +1292,7 @@ fn build(
             &verified,
             std::slice::from_ref(&base.target),
             std::slice::from_ref(&base.evaluation),
-            &history,
+            history,
         ) {
             Ok(v) => v,
             Err(e) if e.code == "CLAIM_CONFLICT" => {
@@ -1424,7 +1474,7 @@ fn build(
             accepted: json!(c.accepted_at),
             economic: economic_receipt,
             economic_prefix: &econ_prefix,
-            prior: &prior,
+            prior,
             amount,
             authorized_close: proof.authorized_early_close,
         },

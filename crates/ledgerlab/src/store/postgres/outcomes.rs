@@ -133,6 +133,13 @@ pub(super) async fn lock<C: GenericClient + Sync>(
             OutcomeLockMode::Write => "SELECT key FROM ledgerlab.outcome_scope_locks WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR UPDATE",
         };
         c.query_one(sql, &[&s[0], &s[1], &class(l), &l.key]).await?;
+        if l.mode == OutcomeLockMode::Write {
+            // The guard row is immutable: waiting on it cannot invalidate an
+            // older SERIALIZABLE snapshot. Lock the existing mutable head too,
+            // so a concurrent revision raises 40001 here, before replay/planning.
+            // An absent head remains protected by the scope guard and append CAS.
+            c.query_opt("SELECT revision FROM ledgerlab.outcome_heads WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR UPDATE", &[&s[0],&s[1],&class(l),&l.key]).await?;
+        }
     }
     held.locks = scopes.to_vec();
     Ok(())
