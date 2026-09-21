@@ -1,5 +1,5 @@
 {
-  "profile": "2-candidate.2",
+  "profile": "2-candidate.3",
   "status": "candidate-not-frozen",
   "accepted": {
     "EXACT_REVERSAL": "Exact stored current Money negated; retained even at zero.",
@@ -13,7 +13,7 @@
   },
   "conflict": {
     "IDENTITY_CONFLICT": "Existing scoped source/delivery ID has different canonical ingress.",
-    "CLAIM_CONFLICT": "The permanent target/agreement/book/family slot already has different original facts; use an explicit correction.",
+    "CLAIM_CONFLICT": "The permanent target/agreement/family slot already has different original facts; use an explicit correction.",
     "ALREADY_REVERSED": "A stored live action already has an inverse.",
     "STALE_CORRECTION": "Correction does not name the current immutable revision ID."
   },

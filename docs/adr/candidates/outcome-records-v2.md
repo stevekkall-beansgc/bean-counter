@@ -1,7 +1,7 @@
 # Candidate ADR: reconcile canonical target outcomes with approved semantics
 
 Status: **proposed; not frozen; fresh-context independent review pending**.
-Profile `2-candidate.2` supersedes candidate `.1` in `c95cae9`.
+Profile `2-candidate.3` corrects reviewed candidate `.2` in `e8139e6`.
 Semantic authority: `1e0ba3f886788c08f427d3aae1d916b341187e76`.
 
 The earlier candidate diverged from the approved implementation: it used supplier
@@ -10,8 +10,25 @@ and correction deadlines as exclusive, omitted a distinct acceptance deadline,
 and did not bind the complete eligible set to base acceptance. Reconciliation
 changes these choices explicitly; no v1 bytes or production code change.
 
+Candidate `.2` failed fresh-context review because it forbade new verified
+decision evidence, omitted policy-document verification, discarded original
+event extensions/Binding.outcome terms, failed to bind actions to their selected
+binding, and incompletely enforced scalar byte/decimal bounds. `.3` addresses
+those five findings. This is a proposed correction, not freeze approval.
+
 Decisions encoded for review:
 
+- Permit new decision evidence bound to the exact request, authority observation,
+  explanations, replay and manifest; frozen terms and capacities remain unchanged.
+- Retain original policy-document identity/hash, complete policy bytes, supporting
+  evidence and verified document observation; require equality and derived indexes.
+- Retain exact original event/ingress bytes and complete schema-defined binding,
+  policy and evaluation material. Keep extensions, outcome terms, optional fields
+  and ordered source vectors; reject unknown fields instead of dropping them.
+- Bind action/effect/inverse/replacement provenance to the selected frozen
+  binding, agreement, roles, book, money unit and family component.
+- Enforce declared UTF-8 bounds by schema type, positive/nonnegative Decimal
+  constraints, exact money/ratio/counter bounds and approved cross-cancellation.
 - Use original final retail net for every percentage, including supplier rules.
   Signed ratios encode percentage points (`-10/1` is minus ten percent).
 - Permanent key is scope/agreement/stable-family/target. Resolve posting book,
@@ -39,7 +56,8 @@ Decisions encoded for review:
 
 Canonical profile changes are intentionally versioned in the candidate hash
 domain. Existing v1 contracts and compatibility declarations stay untouched.
-The complete field dictionary, ordering, IDs and membership are in
+No automatic `.2` migration can recover missing original values; re-author only
+from retained source material, then review. The complete field dictionary, ordering, IDs and membership are in
 [the reconciled design](../../design/CANONICAL-RECORDS-V2-CANDIDATE.md).
 
 Open reviewer questions concern the proposed historical base-material codec,

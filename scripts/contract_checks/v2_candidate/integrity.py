@@ -1,9 +1,11 @@
 """Hash/reference checks deliberately separated from economic validity."""
 from profile import canonical, content_hash, digest, effect_facts, facts, key, ordered, reference, row_order, strict
 from semantics import base_receipt
+from retained import document_fields, original_hash, validate_documents
 
 def integrity(history,check_row):
     rows=history['seed']+[r for d in history['decisions'] for r in d['records']]
+    validate_documents(rows)
     known={canonical(r['id']):r for r in rows}
     assert len(known)==len(rows), 'DUPLICATE_RECORD'
     def refs(v):
@@ -62,6 +64,16 @@ def rebuild_hash_graph(history):
         # Reconstruct derivative references, payloads, membership and byte echoes.
         for r in rows:
             b=r['body'];k=r['kind']
+            if k=='evidence':
+                expected=document_fields(b['document_type'],strict(b['utf8'].encode()))
+                for field in ('document_id','document_hash'):
+                    if b[field]!=expected[field]:maps[b[field]]=expected[field]
+                b.update(expected)
+            if k=='base-evaluation':
+                original=strict(b['original_event_utf8'].encode());ingress=strict(b['original_ingress_utf8'].encode())
+                b['original_event_id']='ev_'+original_hash('event',r['scope']+[known[canonical(b['event_id'])]['body']['data']['source'],original['id']])
+                b['original_event_hash']='sha256:'+original_hash('event-content',original)
+                b['original_ingress_hash']='sha256:'+original_hash('ingress',ingress)
             if k=='effect': b['facts_hash']=digest('effect-facts',effect_facts(known[canonical(b['action_id'])]['body']))
             if k=='claim': b['facts_hash']=digest('claim-facts',facts(known[canonical(b['first_event'])]['body']))
             if k=='delivery-key':
@@ -72,7 +84,7 @@ def rebuild_hash_graph(history):
         prior=list(history['seed'])
         for d in history['decisions']:
             def one(k):return next(r for r in d['records'] if r['kind']==k)
-            rp=one('replay-input');rp['body']['inputs']=ordered([reference(v) for v in prior]+[reference(one(k)) for k in ('event','admission','authority-decision')])
+            rp=one('replay-input');rp['body']['inputs']=ordered([reference(v) for v in prior]+[reference(one(k)) for k in ('event','admission','authority-decision')]+[reference(v) for v in d['records'] if v['kind']=='evidence'])
             m=one('decision-manifest');r=one('receipt')
             for intention in (v for v in d['records'] if v['kind']=='intention'):
                 ib=intention['body']; actions=[known[canonical(i)] for i in ib['action_ids']]

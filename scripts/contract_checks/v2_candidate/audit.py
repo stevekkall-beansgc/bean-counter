@@ -8,14 +8,16 @@ from fractions import Fraction
 from pathlib import Path
 import jsonschema
 from profile import (canonical, content_hash, digest, effect_facts, facts, key,
-                     ordered, reference, row_order, scalar_checks, strict)
+                     ordered, reference, row_order, strict)
 from reconstruct import CANDIDATE, ROOT, files
 from semantics import freeze, window, bounded, exact_percentage
+from scalars import Validator
+from retained import validate_documents
 
 SCHEMA=strict((CANDIDATE/'schemas/canonical-records.schema.json').read_bytes())
 jsonschema.Draft202012Validator.check_schema(SCHEMA)
-VALIDATOR=jsonschema.Draft202012Validator(SCHEMA)
-SET_FIELDS={'rules','evidence','postings','live_action_ids','inverse_action_ids','current_before','action_ids','inputs','depends_on','actions','intention_ids','families','bindings','limits','replacement_codes','sources','correction_sources','predecessors','verified_assents','verified_offers','verified_delegations','verified_evidence','event_types','allowed_modifiers'}
+VALIDATOR=Validator(SCHEMA)
+SET_FIELDS={'rules','evidence','postings','live_action_ids','inverse_action_ids','current_before','action_ids','inputs','depends_on','actions','intention_ids','families','bindings','limits','replacement_codes','sources','correction_sources','predecessors','verified_assents','verified_offers','verified_delegations','verified_evidence','event_types','allowed_modifiers','policy_evidence'}
 
 def check_order(value,name=''):
     if isinstance(value,dict):
@@ -27,7 +29,7 @@ def check_order(value,name=''):
         for v in value: check_order(v)
 
 def checked_row(r):
-    VALIDATOR.validate(r); scalar_checks(r); check_order(r)
+    VALIDATOR.validate(r); check_order(r)
     assert all(len(s.encode())<=128 for s in r['scope']), 'SCOPE_BYTES'
     assert len(canonical(r['body']))<=262144, 'RECORD_BYTES'
     assert key(r['kind'],r['scope'],r['body'])==r['id'], 'RECORD_ID'
@@ -75,8 +77,9 @@ def verify(history, trusted_base=None):
     for ix,decision in enumerate(history['decisions']):
         assert set(decision)=={'records','receipt_utf8'}
         rows=decision['records']
-        assert not {r['kind'] for r in rows} & {'evidence','policy-snapshot','base-posting','target-basis','obligation','target-snapshot','base-evaluation','base-acceptance','binding-snapshot'}, 'UNREFERENCED_NEW_SEED'
+        assert not {r['kind'] for r in rows} & {'policy-snapshot','base-posting','target-basis','obligation','target-snapshot','base-evaluation','base-acceptance','binding-snapshot'}, 'UNREFERENCED_NEW_SEED'
         prior_rows=list(known.values()); insert(rows)
+        validate_documents(rows)
         def all_kind(k): return [r for r in rows if r['kind']==k]
         def one(k):
             rs=all_kind(k); assert len(rs)==1, 'RECORD_CARDINALITY:'+k; return rs[0]
@@ -130,6 +133,10 @@ def verify(history, trusted_base=None):
         assert all(au[k]==ab[k] for k in ('principal','grant','grant_revision','received_at','accepted_at')), 'AUTHORITY_OBSERVATIONS'
         assert set(data['evidence'])<=set(au['verified_evidence']), 'OUTCOME_EVIDENCE_REQUIRED'
         for proof in au['verified_evidence']:lookup(proof,'evidence')
+        # New immutable evidence must belong to this exact request/verification.
+        # It cannot change the frozen target or carry operative decision fields.
+        assert {r['id'] for r in all_kind('evidence')} <= set(data['evidence']), 'UNUSED_DECISION_EVIDENCE'
+        assert all(r['id'] in au['verified_evidence'] for r in all_kind('evidence')), 'UNVERIFIED_DECISION_EVIDENCE'
         if pb['book']=='supplier': assert lookup(pb['supplier_authorization'],'evidence')['body']['purpose']=='supplier_authorization', 'SUPPLIER_AUTHORITY'
         link=one('link')['body']; assert link['event_id']==E and link['target']==data['target'], 'LINK'
         actions=all_kind('action'); effects=all_kind('effect'); live=[a for a in actions if a['body']['slot']=='replacement']; inverses=[a for a in actions if a['body']['slot']=='inverse']
@@ -141,6 +148,10 @@ def verify(history, trusted_base=None):
         assert len(effects)==len(actions), 'EFFECT_COUNT'
         for a in actions:
             b=a['body']; assert int(b['amount']['atoms'])!=0, 'ZERO_ACTION'
+            binding=bindings[pb['binding_id']]
+            assert b['binding_id']==pb['binding_id'] and b['binding_snapshot']==binding['id'], 'ACTION_BINDING'
+            assert b['component']==pb['family_id'], 'ACTION_COMPONENT'
+            assert all(b[k]==binding['body'][k] for k in ('agreement_id','book','roles')), 'ACTION_BINDING_PARTIES'
             assert b['revision_id']==revision['id'] and b['claim_id']==cl['id'] and b['event_id']==E, 'ACTION_OWNER'
             assert b['book']==data['book'] and b['agreement_id']==data['agreement_id'] and b['family_id']==data['family_id'] and b['roles']==pb['roles'], 'ACTION_PARTIES'
             assert b['policy_snapshot']==policy['id'] and b['basis']==basis['id'], 'ACTION_PINS'
@@ -149,10 +160,11 @@ def verify(history, trusted_base=None):
             assert all(o[k]==b[k] for k in ('agreement_id','book','roles')) and o['currency']==b['amount']['currency'] and o['scale']==b['amount']['scale'], 'OBLIGATION'
             effect=lookup(b['effect_id'],'effect')['body']
             assert effect['action_id']==a['id'] and effect['facts_hash']==digest('effect-facts',effect_facts(b)) and effect['revision_id']==revision['id'] and effect['claim_id']==cl['id'] and effect['slot']==b['slot'], 'EFFECT_FACTS'
+            assert all(effect[k]==b[k] for k in ('binding_id','binding_snapshot','component')), 'EFFECT_BINDING'
             if b['slot']=='inverse':
                 old=lookup(b['reverses'],'action')['body']; assert b['reverses'] not in reversed_actions, 'ALREADY_REVERSED'; reversed_actions.add(b['reverses'])
                 assert int(b['amount']['atoms'])==-int(old['amount']['atoms']), 'EXACT_INVERSE'
-                assert all(b[k]==old[k] for k in ('obligation_id','book','agreement_id','family_id','roles','policy_snapshot','basis')), 'INVERSE_PROVENANCE'
+                assert all(b[k]==old[k] for k in ('obligation_id','book','agreement_id','family_id','roles','policy_snapshot','basis','binding_id','binding_snapshot','component')), 'INVERSE_PROVENANCE'
             else: assert 'reverses' not in b, 'ORIGINAL_REVERSES'
         limits=one('limit-evidence'); lb=limits['body']; before=[v for v in heads.values() if all(lookup(v['body']['claim_id'],'claim')['body'][k]==cb[k] for k in ('target',)) and v['body']['binding_id']==pb['binding_id']]
         assert lb['binding_id']==pb['binding_id'] and lb['target_snapshot']==frozen['id'], 'LIMIT_SCOPE'
@@ -187,6 +199,7 @@ def verify(history, trusted_base=None):
             assert xb['unrounded_atoms']=={'numerator':str(q.numerator),'denominator':str(q.denominator)} and xb['rounded_atoms']==str(round_away(q)), 'EXPLANATION_MATH'
             assert xb['event_id']==E and xb['claim_id']==cl['id'] and xb['revision_id']==revision['id'] and xb['limit_evidence']==limits['id'] and xb['policy_snapshot']==policy['id'] and xb['basis']==basis['id'], 'EXPLANATION_REFS'
             assert xb['action_ids']==aids, 'EXPLANATION_ACTIONS'
+            assert xb['authority_decision']==authority['id'] and xb['evidence']==data['evidence'], 'EXPLANATION_EVIDENCE'
         deps=[]
         for a in actions:
             deps.append(dict(dependent=a['id'],input=reference(basis),reason='frozen_basis'))
@@ -198,7 +211,7 @@ def verify(history, trusted_base=None):
         replay=one('replay-input'); replayb=replay['body']
         assert replayb['target_snapshot']==frozen['id'] and replayb['authority_decision']==authority['id'], 'REPLAY_VERIFICATION'
         assert replayb['event_id']==E and replayb['received_at']==ab['received_at'] and replayb['accepted_at']==ab['accepted_at'], 'REPLAY_CONTEXT'
-        assert replayb['inputs']==ordered([reference(r) for r in prior_rows]+[reference(event),reference(adm),reference(authority)]), 'REPLAY_INCOMPLETE'
+        assert replayb['inputs']==ordered([reference(r) for r in prior_rows]+[reference(event),reference(adm),reference(authority)]+[reference(r) for r in all_kind('evidence')]), 'REPLAY_INCOMPLETE'
         for v in replayb['inputs']: deref(v)
         net=bounded(sum(int(a['body']['amount']['atoms']) for a in actions)); intents=all_kind('intention')
         assert len(intents)==(net!=0), 'INTENTION_CARDINALITY'
@@ -206,7 +219,7 @@ def verify(history, trusted_base=None):
             i=intents[0]; ib=i['body']; assert ib['amount']=={**rb['amount'],'atoms':str(net)} and ib['event_id']==E and ib['idempotency_key']==i['id'], 'INTENTION_AMOUNT'
             assert ib['action_ids']==ordered([a['id'] for a in actions]) and all(a['body']['obligation_id']==ib['obligation_id'] for a in actions), 'INTENTION_ACTIONS'
             assert ib['depends_on']==ordered(claim_intents.get(cl['id'],[])), 'EXPORT_DEPENDENCIES'
-            assert ib['payload']=={'schema':'ledger-obligation-delta/2-candidate.2','obligation_id':ib['obligation_id'],'amount':ib['amount'],'actions':ordered([{'action_id':a['id'],'amount':a['body']['amount']} for a in actions])}, 'INTENTION_PAYLOAD'
+            assert ib['payload']=={'schema':'ledger-obligation-delta/2-candidate.3','obligation_id':ib['obligation_id'],'amount':ib['amount'],'actions':ordered([{'action_id':a['id'],'amount':a['body']['amount']} for a in actions])}, 'INTENTION_PAYLOAD'
             claim_intents.setdefault(cl['id'],[]).append(i['id'])
         delivery=one('delivery-key')['body']; assert delivery['event_id']==E and delivery['ingress']==eb and delivery['ingress_hash']==digest('ingress',eb) and delivery['source']==data['source'] and delivery['external_id']==data['external_id'], 'DELIVERY_BYTES'
         manifest=one('decision-manifest'); mb=manifest['body']; receipt=one('receipt'); recb=receipt['body']; chain=one('chain-revision')['body']
@@ -226,7 +239,7 @@ def verify(history, trusted_base=None):
     for p in history['probes']:
         assert p['new_records']==[], 'REJECTED_OR_RETRY_APPENDED'
         if 'candidate' in p:
-            jsonschema.Draft202012Validator({'$ref':'#/$defs/event','$defs':SCHEMA['$defs']}).validate(p['candidate'])
+            Validator({'$ref':'#/$defs/event','$defs':SCHEMA['$defs']}).validate(p['candidate'])
         if p['kind'] in ('identity_retry','semantic_retry','changed_facts','stale_correction'):
             original=next(r for r in history['decisions'][p['step']]['records'] if r['kind']=='event')
             cb=p['candidate']['data']
@@ -259,7 +272,7 @@ def main():
     assert review['status']=='candidate-not-frozen' and review['independent_review']=='pending'
     expected_paths={str(p.relative_to(ROOT)) for p in CANDIDATE.rglob('*') if p.is_file() and p.name!='review-manifest.json'}
     expected_paths.update(['docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md','docs/adr/candidates/outcome-records-v2.md','PHASE-2-CANONICAL-CANDIDATE.md','scripts/check-contracts.sh','scripts/check-candidate-contracts.sh','ROADMAP.md'])
-    expected_paths.update(str(p.relative_to(ROOT)) for p in Path(__file__).parent.iterdir() if p.suffix in ('.py','.mjs'))
+    expected_paths.update(str(p.relative_to(ROOT)) for p in Path(__file__).parent.iterdir() if p.suffix in ('.py','.mjs','.rs'))
     assert set(review['files'])==expected_paths, 'REVIEW_INVENTORY'
     for name,expected in review['files'].items():
         raw=(ROOT/name).read_bytes()
@@ -287,6 +300,8 @@ def main():
         try: strict(raw)
         except (ValueError,UnicodeError): negative+=1
         else: raise AssertionError('malformed input accepted')
+    from boundaries import run_boundaries
+    negative+=run_boundaries(histories,SCHEMA,checked_row,verify)
     from adversarial import run_adversarial
     negative+=run_adversarial(histories,verify)
     subprocess.run(['node',str(Path(__file__).with_name('check_hashes.mjs')),str(ROOT)],check=True)

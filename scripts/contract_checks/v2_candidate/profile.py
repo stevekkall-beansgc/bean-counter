@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from math import gcd
 
-PROFILE = '2-candidate.2'
+PROFILE = '2-candidate.3'
 SEMANTIC_COMMIT = '1e0ba3f886788c08f427d3aae1d916b341187e76'
 PREFIX = dict(zip(
     ['evidence','policy-snapshot','event','base-posting','target-basis','admission',
@@ -88,26 +88,3 @@ def envelope(kind,scope,b):
 def facts(event): return {k:v for k,v in event['data'].items() if k!='external_id'}
 def effect_facts(action):
     return {k:v for k,v in action.items() if k not in ('schema','event_id','effect_id','policy_snapshot')}
-
-def scalar_checks(v, name=''):
-    if isinstance(v,dict):
-        if set(v)=={'numerator','denominator'}:
-            n,d=int(v['numerator']),int(v['denominator'])
-            if d<=0 or gcd(n,d)!=1 or max(abs(n).bit_length(),d.bit_length())>512:
-                raise ValueError('RATIO')
-        for k,x in v.items(): scalar_checks(x,k)
-    elif isinstance(v,list):
-        for x in v: scalar_checks(x,name)
-    elif isinstance(v,str):
-        if name=='quantity':
-            whole,_,fraction=v.partition('.')
-            if len(fraction)>18 or len((whole+fraction).lstrip('0') or '0')>30: raise ValueError('DECIMAL_PRECISION')
-        if name.endswith('_at') or name in ('starts_at','occurs_before','received_by','accepted_by','start_before','attested_start','outcome_deadline'):
-            if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z',v): raise ValueError('TIME')
-            datetime.strptime(v,'%Y-%m-%dT%H:%M:%S.%fZ')
-        if name in ('number','expected_revision_number','revision','credential_revision','grant_revision','target_guard_revision','aggregate_guard_revision'):
-            if int(v)>9223372036854775807: raise ValueError('COUNTER')
-        if name in ('source','authorized_source','submission_source','correction_source'):
-            if len(v.encode())>256: raise ValueError('SOURCE_BYTES')
-        if name in ('external_id','chain_id','agreement_id','principal','customer','payer','provider','cost_originator','bearer','beneficiary','recipient'):
-            if len(v.encode())>128: raise ValueError('ID_BYTES')

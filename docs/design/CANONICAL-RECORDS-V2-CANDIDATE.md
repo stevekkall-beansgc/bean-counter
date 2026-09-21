@@ -1,7 +1,7 @@
 # Outcome canonical records — reconciled candidate
 
 **Review candidate, not frozen. Fresh-context independent review pending.**
-Profile `2-candidate.2` supersedes candidate `.1` from commit `c95cae9`; it does
+Profile `2-candidate.3` corrects candidate `.2` from commit `e8139e6`; it does
 not supersede or alter any v1 contract, fixture, hash or receipt. The changed
 candidate hash domain prevents silent reinterpretation of the earlier draft.
 Only roadmap Phase 1 is being executed; see `ROADMAP.md`.
@@ -20,7 +20,7 @@ The schema is `contracts/candidates/v2/schemas/canonical-records.schema.json`.
   `exact_atoms = retail_basis_atoms × numerator / denominator / 100`.
   This differs from candidate `.1`'s fractional-multiplier convention.
 - Supplier booked net is its **discount capacity**, not a percentage denominator.
-  Each binding has a finite nonnegative premium limit. Supplier premium must
+  Each binding used by an outcome family has a finite nonnegative premium limit. Supplier premium must
   fit `invocation.held - supplier_booked_net`, and booked net plus premium limit
   must fit binding maximum exposure. The actual nominated supplier completion,
   invocation, source, operation, roles and verified offer/assent are retained.
@@ -37,7 +37,8 @@ The schema is `contracts/candidates/v2/schemas/canonical-records.schema.json`.
   accepted_at`, `received_at <= received_by`, `accepted_at <= accepted_by`.
   Each window satisfies base occurrence `<= starts_at < occurs_before <=
   received_by <= accepted_by`. No candidate-only 90-day/7-day limit is added
-  to the approved typed surface.
+  to the approved outcome-family window surface. Retained legacy `Binding.outcome`
+  terms keep their own approved 90-day window/7-day grace bounds.
 - Claim acceptance is `>=` base acceptance. Correction acceptance is `>=` the
   current revision's acceptance; equality is allowed. A correction occurrence
   need not be after that prior acceptance and need not be in the ordinary
@@ -73,7 +74,8 @@ whitespace or final LF. Economic atoms are canonical signed decimal strings
 with magnitude at most `10^30-1`; scales are integers 0–18. Currency and scale
 must agree across original base, policies, capacities, results and postings.
 Exact ratios are reduced signed-numerator/positive-denominator strings, at most
-512 bits each; zero is `0/1`. Temporary products are bounded too. Round once,
+512 bits each; zero is `0/1`. Multiplication and division cross-cancel operands before bounding their reduced
+products, matching the approved `ExactRatio` implementation. Round once,
 nearest/ties away from zero. Negate stored integer atoms for inverses.
 
 Counters are canonical unsigned strings at most 9223372036854775807. Claim and
@@ -81,7 +83,23 @@ chain revisions start at 1. Policy version is an opaque bounded string, matching
 the semantic implementation, not a numeric eligibility axis. Times are Gregorian
 UTC, year 0001–9999, exactly six fractional digits, no leap seconds. Text IDs and
 scope components are 1–128 UTF-8 bytes, sources 1–256, without controls; slugs
-are bounded ASCII. Schema character bounds do not replace byte/value checks.
+are bounded ASCII. The normative `x-utf8-maxBytes`, `x-scalar`,
+`x-canonical-maxBytes` and `x-canonicalSchema` keywords are enforced by the
+candidate validator. A plain Draft 2020-12 validator is shape-only and is not
+conformant without these checks. Every declared bounded string has a byte bound;
+field names do not decide whether a scalar is validated. Source URIs must be
+absolute and contain no whitespace. All Unicode control characters reject in
+identifiers, including C1 controls. Extension values are opaque data and do not
+inherit identifier rules based on their key names.
+
+`decimal` is the normalized nonnegative Decimal encoding: at most 30 coefficient
+digits and 18 fractional digits, no sign, exponent, leading/trailing redundant
+zeros or negative zero. Binding `maximum_quantity` and successful work quantity
+are positive. Invocation maximum quantity is nonnegative structurally and must
+cover its nominated positive work quantity. Base-policy percentages are decimals
+in 0–100; approved outcome percentages remain signed exact ratios. Exposure,
+held amounts, booked capacities and premium/discount limits are nonnegative.
+Signed result atoms and signed ratio numerators remain permitted.
 
 Nesting <=32; record body/evidence <=256 KiB; decision <=4 MiB; resolved input
 <=8 MiB; explanations <=1 MiB. Schema array limits also apply. Target families
@@ -97,7 +115,7 @@ comes from authenticated context. Bodies inherit scope. All references resolve
 in that same scope and local retained records; no network fetch or fallback to
 current configuration. Every internal ID has its kind's prefix.
 
-`H(k,v) = lowercase_hex(SHA256(UTF8("ledgerlab/"+k+"/2-candidate.2") || NUL ||
+`H(k,v) = lowercase_hex(SHA256(UTF8("ledgerlab/"+k+"/2-candidate.3") || NUL ||
 JCS(v)))`; `digest(k,v)="sha256:"+H(k,v)`.
 `ID(kind,v)=prefix+"2_"+H(kind,v)`.
 All body hashes are `digest("record-content",[kind,2,body])` except manifests,
@@ -156,6 +174,9 @@ decision-manifest and receipt. Five additions close the earlier target gap:
 - `binding-snapshot`: original binding identity, agreement/book, six roles,
   verified assent/offer/delegation refs, permitted sources, original booked net,
   exposure and the supplier's nominated invocation/held capacity when applicable.
+  `binding_utf8` retains every approved `Binding` field, including optional
+  `outcome`, offer, exposure and `roles.payer_delegation`; indexing fields are
+  derived from it and checked, rather than treated as the original source.
 - `base-evaluation`: exact retained `evaluation_utf8` plus hash-pinned original
   postings/bindings/predecessor evaluations and original receipt time. The JSON
   payload contains event, complete bundle/context, base claim, actions,
@@ -164,7 +185,11 @@ decision-manifest and receipt. Five additions close the earlier target gap:
   never replaced by just the basis sum or a current price.
 - `target-snapshot`: the complete policy-family/binding/limit set, original base
   evaluation, retail basis, finality evidence and rated-final observation,
-  accepted time, verified assents/offers/delegations. Families with no claim
+  accepted time, verified assents/offers/delegations. `policy_utf8` retains the
+  full approved Policy with version, document, ordered families/codes and limits.
+  `policy_document`, `policy_document_hash`, `verified_policy_document` and
+  `policy_evidence` preserve the original document and verification observation.
+  Families with no claim
   remain members. All per-family snapshots encode the one pinned policy version.
 - `base-acceptance`: binds the base evaluation and target snapshot to **one base
   acceptance**, the complete sorted seed membership and original receipt bytes.
@@ -179,15 +204,82 @@ decision-manifest and receipt. Five additions close the earlier target gap:
   final-unreversed observation. These are host-verified observations, not bearer
   capabilities or caller-supplied authorization flags.
 
-`evaluation_utf8` is canonical retained material, not executable input. The
-synthetic histories provide explicit base material and original posting
-projections; the audit checks their agreement and retains every named component.
-General production typed-base encoding/decoding still requires independent
-review and integration with the actual evaluator's historical codec. The material preserves original typed rule, action and input fields; its tags
-are a candidate codec for retained values, not a new pricing operator or
-authority to rate a base. Unsupported historical
-codecs must fail replay; never reconstruct omitted data from totals. No claim of
-production `Evaluation` roundtrip is made by this contract-only lane.
+### Lossless original material and explicit projections
+
+`base-evaluation.original_event_utf8` and `original_ingress_utf8` retain exact
+canonical `ledger-event/1` bytes. Their original `ev_` identity, event-content
+hash and ingress hash are checked with the unchanged v1 formulas. Source omission
+and pre-resolution chain omission remain absent. The full normalized work-event
+shape includes links, evidence, extensions, corrects and supplier nomination.
+Extensions allow only the original 16 scalar entries/4096 canonical bytes and
+cannot be accessed as pricing or authority inputs. No unknown field is silently
+removed: unknown economic fields reject; approved extension values are retained.
+
+`evaluation_utf8` has a closed schema-complete representation of the approved
+Evaluation: event; complete bundle and execution order; context and optional
+stage/tier/priority; optional claim and closed stage; actions with full binding,
+kind/component, sources/links/inputs and optional reverse/allocation/discount
+references; explanation inputs and optional numeric fields; deltas; consumptions;
+invocations; receipt time; source authority; and cost evidence. Its event must
+exactly equal the original event bytes. `binding_utf8` must exactly equal its
+complete binding in the retained bundle; original action bindings must match it.
+Ordered original vectors stay ordered inside source bytes, including fields the
+approved model does not deduplicate. Index projections use documented sets.
+
+The retained Binding maps `id`/`agreement` to projection
+`binding_id`/`agreement_id`. Original doc references in assent/offer/delegation
+resolve to retained evidence wrappers, with the original `doc_` references still
+present in source bytes. `booked_net` and supplier invocation are evaluation
+projections, not invented Binding fields. Every optional field in the approved
+binding, rule, price, operation, matcher and context model has a declared slot.
+Absence stays absent. Base actions must use their original binding's agreement,
+book, roles, currency/scale and a component in that binding's applicable rule set.
+
+Each evidence wrapper retains `document_type`, `document_version`, original
+`document_id`, `document_hash` and canonical JSON `utf8`. Original document
+identity/hash use v1 `H("document",[type,1,parsed_utf8])`, independently of the
+candidate wrapper identity. These are synthetic documents in the examples;
+no credentials are retained. The outcome policy document body contains the full
+version/families/limits, while the retained Policy additionally carries its
+`document` reference (avoiding a self-referential hash). At target freeze:
+`Policy.document == policy_document == verified_policy_document`; the referenced
+retained policy evidence must have that identity/hash and those exact terms.
+All family and limit projections must derive from this full Policy. Supporting
+policy evidence references are included in original base membership.
+
+The schema-complete codec and round trips are contract artifacts. The disposable
+approved-core comparison normalizes the actual original event bytes, compiles
+the retained bindings, and compares all candidate base/result economics. It does
+not install a production historical decoder or v1 journal migration bridge.
+
+### Evidence introduced by a decision
+
+An outcome or correction may append newly verified `evidence` records. All
+other target-preparation kinds remain forbidden in decision rows. New evidence
+must be referenced by that exact event and its verifying `authority-decision`;
+every explanation carries that authority decision and the exact request evidence
+set. Replay includes new evidence alongside the current event, admission and
+authority observation. The decision manifest binds all of these records and the
+receipt binds that manifest. Previously retained evidence may be reused.
+
+Evidence JSON is inert. It cannot supply a family, policy version, binding, rate,
+amount, capacity or authorization flags. Those come only from frozen membership
+and the checked decision observations. New evidence never changes seed membership
+or the original base-acceptance receipt. An unreferenced or unverified new proof,
+a proof used by another decision's observation, or an explanation naming a
+different evidence set rejects even after complete rehashing.
+
+### Action and effect binding provenance
+
+Every action carries `binding_id`, content-derived `binding_snapshot` and
+`component`. For outcome actions, component is exactly the selected stable family
+ID: it is an attribution label, not a new rule or an eligibility axis. The
+binding must be the one frozen for that target/agreement/family. Its agreement,
+book, roles and currency/scale agree with the policy, obligation and action.
+Effects carry the same three fields and bind the exact action facts. An inverse
+also preserves its prior action's binding snapshot, binding ID and component,
+along with obligation, roles, book and policy provenance. Full rehashing cannot
+make an unauthorized or cross-family binding substitution valid.
 
 The base acceptance root is an **external immutable trust anchor** at the audit
 boundary. Tests pass its original `(kind,id,hash)` separately. If every byte of
@@ -235,7 +327,7 @@ identity before their now-stale guard. No duplicate adds canonical records.
 For decision D, manifest membership is the sorted unique union of every new row
 except its own manifest/receipt and every replay-input member. Replay inputs are
 the complete bounded seed/prior accepted prefix, current event/admission and
-current authority decision. Earlier manifests/receipts are prior inputs; the
+current authority decision and newly introduced evidence. Earlier manifests/receipts are prior inputs; the
 current receipt is never in its own manifest. Receipt binds current event and
 manifest hashes and preserves exact stored bytes. Base receipt also remains
 byte-identical after outcomes/corrections.
@@ -257,7 +349,7 @@ in Python and Node, then require semantic rejection for changed basis, frozen
 membership, revision, supplier discount/held capacity, stale correction,
 ordinary/correction deadline boundaries and version-created eligibility.
 
-Candidate `.2` is ready for a **separate fresh-context review**, not self-certified
+Candidate `.3` is submitted for a **separate fresh-context review**, not self-certified
 freeze. Required review questions: lossless production base codec and v1 receipt
 mapping; the original-base trust-anchor/read boundary; completeness of retained
 supplier reservation observations; and canonical-to-typed equivalence across
@@ -265,3 +357,20 @@ both stores. Review the schema/ID choices and test the combined semantic lane
 before allowing a decoder or persistence bridge. The durable roadmap contains
 the later integration, both-store persistence, nonposting comparison, CLI/CSV
 and final independent-review gates.
+
+## Compatibility from candidate.2
+
+Candidate `.2` at `e8139e6df68880ae9c520ee100a05dcfd0ede673` failed independent
+review. Its bytes remain in Git history. `.3` changes schema discriminators and
+hash domains, adds required original document/event/binding/policy fields,
+permits decision evidence, adds action/effect binding provenance and explanation
+evidence references, and enforces schema-directed scalar constraints. Candidate
+record IDs and receipts therefore change. No `.2` bytes are silently read as `.3`.
+
+There is no automatic migration: `.2` can lack original bytes and verification
+observations, so filling new fields with guesses would be lossy and unauthorized.
+Re-author a candidate from retained original source material and observations,
+then independently review it. Historical v1 bytes, IDs, receipts, schemas,
+compatibility declarations and support claims remain untouched. `ROADMAP.md`
+remains byte-identical to the committed Phase 1 roadmap. A new reviewer decides
+whether the corrected candidate can freeze; this document does not authorize it.

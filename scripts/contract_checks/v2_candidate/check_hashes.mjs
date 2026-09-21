@@ -14,7 +14,8 @@ function jcs(x) {
   return JSON.stringify(x);
 }
 const raw=b=>createHash('sha256').update(b).digest('hex');
-const hash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/2-candidate.2`),Buffer.from([0]),Buffer.from(jcs(v))]));
+const hash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/2-candidate.3`),Buffer.from([0]),Buffer.from(jcs(v))]));
+const originalHash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/1`),Buffer.from([0]),Buffer.from(jcs(v))]));
 const id=(k,v)=>prefix[k]+'2_'+hash(k,v);
 const cmp=(a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b));
 const ref=r=>({kind:r.kind,id:r.id,content_hash:r.content_hash});
@@ -71,10 +72,24 @@ for(const [filename,history] of entries) {
   }
   for(const r of known.values()) {
     references(r.body);
+    for(const field of ['utf8','evaluation_utf8','binding_utf8','policy_utf8','original_event_utf8','original_ingress_utf8']) {
+      if(field in r.body) assert.equal(jcs(JSON.parse(r.body[field])),r.body[field],'lossless canonical source');
+    }
+    if(r.kind==='evidence') {
+      const b=r.body,h=originalHash('document',[b.document_type,b.document_version,JSON.parse(b.utf8)]);
+      assert.equal(b.document_id,'doc_'+h);assert.equal(b.document_hash,'sha256:'+h);
+    }
+    if(r.kind==='base-evaluation') {
+      const b=r.body,e=JSON.parse(b.original_event_utf8),ingress=JSON.parse(b.original_ingress_utf8);
+      const source=known.get(jcs(['event',b.event_id])).body.data.source;
+      assert.equal(b.original_event_id,'ev_'+originalHash('event',[...r.scope,source,e.id]));
+      assert.equal(b.original_event_hash,'sha256:'+originalHash('event-content',e));
+      assert.equal(b.original_ingress_hash,'sha256:'+originalHash('ingress',ingress));
+    }
     if(r.kind==='base-acceptance') {
       const b=r.body;
       assert.deepEqual(b.members,history.seed.filter(r=>r.kind!=='base-acceptance').map(ref).sort(order));
-      const receipt={schema:'ledger-base-receipt/2-candidate.2',target:b.target,base_evaluation:b.base_evaluation,target_snapshot:b.target_snapshot,accepted_at:b.accepted_at,membership_hash:'sha256:'+hash('base-membership',b.members)};
+      const receipt={schema:'ledger-base-receipt/2-candidate.3',target:b.target,base_evaluation:b.base_evaluation,target_snapshot:b.target_snapshot,accepted_at:b.accepted_at,membership_hash:'sha256:'+hash('base-membership',b.members)};
       assert.equal(b.original_receipt_utf8,jcs(receipt));
     }
   }

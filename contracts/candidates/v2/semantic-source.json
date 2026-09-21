@@ -17,7 +17,43 @@
     "crates/ledgerlab-testkit/oracle/phase2/outcomes.py": {
       "bytes": 8813,
       "sha256": "982278699861e2ae2d81b4fe553b5a9a68fbef8bfe3e0157164efa34a565e2b1"
+    },
+    "crates/ledgerlab-core/src/policy/chaining/compile.rs": {
+      "bytes": 15925,
+      "sha256": "f0bc1f9a37495dd901f9b94652543ad5bfc47c26e2c2fec9dfd647d3aff2d487"
+    },
+    "crates/ledgerlab-core/src/policy/chaining/evaluate.rs": {
+      "bytes": 47479,
+      "sha256": "2a757295822de5531be1ba92c3665126b887434018051a1cbf422d8be7233c50"
+    },
+    "crates/ledgerlab-core/src/domain/mod.rs": {
+      "bytes": 3190,
+      "sha256": "dc30bc435beace831cb24f3c28840383d67b1c01445908ea4e90f640aabd2661"
+    },
+    "crates/ledgerlab-core/src/domain/event.rs": {
+      "bytes": 13596,
+      "sha256": "03343de68e4a13f22e6d197f514792794df568a7f07889a9392e660894480a18"
+    },
+    "crates/ledgerlab-core/src/domain/records.rs": {
+      "bytes": 42198,
+      "sha256": "2d3e685eeef872f8d090580bae59b35a38acb0d20f9d6e8a49eaa63fab1767c4"
+    },
+    "crates/ledgerlab-core/src/wire/mod.rs": {
+      "bytes": 3613,
+      "sha256": "e6f4f41c763be99a3ffc0566e52701ee88cb6c2f7301e47be4837af061e0b578"
+    },
+    "crates/ledgerlab-core/src/money/mod.rs": {
+      "bytes": 11033,
+      "sha256": "788faad4d6ea6e4fb08b9f7458aa6c4ce8975f7074cdfc5085f26fa079adb375"
+    },
+    "crates/ledgerlab-core/src/canonical/mod.rs": {
+      "bytes": 13077,
+      "sha256": "9ede8d501a9f2c1dc93d55e9a4c340104cb738668459ae99a7907ec3c47ba078"
+    },
+    "crates/ledgerlab-testkit/tests/phase2_outcomes.rs": {
+      "bytes": 26906,
+      "sha256": "bd28b59a7d5a8dc81df96af064800fccc83fb96a17875e3661bb4c7d03a9c3bb"
     }
   },
-  "use": "Read-only semantic authority; no sibling implementation imported."
+  "use": "Read-only semantic authority; comparisons use an exact Git archive under work/ with temporary tests. No sibling production implementation imported."
 }

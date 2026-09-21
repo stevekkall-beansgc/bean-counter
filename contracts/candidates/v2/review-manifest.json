@@ -1,137 +1,154 @@
 {
   "status": "candidate-not-frozen",
-  "profile": "2-candidate.2",
+  "profile": "2-candidate.3",
   "independent_review": "pending",
+  "previous_candidate_commit": "e8139e6df68880ae9c520ee100a05dcfd0ede673",
   "base_commit": "b35258425970052ed71481eca1f33ef857c61be1",
   "semantic_commit": "1e0ba3f886788c08f427d3aae1d916b341187e76",
   "files": {
     "PHASE-2-CANONICAL-CANDIDATE.md": {
-      "bytes": 7372,
-      "sha256": "31e6a7a2fb16cd4ac1cd1130e04a36c5afbe1606cf6ab319f95e22b334d57eae"
+      "bytes": 7713,
+      "sha256": "65d8f59297236734698380e54d537007bdeb7975bfbd7e01f0fca8e478aedcc8"
     },
     "ROADMAP.md": {
       "bytes": 8397,
       "sha256": "70c15ef346d2a1dc8144154d7b766d4db2de891815465c889ceebc01e91650d5"
     },
     "contracts/candidates/v2/README.md": {
-      "bytes": 2474,
-      "sha256": "ff5a6346588e20709350c1d4dfc395a248240aec6e5334007618f93d4dc99a9c"
+      "bytes": 3556,
+      "sha256": "4c537e6cbf03614d292e03b60110ff4e97164f937c70e3ac085551d42a145662"
+    },
+    "contracts/candidates/v2/SCALARS.md": {
+      "bytes": 4126,
+      "sha256": "1dedf0921f6f9a00fa63e9467ef8ab0205b7edc0cbb474fff9b1edf6e3dc11b0"
     },
     "contracts/candidates/v2/goldens/aggregate-limit-rejection.json": {
-      "bytes": 51724,
-      "sha256": "11cbc79a089d18909d0af1da97fec1de95b6f99c22a3647742e8905d1ff897d3"
+      "bytes": 61347,
+      "sha256": "b8ef1df1f8b98028997e0bfb8eb1edbd845510bf9ecd6744510694def0b6f14c"
     },
     "contracts/candidates/v2/goldens/cap-incompatibility.json": {
-      "bytes": 16174,
-      "sha256": "a5b32b3f0c31f7485ec012de45c5476447c6091ad67f7033472f13d11bbcfc4b"
+      "bytes": 23034,
+      "sha256": "eed85da8f7f94b2f64247888babc21a22f481da9a4e82de49fa0d0476b597af9"
     },
     "contracts/candidates/v2/goldens/correction-reinstatement.json": {
-      "bytes": 143537,
-      "sha256": "6d85c80030e465d3f02431d97cad1ef212248313dd090cbe0a49d5a967279dbc"
+      "bytes": 153306,
+      "sha256": "37d7c174b3f5d2c57d0e7af71307057b341c032ea53865712a82e3efdece5611"
     },
     "contracts/candidates/v2/goldens/correction-replacement.json": {
-      "bytes": 221860,
-      "sha256": "e8deee820504dd6e76d9957a67b2db8688a90cac6c32a04692548486eb0e4dc0"
+      "bytes": 233621,
+      "sha256": "b6216c8a29b522ae240b15d517d3933d91beb75b0c2b5bd3d0df31c7297bd950"
     },
     "contracts/candidates/v2/goldens/correction-timing-rejection.json": {
-      "bytes": 49689,
-      "sha256": "ed4d1f87dedcbc2cbc2981e5b6b92fd158f1cc05969dcedd2e205fdb1b36ff26"
+      "bytes": 57518,
+      "sha256": "5cd1e1dee520489d904341465448404c49e19050fbacdc9ba878ef811fc43627"
+    },
+    "contracts/candidates/v2/goldens/cross-binding-corrections.json": {
+      "bytes": 231965,
+      "sha256": "cddf108ea68f0c80c56e75e11a2453dd70bdaec74064fae7340a24f73a14434c"
+    },
+    "contracts/candidates/v2/goldens/decision-time-evidence.json": {
+      "bytes": 106383,
+      "sha256": "0f236a302dd90ca816cb2039f1fcd84ac5c9a9a1f7f194d87fc83a9d9de29199"
     },
     "contracts/candidates/v2/goldens/duplicate-version-retry.json": {
-      "bytes": 101398,
-      "sha256": "418daae7b74e18f9d60c5aafc870d8beb682a391cc0c0785fc7148bb5bfa2de8"
+      "bytes": 110187,
+      "sha256": "3501e8cdc5e403fc16bb6c1a2061fec30b924e6d0fecea93aad085d6b3aa5739"
     },
     "contracts/candidates/v2/goldens/equal-observation-times.json": {
-      "bytes": 90961,
-      "sha256": "fc67b725b895cf45829ccae938c1b4473e459043eebf733e4b6a96e71cb15c42"
+      "bytes": 99750,
+      "sha256": "f00f223b349a2ebfbfc905d916dbc1fcc8139b7e05cbef38d1d02c3e17dc77f0"
     },
     "contracts/candidates/v2/goldens/fixed-success-fee.json": {
-      "bytes": 48320,
-      "sha256": "939cbf3713cf28d906eaa688558345f5c54f47f298fd1986d0008e86cae86c4f"
+      "bytes": 56109,
+      "sha256": "91cad4a2262ba05e624b8531c5f1f16ee04a5822d3686dc21bb48554f53125d8"
     },
     "contracts/candidates/v2/goldens/full-reversal-reinstatement.json": {
-      "bytes": 143703,
-      "sha256": "75ef120e4e7299fc06392f73afb8ae883c7601f6ae447f2eb253d53ab1751f9f"
+      "bytes": 153484,
+      "sha256": "9eae1cebb4c450badfa7d1be7a9263ec1a695836a2c5383ffa4b37b66ecdefe8"
     },
     "contracts/candidates/v2/goldens/inclusive-correction-deadlines.json": {
-      "bytes": 91244,
-      "sha256": "76eebef495c1d6d3104028e3ca6e528b6d67a7d068c411999f8fab1f28298330"
+      "bytes": 100061,
+      "sha256": "71588f03a8cafb9d0572d7d205fd9fb3aaa2d2323b12d6bef311527dcd553a13"
     },
     "contracts/candidates/v2/goldens/inclusive-ordinary-deadlines.json": {
-      "bytes": 48628,
-      "sha256": "41eb3d5f7881b70c5d61502c3dd370a11d72ef293ddf0cd374e1fb4343931012"
+      "bytes": 56461,
+      "sha256": "3ebd6ce72f04afd246200b7f3a84fe020db19968954a94b1d5d0a78cff541b83"
     },
     "contracts/candidates/v2/goldens/inventory.json": {
-      "bytes": 2708,
-      "sha256": "1416ed3c341b291591bbb322cb984cb5a70daadf592f752f918e3831870ceb2c"
+      "bytes": 3090,
+      "sha256": "bbb0d0e2cd4495c5dfdf489f177b5d94cf95ce077dcb11e44e816e34262f6255"
+    },
+    "contracts/candidates/v2/goldens/lossless-event-and-outcome-terms.json": {
+      "bytes": 57592,
+      "sha256": "ad6a18bbf0dd8341b2e56ff80c08134f7dfc84668bfaebe1de985d102a6ac6ce"
     },
     "contracts/candidates/v2/goldens/percentage-rebate.json": {
-      "bytes": 48344,
-      "sha256": "c91055329ef0561f4a40b83dab6c10365d54ab785b2692df318e538aa7907ead"
+      "bytes": 56111,
+      "sha256": "6afe8085bcee18da4b37dd53d0669e4bbd3126443b603b27c9158b8cd19c4f50"
     },
     "contracts/candidates/v2/goldens/predeclared-unclaimed-family.json": {
-      "bytes": 50848,
-      "sha256": "afd0cee3233e3fce80bdbb6b40322127814e880007fb8b497fe1eb9e7eb339c9"
+      "bytes": 60499,
+      "sha256": "4a6c2e5423952ba6bd3aedee2cec4033d2b7f64d31399a13446ce4be807a9d36"
     },
     "contracts/candidates/v2/goldens/retail-net-after-booking-discount.json": {
-      "bytes": 52399,
-      "sha256": "ea0c78a5db88b591b9d8257b42a67228b56d8ddbd6234661c4172aeb97f6d5f0"
+      "bytes": 59903,
+      "sha256": "7c72778125117efa8116d7a93dd6cc4c892d98f9d775ea3e8ab2a8d3b7283fd1"
     },
     "contracts/candidates/v2/goldens/rounded-zero.json": {
-      "bytes": 43335,
-      "sha256": "ff1ded8e15109475cd5130e8ebd38276172643af8ad1779f1ea6a9d80436d2bf"
+      "bytes": 50838,
+      "sha256": "a1466e47ec4bdba25d5556eb364f2eb78c9e042df948b331eb4783bd48d512bd"
     },
     "contracts/candidates/v2/goldens/signed-rounding.json": {
-      "bytes": 48247,
-      "sha256": "7316c405f60951e5e84b28d6465adf75ac3795fea7cf40d1602e2848fb7f7ef4"
+      "bytes": 56010,
+      "sha256": "ae6b1f19c0bb0ef07381341df6bc45cfce11f6512c091a261908b9813e34233c"
     },
     "contracts/candidates/v2/goldens/supplier-separation.json": {
-      "bytes": 216359,
-      "sha256": "f61f2a4d52912de35b5859522298aa657bf3a2b111e9f3de820f55fea8e4e4e3"
+      "bytes": 228182,
+      "sha256": "5ced1ea9ab5a3ba9283918ffc947914da7e4270f2f5f4ff1b34966833bfd1fd6"
     },
     "contracts/candidates/v2/goldens/timing-rejection.json": {
-      "bytes": 22714,
-      "sha256": "3f0be41e3461076abd4581927606efa62d384d0a4284be1269eae41fbe37e83e"
+      "bytes": 29699,
+      "sha256": "053088545280df3af0b168aedf12e429df8c0077e097e5ffcf6c3767ef95260d"
     },
     "contracts/candidates/v2/goldens/two-rule-families.json": {
-      "bytes": 138107,
-      "sha256": "8955ae0b37635dc893e30af77df3888cf0756e48e81a4211bdc8efe6e354af38"
+      "bytes": 149458,
+      "sha256": "4910bd31e0d32ae45824331ea4938904cc10caa92cf828aa78143f90c9ab8a8a"
     },
     "contracts/candidates/v2/goldens/vectors.json": {
-      "bytes": 2448884,
-      "sha256": "193295e4a516571eaaab03e01d63afb5ae506edb682945c7d52ac169add32758"
+      "bytes": 3390147,
+      "sha256": "ded37ba10d4259031e666f0886b936fd1683f4c2eaabc6af3b2a35b5ce0be005"
     },
     "contracts/candidates/v2/goldens/zero-adjustment.json": {
-      "bytes": 88530,
-      "sha256": "c6a2241dd017ac5a4628ece4f79ad6eb67199813ae315688b3bc009a3ba8cbf6"
+      "bytes": 97033,
+      "sha256": "457ce2be0bd04f3e0a614230ecd1f3d4bcfedaaf03e563123655b49da2dd63e6"
     },
     "contracts/candidates/v2/goldens/zero-net-base.json": {
-      "bytes": 39625,
-      "sha256": "4a3ccbf86b40f98a994a4660719c687d3772a7ee8a50046f8e9dd6028402f401"
+      "bytes": 47478,
+      "sha256": "460d154178e5d38a8a67392f2d54eadf48e5d5a4aea0015833f069bc5b23a27c"
     },
     "contracts/candidates/v2/history-inputs.json": {
-      "bytes": 13522,
-      "sha256": "69f838c7a4b72f7b2ff55289d4e678836ffa8a50e1027ffb701c0fed4264e230"
+      "bytes": 16171,
+      "sha256": "ac0a1cf9ee97c860909cd26f773f58e244fa1b3b933e66c824b1047c3a8fb11b"
     },
     "contracts/candidates/v2/reason-codes.json": {
-      "bytes": 3979,
-      "sha256": "91999f46e46c4acc6de16c03895c8252e26cd0fb8724e1d7c02cebe11f01f382"
+      "bytes": 3974,
+      "sha256": "7051566d5d9581d5e94fc55df5c7ec17f3fdfe753eec605e436e2eeacd6a3f63"
     },
     "contracts/candidates/v2/schemas/canonical-records.schema.json": {
-      "bytes": 67849,
-      "sha256": "76c894bb52382ffd004bc6f038cc03aa84ee27ff0d004b7776cd1cd1e67e87b1"
+      "bytes": 107416,
+      "sha256": "c9fdca81caa23c48f1f9f529ef6b672b7557c9411ceb3e148949d7b5ce4a474e"
     },
     "contracts/candidates/v2/semantic-source.json": {
-      "bytes": 906,
-      "sha256": "d53b93e6fdffe8ca987b5beafe513507366c1019d6f19d85c3ff3728e212b2a0"
+      "bytes": 2478,
+      "sha256": "5b722c61201b5b096168dd1e2f34840451b22a6a32cd7b757a5f49300a47ac46"
     },
     "docs/adr/candidates/outcome-records-v2.md": {
-      "bytes": 3333,
-      "sha256": "c50a8cd8e2a1b3ba7b60dd28dc35a56dbcde96a5b3cd6b143de74abc46ccf0d3"
+      "bytes": 4722,
+      "sha256": "d38438057f414d8a42c264aec788e41d8d356f63a67531ce2fd7d7e9ddb11f2a"
     },
     "docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md": {
-      "bytes": 17214,
-      "sha256": "de8eb45fa5421d3576d44ba8bab9313ffc110cb0c5b6690cd146466a7cd5a93e"
+      "bytes": 24512,
+      "sha256": "3d5a5f503a23b5c13ca31acace9d69838fa1efefeda5c4937ab60a55f14002ac"
     },
     "scripts/check-candidate-contracts.sh": {
       "bytes": 96,
@@ -142,32 +159,52 @@
       "sha256": "d364765bfeca30aa08dac2f63a0dee688ba1d49e02a733108609eef121f8e9b7"
     },
     "scripts/contract_checks/v2_candidate/adversarial.py": {
-      "bytes": 5698,
-      "sha256": "1a71e0560f5427f28214c0dd547f4d39e2bae2d4f7a128273c1feee0f0c59e64"
+      "bytes": 11771,
+      "sha256": "64304b41fdb519b515fc9fdcf4b75ae7d578aef2f2d34482b41cbc144a081124"
     },
     "scripts/contract_checks/v2_candidate/audit.py": {
-      "bytes": 25705,
-      "sha256": "74b1b610880cb7dfc2d5ca415631d367e9d0a5b6fa91aea5f64c25fed3489b0e"
+      "bytes": 26909,
+      "sha256": "9b9942ca6fe6ffc587ed524a1d4d0715e20e0e53a75a88cadba102323478ef39"
+    },
+    "scripts/contract_checks/v2_candidate/boundaries.py": {
+      "bytes": 8311,
+      "sha256": "bfd96cff016b40de509ccdf778bf5ad6301a12130d30ee2bf8bf01596e7580af"
     },
     "scripts/contract_checks/v2_candidate/check_hashes.mjs": {
-      "bytes": 6710,
-      "sha256": "3533d0a06f038f2ad0cbaa560ed2c04e05d0ad2e2edde37f5d7e2d91b4ecf6f6"
+      "bytes": 7788,
+      "sha256": "a3cec84469797002a3eaf4101134336254fd754e43b10fe10c07a66f8cf16f09"
+    },
+    "scripts/contract_checks/v2_candidate/compare_semantic.py": {
+      "bytes": 3634,
+      "sha256": "7e5ccaf5b966b31a678dd0f07705030c6f987fa1c19cd264791150a1671f3676"
     },
     "scripts/contract_checks/v2_candidate/integrity.py": {
-      "bytes": 6115,
-      "sha256": "d1fdb5800d109e75e82c8d322561868b7d0607c87201b2b48f1918982a135295"
+      "bytes": 7060,
+      "sha256": "d2731469d0607b4a9c5c15cbcccaaaabadc38722f7fb367c7eb717f7cc0f929a"
     },
     "scripts/contract_checks/v2_candidate/profile.py": {
-      "bytes": 6248,
-      "sha256": "6466f7f16a120f715b770dda7a2acbcc880ce25e3488a815375a830d03349ad9"
+      "bytes": 4692,
+      "sha256": "54c03836aa336f8d7e4bb75ba5b3600f029eba9eaa4955ad89e79d4c3ef7db22"
     },
     "scripts/contract_checks/v2_candidate/reconstruct.py": {
-      "bytes": 25122,
-      "sha256": "7d1c49b24bf19c8ed779538ad2ac6e127817c69ef2e1a6270193b9069b8e397c"
+      "bytes": 28243,
+      "sha256": "947e17dd7afab93aa5e5567c1b995a50d0e1715c584f965def0c95575125a2ff"
+    },
+    "scripts/contract_checks/v2_candidate/retained.py": {
+      "bytes": 2859,
+      "sha256": "ca41fabedc169049c541e8ee4124cf96273d8069c9ea414250c5daa37e7e4701"
+    },
+    "scripts/contract_checks/v2_candidate/scalars.py": {
+      "bytes": 3595,
+      "sha256": "4036a291e05e499cfabfd4d9daacdbea784b4c46084b6219b898d133465ac60a"
+    },
+    "scripts/contract_checks/v2_candidate/semantic_comparison.rs": {
+      "bytes": 16316,
+      "sha256": "06979dec8841345e4698044822e2687a616fc2c81f620c491aba5da14a4ed8b0"
     },
     "scripts/contract_checks/v2_candidate/semantics.py": {
-      "bytes": 8793,
-      "sha256": "1ae904e42e2b6292450f86a50afaad7bfc8ff8f72f87e9570131cacbf83cbd3c"
+      "bytes": 12469,
+      "sha256": "2cd7d79e939beec5923aaad82e8c3ac07de60159009031f7c8d34ad76b5b71b4"
     }
   }
 }

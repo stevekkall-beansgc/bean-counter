@@ -627,6 +627,125 @@
           ]
         }
       ]
+    },
+    {
+      "name": "decision-time-evidence",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "extra_rules": [
+            {
+              "code": "partial",
+              "kind": "fixed",
+              "fixed_atoms": "1000"
+            }
+          ],
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ],
+          "new_evidence": "verified sale after base acceptance"
+        },
+        {
+          "family": "success",
+          "code": "partial",
+          "correct": true,
+          "atoms": "1000",
+          "exact": [
+            "1000",
+            "1"
+          ],
+          "new_evidence": "verified correction after ordinary claim"
+        }
+      ]
+    },
+    {
+      "name": "lossless-event-and-outcome-terms",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ],
+      "event_extensions": {
+        "source": "opaque extension, not authority",
+        "policy_version": "not operative",
+        "label": "\u00e9/\ud83d\ude00",
+        "count": 9007199254740991,
+        "verified": false
+      },
+      "binding_outcome": {
+        "source": "urn:synthetic:outcome",
+        "window_us": 7776000000000,
+        "report_grace_us": 604800000000,
+        "claim_namespace": "sale"
+      }
+    },
+    {
+      "name": "cross-binding-corrections",
+      "base": "10000",
+      "supplier_base": "3000",
+      "steps": [
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "rate": [
+            "-10",
+            "1"
+          ],
+          "atoms": "-1000",
+          "exact": [
+            "-1000",
+            "1"
+          ]
+        },
+        {
+          "family": "supplier-rebate",
+          "book": "supplier",
+          "code": "rebate",
+          "rate": [
+            "-10",
+            "1"
+          ],
+          "atoms": "-1000",
+          "exact": [
+            "-1000",
+            "1"
+          ]
+        },
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "correct": true,
+          "atoms": "-1000",
+          "exact": [
+            "-1000",
+            "1"
+          ]
+        },
+        {
+          "family": "supplier-rebate",
+          "book": "supplier",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        }
+      ]
     }
   ]
 }

@@ -6,6 +6,7 @@ from pathlib import Path
 from profile import canonical, envelope, reference, strict
 from integrity import integrity,rebuild_hash_graph
 from reconstruct import ROOT
+from retained import document_fields
 
 
 def run_adversarial(histories,verify):
@@ -29,14 +30,16 @@ def run_adversarial(histories,verify):
         removed=next(r for r in h['seed'] if r['kind']=='policy-snapshot' and r['body']['family_id']=='future-bonus')
         h['seed'].remove(removed)
         target=record(h,'target-snapshot')['body'];target['families']=[v for v in target['families'] if v['id']!=removed['id']]
+        policy=strict(target['policy_utf8'].encode());policy['families']=[f for f in policy['families'] if f['family']!='future-bonus']
+        target['policy_utf8']=canonical(policy).decode()
+        proof=next(r for r in h['seed'] if r['kind']=='evidence' and r['body']['document_id']==policy['document'])
+        proof['body']['utf8']=canonical({k:v for k,v in policy.items() if k!='document'}).decode()
     add('rewrite-complete-frozen-membership','predeclared-unclaimed-family',remove_family,'BASE_ACCEPTANCE_CHANGED')
     add('claim-revision-skipped','correction-replacement',lambda h:record(h,'claim-revision',1)['body'].update(number='9'),'REVISION_SEQUENCE')
     def held_capacity(h):
         b=next(r for r in h['seed'] if r['kind']=='binding-snapshot' and r['body']['book']=='supplier')
         b['body']['supplier_invocation']['held']['atoms']='3000'
         base=record(h,'base-evaluation')['body'];m=strict(base['evaluation_utf8'].encode())
-        for p in m['bundle']['policies']:
-            if p['binding']['book']=='supplier':p['binding']['supplier_invocation']['held']['atoms']='3000'
         for i in m['invocations']:i['held']['atoms']='3000'
         base['evaluation_utf8']=canonical(m).decode()
     add('supplier-contingent-capacity','supplier-separation',held_capacity,'EXPOSURE_EXCEEDED')
@@ -65,6 +68,75 @@ def run_adversarial(histories,verify):
         duplicate=envelope('policy-snapshot',old['scope'],b);h['seed'].append(duplicate)
         record(h,'target-snapshot')['body']['families'].append(reference(duplicate))
     add('policy-version-cannot-add-eligibility','fixed-success-fee',duplicate_version,'POLICY_AMBIGUOUS_MATCH')
+    # All attacks below pass structural and independent byte/hash validation.
+    # Ordinary and correction evidence is introduced without touching the root.
+    for ix, label in ((0,'claim'),(1,'correction')):
+        add(label+'-new-evidence-unverified','decision-time-evidence',
+            lambda h,ix=ix:record(h,'authority-decision',ix)['body'].update(verified_evidence=[]),
+            'OUTCOME_EVIDENCE_REQUIRED')
+        add(label+'-explanation-evidence-substitution','decision-time-evidence',
+            lambda h,ix=ix:record(h,'explanation',ix)['body'].update(evidence=[]),
+            'EXPLANATION_EVIDENCE')
+    add('evidence-verification-belongs-to-another-decision','decision-time-evidence',
+        lambda h:record(h,'authority-decision',1)['body'].update(event_id=record(h,'event')['id']),
+        'AUTHORITY_REFERENCE')
+    def unused_evidence(h):
+        old=record(h,'evidence');b=copy.deepcopy(old['body']);b.update(document_fields(b['document_type'],{'synthetic':'unused'}))
+        h['decisions'][0]['records'].append(envelope('evidence',old['scope'],b))
+    add('unreferenced-decision-evidence','decision-time-evidence',unused_evidence,'UNUSED_DECISION_EVIDENCE')
+    def inject_terms(h):
+        old=record(h,'policy-snapshot');b=copy.deepcopy(old['body']);b['family_id']='evidence-invented-family'
+        h['decisions'][0]['records'].append(envelope('policy-snapshot',old['scope'],b))
+    add('new-evidence-cannot-add-family','decision-time-evidence',inject_terms,'UNREFERENCED_NEW_SEED')
+    def evidence_money(h):
+        for r in h['decisions'][0]['records']:
+            if r['kind']=='evidence':r['body']['utf8']=canonical({'synthetic':'nonoperative','proposed_atoms':'9000'}).decode()
+            if r['kind'] in ('action','claim-revision'):r['body']['amount']['atoms']='9000'
+            if r['kind']=='limit-evidence':r['body']['after_premium']='9000'
+    add('new-evidence-cannot-set-money','decision-time-evidence',evidence_money,'EXPLANATION_MATH')
+    def wrong_policy_observation(h):
+        target=record(h,'target-snapshot')['body']
+        target['verified_policy_document']=next(r['body']['document_id'] for r in h['seed'] if r['kind']=='evidence' and r['body']['purpose']=='grant')
+    add('verified-policy-document-mismatch','fixed-success-fee',wrong_policy_observation,'TERMS_NOT_VERIFIED')
+    def wrong_policy_source(h):
+        target=record(h,'target-snapshot')['body'];p=strict(target['policy_utf8'].encode())
+        p['document']=next(r['body']['document_id'] for r in h['seed'] if r['kind']=='evidence' and r['body']['purpose']=='grant')
+        target['policy_utf8']=canonical(p).decode()
+    add('original-policy-document-mismatch','fixed-success-fee',wrong_policy_source,'TERMS_NOT_VERIFIED')
+    add('policy-document-observed-hash-mismatch','fixed-success-fee',
+        lambda h:record(h,'target-snapshot')['body'].update(policy_document_hash='sha256:'+'0'*64),
+        'POLICY_DOCUMENT_EVIDENCE')
+    def changed_policy_document(h):
+        proof=next(r for r in h['seed'] if r['kind']=='evidence' and r['body']['purpose']=='policy')
+        value=strict(proof['body']['utf8'].encode());value['version']='changed-document';proof['body']['utf8']=canonical(value).decode()
+    add('policy-document-terms-mismatch','fixed-success-fee',changed_policy_document,'POLICY_DOCUMENT_TERMS')
+    def strip_extensions(h):
+        b=record(h,'base-evaluation')['body'];m=strict(b['evaluation_utf8'].encode());m['event']['extensions']={};b['evaluation_utf8']=canonical(m).decode()
+    add('lossless-event-extensions-discarded','lossless-event-and-outcome-terms',strip_extensions,'BASE_EVENT_BYTES')
+    def strip_outcome(h):
+        b=record(h,'binding-snapshot')['body'];source=strict(b['binding_utf8'].encode());del source['outcome'];b['binding_utf8']=canonical(source).decode()
+    add('lossless-binding-outcome-discarded','lossless-event-and-outcome-terms',strip_outcome,'BASE_BINDING_MATERIAL')
+    add('lossless-binding-outcome-projection-changed','lossless-event-and-outcome-terms',
+        lambda h:record(h,'binding-snapshot')['body']['outcome'].update(claim_namespace='changed'),
+        'BASE_BINDING_PROJECTION')
+    def substitute_action(h,ix,slot,foreign):
+        a=next(r for r in h['decisions'][ix]['records'] if r['kind']=='action' and r['body']['slot']==slot)
+        effect=next(r for r in h['decisions'][ix]['records'] if r['kind']=='effect' and r['body']['action_id']==a['id'])
+        for r in (a,effect):
+            r['body']['binding_id']='binding-supplier' if foreign else 'binding-never-authorized'
+            if foreign:r['body']['binding_snapshot']=next(r['id'] for r in h['seed'] if r['kind']=='binding-snapshot' and r['body']['book']=='supplier')
+    for ix,slot,label in ((0,'replacement','original'),(2,'replacement','replacement'),(2,'inverse','inverse')):
+        for foreign in (False,True):
+            add(label+('-cross-family-binding' if foreign else '-unauthorized-binding'),'cross-binding-corrections',
+                lambda h,ix=ix,slot=slot,foreign=foreign:substitute_action(h,ix,slot,foreign),'ACTION_BINDING')
+    add('action-unpermitted-component','fixed-success-fee',
+        lambda h:record(h,'action',0)['body'].update(component='different-family'),'ACTION_COMPONENT')
+    add('effect-binding-substitution','fixed-success-fee',
+        lambda h:record(h,'effect',0)['body'].update(binding_id='binding-never-authorized'),'EFFECT_BINDING')
+    def original_binding(h):
+        b=record(h,'base-evaluation')['body'];m=strict(b['evaluation_utf8'].encode())
+        m['actions'][0]['binding']['agreement']='unaccepted-agreement';b['evaluation_utf8']=canonical(m).decode()
+    add('original-base-action-binding-substitution','fixed-success-fee',original_binding,'BASE_ACTION_BINDING')
     # Book cannot split the economic claim key even if its posting data differ.
     from profile import key
     claim=record(byname['fixed-success-fee'],'claim',0)
