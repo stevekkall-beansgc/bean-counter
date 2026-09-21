@@ -230,6 +230,7 @@ pub(crate) struct HeldDelivery {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredIdentity {
+    pub key: CanonicalRecord,
     pub event_id: String,
     pub ingress_hash: String,
     pub receipt: CanonicalRecord,
@@ -242,6 +243,7 @@ pub(crate) struct StoredClaim {
     pub receipt: CanonicalRecord,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StoredDelivery {
     pub state: String,
@@ -256,9 +258,17 @@ pub(crate) struct StoredDelivery {
 #[derive(Clone, Debug)]
 pub(crate) enum WriteOp {
     Journal(Box<JournalRecord>),
+    // Explicit provisioning is private and separate from the request path.
+    #[allow(dead_code)]
     SeedInstallation(Installation),
+    // Explicit provisioning is private and separate from the request path.
+    #[allow(dead_code)]
     SeedChain(Chain),
+    // Explicit provisioning is private and separate from the request path.
+    #[allow(dead_code)]
     SeedAuthority(AuthorityHead),
+    // Explicit provisioning is private and separate from the request path.
+    #[allow(dead_code)]
     SeedBinding(BindingHead),
     AdvanceChain(ChainAdvance),
     HoldDelivery(HeldDelivery),

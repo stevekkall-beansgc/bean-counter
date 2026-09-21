@@ -5,6 +5,7 @@ use std::{error::Error, fmt};
 pub(crate) enum StoreError {
     Io(std::io::Error),
     Database(sqlx::Error),
+    Postgres(tokio_postgres::Error),
     Migration(sqlx::migrate::MigrateError),
     Owned,
     Overloaded,
@@ -16,6 +17,10 @@ pub(crate) enum StoreError {
 impl StoreError {
     pub fn retryable_after_rollback(&self) -> bool {
         match self {
+            Self::Postgres(e) => matches!(
+                e.code().map(|c| c.code()),
+                Some("40001" | "40P01" | "55P03" | "23505")
+            ),
             Self::Overloaded | Self::Deadline | Self::Database(sqlx::Error::PoolTimedOut) => true,
             Self::Database(sqlx::Error::Database(e)) => e
                 .code()
@@ -53,7 +58,14 @@ impl From<sqlx::migrate::MigrateError> for StoreError {
 }
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SQLite boundary: {self:?}")
+        match self {
+            Self::Io(e) => write!(f, "Store IO boundary: {e}"),
+            Self::Migration(e) => write!(f, "Store migration boundary: {e}"),
+            Self::InvalidStore(reason) | Self::Integrity(reason) => {
+                write!(f, "Store boundary: {reason}")
+            }
+            _ => write!(f, "Store boundary: {self:?}"),
+        }
     }
 }
 impl Error for StoreError {}
@@ -64,4 +76,10 @@ pub(crate) enum CommitError {
     RolledBack(StoreError),
     /// Commit may have reached durable storage. Resolve using original identity.
     OutcomeUnknown,
+}
+
+impl From<tokio_postgres::Error> for StoreError {
+    fn from(e: tokio_postgres::Error) -> Self {
+        Self::Postgres(e)
+    }
 }

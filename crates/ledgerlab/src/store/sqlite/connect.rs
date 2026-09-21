@@ -13,6 +13,7 @@ pub(super) const SQLITE_VERSION: &str = "3.51.3";
 pub(super) const SQLITE_SOURCE_ID: &str =
     "2026-03-13 10:38:09 737ae4a34738ffa0c3ff7f9bb18df914dd1cad163f28fd6b6e114a344fe6d618";
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // Verified startup diagnostics retained for private host integration.
 pub(crate) struct Diagnostics {
     pub version: String,
     pub source_id: String,

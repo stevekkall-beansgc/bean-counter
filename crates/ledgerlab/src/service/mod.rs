@@ -13,3 +13,9 @@ pub(crate) fn store_error(e: StoreError) -> ServiceError {
         ServiceError::Unavailable
     }
 }
+
+#[cfg(test)]
+mod pg_tests;
+
+#[cfg(test)]
+mod race_tests;

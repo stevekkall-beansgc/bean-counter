@@ -1,4 +1,10 @@
-# PostgreSQL Phase 1 — driver/TLS architecture gate resolved
+# PostgreSQL Phase 1 — historical driver/TLS handoff
+
+**21 September integration follow-up:** production adapter wiring and local
+PostgreSQL 18/17 persistence evidence are tracked in [PHASE-1-STATUS.md](PHASE-1-STATUS.md).
+The lane report below is preserved as historical pre-integration evidence; its
+statements that production wiring or local servers are absent are no longer the
+current integration status.
 
 Status: **compliant driver path selected; bounded executable proof passes**.
 A completed PostgreSQL adapter, real-store conformance and SQLite parity are

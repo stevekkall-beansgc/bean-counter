@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, time::Duration};
 use tokio::{runtime::Runtime, time::Instant};
 
 struct Factory;
-struct Backend {
+pub(super) struct Backend {
     runtime: Runtime,
     directory: tempfile::TempDir,
     store: Option<SqliteStore>,
@@ -86,7 +86,7 @@ impl Backend {
             uncertain: None,
         })
     }
-    fn command(c: &tk::Command) -> AcceptCommand {
+    pub(super) fn command(c: &tk::Command) -> AcceptCommand {
         AcceptCommand {
             bytes: c.bytes.clone(),
             principal: PrincipalContext {
@@ -109,7 +109,9 @@ impl Drop for Backend {
         }
     }
 }
-fn outcome(result: Result<AcceptResult, ServiceError>) -> ledgerlab_testkit::Result<tk::Outcome> {
+pub(super) fn outcome(
+    result: Result<AcceptResult, ServiceError>,
+) -> ledgerlab_testkit::Result<tk::Outcome> {
     Ok(match result {
         Ok(AcceptResult::Accepted { receipt }) => tk::Outcome::Accepted(receipt),
         Ok(AcceptResult::Duplicate { kind, receipt }) => tk::Outcome::Duplicate {
@@ -169,65 +171,7 @@ impl tk::AcceptanceBackend for Backend {
             return Err(err(String::from_utf8_lossy(&result.stderr)));
         }
         let v: Value = serde_json::from_slice(&result.stdout).map_err(err)?;
-        let rows: BTreeMap<_, _> = v["rows"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(name, rows)| {
-                (
-                    name.clone(),
-                    rows.as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|r| (decode(&r[0]), decode(&r[1])))
-                        .collect(),
-                )
-            })
-            .collect();
-        let absent_tables = LATER_TABLES
-            .iter()
-            .filter(|t| !rows.contains_key(**t))
-            .map(|s| s.to_string())
-            .collect();
-        Ok(Snapshot {
-            journal: v["journal"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(decode)
-                .collect(),
-            indexes: v["indexes"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(decode)
-                .collect(),
-            state: decode(&v["state"]),
-            operational: if v["operational"].is_null() {
-                None
-            } else {
-                Some(decode(&v["operational"]))
-            },
-            aliases: v["aliases"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|a| Alias {
-                    scope: [
-                        a["scope"][0].as_str().unwrap().into(),
-                        a["scope"][1].as_str().unwrap().into(),
-                    ],
-                    source: a["source"].as_str().unwrap().into(),
-                    external_id: a["external_id"].as_str().unwrap().into(),
-                    canonical_receipt: decode(&a["canonical_receipt"]),
-                    ingress: decode(&a["ingress"]),
-                    ingress_hash: a["ingress_hash"].as_str().unwrap().into(),
-                    observed_at: a["observed_at"].as_str().unwrap().into(),
-                })
-                .collect(),
-            rows,
-            absent_tables,
-        })
+        snapshot(v)
     }
     fn reopen(&mut self) -> ledgerlab_testkit::Result<()> {
         if let Some(h) = self.pending.take() {
@@ -366,86 +310,7 @@ impl tk::AcceptanceBackend for Backend {
         })
     }
     fn cancellation_points(&mut self) -> ledgerlab_testkit::Result<Vec<CancellationPoint>> {
-        let mut points = vec![
-            CancellationPoint {
-                name: "begin".into(),
-                class: AwaitClass::Begin,
-                phase: CommitPhase::Before,
-                trigger: None,
-            },
-            CancellationPoint {
-                name: "admission_lock".into(),
-                class: AwaitClass::Lock,
-                phase: CommitPhase::Before,
-                trigger: None,
-            },
-        ];
-        for name in [
-            "authority",
-            "grant",
-            "document:grant",
-            "identity",
-            "claim",
-            "binding",
-            "chain",
-            "document:context",
-            "document:binding",
-            "document:policy",
-            "document:roles",
-            "document:assent",
-        ] {
-            points.push(CancellationPoint {
-                name: name.into(),
-                class: AwaitClass::Read,
-                phase: CommitPhase::Before,
-                trigger: None,
-            });
-        }
-        for b in &self.oracle.write_boundaries {
-            if let Boundary::Write {
-                name,
-                item,
-                edge: Edge::Before,
-            } = b
-            {
-                points.push(CancellationPoint {
-                    name: format!("write:{name}:{item}"),
-                    class: AwaitClass::Write {
-                        name: name.clone(),
-                        item: *item,
-                    },
-                    phase: CommitPhase::Before,
-                    trigger: None,
-                });
-            }
-        }
-        for (name, class, phase) in [
-            ("commit", AwaitClass::Commit, CommitPhase::InFlight),
-            (
-                "acknowledged",
-                AwaitClass::Commit,
-                CommitPhase::Acknowledged,
-            ),
-            ("rollback", AwaitClass::Rollback, CommitPhase::Before),
-            ("cleanup", AwaitClass::Cleanup, CommitPhase::Before),
-        ] {
-            let trigger =
-                matches!(class, AwaitClass::Rollback | AwaitClass::Cleanup).then(|| Injection {
-                    boundary: Boundary::Write {
-                        name: "snapshot_document".into(),
-                        item: 0,
-                        edge: Edge::After,
-                    },
-                    fault: Fault::Rollback,
-                });
-            points.push(CancellationPoint {
-                name: name.into(),
-                class,
-                phase,
-                trigger,
-            });
-        }
-        Ok(points)
+        cancellation_points(&self.oracle)
     }
     fn cancel(
         &mut self,
@@ -496,35 +361,7 @@ impl tk::AcceptanceBackend for Backend {
     }
     fn zero_evidence(&mut self) -> ledgerlab_testkit::Result<tk::ZeroEvidence> {
         let s = self.observe()?;
-        let rows: Vec<Value> = s
-            .journal
-            .iter()
-            .map(|b| serde_json::from_slice(b).unwrap())
-            .collect();
-        let event = rows.iter().find(|r| r["kind"] == "event").unwrap();
-        let receipt = rows.iter().find(|r| r["kind"] == "receipt").unwrap();
-        let state: Value = serde_json::from_slice(&s.state).unwrap();
-        Ok(tk::ZeroEvidence {
-            event_id: event["id"].as_str().unwrap().into(),
-            receipt: serde_json::to_vec(&receipt["body"]).unwrap(),
-            explanation_codes: rows
-                .iter()
-                .filter(|r| r["kind"] == "explanation")
-                .map(|r| r["body"]["code"].as_str().unwrap().into())
-                .collect(),
-            action_ids: rows
-                .iter()
-                .filter(|r| r["kind"] == "action")
-                .map(|r| r["id"].as_str().unwrap().into())
-                .collect(),
-            intention_ids: rows
-                .iter()
-                .filter(|r| r["kind"] == "intention")
-                .map(|r| r["id"].as_str().unwrap().into())
-                .collect(),
-            revision: state["chain"]["revision"].as_str().unwrap().into(),
-            event_count: state["chain"]["event_count"].as_str().unwrap().into(),
-        })
+        zero_evidence(s)
     }
 }
 #[test]
@@ -643,4 +480,326 @@ fn sqlite_cancellation_all_awaits() {
     let oracle = FixtureOracle::workspace().unwrap();
     let reports = ledgerlab_testkit::cases::run_cancellation(&Factory, &oracle).unwrap();
     println!("{} real SQLite cancellation cases passed", reports.len());
+}
+
+pub(super) fn snapshot(v: Value) -> ledgerlab_testkit::Result<Snapshot> {
+    let rows: BTreeMap<_, _> = v["rows"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(name, rows)| {
+            (
+                name.clone(),
+                rows.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|r| (decode(&r[0]), decode(&r[1])))
+                    .collect(),
+            )
+        })
+        .collect();
+    let absent_tables = LATER_TABLES
+        .iter()
+        .filter(|t| !rows.contains_key(**t))
+        .map(|s| s.to_string())
+        .collect();
+    Ok(Snapshot {
+        journal: v["journal"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(decode)
+            .collect(),
+        indexes: v["indexes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(decode)
+            .collect(),
+        state: decode(&v["state"]),
+        operational: if v["operational"].is_null() {
+            None
+        } else {
+            Some(decode(&v["operational"]))
+        },
+        aliases: v["aliases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|a| Alias {
+                scope: [
+                    a["scope"][0].as_str().unwrap().into(),
+                    a["scope"][1].as_str().unwrap().into(),
+                ],
+                source: a["source"].as_str().unwrap().into(),
+                external_id: a["external_id"].as_str().unwrap().into(),
+                canonical_receipt: decode(&a["canonical_receipt"]),
+                ingress: decode(&a["ingress"]),
+                ingress_hash: a["ingress_hash"].as_str().unwrap().into(),
+                observed_at: a["observed_at"].as_str().unwrap().into(),
+            })
+            .collect(),
+        rows,
+        absent_tables,
+    })
+}
+
+pub(super) fn cancellation_points(
+    oracle: &FixtureOracle,
+) -> ledgerlab_testkit::Result<Vec<CancellationPoint>> {
+    let mut points = vec![
+        CancellationPoint {
+            name: "begin".into(),
+            class: AwaitClass::Begin,
+            phase: CommitPhase::Before,
+            trigger: None,
+        },
+        CancellationPoint {
+            name: "admission_lock".into(),
+            class: AwaitClass::Lock,
+            phase: CommitPhase::Before,
+            trigger: None,
+        },
+    ];
+    for name in [
+        "authority",
+        "grant",
+        "document:grant",
+        "identity",
+        "claim",
+        "binding",
+        "chain",
+        "document:context",
+        "document:binding",
+        "document:policy",
+        "document:roles",
+        "document:assent",
+    ] {
+        points.push(CancellationPoint {
+            name: name.into(),
+            class: AwaitClass::Read,
+            phase: CommitPhase::Before,
+            trigger: None,
+        });
+    }
+    for b in &oracle.write_boundaries {
+        if let Boundary::Write {
+            name,
+            item,
+            edge: Edge::Before,
+        } = b
+        {
+            points.push(CancellationPoint {
+                name: format!("write:{name}:{item}"),
+                class: AwaitClass::Write {
+                    name: name.clone(),
+                    item: *item,
+                },
+                phase: CommitPhase::Before,
+                trigger: None,
+            });
+        }
+    }
+    for (name, class, phase) in [
+        ("commit", AwaitClass::Commit, CommitPhase::InFlight),
+        (
+            "acknowledged",
+            AwaitClass::Commit,
+            CommitPhase::Acknowledged,
+        ),
+        ("rollback", AwaitClass::Rollback, CommitPhase::Before),
+        ("cleanup", AwaitClass::Cleanup, CommitPhase::Before),
+    ] {
+        let trigger =
+            matches!(class, AwaitClass::Rollback | AwaitClass::Cleanup).then(|| Injection {
+                boundary: Boundary::Write {
+                    name: "snapshot_document".into(),
+                    item: 0,
+                    edge: Edge::After,
+                },
+                fault: Fault::Rollback,
+            });
+        points.push(CancellationPoint {
+            name: name.into(),
+            class,
+            phase,
+            trigger,
+        });
+    }
+    Ok(points)
+}
+
+pub(super) fn zero_evidence(s: Snapshot) -> ledgerlab_testkit::Result<tk::ZeroEvidence> {
+    let rows: Vec<Value> = s
+        .journal
+        .iter()
+        .map(|b| serde_json::from_slice(b).unwrap())
+        .collect();
+    let event = rows.iter().find(|r| r["kind"] == "event").unwrap();
+    let receipt = rows.iter().find(|r| r["kind"] == "receipt").unwrap();
+    let state: Value = serde_json::from_slice(&s.state).unwrap();
+    Ok(tk::ZeroEvidence {
+        event_id: event["id"].as_str().unwrap().into(),
+        receipt: serde_json::to_vec(&receipt["body"]).unwrap(),
+        explanation_codes: rows
+            .iter()
+            .filter(|r| r["kind"] == "explanation")
+            .map(|r| r["body"]["code"].as_str().unwrap().into())
+            .collect(),
+        action_ids: rows
+            .iter()
+            .filter(|r| r["kind"] == "action")
+            .map(|r| r["id"].as_str().unwrap().into())
+            .collect(),
+        intention_ids: rows
+            .iter()
+            .filter(|r| r["kind"] == "intention")
+            .map(|r| r["id"].as_str().unwrap().into())
+            .collect(),
+        revision: state["chain"]["revision"].as_str().unwrap().into(),
+        event_count: state["chain"]["event_count"].as_str().unwrap().into(),
+    })
+}
+
+impl tk::RaceBackend for Backend {
+    fn concurrent_identical(
+        &mut self,
+        c: &tk::Command,
+        participants: usize,
+    ) -> ledgerlab_testkit::Result<tk::RaceEvidence> {
+        self.runtime.block_on(async {
+            let store = self.store.as_ref().unwrap();
+            let contender = store.test_contender().await.map_err(err)?;
+            let first = store.test_pool_probe().await.map_err(err)?.0;
+            let second = contender.test_pool_probe().await.map_err(err)?.0;
+            let stores = (0..participants)
+                .map(|i| {
+                    if i == 0 {
+                        (store.clone(), Some(first.clone()))
+                    } else {
+                        (contender.clone(), Some(second.clone()))
+                    }
+                })
+                .collect();
+            let result = super::race_tests::race(stores, c).await;
+            contender.close().await;
+            result
+        })
+    }
+}
+#[test]
+fn sqlite_barrier_race() {
+    let oracle = FixtureOracle::workspace().unwrap();
+    ledgerlab_testkit::cases::run_race(&Factory, &oracle, 4).unwrap();
+}
+
+#[test]
+fn sqlite_waiting_has_no_reservation_and_scope_is_checked() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    let mut backend = Backend::new(&oracle, false).unwrap();
+    let before = backend.observe().unwrap();
+    let c = tk::Command::fixture(&oracle, "input").unwrap();
+    let mut command = Backend::command(&c);
+    let mut body: Value = serde_json::from_slice(&command.bytes).unwrap();
+    body["chain"] = serde_json::json!("explicit-missing-chain");
+    command.bytes = serde_json::to_vec(&body).unwrap();
+    assert_eq!(
+        backend.runtime.block_on(accept::run(
+            backend.store.as_ref().unwrap(),
+            &command,
+            &Hooks::default()
+        )),
+        Ok(AcceptResult::Waiting {
+            missing: vec!["chain:explicit-missing-chain".into()]
+        })
+    );
+    before
+        .assert_exact(&backend.observe().unwrap(), "waiting must reserve nothing")
+        .unwrap();
+    let mut command = Backend::command(&c);
+    command.principal.scope = ledgerlab_core::domain::Scope::new("other", "sandbox").unwrap();
+    assert_eq!(
+        backend.runtime.block_on(accept::run(
+            backend.store.as_ref().unwrap(),
+            &command,
+            &Hooks::default()
+        )),
+        Ok(AcceptResult::Rejected {
+            code: "SOURCE_UNAUTHORIZED".into()
+        })
+    );
+    before
+        .assert_exact(&backend.observe().unwrap(), "wrong installation scope")
+        .unwrap();
+    assert_eq!(
+        backend.accept(&c, None).unwrap().outcome,
+        tk::Outcome::Accepted(oracle.receipt.clone())
+    );
+}
+
+pub(super) fn check_alias_cancellation<B: tk::AcceptanceBackend>(
+    backend: &mut B,
+    oracle: &FixtureOracle,
+) {
+    let input = tk::Command::fixture(oracle, "input").unwrap();
+    let alias = tk::Command::fixture(oracle, "semantic_duplicate").unwrap();
+    assert_eq!(
+        backend.accept(&input, None).unwrap().outcome,
+        tk::Outcome::Accepted(oracle.receipt.clone())
+    );
+    let before = backend.observe().unwrap();
+    let point = CancellationPoint {
+        name: "alias".into(),
+        class: AwaitClass::Write {
+            name: "alias".into(),
+            item: 0,
+        },
+        phase: CommitPhase::Before,
+        trigger: None,
+    };
+    let attempt = backend.cancel(&alias, &point).unwrap();
+    assert_eq!(attempt.outcome, tk::Outcome::Cancelled);
+    attempt
+        .hit
+        .unwrap()
+        .verify(&Injection {
+            boundary: Boundary::Await {
+                name: "alias".into(),
+                phase: CommitPhase::Before,
+            },
+            fault: Fault::Cancel,
+        })
+        .unwrap();
+    backend.reopen().unwrap();
+    before
+        .assert_exact(
+            &backend.observe().unwrap(),
+            "cancelled alias reserves nothing",
+        )
+        .unwrap();
+    assert_eq!(
+        backend.accept(&alias, None).unwrap().outcome,
+        tk::Outcome::Duplicate {
+            kind: tk::DuplicateKind::Semantic,
+            receipt: oracle.receipt.clone()
+        }
+    );
+    let after = backend.observe().unwrap();
+    assert_eq!(after.aliases.len(), 1);
+    assert_eq!(after.journal, before.journal);
+    assert_eq!(after.indexes, before.indexes);
+    backend.reopen().unwrap();
+    after
+        .assert_exact(
+            &backend.observe().unwrap(),
+            "alias cancellation retry reopen",
+        )
+        .unwrap();
+}
+#[test]
+fn sqlite_alias_write_cancellation() {
+    let oracle = FixtureOracle::workspace().unwrap();
+    let mut backend = Backend::new(&oracle, false).unwrap();
+    check_alias_cancellation(&mut backend, &oracle);
 }

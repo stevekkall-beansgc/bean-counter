@@ -13,6 +13,7 @@ fn migrator() -> Migrator {
         false,
     )])
 }
+#[allow(dead_code)] // Explicit migration-owner provisioning; never run by open.
 pub(super) async fn create(conn: &mut SqliteConnection) -> Result<(), StoreError> {
     migrator().run(conn).await?;
     Ok(())

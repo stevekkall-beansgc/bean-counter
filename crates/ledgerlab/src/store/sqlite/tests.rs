@@ -261,7 +261,7 @@ pub(crate) fn seed() -> Vec<WriteOp> {
     }));
     ops
 }
-fn schedule() -> Vec<WriteOp> {
+pub(crate) fn schedule() -> Vec<WriteOp> {
     let all = accepted();
     let mut ops = Vec::new();
     for kind in [

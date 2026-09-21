@@ -12,7 +12,7 @@ DENIED_CORE = ('sqlx', 'tokio', 'axum', 'hyper', 'reqwest', 'ureq', 'reqwest',
                'getrandom', 'rand', 'mio', 'rustls', 'openssl', 'async-std', 'surf')
 
 
-def check_graph(metadata):
+def check_graph(metadata, flags=()):
     packages = {p['id']: p for p in metadata['packages']}
     nodes = {n['id']: n for n in metadata['resolve']['nodes']}
     members = {packages[p]['name'] for p in metadata['workspace_members']}
@@ -25,6 +25,24 @@ def check_graph(metadata):
                     assert dep['name'] != 'ledgerlab-testkit', 'testkit leaked into production'
         if p['name'] == 'ledgerlab-testkit':
             assert p['publish'] == [], 'testkit must be unpublished'
+    by_name = {p['name']: p for p in packages.values()}
+    for name, version in {'tokio-postgres':'0.7.18','tokio-postgres-rustls':'0.14.0',
+                          'rustls':'0.23.45','rustls-webpki':'0.103.15',
+                          'webpki-roots':'1.0.9','ring':'0.17.14',
+                          'postgres-protocol':'0.6.12','postgres-types':'0.2.14'}.items():
+        assert by_name[name]['version'] == version, ('reviewed PG pin',name)
+    # Cargo metadata also retains weak optional feature edges (sqlx migrate).
+    # cargo tree resolves which packages are activated, across every target.
+    active_tree = subprocess.check_output(['cargo','tree','-p','ledgerlab',
+        '--target','all','--edges','normal,build','--prefix','none','--format','{p}',
+        '--locked','--offline',*flags], cwd=ROOT, text=True)
+    active_names = {line.split()[0] for line in active_tree.splitlines() if line.strip()}
+    for name in active_names:
+        assert not any(name == d or name.startswith(d+'-') for d in
+            ('native-tls','openssl','rustls-native-certs','security-framework','aws-lc','sqlx-postgres','sqlx-mysql')), name
+    assert nodes[by_name['tokio-postgres-rustls']['id']]['features'] == ['ring']
+    assert 'ring' in nodes[by_name['rustls']['id']]['features']
+    assert not {'postgres','mysql','any'} & set(nodes[by_name['sqlx']['id']]['features'])
     core = next(p['id'] for p in packages.values() if p['name'] == 'ledgerlab-core')
     seen = set()
 
@@ -80,7 +98,7 @@ def main():
         result = subprocess.check_output(['cargo', 'metadata', '--format-version', '1',
                                           '--locked', '--offline', *flags], cwd=ROOT)
         metadata = json.loads(result)
-        check_graph(metadata)
+        check_graph(metadata, flags)
         # Transitive denial must fail even when hidden behind an innocuous dependency.
         import copy
         bad = copy.deepcopy(metadata)

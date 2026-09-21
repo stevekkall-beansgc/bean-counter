@@ -7,10 +7,14 @@ pub(super) async fn identity(
     source: &str,
     external: &str,
 ) -> Result<Option<StoredIdentity>, StoreError> {
-    let row=sqlx::query("SELECT k.canonical_event_id,k.ingress_hash,r.canonical_bytes,r.content_hash FROM delivery_keys k JOIN accepted_receipts r ON r.tenant=k.tenant AND r.environment=k.environment AND r.event_id=k.canonical_event_id WHERE k.tenant=? AND k.environment=? AND k.source=? AND k.external_id=?")
+    let row=sqlx::query("SELECT k.canonical_event_id,k.ingress_hash,r.canonical_bytes,r.content_hash,k.canonical_bytes,k.content_hash FROM delivery_keys k JOIN accepted_receipts r ON r.tenant=k.tenant AND r.environment=k.environment AND r.event_id=k.canonical_event_id WHERE k.tenant=? AND k.environment=? AND k.source=? AND k.external_id=?")
         .bind(&s.tenant).bind(&s.environment).bind(source).bind(external).fetch_optional(c).await?;
     row.map(|r| {
         Ok(StoredIdentity {
+            key: CanonicalRecord {
+                canonical_bytes: r.try_get(4)?,
+                content_hash: r.try_get(5)?,
+            },
             event_id: r.try_get(0)?,
             ingress_hash: r.try_get(1)?,
             receipt: CanonicalRecord {
@@ -131,6 +135,7 @@ pub(super) async fn binding(
     })
     .transpose()
 }
+#[cfg(test)]
 pub(super) async fn delivery(
     c: &mut SqliteConnection,
     s: &Scope,

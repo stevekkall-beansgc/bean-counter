@@ -150,6 +150,35 @@ async fn document<T: AcceptanceTx>(
     }
     Ok(doc)
 }
+// Retained duplicate data crosses the same integrity boundary as documents.
+// Recompute canonical bytes and framed hashes before returning an old receipt.
+fn retained_record(record: &CanonicalRecord, kind: &str) -> Result<Value, ServiceError> {
+    let body =
+        canonical::parse(&record.canonical_bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+    if CanonicalBytes::from_value(&body)
+        .map_err(|_| ServiceError::IntegrityFailure)?
+        .as_slice()
+        != record.canonical_bytes
+        || canonical::digest(Domain::RecordContent, &json!([kind, 1, body]))
+            .map_err(|_| ServiceError::IntegrityFailure)?
+            != record.content_hash
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(body)
+}
+fn retained_receipt(record: &CanonicalRecord, event_id: &str) -> Result<(), ServiceError> {
+    let body = retained_record(record, "receipt")?;
+    if body["schema"] != "ledger-receipt/1"
+        || body["event_id"] != event_id
+        || body["id"]
+            != canonical::identity(Domain::Receipt, &json!([event_id]))
+                .map_err(|_| ServiceError::IntegrityFailure)?
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(())
+}
 async fn prepare<T: AcceptanceTx>(
     tx: &mut T,
     c: &Candidate,
@@ -215,14 +244,29 @@ async fn prepare<T: AcceptanceTx>(
         .await
         .map_err(store_error)?
     {
-        return Ok(Work::End(if stored.ingress_hash == c.ingress_hash() {
-            AcceptResult::Duplicate {
-                kind: DuplicateKind::Identity,
-                receipt: stored.receipt.canonical_bytes,
-            }
-        } else {
-            AcceptResult::Conflict(ConflictKind::Identity)
-        }));
+        let key = retained_record(&stored.key, "delivery-key")?;
+        if key["schema"] != "ledger-delivery-key/1"
+            || key["scope"] != json!([s.tenant, s.environment])
+            || key["source"] != c.source()
+            || key["external_id"] != c.external_id()
+            || key["canonical_event_id"] != stored.event_id
+            || key["ingress_hash"] != stored.ingress_hash
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        retained_receipt(&stored.receipt, &stored.event_id)?;
+        let ingress = CanonicalBytes::from_value(&key["ingress"])
+            .map_err(|_| ServiceError::IntegrityFailure)?;
+        return Ok(Work::End(
+            if stored.ingress_hash == c.ingress_hash() && ingress == *c.ingress_bytes() {
+                AcceptResult::Duplicate {
+                    kind: DuplicateKind::Identity,
+                    receipt: stored.receipt.canonical_bytes,
+                }
+            } else {
+                AcceptResult::Conflict(ConflictKind::Identity)
+            },
+        ));
     }
     let event = c.clone().resolve(None).map_err(core)?;
     if !event.dto().kind.is_work() || event.dto().links.as_ref().is_some_and(|v| !v.is_empty()) {
@@ -241,6 +285,7 @@ async fn prepare<T: AcceptanceTx>(
         .await
         .map_err(store_error)?
     {
+        retained_receipt(&stored.receipt, &stored.event_id)?;
         if stored.facts_hash != facts_hash {
             return Ok(Work::End(AcceptResult::Conflict(ConflictKind::Semantic)));
         }
@@ -342,4 +387,39 @@ async fn prepare<T: AcceptanceTx>(
     Ok(Work::Commit(AcceptResult::Accepted {
         receipt: plan.receipt().bytes().map_err(core)?.into_vec(),
     }))
+}
+
+#[cfg(test)]
+mod integrity_tests {
+    use super::*;
+    #[test]
+    fn retained_receipt_rejects_byte_hash_and_event_corruption() {
+        let value: Value =
+            include_str!("../../../../fixtures/journals/first-slice/accepted-records.jsonl")
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .find(|v| v["kind"] == "receipt")
+                .unwrap();
+        let mut record = CanonicalRecord {
+            canonical_bytes: serde_json::to_vec(&value["body"]).unwrap(),
+            content_hash: value["content_hash"].as_str().unwrap().into(),
+        };
+        let event = value["body"]["event_id"].as_str().unwrap();
+        assert!(retained_receipt(&record, event).is_ok());
+        assert_eq!(
+            retained_receipt(&record, "other-event"),
+            Err(ServiceError::IntegrityFailure)
+        );
+        record.canonical_bytes.push(b' ');
+        assert_eq!(
+            retained_receipt(&record, event),
+            Err(ServiceError::IntegrityFailure)
+        );
+        record.canonical_bytes.pop();
+        record.content_hash = "sha256:untrusted".into();
+        assert_eq!(
+            retained_receipt(&record, event),
+            Err(ServiceError::IntegrityFailure)
+        );
+    }
 }

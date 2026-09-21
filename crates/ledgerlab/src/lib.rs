@@ -79,21 +79,45 @@ impl std::error::Error for ServiceError {}
 
 #[derive(Clone)]
 pub struct Ledger {
-    store: store::sqlite::SqliteStore,
+    store: Backend,
 }
+#[derive(Clone)]
+enum Backend {
+    Sqlite(store::sqlite::SqliteStore),
+    Postgres(store::postgres::PostgresStore),
+}
+pub use store::postgres::{PostgresConfig, PostgresTrust};
 impl Ledger {
     /// Open a previously initialized durable directory. Does not create or reseed it.
     pub async fn open_sqlite(path: &Path) -> Result<Self, ServiceError> {
         Ok(Self {
-            store: store::sqlite::SqliteStore::open(path)
-                .await
-                .map_err(service::store_error)?,
+            store: Backend::Sqlite(
+                store::sqlite::SqliteStore::open(path)
+                    .await
+                    .map_err(service::store_error)?,
+            ),
+        })
+    }
+    pub async fn open_postgres(config: PostgresConfig) -> Result<Self, ServiceError> {
+        Ok(Self {
+            store: Backend::Postgres(
+                store::postgres::PostgresStore::open(config)
+                    .await
+                    .map_err(service::store_error)?,
+            ),
         })
     }
     pub async fn accept(&self, command: AcceptCommand) -> Result<AcceptResult, ServiceError> {
-        service::accept::run(&self.store, &command, &service::hooks::Hooks::default()).await
+        let hooks = service::hooks::Hooks::default();
+        match &self.store {
+            Backend::Sqlite(store) => service::accept::run(store, &command, &hooks).await,
+            Backend::Postgres(store) => service::accept::run(store, &command, &hooks).await,
+        }
     }
     pub async fn close(self) {
-        self.store.close().await;
+        match self.store {
+            Backend::Sqlite(store) => store.close().await,
+            Backend::Postgres(store) => store.close().await,
+        }
     }
 }

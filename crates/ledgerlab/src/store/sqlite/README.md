@@ -13,7 +13,7 @@ This lane persists the frozen completion slice. It does not implement the accept
 - `AdvanceChain` is a compare-and-swap of the explicitly supplied revisions/counts and requires the matching retained chain transition. Seed variants are for authorized initializer/control integration, not public acceptance. The SQL schema includes only tables needed by this frozen slice; later record families require reviewed extensions. There is no dispatcher, payment adapter, pending service or administration API here.
 - Constraints include scoped uniqueness, deferred forward/cyclic references (snapshot/event, original-delivery/event, effect/action, event/manifest, revision/manifest), no cascading deletion, checked integer counters/scales, text atoms, immutable-record triggers on all 18 retained-record tables, and immutable chain/store identity guards. SQL alone does not prove economic completeness.
 
-Shared wiring changed with calling-task authorization: `Cargo.lock`, `crates/ledgerlab/Cargo.toml`, facade `src/lib.rs`, and `src/store/mod.rs`. Integration owns reconciliation with the core and PostgreSQL lanes. The temporary module-wide dead-code allowance exists because the coordinator has not yet been wired; remove it as the private API is consumed. The SQLite lane owns `ports.rs`, `errors.rs`, `records.rs`, SQLite modules and migrations. The port uses an associated owned transaction type, not a runtime-erased driver.
+Shared wiring changed with calling-task authorization: `Cargo.lock`, `crates/ledgerlab/Cargo.toml`, facade `src/lib.rs`, and `src/store/mod.rs`. Integration owns reconciliation with the core and PostgreSQL lanes. The coordinator now consumes the private port. The module-wide dead-code allowance has been removed; narrow annotations remain only for explicit provisioning and retained startup diagnostics. The SQLite lane owns `ports.rs`, `errors.rs`, `records.rs`, SQLite modules and migrations. The port uses an associated owned transaction type, not a runtime-erased driver.
 
 ## Transaction cleanup and uncertainty
 
@@ -57,4 +57,18 @@ sh scripts/check.sh
 cargo test -p ledgerlab --locked --offline linked_sqlite_reopen -- --nocapture
 ```
 
-The first full check reached/passed Rust and boundary checks, then lacked Python `jsonschema` on the default path. The existing prepared contract dependencies above resolve that environment issue; no frozen fixture was changed. Remaining integration gates include the actual coordinator/evaluator, PostgreSQL parity/TLS, process-kill/power-loss recovery, backup/restore, dispatcher behavior, all-platform runs and MSRV.
+The first full check reached/passed Rust and boundary checks, then lacked Python `jsonschema` on the default path. The existing prepared contract dependencies above resolve that environment issue; no frozen fixture was changed. The shared coordinator/evaluator, PostgreSQL parity and TLS are integrated; current executed results are in `PHASE-1-STATUS.md`. Remaining broader gates include process-kill/power-loss recovery, backup/restore, dispatcher behavior, all-platform runs and MSRV.
+
+## Integrated coordinator evidence
+
+The shared testkit runs all 83 acceptance cases and 45 main-path await
+cancellations against real file SQLite, plus semantic-alias cancellation,
+Waiting/no-reservation and installation-scope checks. Duplicate paths verify
+retained canonical bytes/hashes and compare exact normalized ingress bytes.
+
+The four-request barrier race uses a test-only second physical driver pool under
+the same retained OS owner to exercise actual database contention. It records a
+real SQLITE_BUSY response before releasing the leader's chain lock. Production
+construction retains one writer pool. A separate original storage test also runs
+12 concurrent identity/write requests through the normal single-writer pool.
+Both require one complete winner and unchanged original receipts on retries.

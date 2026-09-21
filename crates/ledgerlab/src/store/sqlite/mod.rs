@@ -38,10 +38,12 @@ struct Inner {
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
     inner: Arc<Inner>,
+    #[allow(dead_code)] // Retained verified diagnostics for private host integration.
     pub diagnostics: Diagnostics,
 }
 impl SqliteStore {
     /// Explicit empty-store initialization, never implicitly run by open().
+    #[allow(dead_code)] // Explicit provisioning; opening never invokes it.
     pub async fn create(path: &Path, installation: Installation) -> Result<Self, StoreError> {
         let owner = Arc::new(owner::Owner::acquire(path)?);
         OpenOptions::new()
@@ -97,6 +99,12 @@ impl SqliteStore {
         self.inner.writer.close().await;
         self.inner.readers.close().await;
     }
+    /// A test-only second driver pool under the same OS owner. It exercises
+    /// real database contention; normal construction still has one writer pool.
+    #[cfg(test)]
+    pub(crate) async fn test_contender(&self) -> Result<Self, StoreError> {
+        Self::from_owner(self.inner._owner.clone()).await
+    }
     #[cfg(test)]
     pub(crate) async fn test_write_locked(&self, path: &Path) -> Result<bool, StoreError> {
         let options = sqlx::sqlite::SqliteConnectOptions::new()
@@ -129,6 +137,7 @@ impl SqliteStore {
         Ok((ptr, conn.is_in_transaction()))
     }
     /// On ambiguity, absence means unresolved; callers must not infer rollback.
+    #[cfg(test)]
     pub async fn lookup_identity(
         &self,
         s: &Scope,

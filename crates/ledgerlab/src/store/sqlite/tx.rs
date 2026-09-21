@@ -54,6 +54,7 @@ impl SqliteTx {
     fn conn(&mut self) -> &mut SqliteConnection {
         self.transaction.as_mut().expect("live transaction")
     }
+    #[cfg(test)]
     pub async fn load_delivery(
         &mut self,
         s: &Scope,

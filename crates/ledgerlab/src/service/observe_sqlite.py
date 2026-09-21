@@ -8,16 +8,24 @@ def canon(v):
     return json.dumps(v,ensure_ascii=False,separators=(',',':')).encode()
 def blob(v): return {'bytes':v.hex()} if isinstance(v,bytes) else v
 def stamp(us): return (datetime.datetime(1970,1,1,tzinfo=datetime.timezone.utc)+datetime.timedelta(microseconds=us)).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-con=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True); con.row_factory=sqlite3.Row
-con.execute('BEGIN')
-tables=[r[0] for r in con.execute("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name")]
-data={}; inventory={}
-for t in tables:
-    assert t.replace('_','').isalnum()
-    info=list(con.execute('PRAGMA table_info("'+t+'")'))
-    pk=[r[1] for r in sorted(info,key=lambda r:r[5]) if r[5]]
-    rows=[dict(r) for r in con.execute('SELECT * FROM "'+t+'"')]
-    data[t]=rows; inventory[t]=[]; keys=set()
+data={}; inventory={}; pks={}
+if sys.argv[1]=='--postgres':
+    raw=json.load(sys.stdin)
+    for t, item in raw.items():
+        data[t]=[{k:bytes.fromhex(v[2:]) if k in item['byte_columns'] and v is not None else v for k,v in r.items()} for r in item['rows']]
+        pks[t]=item['pk']
+else:
+    con=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True); con.row_factory=sqlite3.Row
+    con.execute('BEGIN')
+    tables=[r[0] for r in con.execute("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name")]
+    for t in tables:
+        assert t.replace('_','').isalnum()
+        info=list(con.execute('PRAGMA table_info("'+t+'")'))
+        pks[t]=[r[1] for r in sorted(info,key=lambda r:r[5]) if r[5]]
+        data[t]=[dict(r) for r in con.execute('SELECT * FROM "'+t+'"')]
+for t,rows in data.items():
+    pk=pks[t]
+    inventory[t]=[]; keys=set()
     for row in rows:
         key=canon([blob(row[k]) for k in pk]) if pk else canon({k:blob(v) for k,v in row.items()})
         assert key not in keys, 'duplicate primary key'; keys.add(key)
