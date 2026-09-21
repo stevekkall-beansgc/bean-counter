@@ -281,15 +281,12 @@ def verify(history, trusted_base=None):
     return len(known)
 
 def main():
-    review=strict((CANDIDATE/'review-manifest.json').read_bytes())
-    assert review['status']=='candidate-not-frozen' and review['independent_review']=='pending'
-    expected_paths={str(p.relative_to(ROOT)) for p in CANDIDATE.rglob('*') if p.is_file() and p.name!='review-manifest.json'}
-    expected_paths.update(['docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md','docs/adr/candidates/outcome-records-v2.md','PHASE-2-CANONICAL-CANDIDATE.md','scripts/check-contracts.sh','scripts/check-candidate-contracts.sh','ROADMAP.md'])
-    expected_paths.update(str(p.relative_to(ROOT)) for p in Path(__file__).parent.iterdir() if p.suffix in ('.py','.mjs','.rs'))
-    assert set(review['files'])==expected_paths, 'REVIEW_INVENTORY'
-    for name,expected in review['files'].items():
-        raw=(ROOT/name).read_bytes()
-        assert expected=={'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}, 'REVIEW_FILE_CHANGED:'+name
+    # Approval/status is external metadata. Preserve every reviewed contract byte
+    # and the historical candidate labels rather than changing hash preimages.
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('outcome_freeze',Path(__file__).parent.parent/'check_outcome_freeze.py')
+    freeze_status=importlib.util.module_from_spec(spec);spec.loader.exec_module(freeze_status)
+    freeze_status.main()
     constructed=files(); golden=CANDIDATE/'goldens'
     assert {p.name for p in golden.iterdir()}==set(constructed), 'GOLDEN_INVENTORY'
     histories=[]; records=0
@@ -320,6 +317,6 @@ def main():
     from adversarial import run_adversarial
     negative+=run_adversarial(histories,verify)
     subprocess.run(['node',str(Path(__file__).with_name('check_hashes.mjs')),str(ROOT)],check=True)
-    print(json.dumps({'status':'passed','candidate_not_frozen':True,'histories':len(histories),'records':records,'decisions':sum(len(h['decisions']) for h in histories),'negative_checks':negative,'record_kinds':len(SCHEMA['oneOf'])}))
+    print(json.dumps({'status':'passed','contract_frozen':True,'profile':'2-candidate.4','histories':len(histories),'records':records,'decisions':sum(len(h['decisions']) for h in histories),'negative_checks':negative,'record_kinds':len(SCHEMA['oneOf'])}))
 
 if __name__=='__main__': main()

@@ -1,0 +1,328 @@
+{
+  "schema": "ledger-contract-freeze/1",
+  "status": "frozen-unreleased",
+  "revision": 1,
+  "profile": "2-candidate.4",
+  "reviewed_commit": "429aa027a696a09cfeb8dc1eada8420e732dda6b",
+  "semantic_commit": "1e0ba3f886788c08f427d3aae1d916b341187e76",
+  "approval": {
+    "verdict": "PASS TO FREEZE",
+    "reviewer_task": "01a0c4c8-ca3d-7e71-b9be-3682e6555f4d",
+    "basis": "Final independent read-only review of the exact candidate commit; no substantive Phase 1 blockers remain."
+  },
+  "authorization": {
+    "owner_task": "01a0bf74-3b70-72b2-a1b0-ee6fb5f99dfb",
+    "scope": "Phase 1 contract freeze only",
+    "prohibited": [
+      "Phase 2+ implementation",
+      "main merge",
+      "push",
+      "publication",
+      "deployment",
+      "service registration",
+      "spending",
+      "semantic sibling changes"
+    ]
+  },
+  "review_manifest": {
+    "path": "contracts/candidates/v2/review-manifest.json",
+    "bytes": 10009,
+    "sha256": "e02e02f30c09335445571de3fb3451cd4f1f5c232920d3b4ec32d228f5b579ad"
+  },
+  "change_policy": "Immutable reviewed contract bytes. A schema, semantic, profile/hash-domain, ID, vector, original-capture or receipt change requires another fresh independent review. Status amendments require explicit authorization and must preserve all contract pins.",
+  "historical_labels": "Candidate paths, candidate-not-frozen payload labels and pending-review text remain original reviewed bytes. Current status is established only by this freeze registration.",
+  "files": {
+    "PHASE-2-CANONICAL-CANDIDATE.md": {
+      "bytes": 9519,
+      "sha256": "de09a90170a0e4838682d99a82523e46c8462b2c86619ec0cee3a963755f9e4c"
+    },
+    "contracts/candidates/v2/README.md": {
+      "bytes": 4806,
+      "sha256": "8b8928bde0723889c1c477f4476b64fb62c99064cf0d49d5c0598083aaaca654"
+    },
+    "contracts/candidates/v2/SCALARS.md": {
+      "bytes": 6655,
+      "sha256": "b1e0dcd0274b6f81c69a5335331c7d24d7111c9173267f9627b0f3a38e03358f"
+    },
+    "contracts/candidates/v2/goldens/aggregate-limit-rejection.json": {
+      "bytes": 72600,
+      "sha256": "36e2877e07b8b21e23c8f9d081b2e2672f73e6710835066643f894bf3d518473"
+    },
+    "contracts/candidates/v2/goldens/cap-incompatibility.json": {
+      "bytes": 21242,
+      "sha256": "c4c6e3066413b19b26b805bb8c0acaf39188ccc2858a7101b1509077c1be0ef9"
+    },
+    "contracts/candidates/v2/goldens/correction-reinstatement.json": {
+      "bytes": 166075,
+      "sha256": "59a456e7911e2e48cd70fc8543dadbd62c590d39740b8b0ce014a5a503a1f04c"
+    },
+    "contracts/candidates/v2/goldens/correction-replacement.json": {
+      "bytes": 247142,
+      "sha256": "41ccddd03b48c4d8fce6be1e43676c2b9d8b2f9485eee0ab8b068e58a5be99da"
+    },
+    "contracts/candidates/v2/goldens/correction-timing-rejection.json": {
+      "bytes": 68779,
+      "sha256": "ecf9e3d8a66afec0de725027c6e41ff3d142f1f9513715f5fda44a6f6af62743"
+    },
+    "contracts/candidates/v2/goldens/cross-binding-corrections.json": {
+      "bytes": 256599,
+      "sha256": "e79740d1107634ebce8ea33b5847fc75ea9493727d4fc00c9b21ee620c487bd6"
+    },
+    "contracts/candidates/v2/goldens/decision-time-evidence.json": {
+      "bytes": 178905,
+      "sha256": "3f88e951be0534ef4d827ab2115bf01aa3fb488323d6dccd77512726288560af"
+    },
+    "contracts/candidates/v2/goldens/duplicate-version-retry.json": {
+      "bytes": 122192,
+      "sha256": "b83685c3df75d0c7a9b2aa5ef77e56722bc201b47c3c410c3430a92baf7c60b3"
+    },
+    "contracts/candidates/v2/goldens/equal-observation-times.json": {
+      "bytes": 111755,
+      "sha256": "1bb76fcd2eb5a3c77938aad021d80c1af1c7c2f23557c20ed34d33bc3caa0ef8"
+    },
+    "contracts/candidates/v2/goldens/fixed-success-fee.json": {
+      "bytes": 67330,
+      "sha256": "9f8e04e46c8a4f0873b39ee452387dc22a11945035f3ba9bf9d8093b21e33411"
+    },
+    "contracts/candidates/v2/goldens/full-reversal-reinstatement.json": {
+      "bytes": 166265,
+      "sha256": "937477ba61f0a8e49082d30a2820382f0bc6e27b6b94f9d977dd462bdac2c2c4"
+    },
+    "contracts/candidates/v2/goldens/inclusive-correction-deadlines.json": {
+      "bytes": 112094,
+      "sha256": "6fad444c00e81eb7eb68e6b0d3fe091c68c898386dabb10ed770f2051d2e592a"
+    },
+    "contracts/candidates/v2/goldens/inclusive-ordinary-deadlines.json": {
+      "bytes": 67726,
+      "sha256": "aaa830be625fb64a995f756505cc92c58d45da013aaa390255c8f64acb39eb2d"
+    },
+    "contracts/candidates/v2/goldens/inventory.json": {
+      "bytes": 3092,
+      "sha256": "b6cc76de2b9d29bfb0ccd96e1b22232cf97d67c1579c8a939e4df0a6250969f2"
+    },
+    "contracts/candidates/v2/goldens/lossless-event-and-outcome-terms.json": {
+      "bytes": 69521,
+      "sha256": "785c834fa9ae944ca23560954cda549e4ea8e37d41d30b3ef1813d85919486c7"
+    },
+    "contracts/candidates/v2/goldens/percentage-rebate.json": {
+      "bytes": 67332,
+      "sha256": "86fc366835713a7281c485b1e82a3fcd3d32aec1f131cd27bc2f5e9d280c9de3"
+    },
+    "contracts/candidates/v2/goldens/predeclared-unclaimed-family.json": {
+      "bytes": 71764,
+      "sha256": "f73d755425e79233fa8511132722fb9edd4826432c7646044254c96276eac97e"
+    },
+    "contracts/candidates/v2/goldens/retail-net-after-booking-discount.json": {
+      "bytes": 75533,
+      "sha256": "2d82ed1c637b48ab25996259c2a645768b7cf74b7e137d73e2b468ab92bb9a6b"
+    },
+    "contracts/candidates/v2/goldens/rounded-zero.json": {
+      "bytes": 62024,
+      "sha256": "aa166fe9d36c884a28d7f22a4bdd9815946355a2d6f9f82b77a00691ab65be3d"
+    },
+    "contracts/candidates/v2/goldens/signed-rounding.json": {
+      "bytes": 67216,
+      "sha256": "58a8b0b58c9c9dd11ba8ca2f6c1096d09813ebc9c1703f461417cb59b88f9ef5"
+    },
+    "contracts/candidates/v2/goldens/supplier-separation.json": {
+      "bytes": 252786,
+      "sha256": "eb138698f4e2a2838177d959c4531b8fc5e7e4f2be9b602bb7e6e89bb4a69527"
+    },
+    "contracts/candidates/v2/goldens/timing-rejection.json": {
+      "bytes": 40156,
+      "sha256": "5664e1014702482cab6fd7ee5f6fae69877f938fb540c2d48982a90b0d0857a7"
+    },
+    "contracts/candidates/v2/goldens/two-rule-families.json": {
+      "bytes": 162199,
+      "sha256": "e317e1478a7ed10449eef34f7c74a97e8098ff21e9d3869f892345a5aec89210"
+    },
+    "contracts/candidates/v2/goldens/vectors.json": {
+      "bytes": 4053056,
+      "sha256": "8e117ba6c14db535a66aae5e7ecc819cafbd30b6dbb56940656000c7de346d9e"
+    },
+    "contracts/candidates/v2/goldens/zero-adjustment.json": {
+      "bytes": 109006,
+      "sha256": "ddcea05d47c1f8d388b7ecc8f1e1753810b9c38695dc9c83b03388459d1a518b"
+    },
+    "contracts/candidates/v2/goldens/zero-net-base.json": {
+      "bytes": 54695,
+      "sha256": "7e9bd1d3a44515b5f2114a03c5aaf9e615a70232060d88d51b4942cd529ca5d6"
+    },
+    "contracts/candidates/v2/history-inputs.json": {
+      "bytes": 16558,
+      "sha256": "077d208a2841d60be3e61614015822730110ad10880c68ff8b6cfa8e1d456926"
+    },
+    "contracts/candidates/v2/original-evaluations.json": {
+      "bytes": 156860,
+      "sha256": "4f1bd500e946f33c1c001a1bb375c7dfb66ba4a78ae59cb9a24a14d2d7c0a7e4"
+    },
+    "contracts/candidates/v2/reason-codes.json": {
+      "bytes": 3974,
+      "sha256": "def4a7e8e65e00d92862a378a615da2b4e35e04b83c6f939fb674a911516e84f"
+    },
+    "contracts/candidates/v2/review-manifest.json": {
+      "bytes": 10009,
+      "sha256": "e02e02f30c09335445571de3fb3451cd4f1f5c232920d3b4ec32d228f5b579ad"
+    },
+    "contracts/candidates/v2/schemas/canonical-records.schema.json": {
+      "bytes": 130965,
+      "sha256": "e78e7c129cf27b86b72ee29378673af3488dc776ff9b8cb2602e1980b812229c"
+    },
+    "contracts/candidates/v2/semantic-source.json": {
+      "bytes": 2478,
+      "sha256": "5b722c61201b5b096168dd1e2f34840451b22a6a32cd7b757a5f49300a47ac46"
+    },
+    "docs/adr/candidates/outcome-records-v2.md": {
+      "bytes": 6514,
+      "sha256": "8f8c58bff0175be2c31ed33d5c146049e22830811da9fbb2b92952fba78e2844"
+    },
+    "docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md": {
+      "bytes": 30617,
+      "sha256": "bbfb8ff2a4dc79d647903d68fc592be7e2e2b334a6aeebb7b0f64705d8eb87ec"
+    },
+    "scripts/check-candidate-contracts.sh": {
+      "bytes": 96,
+      "sha256": "270960e95c4311b5f97d18de44e932c2c1417bdba5286949fb7fb343162cfef1"
+    },
+    "scripts/check-contracts.sh": {
+      "bytes": 361,
+      "sha256": "d364765bfeca30aa08dac2f63a0dee688ba1d49e02a733108609eef121f8e9b7"
+    },
+    "scripts/contract_checks/v2_candidate/adversarial.py": {
+      "bytes": 18180,
+      "sha256": "c94d21255acb0075ca9898b09832ed7dddf8558b8a44236d262c94f82e1a7850"
+    },
+    "scripts/contract_checks/v2_candidate/boundaries.py": {
+      "bytes": 10099,
+      "sha256": "17c3362e66ca6dc3db43d33a4639f19d8cf9e24b488dbbdc733473bbcfc33539"
+    },
+    "scripts/contract_checks/v2_candidate/check_hashes.mjs": {
+      "bytes": 8568,
+      "sha256": "6b08ff8649097a8d92c149f17747cade458d29410b28abd7fac026d234a1d077"
+    },
+    "scripts/contract_checks/v2_candidate/compare_semantic.py": {
+      "bytes": 8147,
+      "sha256": "3619b2a1ecd7ea5b6c7b08a70e944f7805c5051e9b275b6ff33007d6e20c2207"
+    },
+    "scripts/contract_checks/v2_candidate/integrity.py": {
+      "bytes": 7164,
+      "sha256": "8abe62ee65c10748cf1d64c1e319f2a6752c6f8ab739478490408d439408e335"
+    },
+    "scripts/contract_checks/v2_candidate/mappings.py": {
+      "bytes": 4418,
+      "sha256": "b9a0ea156f345128bc5ad4d49804ec1bfa6456cd0ac7e7575df71eab0f2f60ee"
+    },
+    "scripts/contract_checks/v2_candidate/original_codec.rs": {
+      "bytes": 2059,
+      "sha256": "6e636c4fd74ebc53a0c749ad3c35356ec111eaa918788f951edbfc09ee456656"
+    },
+    "scripts/contract_checks/v2_candidate/profile.py": {
+      "bytes": 4911,
+      "sha256": "0bde62999b796403d780abd2d9c2b8ae6fab00fd2f101ff1a73c9d9fca6d5fa7"
+    },
+    "scripts/contract_checks/v2_candidate/reconstruct.py": {
+      "bytes": 30346,
+      "sha256": "f80929cfbf5dd8aee79ce988d2606541467c197ac1c5d59275cde20fcf5057cd"
+    },
+    "scripts/contract_checks/v2_candidate/retained.py": {
+      "bytes": 6210,
+      "sha256": "4bc01398194f16c485b92aeaab7607276c7f9d742848ae4a5aa97527bd85a5bf"
+    },
+    "scripts/contract_checks/v2_candidate/scalars.mjs": {
+      "bytes": 6755,
+      "sha256": "84af9772ad63de94fa9483cd9992cb2a533519c7419feb672a6b8f90cd00cc29"
+    },
+    "scripts/contract_checks/v2_candidate/scalars.py": {
+      "bytes": 4698,
+      "sha256": "dca4d7a0a03a1259f4c139c17cf012a7d18f11c87d17bb36972afd8aad56785c"
+    },
+    "scripts/contract_checks/v2_candidate/semantic_comparison.rs": {
+      "bytes": 20900,
+      "sha256": "5f5628616d481a799665dbba3b71ec8795df8c1b6b26d85e08a9f159873b2449"
+    },
+    "scripts/contract_checks/v2_candidate/semantics.py": {
+      "bytes": 12670,
+      "sha256": "f34807507203c95addf6054373f9c3637ac96844615d46fde22dcefc76098959"
+    },
+    "scripts/contract_checks/v2_candidate/unicode_parity.mjs": {
+      "bytes": 1060,
+      "sha256": "c02c1326ae30105d5a08dbf8c0c62735aecfa7415ba9caca271976ecbc02f874"
+    },
+    "scripts/contract_checks/v2_candidate/unicode_parity.py": {
+      "bytes": 3532,
+      "sha256": "5a4680ab6914ec9de610b7ecf8c4db0b5a51108b6f991870cede1f8a38587983"
+    }
+  },
+  "status_overlays": {
+    "ROADMAP.md": {
+      "reviewed": {
+        "bytes": 8397,
+        "sha256": "70c15ef346d2a1dc8144154d7b766d4db2de891815465c889ceebc01e91650d5"
+      },
+      "frozen": {
+        "bytes": 8838,
+        "sha256": "a1d13506197d1dab9542a2582d60152b3fac6b44700e61222095a68172b9f841"
+      },
+      "scope": "Phase 1 gate only; bytes from Phase 2 onward unchanged"
+    },
+    "scripts/contract_checks/v2_candidate/audit.py": {
+      "reviewed": {
+        "bytes": 28478,
+        "sha256": "aae2b3bab6dd47b20ef082c6c00b89ca56bffa3d8199a4ff4d64b886ddf9bc8c"
+      },
+      "frozen": {
+        "bytes": 28005,
+        "sha256": "6a2b4726ba06ec31df60d92f2ec1d6db70c0a624ceb330b5365213ff901f5a6f"
+      },
+      "scope": "Phase 1 approval/status only; no semantic or reconstruction changes"
+    }
+  },
+  "validation": {
+    "rust_passed": 110,
+    "rust_intentionally_ignored": 13,
+    "record_kinds": 27,
+    "histories": 24,
+    "record_vectors": 1450,
+    "accepted_decisions": 43,
+    "original_evaluations": 23,
+    "original_mappings": 218,
+    "scalar_cases": 217,
+    "record_field_boundaries": 38,
+    "unicode_scalar_values": 1112064,
+    "unicode_checks_per_runtime": 2224128,
+    "semantic_attacks": 49,
+    "semantic_attack_records": 3570,
+    "semantic_attack_decisions": 109,
+    "scalar_attacks": 5,
+    "scalar_attack_records": 205,
+    "scalar_attack_decisions": 5,
+    "packaged_negative_assertions": 272,
+    "freeze_metadata_negative_checks": 4,
+    "accepted_unicode_records": 41,
+    "accepted_unicode_decisions": 1,
+    "approved_typed_roundtrips": 24,
+    "approved_decisions": 44,
+    "approved_original_attempts": 86,
+    "approved_original_histories": 23,
+    "frozen_v1_files": 99,
+    "v1_hash_vectors": 60,
+    "v1_accepted_records": 25,
+    "v1_manifest_members": 29
+  },
+  "reviewer_supplement": {
+    "mapping_attacks": 6,
+    "mapping_records": 246,
+    "mapping_decisions": 6,
+    "scalar_attacks": 33,
+    "scalar_records": 1353,
+    "scalar_decisions": 33,
+    "evidence_kind": "reported by independent reviewer; separate from packaged checks"
+  },
+  "remaining_gates": [
+    "production historical decoder and v1 bridge",
+    "authenticated complete history",
+    "authority and supplier-reservation locking",
+    "atomic crash/race/unknown-commit behavior on both stores",
+    "separately authorized Phase 2 integration"
+  ]
+}

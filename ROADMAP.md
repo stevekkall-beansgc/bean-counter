@@ -1,15 +1,15 @@
 # Owner-approved delivery roadmap
 
-**Only Phase 1 is being executed now.** This roadmap preserves the owner's
-remaining plan; unchecked work is not authorization to start another phase.
-The product roadmap phase numbers below are distinct from the repository's
-historical engineering phase labels such as “Phase 2 pure core.”
+**Phase 1 is complete and frozen. Phase 2+ is not started or authorized.**
+Unchecked work preserves the owner's remaining plan; it is not authorization
+to start another phase. Product roadmap phase numbers below remain distinct
+from historical engineering labels such as “Phase 2 pure core.”
 
 Authoritative semantic baseline:
 `1e0ba3f886788c08f427d3aae1d916b341187e76` (semantic-freeze lane).
 All frozen v1 contracts, IDs, fixtures and receipts remain immutable.
 
-## Phase 1 — reconcile the canonical candidate (current)
+## Phase 1 — reconcile and freeze the canonical contract (complete)
 
 Entry gate: approved semantic implementation and isolated canonical worktree;
 no integration or persistence work in this phase.
@@ -20,12 +20,17 @@ no integration or persistence work in this phase.
 - [x] Preserve zero claims, current-revision corrections and original receipts.
 - [x] Add complete-rehash semantic attacks and independent byte/hash reconstruction.
 - [x] Preserve this durable roadmap, including the later product scope.
-- [ ] Fresh-context independent canonical/semantic review passes; resolve findings.
+- [x] Fresh-context independent canonical/semantic review passes; findings resolved.
+- [x] Record owner-authorized freeze of the exact reviewed bytes in the immutable inventory.
+- [x] Full offline suite, independent Python/Node reconstruction and frozen-v1 verification pass.
 
-Exit gate: independent reviewer approves the reconciled candidate, source/contract
-checks pass, no v1 drift, and all material reviewer questions are resolved.
-Automated checks or the author's own review do not make the candidate frozen.
-The current lane stops at its clean, committed review candidate.
+Exit gate satisfied: independent **PASS TO FREEZE** for exact reviewed commit
+`429aa027a696a09cfeb8dc1eada8420e732dda6b`, against the semantic baseline above;
+all material Phase 1 findings resolved and no v1 drift. The owner separately
+authorized this bounded freeze after independent approval. See the
+[freeze record](PHASE-1-FREEZE.md) and [immutable inventory](contracts/freeze.json).
+The lane stops at its clean local freeze commit. No later implementation,
+integration, merge, push, publication, deployment or spending is authorized.
 
 ## Phase 2 — integrate the completed lanes (not started)
 
