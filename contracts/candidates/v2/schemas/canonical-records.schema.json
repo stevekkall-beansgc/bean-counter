@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:ledgerlab:canonical-records:2-candidate.1",
+  "$id": "urn:ledgerlab:canonical-records:2-candidate.2",
   "title": "Candidate only; independent review pending",
   "oneOf": [
     {
@@ -649,6 +649,161 @@
           "$ref": "#/$defs/hash"
         }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "binding-snapshot"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^bs2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/binding-snapshot"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "base-evaluation"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^be2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/base-evaluation"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "target-snapshot"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ts2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/target-snapshot"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "base-acceptance"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^ba2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/base-acceptance"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ],
+      "properties": {
+        "kind": {
+          "const": "authority-decision"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^au2_[0-9a-f]{64}$"
+        },
+        "body": {
+          "$ref": "#/$defs/authority-decision"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
     }
   ],
   "$defs": {
@@ -753,6 +908,36 @@
       "minLength": 1,
       "maxLength": 80,
       "pattern": "^ed2_[0-9a-f]{64}$"
+    },
+    "target-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ts2_[0-9a-f]{64}$"
+    },
+    "base-evaluation-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^be2_[0-9a-f]{64}$"
+    },
+    "base-acceptance-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^ba2_[0-9a-f]{64}$"
+    },
+    "binding-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^bs2_[0-9a-f]{64}$"
+    },
+    "authority-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^au2_[0-9a-f]{64}$"
     },
     "text": {
       "type": "string",
@@ -889,6 +1074,62 @@
         }
       }
     },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "starts_at",
+        "occurs_before",
+        "received_by",
+        "accepted_by"
+      ],
+      "properties": {
+        "starts_at": {
+          "$ref": "#/$defs/time"
+        },
+        "occurs_before": {
+          "$ref": "#/$defs/time"
+        },
+        "received_by": {
+          "$ref": "#/$defs/time"
+        },
+        "accepted_by": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "replacement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "code"
+          ],
+          "properties": {
+            "kind": {
+              "const": "code"
+            },
+            "code": {
+              "$ref": "#/$defs/slug"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "reverse"
+            }
+          }
+        }
+      ]
+    },
     "rule": {
       "oneOf": [
         {
@@ -981,7 +1222,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-evidence/2-candidate.1"
+          "const": "ledger-evidence/2-candidate.2"
         },
         "purpose": {
           "enum": [
@@ -992,7 +1233,10 @@
             "outcome",
             "correction",
             "supplier_authorization",
-            "delegation"
+            "delegation",
+            "offer",
+            "base_bundle",
+            "base_context"
           ]
         },
         "media_type": {
@@ -1019,20 +1263,22 @@
         "rules",
         "rounding",
         "basis_kind",
+        "binding_id",
+        "evidence_required",
+        "replacement_codes",
+        "allow_reversal",
         "roles",
         "assent",
         "submission_source",
         "correction_source",
-        "window_start",
-        "window_end",
-        "report_before",
-        "correct_before",
+        "ordinary",
+        "corrections",
         "max_premium_atoms",
         "max_discount_atoms"
       ],
       "properties": {
         "schema": {
-          "const": "ledger-policy-snapshot/2-candidate.1"
+          "const": "ledger-policy-snapshot/2-candidate.2"
         },
         "agreement_id": {
           "$ref": "#/$defs/text"
@@ -1058,7 +1304,7 @@
           "$ref": "#/$defs/slug"
         },
         "policy_version": {
-          "$ref": "#/$defs/uint"
+          "$ref": "#/$defs/text"
         },
         "rules": {
           "type": "array",
@@ -1066,14 +1312,32 @@
             "$ref": "#/$defs/rule"
           },
           "minItems": 1,
-          "maxItems": 64,
+          "maxItems": 32,
           "uniqueItems": true
         },
         "rounding": {
           "const": "nearest_ties_away"
         },
         "basis_kind": {
-          "const": "original_booked_net"
+          "const": "frozen_target_retail_net"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "evidence_required": {
+          "type": "boolean"
+        },
+        "replacement_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slug"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "allow_reversal": {
+          "type": "boolean"
         },
         "roles": {
           "$ref": "#/$defs/roles"
@@ -1087,17 +1351,11 @@
         "correction_source": {
           "$ref": "#/$defs/source"
         },
-        "window_start": {
-          "$ref": "#/$defs/time"
+        "ordinary": {
+          "$ref": "#/$defs/window"
         },
-        "window_end": {
-          "$ref": "#/$defs/time"
-        },
-        "report_before": {
-          "$ref": "#/$defs/time"
-        },
-        "correct_before": {
-          "$ref": "#/$defs/time"
+        "corrections": {
+          "$ref": "#/$defs/window"
         },
         "max_premium_atoms": {
           "$ref": "#/$defs/atoms"
@@ -1124,6 +1382,7 @@
         "occurred_at",
         "evidence",
         "customer",
+        "work_type",
         "operation_id",
         "status",
         "quantity",
@@ -1157,6 +1416,14 @@
         "customer": {
           "$ref": "#/$defs/text"
         },
+        "work_type": {
+          "enum": [
+            "content.generated",
+            "tool.completed",
+            "tool.optimized",
+            "content.published"
+          ]
+        },
         "operation_id": {
           "$ref": "#/$defs/text"
         },
@@ -1185,12 +1452,10 @@
         "source",
         "external_id",
         "chain_id",
-        "payer",
         "occurred_at",
         "evidence",
         "target",
         "agreement_id",
-        "book",
         "family_id",
         "code"
       ],
@@ -1205,9 +1470,6 @@
           "$ref": "#/$defs/text"
         },
         "chain_id": {
-          "$ref": "#/$defs/text"
-        },
-        "payer": {
           "$ref": "#/$defs/text"
         },
         "occurred_at": {
@@ -1227,12 +1489,6 @@
         },
         "agreement_id": {
           "$ref": "#/$defs/text"
-        },
-        "book": {
-          "enum": [
-            "retail",
-            "supplier"
-          ]
         },
         "family_id": {
           "$ref": "#/$defs/slug"
@@ -1250,17 +1506,15 @@
         "source",
         "external_id",
         "chain_id",
-        "payer",
         "occurred_at",
         "evidence",
         "target",
         "agreement_id",
-        "book",
         "family_id",
-        "code",
+        "replacement",
         "claim_id",
         "expected_revision",
-        "corrected_at"
+        "expected_revision_number"
       ],
       "properties": {
         "type": {
@@ -1273,9 +1527,6 @@
           "$ref": "#/$defs/text"
         },
         "chain_id": {
-          "$ref": "#/$defs/text"
-        },
-        "payer": {
           "$ref": "#/$defs/text"
         },
         "occurred_at": {
@@ -1296,17 +1547,11 @@
         "agreement_id": {
           "$ref": "#/$defs/text"
         },
-        "book": {
-          "enum": [
-            "retail",
-            "supplier"
-          ]
-        },
         "family_id": {
           "$ref": "#/$defs/slug"
         },
-        "code": {
-          "$ref": "#/$defs/slug"
+        "replacement": {
+          "$ref": "#/$defs/replacement"
         },
         "claim_id": {
           "$ref": "#/$defs/claim-id"
@@ -1314,8 +1559,8 @@
         "expected_revision": {
           "$ref": "#/$defs/revision-id"
         },
-        "corrected_at": {
-          "$ref": "#/$defs/time"
+        "expected_revision_number": {
+          "$ref": "#/$defs/uint"
         }
       }
     },
@@ -1328,7 +1573,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-event/2-candidate.1"
+          "const": "ledger-event/2-candidate.2"
         },
         "data": {
           "oneOf": [
@@ -1353,13 +1598,14 @@
         "event_id",
         "agreement_id",
         "book",
+        "binding_id",
         "ordinal",
         "amount",
         "roles"
       ],
       "properties": {
         "schema": {
-          "const": "ledger-base-posting/2-candidate.1"
+          "const": "ledger-base-posting/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -1372,6 +1618,9 @@
             "retail",
             "supplier"
           ]
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
         },
         "ordinal": {
           "type": "integer",
@@ -1403,7 +1652,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-target-basis/2-candidate.1"
+          "const": "ledger-target-basis/2-candidate.2"
         },
         "target": {
           "$ref": "#/$defs/event-id"
@@ -1428,7 +1677,7 @@
           "items": {
             "$ref": "#/$defs/ref"
           },
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 128,
           "uniqueItems": true
         },
@@ -1469,6 +1718,9 @@
         "book",
         "family_id",
         "permission",
+        "target_snapshot",
+        "authority_decision",
+        "binding_id",
         "received_at",
         "accepted_at",
         "decision",
@@ -1477,7 +1729,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-admission/2-candidate.1"
+          "const": "ledger-admission/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -1530,6 +1782,15 @@
             "correction"
           ]
         },
+        "target_snapshot": {
+          "$ref": "#/$defs/target-id"
+        },
+        "authority_decision": {
+          "$ref": "#/$defs/authority-id"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
         "received_at": {
           "$ref": "#/$defs/time"
         },
@@ -1562,7 +1823,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-claim/2-candidate.1"
+          "const": "ledger-claim/2-candidate.2"
         },
         "target": {
           "$ref": "#/$defs/event-id"
@@ -1598,7 +1859,9 @@
         "claim_id",
         "number",
         "event_id",
-        "code",
+        "state",
+        "binding_id",
+        "target_snapshot",
         "policy_snapshot",
         "basis",
         "admission",
@@ -1609,7 +1872,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-claim-revision/2-candidate.1"
+          "const": "ledger-claim-revision/2-candidate.2"
         },
         "claim_id": {
           "$ref": "#/$defs/claim-id"
@@ -1625,6 +1888,18 @@
         },
         "code": {
           "$ref": "#/$defs/slug"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "reversed"
+          ]
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "target_snapshot": {
+          "$ref": "#/$defs/target-id"
         },
         "policy_snapshot": {
           "$ref": "#/$defs/policy-id"
@@ -1674,7 +1949,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-effect/2-candidate.1"
+          "const": "ledger-effect/2-candidate.2"
         },
         "claim_id": {
           "$ref": "#/$defs/claim-id"
@@ -1713,11 +1988,12 @@
         "family_id",
         "roles",
         "policy_snapshot",
-        "basis"
+        "basis",
+        "binding_id"
       ],
       "properties": {
         "schema": {
-          "const": "ledger-action/2-candidate.1"
+          "const": "ledger-action/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -1766,6 +2042,9 @@
         },
         "reverses": {
           "$ref": "#/$defs/action-id"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
         }
       }
     },
@@ -1782,7 +2061,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-obligation/2-candidate.1"
+          "const": "ledger-obligation/2-candidate.2"
         },
         "agreement_id": {
           "$ref": "#/$defs/text"
@@ -1820,7 +2099,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-link/2-candidate.1"
+          "const": "ledger-link/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -1844,7 +2123,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-dependency/2-candidate.1"
+          "const": "ledger-dependency/2-candidate.2"
         },
         "dependent": {
           "oneOf": [
@@ -1874,6 +2153,8 @@
       "additionalProperties": false,
       "required": [
         "schema",
+        "binding_id",
+        "target_snapshot",
         "event_id",
         "target",
         "agreement_id",
@@ -1890,7 +2171,13 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-limit-evidence/2-candidate.1"
+          "const": "ledger-limit-evidence/2-candidate.2"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "target_snapshot": {
+          "$ref": "#/$defs/target-id"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -1966,17 +2253,20 @@
         "rounded_atoms",
         "rounding",
         "action_ids",
-        "limit_evidence"
+        "limit_evidence",
+        "basis_amount"
       ],
       "properties": {
         "schema": {
-          "const": "ledger-explanation/2-candidate.1"
+          "const": "ledger-explanation/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
         },
         "ordinal": {
-          "const": 0
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
         },
         "claim_id": {
           "$ref": "#/$defs/claim-id"
@@ -1986,11 +2276,10 @@
         },
         "code": {
           "enum": [
-            "FIXED_APPLIED",
-            "PERCENTAGE_APPLIED",
-            "ZERO_ADJUSTMENT",
-            "CORRECTION_REPLACED",
-            "CORRECTION_ZERO"
+            "EXACT_REVERSAL",
+            "CLAIM_REVERSED",
+            "ZERO_ROUNDED",
+            "OUTCOME_APPLIED"
           ]
         },
         "policy_snapshot": {
@@ -2019,6 +2308,9 @@
         },
         "limit_evidence": {
           "$ref": "#/$defs/limit-id"
+        },
+        "basis_amount": {
+          "$ref": "#/$defs/money"
         }
       }
     },
@@ -2030,18 +2322,20 @@
         "event_id",
         "semantics",
         "inputs",
+        "target_snapshot",
+        "authority_decision",
         "received_at",
         "accepted_at"
       ],
       "properties": {
         "schema": {
-          "const": "ledger-replay-input/2-candidate.1"
+          "const": "ledger-replay-input/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
         },
         "semantics": {
-          "const": "ledger-outcome-semantics/2-candidate.1"
+          "const": "ledger-outcome-semantics/2-candidate.2"
         },
         "inputs": {
           "type": "array",
@@ -2051,6 +2345,12 @@
           "minItems": 1,
           "maxItems": 512,
           "uniqueItems": true
+        },
+        "target_snapshot": {
+          "$ref": "#/$defs/target-id"
+        },
+        "authority_decision": {
+          "$ref": "#/$defs/authority-id"
         },
         "received_at": {
           "$ref": "#/$defs/time"
@@ -2076,7 +2376,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-intention/2-candidate.1"
+          "const": "ledger-intention/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -2122,7 +2422,7 @@
           ],
           "properties": {
             "schema": {
-              "const": "ledger-obligation-delta/2-candidate.1"
+              "const": "ledger-obligation-delta/2-candidate.2"
             },
             "obligation_id": {
               "$ref": "#/$defs/obligation-id"
@@ -2170,7 +2470,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-delivery-key/2-candidate.1"
+          "const": "ledger-delivery-key/2-candidate.2"
         },
         "source": {
           "$ref": "#/$defs/source"
@@ -2204,7 +2504,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-chain-revision/2-candidate.1"
+          "const": "ledger-chain-revision/2-candidate.2"
         },
         "chain_id": {
           "$ref": "#/$defs/text"
@@ -2234,7 +2534,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-decision-manifest/2-candidate.1"
+          "const": "ledger-decision-manifest/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -2287,7 +2587,7 @@
       ],
       "properties": {
         "schema": {
-          "const": "ledger-receipt/2-candidate.1"
+          "const": "ledger-receipt/2-candidate.2"
         },
         "event_id": {
           "$ref": "#/$defs/event-id"
@@ -2333,6 +2633,466 @@
           "minItems": 0,
           "maxItems": 32,
           "uniqueItems": true
+        }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "binding_id",
+        "operation_id",
+        "chain",
+        "customer",
+        "source",
+        "unit",
+        "maximum_quantity",
+        "maximum_exposure",
+        "held",
+        "authorized_at",
+        "start_before",
+        "attested_start"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/text"
+        },
+        "chain": {
+          "$ref": "#/$defs/text"
+        },
+        "customer": {
+          "$ref": "#/$defs/text"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "unit": {
+          "$ref": "#/$defs/slug"
+        },
+        "maximum_quantity": {
+          "$ref": "#/$defs/text"
+        },
+        "maximum_exposure": {
+          "$ref": "#/$defs/money"
+        },
+        "held": {
+          "$ref": "#/$defs/money"
+        },
+        "authorized_at": {
+          "$ref": "#/$defs/time"
+        },
+        "start_before": {
+          "$ref": "#/$defs/time"
+        },
+        "attested_start": {
+          "$ref": "#/$defs/time"
+        },
+        "outcome_deadline": {
+          "$ref": "#/$defs/time"
+        },
+        "completion_event": {
+          "$ref": "#/$defs/event-id"
+        }
+      }
+    },
+    "binding-snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "binding_id",
+        "agreement_id",
+        "book",
+        "roles",
+        "assent",
+        "unit",
+        "maximum_quantity",
+        "event_types",
+        "allowed_modifiers",
+        "allocation_view",
+        "sources",
+        "correction_sources",
+        "booked_net"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-binding-snapshot/2-candidate.2"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier"
+          ]
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "offer": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "delegation": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "unit": {
+          "$ref": "#/$defs/slug"
+        },
+        "maximum_quantity": {
+          "$ref": "#/$defs/text"
+        },
+        "event_types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slug"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "allowed_modifiers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slug"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "allocation_view": {
+          "type": "boolean"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "correction_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "booked_net": {
+          "$ref": "#/$defs/money"
+        },
+        "maximum_exposure": {
+          "$ref": "#/$defs/money"
+        },
+        "supplier_invocation": {
+          "$ref": "#/$defs/invocation"
+        }
+      }
+    },
+    "base-evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "evaluation_utf8",
+        "postings",
+        "bindings",
+        "predecessors",
+        "received_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-base-evaluation/2-candidate.2"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "evaluation_utf8": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        },
+        "postings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "predecessors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 0,
+          "maxItems": 999,
+          "uniqueItems": true
+        },
+        "received_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "target-snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "target",
+        "base_evaluation",
+        "retail_basis",
+        "families",
+        "bindings",
+        "limits",
+        "accepted_at",
+        "rated_final",
+        "verified_assents",
+        "verified_offers",
+        "verified_delegations",
+        "finality_evidence"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-target-snapshot/2-candidate.2"
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "base_evaluation": {
+          "$ref": "#/$defs/ref"
+        },
+        "retail_basis": {
+          "$ref": "#/$defs/ref"
+        },
+        "families": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "limits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding_id",
+              "premium",
+              "discount_capacity"
+            ],
+            "properties": {
+              "binding_id": {
+                "$ref": "#/$defs/text"
+              },
+              "premium": {
+                "$ref": "#/$defs/money"
+              },
+              "discount_capacity": {
+                "$ref": "#/$defs/money"
+              }
+            }
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        },
+        "rated_final": {
+          "const": true
+        },
+        "verified_assents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence-id"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "verified_offers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence-id"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "verified_delegations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence-id"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "finality_evidence": {
+          "$ref": "#/$defs/evidence-id"
+        }
+      }
+    },
+    "base-acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "target",
+        "base_evaluation",
+        "target_snapshot",
+        "accepted_at",
+        "members",
+        "original_receipt_utf8"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-base-acceptance/2-candidate.2"
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "base_evaluation": {
+          "$ref": "#/$defs/ref"
+        },
+        "target_snapshot": {
+          "$ref": "#/$defs/ref"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ref"
+          },
+          "minItems": 1,
+          "maxItems": 1024,
+          "uniqueItems": true
+        },
+        "original_receipt_utf8": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        }
+      }
+    },
+    "authority-decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "event_id",
+        "target",
+        "agreement_id",
+        "family_id",
+        "source",
+        "principal",
+        "grant",
+        "grant_revision",
+        "active",
+        "may_read",
+        "may_submit",
+        "may_correct",
+        "verified_evidence",
+        "received_at",
+        "accepted_at"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-authority-decision/2-candidate.2"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "target": {
+          "$ref": "#/$defs/event-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "family_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "principal": {
+          "$ref": "#/$defs/text"
+        },
+        "grant": {
+          "$ref": "#/$defs/evidence-id"
+        },
+        "grant_revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "may_read": {
+          "type": "boolean"
+        },
+        "may_submit": {
+          "type": "boolean"
+        },
+        "may_correct": {
+          "type": "boolean"
+        },
+        "verified_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence-id"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "received_at": {
+          "$ref": "#/$defs/time"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/time"
         }
       }
     }

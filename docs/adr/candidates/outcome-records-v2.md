@@ -1,51 +1,53 @@
-# Candidate ADR: immutable outcome claim revisions
+# Candidate ADR: reconcile canonical target outcomes with approved semantics
 
-Status: proposed; independent review pending. **Not frozen.**
+Status: **proposed; not frozen; fresh-context independent review pending**.
+Profile `2-candidate.2` supersedes candidate `.1` in `c95cae9`.
+Semantic authority: `1e0ba3f886788c08f427d3aae1d916b341187e76`.
 
-The frozen first-slice contract cannot encode an authorized outcome adjustment,
-accepted zero claim, or revision-level inverse plus replacement without
-inventing undeclared v1 variants. Phase 2's existing typed proposals also use
-different bases and trigger vocabularies. This task's assigned v0 outcome
-requirements need an explicit record family before a persistence bridge.
+The earlier candidate diverged from the approved implementation: it used supplier
+net as a percentage denominator, added book to claim eligibility, treated report
+and correction deadlines as exclusive, omitted a distinct acceptance deadline,
+and did not bind the complete eligible set to base acceptance. Reconciliation
+changes these choices explicitly; no v1 bytes or production code change.
 
-Propose the separate `2-candidate.1` profile described in
-[Canonical records v2](../../design/CANONICAL-RECORDS-V2-CANDIDATE.md), with
-scoped stable target/agreement/book/family claims, pinned original booked net,
-policy and authority evidence, append-only revisions, exact inverses and a
-manifest containing all retained replay inputs and new immutable records.
+Decisions encoded for review:
 
-Explicit candidate choices for review:
+- Use original final retail net for every percentage, including supplier rules.
+  Signed ratios encode percentage points (`-10/1` is minus ten percent).
+- Permanent key is scope/agreement/stable-family/target. Resolve posting book,
+  binding, payer, roles and policy through complete frozen target membership.
+- Freeze all families, bindings and finite limits at base acceptance, including
+  unclaimed families. Bind base evaluation, target verification and original
+  receipt to an immutable base-acceptance root checked independently of the
+  journal being audited.
+- Retain original base replay inputs and separate verified admission decisions.
+  Replaying historical admission uses recorded observations, not current auth.
+- Use distinct ordinary and correction four-endpoint windows: inclusive start,
+  exclusive occurrence end, inclusive receipt and acceptance deadlines. Clock,
+  base acceptance and previous-revision ordering use non-strict comparisons.
+- Encode full reversal separately from a zero-valued allowed code. Keep ordered
+  inverse/result explanations even for zero, exact inverse-plus-replacement
+  postings and optimistic revision guards. Never reset the permanent claim.
+- Aggregate by target/binding; keep supplier discount capacity, held contingent
+  capacity and binding exposure separate from the retail percentage basis.
+- Reject target registration for any cap-containing base bundle. No accepted
+  target receipt is fabricated for the rejected registration example.
+- Require fully rehashed negative histories to pass independent structural/hash
+  validation before semantic rejection. Original base acceptance is a required
+  external trust anchor; replacing it and all history cannot be detected by
+  self-consistent hashes alone.
 
-- Candidate hash domains and `*2_` prefixes isolate every ID from v1. Candidate
-  content-derived document IDs include scope; row content hashes use one generic
-  rule except manifests. Promoting the candidate is not silently dropping its
-  profile suffix.
-- One command owns one target/agreement/book/family slot. Family is independent
-  of policy version and authorized by the host. Policy/code changes cannot
-  create another claim. Multi-family atomic command encoding is not proposed.
-- Correction commands compare an immutable revision ID, keep the original
-  policy/basis, and atomically append inverse plus replacement. This exception
-  applies only to uncapped outcome claims, not generic v1 reversal semantics.
-- Explicit absolute occurrence/report/correction boundaries are pinned. A
-  correction may use its separately agreed deadline after the original report
-  deadline. Review this boundary alongside the semantic lane before freezing.
-- Aggregate limits constrain gross premiums and gross discounts independently;
-  discount capacity is at most the original booked target net. No cross-family
-  offsetting or silent saturation. All families in a group pin the same limits.
-- A zero claim and zero-net correction have a full decision/receipt, with no
-  zero action/intention. Original receipts remain byte-identical on retry.
-- All prior intentions for a claim remain export dependencies, even through
-  zero or zero-net revisions. Supplier corrections are separately explicit.
-- Synthetic seed base records describe already accepted economics. Mapping
-  production v1 records into hash-verified target references, complete
-  invocation/reservation transitions, and the production replay decoder require
-  later reviewed work; this is not an approved append-port expansion.
+Canonical profile changes are intentionally versioned in the candidate hash
+domain. Existing v1 contracts and compatibility declarations stay untouched.
+The complete field dictionary, ordering, IDs and membership are in
+[the reconciled design](../../design/CANONICAL-RECORDS-V2-CANDIDATE.md).
 
-Consequences: schemas and vectors can be reviewed now without modifying frozen
-files or production crates. Candidate audits join the normal repository checks.
-The candidate has a conservative complete-prefix replay encoding with explicit
-bounds. Compact closures, production authentication, two-store transaction and
-retry races, and export execution remain later implementation gates.
+Open reviewer questions concern the proposed historical base-material codec,
+v1-to-target reference mapping without receipt rewriting, authentic durable
+base-root retrieval, supplier reservation observation completeness and combined
+canonical-to-typed equivalence. These require a separate fresh-context reviewer
+and the later integration/persistence gates in `ROADMAP.md`.
 
-Approval is deliberately absent. Successful automated reconstruction and local
-self-review do not mark this ADR accepted or the contract frozen.
+Neither these checks nor the author's self-review certify a freeze. No merge,
+push, deployment, outbox/CLI/core change or persistence implementation is part
+of the current Phase 1 assignment.

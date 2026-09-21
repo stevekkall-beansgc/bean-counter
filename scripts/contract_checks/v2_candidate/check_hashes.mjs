@@ -5,7 +5,7 @@ import {readFileSync,readdirSync} from 'node:fs';
 import {join} from 'node:path';
 import assert from 'node:assert/strict';
 const root=process.argv[2]||'.', dir=join(root,'contracts/candidates/v2/goldens');
-const prefix={'evidence':'ed','policy-snapshot':'po','event':'ev','base-posting':'bp','target-basis':'tb','admission':'ad','claim':'cl','claim-revision':'rv','effect':'ef','action':'ac','obligation':'ob','limit-evidence':'li','explanation':'xp','replay-input':'rp','intention':'in','decision-manifest':'dc','receipt':'rc'};
+const prefix={'evidence':'ed','policy-snapshot':'po','event':'ev','base-posting':'bp','target-basis':'tb','admission':'ad','claim':'cl','claim-revision':'rv','effect':'ef','action':'ac','obligation':'ob','limit-evidence':'li','explanation':'xp','replay-input':'rp','intention':'in','decision-manifest':'dc','receipt':'rc','binding-snapshot':'bs','base-evaluation':'be','target-snapshot':'ts','base-acceptance':'ba','authority-decision':'au'};
 function jcs(x) {
   if(Array.isArray(x)) return '['+x.map(jcs).join(',')+']';
   if(x!==null && typeof x==='object') return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+jcs(x[k])).join(',')+'}';
@@ -14,7 +14,7 @@ function jcs(x) {
   return JSON.stringify(x);
 }
 const raw=b=>createHash('sha256').update(b).digest('hex');
-const hash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/2-candidate.1`),Buffer.from([0]),Buffer.from(jcs(v))]));
+const hash=(d,v)=>raw(Buffer.concat([Buffer.from(`ledgerlab/${d}/2-candidate.2`),Buffer.from([0]),Buffer.from(jcs(v))]));
 const id=(k,v)=>prefix[k]+'2_'+hash(k,v);
 const cmp=(a,b)=>Buffer.compare(Buffer.from(a),Buffer.from(b));
 const ref=r=>({kind:r.kind,id:r.id,content_hash:r.content_hash});
@@ -22,16 +22,18 @@ const order=(a,b)=>cmp(a.kind,b.kind)||cmp(jcs(a.id),jcs(b.id));
 function derive(r) {
   const {kind:k,scope:s,body:b}=r;
   switch(k) {
-    case 'evidence': case 'policy-snapshot': case 'target-basis': case 'replay-input': return id(k,[s,b]);
+    case 'evidence': case 'policy-snapshot': case 'target-basis': case 'replay-input': case 'binding-snapshot': case 'base-evaluation': case 'target-snapshot': return id(k,[s,b]);
     case 'event': return id(k,[s,b.data.source,b.data.external_id]);
     case 'base-posting': return id(k,[s,b.event_id,b.agreement_id,b.book,b.ordinal]);
-    case 'claim': return id(k,[s,b.target,b.agreement_id,b.book,b.family_id]);
+    case 'claim': return id(k,[s,b.agreement_id,b.family_id,b.target]);
     case 'claim-revision': return id(k,[b.claim_id,b.number]);
     case 'effect': return id(k,[b.claim_id,b.revision_id,b.slot]);
     case 'action': return id(k,[b.effect_id]);
     case 'obligation': return id(k,[s,b.agreement_id,b.book,b.currency,b.scale,b.roles]);
-    case 'admission': case 'decision-manifest': case 'receipt': return id(k,[b.event_id]);
-    case 'limit-evidence': case 'explanation': return id(k,[b.event_id,0]);
+    case 'authority-decision': case 'admission': case 'decision-manifest': case 'receipt': return id(k,[b.event_id]);
+    case 'limit-evidence': return id(k,[b.event_id,0]);
+    case 'explanation': return id(k,[b.event_id,b.ordinal]);
+    case 'base-acceptance': return id(k,[b.target]);
     case 'intention': return id(k,[s,b.destination,b.obligation_id,b.action_ids]);
     case 'link': return [s,'outcome_of',b.event_id,b.target];
     case 'dependency': return [s,b.dependent,b.input.kind,b.input.id];
@@ -41,9 +43,9 @@ function derive(r) {
   }
 }
 let rows=0, decisions=0;
-for(const filename of readdirSync(dir).filter(n=>!['vectors.json','inventory.json'].includes(n))) {
-  const bytes=readFileSync(join(dir,filename)),history=JSON.parse(bytes);
-  assert.equal(jcs(history),bytes.toString('utf8'),'noncanonical file');
+const custom=process.argv[3]==='--histories';
+const entries=custom?JSON.parse(readFileSync(process.argv[4])).map((history,i)=>['rehashed-'+i,history]):readdirSync(dir).filter(n=>!['vectors.json','inventory.json'].includes(n)).map(n=>{const raw=readFileSync(join(dir,n));const h=JSON.parse(raw);assert.equal(jcs(h),raw.toString('utf8'),'noncanonical file');return [n,h];});
+for(const [filename,history] of entries) {
   const known=new Map();
   for(const group of [history.seed,...history.decisions.map(d=>d.records)]) {
     assert.deepEqual([...group].sort(order),group);
@@ -58,6 +60,22 @@ for(const filename of readdirSync(dir).filter(n=>!['vectors.json','inventory.jso
         assert.equal(r.body.facts_hash,'sha256:'+hash('effect-facts',f));
       }
       if(r.kind==='delivery-key') assert.equal(r.body.ingress_hash,'sha256:'+hash('ingress',r.body.ingress));
+    }
+  }
+  function references(x) {
+    if(Array.isArray(x)){for(const v of x)references(v);return;}
+    if(x!==null&&typeof x==='object'){
+      if(Object.keys(x).sort().join(',')==='content_hash,id,kind') assert.deepEqual(ref(known.get(jcs([x.kind,x.id]))),x,'retained reference');
+      else for(const v of Object.values(x))references(v);
+    }
+  }
+  for(const r of known.values()) {
+    references(r.body);
+    if(r.kind==='base-acceptance') {
+      const b=r.body;
+      assert.deepEqual(b.members,history.seed.filter(r=>r.kind!=='base-acceptance').map(ref).sort(order));
+      const receipt={schema:'ledger-base-receipt/2-candidate.2',target:b.target,base_evaluation:b.base_evaluation,target_snapshot:b.target_snapshot,accepted_at:b.accepted_at,membership_hash:'sha256:'+hash('base-membership',b.members)};
+      assert.equal(b.original_receipt_utf8,jcs(receipt));
     }
   }
   for(const d of history.decisions) {
@@ -75,4 +93,4 @@ for(const filename of readdirSync(dir).filter(n=>!['vectors.json','inventory.jso
 // UTF-16 (astral before BMP private-use), control escaping and no normalization.
 assert.equal(jcs({'\ue000':1,'😀':2}),'{"😀":2,"":1}');
 assert.notEqual(hash('event',['é']),hash('event',['e\u0301']));
-console.log(JSON.stringify({status:'passed',independent:'Node byte/hash/key reconstruction',records:rows,decisions}));
+console.log(JSON.stringify({status:'passed',independent:custom?'Node fully rehashed attack integrity':'Node byte/hash/key reconstruction',records:rows,decisions}));

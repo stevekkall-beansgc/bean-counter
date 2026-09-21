@@ -1,0 +1,23 @@
+{
+  "status": "candidate-not-frozen",
+  "authoritative_commit": "1e0ba3f886788c08f427d3aae1d916b341187e76",
+  "files": {
+    "crates/ledgerlab-core/src/policy/chaining/outcomes/mod.rs": {
+      "bytes": 29257,
+      "sha256": "8e042cd000e4133b17bff753f62618cac62cae4922cfe21aa42e335bbfb089fa"
+    },
+    "crates/ledgerlab-core/src/policy/chaining/outcomes/README.md": {
+      "bytes": 6874,
+      "sha256": "b0bd8592cabb1b9c91847f32b1b93af6906c69ee4cdeaf091259a08e8d140d09"
+    },
+    "crates/ledgerlab-core/src/policy/chaining/model.rs": {
+      "bytes": 9828,
+      "sha256": "309c4c83f56317e87f82e7d5ab5a57fab236b5b8e775f9f3abfcb554c538f6ee"
+    },
+    "crates/ledgerlab-testkit/oracle/phase2/outcomes.py": {
+      "bytes": 8813,
+      "sha256": "982278699861e2ae2d81b4fe553b5a9a68fbef8bfe3e0157164efa34a565e2b1"
+    }
+  },
+  "use": "Read-only semantic authority; no sibling implementation imported."
+}

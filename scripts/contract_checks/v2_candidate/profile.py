@@ -5,12 +5,15 @@ import re
 from datetime import datetime
 from math import gcd
 
-PROFILE = '2-candidate.1'
+PROFILE = '2-candidate.2'
+SEMANTIC_COMMIT = '1e0ba3f886788c08f427d3aae1d916b341187e76'
 PREFIX = dict(zip(
     ['evidence','policy-snapshot','event','base-posting','target-basis','admission',
      'claim','claim-revision','effect','action','obligation','limit-evidence',
      'explanation','replay-input','intention','decision-manifest','receipt'],
     ['ed','po','ev','bp','tb','ad','cl','rv','ef','ac','ob','li','xp','rp','in','dc','rc']))
+
+PREFIX.update({'binding-snapshot':'bs','base-evaluation':'be','target-snapshot':'ts','base-acceptance':'ba','authority-decision':'au'})
 
 def strict(raw):
     def pairs(items):
@@ -50,17 +53,20 @@ def row_order(r): return (r['kind'].encode(),canonical(r['id']))
 def reference(row): return {k:row[k] for k in ('kind','id','content_hash')}
 
 def key_input(kind,s,b):
-    if kind in ('evidence','policy-snapshot','target-basis','replay-input'):
+    if kind in ('evidence','policy-snapshot','target-basis','replay-input','binding-snapshot','base-evaluation','target-snapshot'):
         value=[s,b]
     elif kind=='event': value=[s,b['data']['source'],b['data']['external_id']]
     elif kind=='base-posting': value=[s,b['event_id'],b['agreement_id'],b['book'],b['ordinal']]
-    elif kind=='claim': value=[s,b['target'],b['agreement_id'],b['book'],b['family_id']]
+    elif kind=='claim': value=[s,b['agreement_id'],b['family_id'],b['target']]
     elif kind=='claim-revision': value=[b['claim_id'],b['number']]
     elif kind=='effect': value=[b['claim_id'],b['revision_id'],b['slot']]
     elif kind=='action': value=[b['effect_id']]
     elif kind=='obligation': value=[s,b['agreement_id'],b['book'],b['currency'],b['scale'],b['roles']]
+    elif kind=='base-acceptance': value=[b['target']]
+    elif kind=='authority-decision': value=[b['event_id']]
     elif kind in ('admission','decision-manifest','receipt'): value=[b['event_id']]
-    elif kind in ('limit-evidence','explanation'): value=[b['event_id'],0]
+    elif kind=='limit-evidence': value=[b['event_id'],0]
+    elif kind=='explanation': value=[b['event_id'],b['ordinal']]
     elif kind=='intention': value=[s,b['destination'],b['obligation_id'],b['action_ids']]
     elif kind=='link': return [s,'outcome_of',b['event_id'],b['target']]
     elif kind=='dependency': return [s,b['dependent'],b['input']['kind'],b['input']['id']]
@@ -96,10 +102,10 @@ def scalar_checks(v, name=''):
         if name=='quantity':
             whole,_,fraction=v.partition('.')
             if len(fraction)>18 or len((whole+fraction).lstrip('0') or '0')>30: raise ValueError('DECIMAL_PRECISION')
-        if name.endswith('_at') or name in ('window_start','window_end','report_before','correct_before'):
+        if name.endswith('_at') or name in ('starts_at','occurs_before','received_by','accepted_by','start_before','attested_start','outcome_deadline'):
             if not re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z',v): raise ValueError('TIME')
             datetime.strptime(v,'%Y-%m-%dT%H:%M:%S.%fZ')
-        if name in ('number','policy_version','revision','credential_revision','grant_revision','target_guard_revision','aggregate_guard_revision'):
+        if name in ('number','expected_revision_number','revision','credential_revision','grant_revision','target_guard_revision','aggregate_guard_revision'):
             if int(v)>9223372036854775807: raise ValueError('COUNTER')
         if name in ('source','authorized_source','submission_source','correction_source'):
             if len(v.encode())>256: raise ValueError('SOURCE_BYTES')

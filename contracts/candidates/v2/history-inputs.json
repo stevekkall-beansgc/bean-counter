@@ -26,8 +26,8 @@
           "family": "rebate",
           "code": "rebate",
           "rate": [
-            "-1",
-            "10"
+            "-10",
+            "1"
           ],
           "atoms": "-1000",
           "exact": [
@@ -59,7 +59,8 @@
           "exact": [
             "0",
             "1"
-          ]
+          ],
+          "reuse_evidence": true
         },
         {
           "family": "success",
@@ -144,8 +145,8 @@
           "family": "rebate",
           "code": "rebate",
           "rate": [
-            "-1",
-            "10"
+            "-10",
+            "1"
           ],
           "atoms": "-1000",
           "exact": [
@@ -213,8 +214,8 @@
           "family": "rebate",
           "code": "rebate",
           "rate": [
-            "-1",
-            "10"
+            "-10",
+            "1"
           ],
           "atoms": "0",
           "exact": [
@@ -232,8 +233,8 @@
           "family": "rebate",
           "code": "rebate",
           "rate": [
-            "-1",
-            "10"
+            "-10",
+            "1"
           ],
           "atoms": "-11",
           "exact": [
@@ -252,8 +253,8 @@
           "family": "rebate",
           "code": "rebate",
           "rate": [
-            "-1",
-            "10"
+            "-10",
+            "1"
           ],
           "atoms": "-1000",
           "exact": [
@@ -266,12 +267,12 @@
           "book": "supplier",
           "code": "rebate",
           "rate": [
-            "-1",
-            "10"
+            "-10",
+            "1"
           ],
-          "atoms": "-300",
+          "atoms": "-1000",
           "exact": [
-            "-300",
+            "-1000",
             "1"
           ]
         },
@@ -350,7 +351,7 @@
         {
           "kind": "stale_correction",
           "step": 1,
-          "expected": "STALE_CLAIM_REVISION"
+          "expected": "STALE_CORRECTION"
         }
       ]
     },
@@ -363,19 +364,22 @@
           "kind": "timing",
           "occurred_at": "2026-09-21T11:59:59.999999Z",
           "received_at": "2026-09-21T13:00:00.000000Z",
-          "expected": "OUTCOME_WINDOW"
+          "expected": "OUTCOME_WINDOW",
+          "accepted_at": "2026-09-21T13:00:00.000000Z"
         },
         {
           "kind": "timing",
           "occurred_at": "2026-09-22T12:00:00.000000Z",
           "received_at": "2026-09-22T12:00:01.000000Z",
-          "expected": "OUTCOME_WINDOW"
+          "expected": "OUTCOME_WINDOW",
+          "accepted_at": "2026-09-22T12:00:01.000000Z"
         },
         {
           "kind": "timing",
           "occurred_at": "2026-09-21T13:00:00.000000Z",
-          "received_at": "2026-09-23T12:00:00.000000Z",
-          "expected": "REPORT_TOO_LATE"
+          "received_at": "2026-09-23T12:00:00.000001Z",
+          "expected": "OUTCOME_DEADLINE",
+          "accepted_at": "2026-09-23T12:00:00.000001Z"
         }
       ]
     },
@@ -387,7 +391,7 @@
         {
           "kind": "cap",
           "stage": "capped",
-          "expected": "CAP_OUTCOME_INCOMPATIBLE"
+          "expected": "OUTCOME_CAP_COMPOSITION"
         }
       ],
       "stage": "capped"
@@ -410,8 +414,10 @@
       "probes": [
         {
           "kind": "correction_timing",
-          "corrected_at": "2026-09-24T12:00:00.000000Z",
-          "expected": "CORRECTION_TOO_LATE"
+          "expected": "OUTCOME_DEADLINE",
+          "occurred_at": "2026-09-24T11:59:59.999999Z",
+          "received_at": "2026-09-25T12:00:00.000001Z",
+          "accepted_at": "2026-09-25T12:00:00.000001Z"
         }
       ]
     },
@@ -442,7 +448,183 @@
           "kind": "aggregate_limit",
           "family": "bonus",
           "proposed_atoms": "1000",
-          "expected": "AGGREGATE_LIMIT"
+          "expected": "PREMIUM_LIMIT"
+        }
+      ]
+    },
+    {
+      "name": "inclusive-ordinary-deadlines",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ],
+          "occurred_at": "2026-09-21T12:00:00.000000Z",
+          "received_at": "2026-09-23T12:00:00.000000Z",
+          "accepted_at": "2026-09-23T13:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "inclusive-correction-deadlines",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "code": "none",
+          "correct": true,
+          "reverse": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ],
+          "occurred_at": "2026-09-24T11:59:59.999999Z",
+          "received_at": "2026-09-25T12:00:00.000000Z",
+          "accepted_at": "2026-09-25T13:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "equal-observation-times",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ],
+          "occurred_at": "2026-09-21T12:00:00.000000Z",
+          "received_at": "2026-09-21T12:00:00.000000Z",
+          "accepted_at": "2026-09-21T12:00:00.000000Z"
+        },
+        {
+          "family": "success",
+          "code": "none",
+          "correct": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ],
+          "occurred_at": "2026-09-21T12:00:00.000000Z",
+          "received_at": "2026-09-21T12:00:00.000000Z",
+          "accepted_at": "2026-09-21T12:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "retail-net-after-booking-discount",
+      "base": "8000",
+      "base_gross": "10000",
+      "base_discount": "-2000",
+      "steps": [
+        {
+          "family": "rebate",
+          "code": "rebate",
+          "rate": [
+            "-10",
+            "1"
+          ],
+          "atoms": "-800",
+          "exact": [
+            "-800",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero-net-base",
+      "base": "0",
+      "steps": [
+        {
+          "family": "success",
+          "code": "none",
+          "fixed": "2500",
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "predeclared-unclaimed-family",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        }
+      ],
+      "additional_policies": [
+        {
+          "family": "future-bonus",
+          "fixed": "1000"
+        }
+      ]
+    },
+    {
+      "name": "full-reversal-reinstatement",
+      "base": "10000",
+      "steps": [
+        {
+          "family": "success",
+          "code": "success",
+          "fixed": "2500",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "correct": true,
+          "reverse": true,
+          "atoms": "0",
+          "exact": [
+            "0",
+            "1"
+          ]
+        },
+        {
+          "family": "success",
+          "correct": true,
+          "code": "success",
+          "atoms": "2500",
+          "exact": [
+            "2500",
+            "1"
+          ]
         }
       ]
     }

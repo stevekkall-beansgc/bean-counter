@@ -1,346 +1,267 @@
-# Outcome records v2 — candidate encoding
+# Outcome canonical records — reconciled candidate
 
-Status: **candidate, not frozen; independent review pending**.
-Base: `b35258425970052ed71481eca1f33ef857c61be1`.
-Profile and body suffix: `2-candidate.1`. Contract-only work; no production
-acceptance, evaluator, persistence, migrations, outbox or CLI extension.
+**Review candidate, not frozen. Fresh-context independent review pending.**
+Profile `2-candidate.2` supersedes candidate `.1` from commit `c95cae9`; it does
+not supersede or alter any v1 contract, fixture, hash or receipt. The changed
+candidate hash domain prevents silent reinterpretation of the earlier draft.
+Only roadmap Phase 1 is being executed; see `ROADMAP.md`.
 
-## Scope and precedence
+Semantic authority is commit `1e0ba3f886788c08f427d3aae1d916b341187e76`, especially
+`crates/ledgerlab-core/src/policy/chaining/outcomes/mod.rs` and its README. This
+lane transcribes its retained-data contract; it does not integrate that branch,
+implement a production decoder, price work, or broaden a store append port.
+The schema is `contracts/candidates/v2/schemas/canonical-records.schema.json`.
 
-This is an additive encoding proposal for the assigned Phase 2 v0 outcome
-adjustment semantics: immutable normalized base/outcome events, one permanent
-claim per target/agreement/book/rule family, pinned terms, authorized admission,
-accepted zero amounts and explicit optimistic corrections. It does not amend
-any frozen v1 bytes. It proposes a **bounded exception** to v1's prohibition on
-compound replacement: an uncapped outcome claim revision can atomically append
-its exact inverse and replacement. It does not permit general partial reversals,
-base rerating, a stage reopening, arbitrary credit editing or supplier debt
-cancellation through a retail correction.
+## Exact semantic reconciliation
 
-The task's approved requirements establish these semantics; encoding details
-below are candidate choices requiring independent review. Existing source
-reports/addendum still govern every v1 path. A consumer must select this exact
-candidate profile explicitly; an unknown profile fails closed. There is no
-production evaluator version 2 or storage-write version 2 implied by these files.
+- Every percentage uses the **original final target retail net after booking
+  discounts**, before any outcome, tax, funding/payment or supplier cost. This
+  includes supplier adjustments. A rate `-10/1` means **minus ten percent**:
+  `exact_atoms = retail_basis_atoms × numerator / denominator / 100`.
+  This differs from candidate `.1`'s fractional-multiplier convention.
+- Supplier booked net is its **discount capacity**, not a percentage denominator.
+  Each binding has a finite nonnegative premium limit. Supplier premium must
+  fit `invocation.held - supplier_booked_net`, and booked net plus premium limit
+  must fit binding maximum exposure. The actual nominated supplier completion,
+  invocation, source, operation, roles and verified offer/assent are retained.
+- Permanent claim key is `[scope,agreement_id,family_id,target]`. Neither book,
+  binding/policy version, code, price, delivery label nor source is an eligibility
+  dimension. Book remains binding/posting/obligation data. Target membership
+  rejects duplicate `(agreement,family)` even when a version or book differs.
+- Base acceptance freezes **all** eligible families, their exact policy records,
+  bindings, limits and verification, including never-claimed families. A later
+  one-family command can select only this set. The first outcome cannot define
+  the set, and a later policy cannot attach a family or enlarge limits.
+- Ordinary and correction windows are separate four-field objects. For either:
+  `starts_at <= occurred_at < occurs_before`, `occurred_at <= received_at <=
+  accepted_at`, `received_at <= received_by`, `accepted_at <= accepted_by`.
+  Each window satisfies base occurrence `<= starts_at < occurs_before <=
+  received_by <= accepted_by`. No candidate-only 90-day/7-day limit is added
+  to the approved typed surface.
+- Claim acceptance is `>=` base acceptance. Correction acceptance is `>=` the
+  current revision's acceptance; equality is allowed. A correction occurrence
+  need not be after that prior acceptance and need not be in the ordinary
+  occurrence window. The approved `Request.occurred_at` is the correction's
+  occurrence time; `.1`'s extra `corrected_at` deadline is removed.
+- Corrections retain the original target policy and basis, check the exact
+  current revision, and require a separately permitted replacement code or
+  `allow_reversal`. Full reversal uses `{kind:"reverse"}`; a zero-valued code is
+  distinct and uses `{kind:"code",code:...}`. Neither is represented by null.
+- Corrections retain two ordered explanations: `EXACT_REVERSAL`, then
+  `CLAIM_REVERSED`, `ZERO_ROUNDED` or `OUTCOME_APPLIED`. Both explanations exist
+  even when no money posting is needed. Nonzero inverse and replacement remain
+  separate immutable actions. Zero results permanently consume the claim.
+- Aggregate discounts and premiums sum the latest live results separately for
+  `(scope,target,binding_id)`. Premium does not buy discount headroom. Check
+  gross discount against original binding booked net, gross premium against its
+  frozen ceiling, current net and atomic correction delta against atom bounds.
+- Any cap in the original base bundle rejects target registration with
+  `OUTCOME_CAP_COMPOSITION`, regardless of whether it fired or a future result
+  would be zero. The rejected-target vector has no base-acceptance receipt.
 
-## Canonical bytes
+## Canonical bytes and bounds
 
-1. Parse strict UTF-8 JSON. Reject BOM, invalid UTF-8, duplicate object keys,
-   unpaired surrogates, null at any depth, NaN/infinity, fractional/exponent
-   numeric tokens, numeric negative zero and numeric integers outside
-   ±9007199254740991. Nesting is at most 32. Closed schemas reject unknown fields
-   recursively. Optional fields are omitted; required empty arrays remain `[]`.
-2. Records here are **already normalized**. No Unicode normalization, case
-   folding, source URI rewriting, optional-value invention or lookup of current
-   configuration occurs in serialization. A future ingress normalizer may
-   normalize explicitly offset Gregorian times to UTC before this boundary.
-   It must retain the normalized original command before mutable resolution.
-3. Serialize the restricted JSON values as JCS UTF-8: object keys in UTF-16
-   code-unit order, minimal JSON escaping, no whitespace or final LF. Arrays
-   retain their specified order. Hashes never include pretty-printed files or
-   envelope serialization. The Python and Node implementations cover astral
-   versus BMP key order and distinguish composed/decomposed Unicode.
-4. Atoms are canonical signed decimal strings (`0` or `-?[1-9][0-9]*`), magnitude
-   at most `10^30-1`; no `-0`, plus sign or leading zeros. Scales are JSON integers
-   0–18. Currency is exactly three uppercase ASCII letters; no currency table or
-   exchange rate is consulted. Every dependent money amount must agree in both
-   currency and scale. No floats or rounding of an aggregate.
-5. Exact rates and intermediates are reduced `{numerator,denominator}` decimal
-   string pairs with positive denominator, GCD 1 and at most 512 bits per
-   magnitude. Zero is `0/1`. Pre-reduction temporary products are also bounded
-   to 512 bits; overflow rejects. A percentage `-10%` is rate `-1/10`, **not**
-   `-10/1`; the rate is a signed multiplier of integer basis atoms. Fixed rules
-   contain signed integer `fixed_atoms`. Round the one exact rule result with
-   `nearest_ties_away`; e.g. `-21/2` becomes `-11`. An inverse negates the stored
-   integer; it never reevaluates a rule or rerounds.
-6. Counter strings are `0|[1-9][0-9]*`, at most 9223372036854775807; claim/chain
-   revisions and accepted policy versions start at 1. Timestamps are real
-   Gregorian UTC dates in years 0001–9999, exactly
-   `YYYY-MM-DDTHH:MM:SS.ffffffZ`, without leap seconds. Equal timestamps do not
-   imply equal revision order. IDs/scope parts/party IDs are 1–128 UTF-8 bytes;
-   source URIs are 1–256 bytes, without control characters. Slugs are bounded
-   ASCII. JSON Schema character lengths are supplemented by byte checks.
-7. Every canonical body is at most 256 KiB. A decision bundle is at most 4 MiB,
-   resolved inputs 8 MiB, explanations 1 MiB, evidence body 256 KiB, and source
-   chain 1,000 accepted events. Schema cardinality bounds are additional
-   rejection limits, not permission to exceed aggregate byte bounds. Candidate
-   replay uses a complete bounded retained prefix; if that exceeds a limit,
-   reject rather than truncate. A compact closure encoding needs another
-   reviewed profile. The checker certifies the supplied bounded examples, not
-   all possible production resource-limit paths.
+Strict UTF-8 JSON; reject BOM, malformed UTF-8, duplicate keys, lone surrogates,
+null anywhere, NaN/infinity, fractional/exponent JSON number tokens, numeric
+negative zero, and integers outside ±9007199254740991. Unknown fields reject in
+closed record schemas. Omitted optionals stay absent; required empty arrays stay
+`[]`. Inputs to this contract are already normalized. No Unicode normalization,
+case folding, URI rewriting, implicit current-policy lookup or generated clock.
 
-## Ordering and keys
+JCS object keys sort by UTF-16 code units. Output is minimal JSON UTF-8, no
+whitespace or final LF. Economic atoms are canonical signed decimal strings
+with magnitude at most `10^30-1`; scales are integers 0–18. Currency and scale
+must agree across original base, policies, capacities, results and postings.
+Exact ratios are reduced signed-numerator/positive-denominator strings, at most
+512 bits each; zero is `0/1`. Temporary products are bounded too. Round once,
+nearest/ties away from zero. Negate stored integer atoms for inverses.
 
-`scope = [tenant,environment]`, supplied by authenticated context and retained
-on **every envelope**, never trusted from an unverified request. Body records
-inherit that envelope scope; every resolved reference must have the same scope.
+Counters are canonical unsigned strings at most 9223372036854775807. Claim and
+chain revisions start at 1. Policy version is an opaque bounded string, matching
+the semantic implementation, not a numeric eligibility axis. Times are Gregorian
+UTC, year 0001–9999, exactly six fractional digits, no leap seconds. Text IDs and
+scope components are 1–128 UTF-8 bytes, sources 1–256, without controls; slugs
+are bounded ASCII. Schema character bounds do not replace byte/value checks.
 
-Sets sort by unsigned lexicographic comparison of **canonical element UTF-8
-bytes**, reject duplicate elements, and additionally reject duplicate semantic
-keys. Set fields are `rules` (unique outcome code), `evidence`, `postings`
-(unique posting ID), revision action arrays, `current_before` (unique claim),
-`action_ids`, replay `inputs` (unique kind/ID), intention `depends_on`, payload
-`actions` (unique action ID), and receipt `intention_ids`. Policy rules are a
-code lookup set; this candidate has no rule execution order or arbitrary AST.
+Nesting <=32; record body/evidence <=256 KiB; decision <=4 MiB; resolved input
+<=8 MiB; explanations <=1 MiB. Schema array limits also apply. Target families
+<=32, used bindings/limits <=16, codes/replacements <=32, evidence <=16. Complete
+retained history remains bounded; no truncation to fit a replay limit. A compact
+closure encoding requires another reviewed profile. Tests certify these examples,
+not production resource handling or real authority/concurrency.
 
-Scope, hash tuples, composite keys and exact-ratio fields preserve positions.
-Histories preserve acceptance order. Manifest `explanation_ids` preserve ordinal
-order (one ordinal 0 step in this bounded family). Manifest members and each
-seed/new-record listing sort by `(kind UTF-8 bytes, JCS(id) UTF-8 bytes)`.
-There is one member per `(kind,id)`; aliases never add canonical records.
+## Identity and order
 
-Every envelope has exactly `{kind,scope,id,body,content_hash}`. Bodies have the
-schema discriminator `ledger-<kind>/2-candidate.1`, no redundant computed ID and
-no redundant scope. Generic physical uniqueness is `(tenant,environment,kind,id)`;
-for array IDs the structured tuple must also be enforced by typed columns, never
-by ambiguous concatenation. The schema and audit both require domain prefixes.
+Every envelope is `{kind,scope,id,body,content_hash}`; `scope=[tenant,environment]`
+comes from authenticated context. Bodies inherit scope. All references resolve
+in that same scope and local retained records; no network fetch or fallback to
+current configuration. Every internal ID has its kind's prefix.
 
-## Hash and identity formulas
+`H(k,v) = lowercase_hex(SHA256(UTF8("ledgerlab/"+k+"/2-candidate.2") || NUL ||
+JCS(v)))`; `digest(k,v)="sha256:"+H(k,v)`.
+`ID(kind,v)=prefix+"2_"+H(kind,v)`.
+All body hashes are `digest("record-content",[kind,2,body])` except manifests,
+which use `digest("decision-content",body)`. Content-derived IDs include scope;
+they are not the generic body hash. Retained explicit times/prices affect
+content-derived IDs but never permanent eligibility identity.
 
-Let `H(k,v) = lowercase_hex(SHA256(UTF8("ledgerlab/" + k +
-"/2-candidate.1") || 0x00 || JCS(v)))`. `digest(k,v) = "sha256:" + H(k,v)`.
-No trailing LF, truncated digest, entropy, implicit clock lookup or database
-sequence enters an identity. Content-derived IDs bind explicit retained prices
-and times; semantic slot IDs exclude those values. The literal `/2-candidate.1`
-separates **every** domain from v1; candidate IDs cannot be mistaken for frozen
-IDs. A reviewed successor profile will have separately reviewed hash vectors.
-
-All bodies use `digest("record-content",[kind,2,body])`, including event,
-policy, evidence and receipt bodies. **Only** `decision-manifest` uses
-`digest("decision-content",body)`. Unlike v1 documents, a content-derived
-candidate ID is not the outer row content hash. An event's canonical content
-hash is its generic row hash; ingress hash is `digest("ingress",event_body)`.
-
-`ID(kind,v) = prefix + "2_" + H(kind,v)`:
-
-| Kind / domain | Prefix | Exact tuple/value |
+| Kind/domain | Prefix | Exact input |
 |---|---|---|
-| evidence | ed | `[scope,body]` |
-| policy-snapshot | po | `[scope,body]` |
+| evidence, policy-snapshot, target-basis, replay-input | ed, po, tb, rp | `[scope,body]` |
+| binding-snapshot, base-evaluation, target-snapshot | bs, be, ts | `[scope,body]` |
 | event | ev | `[scope,source,external_id]` |
 | base-posting | bp | `[scope,event_id,agreement_id,book,ordinal]` |
-| target-basis | tb | `[scope,body]` |
-| admission | ad | `[event_id]` |
-| claim | cl | `[scope,target,agreement_id,book,family_id]` |
+| base-acceptance | ba | `[target]` |
+| authority-decision, admission, decision-manifest, receipt | au, ad, dc, rc | `[event_id]` |
+| claim | cl | `[scope,agreement_id,family_id,target]` |
 | claim-revision | rv | `[claim_id,number]` |
 | effect | ef | `[claim_id,revision_id,slot]` |
 | action | ac | `[effect_id]` |
 | obligation | ob | `[scope,agreement_id,book,currency,scale,roles]` |
 | limit-evidence | li | `[event_id,0]` |
-| explanation | xp | `[event_id,0]` |
-| replay-input | rp | `[scope,body]` |
+| explanation | xp | `[event_id,ordinal]` |
 | intention | in | `[scope,destination,obligation_id,sorted_action_ids]` |
-| decision-manifest | dc | `[event_id]` |
-| receipt | rc | `[event_id]` |
 
-`number` is a canonical **string**; `ordinal`, scale, and schema version in
-record-content are JSON **integers**. `slot` is `replacement` or `inverse`, never
-a policy ID, code, price or version. The permanent claim includes neither the
-policy version nor the submission source, delivery label, outcome code, rate,
-amount, credential version or report time. A changed version cannot create a
-second economic slot. Source authorization still applies independently.
+Composite IDs are structured arrays without an extra hash:
+`link=[scope,"outcome_of",event_id,target]`;
+`dependency=[scope,dependent,input.kind,input.id]`;
+`delivery-key=[scope,source,external_id]`;
+`chain-revision=[scope,chain_id,number]`.
+Counter `number` is a string; ordinal/scale/record-content version are integers.
 
-Four kinds have array IDs, with **no extra hash-derived ID**:
+Set arrays sort by unsigned lexicographic canonical-element UTF-8 bytes, with
+unique elements and unique semantic keys: policy rules by code; family members
+by `(agreement,family)`; bindings/limits by binding ID; evidence and references;
+postings/action membership; replay inputs; verified evidence/terms; dependency
+intention sets; payload breakdowns. Semantic keys are validation constraints,
+not alternative sorting orders. Manifest and journal members sort by
+`(kind UTF-8,JCS(id) UTF-8)`. One member per `(kind,id)`. Scope/hash tuples,
+history order, base execution order and explanation ordinals retain order.
 
-| Kind | Exact composite ID |
-|---|---|
-| link | `[scope,"outcome_of",event_id,target]` |
-| dependency | `[scope,dependent,input.kind,input.id]` |
-| delivery-key | `[scope,source,external_id]` |
-| chain-revision | `[scope,chain_id,number]` |
+`claim.facts_hash=digest("claim-facts",event.data without external_id)`;
+`delivery-key.ingress_hash=digest("ingress",normalized event body)`.
+`effect.facts_hash=digest("effect-facts",action body without schema,event_id,
+effect_id,policy_snapshot)`. The latter retains exact amount, roles, obligation,
+basis, claim/revision, book, binding, family, slot and optional inverse reference.
+Every indexed or inline copy must agree with its referenced record.
 
-Additional uniqueness: one claim for its tuple permanently (even at zero), one
-revision number per claim, one accepted successor to a previous revision, one
-original delivery key, one inverse per original action, one action per effect,
-one intention per `(scope,destination,idempotency_key)`, and one accepted chain
-revision per event. Current claim/chain/aggregate/target guards are mutable
-transaction state, **not** alternative canonical history.
+## Retained base, frozen target and admission
 
-`claim.facts_hash = digest("claim-facts", event.data without external_id)`.
-Source, chain, payer, occurrence, target, agreement, book, family, code and
-retained evidence remain. A semantic retry may change only its delivery label;
-a different report/code/evidence/occurrence conflicts and requires an explicit
-correction. Matching digests must still compare canonical bytes.
+There are 26 closed record kinds. The prior 21 kinds remain: evidence,
+policy-snapshot, event, base-posting, target-basis, admission, claim,
+claim-revision, effect, action, obligation, link, dependency, limit-evidence,
+explanation, replay-input, intention, delivery-key, chain-revision,
+decision-manifest and receipt. Five additions close the earlier target gap:
 
-`effect.facts_hash = digest("effect-facts", action.body without schema,
-event_id,effect_id,policy_snapshot)`. This includes exact amount, roles,
-obligation, basis, claim/revision, book, family, slot and optional `reverses`.
-A provenance-only policy version does not redefine the effect identity, while
-changed economics change the facts hash. The body/provenance still pins and
-hashes the policy; this projection is not permission to use current terms.
+- `binding-snapshot`: original binding identity, agreement/book, six roles,
+  verified assent/offer/delegation refs, permitted sources, original booked net,
+  exposure and the supplier's nominated invocation/held capacity when applicable.
+- `base-evaluation`: exact retained `evaluation_utf8` plus hash-pinned original
+  postings/bindings/predecessor evaluations and original receipt time. The JSON
+  payload contains event, complete bundle/context, base claim, actions,
+  explanations, deltas, consumptions, invocations, source authority and costs.
+  Empty lists are retained, not guessed during replay. Original source data is
+  never replaced by just the basis sum or a current price.
+- `target-snapshot`: the complete policy-family/binding/limit set, original base
+  evaluation, retail basis, finality evidence and rated-final observation,
+  accepted time, verified assents/offers/delegations. Families with no claim
+  remain members. All per-family snapshots encode the one pinned policy version.
+- `base-acceptance`: binds the base evaluation and target snapshot to **one base
+  acceptance**, the complete sorted seed membership and original receipt bytes.
+  Its receipt's `membership_hash=digest("base-membership",members)` prevents a
+  circular hash. This root must be verified against the original committed base
+  acceptance when loading/importing; a newly rehashed substitute is not trusted.
+- `authority-decision`: retained `Verified` observations for the exact scope,
+  target/agreement/family/source, principal/grant/revision, active/read/submit/
+  correct permissions, verified evidence and both received/accepted times.
+  `admission` references this decision, frozen target/policy/binding/basis,
+  authentication evidence, credential/authority/target/aggregate revisions and
+  final-unreversed observation. These are host-verified observations, not bearer
+  capabilities or caller-supplied authorization flags.
 
-## Record inventory and required relationships
+`evaluation_utf8` is canonical retained material, not executable input. The
+synthetic histories provide explicit base material and original posting
+projections; the audit checks their agreement and retains every named component.
+General production typed-base encoding/decoding still requires independent
+review and integration with the actual evaluator's historical codec. The material preserves original typed rule, action and input fields; its tags
+are a candidate codec for retained values, not a new pricing operator or
+authority to rate a base. Unsupported historical
+codecs must fail replay; never reconstruct omitted data from totals. No claim of
+production `Evaluation` roundtrip is made by this contract-only lane.
 
-The closed schema is the complete field dictionary; the following relationships
-are required beyond JSON Schema.
+The base acceptance root is an **external immutable trust anchor** at the audit
+boundary. Tests pass its original `(kind,id,hash)` separately. If every byte of
+both history and its purported root is replaced, hashes alone cannot establish
+which history was originally authorized. The fully rehashed membership attack
+therefore must fail against the committed original anchor, not a newly supplied
+self-consistent root. This is preservation of original acceptance, not a golden
+fixture byte comparison masquerading as semantic validation.
 
-| Record kind | Purpose and checks |
-|---|---|
-| evidence | Retained exact UTF-8 evidence, purpose and media type; scoped content-derived ID. No URL-only evidence and no credential secret. Synthetic text is not real assent. |
-| policy-snapshot | Stable agreement/family/book, explicit version and currency/scale, allowed outcome-code rules, exact signed amount/rate, rounding, roles, assent and source/correction permissions, four time boundaries and aggregate limits. Supplier authorization and payer delegation are required when applicable. |
-| event | Normalized `base`, `outcome`, or `correction` tagged data. Outcome/correction explicitly names target, agreement, book and family. Correction names claim and expected current revision, replacement code and corrected_at. Evidence and occurrence are never generated from host time. |
-| base-posting | Seed/retained original accepted integer economics, six roles, book and amount, target event and stable ordinal. No base evaluator is defined here. |
-| target-basis | Original booked net as the exact sum of named, hash-pinned base postings, currency/scale, payer, finality/evidence and uncapped/capped stage. It never includes an outcome adjustment, current net, hypothetical list price or opposite book. |
-| admission | Host-owned authenticated principal, credential revision, authentication/grant evidence, locked grant/target/aggregate guard revisions, final_unreversed state, permission/source, tenant via scope, payer/agreement/book/family, basis/policy refs and received/accepted times. It asserts `allow`; an untrusted caller cannot fabricate one. |
-| claim | Permanent tuple, first event, immutable original receipt reference and original semantic-facts hash. Never overwritten when corrected or zeroed. |
-| claim-revision | Monotonic number, previous revision when correcting, event/code, pinned policy/basis/admission, new live amount/action, inverse actions and original receipt. A zero revision is accepted history. |
-| effect | Stable revision/slot, action and independent economic facts hash. |
-| action | Nonzero signed posting, revision/effect/claim, policy/basis, explicit six roles and obligation; inverse additionally names original action. Every inverse preserves original economics/provenance and negates exact stored atoms. |
-| obligation | Immutable definition from agreement, retail/supplier book, currency/scale and complete roles. It is not an accumulated balance or a payment receipt. |
-| link | Explicit outcome/correction event → target event relation. Same scoped target as claim and basis; no endpoint search. |
-| dependency | Explicit action or explanation → hash-pinned prior input; reasons `frozen_basis`, `exact_inverse`, `prior_revision`, `aggregate_limit`. Zero explanations retain economic dependencies too. |
-| limit-evidence | Complete current revision set before acceptance for target/agreement/book, replaced revision if any, before/after positive and absolute-negative totals, currency/scale and both pinned maxima. Includes zero claims. |
-| explanation | Ordered ordinal, selected code, exact unrounded ratio, rounded atoms and rounding, policy/basis/revision, actions and aggregate evidence. Applied and zero decisions both explain their result. |
-| replay-input | Versioned semantics name, complete seed/prior-record prefix and current event/admission refs with content hashes, original received/accepted times. No clock/network/current-policy lookup during replay. |
-| intention | One nonzero per-obligation decision delta with complete signed action breakdown, stable key equal to intention ID and predecessor intention set. It is immutable export intent; no dispatch implementation. |
-| delivery-key | Original normalized command and ingress hash, source/external label, canonical event and that event's original receipt. Future aliases are operational mappings outside manifests. |
-| chain-revision | Immutable chain number/event/decision association; optimistic head advancement belongs to future coordinator/store work. |
-| decision-manifest | Complete sorted retained-input/new-row membership and ordered explanation IDs, event/chain/revision and accepted time. No self-hash or own receipt reference. |
-| receipt | Original event/decision hashes, chain/revision/time, claim/revision and action/intention IDs. Stored original bytes are returned on retries. |
+## Revisions, capacities, receipts and replay
 
-Every input reference is `{kind,id,content_hash}` and resolves locally to the
-exact original envelope in the same scope. No missing reference can be filled
-from a cache of current values. Inline economic copies must agree with their
-referenced records. Missing, unknown-kind, wrong-prefix, cross-scope, stale-hash,
-wrong-book or inconsistent-currency references reject even after rehashing.
+An ordinary command carries source/label, target, agreement/family, occurrence,
+evidence and code. Book/payer/price/rate/policy version are resolved from the
+frozen member, not command eligibility fields. The normalized chain is fixed by
+the target. Corrections carry a replacement discriminator and both expected
+revision ID and canonical number; the ID must equal the claim/number derivation.
+This is a redundant checked encoding of the semantic numeric guard.
 
-## Admission, times, claims and corrections
+All mutable authority/target/base-reversal/claim/aggregate/supplier guards must
+be checked together by the future coordinator. Frozen snapshot shape is not
+proof of authenticity or current authorization. Replay uses the verified original
+observations and times; it does not rerun today's authentication or deadlines.
 
-Authentication and receipt-read authorization precede disclosing a stored
-receipt. Resolve an existing original delivery mapping before any current
-policy/eligibility lookup: identical canonical ingress returns the stored
-receipt byte-for-byte; changed ingress is `IDENTITY_CONFLICT`. A new delivery
-label with an existing claim and identical original facts returns that claim's
-**first** receipt, even if its head is now corrected or a newer policy is active.
-It cannot resurrect a claim. Different facts produce `CLAIM_CONFLICT`.
-A repeated accepted correction returns its own original receipt before testing
-its now-stale expected revision. No retry changes a manifest or receipt.
+Revision 1 owns the permanent claim even at zero. Each correction appends N+1,
+the exact inverse of its current nonzero action and any nonzero replacement.
+The previous pointer, expected ID/number and action provenance all agree. A
+reversed claim remains reserved; reinstatement needs a permitted correction.
+No historical edit, policy reselection, partial acceptance or reservation
+replenishment occurs. Supplier correction requires its own frozen family and
+permission. Its percentage still uses the same retail basis.
 
-Fresh outcome admission requires the exact designated source, actual current
-submission grant, real assent/authorization for the named parties and scope,
-allowed code, a final unreversed target, frozen positive-or-zero basis and an
-uncapped stage. Supplier authorization is separately retained. Corrected
-supplier economics require an explicit supplier command and that agreement's
-correction permission; retail corrections affect no supplier posting.
+Limit evidence names the frozen target/binding and complete current revision set
+for that binding, including zero claims, plus the replaced head and before/after
+gross totals. Discount capacity is exactly original binding booked net. The
+original supplier invocation, contingent held capacity and exposure remain in
+base inputs; a negative retail result cannot reduce supplier obligations.
 
-Occurrence must be within `[window_start,window_end)` and no later than the
-injected `received_at`. An original report requires `received_at < report_before`.
-Acceptance is no earlier than receipt. `window_start/end/report_before` are
-absolute pinned timestamps, eliminating replay dependence on a current clock.
-In v0 the nominated occurrence window is at most 90 days and report grace at
-most 7 days; a coordinator must check these source-design bounds.
+Authentication and scoped read rights precede receipt disclosure. An identical
+accepted identity returns that event's original receipt before current write
+permissions, time windows or policy selection. A different label with the same
+ordinary original facts returns the claim's **first** receipt, even after a
+correction. Changed facts conflict. Repeated corrections resolve original
+identity before their now-stale guard. No duplicate adds canonical records.
 
-Correction admission uses the exact **current** claim revision named by the
-command, under the claim and aggregate locks, and the original pinned policy
-and basis. It does not select a new policy version. Its corrected_at must be no
-earlier than the prior admission's accepted_at and no later than received_at;
-both corrected_at and received_at must be strictly before `correct_before`.
-The corrected occurrence remains inside the original occurrence window.
-Corrections use their dedicated deadline, so an authorized correction after the
-original report deadline can still qualify. This is an explicit candidate
-boundary choice, not a hidden change to v1. Times are injected and retained,
-not inferred from acceptance order or evidence arrival.
+For decision D, manifest membership is the sorted unique union of every new row
+except its own manifest/receipt and every replay-input member. Replay inputs are
+the complete bounded seed/prior accepted prefix, current event/admission and
+current authority decision. Earlier manifests/receipts are prior inputs; the
+current receipt is never in its own manifest. Receipt binds current event and
+manifest hashes and preserves exact stored bytes. Base receipt also remains
+byte-identical after outcomes/corrections.
 
-Initial revision 1 owns the claim even when its rounded amount is zero. A
-correction appends revision N+1, one inverse for the prior live nonzero action
-(if any), and one replacement for the new nonzero amount (if any). It never
-inverts the already-inverted revision, reuses an old action ID, removes a
-claim, deletes history or replenishes supplier authorization. Restoring the same
-amount later uses the same permanent claim and a new revision/effect/action.
-A zero-to-zero correction still appends an explained revision and receipt.
+One nonzero intention covers the full signed per-obligation decision delta.
+Zero-net corrections retain both actions and explanations with no intention.
+Intention prerequisites retain all earlier nonzero exports for the claim, even
+through zero-net replacements or full reversals. These are candidate export
+records; dispatcher execution/fencing and transaction persistence remain out of
+scope. No v1 receipt is converted or rewritten into this profile.
 
-The inverse and replacement must both be present in the same atomic decision.
-A nonzero-to-same-nonzero correction retains both actions and emits no intention
-because its per-obligation delta is zero. A nonzero-to-zero correction emits the
-inverse; a zero-to-nonzero correction emits the replacement. The candidate
-`correction-replacement` history covers all nonzero inverse/replacement details,
-including a zero-net correction and a later nonzero correction.
+## Evidence and integration gate
 
-## Aggregate limits and books
+Python reconstructs every golden byte from hand-authored inputs and audits
+schemas, identity, complete replay inputs and semantics. Node independently
+reconstructs IDs, hashes, references, base receipts and decision membership.
+Adversarial tests rewrite the entire affected hash graph, prove integrity first
+in Python and Node, then require semantic rejection for changed basis, frozen
+membership, revision, supplier discount/held capacity, stale correction,
+ordinary/correction deadline boundaries and version-created eligibility.
 
-The group is `(scope,target,agreement_id,book)`, independent of family and policy
-version. Policies on this group must pin identical aggregate maxima. The complete
-head set includes zero-valued claims. Compute premium as sum of positive live
-revision atoms; discount as sum of absolute negative live revision atoms. They
-are **separate gross totals**; opposite signs do not create headroom. Replace
-only the corrected claim's live amount before calculating the after totals.
-Both after totals must fit their maxima, and the maximum aggregate discount
-must not exceed the frozen target basis. Reject over-limit amounts; do not clamp,
-partially accept, offset against premiums or change earlier claims. The retained
-limit evidence must match every current head under the aggregate guard lock.
-
-Each rule family has an independent permanent claim. Adding a version to one
-family creates no new claim, while a genuinely distinct agreed family can create
-its own claim. Family registration/authorization is host-controlled: renaming a
-family must not be an untrusted mechanism to bypass deduplication. This candidate
-encodes one family per command/decision; it is not a generic multi-binding pricing
-bundle or permission for a caller to omit supplier obligations from a base event.
-A future atomic multi-family command needs an explicit reviewed encoding.
-
-Retail and supplier groups, bases, roles and obligations remain separate. This
-candidate contains no cost-observation/allocation payable, dynamic share,
-invocation reservation transition or running cap. A capped target or any capped
-stage/outcome composition fails with `CAP_OUTCOME_INCOMPATIBLE`, even if the cap
-would not bind, the proposed amount is zero, or the command is a correction.
-
-## Manifest, exports and replay
-
-For accepted decision D, define N as **every newly appended candidate row except
-D's manifest and D's receipt**. This includes original delivery mapping,
-admission, claim/revision, dependencies, zero explanations, limit evidence,
-replay input, chain transition association and any effects/actions/intentions.
-Define P as **every `replay-input.inputs` member**: complete seed records, every
-previous accepted row in this bounded history (including earlier manifests and
-receipts), plus this event and admission. Manifest members are exactly the
-unique `(kind,id,content_hash)` union `N ∪ P`, in the order above. No arbitrary
-extra unrelated record, omitted dependency or omitted zero claim is allowed.
-Earlier manifests/receipts are acyclic prior inputs; the current manifest and
-receipt are absent from its own membership. The receipt binds the manifest hash
-and event row hash, so there is no self-hash cycle.
-
-New receipt original bytes are retained separately as a golden assertion, not
-another hashed record. Correction revisions point back to the first receipt;
-the correction's delivery key points to its own receipt. Old receipt hashes and
-bytes never change. v1 receipts remain v1 receipts; there is no conversion of
-existing receipt IDs or decoding/rewriting of frozen fixture files.
-
-Each intention's signed amount equals its full action breakdown for one
-obligation. Zero net creates no intention. Its `depends_on` is the sorted set
-of **all earlier nonzero intentions for that permanent claim**, including prior
-retractions. A zero-net correction emits no intention but does not erase these
-ancestors. A reinstatement therefore cannot export before a prior retraction;
-a later correction after a zero-net replacement cannot lose the original
-export dependency. Independent families do not imply each other's export order.
-Actual ordered/fenced delivery remains out of scope.
-
-Replay validates schema, bytes, IDs, hashes, scope, references, manifest closure,
-authority evidence, recorded guard revisions, exact arithmetic and stored prior
-postings under the named candidate semantics, with original decision times.
-It reconstructs economic output in a side-effect-free context; no new claim,
-receipt, intention or destination execution may be produced. This proposal does
-not provide the production decoder into the existing private `Evaluation` type.
-
-## Golden histories and review requirements
-
-The candidate package includes fixed success +2500, 10% rebate −1000, correction
-and reinstatement, nonzero replacement, same-amount/zero-net correction, two
-independent families, accepted zero followed by a correction, rounded zero,
-signed half rounding, separate retail/supplier adjustments and explicit supplier
-correction, identity/semantic retries after version changes, stale correction,
-occurrence/report/correction boundaries and capped-stage rejection.
-
-Every accepted history includes complete seed and appended records, receipt
-bytes and all hash vectors. Retry/rejection probes contain no canonical appended
-rows; their inputs and expected codes are **contract expectations**, not evidence
-that the current product accepts/rejects the candidate command. The seed base
-postings are synthetic pre-existing accepted facts, not an implementation or
-conformance test of base acceptance. Timing/cap probes are narrow boundary
-histories. Real authority evidence, lock races, partial writes and unknown commit
-outcomes still require independent coordinator/store conformance work.
-
-Before freezing or integration, an independent reviewer must derive matching
-bytes and identities, review the candidate choices above, reconcile them with
-the separate semantic/core/oracle lanes, and review all negative cases. The
-Python/Node audits are independent implementations of byte/hash checks, **not**
-an independent human/agent approval. A freeze manifest must be an explicit later
-reviewed artifact; the candidate review inventory cannot substitute for it.
+Candidate `.2` is ready for a **separate fresh-context review**, not self-certified
+freeze. Required review questions: lossless production base codec and v1 receipt
+mapping; the original-base trust-anchor/read boundary; completeness of retained
+supplier reservation observations; and canonical-to-typed equivalence across
+both stores. Review the schema/ID choices and test the combined semantic lane
+before allowing a decoder or persistence bridge. The durable roadmap contains
+the later integration, both-store persistence, nonposting comparison, CLI/CSV
+and final independent-review gates.

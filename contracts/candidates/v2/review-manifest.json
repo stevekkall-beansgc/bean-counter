@@ -1,100 +1,137 @@
 {
   "status": "candidate-not-frozen",
-  "profile": "2-candidate.1",
+  "profile": "2-candidate.2",
   "independent_review": "pending",
   "base_commit": "b35258425970052ed71481eca1f33ef857c61be1",
+  "semantic_commit": "1e0ba3f886788c08f427d3aae1d916b341187e76",
   "files": {
     "PHASE-2-CANONICAL-CANDIDATE.md": {
-      "bytes": 8040,
-      "sha256": "f052519ed293b7f41aefa55a4736b095b560ca7695e50ee1a45724a97186947d"
+      "bytes": 7372,
+      "sha256": "31e6a7a2fb16cd4ac1cd1130e04a36c5afbe1606cf6ab319f95e22b334d57eae"
+    },
+    "ROADMAP.md": {
+      "bytes": 8397,
+      "sha256": "70c15ef346d2a1dc8144154d7b766d4db2de891815465c889ceebc01e91650d5"
     },
     "contracts/candidates/v2/README.md": {
-      "bytes": 2733,
-      "sha256": "ac51dafeea0e39ccc4bed0f2a3ca20420bdc17e1d0b33e265c41e716d72dc705"
+      "bytes": 2474,
+      "sha256": "ff5a6346588e20709350c1d4dfc395a248240aec6e5334007618f93d4dc99a9c"
     },
     "contracts/candidates/v2/goldens/aggregate-limit-rejection.json": {
-      "bytes": 32445,
-      "sha256": "e6ee3f110770aee9125ab4fb894112e6ed590284914a4b4d453cba04b9961cb5"
+      "bytes": 51724,
+      "sha256": "11cbc79a089d18909d0af1da97fec1de95b6f99c22a3647742e8905d1ff897d3"
     },
     "contracts/candidates/v2/goldens/cap-incompatibility.json": {
-      "bytes": 7089,
-      "sha256": "99c01abe4734377eb9de002dba0ad5c8bf11da8724d1592c2957e9308cfb83cc"
+      "bytes": 16174,
+      "sha256": "a5b32b3f0c31f7485ec012de45c5476447c6091ad67f7033472f13d11bbcfc4b"
     },
     "contracts/candidates/v2/goldens/correction-reinstatement.json": {
-      "bytes": 103781,
-      "sha256": "06852381e06bf58c29366be2ac234e956c13d889fc5a330cafa8a5880e05ed08"
+      "bytes": 143537,
+      "sha256": "6d85c80030e465d3f02431d97cad1ef212248313dd090cbe0a49d5a967279dbc"
     },
     "contracts/candidates/v2/goldens/correction-replacement.json": {
-      "bytes": 167579,
-      "sha256": "3344259bd56cbb172f4c20284e814084b9f3168a9824d56684ae72d84bbda7fc"
+      "bytes": 221860,
+      "sha256": "e8deee820504dd6e76d9957a67b2db8688a90cac6c32a04692548486eb0e4dc0"
     },
     "contracts/candidates/v2/goldens/correction-timing-rejection.json": {
-      "bytes": 31059,
-      "sha256": "8a8ec032e7edb0bede17c9650628e007173d20f1bba583a453b7406c8f0fd95a"
+      "bytes": 49689,
+      "sha256": "ed4d1f87dedcbc2cbc2981e5b6b92fd158f1cc05969dcedd2e205fdb1b36ff26"
     },
     "contracts/candidates/v2/goldens/duplicate-version-retry.json": {
-      "bytes": 72686,
-      "sha256": "60adb32ddcf9d16734857f3039fc15c9952f5c65deead0e64a692a85b55ba48a"
+      "bytes": 101398,
+      "sha256": "418daae7b74e18f9d60c5aafc870d8beb682a391cc0c0785fc7148bb5bfa2de8"
+    },
+    "contracts/candidates/v2/goldens/equal-observation-times.json": {
+      "bytes": 90961,
+      "sha256": "fc67b725b895cf45829ccae938c1b4473e459043eebf733e4b6a96e71cb15c42"
     },
     "contracts/candidates/v2/goldens/fixed-success-fee.json": {
-      "bytes": 29750,
-      "sha256": "e27baf620728f4aef73607722e0aad533ec123b4682a507594bbbab59f94b63c"
+      "bytes": 48320,
+      "sha256": "939cbf3713cf28d906eaa688558345f5c54f47f298fd1986d0008e86cae86c4f"
+    },
+    "contracts/candidates/v2/goldens/full-reversal-reinstatement.json": {
+      "bytes": 143703,
+      "sha256": "75ef120e4e7299fc06392f73afb8ae883c7601f6ae447f2eb253d53ab1751f9f"
+    },
+    "contracts/candidates/v2/goldens/inclusive-correction-deadlines.json": {
+      "bytes": 91244,
+      "sha256": "76eebef495c1d6d3104028e3ca6e528b6d67a7d068c411999f8fab1f28298330"
+    },
+    "contracts/candidates/v2/goldens/inclusive-ordinary-deadlines.json": {
+      "bytes": 48628,
+      "sha256": "41eb3d5f7881b70c5d61502c3dd370a11d72ef293ddf0cd374e1fb4343931012"
     },
     "contracts/candidates/v2/goldens/inventory.json": {
-      "bytes": 1822,
-      "sha256": "a3cba769d0200f1be85f0a0b16fdb4237f4cfaf9a6822508b593c0524fcedd50"
+      "bytes": 2708,
+      "sha256": "1416ed3c341b291591bbb322cb984cb5a70daadf592f752f918e3831870ceb2c"
     },
     "contracts/candidates/v2/goldens/percentage-rebate.json": {
-      "bytes": 29781,
-      "sha256": "fc401313e18ad6fc1bc09c07f1936b4eb9b3e9c35089ecb6e2ba0aa0a9463883"
+      "bytes": 48344,
+      "sha256": "c91055329ef0561f4a40b83dab6c10365d54ab785b2692df318e538aa7907ead"
+    },
+    "contracts/candidates/v2/goldens/predeclared-unclaimed-family.json": {
+      "bytes": 50848,
+      "sha256": "afd0cee3233e3fce80bdbb6b40322127814e880007fb8b497fe1eb9e7eb339c9"
+    },
+    "contracts/candidates/v2/goldens/retail-net-after-booking-discount.json": {
+      "bytes": 52399,
+      "sha256": "ea0c78a5db88b591b9d8257b42a67228b56d8ddbd6234661c4172aeb97f6d5f0"
     },
     "contracts/candidates/v2/goldens/rounded-zero.json": {
-      "bytes": 24862,
-      "sha256": "81e2f162b51b87de39685ffaa295632e950d0b4cf2fbc2b0b0850a6168a55dd8"
+      "bytes": 43335,
+      "sha256": "ff1ded8e15109475cd5130e8ebd38276172643af8ad1779f1ea6a9d80436d2bf"
     },
     "contracts/candidates/v2/goldens/signed-rounding.json": {
-      "bytes": 29711,
-      "sha256": "75a3a8964b58e777a6dc84ae54e6412ba55b1dfa94b5b0913c84827c25179284"
+      "bytes": 48247,
+      "sha256": "7316c405f60951e5e84b28d6465adf75ac3795fea7cf40d1602e2848fb7f7ef4"
     },
     "contracts/candidates/v2/goldens/supplier-separation.json": {
-      "bytes": 159985,
-      "sha256": "64fe74fc6cee204ac418b864e85c7ccd12bb24d522f0bdd43dd31996652113c0"
+      "bytes": 216359,
+      "sha256": "f61f2a4d52912de35b5859522298aa657bf3a2b111e9f3de820f55fea8e4e4e3"
     },
     "contracts/candidates/v2/goldens/timing-rejection.json": {
-      "bytes": 8760,
-      "sha256": "5074efefb75285e5867635b35b65ab540730dc88cceae4039b121427bed079b6"
+      "bytes": 22714,
+      "sha256": "3f0be41e3461076abd4581927606efa62d384d0a4284be1269eae41fbe37e83e"
     },
     "contracts/candidates/v2/goldens/two-rule-families.json": {
-      "bytes": 104124,
-      "sha256": "8c89f4a8222c5298922dc7d836c11facabdfdca57eb4bad94b619c4a144f2857"
+      "bytes": 138107,
+      "sha256": "8955ae0b37635dc893e30af77df3888cf0756e48e81a4211bdc8efe6e354af38"
     },
     "contracts/candidates/v2/goldens/vectors.json": {
-      "bytes": 1131465,
-      "sha256": "78363b2028a2e0e9186cd0f233a079de1bb295bc31c6f87e7e3265425dd60e2e"
+      "bytes": 2448884,
+      "sha256": "193295e4a516571eaaab03e01d63afb5ae506edb682945c7d52ac169add32758"
     },
     "contracts/candidates/v2/goldens/zero-adjustment.json": {
-      "bytes": 60146,
-      "sha256": "046b024db6f6c1ed548da98beb0342b6da4ac54ff3ac422f24520607b086885b"
+      "bytes": 88530,
+      "sha256": "c6a2241dd017ac5a4628ece4f79ad6eb67199813ae315688b3bc009a3ba8cbf6"
+    },
+    "contracts/candidates/v2/goldens/zero-net-base.json": {
+      "bytes": 39625,
+      "sha256": "4a3ccbf86b40f98a994a4660719c687d3772a7ee8a50046f8e9dd6028402f401"
     },
     "contracts/candidates/v2/history-inputs.json": {
-      "bytes": 9363,
-      "sha256": "fc8b7ebf7a6d72bcf3b663cf88cdc3b867ccf5a879ca9003ad16ec913b7e5ca8"
+      "bytes": 13522,
+      "sha256": "69f838c7a4b72f7b2ff55289d4e678836ffa8a50e1027ffb701c0fed4264e230"
     },
     "contracts/candidates/v2/reason-codes.json": {
-      "bytes": 3699,
-      "sha256": "d368e8fbd59fce8fac2908723b1885a69e7be707104eb155934eb1366d9247c1"
+      "bytes": 3979,
+      "sha256": "91999f46e46c4acc6de16c03895c8252e26cd0fb8724e1d7c02cebe11f01f382"
     },
     "contracts/candidates/v2/schemas/canonical-records.schema.json": {
-      "bytes": 50583,
-      "sha256": "e4cf7ff710e90160dabba8d20440442ccecb1595949822db461e1d39778efcb3"
+      "bytes": 67849,
+      "sha256": "76c894bb52382ffd004bc6f038cc03aa84ee27ff0d004b7776cd1cd1e67e87b1"
+    },
+    "contracts/candidates/v2/semantic-source.json": {
+      "bytes": 906,
+      "sha256": "d53b93e6fdffe8ca987b5beafe513507366c1019d6f19d85c3ff3728e212b2a0"
     },
     "docs/adr/candidates/outcome-records-v2.md": {
-      "bytes": 3219,
-      "sha256": "2424cc1406e957f8bc049212372a9779f66c040f4d9e0cd559b0b571f562b8e4"
+      "bytes": 3333,
+      "sha256": "c50a8cd8e2a1b3ba7b60dd28dc35a56dbcde96a5b3cd6b143de74abc46ccf0d3"
     },
     "docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md": {
-      "bytes": 24224,
-      "sha256": "aed8a1201bad2ab8a601effb6c10fdd366f422ca007d9a3700e91865b588da59"
+      "bytes": 17214,
+      "sha256": "de8eb45fa5421d3576d44ba8bab9313ffc110cb0c5b6690cd146466a7cd5a93e"
     },
     "scripts/check-candidate-contracts.sh": {
       "bytes": 96,
@@ -104,21 +141,33 @@
       "bytes": 361,
       "sha256": "d364765bfeca30aa08dac2f63a0dee688ba1d49e02a733108609eef121f8e9b7"
     },
+    "scripts/contract_checks/v2_candidate/adversarial.py": {
+      "bytes": 5698,
+      "sha256": "1a71e0560f5427f28214c0dd547f4d39e2bae2d4f7a128273c1feee0f0c59e64"
+    },
     "scripts/contract_checks/v2_candidate/audit.py": {
-      "bytes": 26135,
-      "sha256": "0547be98f21a3487a94592b8d80a44c5a134921e31c5cc6fa92063a59f3095bf"
+      "bytes": 25705,
+      "sha256": "74b1b610880cb7dfc2d5ca415631d367e9d0a5b6fa91aea5f64c25fed3489b0e"
     },
     "scripts/contract_checks/v2_candidate/check_hashes.mjs": {
-      "bytes": 5317,
-      "sha256": "db949f0bee900c8042ee39b31a163f2730d7a17d6e476c279b2afc76cefc563f"
+      "bytes": 6710,
+      "sha256": "3533d0a06f038f2ad0cbaa560ed2c04e05d0ad2e2edde37f5d7e2d91b4ecf6f6"
+    },
+    "scripts/contract_checks/v2_candidate/integrity.py": {
+      "bytes": 6115,
+      "sha256": "d1fdb5800d109e75e82c8d322561868b7d0607c87201b2b48f1918982a135295"
     },
     "scripts/contract_checks/v2_candidate/profile.py": {
-      "bytes": 5789,
-      "sha256": "dd54e77d48fe9ef911307c8e7c68fc31df5686cc721b98df9c86093f67537c0e"
+      "bytes": 6248,
+      "sha256": "6466f7f16a120f715b770dda7a2acbcc880ce25e3488a815375a830d03349ad9"
     },
     "scripts/contract_checks/v2_candidate/reconstruct.py": {
-      "bytes": 17012,
-      "sha256": "ae64dcf4ee2773eddc2a97add814fc27ebc096b8c2c2bf3c36b4e9e8d4c5e06e"
+      "bytes": 25122,
+      "sha256": "7d1c49b24bf19c8ed779538ad2ac6e127817c69ef2e1a6270193b9069b8e397c"
+    },
+    "scripts/contract_checks/v2_candidate/semantics.py": {
+      "bytes": 8793,
+      "sha256": "1ae904e42e2b6292450f86a50afaad7bfc8ff8f72f87e9570131cacbf83cbd3c"
     }
   }
 }
