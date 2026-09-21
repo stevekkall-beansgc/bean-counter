@@ -119,4 +119,4 @@ for(const [filename,history] of entries) {
 // UTF-16 (astral before BMP private-use), control escaping and no normalization.
 assert.equal(jcs({'\ue000':1,'😀':2}),'{"😀":2,"":1}');
 assert.notEqual(hash('event',['é']),hash('event',['e\u0301']));
-console.log(JSON.stringify({status:'passed',independent:custom?'Node fully rehashed attack integrity':'Node byte/hash/key reconstruction',records:rows,decisions}));
+console.log(JSON.stringify({status:'passed',independent:custom?'Node fully rehashed history integrity':'Node byte/hash/key reconstruction',records:rows,decisions}));

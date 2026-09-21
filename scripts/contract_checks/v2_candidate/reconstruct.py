@@ -272,7 +272,7 @@ def write_review_inventory():
         'scripts/check-contracts.sh','scripts/check-candidate-contracts.sh','ROADMAP.md'])
     paths.update(p for p in Path(__file__).parent.iterdir() if p.suffix in ('.py','.mjs','.rs'))
     value={'status':'candidate-not-frozen','profile':'2-candidate.4',
-        'independent_review':'pending','previous_candidate_commit':'09b076a3034064a85fd3da8d626ad02a9fb9a38a','base_commit':'b35258425970052ed71481eca1f33ef857c61be1','semantic_commit':'1e0ba3f886788c08f427d3aae1d916b341187e76',
+        'independent_review':'pending','previous_candidate_commit':'abe9781b4a37b0bb23ee86db2e5a7b6786694c80','base_commit':'b35258425970052ed71481eca1f33ef857c61be1','semantic_commit':'1e0ba3f886788c08f427d3aae1d916b341187e76',
         'files':{str(p.relative_to(ROOT)):{'bytes':p.stat().st_size,
             'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(paths)}}
     (CANDIDATE/'review-manifest.json').write_text(json.dumps(value,indent=2)+'\n')

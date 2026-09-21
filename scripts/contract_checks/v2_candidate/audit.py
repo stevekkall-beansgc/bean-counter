@@ -315,6 +315,8 @@ def main():
         else: raise AssertionError('malformed input accepted')
     from boundaries import run_boundaries
     negative+=run_boundaries(histories,SCHEMA,checked_row,verify)
+    from unicode_parity import run_unicode_parity
+    run_unicode_parity(histories,checked_row,verify)
     from adversarial import run_adversarial
     negative+=run_adversarial(histories,verify)
     subprocess.run(['node',str(Path(__file__).with_name('check_hashes.mjs')),str(ROOT)],check=True)

@@ -2,11 +2,14 @@
 
 **Candidate `2-candidate.4`, not frozen. Fresh-context review pending.**
 Semantic authority: `1e0ba3f886788c08f427d3aae1d916b341187e76`.
-Reviewed candidate `.3` remains at `09b076a3034064a85fd3da8d626ad02a9fb9a38a`.
+Reviewed candidate `.4` remains at `abe9781b4a37b0bb23ee86db2e5a7b6786694c80`.
 This correction preserves actual original Evaluation identities, rejects repeated
 resolved documents, and enforces whole-string scalar spelling. It changes the
 candidate hash domain explicitly; missing original values cannot be migrated
-from earlier projections by guessing.
+from earlier projections by guessing. This follow-up fixes Node's U+FEFF source
+rejection using Unicode White_Space instead of JavaScript whitespace shorthand.
+Python/Rust semantics, the profile and all existing golden/schema/source bytes
+remain unchanged.
 
 The [design](../../../docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md) and
 [ADR](../../../docs/adr/candidates/outcome-records-v2.md) specify all fields,
@@ -40,8 +43,12 @@ decisions): all pass Python/Node schema/hash integrity before semantic rejection
 Five additional noncanonical scalar histories (205 records/five decisions) pass
 hash-only integrity, then fail schema/scalar validation. A separate book-key
 invariant, malformed JSON and scalar/field boundaries bring negative assertions
-to 272. The [scalar audit](SCALARS.md) includes 216 shared Python/Node/Rust cases
-and 38 record-field byte boundaries. Custom schema keywords are normative;
+to 272. The [scalar audit](SCALARS.md) includes 217 shared Python/Node/Rust cases
+and 38 record-field byte boundaries. An additional exhaustive check compares
+text/source validation for all 1,112,064 Unicode scalar values in each runtime
+(2,224,128 checks each; 65 text and 84 source rejections). A coherently rehashed
+accepted U+FEFF history adds 41 records and one decision to comparison evidence,
+without changing the existing goldens. Custom schema keywords are normative;
 ordinary shape validation alone is insufficient.
 
 `sh scripts/check-contracts.sh` runs frozen-v1 and candidate audits;
@@ -58,8 +65,9 @@ python3 scripts/contract_checks/v2_candidate/compare_semantic.py --source /path/
 The runner requires exact HEAD `1e0ba3f`, first runs the current read-only candidate
 audit, then archives approved source under ignored `work/` and adds temporary
 test-only serde adapters there. It compares every original field/ID/vector through
-23 typed Evaluation roundtrips, all 43 decisions and duplicate-document
-rejections, document reuse and retry, 216 scalar cases, all five rehashed scalar
+24 typed Evaluation roundtrips, all 44 decisions and duplicate-document
+rejections, document reuse and retry, 217 scalar cases, exhaustive Unicode
+classification, the accepted U+FEFF history, all five rehashed scalar
 histories, and 11 deadline/ordering cases. The unchanged approved suite also
 checks 86 attempts across 23 histories. The sibling remains read-only.
 

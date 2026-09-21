@@ -105,6 +105,20 @@ mod canonical_candidate_boundaries {
             assert_eq!(actual,c["accepted"].as_bool().unwrap(),"{c}");
         }
         println!("Approved scalar comparisons: {}",cases.as_array().unwrap().len());
+        if std::env::var("LEDGERLAB_CAPTURE_ORIGINALS").is_err(){
+            let root=std::env::var("LEDGERLAB_CANDIDATE_ROOT").unwrap();
+            let expected:serde_json::Value=serde_json::from_slice(&std::fs::read(std::path::Path::new(&root).join("work/validation/v2-unicode-parity.json")).unwrap()).unwrap();
+            let mut text=vec![];let mut source=vec![];let mut count=0;
+            for cp in 0..=0x10ffff {
+                let Some(character)=char::from_u32(cp) else {continue};count+=1;
+                if super::text(&format!("a{character}"),128).is_err(){text.push(cp);}
+                if super::validate_source(&format!("urn:synthetic:{character}outcome")).is_err(){source.push(cp);}
+            }
+            assert_eq!(serde_json::json!(count),expected["scalar_values"]);
+            assert_eq!(serde_json::json!(text),expected["rejected"]["text"]);
+            assert_eq!(serde_json::json!(source),expected["rejected"]["source"]);
+            println!("Approved exhaustive Unicode parity: {count} scalar values, {} text/source checks.",count*2);
+        }
     }
 }
 ''')

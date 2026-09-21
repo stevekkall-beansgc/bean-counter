@@ -19,7 +19,9 @@ function canonical(v,depth=0) {
 function scalar(kind,v) {
   if(kind==='text'||kind==='source') {
     assert(typeof v==='string'&&v.length&&!/\p{Cc}/u.test(v),'IDENTIFIER');
-    if(kind==='source')assert(/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(v)&&!/[\s\u0085]/u.test(v),'SOURCE');
+    // Rust char::is_whitespace follows Unicode White_Space. JavaScript \s
+    // additionally includes U+FEFF, which the approved source rule permits.
+    if(kind==='source')assert(/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(v)&&!/\p{White_Space}/u.test(v),'SOURCE');
   } else if(['decimal','positive-decimal','decimal-percent'].includes(kind)) {
     assert(full('(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?',v),'DECIMAL_CANONICAL');
     const [w,f='']=v.split('.');assert(Buffer.byteLength(v)<=64&&f.length<=18&&(w+f).replace(/^0+/u,'').length<=30,'DECIMAL_PRECISION');

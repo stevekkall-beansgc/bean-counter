@@ -1,7 +1,8 @@
 # Candidate ADR: reconcile canonical target outcomes with approved semantics
 
 Status: **proposed; not frozen; fresh-context independent review pending**.
-Profile `2-candidate.4` corrects reviewed candidate `.3` in `09b076a`.
+Profile `2-candidate.4` corrects candidate `.3` in `09b076a`; this follow-up
+addresses fresh review of `.4` commit `abe9781`.
 Semantic authority: `1e0ba3f886788c08f427d3aae1d916b341187e76`.
 
 The earlier candidate diverged from the approved implementation: it used supplier
@@ -31,6 +32,15 @@ wrappers cannot duplicate a document within one request/verified/explanation set
 legitimate reuse in later decisions remains valid. Scalar grammar checks match
 the entire string before conversion, with Python/Node/Rust parity and completely
 rehashed newline attacks.
+
+Fresh review of `.4` found Node's JavaScript whitespace shorthand additionally
+rejected U+FEFF, which Python and approved Rust accept in source strings. Use
+Unicode White_Space in Node and retain the shared Cc control rejection. Do not
+tighten approved source semantics or normalize accepted characters. Exhaustively
+compare every Unicode scalar for text/source classification in all three runtimes,
+and accept a fully rehashed U+FEFF history through complete typed Evaluation,
+target freeze and outcome evaluation. Existing schema, profile and golden bytes
+stay unchanged; the reviewed correction is an implementation parity fix.
 
 Decisions encoded for review:
 

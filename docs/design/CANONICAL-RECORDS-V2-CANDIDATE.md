@@ -4,7 +4,9 @@
 Profile `2-candidate.4` corrects candidate `.3` from commit `09b076a`; it does
 not supersede or alter any v1 contract, fixture, hash or receipt. The changed
 candidate hash domain prevents silent reinterpretation of the earlier draft.
-Only roadmap Phase 1 is being executed; see `ROADMAP.md`.
+Only roadmap Phase 1 is being executed; see `ROADMAP.md`. The follow-up to
+reviewed `.4` commit `abe9781` fixes Node's source classification without changing
+the profile, schemas, original captures or any golden bytes.
 
 Semantic authority is commit `1e0ba3f886788c08f427d3aae1d916b341187e76`, especially
 `crates/ledgerlab-core/src/policy/chaining/outcomes/mod.rs` and its README. This
@@ -89,7 +91,13 @@ candidate validator. A plain Draft 2020-12 validator is shape-only and is not
 conformant without these checks. Every declared bounded string has a byte bound;
 field names do not decide whether a scalar is validated. Source URIs must be
 absolute and contain no whitespace. All Unicode control characters reject in
-identifiers, including C1 controls. Extension values are opaque data and do not
+identifiers, including C1 controls. Source whitespace follows Unicode
+White_Space, matching approved Rust; Node uses `\p{White_Space}` rather than
+JavaScript `\s`, which incorrectly includes U+FEFF. Python's extra whitespace
+characters are already prohibited Cc controls. U+FEFF is accepted inside a source
+and is preserved exactly. All 1,112,064 Unicode scalar values are compared as
+text and sources in Python, Node and approved Rust (2,224,128 checks per runtime;
+65 text and 84 source rejections). Extension values are opaque data and do not
 inherit identifier rules based on their key names.
 
 `decimal` is the normalized nonnegative Decimal encoding: at most 30 coefficient
@@ -104,7 +112,7 @@ matches the entire string, including its absolute end. Atoms, ratio components,
 counters, IDs, hashes, slugs and decimals reject trailing newlines, whitespace,
 control characters, signs or alternate digit spellings before numeric conversion.
 Python uses fullmatch plus absolute-end patterns; independent Node validation
-uses the same schema and absolute-end checks. The same 216 vectors run against
+uses the same schema and absolute-end checks. The same 217 vectors run against
 the approved Rust scalar parsers. Five completely rehashed noncanonical scalar
 histories pass hash-only integrity and reject in all three language validators.
 
@@ -310,7 +318,9 @@ approved-core comparison normalizes the actual original event bytes, compiles
 the retained bindings, re-evaluates each of the 23 accepted bases, and compares
 complete canonical original Evaluation bytes after a typed decode/encode
 roundtrip. This checks all fields, IDs and ordered vectors, alongside all 43
-outcome/correction results. It does
+outcome/correction results. A coherently rehashed accepted U+FEFF-source history
+adds one complete 41-record/one-decision case, for 24 exact typed roundtrips and
+44 decisions in the approved comparison. It does
 not install a production historical decoder or v1 journal migration bridge.
 
 ### Evidence introduced by a decision
@@ -445,3 +455,9 @@ Historical v1 bytes, IDs, receipts, schemas, compatibility declarations and
 support claims remain untouched. `ROADMAP.md` remains byte-identical to the
 committed Phase 1 roadmap. A fresh reviewer decides whether this candidate can
 freeze; this document does not authorize it.
+
+The follow-up to reviewed `.4` commit `abe9781b4a37b0bb23ee86db2e5a7b6786694c80`
+restores Node acceptance of U+FEFF to the existing approved source rule. There is
+no new format migration or hash-domain change. Existing goldens, schemas and
+native Evaluation captures remain byte-identical; only the validator, parity
+checks, accepted regression and review package change.

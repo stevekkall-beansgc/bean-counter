@@ -2,25 +2,25 @@
   "status": "candidate-not-frozen",
   "profile": "2-candidate.4",
   "independent_review": "pending",
-  "previous_candidate_commit": "09b076a3034064a85fd3da8d626ad02a9fb9a38a",
+  "previous_candidate_commit": "abe9781b4a37b0bb23ee86db2e5a7b6786694c80",
   "base_commit": "b35258425970052ed71481eca1f33ef857c61be1",
   "semantic_commit": "1e0ba3f886788c08f427d3aae1d916b341187e76",
   "files": {
     "PHASE-2-CANONICAL-CANDIDATE.md": {
-      "bytes": 7188,
-      "sha256": "fdd41e640af9229beab62d0f76e750a8a59aeaddc1558091b47af20fcb35baa0"
+      "bytes": 9519,
+      "sha256": "de09a90170a0e4838682d99a82523e46c8462b2c86619ec0cee3a963755f9e4c"
     },
     "ROADMAP.md": {
       "bytes": 8397,
       "sha256": "70c15ef346d2a1dc8144154d7b766d4db2de891815465c889ceebc01e91650d5"
     },
     "contracts/candidates/v2/README.md": {
-      "bytes": 4203,
-      "sha256": "d9951586a9fa7addea4dc12ae48e2721bcdf4c36623fffd3c5d03f08d0928ed2"
+      "bytes": 4806,
+      "sha256": "8b8928bde0723889c1c477f4476b64fb62c99064cf0d49d5c0598083aaaca654"
     },
     "contracts/candidates/v2/SCALARS.md": {
-      "bytes": 5556,
-      "sha256": "c33e3056bebf78654dc693e5134d401a79b3f3072e112cbdc34decb4b0043613"
+      "bytes": 6655,
+      "sha256": "b1e0dcd0274b6f81c69a5335331c7d24d7111c9173267f9627b0f3a38e03358f"
     },
     "contracts/candidates/v2/goldens/aggregate-limit-rejection.json": {
       "bytes": 72600,
@@ -147,12 +147,12 @@
       "sha256": "5b722c61201b5b096168dd1e2f34840451b22a6a32cd7b757a5f49300a47ac46"
     },
     "docs/adr/candidates/outcome-records-v2.md": {
-      "bytes": 5827,
-      "sha256": "a811b35844ff36116cff1a21d9d165d32891f75c7a458438ab0cd5ca3002c974"
+      "bytes": 6514,
+      "sha256": "8f8c58bff0175be2c31ed33d5c146049e22830811da9fbb2b92952fba78e2844"
     },
     "docs/design/CANONICAL-RECORDS-V2-CANDIDATE.md": {
-      "bytes": 29442,
-      "sha256": "4fb779cb76b208e08269415e544d07cd8e96bb64a8c4d5384e4df0227651a574"
+      "bytes": 30617,
+      "sha256": "bbfb8ff2a4dc79d647903d68fc592be7e2e2b334a6aeebb7b0f64705d8eb87ec"
     },
     "scripts/check-candidate-contracts.sh": {
       "bytes": 96,
@@ -167,20 +167,20 @@
       "sha256": "c94d21255acb0075ca9898b09832ed7dddf8558b8a44236d262c94f82e1a7850"
     },
     "scripts/contract_checks/v2_candidate/audit.py": {
-      "bytes": 28375,
-      "sha256": "6e0a23da3f756becfa735834080cff2f4168cbc93b3c5be8e3c6deb1e708c61f"
+      "bytes": 28478,
+      "sha256": "aae2b3bab6dd47b20ef082c6c00b89ca56bffa3d8199a4ff4d64b886ddf9bc8c"
     },
     "scripts/contract_checks/v2_candidate/boundaries.py": {
-      "bytes": 10062,
-      "sha256": "83278b622c8d290388a54c3181931a42a8107b794dade9225be5e2639e578a5e"
+      "bytes": 10099,
+      "sha256": "17c3362e66ca6dc3db43d33a4639f19d8cf9e24b488dbbdc733473bbcfc33539"
     },
     "scripts/contract_checks/v2_candidate/check_hashes.mjs": {
-      "bytes": 8567,
-      "sha256": "a8ee534621270045d49437bfd9ad9250c0c26c35b72fc9c56695a34778b40d2a"
+      "bytes": 8568,
+      "sha256": "6b08ff8649097a8d92c149f17747cade458d29410b28abd7fac026d234a1d077"
     },
     "scripts/contract_checks/v2_candidate/compare_semantic.py": {
-      "bytes": 7066,
-      "sha256": "3b90a7023e8e7f9a77fe497daca3bdb65dbfaf9d0830296258b6f53faf309dd0"
+      "bytes": 8147,
+      "sha256": "3619b2a1ecd7ea5b6c7b08a70e944f7805c5051e9b275b6ff33007d6e20c2207"
     },
     "scripts/contract_checks/v2_candidate/integrity.py": {
       "bytes": 7164,
@@ -200,27 +200,35 @@
     },
     "scripts/contract_checks/v2_candidate/reconstruct.py": {
       "bytes": 30346,
-      "sha256": "f5b5ffe8cbae739d281887e55730645195f35ff27d273d99bb55c2330b702944"
+      "sha256": "f80929cfbf5dd8aee79ce988d2606541467c197ac1c5d59275cde20fcf5057cd"
     },
     "scripts/contract_checks/v2_candidate/retained.py": {
       "bytes": 6210,
       "sha256": "4bc01398194f16c485b92aeaab7607276c7f9d742848ae4a5aa97527bd85a5bf"
     },
     "scripts/contract_checks/v2_candidate/scalars.mjs": {
-      "bytes": 6598,
-      "sha256": "1a4e9944184cd5e5654fd238efc825951c14f8e2c0f54be0229c1403f05adfea"
+      "bytes": 6755,
+      "sha256": "84af9772ad63de94fa9483cd9992cb2a533519c7419feb672a6b8f90cd00cc29"
     },
     "scripts/contract_checks/v2_candidate/scalars.py": {
       "bytes": 4698,
       "sha256": "dca4d7a0a03a1259f4c139c17cf012a7d18f11c87d17bb36972afd8aad56785c"
     },
     "scripts/contract_checks/v2_candidate/semantic_comparison.rs": {
-      "bytes": 20571,
-      "sha256": "f1b44fb5321f95963a322217fcbf1aa4c813f7d51134327e0dc7d75ede345f3a"
+      "bytes": 20900,
+      "sha256": "5f5628616d481a799665dbba3b71ec8795df8c1b6b26d85e08a9f159873b2449"
     },
     "scripts/contract_checks/v2_candidate/semantics.py": {
       "bytes": 12670,
       "sha256": "f34807507203c95addf6054373f9c3637ac96844615d46fde22dcefc76098959"
+    },
+    "scripts/contract_checks/v2_candidate/unicode_parity.mjs": {
+      "bytes": 1060,
+      "sha256": "c02c1326ae30105d5a08dbf8c0c62735aecfa7415ba9caca271976ecbc02f874"
+    },
+    "scripts/contract_checks/v2_candidate/unicode_parity.py": {
+      "bytes": 3532,
+      "sha256": "5a4680ab6914ec9de610b7ecf8c4db0b5a51108b6f991870cede1f8a38587983"
     }
   }
 }

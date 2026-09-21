@@ -18,7 +18,7 @@ def cases():
     add('text', [('',False),('é'*64,True),('é'*64+'a',False),('😀'*32,True),('😀'*32+'a',False),
                  ('a'*128,True),('a'*129,False),('a\x85',False),('e\u0301',True)])
     add('source', [('urn:'+('é'*126),True),('urn:'+('é'*126)+'a',False),('relative',False),
-                   ('urn:has space',False),('1urn:value',False),('urn:ok',True)])
+                   ('urn:has space',False),('1urn:value',False),('urn:ok',True),('urn:synthetic:\ufeffoutcome',True)])
     add('slug', [('a'*64,True),('a'*65,False),('é',False),('a_1.-',True),('1a',False)])
     add('decimal', [('0',True),('1',True),('-1',False),('+1',False),('-0',False),('0.1',True),
                     ('0.'+'0'*17+'1',True),('0.'+'0'*18+'1',False),('9'*30,True),('1'+'0'*30,False)])

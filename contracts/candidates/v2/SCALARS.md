@@ -53,7 +53,7 @@ applies to atoms, ratio numerator/denominator, counters, IDs/hashes, slugs,
 decimals and timestamps, recursively inside retained source bytes. Opaque text
 is not reclassified as a numeric field by its name.
 
-The audit covers 216 shared Python/Node/approved-Rust scalar cases, including
+The audit covers 217 shared Python/Node/approved-Rust scalar cases, including
 terminal LF, CR, CRLF, tab, space, C1 and Unicode line separators; eight original
 or candidate ID/hash kinds; all ratio components; positive/nonnegative and
 precision limits. It adds 38 byte boundaries across record text fields, stored
@@ -68,6 +68,23 @@ hash-only integrity (205 records/five decisions); Python, Node and approved Rust
 then reject the scalar spellings. These are separate from the 49 semantic attacks
 that pass both schema and complete hash integrity before semantic rejection.
 
-All 23 accepted bases also undergo exact complete typed Evaluation roundtrips
+Source whitespace means the approved Unicode White_Space classification, plus
+all Unicode Cc controls rejected by the shared text rule. JavaScript `\s` is
+not equivalent: it additionally matches U+FEFF. Node therefore uses
+`\p{White_Space}`. Python's extra `isspace` characters U+001C–U+001F are already
+rejected as Cc; the union matches Rust exactly. U+FEFF remains accepted inside
+source strings and is never removed or normalized.
+
+An exhaustive parity audit checks all 1,112,064 Unicode scalar values as text
+and inside a valid source string in each of Python, Node and approved Rust.
+Each performs 2,224,128 classification checks and finds precisely 65 rejected
+text characters and 84 rejected source characters. The accepted U+FEFF direct
+boundary is the 217th case. A complete 41-record/one-decision history rewrites
+all source-bearing material, including embedded original Evaluation, policy,
+evidence and observations, then rebuilds all hashes and accepts in all three
+runtimes. This is a positive regression anchored to its own derived fixture root.
+
+All 23 packaged accepted bases plus that regression (24 total) undergo exact
+complete typed Evaluation roundtrips
 against the approved core. That proof retains actual IDs, all fields and ordered
 vectors; it does not reduce source equality to monetary values or record counts.

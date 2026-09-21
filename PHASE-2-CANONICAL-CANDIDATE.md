@@ -1,12 +1,15 @@
-# Canonical candidate.4 — final corrective cycle
+# Canonical candidate.4 — Unicode parity correction
 
 **Candidate `2-candidate.4`; not frozen. Fresh-context review pending.**
 Branch: `codex/phase2-canonical`.
-Reviewed candidate: `09b076a3034064a85fd3da8d626ad02a9fb9a38a`.
+Reviewed candidate: `abe9781b4a37b0bb23ee86db2e5a7b6786694c80`.
 Authoritative semantics: `1e0ba3f886788c08f427d3aae1d916b341187e76`.
 Integration base: `b35258425970052ed71481eca1f33ef857c61be1`.
 
-This cycle addresses the fresh review's three blockers. Only canonical-contract
+The earlier cycle addressed original identities, resolved evidence and whole-string
+scalar spelling. Fresh review of `abe9781` confirmed one remaining blocker:
+Node rejected U+FEFF inside a source, although Python and the approved Rust core
+accepted it. This follow-up corrects that runtime classification. Only canonical-contract
 sources, schemas, synthetic fixtures and review documentation change.
 `ROADMAP.md` remains byte-identical. Production core, CLI, outbox, stores,
 migrations, Cargo manifests/lockfile and all frozen-v1 files remain unchanged.
@@ -14,7 +17,38 @@ The authoritative sibling is read-only at its approved commit; no sibling code
 is integrated. No freeze, merge, push, deployment, later-phase work or spending
 is authorized here.
 
-## Corrected contracts
+## Unicode correction and regression evidence
+
+Node now uses Unicode `White_Space`, matching approved Rust `char::is_whitespace`,
+instead of JavaScript `\s`. U+FEFF is neither White_Space nor Unicode Cc, so a
+source such as `urn:synthetic:\uFEFFoutcome` remains valid and is preserved exactly.
+Python and Rust semantics were not tightened and no source normalization was added.
+
+An exhaustive check runs every **1,112,064 Unicode scalar value** through text
+and source validation in Python, Node and the exact approved Rust archive:
+**2,224,128 classification checks per runtime**. All agree on 65 rejected text
+characters and 84 rejected source characters. This includes U+FEFF, C0/C1
+controls, all Unicode whitespace, format characters, supplementary characters
+and noncharacters. Surrogates are excluded because they are not Unicode scalar
+values; existing malformed-JSON checks reject them separately.
+
+The positive regression rewrites `urn:synthetic:outcome` to the U+FEFF source
+throughout fixed-success-fee, recursively inside every canonical source string,
+including the original Evaluation, binding, policy/evidence and decision
+observations. It rebuilds every affected ID/hash/reference/manifest/receipt.
+Python and Node accept the entire **41-record/one-decision** history against its
+newly derived original base root. Approved Rust confirms exact complete typed
+Evaluation equality, target freeze and the accepted outcome. This fixture is
+independent of previously accepted roots, which remain immutable.
+
+The existing 24 goldens (1,450 records/43 decisions), schema and all 23 captured
+original Evaluations remain byte-identical to `abe9781`. The additional accepted
+regression lives in reproducible audit diagnostics, yielding **24 exact accepted
+Evaluation roundtrips and 44 decisions** in the approved comparison. The profile
+stays `2-candidate.4`: the fix restores Node to its existing source contract and
+does not alter hash domains, source semantics or serialized golden bytes.
+
+## Preserved contract corrections
 
 1. **Actual original Evaluation identities.** The candidate retains the complete
    actual approved-core Evaluation, captured in `original-evaluations.json`,
@@ -62,7 +96,7 @@ zero claim ownership, selected binding provenance and separate supplier capacity
   (205 records/five decisions), then reject in Python, Node and approved Rust.
 - **272 negative assertions**: 49 semantic attacks, five scalar histories, one
   book-key invariant, ten malformed JSON inputs and 207 scalar/field checks.
-- **216 shared scalar cases**, **38 record-field byte boundaries**, two structural
+- **217 shared scalar cases**, **38 record-field byte boundaries**, two structural
   source roundtrips and exact-rational cross-cancellation checks.
 
 ## Validation and exact original-core comparison
@@ -84,9 +118,10 @@ IDs and vectors remain exact; no identity normalization hides differences.
 Fixed-success-fee retains original action
 `ac_c541ddb16b28b7fb383f096c2bc32d5b62998d54279926b04293d6b7392ac8ea`.
 
-The approved Rust comparison passes all 23 complete Evaluation roundtrips,
-43 decisions and duplicate-document request rejections, the document-reuse
-correction/original-receipt retry, 216 scalar cases, all five rehashed scalar
+The approved Rust comparison passes 24 complete Evaluation roundtrips,
+44 decisions and duplicate-document request rejections, the document-reuse
+correction/original-receipt retry, 217 scalar cases, exhaustive Unicode
+text/source parity, the accepted U+FEFF history, all five rehashed scalar
 histories, 11 deadline/ordering cases and percentage cross-cancellation. Its
 original semantic suite still checks 86 attempts across 23 histories.
 
@@ -98,7 +133,7 @@ concurrency or persistence.
 
 ## Compatibility and review handoff
 
-Candidate `.3` remains at the reviewed prior commit. `.4` changes required fields,
+Candidate `.3` remains in Git history. The original `.4` cycle changed required fields,
 record kinds, scalar acceptance, retry facts and hash domains, so candidate IDs
 and receipts change intentionally. There is no automatic migration from earlier
 projections: missing original identities/dependencies cannot be recovered by
@@ -106,7 +141,7 @@ substituting candidate IDs or guessing source fields. Re-author from retained
 original material and verified observations, then review. No v1 compatibility
 or support declaration changes.
 
-A fresh-context reviewer must decide whether the three blockers are resolved and
+A fresh-context reviewer must decide whether the U+FEFF blocker is resolved and
 whether freeze is justified. Remaining later-integration questions are the
 production historical codec/v1 journal bridge without rewriting receipts,
 authentic durable base-root retrieval and complete history under locks, and

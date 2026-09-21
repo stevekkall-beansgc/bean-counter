@@ -3,9 +3,14 @@
 // comparison runner. Never linked into the candidate's production workspace.
 fn candidate_goldens() -> Vec<Value> {
     let root=std::env::var("LEDGERLAB_CANDIDATE_ROOT").unwrap();
-    fs::read_dir(Path::new(&root).join("contracts/candidates/v2/goldens")).unwrap()
+    let mut histories:Vec<Value>=fs::read_dir(Path::new(&root).join("contracts/candidates/v2/goldens")).unwrap()
         .map(|p| p.unwrap().path()).filter(|p| !["inventory.json","vectors.json"].contains(&p.file_name().unwrap().to_str().unwrap()))
-        .map(|p| serde_json::from_slice(&fs::read(p).unwrap()).unwrap()).collect()
+        .map(|p| serde_json::from_slice(&fs::read(p).unwrap()).unwrap()).collect();
+    if std::env::var("LEDGERLAB_CAPTURE_ORIGINALS").is_err(){
+        let extra:Vec<Value>=serde_json::from_slice(&fs::read(Path::new(&root).join("work/validation/v2-rehashed-accepted-unicode.json")).unwrap()).unwrap();
+        assert_eq!(extra.len(),1);histories.extend(extra);
+    }
+    histories
 }
 fn candidate_binding(v:&Value)->c::Binding {
     c::Binding {
