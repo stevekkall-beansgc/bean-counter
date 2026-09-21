@@ -3,7 +3,7 @@ name = "ledgerlab-testkit"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Independent development conformance harness; Phase 0 scaffold only."
+description = "Independent frozen-journal oracle and backend conformance harness."
 publish = false
 
 [lints]
