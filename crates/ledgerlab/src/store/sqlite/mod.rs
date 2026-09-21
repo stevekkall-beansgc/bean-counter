@@ -116,6 +116,10 @@ impl SqliteStore {
         Ok(result)
     }
     #[cfg(test)]
+    pub(crate) fn test_writer_closed(&self) -> bool {
+        self.inner.writer.is_closed() && self.inner.writer.size() == 0
+    }
+    #[cfg(test)]
     pub(crate) async fn test_pool_probe(&self) -> Result<(String, bool), StoreError> {
         let mut conn = self.inner.writer.acquire().await?;
         conn.ping().await?;

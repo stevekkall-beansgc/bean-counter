@@ -768,6 +768,13 @@ async fn deferred_missing_reference_commit_is_unknown_and_reopen_has_no_residue(
         tx.commit().await,
         Err(crate::store::errors::CommitError::OutcomeUnknown)
     ));
+    // Production ambiguity must close/drain the writer before returning unknown,
+    // independently of the service test adapter's later close/reopen protocol.
+    assert!(store.test_writer_closed());
+    assert!(matches!(
+        store.test_pool_probe().await,
+        Err(StoreError::Database(sqlx::Error::PoolClosed))
+    ));
     assert!(matches!(
         store.begin(deadline()).await,
         Err(StoreError::WritesDisabled)

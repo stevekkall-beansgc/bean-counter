@@ -25,6 +25,11 @@ struct Backend {
     oracle: FixtureOracle,
     pending: Option<Hooks>,
     affected: String,
+    uncertain: Option<UncertainConnection>,
+}
+struct UncertainConnection {
+    id: String,
+    outcome: tk::Outcome,
     discarded: bool,
 }
 fn err(e: impl std::fmt::Display) -> HarnessError {
@@ -78,7 +83,7 @@ impl Backend {
             oracle: oracle.clone(),
             pending: None,
             affected: String::new(),
-            discarded: false,
+            uncertain: None,
         })
     }
     fn command(c: &tk::Command) -> AcceptCommand {
@@ -228,7 +233,19 @@ impl tk::AcceptanceBackend for Backend {
         if let Some(h) = self.pending.take() {
             self.runtime.block_on(h.drain());
         }
-        self.runtime.block_on(self.store.take().unwrap().close());
+        let store = self.store.take().unwrap();
+        self.runtime.block_on(store.clone().close());
+        if let Some(uncertain) = &mut self.uncertain {
+            if !uncertain.discarded {
+                // Observe the old pool after close, before releasing its owner.
+                // Fault selection alone is never evidence of connection disposal.
+                if !store.test_writer_closed() {
+                    return Err(err("uncertain writer pool did not finish closing"));
+                }
+                uncertain.discarded = true;
+            }
+        }
+        drop(store);
         self.store = Some(
             self.runtime
                 .block_on(SqliteStore::open(self.directory.path()))
@@ -252,12 +269,17 @@ impl tk::AcceptanceBackend for Backend {
             &Self::command(c),
             &hooks,
         ));
+        let outcome = outcome(result)?;
         if hooks.unknown().is_some() {
             self.pending = Some(hooks.clone());
-            self.discarded = true;
+            self.uncertain = Some(UncertainConnection {
+                id: self.affected.clone(),
+                outcome: outcome.clone(),
+                discarded: false,
+            });
         }
         Ok(tk::Attempt {
-            outcome: outcome(result)?,
+            outcome,
             hit: hooks.hit(),
         })
     }
@@ -301,32 +323,45 @@ impl tk::AcceptanceBackend for Backend {
             "urn:demo:app",
         )
         .unwrap();
-        Ok(tk::ActiveCommitProbe {
-            primary_rows_absent: absent,
-            original_transaction_active: active && locked,
-            outcome: tk::Outcome::OutcomeUnknown {
+        let outcome = self.uncertain.as_ref().unwrap().outcome.clone();
+        if outcome
+            != (tk::Outcome::OutcomeUnknown {
                 scope: ["demo".into(), "sandbox".into()],
                 source: candidate.source().into(),
                 external_id: candidate.external_id().into(),
-            },
+            })
+        {
+            return Err(err(
+                "active probe does not match the original unknown outcome",
+            ));
+        }
+        Ok(tk::ActiveCommitProbe {
+            primary_rows_absent: absent,
+            original_transaction_active: active && locked,
+            outcome,
         })
     }
     fn pool_probe(&mut self) -> ledgerlab_testkit::Result<tk::PoolProbe> {
-        if self.discarded && self.pending.is_some() {
+        if self.pending.is_some() {
             self.reopen()?;
         }
         let (id, active) = self
             .runtime
             .block_on(self.store.as_ref().unwrap().test_pool_probe())
             .map_err(err)?;
+        // Keep fault evidence across reopen and successful retries until this
+        // probe consumes it. `affected` describes only the most recent request.
+        let uncertain = self.uncertain.take();
         Ok(tk::PoolProbe {
-            affected_connection: if self.affected.is_empty() {
+            affected_connection: if let Some(uncertain) = &uncertain {
+                uncertain.id.clone()
+            } else if self.affected.is_empty() {
                 id.clone()
             } else {
                 self.affected.clone()
             },
             next_connection: id,
-            affected_discarded: self.discarded,
+            affected_discarded: uncertain.is_some_and(|u| u.discarded),
             next_has_open_transaction: active,
         })
     }
@@ -439,7 +474,6 @@ impl tk::AcceptanceBackend for Backend {
             CommitPhase::Before => tk::Outcome::Cancelled,
             CommitPhase::Acknowledged => tk::Outcome::ResponseLost,
             CommitPhase::InFlight => {
-                self.discarded = true;
                 self.pending = Some(hooks.clone());
                 tk::Outcome::OutcomeUnknown {
                     scope: ["demo".into(), "sandbox".into()],
@@ -448,6 +482,13 @@ impl tk::AcceptanceBackend for Backend {
                 }
             }
         };
+        if point.phase == CommitPhase::InFlight {
+            self.uncertain = Some(UncertainConnection {
+                id: self.affected.clone(),
+                outcome: out.clone(),
+                discarded: false,
+            });
+        }
         Ok(tk::Attempt {
             outcome: out,
             hit: hooks.hit(),
@@ -505,6 +546,85 @@ fn sqlite_facade_basics() {
     ] {
         run_case(&Factory, &oracle, &case).unwrap_or_else(|e| panic!("{case:?}: {e}"));
     }
+}
+
+#[test]
+fn sqlite_active_commit_absent() {
+    let oracle = FixtureOracle::workspace().unwrap();
+    ledgerlab_testkit::cases::run_case(
+        &Factory,
+        &oracle,
+        &ledgerlab_testkit::cases::Case::ActiveCommitAbsent,
+    )
+    .unwrap();
+}
+
+#[test]
+fn sqlite_active_commit_discard_evidence_survives_retry() {
+    use tk::AcceptanceBackend;
+    let oracle = FixtureOracle::workspace().unwrap();
+    let mut backend = Backend::new(&oracle, false).unwrap();
+    let before = backend.observe().unwrap();
+    let command = tk::Command::fixture(&oracle, "input").unwrap();
+    let injection = Injection {
+        boundary: Boundary::CommitInFlight,
+        fault: Fault::UnknownCommitActive,
+    };
+    let attempt = backend.accept(&command, Some(&injection)).unwrap();
+    attempt.hit.unwrap().verify(&injection).unwrap();
+    assert_eq!(
+        attempt.outcome,
+        tk::Outcome::OutcomeUnknown {
+            scope: ["demo".into(), "sandbox".into()],
+            source: "urn:demo:app".into(),
+            external_id: "generation-1".into(),
+        }
+    );
+    let original = backend.affected.clone();
+    assert!(!backend.uncertain.as_ref().unwrap().discarded);
+    assert!(!backend.store.as_ref().unwrap().test_writer_closed());
+    let active = backend.probe_active_commit(&command).unwrap();
+    assert!(active.primary_rows_absent && active.original_transaction_active);
+    assert_eq!(active.outcome, attempt.outcome);
+    before
+        .assert_exact(&backend.observe().unwrap(), "active commit")
+        .unwrap();
+
+    let resolved = backend.resolve_and_retry(&command).unwrap();
+    assert!(backend.uncertain.as_ref().unwrap().discarded);
+    assert_eq!(
+        resolved.outcome,
+        tk::Outcome::Duplicate {
+            kind: tk::DuplicateKind::Identity,
+            receipt: oracle.receipt.clone(),
+        }
+    );
+    // An additional same-identity retry must not erase the unprobed fault evidence.
+    assert_eq!(
+        backend.accept(&command, None).unwrap().outcome,
+        resolved.outcome
+    );
+    let probe = backend.pool_probe().unwrap();
+    println!("original={original}, resolved pool probe={probe:?}");
+    assert_eq!(
+        probe.affected_connection, original,
+        "retry replaced the uncertain connection ID"
+    );
+    assert!(probe.affected_discarded);
+    assert_ne!(probe.affected_connection, probe.next_connection);
+    assert!(!probe.next_has_open_transaction);
+    // The completed fault must not label a later ordinary probe as discarded.
+    let normal = backend.pool_probe().unwrap();
+    assert!(!normal.affected_discarded);
+    assert_eq!(normal.affected_connection, probe.next_connection);
+    assert_eq!(normal.next_connection, probe.next_connection);
+    assert!(!normal.next_has_open_transaction);
+    let after = backend.observe().unwrap();
+    oracle.assert_accepted(&before, &after).unwrap();
+    backend.reopen().unwrap();
+    after
+        .assert_exact(&backend.observe().unwrap(), "resolved reopen")
+        .unwrap();
 }
 
 #[test]
