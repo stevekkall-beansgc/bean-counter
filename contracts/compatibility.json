@@ -1,0 +1,30 @@
+{
+  "contract_version": "ledgerlab-contracts/1",
+  "status": "phase-0-unreleased",
+  "event_schema": 1,
+  "link_schema": 1,
+  "terms_schema": 1,
+  "policy_dsl": 1,
+  "evaluator_semantics": 1,
+  "canonical_profile": "ledger-canonical-v1",
+  "hash_profile": "ledgerlab-domain-sha256/1",
+  "http_version": "v1",
+  "openapi_version": "3.1.1",
+  "json_schema_draft": "2020-12",
+  "export_format": "ledger-export/1",
+  "logical_storage_contract": 1,
+  "implemented_storage_read_versions": [],
+  "implemented_storage_write_versions": [],
+  "backend_migrations": {
+    "sqlite": [],
+    "postgres": []
+  },
+  "development_toolchain": "1.98.1",
+  "msrv": null,
+  "external_rust_dependencies": {},
+  "first_slice_decision_hash": "sha256:33dd38b0ae18a1a037b18494115b3689c47e9378e9af466fd57837e70091c650",
+  "history_policy": "preserve accepted bytes and IDs; never rerate on upgrade/import",
+  "exact_replay_required": [
+    1
+  ]
+}

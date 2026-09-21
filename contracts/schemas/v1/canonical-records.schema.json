@@ -1,0 +1,3932 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:canonical-records:1",
+  "$ref": "#/$defs/record",
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+    },
+    "uint": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$"
+    },
+    "atoms": {
+      "type": "string",
+      "pattern": "^(0|-?[1-9][0-9]{0,29})$"
+    },
+    "integer-string": {
+      "type": "string",
+      "pattern": "^(0|-?[1-9][0-9]{0,154})$"
+    },
+    "positive-integer-string": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,154}$"
+    },
+    "decimal": {
+      "type": "string",
+      "maxLength": 49,
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{0,17}[1-9])?$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "event-id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "claim-id": {
+      "type": "string",
+      "pattern": "^cl_[0-9a-f]{64}$"
+    },
+    "decision-id": {
+      "type": "string",
+      "pattern": "^dc_[0-9a-f]{64}$"
+    },
+    "receipt-id": {
+      "type": "string",
+      "pattern": "^rc_[0-9a-f]{64}$"
+    },
+    "effect-id": {
+      "type": "string",
+      "pattern": "^ef_[0-9a-f]{64}$"
+    },
+    "action-id": {
+      "type": "string",
+      "pattern": "^ac_[0-9a-f]{64}$"
+    },
+    "obligation-id": {
+      "type": "string",
+      "pattern": "^ob_[0-9a-f]{64}$"
+    },
+    "intention-id": {
+      "type": "string",
+      "pattern": "^in_[0-9a-f]{64}$"
+    },
+    "document-id": {
+      "type": "string",
+      "pattern": "^doc_[0-9a-f]{64}$"
+    },
+    "snapshot-ref-id": {
+      "type": "string",
+      "pattern": "^sr_[0-9a-f]{64}$"
+    },
+    "explanation-id": {
+      "type": "string",
+      "pattern": "^xp_[0-9a-f]{64}$"
+    },
+    "control-transition-id": {
+      "type": "string",
+      "pattern": "^ct_[0-9a-f]{64}$"
+    },
+    "scope": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "$ref": "#/$defs/text"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "atoms": {
+          "$ref": "#/$defs/atoms"
+        }
+      },
+      "required": [
+        "currency",
+        "scale",
+        "atoms"
+      ]
+    },
+    "ratio": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "numerator": {
+          "$ref": "#/$defs/integer-string"
+        },
+        "denominator": {
+          "$ref": "#/$defs/positive-integer-string"
+        }
+      },
+      "required": [
+        "numerator",
+        "denominator"
+      ]
+    },
+    "roles-value": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/text"
+        },
+        "cost_originator": {
+          "$ref": "#/$defs/text"
+        },
+        "bearer": {
+          "$ref": "#/$defs/text"
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "beneficiary": {
+          "$ref": "#/$defs/text"
+        },
+        "recipient": {
+          "$ref": "#/$defs/text"
+        },
+        "payer_delegation": {
+          "$ref": "#/$defs/document-id"
+        }
+      },
+      "required": [
+        "provider",
+        "cost_originator",
+        "bearer",
+        "payer",
+        "beneficiary",
+        "recipient"
+      ]
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-roles/1"
+        },
+        "provider": {
+          "$ref": "#/$defs/text"
+        },
+        "cost_originator": {
+          "$ref": "#/$defs/text"
+        },
+        "bearer": {
+          "$ref": "#/$defs/text"
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "beneficiary": {
+          "$ref": "#/$defs/text"
+        },
+        "recipient": {
+          "$ref": "#/$defs/text"
+        },
+        "payer_delegation": {
+          "$ref": "#/$defs/document-id"
+        }
+      },
+      "required": [
+        "schema",
+        "provider",
+        "cost_originator",
+        "bearer",
+        "payer",
+        "beneficiary",
+        "recipient"
+      ]
+    },
+    "event-doc": {
+      "type": "string",
+      "pattern": "^doc_[0-9a-f]{64}$"
+    },
+    "event-eventId": {
+      "type": "string",
+      "pattern": "^ev_[0-9a-f]{64}$"
+    },
+    "event-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "id"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "id": {
+          "$ref": "#/$defs/event-id"
+        }
+      }
+    },
+    "event-link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation",
+        "from"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-link/1"
+        },
+        "relation": {
+          "enum": [
+            "generated_from",
+            "optimized_from",
+            "published_as",
+            "attributed_to",
+            "consumes_service"
+          ]
+        },
+        "from": {
+          "$ref": "#/$defs/event-ref"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "id",
+        "type",
+        "customer"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-event/1"
+        },
+        "id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "operation_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "type": {
+          "enum": [
+            "content.generated",
+            "tool.optimized",
+            "content.published",
+            "outcome.acquired",
+            "tool.completed",
+            "link.asserted",
+            "economic.reversal"
+          ]
+        },
+        "customer": {
+          "$ref": "#/$defs/event-id"
+        },
+        "chain": {
+          "$ref": "#/$defs/event-id"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "quantity": {
+          "type": "string",
+          "pattern": "^[0-9]+(\\.[0-9]{1,18})?$",
+          "maxLength": 64
+        },
+        "unit": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "invocation_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "links": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/event-link"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/event-doc"
+          }
+        },
+        "child": {
+          "$ref": "#/$defs/event-ref"
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/event-eventId"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "corrects": {
+          "$ref": "#/$defs/event-eventId"
+        },
+        "extensions": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": {
+            "type": [
+              "string",
+              "boolean",
+              "integer"
+            ]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "content.generated",
+                  "tool.optimized",
+                  "content.published",
+                  "tool.completed"
+                ]
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "claim_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "child"
+                  ]
+                },
+                {
+                  "required": [
+                    "targets"
+                  ]
+                },
+                {
+                  "required": [
+                    "reason"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "outcome.acquired"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "claim_id",
+              "occurred_at",
+              "links",
+              "evidence"
+            ],
+            "properties": {
+              "links": {
+                "minItems": 1
+              },
+              "evidence": {
+                "minItems": 1
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "status"
+                  ]
+                },
+                {
+                  "required": [
+                    "quantity"
+                  ]
+                },
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "child"
+                  ]
+                },
+                {
+                  "required": [
+                    "targets"
+                  ]
+                },
+                {
+                  "required": [
+                    "reason"
+                  ]
+                },
+                {
+                  "required": [
+                    "corrects"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "link.asserted"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "child",
+              "links"
+            ],
+            "properties": {
+              "links": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "status"
+                  ]
+                },
+                {
+                  "required": [
+                    "quantity"
+                  ]
+                },
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "claim_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "targets"
+                  ]
+                },
+                {
+                  "required": [
+                    "reason"
+                  ]
+                },
+                {
+                  "required": [
+                    "corrects"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "economic.reversal"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "targets",
+              "reason",
+              "evidence"
+            ],
+            "properties": {
+              "evidence": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "status"
+                  ]
+                },
+                {
+                  "required": [
+                    "quantity"
+                  ]
+                },
+                {
+                  "required": [
+                    "unit"
+                  ]
+                },
+                {
+                  "required": [
+                    "claim_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "child"
+                  ]
+                },
+                {
+                  "required": [
+                    "links"
+                  ]
+                },
+                {
+                  "required": [
+                    "corrects"
+                  ]
+                },
+                {
+                  "required": [
+                    "binding_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "invocation_id"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "policy-slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+    },
+    "policy-decimal": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]{1,18})?$",
+      "maxLength": 64
+    },
+    "policy-predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "eq"
+      ],
+      "properties": {
+        "field": {
+          "enum": [
+            "status",
+            "binding.tier",
+            "binding.funding",
+            "binding.priority",
+            "source"
+          ]
+        },
+        "eq": {
+          "type": "string",
+          "maxLength": 128
+        }
+      }
+    },
+    "policy-amount": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fixed"
+          ],
+          "properties": {
+            "fixed": {
+              "$ref": "#/$defs/policy-decimal"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "unit_price",
+            "unit"
+          ],
+          "properties": {
+            "unit_price": {
+              "$ref": "#/$defs/policy-decimal"
+            },
+            "unit": {
+              "$ref": "#/$defs/policy-slug"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "percent",
+            "basis"
+          ],
+          "properties": {
+            "percent": {
+              "$ref": "#/$defs/policy-decimal"
+            },
+            "basis": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      ]
+    },
+    "policy-match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation",
+        "target_type",
+        "hops"
+      ],
+      "properties": {
+        "relation": {
+          "enum": [
+            "optimized_from",
+            "published_as",
+            "attributed_to",
+            "consumes_service"
+          ]
+        },
+        "target_type": {
+          "enum": [
+            "content.generated",
+            "tool.optimized",
+            "content.published",
+            "tool.completed"
+          ]
+        },
+        "hops": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2
+        }
+      }
+    },
+    "policy-rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "on",
+        "op",
+        "component",
+        "book"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/policy-slug"
+        },
+        "on": {
+          "enum": [
+            "content.generated",
+            "tool.optimized",
+            "content.published",
+            "outcome.acquired",
+            "tool.completed",
+            "link.asserted"
+          ]
+        },
+        "op": {
+          "enum": [
+            "base",
+            "premium",
+            "discount",
+            "cap",
+            "share",
+            "observe_cost"
+          ]
+        },
+        "component": {
+          "$ref": "#/$defs/policy-slug"
+        },
+        "book": {
+          "enum": [
+            "retail",
+            "supplier",
+            "cost_observation"
+          ]
+        },
+        "when": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/policy-predicate"
+          }
+        },
+        "match": {
+          "$ref": "#/$defs/policy-match"
+        },
+        "amount": {
+          "$ref": "#/$defs/policy-amount"
+        },
+        "ceiling": {
+          "$ref": "#/$defs/policy-decimal"
+        },
+        "stage": {
+          "$ref": "#/$defs/policy-slug"
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "discount_mode": {
+          "enum": [
+            "additive",
+            "sequential"
+          ]
+        },
+        "exclusive_group": {
+          "$ref": "#/$defs/policy-slug"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "cap"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ceiling",
+              "stage",
+              "basis"
+            ],
+            "not": {
+              "required": [
+                "amount"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "amount"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "share"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ceiling"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "discount"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "discount_mode"
+            ]
+          }
+        }
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "id",
+        "currency",
+        "scale",
+        "rules"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-policy/1"
+        },
+        "id": {
+          "$ref": "#/$defs/policy-slug"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "rounding": {
+          "const": "nearest_ties_away"
+        },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/policy-rule"
+          }
+        }
+      }
+    },
+    "assent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-assent/1"
+        },
+        "mode": {
+          "enum": [
+            "demo",
+            "real"
+          ]
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "terms_version": {
+          "$ref": "#/$defs/uint"
+        },
+        "acceptor": {
+          "$ref": "#/$defs/text"
+        },
+        "bearer": {
+          "$ref": "#/$defs/text"
+        },
+        "payer": {
+          "$ref": "#/$defs/text"
+        },
+        "recipient": {
+          "$ref": "#/$defs/text"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "evidence_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "evidence_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "schema",
+        "mode",
+        "agreement_id",
+        "terms_version",
+        "acceptor",
+        "bearer",
+        "payer",
+        "recipient",
+        "accepted_at",
+        "evidence_ref",
+        "evidence_digest"
+      ]
+    },
+    "source-grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-source-grant/1"
+        },
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/text"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "event_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "content.generated",
+              "tool.optimized",
+              "content.published",
+              "outcome.acquired",
+              "tool.completed",
+              "link.asserted",
+              "economic.reversal"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "generated_from",
+              "optimized_from",
+              "published_as",
+              "attributed_to",
+              "consumes_service"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "submit",
+              "read",
+              "preview",
+              "authorize_invocation",
+              "terms_admin",
+              "source_admin",
+              "operate"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "starts_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "ends_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "principal_id",
+        "source",
+        "event_types",
+        "relations",
+        "permissions",
+        "starts_at"
+      ]
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-context/1"
+        },
+        "tier": {
+          "$ref": "#/$defs/slug"
+        },
+        "priority": {
+          "type": "boolean"
+        },
+        "funding": {
+          "enum": [
+            "byok",
+            "platform"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "binding_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "cost_observation": {
+          "$ref": "#/$defs/document-id"
+        },
+        "stage": {
+          "$ref": "#/$defs/stage"
+        }
+      },
+      "required": [
+        "schema",
+        "funding",
+        "currency",
+        "scale",
+        "binding_ids"
+      ]
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/slug"
+        },
+        "closure_type": {
+          "const": "outcome.acquired"
+        },
+        "expected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "$ref": "#/$defs/source"
+              },
+              "operation_id": {
+                "$ref": "#/$defs/text"
+              },
+              "type": {
+                "enum": [
+                  "content.generated",
+                  "tool.optimized",
+                  "content.published",
+                  "outcome.acquired",
+                  "tool.completed",
+                  "link.asserted",
+                  "economic.reversal"
+                ]
+              },
+              "retail_components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/slug"
+                },
+                "minItems": 1,
+                "maxItems": 128,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "source",
+              "operation_id",
+              "type",
+              "retail_components"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "closure_claim_namespace": {
+          "$ref": "#/$defs/slug"
+        }
+      },
+      "required": [
+        "id",
+        "closure_type",
+        "expected",
+        "closure_claim_namespace"
+      ]
+    },
+    "outcome-terms": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "window_us": {
+          "$ref": "#/$defs/uint"
+        },
+        "report_grace_us": {
+          "$ref": "#/$defs/uint"
+        },
+        "claim_namespace": {
+          "$ref": "#/$defs/slug"
+        },
+        "predecessor_type": {
+          "const": "content.published"
+        }
+      },
+      "required": [
+        "source",
+        "window_us",
+        "report_grace_us",
+        "claim_namespace",
+        "predecessor_type"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-binding/1"
+        },
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "policy": {
+          "$ref": "#/$defs/document-id"
+        },
+        "roles": {
+          "$ref": "#/$defs/document-id"
+        },
+        "assent": {
+          "$ref": "#/$defs/document-id"
+        },
+        "context": {
+          "$ref": "#/$defs/document-id"
+        },
+        "offer": {
+          "$ref": "#/$defs/document-id"
+        },
+        "acceptor": {
+          "$ref": "#/$defs/text"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "starts_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "ends_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "service": {
+          "$ref": "#/$defs/slug"
+        },
+        "customer": {
+          "$ref": "#/$defs/text"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "event_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "content.generated",
+              "tool.optimized",
+              "content.published",
+              "outcome.acquired",
+              "tool.completed",
+              "link.asserted",
+              "economic.reversal"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "unit": {
+          "$ref": "#/$defs/slug"
+        },
+        "maximum_quantity": {
+          "$ref": "#/$defs/decimal"
+        },
+        "maximum_exposure": {
+          "$ref": "#/$defs/money"
+        },
+        "correction_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome-terms"
+        },
+        "allocation_view": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "agreement_id",
+        "version",
+        "policy",
+        "roles",
+        "assent",
+        "context",
+        "acceptor",
+        "accepted_at",
+        "starts_at",
+        "service",
+        "customer",
+        "sources",
+        "event_types",
+        "unit",
+        "maximum_quantity",
+        "correction_sources",
+        "allocation_view"
+      ]
+    },
+    "input-purpose": {
+      "enum": [
+        "policy",
+        "roles",
+        "assent",
+        "source_grant",
+        "binding",
+        "chain_context"
+      ]
+    },
+    "association-purpose": {
+      "enum": [
+        "policy",
+        "roles",
+        "assent",
+        "source_grant",
+        "binding",
+        "chain_context",
+        "decision_snapshot"
+      ]
+    },
+    "snapshot-document": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "purpose": {
+          "$ref": "#/$defs/input-purpose"
+        },
+        "document_id": {
+          "$ref": "#/$defs/document-id"
+        }
+      },
+      "required": [
+        "purpose",
+        "document_id"
+      ]
+    },
+    "snapshot-context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tier": {
+          "$ref": "#/$defs/slug"
+        },
+        "priority": {
+          "type": "boolean"
+        },
+        "funding": {
+          "enum": [
+            "byok",
+            "platform"
+          ]
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        },
+        "binding_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "cost_observation": {
+          "$ref": "#/$defs/document-id"
+        },
+        "stage": {
+          "$ref": "#/$defs/stage"
+        }
+      },
+      "required": [
+        "funding",
+        "currency",
+        "scale",
+        "binding_ids"
+      ]
+    },
+    "authority-version": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "principal_id": {
+          "$ref": "#/$defs/text"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "grant_id": {
+          "$ref": "#/$defs/text"
+        },
+        "grant_document": {
+          "$ref": "#/$defs/document-id"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "active": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "principal_id",
+        "source",
+        "grant_id",
+        "grant_document",
+        "revision",
+        "active"
+      ]
+    },
+    "prior-action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/action-id"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "action_id",
+        "content_hash"
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-snapshot/1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "dsl_version": {
+          "const": 1
+        },
+        "semantics_version": {
+          "const": 1
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/snapshot-document"
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "context": {
+          "$ref": "#/$defs/snapshot-context"
+        },
+        "authority": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/authority-version"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "prior_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/prior-action"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "decision_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "received_at": {
+              "$ref": "#/$defs/timestamp"
+            }
+          },
+          "required": []
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "dsl_version",
+        "semantics_version",
+        "documents",
+        "context",
+        "authority",
+        "prior_actions",
+        "decision_context"
+      ]
+    },
+    "snapshot-ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-snapshot-ref/1"
+        },
+        "id": {
+          "$ref": "#/$defs/snapshot-ref-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "purpose": {
+          "$ref": "#/$defs/association-purpose"
+        },
+        "document_id": {
+          "$ref": "#/$defs/document-id"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "event_id",
+        "purpose",
+        "document_id"
+      ]
+    },
+    "delivery-key": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-delivery-key/1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "external_id": {
+          "$ref": "#/$defs/text"
+        },
+        "canonical_event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "kind": {
+          "enum": [
+            "original",
+            "alias"
+          ]
+        },
+        "ingress": {
+          "$ref": "#/$defs/event"
+        },
+        "ingress_hash": {
+          "$ref": "#/$defs/digest"
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "source",
+        "external_id",
+        "canonical_event_id",
+        "kind",
+        "ingress",
+        "ingress_hash"
+      ]
+    },
+    "link-fact": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "enum": [
+            "generated_from",
+            "optimized_from",
+            "published_as",
+            "attributed_to",
+            "consumes_service"
+          ]
+        },
+        {
+          "$ref": "#/$defs/event-id"
+        },
+        {
+          "$ref": "#/$defs/event-id"
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "claim-facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-claim-facts/1"
+        },
+        "type": {
+          "enum": [
+            "content.generated",
+            "tool.optimized",
+            "content.published",
+            "outcome.acquired",
+            "tool.completed",
+            "link.asserted",
+            "economic.reversal"
+          ]
+        },
+        "chain": {
+          "$ref": "#/$defs/text"
+        },
+        "customer": {
+          "$ref": "#/$defs/text"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "quantity": {
+          "$ref": "#/$defs/decimal"
+        },
+        "unit": {
+          "$ref": "#/$defs/slug"
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/link-fact"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/document-id"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "invocation_id": {
+          "$ref": "#/$defs/text"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "corrects": {
+          "$ref": "#/$defs/event-id"
+        }
+      },
+      "required": [
+        "schema",
+        "type",
+        "chain",
+        "customer",
+        "status",
+        "quantity",
+        "unit",
+        "links",
+        "evidence"
+      ]
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-claim/1"
+        },
+        "id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/text"
+        },
+        "kind": {
+          "enum": [
+            "completion",
+            "acquisition",
+            "link"
+          ]
+        },
+        "token": {
+          "$ref": "#/$defs/text"
+        },
+        "facts_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "source",
+        "operation_id",
+        "kind",
+        "token",
+        "facts_hash",
+        "event_id"
+      ]
+    },
+    "match-key": {
+      "oneOf": [
+        {
+          "const": "self"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^ln_[0-9a-f]{64}$"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      ]
+    },
+    "action-kind": {
+      "enum": [
+        "charge",
+        "cost",
+        "premium",
+        "discount",
+        "credit",
+        "share",
+        "allocation",
+        "reversal"
+      ]
+    },
+    "book": {
+      "enum": [
+        "retail",
+        "supplier",
+        "cost_observation",
+        "allocation"
+      ]
+    },
+    "effect-facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-effect-facts/1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "component": {
+          "$ref": "#/$defs/slug"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "match_key": {
+          "$ref": "#/$defs/match-key"
+        },
+        "namespace": {
+          "const": "original"
+        },
+        "kind": {
+          "$ref": "#/$defs/action-kind"
+        },
+        "book": {
+          "$ref": "#/$defs/book"
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles-value"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event-id"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^ln_[0-9a-f]{64}$"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "reverses": {
+          "$ref": "#/$defs/action-id"
+        },
+        "allocation_parent": {
+          "$ref": "#/$defs/action-id"
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "agreement_id",
+        "component",
+        "claim_id",
+        "match_key",
+        "namespace",
+        "kind",
+        "book",
+        "amount",
+        "roles",
+        "sources",
+        "links",
+        "inputs"
+      ]
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-effect/1"
+        },
+        "id": {
+          "$ref": "#/$defs/effect-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "component": {
+          "$ref": "#/$defs/slug"
+        },
+        "claim_id": {
+          "$ref": "#/$defs/claim-id"
+        },
+        "match_key": {
+          "$ref": "#/$defs/match-key"
+        },
+        "namespace": {
+          "const": "original"
+        },
+        "facts_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "action_id": {
+          "$ref": "#/$defs/action-id"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "agreement_id",
+        "component",
+        "claim_id",
+        "match_key",
+        "namespace",
+        "facts_hash",
+        "action_id"
+      ]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-action/1"
+        },
+        "id": {
+          "$ref": "#/$defs/action-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "decision_id": {
+          "$ref": "#/$defs/decision-id"
+        },
+        "effect_id": {
+          "$ref": "#/$defs/effect-id"
+        },
+        "obligation_id": {
+          "$ref": "#/$defs/obligation-id"
+        },
+        "component": {
+          "$ref": "#/$defs/slug"
+        },
+        "kind": {
+          "$ref": "#/$defs/action-kind"
+        },
+        "book": {
+          "$ref": "#/$defs/book"
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles-value"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event-id"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^ln_[0-9a-f]{64}$"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "reverses": {
+          "$ref": "#/$defs/action-id"
+        },
+        "allocation_parent": {
+          "$ref": "#/$defs/action-id"
+        },
+        "roles_doc": {
+          "$ref": "#/$defs/document-id"
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "rule_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "snapshot_doc": {
+          "$ref": "#/$defs/document-id"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "event_id",
+        "decision_id",
+        "effect_id",
+        "obligation_id",
+        "component",
+        "kind",
+        "book",
+        "amount",
+        "roles",
+        "sources",
+        "links",
+        "inputs",
+        "roles_doc",
+        "binding_id",
+        "rule_id",
+        "snapshot_doc"
+      ]
+    },
+    "action-source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-action-source/1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "action_id": {
+          "$ref": "#/$defs/action-id"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "action_id",
+        "event_id"
+      ]
+    },
+    "action-dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-action-dependency/1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "action_id": {
+          "$ref": "#/$defs/action-id"
+        },
+        "input_action_id": {
+          "$ref": "#/$defs/action-id"
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "action_id",
+        "input_action_id"
+      ]
+    },
+    "explanation-input": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "decimal"
+            },
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "value": {
+              "$ref": "#/$defs/decimal"
+            },
+            "exact": {
+              "$ref": "#/$defs/ratio"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value",
+            "exact"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "money"
+            },
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "value": {
+              "$ref": "#/$defs/money"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "boolean"
+            },
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "source_id"
+            },
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "value": {
+              "$ref": "#/$defs/source"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "binding_field"
+            },
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "value": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document_ref"
+            },
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "value": {
+              "$ref": "#/$defs/document-id"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action_ref"
+            },
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "value": {
+              "$ref": "#/$defs/action-id"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "value"
+          ]
+        }
+      ]
+    },
+    "explanation-reference": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/document-id"
+        },
+        {
+          "$ref": "#/$defs/action-id"
+        }
+      ]
+    },
+    "explanation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-explanation/1"
+        },
+        "id": {
+          "$ref": "#/$defs/explanation-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "rule_id": {
+          "$ref": "#/$defs/slug"
+        },
+        "outcome": {
+          "enum": [
+            "applied",
+            "skipped",
+            "zero"
+          ]
+        },
+        "code": {
+          "enum": [
+            "BASE_APPLIED",
+            "PREMIUM_APPLIED",
+            "DISCOUNT_APPLIED",
+            "CAP_APPLIED",
+            "CAP_NOT_BINDING",
+            "SHARE_APPLIED",
+            "SHARE_CEILING",
+            "PREDICATE_FALSE",
+            "FAILED_WORK",
+            "NO_MATCH",
+            "ZERO_ROUNDED",
+            "COST_UNKNOWN",
+            "BYOK_NO_HOST_COST",
+            "EXACT_REVERSAL"
+          ]
+        },
+        "binding_id": {
+          "$ref": "#/$defs/text"
+        },
+        "input_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/explanation-reference"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "basis_name": {
+          "$ref": "#/$defs/text"
+        },
+        "basis": {
+          "$ref": "#/$defs/ratio"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/explanation-input"
+          },
+          "minItems": 0,
+          "maxItems": 128
+        },
+        "unrounded_atoms": {
+          "$ref": "#/$defs/ratio"
+        },
+        "rounded_atoms": {
+          "$ref": "#/$defs/atoms"
+        },
+        "action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "event_id",
+        "ordinal",
+        "outcome",
+        "code",
+        "binding_id",
+        "input_refs",
+        "inputs",
+        "action_ids"
+      ],
+      "dependentRequired": {
+        "basis": [
+          "basis_name"
+        ],
+        "basis_name": [
+          "basis"
+        ],
+        "unrounded_atoms": [
+          "rounded_atoms"
+        ],
+        "rounded_atoms": [
+          "unrounded_atoms"
+        ]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "applied"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "unrounded_atoms",
+              "rounded_atoms"
+            ],
+            "properties": {
+              "action_ids": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "skipped",
+                  "zero"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "action_ids": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "obligation-delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-obligation-delta/1"
+        },
+        "type": {
+          "const": "obligation_delta"
+        },
+        "obligation_id": {
+          "$ref": "#/$defs/obligation-id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "book": {
+          "$ref": "#/$defs/book"
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles-value"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "$ref": "#/$defs/action-id"
+              },
+              "kind": {
+                "$ref": "#/$defs/action-kind"
+              },
+              "component": {
+                "$ref": "#/$defs/slug"
+              },
+              "amount": {
+                "$ref": "#/$defs/money"
+              }
+            },
+            "required": [
+              "action_id",
+              "kind",
+              "component",
+              "amount"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "type",
+        "obligation_id",
+        "agreement_id",
+        "book",
+        "amount",
+        "roles",
+        "actions"
+      ]
+    },
+    "intention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-intention/1"
+        },
+        "id": {
+          "$ref": "#/$defs/intention-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "destination_id": {
+          "const": "fake"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/intention-id"
+        },
+        "obligation_id": {
+          "$ref": "#/$defs/obligation-id"
+        },
+        "action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "amount": {
+          "$ref": "#/$defs/money"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/intention-id"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "payload": {
+          "$ref": "#/$defs/obligation-delta"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "event_id",
+        "destination_id",
+        "idempotency_key",
+        "obligation_id",
+        "action_ids",
+        "amount",
+        "depends_on",
+        "payload"
+      ]
+    },
+    "control-transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-control-transition/1"
+        },
+        "id": {
+          "$ref": "#/$defs/control-transition-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "control_kind": {
+          "const": "chain"
+        },
+        "control_id": {
+          "$ref": "#/$defs/text"
+        },
+        "from_revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "to_revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "document_id": {
+          "$ref": "#/$defs/document-id"
+        },
+        "from_event_count": {
+          "$ref": "#/$defs/uint"
+        },
+        "to_event_count": {
+          "$ref": "#/$defs/uint"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "control_kind",
+        "control_id",
+        "from_revision",
+        "to_revision",
+        "event_id",
+        "document_id",
+        "from_event_count",
+        "to_event_count"
+      ]
+    },
+    "chain-revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-chain-revision/1"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "decision_id": {
+          "$ref": "#/$defs/decision-id"
+        }
+      },
+      "required": [
+        "schema",
+        "scope",
+        "chain_id",
+        "revision",
+        "event_id",
+        "decision_id"
+      ]
+    },
+    "manifest-member": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "snapshot-ref"
+            },
+            "id": {
+              "$ref": "#/$defs/snapshot-ref-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "event"
+            },
+            "id": {
+              "$ref": "#/$defs/event-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "claim"
+            },
+            "id": {
+              "$ref": "#/$defs/claim-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "effect"
+            },
+            "id": {
+              "$ref": "#/$defs/effect-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action"
+            },
+            "id": {
+              "$ref": "#/$defs/action-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "explanation"
+            },
+            "id": {
+              "$ref": "#/$defs/explanation-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "intention"
+            },
+            "id": {
+              "$ref": "#/$defs/intention-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "control-transition"
+            },
+            "id": {
+              "$ref": "#/$defs/control-transition-id"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action-source"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/action-id"
+                },
+                {
+                  "$ref": "#/$defs/event-id"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action-dependency"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/action-id"
+                },
+                {
+                  "$ref": "#/$defs/action-id"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "delivery-key"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/source"
+                },
+                {
+                  "$ref": "#/$defs/text"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "chain-revision"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/text"
+                },
+                {
+                  "$ref": "#/$defs/uint"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "id",
+            "content_hash"
+          ]
+        }
+      ]
+    },
+    "decision-manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-decision-manifest/1"
+        },
+        "id": {
+          "$ref": "#/$defs/decision-id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "explanation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/explanation-id"
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/manifest-member"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "event_id",
+        "chain_id",
+        "revision",
+        "explanation_ids",
+        "members"
+      ]
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-receipt/1"
+        },
+        "id": {
+          "$ref": "#/$defs/receipt-id"
+        },
+        "event_id": {
+          "$ref": "#/$defs/event-id"
+        },
+        "decision_id": {
+          "$ref": "#/$defs/decision-id"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/text"
+        },
+        "revision": {
+          "$ref": "#/$defs/uint"
+        },
+        "content_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "decision_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "action_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action-id"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "intention_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/intention-id"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "event_id",
+        "decision_id",
+        "chain_id",
+        "revision",
+        "content_hash",
+        "decision_hash",
+        "action_ids",
+        "intention_ids"
+      ]
+    },
+    "party": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-party/1"
+        },
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "role_metadata_doc": {
+          "$ref": "#/$defs/document-id"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "role_metadata_doc"
+      ]
+    },
+    "source-grant-record": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-source-grant-record/1"
+        },
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/text"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "grant_doc": {
+          "$ref": "#/$defs/document-id"
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "principal_id",
+        "source",
+        "grant_doc"
+      ]
+    },
+    "binding-record": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-binding-record/1"
+        },
+        "id": {
+          "$ref": "#/$defs/text"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/text"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "policy_doc": {
+          "$ref": "#/$defs/document-id"
+        },
+        "roles_doc": {
+          "$ref": "#/$defs/document-id"
+        },
+        "assent_doc": {
+          "$ref": "#/$defs/document-id"
+        },
+        "context_doc": {
+          "$ref": "#/$defs/document-id"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "scale": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "scope",
+        "agreement_id",
+        "version",
+        "policy_doc",
+        "roles_doc",
+        "assent_doc",
+        "context_doc",
+        "currency",
+        "scale"
+      ]
+    },
+    "record": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "document_type": {
+              "const": "policy"
+            },
+            "body": {
+              "$ref": "#/$defs/policy"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "document_type",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "document_type": {
+              "const": "roles"
+            },
+            "body": {
+              "$ref": "#/$defs/roles"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "document_type",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "document_type": {
+              "const": "assent"
+            },
+            "body": {
+              "$ref": "#/$defs/assent"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "document_type",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "document_type": {
+              "const": "source-grant"
+            },
+            "body": {
+              "$ref": "#/$defs/source-grant"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "document_type",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "document_type": {
+              "const": "context"
+            },
+            "body": {
+              "$ref": "#/$defs/context"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "document_type",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "document_type": {
+              "const": "binding"
+            },
+            "body": {
+              "$ref": "#/$defs/binding"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "document_type",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "document"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/document-id"
+            },
+            "document_type": {
+              "const": "snapshot"
+            },
+            "body": {
+              "$ref": "#/$defs/snapshot"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "document_type",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "snapshot-ref"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/snapshot-ref-id"
+            },
+            "body": {
+              "$ref": "#/$defs/snapshot-ref"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "event"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/event-id"
+            },
+            "body": {
+              "$ref": "#/$defs/event"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "claim"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/claim-id"
+            },
+            "body": {
+              "$ref": "#/$defs/claim"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "effect"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/effect-id"
+            },
+            "body": {
+              "$ref": "#/$defs/effect"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/action-id"
+            },
+            "body": {
+              "$ref": "#/$defs/action"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "explanation"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/explanation-id"
+            },
+            "body": {
+              "$ref": "#/$defs/explanation"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "intention"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/intention-id"
+            },
+            "body": {
+              "$ref": "#/$defs/intention"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "control-transition"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/control-transition-id"
+            },
+            "body": {
+              "$ref": "#/$defs/control-transition"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action-source"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/action-id"
+                },
+                {
+                  "$ref": "#/$defs/event-id"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "body": {
+              "$ref": "#/$defs/action-source"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "action-dependency"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/action-id"
+                },
+                {
+                  "$ref": "#/$defs/action-id"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "body": {
+              "$ref": "#/$defs/action-dependency"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "delivery-key"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/source"
+                },
+                {
+                  "$ref": "#/$defs/text"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "body": {
+              "$ref": "#/$defs/delivery-key"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "chain-revision"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/scope"
+                },
+                {
+                  "$ref": "#/$defs/text"
+                },
+                {
+                  "$ref": "#/$defs/uint"
+                }
+              ],
+              "items": false,
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "body": {
+              "$ref": "#/$defs/chain-revision"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "decision-manifest"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/decision-id"
+            },
+            "body": {
+              "$ref": "#/$defs/decision-manifest"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "receipt"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/receipt-id"
+            },
+            "body": {
+              "$ref": "#/$defs/receipt"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "party"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/text"
+            },
+            "body": {
+              "$ref": "#/$defs/party"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "source-grant-record"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/text"
+            },
+            "body": {
+              "$ref": "#/$defs/source-grant-record"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "binding-record"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "id": {
+              "$ref": "#/$defs/text"
+            },
+            "body": {
+              "$ref": "#/$defs/binding-record"
+            },
+            "content_hash": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "kind",
+            "scope",
+            "id",
+            "body",
+            "content_hash"
+          ]
+        }
+      ]
+    }
+  }
+}

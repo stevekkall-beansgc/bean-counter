@@ -1,0 +1,12 @@
+[package]
+name = "ledgerlab"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared acceptance facade and concrete stores; Phase 0 scaffold only."
+
+[lints]
+workspace = true
+
+[dependencies]
+ledgerlab-core.workspace = true

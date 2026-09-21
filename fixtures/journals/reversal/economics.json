@@ -1,0 +1,66 @@
+{
+  "schema": "ledger-economic-oracle/1",
+  "source": "detailed-design §§7,24; architecture §§9–10",
+  "currency": "USD",
+  "scale": 2,
+  "postings": [
+    {
+      "event": "reverse-g1",
+      "component": "generation.base",
+      "book": "retail",
+      "atoms": "-100",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "reverse-g1",
+      "component": "generation.priority",
+      "book": "retail",
+      "atoms": "-20",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "reverse-g1",
+      "component": "generation.discount",
+      "book": "retail",
+      "atoms": "20",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    }
+  ],
+  "expected_book_totals": {
+    "retail": "-100"
+  },
+  "original_atoms": [
+    "100",
+    "20",
+    "-20"
+  ],
+  "reversal_atoms": [
+    "-100",
+    "-20",
+    "20"
+  ],
+  "dependent_decisions_required": true,
+  "replenishes_reservation": false,
+  "reopens_closed_stage": false
+}

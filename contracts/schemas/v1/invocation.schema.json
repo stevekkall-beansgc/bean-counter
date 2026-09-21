@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:invocation:1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "ledger-invocation/1"
+    },
+    "id": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "agreement_id": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "binding_id": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "operation_id": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "chain_id": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "customer": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "source": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/source"
+    },
+    "input_digest": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/digest"
+    },
+    "unit": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/slug"
+    },
+    "maximum_quantity": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/decimal"
+    },
+    "maximum_exposure": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/money"
+    },
+    "authorized_at": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/timestamp"
+    },
+    "start_before": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/timestamp"
+    },
+    "outcome_deadline": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/timestamp"
+    },
+    "issuer": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "agreement_id",
+    "binding_id",
+    "operation_id",
+    "chain_id",
+    "customer",
+    "source",
+    "unit",
+    "maximum_quantity",
+    "maximum_exposure",
+    "authorized_at",
+    "start_before",
+    "issuer"
+  ]
+}

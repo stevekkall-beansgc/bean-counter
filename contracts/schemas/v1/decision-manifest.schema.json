@@ -1,0 +1,5 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:decision-manifest:1",
+  "$ref": "urn:ledgerlab:canonical-records:1#/$defs/decision-manifest"
+}

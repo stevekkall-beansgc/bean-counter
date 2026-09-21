@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:terms:1",
+  "oneOf": [
+    {
+      "$ref": "urn:ledgerlab:offer:1"
+    },
+    {
+      "$ref": "urn:ledgerlab:binding:1"
+    },
+    {
+      "$ref": "urn:ledgerlab:assent:1"
+    },
+    {
+      "$ref": "urn:ledgerlab:source-grant:1"
+    },
+    {
+      "$ref": "urn:ledgerlab:context:1"
+    },
+    {
+      "$ref": "urn:ledgerlab:roles:1"
+    },
+    {
+      "$ref": "urn:ledgerlab:payer-delegation:1"
+    }
+  ]
+}

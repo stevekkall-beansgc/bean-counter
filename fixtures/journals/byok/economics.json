@@ -1,0 +1,31 @@
+{
+  "schema": "ledger-economic-oracle/1",
+  "source": "detailed-design §§7,24; architecture §§9–10",
+  "currency": "USD",
+  "scale": 2,
+  "postings": [
+    {
+      "event": "call-1",
+      "component": "call.base",
+      "book": "retail",
+      "atoms": "10",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    }
+  ],
+  "expected_book_totals": {
+    "retail": "10",
+    "supplier": "0",
+    "cost_observation": "0"
+  },
+  "funding": "byok",
+  "reason": "BYOK_NO_HOST_COST",
+  "unknown_platform_cost_reason": "COST_UNKNOWN",
+  "unknown_is_zero": false
+}

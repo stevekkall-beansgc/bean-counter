@@ -1,0 +1,5 @@
+Ledger Lab
+Copyright 2026 BeanLabs contributors
+
+First-party code and contract artifacts are licensed under Apache-2.0.
+Dependency licenses remain their own. No third-party Rust dependency is included in the Phase 0 workspace.

@@ -1,0 +1,83 @@
+{
+  "schema": "ledger-economic-oracle/1",
+  "source": "detailed-design §§7,24; architecture §§9–10",
+  "currency": "USD",
+  "scale": 2,
+  "postings": [
+    {
+      "event": "g1",
+      "component": "generation.base",
+      "book": "retail",
+      "atoms": "100",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "g1",
+      "component": "generation.priority",
+      "book": "retail",
+      "atoms": "20",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "g1",
+      "component": "generation.discount",
+      "book": "retail",
+      "atoms": "-20",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      },
+      "basis_atoms": "100"
+    },
+    {
+      "event": "p1",
+      "component": "publication.base",
+      "book": "retail",
+      "atoms": "50",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "a1",
+      "component": "acquisition.premium",
+      "book": "retail",
+      "atoms": "500",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "customer-c",
+        "payer": "customer-c",
+        "beneficiary": "customer-c",
+        "recipient": "host-h"
+      }
+    }
+  ],
+  "expected_book_totals": {
+    "retail": "650"
+  },
+  "after_acquisition_reversal": "150"
+}

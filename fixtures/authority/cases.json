@@ -1,0 +1,127 @@
+{
+  "schema": "ledger-authority-oracle/1",
+  "base_fixture": "../journals/first-slice",
+  "scope": [
+    "demo",
+    "sandbox"
+  ],
+  "principal": "demo-app",
+  "cases": [
+    {
+      "name": "authorized-demo",
+      "overrides": {},
+      "expected": "accepted",
+      "accepted_row_delta": null
+    },
+    {
+      "name": "source-spoof",
+      "overrides": {
+        "source": "urn:provider:other"
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "inactive-grant",
+      "overrides": {
+        "grant_active": false
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "demo-in-real",
+      "overrides": {
+        "mode": "real",
+        "assent_mode": "demo"
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "no-real-assent",
+      "overrides": {
+        "assent_present": false
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "payer-not-beneficiary",
+      "overrides": {
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "delegation_present": false
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "payer-delegated",
+      "overrides": {
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "delegation_present": true
+      },
+      "expected": "authority_satisfied",
+      "accepted_row_delta": null
+    },
+    {
+      "name": "supplier-no-invocation",
+      "overrides": {
+        "supplier": true,
+        "invocation_present": false
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "supplier-offer-only",
+      "overrides": {
+        "supplier": true,
+        "binding_present": false
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "self-awarded-outcome",
+      "overrides": {
+        "source": "urn:provider:publisher",
+        "required_outcome_source": "urn:approved:attribution"
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "revoked-binding-old-work",
+      "overrides": {
+        "binding_active": false,
+        "historical_invocation_valid": true,
+        "grant_active": true
+      },
+      "expected": "authority_satisfied",
+      "accepted_row_delta": null
+    },
+    {
+      "name": "revoked-source-old-work",
+      "overrides": {
+        "historical_invocation_valid": true,
+        "grant_active": false
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    },
+    {
+      "name": "supplier-correction-denied",
+      "overrides": {
+        "supplier": true,
+        "correction_source_authorized": false
+      },
+      "expected": "rejected",
+      "accepted_row_delta": 0
+    }
+  ]
+}

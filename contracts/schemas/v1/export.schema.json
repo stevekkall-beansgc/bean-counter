@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:export:1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "ledger-export/1"
+    },
+    "logical_store_id": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "mode": {
+      "enum": [
+        "sandbox",
+        "real"
+      ]
+    },
+    "tenant": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "environment": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "freeze_generation": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/uint"
+    },
+    "logical_schema": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "backend": {
+      "enum": [
+        "sqlite",
+        "postgres"
+      ]
+    },
+    "backend_schema": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "canonical_profile": {
+      "const": "ledger-canonical-v1"
+    },
+    "hash_profile": {
+      "const": "ledgerlab-domain-sha256/1"
+    },
+    "dsl_versions": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
+    },
+    "evaluator_versions": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
+    },
+    "chain_heads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "chain_id": {
+            "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+          },
+          "revision": {
+            "$ref": "urn:ledgerlab:canonical-records:1#/$defs/uint"
+          }
+        },
+        "required": [
+          "chain_id",
+          "revision"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9_./-]+$"
+          },
+          "bytes": {
+            "$ref": "urn:ledgerlab:canonical-records:1#/$defs/uint"
+          },
+          "records": {
+            "$ref": "urn:ledgerlab:canonical-records:1#/$defs/uint"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "path",
+          "bytes",
+          "records",
+          "sha256"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "omissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "canonical_record_root": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/digest"
+    },
+    "root_digest": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/digest"
+    }
+  },
+  "required": [
+    "format",
+    "logical_store_id",
+    "mode",
+    "tenant",
+    "environment",
+    "snapshot_id",
+    "freeze_generation",
+    "logical_schema",
+    "backend",
+    "backend_schema",
+    "canonical_profile",
+    "hash_profile",
+    "dsl_versions",
+    "evaluator_versions",
+    "chain_heads",
+    "files",
+    "omissions",
+    "canonical_record_root",
+    "root_digest"
+  ]
+}

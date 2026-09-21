@@ -1,0 +1,7 @@
+# Exact versions observed in the existing local document-check environment.
+jsonschema==4.25.1
+referencing==0.37.0
+attrs==26.1.0
+rpds-py==2026.6.3
+jsonschema-specifications==2025.9.1
+PyYAML==6.0.2

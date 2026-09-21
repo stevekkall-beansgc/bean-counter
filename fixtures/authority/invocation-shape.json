@@ -1,0 +1,21 @@
+{
+  "schema": "ledger-invocation/1",
+  "id": "invoke-opt-2",
+  "agreement_id": "synthetic-optimizer",
+  "binding_id": "optimizer-v7",
+  "operation_id": "opt-2",
+  "chain_id": "campaign-2",
+  "customer": "agency-a",
+  "source": "urn:provider:optimizer",
+  "unit": "call",
+  "maximum_quantity": "1",
+  "maximum_exposure": {
+    "currency": "USD",
+    "scale": 2,
+    "atoms": "15"
+  },
+  "authorized_at": "2026-09-20T14:00:00.000000Z",
+  "start_before": "2026-09-20T15:00:00.000000Z",
+  "outcome_deadline": "2026-09-22T15:00:00.000000Z",
+  "issuer": "demo-admin"
+}

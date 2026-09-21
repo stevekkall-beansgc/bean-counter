@@ -1,0 +1,21 @@
+{
+  "schema": "ledger-offer/1",
+  "agreement_id": "synthetic-optimizer",
+  "version": 1,
+  "provider": "optimizer-o",
+  "service": "optimization",
+  "policy": "doc_2a6ca5dab1098f7ee0484b8b8931454bfbfbbed9a47a363472522206a3127e83",
+  "unit": "call",
+  "currency": "USD",
+  "scale": 2,
+  "success": "succeeded",
+  "maximum_quantity": "1",
+  "maximum_exposure": {
+    "currency": "USD",
+    "scale": 2,
+    "atoms": "15"
+  },
+  "allowed_modifiers": [],
+  "starts_at": "2026-09-20T14:00:00.000000Z",
+  "evidence_requirements": []
+}

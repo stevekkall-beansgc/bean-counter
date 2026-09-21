@@ -1,0 +1,20 @@
+[package]
+name = "ledgerlab-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The ledger executable; Phase 0 scaffold only."
+
+[lints]
+workspace = true
+
+[dependencies]
+ledgerlab.workspace = true
+
+[features]
+default = ["http"]
+http = []
+
+[[bin]]
+name = "ledger"
+path = "src/main.rs"

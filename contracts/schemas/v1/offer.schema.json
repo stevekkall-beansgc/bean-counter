@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:offer:1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "ledger-offer/1"
+    },
+    "agreement_id": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "provider": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "service": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/slug"
+    },
+    "policy": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/document-id"
+    },
+    "unit": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/slug"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "scale": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 18
+    },
+    "success": {
+      "const": "succeeded"
+    },
+    "maximum_quantity": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/decimal"
+    },
+    "maximum_exposure": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/money"
+    },
+    "allowed_modifiers": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:ledgerlab:canonical-records:1#/$defs/slug"
+      },
+      "uniqueItems": true
+    },
+    "starts_at": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/timestamp"
+    },
+    "ends_at": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/timestamp"
+    },
+    "evidence_requirements": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:ledgerlab:canonical-records:1#/$defs/slug"
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema",
+    "agreement_id",
+    "version",
+    "provider",
+    "service",
+    "policy",
+    "unit",
+    "currency",
+    "scale",
+    "success",
+    "maximum_quantity",
+    "maximum_exposure",
+    "allowed_modifiers",
+    "starts_at",
+    "evidence_requirements"
+  ]
+}

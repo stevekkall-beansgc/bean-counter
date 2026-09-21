@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["crates/ledgerlab-core", "crates/ledgerlab", "crates/ledgerlab-cli", "crates/ledgerlab-testkit"]
+default-members = ["crates/ledgerlab-core", "crates/ledgerlab", "crates/ledgerlab-cli"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+# Internal scaffold version only. MSRV remains a Phase 1 dependency-resolution gate.
+
+[workspace.dependencies]
+ledgerlab-core = { path = "crates/ledgerlab-core", version = "=0.0.0" }
+ledgerlab = { path = "crates/ledgerlab", version = "=0.0.0" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+overflow-checks = true

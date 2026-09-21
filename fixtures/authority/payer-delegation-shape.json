@@ -1,0 +1,17 @@
+{
+  "schema": "ledger-payer-delegation/1",
+  "bearer": "agency-a",
+  "payer": "parent-q",
+  "agreement_ids": [
+    "retail-v4"
+  ],
+  "maximum_exposure": {
+    "currency": "USD",
+    "scale": 2,
+    "atoms": "335"
+  },
+  "starts_at": "2026-09-20T14:00:00.000000Z",
+  "ends_at": "2026-09-30T14:00:00.000000Z",
+  "acceptor": "demo-admin",
+  "assent": "doc_a0715c2ae612c2833accfc10d96e045027c55dd376b41d90098d695d33dbd294"
+}

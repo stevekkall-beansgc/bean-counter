@@ -1,0 +1,46 @@
+{
+  "valid": [
+    "first-slice-input.json",
+    "decimal-equivalent.json",
+    "unicode-order.json"
+  ],
+  "invalid": [
+    "duplicate-key.json",
+    "negative-zero.json",
+    "fraction-token.json",
+    "exponent-token.json",
+    "unsafe-integer.json",
+    "lone-surrogate.json",
+    "bom.json",
+    "invalid-utf8.json"
+  ],
+  "schema_invalid": [
+    {
+      "name": "null_quantity",
+      "event": {
+        "schema": "ledger-event/1",
+        "id": "generation-1",
+        "source": "urn:demo:app",
+        "operation_id": "generation-1",
+        "type": "content.generated",
+        "customer": "demo-customer",
+        "chain": "demo-slice",
+        "quantity": null
+      }
+    },
+    {
+      "name": "provider_price",
+      "event": {
+        "schema": "ledger-event/1",
+        "id": "generation-1",
+        "source": "urn:demo:app",
+        "operation_id": "generation-1",
+        "type": "content.generated",
+        "customer": "demo-customer",
+        "chain": "demo-slice",
+        "quantity": "1",
+        "price": "1000"
+      }
+    }
+  ]
+}

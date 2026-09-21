@@ -1,0 +1,10 @@
+{
+  "schema": "ledger-event/1",
+  "id": "generation-1",
+  "source": "urn:demo:app",
+  "operation_id": "generation-1",
+  "type": "content.generated",
+  "customer": "demo-customer",
+  "chain": "demo-slice",
+  "quantity": "1"
+}

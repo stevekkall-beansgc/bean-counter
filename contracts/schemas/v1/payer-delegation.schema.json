@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:payer-delegation:1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "ledger-payer-delegation/1"
+    },
+    "bearer": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "payer": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "agreement_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+      },
+      "uniqueItems": true
+    },
+    "maximum_exposure": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/money"
+    },
+    "starts_at": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/timestamp"
+    },
+    "ends_at": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/timestamp"
+    },
+    "acceptor": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/text"
+    },
+    "assent": {
+      "$ref": "urn:ledgerlab:canonical-records:1#/$defs/document-id"
+    }
+  },
+  "required": [
+    "schema",
+    "bearer",
+    "payer",
+    "agreement_ids",
+    "maximum_exposure",
+    "starts_at",
+    "ends_at",
+    "acceptor",
+    "assent"
+  ]
+}

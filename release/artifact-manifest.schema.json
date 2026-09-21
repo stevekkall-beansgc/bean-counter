@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:release-artifact:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "product",
+    "version",
+    "commit",
+    "target",
+    "os_reference",
+    "cpu_baseline",
+    "rust_version",
+    "msrv",
+    "sqlx_version",
+    "sqlite_version",
+    "sqlite_source_id",
+    "canonical_profile",
+    "hash_profile",
+    "export_format",
+    "provenance_path",
+    "provenance_repository",
+    "provenance_workflow",
+    "onboarding_status",
+    "dirty",
+    "cargo_lock_hash",
+    "artifact_digest",
+    "sbom_digest",
+    "test_evidence_digest",
+    "sqlite_compile_options",
+    "postgres_tested_minors",
+    "api_version",
+    "dsl_version",
+    "evaluator_version",
+    "logical_schema",
+    "storage_readable",
+    "storage_writable"
+  ],
+  "properties": {
+    "product": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40,64}$"
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1
+    },
+    "os_reference": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cpu_baseline": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rust_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "msrv": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sqlx_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sqlite_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sqlite_source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hash_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "export_format": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance_repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance_workflow": {
+      "type": "string",
+      "minLength": 1
+    },
+    "onboarding_status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dirty": {
+      "const": false
+    },
+    "cargo_lock_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifact_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "sbom_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "test_evidence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "sqlite_compile_options": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "postgres_tested_minors": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "api_version": {
+      "const": "v1"
+    },
+    "dsl_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "evaluator_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "logical_schema": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "storage_readable": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "storage_writable": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    }
+  }
+}

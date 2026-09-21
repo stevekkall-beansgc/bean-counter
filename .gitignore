@@ -1,0 +1,14 @@
+/target/
+/work/
+.ledger/
+.env
+.env.*
+!.env.example
+*.db
+*.db-wal
+*.db-shm
+*.sqlite*
+*.log
+__pycache__/
+*.pyc
+.DS_Store

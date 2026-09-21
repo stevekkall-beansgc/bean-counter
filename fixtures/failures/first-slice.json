@@ -1,0 +1,150 @@
+{
+  "source": "detailed-design §26",
+  "writes": [
+    {
+      "name": "snapshot_document",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "snapshot_refs",
+      "items": 7,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "event",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "original_delivery_key",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "claim",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "effects",
+      "items": 2,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "actions",
+      "items": 2,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "action_sources",
+      "items": 2,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "action_dependency",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "explanations",
+      "items": 2,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "intention",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "delivery_state",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "control_transition",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "chain_head",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "chain_revision",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "manifest",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    },
+    {
+      "name": "receipt",
+      "items": 1,
+      "failpoints": [
+        "before_each",
+        "after_each"
+      ]
+    }
+  ],
+  "before_commit": "rollback_or_explicit_unknown",
+  "after_commit_lost_reply": "same_identity_returns_original_receipt",
+  "rollback_expected": "preseed state exactly intact",
+  "cancel": "each async boundary; complete journal or no accepted delta; discard uncertain connection",
+  "backends": [
+    "real_file_sqlite",
+    "postgres18",
+    "postgres17_before_v0"
+  ]
+}

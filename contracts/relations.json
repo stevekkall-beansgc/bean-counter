@@ -1,0 +1,71 @@
+{
+  "direction": "child_to_predecessor",
+  "same_scope_chain_customer": true,
+  "failed_work_may_have_zero_links": true,
+  "late_links_do_not_rerate": true,
+  "relations": [
+    {
+      "relation": "generated_from",
+      "children": [
+        "content.generated"
+      ],
+      "predecessors": [
+        "content.generated"
+      ],
+      "successful_min": 0,
+      "max": 8,
+      "economic_use": "provenance only"
+    },
+    {
+      "relation": "optimized_from",
+      "children": [
+        "tool.optimized"
+      ],
+      "predecessors": [
+        "content.generated"
+      ],
+      "successful_min": 1,
+      "max": 1,
+      "economic_use": "accepted tool context"
+    },
+    {
+      "relation": "published_as",
+      "children": [
+        "content.published"
+      ],
+      "predecessors": [
+        "content.generated",
+        "tool.optimized"
+      ],
+      "successful_min": 1,
+      "max": 1,
+      "economic_use": "linked publication price"
+    },
+    {
+      "relation": "attributed_to",
+      "children": [
+        "outcome.acquired"
+      ],
+      "predecessors": [
+        "content.published"
+      ],
+      "successful_min": 1,
+      "max": 1,
+      "economic_use": "approved outcome claim"
+    },
+    {
+      "relation": "consumes_service",
+      "children": [
+        "content.generated",
+        "tool.optimized",
+        "content.published"
+      ],
+      "predecessors": [
+        "tool.completed"
+      ],
+      "successful_min": 0,
+      "max": 8,
+      "economic_use": "nominated supplier operation"
+    }
+  ]
+}

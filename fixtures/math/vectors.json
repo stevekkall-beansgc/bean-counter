@@ -1,0 +1,125 @@
+{
+  "schema": "ledger-math-oracle/1",
+  "source": "detailed-design \u00a7\u00a77,24,26; independently reviewed document arithmetic",
+  "rounding": "exact rationals; final ties away from zero",
+  "allocation": "largest remainder, magnitude allocation then sign restoration; stable ascending tie keys",
+  "vectors": [
+    {
+      "name": "first_slice",
+      "expression": "base 100; discount = -round(100 * 20/100); total 80",
+      "expected": [
+        100,
+        -20,
+        80
+      ]
+    },
+    {
+      "name": "priority",
+      "expression": "100 + 20 - round(100 * 20/100)",
+      "expected": 100
+    },
+    {
+      "name": "unit_fraction",
+      "expression": "round(0.07 * 1.5 * 100)",
+      "expected": 11
+    },
+    {
+      "name": "signed_ties",
+      "expression": "round(each of [1.005, -1.005] * 100)",
+      "expected": [
+        101,
+        -101
+      ]
+    },
+    {
+      "name": "signed_non_ties",
+      "expression": "round(each of [1.0049, -1.0049] * 100)",
+      "expected": [
+        100,
+        -100
+      ]
+    },
+    {
+      "name": "additive",
+      "expression": "100 - 2 * round(100 / 10)",
+      "expected": 80
+    },
+    {
+      "name": "sequential",
+      "expression": "90 - round(90 / 10)",
+      "expected": 81
+    },
+    {
+      "name": "equal_allocation",
+      "expression": "allocate +100 and -100 among weights [1, 1, 1], ascending tie key",
+      "expected": [
+        [
+          34,
+          33,
+          33
+        ],
+        [
+          -34,
+          -33,
+          -33
+        ]
+      ]
+    },
+    {
+      "name": "weighted_allocation",
+      "expression": "allocate 11 among weights [1, 2, 3]",
+      "expected": [
+        2,
+        4,
+        5
+      ]
+    },
+    {
+      "name": "uncapped",
+      "expression": "retail 72+27+36+200; supplier generation 10+5; supplier acquisition 15+50; margin 335-(20+15+65)",
+      "expected": [
+        335,
+        15,
+        65,
+        235
+      ]
+    },
+    {
+      "name": "capped",
+      "expression": "credit -max(0,135+200-315); closure basis 200+credit; share round(basis*25/100); supplier acquisition 15+share; margin 315-(20+15+60)",
+      "expected": [
+        -20,
+        180,
+        45,
+        60,
+        220
+      ]
+    },
+    {
+      "name": "share_ceiling",
+      "expression": "min(round(1000 * 25/100), 50)",
+      "expected": 50
+    },
+    {
+      "name": "reversal",
+      "expression": "inverse of [-20, 500]",
+      "expected": [
+        20,
+        -500
+      ]
+    },
+    {
+      "name": "rounding_stage",
+      "expression": "[3 * round(0.004*100), round(0.012*100)]",
+      "expected": [
+        0,
+        1
+      ]
+    },
+    {
+      "name": "overflow_boundary",
+      "expression": "(10^30-1)+1 exceeds signed atom magnitude bound 10^30-1",
+      "expected": true
+    }
+  ]
+}

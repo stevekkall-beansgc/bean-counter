@@ -1,0 +1,1 @@
+{"chain":"demo-slice","customer":"demo-customer","evidence":[],"extensions":{},"id":"generation-1","links":[],"operation_id":"generation-1","quantity":"1","schema":"ledger-event/1","source":"urn:demo:app","status":"succeeded","type":"content.generated","unit":"call"}

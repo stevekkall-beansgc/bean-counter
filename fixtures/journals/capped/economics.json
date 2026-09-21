@@ -1,0 +1,209 @@
+{
+  "schema": "ledger-economic-oracle/1",
+  "source": "detailed-design §§7,24; architecture §§9–10",
+  "currency": "USD",
+  "scale": 2,
+  "postings": [
+    {
+      "event": "g2",
+      "component": "generation.base",
+      "book": "retail",
+      "atoms": "80",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "g2",
+      "component": "generation.discount",
+      "book": "retail",
+      "atoms": "-8",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      },
+      "basis_atoms": "80"
+    },
+    {
+      "event": "o2",
+      "component": "optimization.base",
+      "book": "retail",
+      "atoms": "30",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "o2",
+      "component": "optimization.discount",
+      "book": "retail",
+      "atoms": "-3",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      },
+      "basis_atoms": "30"
+    },
+    {
+      "event": "p2",
+      "component": "publication.base",
+      "book": "retail",
+      "atoms": "40",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "p2",
+      "component": "publication.discount",
+      "book": "retail",
+      "atoms": "-4",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      },
+      "basis_atoms": "40"
+    },
+    {
+      "event": "a2",
+      "component": "acquisition.premium",
+      "book": "retail",
+      "atoms": "200",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      }
+    },
+    {
+      "event": "a2",
+      "component": "acquisition.cap-credit",
+      "book": "retail",
+      "atoms": "-20",
+      "roles": {
+        "provider": "host-h",
+        "cost_originator": "host-h",
+        "bearer": "agency-a",
+        "payer": "parent-q",
+        "beneficiary": "brand-b",
+        "recipient": "host-h"
+      },
+      "basis_atoms": "200"
+    },
+    {
+      "event": "o2",
+      "component": "optimizer.base",
+      "book": "supplier",
+      "atoms": "10",
+      "roles": {
+        "provider": "optimizer-o",
+        "cost_originator": "optimizer-o",
+        "bearer": "host-h",
+        "payer": "host-h",
+        "beneficiary": "brand-b",
+        "recipient": "optimizer-o"
+      }
+    },
+    {
+      "event": "p2",
+      "component": "publisher.base",
+      "book": "supplier",
+      "atoms": "15",
+      "roles": {
+        "provider": "publisher-p",
+        "cost_originator": "publisher-p",
+        "bearer": "host-h",
+        "payer": "host-h",
+        "beneficiary": "brand-b",
+        "recipient": "publisher-p"
+      }
+    },
+    {
+      "event": "a2",
+      "component": "optimizer.premium",
+      "book": "supplier",
+      "atoms": "5",
+      "roles": {
+        "provider": "optimizer-o",
+        "cost_originator": "optimizer-o",
+        "bearer": "host-h",
+        "payer": "host-h",
+        "beneficiary": "brand-b",
+        "recipient": "optimizer-o"
+      }
+    },
+    {
+      "event": "a2",
+      "component": "publisher.share",
+      "book": "supplier",
+      "atoms": "45",
+      "roles": {
+        "provider": "publisher-p",
+        "cost_originator": "publisher-p",
+        "bearer": "host-h",
+        "payer": "host-h",
+        "beneficiary": "brand-b",
+        "recipient": "publisher-p"
+      },
+      "basis_atoms": "180"
+    },
+    {
+      "event": "g2",
+      "component": "model.observation",
+      "book": "cost_observation",
+      "atoms": "20",
+      "roles": {
+        "provider": "model-supplier",
+        "cost_originator": "model-supplier",
+        "bearer": "host-h",
+        "payer": "host-h",
+        "beneficiary": "brand-b",
+        "recipient": "model-supplier"
+      }
+    }
+  ],
+  "expected_book_totals": {
+    "retail": "315",
+    "supplier": "75",
+    "cost_observation": "20"
+  },
+  "cap_atoms": "315",
+  "prior_net_atoms": "135",
+  "closure_atoms": "200",
+  "cap_credit_atoms": "-20",
+  "share_percent": "25",
+  "share_atoms": "45",
+  "margin_atoms": "220",
+  "cap_reason": "CAP_APPLIED",
+  "payer_delegation_required": true
+}

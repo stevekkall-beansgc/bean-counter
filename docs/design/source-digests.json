@@ -1,0 +1,22 @@
+[
+  {
+    "path": "docs/design/sources/LEDGER-LAB-ARCHITECTURE.md",
+    "sha256": "91539414db8fef5476aadae1f452bde797c4cb3cd707e8022509eead4662ab3e"
+  },
+  {
+    "path": "docs/design/sources/LEDGER-LAB-RUST-FOUNDATION-PLAN.md",
+    "sha256": "547edf7c315e94915d2319a8b5b90c5bad012923082c0d019f65b2ecaf7f6448"
+  },
+  {
+    "path": "docs/design/sources/LEDGER-LAB-ADOPTION-COST-REVIEW.md",
+    "sha256": "a0c6512ca77b328cbe5b7f681c05902e5ffc5fd96e1121bb8bfd98d3b6a8b90f"
+  },
+  {
+    "path": "docs/design/sources/LEDGER-LAB-PLATFORM-NEUTRALITY-REVIEW.md",
+    "sha256": "540ef9dbdea47b7e5db45ed965d251f64fd3fe28efc1edfc48613de7efdb4a4f"
+  },
+  {
+    "path": "docs/design/sources/LEDGER-LAB-V0-DETAILED-DESIGN.md",
+    "sha256": "9a24e039e0057897bb689d30d59eeffe95ca22a8165dd626fb70937e36eaf3d9"
+  }
+]
