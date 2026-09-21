@@ -1,3 +1,107 @@
+# PostgreSQL Phase 1 — driver/TLS architecture gate resolved
+
+Status: **compliant driver path selected; bounded executable proof passes**.
+A completed PostgreSQL adapter, real-store conformance and SQLite parity are
+not claimed. [ADR 022](docs/adr/0022-postgres-driver-rustls.md) amends ADR 004/019
+for PostgreSQL. The original SQLx diagnostic evidence is retained below.
+
+## Selected path and validation
+
+Use tokio-postgres **0.7.18** with tokio-postgres-rustls **0.14.0**, Rustls
+**0.23.45**, explicit Ring and explicit per-connection roots. SQLx stays available
+for SQLite. The PG connector accepts a supported custom ClientConfig, so no
+fork, native roots, Prefer/plaintext fallback or ambient PG configuration is
+needed. Exact direct/transitive versions, source review, alternative comparison
+and dated RustSec review are in ADR 022 and the standalone proof lockfile.
+
+The proof files are under `crates/ledgerlab/src/store/postgres/proof/`.
+Sixteen parent tests pass; an additional ambient-environment child executes
+inside its parent test (listed as ignored in the outer run). Evidence includes:
+
+- Exact supplied-anchor membership and exclusion of **every** bundled public
+  anchor in PEM mode, using the same builder passed into Rustls. This is the
+  deterministic equivalent requested for public-root exclusion; a public-CA
+  server handshake is not claimed.
+- Private CA success; wrong host, expired leaf/intermediate CA, unrelated issuer,
+  malformed/empty/oversized PEM and plaintext refusal.
+- Actual startup immunity to synthetic PG*, HOME and SSL_CERT_* variables.
+- SERIALIZABLE begin message, typed INT8 parameter encoding/decoding, explicit
+  and drop rollback, cancellation/discard and connection-task termination.
+- Verified TLS cancellation request; refusal of plaintext and unrelated-CA
+  cancellation peers before any cancellation key is sent.
+- Acknowledged commit, explicit serialization/deadlock abort classification,
+  lost commit response and commit deadline returning Unknown.
+
+All network tests use in-memory generated certificates, synthetic credentials
+and bounded loopback peers. These peers implement selected PostgreSQL protocol
+messages; **they do not execute SQL, authenticate with SCRAM, or persist data**.
+The tests prove driver/TLS behavior, not server isolation or durability.
+
+Formatting, Clippy with `-D warnings`, proof no-default check, dependency/source
+audit, and `sh scripts/check.sh` pass on Rust 1.98.1 / macOS 26 Apple Silicon.
+The workspace remains the Phase 0 scaffold, so its zero product tests are not
+adapter evidence. The first loopback run was sandbox-blocked; the authorized
+rerun passed. The proof audit records 150 resolved packages including the proof
+package and target/test dependencies. Production Cargo files are untouched. The document inventory check is narrowly
+updated to require the frozen ADR set plus ADR 022; the freeze manifest and
+all earlier ADR bytes remain unchanged.
+
+## Reproduce and integrate
+
+```sh
+. /Users/stephenkall/Documents/Codex/2026-09-20/ledger-lab-v0/work/toolchain/activate.sh
+export RUSTUP_TOOLCHAIN=stable
+sh crates/ledgerlab/src/store/postgres/proof/run.sh
+PYTHONPATH=/Users/stephenkall/Documents/Codex/2026-09-20/ledger-lab-v0-detailed-design/work/check-deps \
+  sh scripts/check.sh
+```
+
+The proof runner stages its pinned manifest/lockfile into ignored
+`work/postgres-driver-proof` and runs offline. On a fresh machine, first copy
+`proof/driver-proof.toml` and `proof/driver-proof.lock` there as `Cargo.toml` and
+`Cargo.lock`, then fetch that manifest with Cargo using `--locked`. Run in an environment allowing 127.0.0.1 listeners. The source audit
+writes a local versions/features/licenses/source-hash inventory; it is not a
+vulnerability scanner. Historical `diagnostics/run.sh` still intentionally
+ends with exit 2 for the unchanged SQLx blocker.
+
+Integration owner steps:
+
+1. Review ADR 022 and cherry-pick this commit onto the assigned Phase 1 base.
+   This branch starts at diagnostic commit `530b3e9`; it changes no shared
+   ports, production manifests/lockfile, core, SQLite or frozen contracts.
+2. Resolve/pin the exact proof dependencies in the facade's production manifest,
+   retaining only SQLite features for SQLx. Re-audit the **unified production**
+   graph and advisory state; do not assume this standalone graph proves it.
+3. Move/adapt the small PG proof modules behind the existing private concrete
+   store boundary. Keep explicit resolved settings and per-mode roots. Select
+   and prove a bounded PG pool separately; no pool is introduced here.
+4. Adapt the agreed transaction port/GAT lifetime, typed parameterized SQL,
+   ordered locks, migrations and runtime/primary/durability checks. Own PG
+   migration checksums/history independently of SQLx's migration runner.
+5. Preserve pre-commit cancellation and bounded commit drain at the coordinator.
+   Abort/discard uncertain sessions, retain original identity and OutcomeUnknown,
+   and resolve against the authoritative primary. Do not mistake CancelToken
+   send, queued rollback or connection close for confirmation of rollback.
+6. Run the complete real PG18 slice and failure/concurrency/cleanup suite, then
+   PG17 and the native matrix before making parity or release claims.
+
+No postgres/initdb/pg_ctl/psql executable was available on PATH during this
+review; the diagnostic lane also recorded no running Docker daemon. This task
+started no server, container, service or cloud resource. Real-PG validation was
+optional for the driver proof and remains unexecuted. No production module is
+wired, no migration is applied and no release/push was performed.
+
+Still required: actual authentication, schema/migrations, fsync/full_page_writes,
+synchronous_commit and primary/role checks, ordered-lock races, rollback/drop/
+cancel/pool cleanup at every await, durable commit ambiguity resolution,
+reopen/readback, all 27 writes/54 failure positions, exact 25 immutable rows/
+29 manifest members/80 atoms, SQLite/PG parity, public-CA handshake, PG17/18 and
+Linux/Mac/Windows/read-only-root gates.
+
+---
+
+## Historical SQLx gate report (unchanged evidence)
+
 # PostgreSQL Phase 1 — stopped at the SQLx TLS gate
 
 Status: **BLOCKED, not a completed PostgreSQL adapter.** Inspected and tested on

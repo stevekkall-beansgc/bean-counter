@@ -1,0 +1,22 @@
+# Standalone proof only: integration owns production Cargo files.
+[package]
+name = "ledgerlab-postgres-driver-proof"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+path = "../../crates/ledgerlab/src/store/postgres/proof/lib.rs"
+
+[dependencies]
+tokio-postgres = { version = "=0.7.18", default-features = false, features = ["runtime"] }
+tokio-postgres-rustls = { version = "=0.14.0", default-features = false, features = ["ring"] }
+tokio = { version = "=1.53.1", default-features = false, features = ["rt", "macros", "time", "net", "io-util", "sync"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = { version = "=1.0.9", default-features = false }
+
+[dev-dependencies]
+tokio-rustls = { version = "=0.26.5", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "=0.14.10", default-features = false, features = ["ring", "pem"] }

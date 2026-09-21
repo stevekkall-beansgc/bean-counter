@@ -221,7 +221,11 @@ def main():
     assert not targets['certified']
     compatibility = load('contracts/compatibility.json')
     assert compatibility['msrv'] is None and not compatibility['implemented_storage_write_versions']
-    assert len(list((ROOT / 'docs/adr').glob('[0-9]*.md'))) == 21
+    # Keep the frozen Phase 0 register intact, plus the explicitly assigned PG
+    # driver amendment. Do not rewrite frozen ADRs/digests to change a driver.
+    expected_adrs = {p for p in frozen['files'] if re.fullmatch(r'docs/adr/[0-9]+[^/]*\.md', p)}
+    expected_adrs.add('docs/adr/0022-postgres-driver-rustls.md')
+    assert {str(p.relative_to(ROOT)) for p in (ROOT / 'docs/adr').glob('[0-9]*.md')} == expected_adrs
     result = {'status': 'passed', 'schemas': len(schemas), 'additional_negative_checks': rejected,
               'economic_journals': economic_count, 'authority_scenarios': len(authorities),
               'arithmetic_groups': len(math_vectors['vectors']),
