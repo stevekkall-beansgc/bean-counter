@@ -60,9 +60,8 @@ Node CLI: `node validate.mjs FILE`, identical contract. No subprocess cross-call
 `replay(trace)`; CLI fixture file envelope is `{"format":"r3-trace/1","initial":
 {...},"commands":[...]}`. `initial` has externally trusted `authority_documents`
 (array of raw digest strings), `grant_authentications` (array of raw digests),
-`original_base_receipt`, `original_base_manifest`, `initial_resources` (one count
-of complete slot credits per host), `optional_rounds` (count), `initial_counters`
-(map of named q,R pairs, omitted names mean0,0), and `writer_capabilities` (map
+`original_base_receipt`, `original_base_manifest`, `initial_resources` (one full `resource` vector per host), `optional_rounds` (count), `initial_counters`
+(map host→map counter→{q,R}, omitted names mean0,0), and `writer_capabilities` (map
 logical gateway→{epoch,journal_head,fence}, supplied by trusted actual adapter).
 These are synthetic observations in contract fixtures, never a claim that caller
 JSON can grant authority in production. Commands are structural command objects.
@@ -130,7 +129,8 @@ staging until same-identity authoritative resolution. Exact retry is read-only.
 | READY | Every fenced gateway drained, exact selected cutoffs and actual high-waters; revalidation failure appends nothing | round |
 | CLOSE | READY, current authority and all family/prerequisite/entitlement/pool heads; atomic bounded set certificate, complete last-family supplier transitions (including zero held), COMMITTED CAS | round |
 | ABORT | CANCELLABLE and DRAINING/READY only; ABORTED CAS. FINISH_ONLY refusal leaves finish path intact. Token progress stays permanent | optional round |
-| INSTALL | Exact terminal round/outcome/predecessor; install even if gateway never saw BEGIN, retaining tombstone; stale controls cannot touch R+1; after COMMITTED record actual close-time floor, never clamp clock | round local install plus central installation acknowledgment |
+| INSTALL | Exact terminal round/outcome/predecessor; install even if gateway never saw BEGIN, retaining tombstone; stale controls cannot touch R+1; after COMMITTED record actual close-time floor, never clamp clock | round local installation slot |
+| ACK_INSTALL | Exact known local terminal installation proof observed at center; mark this gateway acknowledged, allowing next round only after all required acknowledgments | round central acknowledgment slot |
 | SUPPLEMENT | Existing pending case; current submit authority, cumulative16 evidence maximum; no changed submission or replacement receipt | optional command |
 | DECIDE | Pending imported case; explicit ALLOW/DENY, authority; ordinary requires open eligible family, accepted prerequisites, original terms/windows/supplier hold; adjustment requires unavailable ordinary path, separate assent/roles/pool/caps; DENY finalizes case only | optional decision |
 | CORRECT | Existing ALLOW current revision, separate correction authority/window, permitted original replacement code; inverse exact previous signed amount + replacement, no new entitlement | optional correction |
@@ -193,3 +193,75 @@ PG18 unknown commit, cancellation/reopen, physical pages/WAL/staging/reader pins
 actual two-process exclusion, stale backups, and observed nonposting statements/
 effects all remain mandatory independent runtime gates. A capability field in a
 fixture is a declared trusted input, never real writer-fencing evidence.
+
+## Interface refinement A (supersedes abbreviated trace fields above)
+
+Each segment explicitly names its owning `host`. Central host is ENROLL.store;
+local hosts are logical gateway IDs. Local kinds are LOCAL_GRANT, ACTIVATE,
+RECEIVE, RETURN_UNUSED, LOCAL_TERMINAL, SEAL_BEGIN, SEALED, INSTALL and
+REPLACE_WRITER. All other kinds commit centrally. Each host has independent
+ordinal/previous-segment/replay-root. Authority.head binds that host's prior root.
+A trace is only an interleaving schedule of these separate journals. Its aggregate
+summary root H(replay,sorted[[host,root]...]) is a test manifest root, not a central
+head. No global command position establishes cross-journal authority.
+
+IMPORT/RECONCILE now carry closed source fact proof fields: store/scope/
+registration/host, ordinal/segment/root, exact fact kind/full key/body hash/bytes,
+and trusted observation reference. Membership is checked against the exact source
+segment result/inventory through the externally authenticated named historical
+prefix. Later journal activity does not invalidate that proof. Caller-selected
+roots and arbitrary equal body hashes are insufficient. Historical reconstruction
+starts at the source capability/enrollment anchor or a locally verified cursor.
+The cross-journal reference graph must be acyclic: local grant→central claim→local
+receipt/disposal→central import/reconciliation. Reject unresolved/forward/cyclic
+references. Original allocation2 can import before dependent alias allocation1.
+
+Each segment has `objects`, a bounded typed exact-object inventory. Body is Base64
+of strict canonical bytes; bytes and raw SHA256 bind decoded bytes and full key.
+Kinds are closed. Previously retained objects are hash dependencies, not recopied.
+Imported receipt includes exact submission/evidence and original receipt bodies.
+An alias proof identifies the exact mapping plus immutable original receipt/token.
+Unused proof identifies the permanent grant-token tombstone. Source segments are
+referenced; they are never recursively embedded. Both decoded trust total and
+encoded complete segment total are checked before commit. A reader charges source
+chain traversal, every fetched object and proof page to its explicit budget.
+
+ENROLL must retain complete original-profile base acceptance companions and the
+exact original manifest/receipt in the *same central atomic operation*. Initial
+base hashes are expected inputs, not evidence of atomic acceptance. Initial
+`original_objects` supplies their exact immutable typed inventory, <=128 objects
+and <=1048576 decoded bytes, validated against the inherited frozen profile. No
+separately preaccepted target may be enrolled. Runtime must construct the original
+validated acceptance plan and enrollment together; absence of this real seam fails
+actual enrollment acceptance even if a synthetic canonical fixture is consistent.
+
+A family has an explicit RETAIL or SUPPLIER book. Ordinary amount belongs to that
+book: supplier outcomes consume supplier hold, never customer amount. Retail
+families use supplier_pool="none". Actions preserve book and exact signed amount.
+Adjustment pools contain up to3 independent direction/roles/assent authorizations;
+one shared pool can therefore fund +100 and−150 with different consenting roles.
+A present payer_delegation is a retained authenticated document hash. Absent is
+allowed only when payer==bearer. No fabricated null delegation. UNKNOWN lifecycle
+without a verified head omits prefix; it must not invent a zero-filled head.
+
+Resource vectors are per-host, six-dimensional. `initial_resources[host]` gives
+provisioned capacity, `initial_counters[host][name]={q,R}` gives prior obligations.
+`protocol/resources.json` derives complete retained slot/bundle costs. Reserve all
+retained dimensions additively per owner; workspace is the maximum slot workspace
+within an owner, held additively across owners. This deliberately conservative
+profile gives each live owner its own bounded recoverable staging slot. Only one
+operation at a time uses an owner's slot; unknown outcome keeps it held. Local
+grant.resources/counters must cover its entire local_grant bundle before export.
+Enrollment pre-funds32 finish_central bundles and32 finish_gateway bundles per
+gateway; optional cancellable rounds allocate separate complete bundles. Resource
+release requires exact terminal proof. Used immutable bytes/pages never return to
+free. ACK_INSTALL is a separate central commit after local INSTALL.
+
+`counter_increments` in the worksheet is a per-slot maximum credit vector, not
+permission to increment unrelated semantic counters. Actual fields increment only
+for their owning transition. RECEIVE creates one receipt position for NEW_CASE,
+zero for ALIAS; IMPORT adds one original receipt-import fact or zero for ALIAS;
+DECIDE only ALLOW increments accepted economic revision. Head/segment/resource
+revision increments occur once per committed transition. An optional operation
+cannot consume reserved future headroom. Retrying existing identity changes no
+counter, segment, receipt, grant, allocation, epoch or staging identity.

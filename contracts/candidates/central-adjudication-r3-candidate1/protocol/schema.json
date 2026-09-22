@@ -134,6 +134,9 @@
         },
         "recipient": {
           "$ref": "#/$defs/id"
+        },
+        "payer_delegation": {
+          "$ref": "#/$defs/digest"
         }
       }
     },
@@ -266,6 +269,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "book",
         "key",
         "prerequisites",
         "ordinary_atoms",
@@ -281,6 +285,12 @@
         "correction_by"
       ],
       "properties": {
+        "book": {
+          "enum": [
+            "RETAIL",
+            "SUPPLIER"
+          ]
+        },
         "key": {
           "$ref": "#/$defs/family"
         },
@@ -364,6 +374,30 @@
         }
       }
     },
+    "pool_authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direction",
+        "roles",
+        "assent"
+      ],
+      "properties": {
+        "direction": {
+          "enum": [
+            "POSITIVE",
+            "NEGATIVE",
+            "ZERO"
+          ]
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
     "pool": {
       "type": "object",
       "additionalProperties": false,
@@ -373,8 +407,7 @@
         "positive",
         "negative",
         "gross",
-        "roles",
-        "assent"
+        "authorizations"
       ],
       "properties": {
         "id": {
@@ -392,11 +425,14 @@
         "gross": {
           "$ref": "#/$defs/count"
         },
-        "roles": {
-          "$ref": "#/$defs/roles"
-        },
-        "assent": {
-          "$ref": "#/$defs/digest"
+        "authorizations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pool_authorization"
+          },
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true
         }
       }
     },
@@ -549,6 +585,126 @@
         },
         "authentication": {
           "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "fact_kind": {
+      "enum": [
+        "GRANT",
+        "CLAIM",
+        "RECEIPT",
+        "ALIAS",
+        "RETURNED_UNUSED",
+        "RETIREMENT",
+        "RECONCILIATION",
+        "INSTALLATION",
+        "ORIGINAL_BASE",
+        "AUTHORITY"
+      ]
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "scope",
+        "registration",
+        "host",
+        "ordinal",
+        "segment",
+        "root",
+        "fact_kind",
+        "full_key",
+        "body_hash",
+        "bytes",
+        "trusted_observation_ref"
+      ],
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "registration": {
+          "$ref": "#/$defs/id"
+        },
+        "host": {
+          "$ref": "#/$defs/id"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/count"
+        },
+        "segment": {
+          "$ref": "#/$defs/digest"
+        },
+        "root": {
+          "$ref": "#/$defs/digest"
+        },
+        "fact_kind": {
+          "$ref": "#/$defs/fact_kind"
+        },
+        "full_key": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/delivery"
+            },
+            {
+              "$ref": "#/$defs/case"
+            },
+            {
+              "$ref": "#/$defs/id"
+            }
+          ]
+        },
+        "body_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "trusted_observation_ref": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "full_key",
+        "body",
+        "body_hash",
+        "bytes"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/fact_kind"
+        },
+        "full_key": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/delivery"
+            },
+            {
+              "$ref": "#/$defs/case"
+            },
+            {
+              "$ref": "#/$defs/id"
+            }
+          ]
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 349528,
+          "x-base64-bytes": 262144
+        },
+        "body_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "bytes": {
+          "$ref": "#/$defs/count"
         }
       }
     },
@@ -713,6 +869,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "book",
         "case",
         "revision",
         "kind",
@@ -722,6 +879,12 @@
         "assent"
       ],
       "properties": {
+        "book": {
+          "enum": [
+            "RETAIL",
+            "SUPPLIER"
+          ]
+        },
         "case": {
           "$ref": "#/$defs/case"
         },
@@ -1012,11 +1175,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "token"
+        "token",
+        "proof"
       ],
       "properties": {
         "token": {
           "$ref": "#/$defs/id"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1024,11 +1191,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "token"
+        "token",
+        "proof"
       ],
       "properties": {
         "token": {
           "$ref": "#/$defs/id"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1235,6 +1406,22 @@
             "COMMITTED",
             "ABORTED"
           ]
+        }
+      }
+    },
+    "ack_install": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "gateway"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
         }
       }
     },
@@ -1874,6 +2061,30 @@
           ],
           "properties": {
             "kind": {
+              "const": "ACK_INSTALL"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/ack_install"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
               "const": "SUPPLEMENT"
             },
             "key": {
@@ -2078,15 +2289,20 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "host",
         "profile",
         "ordinal",
         "previous",
         "previous_root",
         "command",
         "result",
-        "dependencies"
+        "dependencies",
+        "objects"
       ],
       "properties": {
+        "host": {
+          "$ref": "#/$defs/id"
+        },
         "profile": {
           "const": "central-adjudication-r3/1"
         },
@@ -2113,6 +2329,15 @@
           "minItems": 0,
           "maxItems": 128,
           "uniqueItems": true
+        },
+        "objects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/object"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
         }
       }
     },
@@ -2124,7 +2349,6 @@
         "knowledge",
         "current_lifecycle",
         "central_admission",
-        "prefix",
         "coverage"
       ],
       "properties": {
