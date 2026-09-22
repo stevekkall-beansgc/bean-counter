@@ -1,91 +1,91 @@
 [
   {
     "name": "S00",
-    "through": 1,
+    "through": 5,
     "customer_atoms": "10000",
     "supplier_booked": "3000"
   },
   {
     "name": "S01",
-    "through": 7,
+    "through": 11,
     "customer_atoms": "10000",
     "supplier_booked": "3000"
   },
   {
     "name": "S02",
-    "through": 8,
+    "through": 12,
     "customer_atoms": "11200",
     "supplier_booked": "3000"
   },
   {
     "name": "S03",
-    "through": 14,
+    "through": 18,
     "customer_atoms": "11200",
     "supplier_booked": "3000"
   },
   {
     "name": "S04",
-    "through": 15,
+    "through": 19,
     "customer_atoms": "11700",
     "supplier_booked": "3000"
   },
   {
     "name": "S05",
-    "through": 21,
+    "through": 25,
     "customer_atoms": "11700",
     "supplier_booked": "3000"
   },
   {
     "name": "S06",
-    "through": 22,
+    "through": 26,
     "customer_atoms": "11700",
     "supplier_booked": "3000"
   },
   {
     "name": "S07",
-    "through": 40,
+    "through": 44,
     "customer_atoms": "11700",
     "supplier_booked": "3000"
   },
   {
     "name": "S08",
-    "through": 87,
+    "through": 91,
     "customer_atoms": "11700",
     "supplier_booked": "3000"
   },
   {
     "name": "S09",
-    "through": 88,
+    "through": 92,
     "customer_atoms": "11800",
     "supplier_booked": "3000"
   },
   {
     "name": "S10",
-    "through": 89,
+    "through": 93,
     "customer_atoms": "11650",
     "supplier_booked": "3000"
   },
   {
     "name": "S11",
-    "through": 90,
+    "through": 94,
     "customer_atoms": "11650",
     "supplier_booked": "3000"
   },
   {
     "name": "S12",
-    "through": 91,
+    "through": 95,
     "customer_atoms": "11450",
     "supplier_booked": "3000"
   },
   {
     "name": "S13",
-    "through": 114,
+    "through": 118,
     "customer_atoms": "11450",
     "supplier_booked": "3000"
   },
   {
     "name": "S14",
-    "through": 137,
+    "through": 141,
     "customer_atoms": "11450",
     "supplier_booked": "3000"
   }

@@ -590,6 +590,9 @@
     },
     "fact_kind": {
       "enum": [
+        "ENROLLMENT",
+        "ENROLL_PREPARATION",
+        "ROUND_PREPARATION",
         "GRANT",
         "CLAIM",
         "RECEIPT",
@@ -671,10 +674,39 @@
         }
       }
     },
+    "object_origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "scope",
+        "registration",
+        "host",
+        "ordinal"
+      ],
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "registration": {
+          "$ref": "#/$defs/id"
+        },
+        "host": {
+          "$ref": "#/$defs/id"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
     "object": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "origin",
         "kind",
         "full_key",
         "body",
@@ -682,6 +714,9 @@
         "bytes"
       ],
       "properties": {
+        "origin": {
+          "$ref": "#/$defs/object_origin"
+        },
         "kind": {
           "$ref": "#/$defs/fact_kind"
         },
@@ -952,10 +987,81 @@
         }
       }
     },
+    "entitlement_head": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "UNCONSUMED"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "case",
+            "revision",
+            "head"
+          ],
+          "properties": {
+            "status": {
+              "const": "CONSUMED"
+            },
+            "case": {
+              "$ref": "#/$defs/case"
+            },
+            "revision": {
+              "$ref": "#/$defs/count"
+            },
+            "head": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        }
+      ]
+    },
+    "family_head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "terms",
+        "closed",
+        "unavailable",
+        "entitlement"
+      ],
+      "properties": {
+        "family": {
+          "$ref": "#/$defs/family"
+        },
+        "terms": {
+          "$ref": "#/$defs/digest"
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "unavailable": {
+          "type": "boolean"
+        },
+        "entitlement": {
+          "$ref": "#/$defs/entitlement_head"
+        }
+      }
+    },
     "certificate": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "predecessor",
+        "enrollment",
+        "family_heads",
         "families",
         "unavailable",
         "supplier_before",
@@ -965,6 +1071,21 @@
         "closed_at"
       ],
       "properties": {
+        "predecessor": {
+          "$ref": "#/$defs/digest"
+        },
+        "enrollment": {
+          "$ref": "#/$defs/digest"
+        },
+        "family_heads": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/family_head"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
         "families": {
           "type": "array",
           "items": {
@@ -1018,10 +1139,75 @@
         }
       }
     },
+    "prepare_enroll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "scope",
+        "registration",
+        "gateway",
+        "namespace",
+        "intent"
+      ],
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "registration": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "namespace": {
+          "$ref": "#/$defs/namespace"
+        },
+        "intent": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "prepare_round": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "predecessor",
+        "gateway",
+        "mode",
+        "enrollment",
+        "proof"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "predecessor": {
+          "$ref": "#/$defs/count"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "const": "CANCELLABLE"
+        },
+        "enrollment": {
+          "$ref": "#/$defs/digest"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
+        }
+      }
+    },
     "enroll": {
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "preparations",
         "registration",
         "store",
         "scope",
@@ -1037,6 +1223,15 @@
         "pools"
       ],
       "properties": {
+        "preparations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/proof"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
         "registration": {
           "$ref": "#/$defs/id"
         },
@@ -1108,11 +1303,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "grant"
+        "grant",
+        "proof"
       ],
       "properties": {
         "grant": {
           "$ref": "#/$defs/grant"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1324,6 +1523,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "preparations",
         "round",
         "predecessor",
         "mode",
@@ -1331,6 +1531,15 @@
         "gateways"
       ],
       "properties": {
+        "preparations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/proof"
+          },
+          "minItems": 0,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
         "round": {
           "$ref": "#/$defs/count"
         },
@@ -1655,6 +1864,54 @@
     },
     "command": {
       "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "PREPARE_ENROLL"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/prepare_enroll"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "PREPARE_ROUND"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/prepare_round"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
         {
           "type": "object",
           "additionalProperties": false,
@@ -2555,7 +2812,7 @@
             "$ref": "#/$defs/object"
           },
           "minItems": 0,
-          "maxItems": 128,
+          "maxItems": 133,
           "uniqueItems": true
         }
       }

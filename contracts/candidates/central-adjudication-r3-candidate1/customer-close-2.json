@@ -1,0 +1,326 @@
+{
+  "host": "center",
+  "profile": "central-adjudication-r3/1",
+  "ordinal": "62",
+  "previous": "63998fb9fecfcdf776882557e0e3a834841fb5d7f5e0bdd6780a3006ad8fe075",
+  "previous_root": "5e5dcfced2c2c79b30e04137fdc686c79c1eefbf7ce3d3ca37ffa2dfeea9c93a",
+  "command": {
+    "kind": "CLOSE",
+    "key": [
+      [
+        "synthetic",
+        "sandbox"
+      ],
+      "control",
+      "110"
+    ],
+    "payload": {
+      "round": "2",
+      "closed_at": "2026-09-22T12:00:00.000000Z"
+    },
+    "authority": {
+      "principal": "host",
+      "permission": "close",
+      "document": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "revision": "1",
+      "observed_at": "2026-09-22T12:00:00.000000Z",
+      "command": "3fa1ef3f04c651dc5b105e4404282518a765b4574ad4d142e308493d7030c858",
+      "head": "5e5dcfced2c2c79b30e04137fdc686c79c1eefbf7ce3d3ca37ffa2dfeea9c93a"
+    }
+  },
+  "result": {
+    "status": "COMMITTED",
+    "code": "CLOSE",
+    "effects": [
+      {
+        "kind": "CLOSURE",
+        "body": {
+          "predecessor": "5e5dcfced2c2c79b30e04137fdc686c79c1eefbf7ce3d3ca37ffa2dfeea9c93a",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "family_heads": [
+            {
+              "family": [
+                [
+                  "synthetic",
+                  "sandbox"
+                ],
+                "agreement",
+                "resolution",
+                "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+              ],
+              "terms": "04590f10355c9cd43cfe4ed0a990f8e25a7341ebec81e22700dc4af14fc6b5b9",
+              "closed": false,
+              "unavailable": false,
+              "entitlement": {
+                "status": "CONSUMED",
+                "case": [
+                  [
+                    [
+                      "synthetic",
+                      "sandbox"
+                    ],
+                    "agreement",
+                    "resolution",
+                    "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+                  ],
+                  "source",
+                  "resolution"
+                ],
+                "revision": "1",
+                "head": "22a5b40a20ccc0fd036d6eb3e990394f9fe902471a157be8c29679c8d4eef9f3"
+              }
+            },
+            {
+              "family": [
+                [
+                  "synthetic",
+                  "sandbox"
+                ],
+                "agreement",
+                "upsell",
+                "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+              ],
+              "terms": "8fa0ecbe07589efdf3e558b17abea014874a5244cdc9a507a893cf857dab31ae",
+              "closed": false,
+              "unavailable": false,
+              "entitlement": {
+                "status": "CONSUMED",
+                "case": [
+                  [
+                    [
+                      "synthetic",
+                      "sandbox"
+                    ],
+                    "agreement",
+                    "upsell",
+                    "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+                  ],
+                  "source",
+                  "qualified-upsell"
+                ],
+                "revision": "2",
+                "head": "b4348e892c7306cd48c9b71bab4220bc0aa799038f871781b799c39964940cfd"
+              }
+            },
+            {
+              "family": [
+                [
+                  "synthetic",
+                  "sandbox"
+                ],
+                "agreement",
+                "late-minus",
+                "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+              ],
+              "terms": "81b46c75df782f6e474364d0988c2f126e44a818274f069528fde7ee1205b193",
+              "closed": true,
+              "unavailable": true,
+              "entitlement": {
+                "status": "CONSUMED",
+                "case": [
+                  [
+                    [
+                      "synthetic",
+                      "sandbox"
+                    ],
+                    "agreement",
+                    "late-minus",
+                    "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+                  ],
+                  "source",
+                  "late-3"
+                ],
+                "revision": "1",
+                "head": "065356aad0cf8d966b6270e26299bcf9b5d371a0bd55af51fb15a314047279d6"
+              }
+            },
+            {
+              "family": [
+                [
+                  "synthetic",
+                  "sandbox"
+                ],
+                "agreement",
+                "late-plus",
+                "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+              ],
+              "terms": "025343e502439d2d88aa9656e26c3f52d18450db3012c0a7dff05207663cd562",
+              "closed": true,
+              "unavailable": true,
+              "entitlement": {
+                "status": "CONSUMED",
+                "case": [
+                  [
+                    [
+                      "synthetic",
+                      "sandbox"
+                    ],
+                    "agreement",
+                    "late-plus",
+                    "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+                  ],
+                  "source",
+                  "late-2"
+                ],
+                "revision": "1",
+                "head": "a0087ca0ef1b390dee46ca9d44b21e8b00a09f069c4c19daac8520ceeb543fb5"
+              }
+            },
+            {
+              "family": [
+                [
+                  "synthetic",
+                  "sandbox"
+                ],
+                "agreement",
+                "late-zero",
+                "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+              ],
+              "terms": "f0a21a3d47e358969bd3553539762c7a63b0158b601988fcf40b0d8d806e60e8",
+              "closed": true,
+              "unavailable": true,
+              "entitlement": {
+                "status": "CONSUMED",
+                "case": [
+                  [
+                    [
+                      "synthetic",
+                      "sandbox"
+                    ],
+                    "agreement",
+                    "late-zero",
+                    "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+                  ],
+                  "source",
+                  "late-4"
+                ],
+                "revision": "1",
+                "head": "6a313ed3b4dd9875415d9518ffcba3d7fed4785f4ed945e80bfe725d1bce0e15"
+              }
+            }
+          ],
+          "families": [
+            [
+              [
+                "synthetic",
+                "sandbox"
+              ],
+              "agreement",
+              "resolution",
+              "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+            ]
+          ],
+          "unavailable": [
+            [
+              [
+                "synthetic",
+                "sandbox"
+              ],
+              "agreement",
+              "late-minus",
+              "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+            ],
+            [
+              [
+                "synthetic",
+                "sandbox"
+              ],
+              "agreement",
+              "late-plus",
+              "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+            ],
+            [
+              [
+                "synthetic",
+                "sandbox"
+              ],
+              "agreement",
+              "late-zero",
+              "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+            ],
+            [
+              [
+                "synthetic",
+                "sandbox"
+              ],
+              "agreement",
+              "resolution",
+              "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+            ]
+          ],
+          "supplier_before": [],
+          "supplier_after": [],
+          "round": "2",
+          "cutoffs": [
+            {
+              "gateway": "g2",
+              "status": "COMPLETE_GATEWAY_CUTOFF",
+              "cutoff": "0",
+              "allocation_prefix": "0",
+              "receipt_high": "0",
+              "receipt_prefix": "0",
+              "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
+              "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
+              "observation": "0a1c0cb27800ab1a96bc16e8bcf6b27d604680ed108ada41e7336ec6591a6d56"
+            },
+            {
+              "gateway": "g1",
+              "status": "COMPLETE_GATEWAY_CUTOFF",
+              "cutoff": "2",
+              "allocation_prefix": "2",
+              "receipt_high": "2",
+              "receipt_prefix": "2",
+              "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
+              "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
+              "observation": "acd561badd493aded8f8fcb37d8fbafcd59fba99d2ef7ca1f81586db4ffcab69"
+            },
+            {
+              "gateway": "g0",
+              "status": "COMPLETE_GATEWAY_CUTOFF",
+              "cutoff": "2",
+              "allocation_prefix": "2",
+              "receipt_high": "2",
+              "receipt_prefix": "2",
+              "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
+              "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
+              "observation": "00daa64adee807905820a446e63432bad56b67c1311bdfe8045a9d1c253587be"
+            },
+            {
+              "gateway": "g3",
+              "status": "COMPLETE_GATEWAY_CUTOFF",
+              "cutoff": "2",
+              "allocation_prefix": "2",
+              "receipt_high": "2",
+              "receipt_prefix": "2",
+              "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
+              "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
+              "observation": "74dffd0cb511348dbe1d7615f88cdca7d36f3b2832f48a1ff04fd2f24b1944ab"
+            }
+          ],
+          "closed_at": "2026-09-22T12:00:00.000000Z"
+        }
+      }
+    ],
+    "root": "3229252570423b5611b48c42467472a2c50e534f35befb667aba725fd072e147"
+  },
+  "dependencies": [],
+  "objects": [
+    {
+      "origin": {
+        "store": "center",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "registration": "registration",
+        "host": "center",
+        "ordinal": "62"
+      },
+      "kind": "TERMINAL",
+      "full_key": "2",
+      "body": "eyJlZmZlY3RzIjpbeyJib2R5Ijp7ImNsb3NlZF9hdCI6IjIwMjYtMDktMjJUMTI6MDA6MDAuMDAwMDAwWiIsImN1dG9mZnMiOlt7ImFsbG9jYXRpb25fcHJlZml4IjoiMCIsImN1dG9mZiI6IjAiLCJkaXNwb3NpdGlvbl9yb290IjoiMjBmYTcwMDY3ZDc2NTI2YjMyYTBjODk3NjAzMzI3YTdkY2VhNGI5ZjI0YmYyYTI1MTIxY2IxYWRhOTAyZmFhNSIsImdhdGV3YXkiOiJnMiIsIm9ic2VydmF0aW9uIjoiMGExYzBjYjI3ODAwYWIxYTk2YmMxNmU4YmNmNmIyN2Q2MDQ2ODBlZDEwOGFkYTQxZTczMzZlYzY1OTFhNmQ1NiIsInJlY2VpcHRfaGlnaCI6IjAiLCJyZWNlaXB0X3ByZWZpeCI6IjAiLCJyZWNlaXB0X3Jvb3QiOiI0ZDEzZWMxNDE2ZjUzY2M4YzdmMWIyOTgzNDQ2NTUzNjljOWJhNmM2YzRiNTMzMzA4Y2ZiMzY4YTY5OTUxZTAyIiwic3RhdHVzIjoiQ09NUExFVEVfR0FURVdBWV9DVVRPRkYifSx7ImFsbG9jYXRpb25fcHJlZml4IjoiMiIsImN1dG9mZiI6IjIiLCJkaXNwb3NpdGlvbl9yb290IjoiMTE3NjMwOTEwODRkOThjZjU5MzBlZjcxZTcwZDJkOTg0NmMyNTRiZTQzZWY5ZDEwMzQ2YTBlYmJkMTU3NDQyMyIsImdhdGV3YXkiOiJnMSIsIm9ic2VydmF0aW9uIjoiYWNkNTYxYmFkZDQ5M2FkZWQ4ZjhmY2IzN2Q4ZmJhZmNkNTlmYmE5OWQyZWY3Y2ExZjgxNTg2ZGI0ZmZjYWI2OSIsInJlY2VpcHRfaGlnaCI6IjIiLCJyZWNlaXB0X3ByZWZpeCI6IjIiLCJyZWNlaXB0X3Jvb3QiOiJjYmQ5MjFhYWExOTJhYzE0OWVlODYyMTI4ZDg0YzNiNzJhNzhhNmE5MzJjYzVjNDJjY2EyM2U0NzQxYjA2NTUwIiwic3RhdHVzIjoiQ09NUExFVEVfR0FURVdBWV9DVVRPRkYifSx7ImFsbG9jYXRpb25fcHJlZml4IjoiMiIsImN1dG9mZiI6IjIiLCJkaXNwb3NpdGlvbl9yb290IjoiMjQ4MzU2NjkyY2I3ZTI2NjU5MjJkNWFkZTNkN2Y1NjEzZTljMmI5MzU3MzRiMWZkMjI2MWU2M2EyMDViYjU5YiIsImdhdGV3YXkiOiJnMCIsIm9ic2VydmF0aW9uIjoiMDBkYWE2NGFkZWU4MDc5MDU4MjBhNDQ2ZTYzNDMyYmFkNTZiNjdjMTMxMWJkZmU4MDQ1YTlkMWMyNTM1ODdiZSIsInJlY2VpcHRfaGlnaCI6IjIiLCJyZWNlaXB0X3ByZWZpeCI6IjIiLCJyZWNlaXB0X3Jvb3QiOiIyMTE4NjAyMDViNWE0NGI5ZDlkNjJlNDI1NmQ5NTJiMzA5YTVhODBkNTMxZjlmMjgxN2I4NGRlYmJiNTI1MWUzIiwic3RhdHVzIjoiQ09NUExFVEVfR0FURVdBWV9DVVRPRkYifSx7ImFsbG9jYXRpb25fcHJlZml4IjoiMiIsImN1dG9mZiI6IjIiLCJkaXNwb3NpdGlvbl9yb290IjoiNWEzYTBjNzJkYTJlMjM1OTVlZDk1NzQyNWFlZTUzZWE5MTI4NWIzNjc0YzI0NjdiYmJhN2I2N2U0MmYwNTA3ZSIsImdhdGV3YXkiOiJnMyIsIm9ic2VydmF0aW9uIjoiNzRkZmZkMGNiNTExMzQ4ZGJlMWQ3NjE1Zjg4Y2RjYTdkMzZmM2IyODMyZjQ4YTFmZjA0ZmQyZjI0YjE5NDRhYiIsInJlY2VpcHRfaGlnaCI6IjIiLCJyZWNlaXB0X3ByZWZpeCI6IjIiLCJyZWNlaXB0X3Jvb3QiOiI2NDQ0NDY2MmMwOGM2NDQyMmY5OTU1YTI5MGUyMTk2ZTlhZTRiM2RmODc5YzIxNWNlODllOTJjNmQwMmRjN2JlIiwic3RhdHVzIjoiQ09NUExFVEVfR0FURVdBWV9DVVRPRkYifV0sImVucm9sbG1lbnQiOiI4YmJjZDdhODJjYTU5MDVmYWNiYjBjMDczYjRhOGI5NGI5ZGRkMGRmZDQ1MmQyYWYzNzUyYmExMzM3NjliM2Q5IiwiZmFtaWxpZXMiOltbWyJzeW50aGV0aWMiLCJzYW5kYm94Il0sImFncmVlbWVudCIsInJlc29sdXRpb24iLCJldjJfODgwZWUwNGI0MzZhZmYzOGU0YTI1ZTA4NmE2N2NmMWMxYTA5YTc3ODY1MjdjMTBmYjg3ZTg0YjQ4OTkxYjUxNiJdXSwiZmFtaWx5X2hlYWRzIjpbeyJjbG9zZWQiOmZhbHNlLCJlbnRpdGxlbWVudCI6eyJjYXNlIjpbW1sic3ludGhldGljIiwic2FuZGJveCJdLCJhZ3JlZW1lbnQiLCJyZXNvbHV0aW9uIiwiZXYyXzg4MGVlMDRiNDM2YWZmMzhlNGEyNWUwODZhNjdjZjFjMWEwOWE3Nzg2NTI3YzEwZmI4N2U4NGI0ODk5MWI1MTYiXSwic291cmNlIiwicmVzb2x1dGlvbiJdLCJoZWFkIjoiMjJhNWI0MGEyMGNjYzBmZDAzNmQ2ZWIzZTk5MDM5NGY5ZmU5MDI0NzFhMTU3YmU4YzI5Njc5YzhkNGVlZjlmMyIsInJldmlzaW9uIjoiMSIsInN0YXR1cyI6IkNPTlNVTUVEIn0sImZhbWlseSI6W1sic3ludGhldGljIiwic2FuZGJveCJdLCJhZ3JlZW1lbnQiLCJyZXNvbHV0aW9uIiwiZXYyXzg4MGVlMDRiNDM2YWZmMzhlNGEyNWUwODZhNjdjZjFjMWEwOWE3Nzg2NTI3YzEwZmI4N2U4NGI0ODk5MWI1MTYiXSwidGVybXMiOiIwNDU5MGYxMDM1NWM5Y2Q0M2NmZTRlZDBhOTkwZjhlMjVhNzM0MWViZWM4MWUyMjcwMGRjNGFmMTRmYzZiNWI5IiwidW5hdmFpbGFibGUiOmZhbHNlfSx7ImNsb3NlZCI6ZmFsc2UsImVudGl0bGVtZW50Ijp7ImNhc2UiOltbWyJzeW50aGV0aWMiLCJzYW5kYm94Il0sImFncmVlbWVudCIsInVwc2VsbCIsImV2Ml84ODBlZTA0YjQzNmFmZjM4ZTRhMjVlMDg2YTY3Y2YxYzFhMDlhNzc4NjUyN2MxMGZiODdlODRiNDg5OTFiNTE2Il0sInNvdXJjZSIsInF1YWxpZmllZC11cHNlbGwiXSwiaGVhZCI6ImI0MzQ4ZTg5MmM3MzA2Y2Q0OGM5YjcxYmFiNDIyMGJjMGFhNzk5MDM4Zjg3MTc4MWI3OTljMzk5NjQ5NDBjZmQiLCJyZXZpc2lvbiI6IjIiLCJzdGF0dXMiOiJDT05TVU1FRCJ9LCJmYW1pbHkiOltbInN5bnRoZXRpYyIsInNhbmRib3giXSwiYWdyZWVtZW50IiwidXBzZWxsIiwiZXYyXzg4MGVlMDRiNDM2YWZmMzhlNGEyNWUwODZhNjdjZjFjMWEwOWE3Nzg2NTI3YzEwZmI4N2U4NGI0ODk5MWI1MTYiXSwidGVybXMiOiI4ZmEwZWNiZTA3NTg5ZWZkZjNlNTU4YjE3YWJlYTAxNDg3NGE1MjQ0Y2RjOWE1MDdhODkzY2Y4NTdkYWIzMWFlIiwidW5hdmFpbGFibGUiOmZhbHNlfSx7ImNsb3NlZCI6dHJ1ZSwiZW50aXRsZW1lbnQiOnsiY2FzZSI6W1tbInN5bnRoZXRpYyIsInNhbmRib3giXSwiYWdyZWVtZW50IiwibGF0ZS1taW51cyIsImV2Ml84ODBlZTA0YjQzNmFmZjM4ZTRhMjVlMDg2YTY3Y2YxYzFhMDlhNzc4NjUyN2MxMGZiODdlODRiNDg5OTFiNTE2Il0sInNvdXJjZSIsImxhdGUtMyJdLCJoZWFkIjoiMDY1MzU2YWFkMGNmOGQ5NjZiNjI3MGUyNjI5OWJjZjliNWQzNzFhMGJkNTVhZjUxZmIxNWEzMTQwNDcyNzlkNiIsInJldmlzaW9uIjoiMSIsInN0YXR1cyI6IkNPTlNVTUVEIn0sImZhbWlseSI6W1sic3ludGhldGljIiwic2FuZGJveCJdLCJhZ3JlZW1lbnQiLCJsYXRlLW1pbnVzIiwiZXYyXzg4MGVlMDRiNDM2YWZmMzhlNGEyNWUwODZhNjdjZjFjMWEwOWE3Nzg2NTI3YzEwZmI4N2U4NGI0ODk5MWI1MTYiXSwidGVybXMiOiI4MWI0NmM3NWRmNzgyZjZlNDc0MzY0ZDA5ODhjMmYxMjZlNDRhODE4Mjc0ZjA2OTUyOGZkZTdlZTEyMDViMTkzIiwidW5hdmFpbGFibGUiOnRydWV9LHsiY2xvc2VkIjp0cnVlLCJlbnRpdGxlbWVudCI6eyJjYXNlIjpbW1sic3ludGhldGljIiwic2FuZGJveCJdLCJhZ3JlZW1lbnQiLCJsYXRlLXBsdXMiLCJldjJfODgwZWUwNGI0MzZhZmYzOGU0YTI1ZTA4NmE2N2NmMWMxYTA5YTc3ODY1MjdjMTBmYjg3ZTg0YjQ4OTkxYjUxNiJdLCJzb3VyY2UiLCJsYXRlLTIiXSwiaGVhZCI6ImEwMDg3Y2EwZWYxYjM5MGRlZTQ2Y2E5ZDQ0YjIxZThiMDBhMDlmMDY5YzRjMTlkYWFjODUyMGNlZWI1NDNmYjUiLCJyZXZpc2lvbiI6IjEiLCJzdGF0dXMiOiJDT05TVU1FRCJ9LCJmYW1pbHkiOltbInN5bnRoZXRpYyIsInNhbmRib3giXSwiYWdyZWVtZW50IiwibGF0ZS1wbHVzIiwiZXYyXzg4MGVlMDRiNDM2YWZmMzhlNGEyNWUwODZhNjdjZjFjMWEwOWE3Nzg2NTI3YzEwZmI4N2U4NGI0ODk5MWI1MTYiXSwidGVybXMiOiIwMjUzNDNlNTAyNDM5ZDJkODhhYTk2NTZlMjZjM2Y1MmQxODQ1MGRiMzAxMmMwYTdkZmYwNTIwNzY2M2NkNTYyIiwidW5hdmFpbGFibGUiOnRydWV9LHsiY2xvc2VkIjp0cnVlLCJlbnRpdGxlbWVudCI6eyJjYXNlIjpbW1sic3ludGhldGljIiwic2FuZGJveCJdLCJhZ3JlZW1lbnQiLCJsYXRlLXplcm8iLCJldjJfODgwZWUwNGI0MzZhZmYzOGU0YTI1ZTA4NmE2N2NmMWMxYTA5YTc3ODY1MjdjMTBmYjg3ZTg0YjQ4OTkxYjUxNiJdLCJzb3VyY2UiLCJsYXRlLTQiXSwiaGVhZCI6IjZhMzEzZWQzYjRkZDk4NzU0MTVkOTUxOGZmY2JhM2Q3ZmVkNDc4NWY0ZWQ5NDVlODBiZmU3MjVkMWJjZTBlMTUiLCJyZXZpc2lvbiI6IjEiLCJzdGF0dXMiOiJDT05TVU1FRCJ9LCJmYW1pbHkiOltbInN5bnRoZXRpYyIsInNhbmRib3giXSwiYWdyZWVtZW50IiwibGF0ZS16ZXJvIiwiZXYyXzg4MGVlMDRiNDM2YWZmMzhlNGEyNWUwODZhNjdjZjFjMWEwOWE3Nzg2NTI3YzEwZmI4N2U4NGI0ODk5MWI1MTYiXSwidGVybXMiOiJmMGEyMWEzZDQ3ZTM1ODk2OWJkMzU1MzUzOTc2MmM3YTYzYjAxNThiNjAxOTg4ZmNmNDBiMGQ4ZDgwNmU2MGU4IiwidW5hdmFpbGFibGUiOnRydWV9XSwicHJlZGVjZXNzb3IiOiI1ZTVkY2ZjZWQyYzJjNzliMzBlMDQxMzdmZGM2ODZjNzljMWVlZmJmN2NlM2QzY2EzN2ZmYTJkZmVlYTljOTNhIiwicm91bmQiOiIyIiwic3VwcGxpZXJfYWZ0ZXIiOltdLCJzdXBwbGllcl9iZWZvcmUiOltdLCJ1bmF2YWlsYWJsZSI6W1tbInN5bnRoZXRpYyIsInNhbmRib3giXSwiYWdyZWVtZW50IiwibGF0ZS1taW51cyIsImV2Ml84ODBlZTA0YjQzNmFmZjM4ZTRhMjVlMDg2YTY3Y2YxYzFhMDlhNzc4NjUyN2MxMGZiODdlODRiNDg5OTFiNTE2Il0sW1sic3ludGhldGljIiwic2FuZGJveCJdLCJhZ3JlZW1lbnQiLCJsYXRlLXBsdXMiLCJldjJfODgwZWUwNGI0MzZhZmYzOGU0YTI1ZTA4NmE2N2NmMWMxYTA5YTc3ODY1MjdjMTBmYjg3ZTg0YjQ4OTkxYjUxNiJdLFtbInN5bnRoZXRpYyIsInNhbmRib3giXSwiYWdyZWVtZW50IiwibGF0ZS16ZXJvIiwiZXYyXzg4MGVlMDRiNDM2YWZmMzhlNGEyNWUwODZhNjdjZjFjMWEwOWE3Nzg2NTI3YzEwZmI4N2U4NGI0ODk5MWI1MTYiXSxbWyJzeW50aGV0aWMiLCJzYW5kYm94Il0sImFncmVlbWVudCIsInJlc29sdXRpb24iLCJldjJfODgwZWUwNGI0MzZhZmYzOGU0YTI1ZTA4NmE2N2NmMWMxYTA5YTc3ODY1MjdjMTBmYjg3ZTg0YjQ4OTkxYjUxNiJdXX0sImtpbmQiOiJDTE9TVVJFIn1dLCJwYXlsb2FkIjp7ImNsb3NlZF9hdCI6IjIwMjYtMDktMjJUMTI6MDA6MDAuMDAwMDAwWiIsInJvdW5kIjoiMiJ9fQ==",
+      "body_hash": "0ecb27995f21abedf9d335dce71f1324efab0a35698cb5441375af248c170a0e",
+      "bytes": "5122"
+    }
+  ]
+}

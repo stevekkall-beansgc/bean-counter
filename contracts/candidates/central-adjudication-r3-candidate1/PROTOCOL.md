@@ -60,7 +60,7 @@ Node CLI: `node validate.mjs FILE`, identical contract. No subprocess cross-call
 `replay(trace)`; CLI fixture file envelope is `{"format":"r3-trace/1","initial":
 {...},"commands":[...]}`. `initial` has externally trusted `authority_documents`
 (array of raw digest strings), `grant_authentications` (array of raw digests),
-`original_base_receipt`, `original_base_manifest`, `initial_resources` (one full `resource` vector per host), `optional_rounds` (count), `initial_counters`
+`original_base_receipt`, `original_base_manifest`, `initial_resources` (one full `resource` vector per host), `initial_counters`
 (map host→map counter→{q,R}, omitted names mean0,0), and `writer_capabilities` (map
 logical gateway→{epoch,journal_head,fence}, supplied by trusted actual adapter).
 These are synthetic observations in contract fixtures, never a claim that caller
@@ -287,12 +287,11 @@ RECEIVE fact, whose payload and effect jointly retain submission/evidence and
 original receipt. Local aliases have no new receipt position and retain original
 receipt/token in their effect.
 
-RECONCILE inventory contains the copied local disposition fact plus its own new
-RECONCILIATION fact. IMPORT contains only the copied local fact. ENROLL contains
-exact initial.original_objects only. Other source-producing transitions contain
-one source fact; other transitions contain none. Inventory sorts by canonical
-object bytes. Any command with proof has dependencies=[proof.segment]; otherwise
-empty. All proof paths are immutable historical references, never current-root
+Every command with proof considers retaining its exact source fact. ENROLL also
+considers every original object and preparation fact; BEGIN considers preparation
+facts. Each producer appends its own fact. The typed first-introduction rule below
+then filters this inventory and canonical object bytes order it. Dependencies are
+the sorted source segment IDs from proof and preparations, or an empty set. All proof paths are immutable historical references, never current-root
 substitution. A source segment includes its inventory in its segment digest.
 
 ADVANCE_RECEIPT is a separate central bounded operation `{gateway,through}`.
@@ -358,10 +357,11 @@ trusted_observations and authority_observations. Each is required. All digest se
 are unique and sorted canonical bytes. authority_observations pins
 H(authority,exact command.authority), including current principal/permission/time,
 head and revision; membership of a generic document is insufficient. The trusted
-host, not a caller, supplies these observations. Initial counter q values may
-represent other prior host activity; R must be0 because no unnamed obligation is
-allowed. Every initial resource host and writer capability object is closed.
-Fresh writer capability head is ZERO; epoch is positive. Gateway and center host
+host, not a caller, supplies these observations. Every initial R is0 and every
+initial q is0 except gateway writer_epoch, which is explicitly1 and matches the
+trusted capability epoch1. No invented prior activity is accepted at fresh ZERO
+journals. Every initial resource host and capability object is closed.
+Fresh writer capability head is ZERO; replacement advances epoch by exactly1. Gateway and center host
 identities differ. LOCAL_GRANT.journal_head is the exact current local root.
 Source proofs must use the owning source host, not a later imported copy.
 
@@ -379,7 +379,7 @@ resource head. Count each following branch entry in addition, without padding:
 
 | Kind | Additional actual index versions beyond four |
 |---|---|
-| ENROLL | each original object, each family, each gateway, each namespace, each supplier, each adjustment pool,32 close-owner allocations per center/gateway, one enrollment allocation |
+| ENROLL | each newly introduced typed object, each family, each gateway, each namespace, each supplier, each adjustment pool,32 central close-owner allocations, one enrollment allocation |
 | LOCAL_GRANT / REGISTER_GRANT | grant head, funding owner |
 | ISSUE | claim, grant head, allocation position, funding owner |
 | ACTIVATE | local grant and token state |
@@ -421,7 +421,8 @@ writer-fenced authoritative source prefix. It may yield between pages in the
 reserved gateway round workspace; partial hash state is session staging, never a
 complete root. Repeated traversal does not append progress records. Its cumulative
 work includes every issued cutoff token and every actual receipt through H; the
-local grant's one-time reservation funds the corresponding terminal object reads.
+active local round owner retains a reusable bounded scan workspace through INSTALL.
+No per-token retained scan slot or one-time read credit is asserted.
 Only complete verification yields the bounded SEAL fact. Canonical model scans
 reconstruct that fold; adapters must demonstrate paged work and staging enforcement.
 
@@ -444,3 +445,122 @@ actions/certificates. Decimal quantities stay strings; terminal owner allocation
 remain present with empty slots and zero holds. State maps may contain null for a
 grant without a token or case without a transfer; this is diagnostic state, not
 an optional canonical-record field.
+
+
+## Final host-local preparation and provenance contract
+
+PREPARE_ENROLL is a gateway commit with payload store/scope/registration/gateway,
+namespace, and intent=H(enrollment,ENROLL payload omitting preparations). It pays
+its administrative slot and reserves32 local protected finish bundles named
+close:i:gateway. ENROLL requires exactly one current authenticated preparation
+per enrolled gateway, preserves those local resources, and atomically accepts the
+exact original base companions, immutable terms, central enrollment and32 central
+finish bundles. An unknown/refused ENROLL leaves preparations held. This slice
+has no timeout or orphan-preparation retirement. There is no distributed commit.
+
+PREPARE_ROUND applies only to CANCELLABLE rounds. Its payload is round,
+predecessor,gateway,mode=CANCELLABLE,enrollment=H(enrollment,full ENROLL payload),
+and an exact ENROLLMENT proof. It pays its local admin slot and the complete
+optional-round:n:gateway bundle. BEGIN consumes at most4 such exact preparation
+proofs and reserves only optional-round:n at center. FINISH_ONLY requires no new
+local preparation and preparations=[]. There is no artificial optional-round
+lifetime count; actual remaining resource/counter capacity governs admission.
+A preparation left unclaimed by a refused BEGIN remains safely held.
+
+LOCAL_GRANT carries an exact central ENROLLMENT proof. The complete immutable
+terms are introduced once at that gateway through this authenticated historical
+source. EXTEND_RESOURCES belongs to the journal named by payload.host and changes
+only that host. ISSUE uses central grant/round facts and does not read a remote
+OPEN flag. Ordinary issuance freezes at BEGIN; an ADJUSTMENT claim after local
+seal can still take its prepaid RETURN_UNUSED branch. SEAL_BEGIN uses its retained
+BEGIN fact and local installed predecessor; later unseen central ABORT is not a
+local oracle. Every remote semantic dependency requires its exact source proof.
+
+Each inventory object has origin={store,scope,registration,host,ordinal}. This
+origin names the producer's next journal ordinal and avoids a self-referential
+segment hash. A membership proof still binds the exact producer segment/root.
+Copied bodies preserve origin; their later receiving segment cannot become a
+replacement source. Full typed identity is canonical([origin,kind,full_key,
+body_hash,bytes]). Each receiving host retains a typed identity once. Known bytes
+with another key or origin are distinct and charged; hashing never substitutes
+for source membership. Objects are proposed from payload.proof, preparations,
+original companions and the command's new source fact, then existing exact typed
+identities are omitted and the remainder sorted by canonical object bytes.
+
+New producers: PREPARE_ENROLL→ENROLL_PREPARATION keyed by gateway;
+PREPARE_ROUND→ROUND_PREPARATION keyed by H(namespace,[gateway,round]);
+ENROLL→ENROLLMENT keyed by registration. The source body is still exactly
+{payload,effects}. Original objects have the atomic center ENROLL's origin.
+Per-operation introduced trust counts canonical command+result plus distinct
+new decoded body hashes, while every typed identity/envelope counts in segment
+and index reservations even when bytes can share. Remote source reads remain
+bounded dependency work. Snapshot exports preparations, round_preparations and
+object_inventory maps in addition to previous state; inventory values are sorted
+full typed identity strings. Snapshot certificates are raw certificate bodies.
+
+CLOSE explicitly binds predecessor=current central root before close,
+enrollment=H(enrollment,full ENROLL payload), and canonical-sorted family_heads
+for every original family. Each head binds full family, terms=H(enrollment,terms),
+pre-close closed/unavailable booleans, and entitlement UNCONSUMED or CONSUMED with
+consumer case/revision/head=H(result,{case,state,revision,signed,receipt:
+H(receipt,full receipt)}). This bounded original topology determines closure
+identity; pending-case cardinality does not change certificate size.
+
+Every new typed object creates one additional object-identity index version.
+ENROLL's named count already includes its objects. PREPARE_ENROLL has40 base
+versions: four common versions, local preparation, gateway state, local namespace,
+its admin owner and32 protected owners. PREPARE_ROUND has7: four common versions,
+preparation, admin owner and optional round owner. Other base versions remain in
+the table above; object introduction adds its actual count, not a padded maximum.
+
+## Logical index wire codec and page layout
+
+All index keys use the closed binary codec in index-vectors.json: eight ASCII
+bytes of uppercase index-kind padded by underscores (unique tags), one-byte
+arity, then uint16 big-endian byte length and exact raw UTF-8 per component.
+Component types and positions are fixed by the tag and key_components table;
+full nested case identities flatten in that specified order. No JSON framing or
+escaping is used for index keys. Quote/backslash bytes remain literal bytes.
+K=max(9+sum(2+component_bound))=1079, L=8K+1=8633. Path bits are key bits followed
+by one terminator bit and zero padding to L. Immutable replacement reserves L+1
+nodes. Exact full keys remain in terminal values; no digest-only collision bucket.
+
+A128-byte logical node is tag1,flags1,depth2,reserved4,left hash32,right hash32,
+value hash32,reserved24. The4096-byte logical value page has a64-byte header
+(type1,flags1,length2,next hash32,ordinal8,reserved20) and4032 payload bytes.
+Values span ceil(max_value_bytes/4032) pages. These closed logical layouts are
+capacity envelopes, not claims about SQLite/PostgreSQL page packing or WAL.
+Actual adapters must implement/bound these or a no-larger representation.
+SEALED's active gateway round workspace owns a reusable16384-byte scan lane:
+two4096-byte pages, bounded4096-byte entry/cursor staging and4096-byte hash/control
+state. Its full reserved peak is larger. The fixed source prefix, stream position,
+byte offset and incremental hash state belong to an external reader session.
+Partial traversal can yield, abort and restart without authoritative progress or
+success roots; only both completed folds permit SEALED. Repeated read work does
+not consume an invented monotonic counter. Physical workspace enforcement remains
+an actual-store obligation.
+
+Grant IDs use `gr1.<32hex namespace tag>.<suffix>` with1..91 raw UTF-8 suffix
+bytes and128 total bytes. Enrolled namespaces have unique tags and immutable
+owners, so equal suffixes generated independently remain separate full IDs.
+LOCAL_GRANT validates the codec before registry lookup. RECEIVE validates its
+delivery namespace at the arrival gateway before occupied-key retry lookup; an
+exact retry at another gateway refuses and does not reveal that gateway's receipt.
+Dormant protected close owners remain held after other owners close their families;
+this conservative slice releases only the active local owner at INSTALL and
+active central owner after final ACK_INSTALL, with no cross-host slack mutation.
+
+Saved control outcomes and their optional owner keys are scoped by canonical
+[owning_host,full_control_key]. Same textual control keys on distinct journals
+are independent. The control/resource-owner binary index key flattens host,
+scope.tenant,scope.environment,source,external ID (128/128/128/256/128 bytes).
+The object index key flattens origin.store,scope.tenant,scope.environment,
+registration,host,ordinal,kind,full_key ID,body_hash,bytes (128/128/128/128/128/
+30/32/128/64/30). Producer fact keys in this slice are IDs; arbitrary full-case
+source keys are structurally representable but cannot pass producer membership.
+Grant index keys include store,scope.tenant,scope.environment,registration,
+gateway and full owner-namespaced grant ID. None exceeds the revision K.
+SEALED derives terminal coverage only from locally retained CLAIM and local
+disposition facts. It requires their numeric allocations to be exactly1..cutoff.
+An undelivered central ISSUE leaves a local hole; the numeric cutoff suffices to
+refuse without discovering an unobserved token identity.
