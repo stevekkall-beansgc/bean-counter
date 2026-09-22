@@ -85,7 +85,10 @@ D['read_budget']=obj(bytes=ref('count'),pages=ref('count'),segments=ref('count')
 D['read_cursor']=obj(expected=ref('expected_prefix'),ordinal=ref('count'),byte_offset=ref('count'),verified_root=ref('digest'),continuation=ref('digest'))
 D['read_request']=obj(expected=ref('expected_prefix'),budget=ref('read_budget'))
 D['read_request']['properties']['cursor']=ref('read_cursor')
-D['read_response']={'oneOf':[obj(status={'const':'COMPLETE'},expected=ref('expected_prefix'),measured=ref('read_budget')),obj(status={'const':'INCOMPLETE'},cursor=ref('read_cursor'),measured=ref('read_budget')),obj(status={'const':'ERROR'},code=text(64))]}
+D['read_response']={'oneOf':[obj(status={'const':'COMPLETE'},expected=ref('expected_prefix'),measured=ref('read_budget'),selection=en('HISTORICAL_PREFIX','CURRENT_AT_READ'),scope=en('CENTRAL_PREFIX','GATEWAY_PREFIX'),coverage=arr(ref('coverage'),4,1,True)),obj(status={'const':'INCOMPLETE'},cursor=ref('read_cursor'),measured=ref('read_budget')),obj(status={'const':'ERROR'},code=text(64))]}
+D['seal_cursor']=obj(expected=ref('expected_prefix'),round=ref('count'),phase=en('DISPOSITIONS','RECEIPTS','COMPLETE'),entry=ref('count'),byte_offset=ref('count'))
+D['seal_budget']=obj(bytes=ref('count'),pages=ref('count'))
+D['seal_read_response']={'oneOf':[obj(status={'const':'INCOMPLETE'},cursor=ref('seal_cursor'),measured=ref('seal_budget')),obj(status={'const':'COMPLETE'},cursor=ref('seal_cursor'),measured=ref('seal_budget'),disposition_root=ref('digest'),receipt_root=ref('digest'))]}
 D['comparison_policy']=obj(resolution_atoms=ref('count'))
 D['comparison_request']=obj(expected=ref('expected_prefix'),policy=ref('comparison_policy'),budget=ref('read_budget'),coverage=arr(ref('coverage'),4,1,True))
 D['comparison_response']={'oneOf':[obj(status={'const':'COMPARABLE'},expected=ref('expected_prefix'),actual=ref('atoms'),alternative=ref('atoms'),difference=ref('atoms'),supplier_booked=ref('count'),coverage=arr(ref('coverage'),4,1,True)),obj(status={'const':'UNSUPPORTED'},reason=text(256)),obj(status={'const':'POLICY_FAILURE'},at_case=ref('case'),reason=text(256)),obj(status={'const':'INCOMPLETE'},expected=ref('expected_prefix'),reason=text(256))]}

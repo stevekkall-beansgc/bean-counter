@@ -1,0 +1,730 @@
+{
+  "format": "r3-read-vectors/1",
+  "source_trace": "customer-trace.json",
+  "operations": [
+    {
+      "name": "current",
+      "kind": "read",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        }
+      },
+      "response": {
+        "status": "COMPLETE",
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "measured": {
+          "bytes": "303843",
+          "pages": "117",
+          "segments": "77"
+        },
+        "selection": "CURRENT_AT_READ",
+        "scope": "CENTRAL_PREFIX",
+        "coverage": [
+          {
+            "gateway": "g0",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g1",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g2",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g3",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "historical",
+      "kind": "read",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "1",
+          "segment": "7c1fefce4cb0e86ba5b5cc165335cf4e6f1fae5e49da816f5e240aaade9d3866",
+          "root": "2e87185dd03576c5f98c42c4f15f229dc30547fe98e2add894b3f371142048f4"
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        }
+      },
+      "response": {
+        "status": "COMPLETE",
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "1",
+          "segment": "7c1fefce4cb0e86ba5b5cc165335cf4e6f1fae5e49da816f5e240aaade9d3866",
+          "root": "2e87185dd03576c5f98c42c4f15f229dc30547fe98e2add894b3f371142048f4"
+        },
+        "measured": {
+          "bytes": "109863",
+          "pages": "27",
+          "segments": "1"
+        },
+        "selection": "HISTORICAL_PREFIX",
+        "scope": "CENTRAL_PREFIX",
+        "coverage": [
+          {
+            "gateway": "g0",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g1",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g2",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g3",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "partial",
+      "kind": "read",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "budget": {
+          "bytes": "1",
+          "pages": "1",
+          "segments": "1"
+        }
+      },
+      "response": {
+        "status": "INCOMPLETE",
+        "cursor": {
+          "expected": {
+            "store": "center",
+            "scope": [
+              "synthetic",
+              "sandbox"
+            ],
+            "registration": "registration",
+            "host": "center",
+            "ordinal": "77",
+            "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+            "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          },
+          "ordinal": "0",
+          "byte_offset": "1",
+          "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
+          "continuation": "012c7ec52bc068bb37e9a375255086810a3a7bea099d4e59d976d34be4313718"
+        },
+        "measured": {
+          "bytes": "1",
+          "pages": "1",
+          "segments": "0"
+        }
+      }
+    },
+    {
+      "name": "comparison-unknown",
+      "kind": "compare",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "policy": {
+          "resolution_atoms": "1500"
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        },
+        "coverage": [
+          {
+            "gateway": "g0",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g1",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g2",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g3",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          }
+        ]
+      },
+      "response": {
+        "status": "COMPARABLE",
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "actual": "11450",
+        "alternative": "11750",
+        "difference": "300",
+        "supplier_booked": "3000",
+        "coverage": [
+          {
+            "gateway": "g0",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g1",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g2",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g3",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          }
+        ]
+      }
+    },
+    {
+      "name": "comparison-failure",
+      "kind": "compare",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "policy": {
+          "resolution_atoms": "6000"
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        },
+        "coverage": [
+          {
+            "gateway": "g0",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g1",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g2",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g3",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          }
+        ]
+      },
+      "response": {
+        "status": "POLICY_FAILURE",
+        "at_case": [
+          [
+            [
+              "synthetic",
+              "sandbox"
+            ],
+            "agreement",
+            "resolution",
+            "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516"
+          ],
+          "source",
+          "resolution"
+        ],
+        "reason": "original premium cap exceeded at this actual acceptance"
+      }
+    },
+    {
+      "name": "comparison-incomplete",
+      "kind": "compare",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "policy": {
+          "resolution_atoms": "1500"
+        },
+        "budget": {
+          "bytes": "1",
+          "pages": "1",
+          "segments": "1"
+        },
+        "coverage": [
+          {
+            "gateway": "g0",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g1",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g2",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g3",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          }
+        ]
+      },
+      "response": {
+        "status": "INCOMPLETE",
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "reason": "verification budget exhausted; no successful total"
+      }
+    },
+    {
+      "name": "comparison-historical-coverage",
+      "kind": "compare",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "policy": {
+          "resolution_atoms": "1500"
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        },
+        "coverage": [
+          {
+            "gateway": "g2",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "0",
+            "allocation_prefix": "0",
+            "receipt_high": "0",
+            "receipt_prefix": "0",
+            "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
+            "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
+            "observation": "64168f9d6b96683112b59e1324f5be485ca4c8ed6cdc1cfcbf57b890013dc931"
+          },
+          {
+            "gateway": "g1",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
+            "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
+            "observation": "0b50946aa9965b496c7d072f2eba57c373d11bf0173956277c653d8c98c1c360"
+          },
+          {
+            "gateway": "g0",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
+            "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
+            "observation": "24174c086dde46f440ce9a24184ba9231b58d6bcece1a6bd22a27eb4a2325f00"
+          },
+          {
+            "gateway": "g3",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
+            "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
+            "observation": "f6322d514a1e68054be0c644b15f343b20abdec72012fbaac1e8ee2a50db21a4"
+          }
+        ]
+      },
+      "response": {
+        "status": "COMPARABLE",
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "actual": "11450",
+        "alternative": "11750",
+        "difference": "300",
+        "supplier_booked": "3000",
+        "coverage": [
+          {
+            "gateway": "g2",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "0",
+            "allocation_prefix": "0",
+            "receipt_high": "0",
+            "receipt_prefix": "0",
+            "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
+            "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
+            "observation": "64168f9d6b96683112b59e1324f5be485ca4c8ed6cdc1cfcbf57b890013dc931"
+          },
+          {
+            "gateway": "g1",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
+            "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
+            "observation": "0b50946aa9965b496c7d072f2eba57c373d11bf0173956277c653d8c98c1c360"
+          },
+          {
+            "gateway": "g0",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
+            "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
+            "observation": "24174c086dde46f440ce9a24184ba9231b58d6bcece1a6bd22a27eb4a2325f00"
+          },
+          {
+            "gateway": "g3",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
+            "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
+            "observation": "f6322d514a1e68054be0c644b15f343b20abdec72012fbaac1e8ee2a50db21a4"
+          }
+        ]
+      }
+    },
+    {
+      "name": "known-observation-wrong-coverage",
+      "kind": "compare",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "policy": {
+          "resolution_atoms": "1500"
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        },
+        "coverage": [
+          {
+            "gateway": "g2",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "0",
+            "allocation_prefix": "0",
+            "receipt_high": "999",
+            "receipt_prefix": "0",
+            "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
+            "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
+            "observation": "64168f9d6b96683112b59e1324f5be485ca4c8ed6cdc1cfcbf57b890013dc931"
+          },
+          {
+            "gateway": "g1",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
+            "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
+            "observation": "0b50946aa9965b496c7d072f2eba57c373d11bf0173956277c653d8c98c1c360"
+          },
+          {
+            "gateway": "g0",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
+            "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
+            "observation": "24174c086dde46f440ce9a24184ba9231b58d6bcece1a6bd22a27eb4a2325f00"
+          },
+          {
+            "gateway": "g3",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
+            "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
+            "observation": "f6322d514a1e68054be0c644b15f343b20abdec72012fbaac1e8ee2a50db21a4"
+          }
+        ]
+      },
+      "error": "COVERAGE_EXACT_PREFIX"
+    },
+    {
+      "name": "wrong-expected-root",
+      "kind": "read",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        }
+      },
+      "error": "EXPECTED_PREFIX"
+    },
+    {
+      "name": "unsupported-policy-field",
+      "kind": "compare",
+      "request": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+        },
+        "policy": {
+          "resolution_atoms": "1500",
+          "invent_decision": true
+        },
+        "budget": {
+          "bytes": "999999999999999999999999999999",
+          "pages": "999999999999999999999999999999",
+          "segments": "999999999999999999999999999999"
+        },
+        "coverage": [
+          {
+            "gateway": "g0",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g1",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g2",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          },
+          {
+            "gateway": "g3",
+            "status": "UNKNOWN_GATEWAY_COVERAGE"
+          }
+        ]
+      },
+      "error": "UNKNOWN_FIELD"
+    }
+  ],
+  "seal": {
+    "source_trace": "vectors/seal-scan.json",
+    "through": "25",
+    "gateway": "g0",
+    "round": "1",
+    "partial_budget": {
+      "bytes": "1",
+      "pages": "1"
+    },
+    "partial": {
+      "status": "INCOMPLETE",
+      "cursor": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "demo",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "g0",
+          "ordinal": "11",
+          "segment": "719333e04c43cf31ac221f0614eba27274be8169d7220e27f0fdced01add8e60",
+          "root": "72054794cacc2c69380b4824b97ac2749bd8f13c2ed565321a7e44b0ad52c3e5"
+        },
+        "round": "1",
+        "phase": "DISPOSITIONS",
+        "entry": "1",
+        "byte_offset": "0"
+      },
+      "measured": {
+        "bytes": "1",
+        "pages": "1"
+      }
+    },
+    "complete": {
+      "status": "COMPLETE",
+      "cursor": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "demo",
+            "sandbox"
+          ],
+          "registration": "registration",
+          "host": "g0",
+          "ordinal": "11",
+          "segment": "719333e04c43cf31ac221f0614eba27274be8169d7220e27f0fdced01add8e60",
+          "root": "72054794cacc2c69380b4824b97ac2749bd8f13c2ed565321a7e44b0ad52c3e5"
+        },
+        "round": "1",
+        "phase": "COMPLETE",
+        "entry": "0",
+        "byte_offset": "0"
+      },
+      "measured": {
+        "bytes": "102",
+        "pages": "7"
+      },
+      "disposition_root": "82618975d27133a5ee0128999adf6942a4b55e5393cdebfd366477e247380163",
+      "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02"
+    },
+    "abort_error": "SCAN_ABORTED",
+    "resume_budget": {
+      "bytes": "7",
+      "pages": "2"
+    }
+  }
+}

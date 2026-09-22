@@ -2979,7 +2979,10 @@
           "required": [
             "status",
             "expected",
-            "measured"
+            "measured",
+            "selection",
+            "scope",
+            "coverage"
           ],
           "properties": {
             "status": {
@@ -2990,6 +2993,27 @@
             },
             "measured": {
               "$ref": "#/$defs/read_budget"
+            },
+            "selection": {
+              "enum": [
+                "HISTORICAL_PREFIX",
+                "CURRENT_AT_READ"
+              ]
+            },
+            "scope": {
+              "enum": [
+                "CENTRAL_PREFIX",
+                "GATEWAY_PREFIX"
+              ]
+            },
+            "coverage": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/coverage"
+              },
+              "minItems": 1,
+              "maxItems": 4,
+              "uniqueItems": true
             }
           }
         },
@@ -3029,6 +3053,106 @@
               "minLength": 1,
               "x-max-utf8": 64,
               "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "seal_cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "round",
+        "phase",
+        "entry",
+        "byte_offset"
+      ],
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/expected_prefix"
+        },
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "phase": {
+          "enum": [
+            "DISPOSITIONS",
+            "RECEIPTS",
+            "COMPLETE"
+          ]
+        },
+        "entry": {
+          "$ref": "#/$defs/count"
+        },
+        "byte_offset": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "seal_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "pages"
+      ],
+      "properties": {
+        "bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "pages": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "seal_read_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "cursor",
+            "measured"
+          ],
+          "properties": {
+            "status": {
+              "const": "INCOMPLETE"
+            },
+            "cursor": {
+              "$ref": "#/$defs/seal_cursor"
+            },
+            "measured": {
+              "$ref": "#/$defs/seal_budget"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "cursor",
+            "measured",
+            "disposition_root",
+            "receipt_root"
+          ],
+          "properties": {
+            "status": {
+              "const": "COMPLETE"
+            },
+            "cursor": {
+              "$ref": "#/$defs/seal_cursor"
+            },
+            "measured": {
+              "$ref": "#/$defs/seal_budget"
+            },
+            "disposition_root": {
+              "$ref": "#/$defs/digest"
+            },
+            "receipt_root": {
+              "$ref": "#/$defs/digest"
             }
           }
         }

@@ -134,7 +134,7 @@
   "seal_scan": {
     "page_bytes": 4096,
     "payload_bytes": 4032,
-    "staging_bytes": 16384,
+    "staging_bytes": 32768,
     "owner": "active local round finish_gateway or cancel_gateway workspace; held through INSTALL",
     "retained_progress": false
   },
@@ -212,7 +212,10 @@
     "read_budget": 127,
     "read_cursor": 1798,
     "read_request": 3488,
-    "read_response": 1970,
+    "read_response": 4764,
+    "seal_cursor": 1695,
+    "seal_budget": 83,
+    "seal_read_response": 1989,
     "comparison_policy": 53,
     "comparison_request": 4748,
     "comparison_response": 4759

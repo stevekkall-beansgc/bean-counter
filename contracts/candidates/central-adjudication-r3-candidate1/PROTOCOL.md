@@ -531,9 +531,9 @@ value hash32,reserved24. The4096-byte logical value page has a64-byte header
 Values span ceil(max_value_bytes/4032) pages. These closed logical layouts are
 capacity envelopes, not claims about SQLite/PostgreSQL page packing or WAL.
 Actual adapters must implement/bound these or a no-larger representation.
-SEALED's active gateway round workspace owns a reusable16384-byte scan lane:
-two4096-byte pages, bounded4096-byte entry/cursor staging and4096-byte hash/control
-state. Its full reserved peak is larger. The fixed source prefix, stream position,
+SEALED's active gateway round workspace owns a reusable32768-byte scan lane:
+two4096-byte pages, bounded8192-byte entry staging and8192-byte cursor/hash/control
+state with8192 spare bytes. Its full reserved peak is larger. The fixed source prefix, stream position,
 byte offset and incremental hash state belong to an external reader session.
 Partial traversal can yield, abort and restart without authoritative progress or
 success roots; only both completed folds permit SEALED. Repeated read work does
@@ -564,3 +564,26 @@ SEALED derives terminal coverage only from locally retained CLAIM and local
 disposition facts. It requires their numeric allocations to be exactly1..cutoff.
 An undelivered central ISSUE leaves a local hole; the numeric cutoff suffices to
 refuse without discovering an unobserved token identity.
+
+Reader is explicitly a projection over a previously semantically verified cursor.
+`reconstruct_stored` performs fresh command/authority/source/economic replay and
+compares every provided full segment, then checks external ExpectedPrefixes. It
+rejects changed effects/results/dependencies and removed/extra suffixes. Reader
+does not replace that semantic reconstruction with a shape/hash scan. Each commit
+materializes immutable canonical bytes and per-host ordinal lookup as part of
+its bounded segment work. Reader looks up only the current ordinal, streams at
+most4096 bytes per charged page into a constant hash state, and checks the pinned
+terminal identity only after all requested bytes verify. It never constructs a
+host-history list or reserializes the segment per page. One Reader owns at most
+one live continuation; progress replaces it, cancellation/completion releases it,
+and stale/foreign cursors cannot skip work. Model immutable byte caches are
+preverified source storage, not charged active reader workspace. Runtime must
+provide the same bounded indexed/page source and demonstrate physical behavior.
+
+A completed bounded read labels selection CURRENT_AT_READ only when its verified
+ExpectedPrefix still equals that journal head at completion; otherwise it labels
+HISTORICAL_PREFIX. Scope is explicitly CENTRAL_PREFIX or GATEWAY_PREFIX. Every
+complete read includes one UNKNOWN_GATEWAY_COVERAGE entry per enrolled gateway;
+this deliberately conservative projection never implies complete durable ingress.
+A comparison can instead carry exact retained certificate coverage, which must
+match the committed fields, not merely reuse a trusted observation digest.

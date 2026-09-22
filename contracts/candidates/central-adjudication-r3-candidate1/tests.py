@@ -76,8 +76,9 @@ def supplier(last,batch=False,zero=False):
 def reenroll(b,p):
  b.p=p;b.commands=[];b.seq=0;b.initial['authority_observations']=[];b.initial['trusted_observations']=[];b.initial['grant_authentications']=[];b.l=v.Ledger(b.initial);b.enroll();return b
 
-def funded_replay(b,name):
+def funded_replay(b,name,wide_center=False):
  trace=b.trace();trace['initial']['initial_resources']={h:{d:str(n) for d,n in values.items()} for h,values in b.l.peaks.items()}
+ if wide_center:trace['initial']['initial_resources']['center']={d:str(v.M) for d in v.DIMS}
  rebuilt=v.replay(trace);equal(rebuilt['summary']['root'],b.l.summary(len(b.commands))['root'])
  out=HERE/'vectors';raw=json.dumps(trace,separators=(',',':'))+'\n'
  if '--write-vectors' in sys.argv:out.mkdir(exist_ok=True);(out/(name+'.json')).write_text(raw)
@@ -120,7 +121,7 @@ def retirement():
   c=copy.deepcopy(c);c['authority']['head']=b.l.journal(b.l.host(c))['root'];c['authority']['command']=v.command_hash(c)
   for name in ['grant_authentications','trusted_observations']:b.initial[name]=original['initial'][name];b.l.initial[name]=original['initial'][name]
   b.add(c['kind'],c['payload'])
- b.add('RETIRE_GRANT',dict(grant=gid));b.add('LOCAL_TERMINAL',dict(grant=gid,gateway='g0',proof=b.proof('RETIREMENT',gid)));equal(b.l.s['grants'][gid]['local_terminal'],True)
+ b.add('RETIRE_GRANT',dict(grant=gid));b.claim(gid,expect='REFUSED');b.add('LOCAL_TERMINAL',dict(grant=gid,gateway='g0',proof=b.proof('RETIREMENT',gid)));equal(b.l.s['grants'][gid]['local_terminal'],True)
 
 def rollback():
  b=Builder(families=1,gateways=1);case,tid=b.intake(0,'pending');b.reconcile(tid);b.close([0]);p=dict(case=case,verdict='ALLOW',path='ADJUSTMENT',signed_atoms='100',pool='adjustments',roles=b.p['families'][0]['roles'],assent='a'*64,reason='attempt')
@@ -136,10 +137,12 @@ def rollback():
   equal(no_authoritative(b.l.s),state)
 
 def uncovered_issuance():
- b=Builder(families=1,gateways=1)
- for i in range(10):
+ b=Builder(families=1,gateways=1);eligible=b.grant('g0')
+ for i in range(257):
   tid='unbacked'+str(i);gid='absent'+str(i);token=dict(id=tid,grant=gid,gateway='g0',allocation='1',category='ORDINARY',claim=v.digest('claim',[gid,tid,'g0','1','ORDINARY']));before=copy.deepcopy(no_authoritative(b.l.s));b.add('ISSUE',dict(grant=gid,token=token),expect='REFUSED');equal(no_authoritative(b.l.s),before)
- tid=b.issue('g0');token=copy.deepcopy(b.l.s['tokens'][tid]['body']);token.update(id='duplicate-use',allocation='2');token['claim']=v.digest('claim',[token['grant'],token['id'],'g0','2','ORDINARY']);b.add('ISSUE',dict(grant=token['grant'],token=token),expect='REFUSED');equal(len(b.l.s['tokens']),1);b.unused(tid);b.close([0]);funded_replay(b,'uncovered-issuance')
+ tid=b.claim(eligible);original=copy.deepcopy(b.commands[-1])
+ for i in range(257):b.claim(eligible,expect='REFUSED');retry(b,original)
+ equal(len(b.l.s['tokens']),1);b.unused(tid);b.close([0]);funded_replay(b,'uncovered-issuance',wide_center=True)
 
 def repeated_cancel():
  b=Builder(families=1,gateways=1)
@@ -158,7 +161,7 @@ def measured_envelopes():
 
 def truncation():
  from reads import Reader,expected
- b=customer_story();e=expected(b.l);historical=dict(e);first=next(s for s in b.l.s['segments'] if s['host']=='center');historical.update(ordinal=first['ordinal'],segment=v.digest('segment',first),root=first['result']['root']);reader=Reader(b.l);equal(reader.read(dict(expected=historical,budget=dict(bytes=str(v.M),pages=str(v.M),segments=str(v.M))))['status'],'COMPLETE');b.l.s['segments']=[s for s in b.l.s['segments'] if s['host']!='center' or int(s['ordinal'])<int(e['ordinal'])];reject(lambda:Reader(b.l).start(e),'EXPECTED_PREFIX')
+ b=customer_story();e=expected(b.l);historical=dict(e);first=next(s for s in b.l.s['segments'] if s['host']=='center');historical.update(ordinal=first['ordinal'],segment=v.digest('segment',first),root=first['result']['root']);reader=Reader(b.l);equal(reader.read(dict(expected=historical,budget=dict(bytes=str(v.M),pages=str(v.M),segments=str(v.M))))['status'],'COMPLETE');b.l.read_index['center'].pop();reject(lambda:Reader(b.l).start(e),'EXPECTED_PREFIX')
 
 def topology():
  b=Builder(families=32,gateways=4,suppliers=[dict(id='supplier'+str(i),maximum='500',consumed='330',held='170',released='0') for i in range(8)]);p=copy.deepcopy(b.p);p['pools']=v.sorted_set([dict(p['pools'][0],id='pool'+str(i)) for i in range(3)])
@@ -224,8 +227,39 @@ def provenance_attacks():
  initial=copy.deepcopy(b.initial);initial['initial_counters']['center']={'segment':{'q':'1','R':'0'}};reject(lambda:v.Ledger(initial),'INITIAL_COUNTER_ANCHOR')
 
 
+def seal_scan():
+ from seal_reader import SealReader
+ b=Builder(families=1,gateways=1)
+ for i in range(3):b.unused(b.issue('g0'))
+ b.advance();n=b.begin([0]);b.add('SEAL_BEGIN',dict(round=n,gateway='g0',predecessor='0',proof=b.proof('BEGIN',n)));before=copy.deepcopy(no_authoritative(b.l.s));reader=SealReader(b.l,'g0',n);first=reader.read(1,1);equal(first['status'],'INCOMPLETE');assert 'receipt_root' not in first;reader.abort();reject(lambda:reader.read(100,2),'SCAN_ABORTED');reader=SealReader(b.l,'g0',n);steps=0
+ while True:
+  result=reader.read(7,2);steps+=1
+  if result['status']=='COMPLETE':break
+  assert steps<1000
+ equal(no_authoritative(b.l.s),before);full=SealReader(b.l,'g0',n).read(v.M,v.M);equal(result['disposition_root'],full['disposition_root']);equal(result['receipt_root'],full['receipt_root']);b.add('SEALED',dict(round=n,gateway='g0'));effect=b.l.s['segments'][-1]['result']['effects'][0]['body'];equal(result['disposition_root'],effect['disposition_root']);equal(result['receipt_root'],effect['receipt_root']);b.add('DRAIN',dict(round=n,gateway='g0',proof=b.proof('SEAL',n)));b.add('READY',dict(round=n));b.add('CLOSE',dict(round=n,closed_at=NOW));b.install(n,'COMMITTED');funded_replay(b,'seal-scan');return dict(first=first,final=full,pages_calls=str(steps))
+
+
+def read_integrity():
+ from reads import Reader,expected,reconstruct_stored
+ b=Builder(families=1,gateways=1);case,tid=b.intake(0,'integrity');b.reconcile(tid);b.close([0]);pins=[expected(b.l,h) for h in b.l.s['journals']];reconstruct_stored(b.trace(),b.l.s['segments'],pins)
+ for field in ['result','effects','dependencies']:
+  segments=copy.deepcopy(b.l.s['segments']);segment=segments[-1]
+  if field=='result':segment['result']['root']='f'*64
+  elif field=='effects':segment['result']['effects']=copy.deepcopy(next(z['result']['effects'] for z in segments if z['command']['kind']=='RECEIVE'))
+  else:segment['dependencies']=[]
+  reject(lambda:reconstruct_stored(b.trace(),segments,pins),'STORED_SEMANTIC_MISMATCH')
+ reject(lambda:reconstruct_stored(b.trace(),b.l.s['segments'][:-1],pins),'STORED_SUFFIX_MISSING')
+ e=expected(b.l);reader=Reader(b.l);request=dict(expected=e,budget={'bytes':'1','pages':'1','segments':'1'});first=reader.read(request);old=copy.deepcopy(first['cursor']);request['cursor']=old;second=reader.read(request);equal(len(reader.sessions),1);reject(lambda:reader.read(dict(request,cursor=old)),'UNVERIFIED_CURSOR');reader.cancel();equal(len(reader.sessions),0);reject(lambda:reader.read(dict(request,cursor=second['cursor'])),'UNVERIFIED_CURSOR')
+ row=b.l.read_index['center'][0];row['bytes']=row['bytes'][:-1]+b' ';reject(lambda:Reader(b.l).read(dict(expected=e,budget={'bytes':str(v.M),'pages':str(v.M),'segments':str(v.M)})),'SEGMENT_HASH')
+
+
+def terminal_races():
+ for winner in ['CLOSE','ABORT']:
+  b=Builder(families=1,gateways=1);n=b.begin([0],'CANCELLABLE');b.seal(n);b.add(winner,dict(round=n,**({'closed_at':NOW} if winner=='CLOSE' else {})));loser='ABORT' if winner=='CLOSE' else 'CLOSE';before=copy.deepcopy(no_authoritative(b.l.s));b.add(loser,dict(round=n,**({'closed_at':NOW} if loser=='CLOSE' else {})),expect='REFUSED');equal(no_authoritative(b.l.s),before);b.install(n,'COMMITTED' if winner=='CLOSE' else 'ABORTED');funded_replay(b,'terminal-race-'+winner.lower())
+
+
 def main():
- test('provenance-and-genesis-attacks',provenance_attacks);test('delayed-seal-observation',lambda:funded_replay(delayed_seal(),'delayed-seal-observation'));test('independent-host-identity',lambda:funded_replay(host_identity(),'independent-host-identity'));test('strict-encoding-evidence-decimal-boundaries',encoding);test('customer-S00-S14-and-exact-retries',customer);test('base-retained-mutation',base_mutations);test('routing16-and-namespace-boundaries',namespace_routes);test('read-cursors-unknown-comparison',reads_and_comparison);test('unclaimed-retirement-and-no-revival',retirement);test('late-refusal-exception-full-rollback',rollback);test('C1-uncovered-issuance',uncovered_issuance);test('optional-round-exhaustion',repeated_cancel);test('writer-epoch-guards',writer_epoch);test('measured-envelopes-and-maximal-key-paths',measured_envelopes);test('expected-prefix-truncation',truncation);test('max-topology32-4-8-3',topology);test('independent-gross249-250-251',gross_boundaries);test('directional-caps-and-shared-funding-races',directional_funding);test('genuine-clock-lower-bound',clock_floor)
+ test('terminal-close-abort-winners',terminal_races);test('stored-semantic-and-bounded-reader-integrity',read_integrity);test('seal-scan-yield-abort-resume',seal_scan);test('provenance-and-genesis-attacks',provenance_attacks);test('delayed-seal-observation',lambda:funded_replay(delayed_seal(),'delayed-seal-observation'));test('independent-host-identity',lambda:funded_replay(host_identity(),'independent-host-identity'));test('strict-encoding-evidence-decimal-boundaries',encoding);test('customer-S00-S14-and-exact-retries',customer);test('base-retained-mutation',base_mutations);test('routing16-and-namespace-boundaries',namespace_routes);test('read-cursors-unknown-comparison',reads_and_comparison);test('unclaimed-retirement-and-no-revival',retirement);test('late-refusal-exception-full-rollback',rollback);test('C1-uncovered-issuance',uncovered_issuance);test('optional-round-exhaustion',repeated_cancel);test('writer-epoch-guards',writer_epoch);test('measured-envelopes-and-maximal-key-paths',measured_envelopes);test('expected-prefix-truncation',truncation);test('max-topology32-4-8-3',topology);test('independent-gross249-250-251',gross_boundaries);test('directional-caps-and-shared-funding-races',directional_funding);test('genuine-clock-lower-bound',clock_floor)
  for d in v.DIMS:
   for n in [-1,0,1]:test('resource-'+d+'-'+str(n),lambda d=d,n=n:resource_boundary(d,n))
  for name in v.SCHEMA['x-counters']:

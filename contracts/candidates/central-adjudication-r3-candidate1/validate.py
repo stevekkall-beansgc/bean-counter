@@ -88,7 +88,7 @@ def vec(kind):
  r=WORK['transitions'][kind];return dict(zip(DIMS,[r['segment_bytes'],r['new_trusted_bytes'],r['records'],r['index_path_pages'],r['index_value_pages'],r['logical_workspace_bytes']]))
 class Ledger:
  def __init__(self,initial):
-  self._charges=[];self.peaks={};self.initial=copy.deepcopy(initial);self.validate_initial(initial);self.s={'enrollment':None,'preparations':{},'round_preparations':{},'object_inventory':{},'grants':{},'tokens':{},'gateways':{},'cases':{},'deliveries':{},'controls':{},'entitlements':{},'suppliers':{},'pools':{},'families':{},'rounds':{},'active':None,'last_round':0,'customer':0,'gross':0,'positive':0,'negative':0,'actions':[],'certificates':[],'journals':{},'segments':[],'duplicates':0,'refused':0,'resources':{},'counters':{},'allocations':{}}
+  self._charges=[];self.peaks={};self.read_index={};self.initial=copy.deepcopy(initial);self.validate_initial(initial);self.s={'enrollment':None,'preparations':{},'round_preparations':{},'object_inventory':{},'grants':{},'tokens':{},'gateways':{},'cases':{},'deliveries':{},'controls':{},'entitlements':{},'suppliers':{},'pools':{},'families':{},'rounds':{},'active':None,'last_round':0,'customer':0,'gross':0,'positive':0,'negative':0,'actions':[],'certificates':[],'journals':{},'segments':[],'duplicates':0,'refused':0,'resources':{},'counters':{},'allocations':{}}
   for host,provisioned in initial.get('initial_resources',{}).items():
    shape(SCHEMA['$defs']['resource'],provisioned)
    self.s['resources'][host]={'provisioned':{k:int(provisioned[k]) for k in DIMS},'used':dict.fromkeys(DIMS,0),'held':dict.fromkeys(DIMS,0)}
@@ -385,7 +385,7 @@ class Ledger:
    # Retain exactly one segment in the owning journal. No global distributed commit.
    nr=digest('replay',[j['root'],ch,effects]);result={'status':'COMMITTED','code':k,'effects':effects,'root':nr};seg={'host':h,'profile':'central-adjudication-r3/1','ordinal':str(int(j['ordinal'])+1),'previous':j['segment'],'previous_root':j['root'],'command':copy.deepcopy(c),'result':copy.deepcopy(result),'dependencies':sorted_set(([p['proof']['segment']] if 'proof' in p and isinstance(p['proof'],dict) else [])+[q['segment'] for q in p.get('preparations',[])]),'objects':objects};validate_shape('segment',seg);require(len(canonical(c))+len(canonical(result))+sum(int(o['bytes']) for o in {o['body_hash']:o for o in objects}.values())<=2097152,'TRUST_BYTES');require(len(canonical(seg))<=8388608,'SEGMENT_BYTES');j.update({'ordinal':seg['ordinal'],'segment':digest('segment',seg),'root':nr});self.s['segments'].append(seg)
    for o in objects:known[key([o['origin'],o['kind'],o['full_key'],o['body_hash'],o['bytes']])]=True
-   self.s['controls'][ck]={'digest':ch,'effects':copy.deepcopy(effects)};return result
+   self.s['controls'][ck]={'digest':ch,'effects':copy.deepcopy(effects)};self.read_index.setdefault(h,[]).append({'bytes':canonical(seg),'segment':j['segment'],'root':nr,'previous':seg['previous'],'previous_root':seg['previous_root']});return result
   except Refused as e:self.s=before;self.s['refused']+=1;return {'status':'REFUSED','code':str(e),'effects':[],'root':self.s['journals'].get(h,{'root':ZERO})['root']}
   except Exception:self.s=before;raise
  def snapshot(self):
