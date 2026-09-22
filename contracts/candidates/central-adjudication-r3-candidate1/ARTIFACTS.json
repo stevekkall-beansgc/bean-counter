@@ -44,8 +44,8 @@
     },
     {
       "path": "check.py",
-      "bytes": 4159,
-      "sha256": "fe03a99784b58919e080be6175cba9b3044c2729a440769ead0248ea5ea7595c"
+      "bytes": 4182,
+      "sha256": "25214474929752831ee47e05ebde0b35fd5c76f64f2ebf062c234ce52526b921"
     },
     {
       "path": "customer-checkpoints.json",
@@ -128,6 +128,11 @@
       "sha256": "aa51805ba89ef599254c9060040d7eddb2dddb89915c843cf1b64efee5e3aabe"
     },
     {
+      "path": "node-tests.mjs",
+      "bytes": 17940,
+      "sha256": "e471665e050de089a8bc17aff04e71cd74e40c56fa79c762e5a7b937e054b27d"
+    },
+    {
       "path": "protocol/resources.json",
       "bytes": 34131,
       "sha256": "7ce7fd373d29c99b081fab0ce28ff5b07376d8a2d2be8aab98f645bbfa0880bd"
@@ -155,7 +160,12 @@
     {
       "path": "regression-checkpoints.json",
       "bytes": 1553,
-      "sha256": "e7e5b7a926a3d2067225eea9175a58f2d8b322ff7edd0a77b74e14c901e307e1"
+      "sha256": "d3e0d605aefeabd31613fd9611ffdf36660056d3c38bede06ef9f0b2207de1c6"
+    },
+    {
+      "path": "regression_checks.py",
+      "bytes": 1694,
+      "sha256": "6513082ffc331244d8351c6c612f1746d0c936bfba5dbd587911a3e669584d7b"
     },
     {
       "path": "seal_reader.py",
@@ -171,6 +181,11 @@
       "path": "transition_matrix.py",
       "bytes": 1741,
       "sha256": "34590a54c0591b2f79bc92cb80a617447c04e2f2f48742b939f696e41e490a42"
+    },
+    {
+      "path": "validate.mjs",
+      "bytes": 101553,
+      "sha256": "492a1a8574594f79ab467b06298389ec6a8b183d640333bb0e109f29abbbe2f0"
     },
     {
       "path": "validate.py",
