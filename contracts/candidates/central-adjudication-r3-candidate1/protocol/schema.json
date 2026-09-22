@@ -1,0 +1,2193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:central-adjudication-r3:1",
+  "$ref": "#/$defs/segment",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "x-max-utf8": 128,
+      "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "x-max-utf8": 256,
+      "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "x-max-utf8": 4096
+    },
+    "count": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,29})$"
+    },
+    "atoms": {
+      "type": "string",
+      "pattern": "^(0|-?[1-9][0-9]{0,29})$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$",
+      "format": "date-time"
+    },
+    "scope": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/id"
+        },
+        {
+          "$ref": "#/$defs/id"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "family": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/scope"
+        },
+        {
+          "$ref": "#/$defs/id"
+        },
+        {
+          "$ref": "#/$defs/id"
+        },
+        {
+          "$ref": "#/$defs/id"
+        }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "case": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/family"
+        },
+        {
+          "$ref": "#/$defs/source"
+        },
+        {
+          "$ref": "#/$defs/id"
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "delivery": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/scope"
+        },
+        {
+          "$ref": "#/$defs/source"
+        },
+        {
+          "$ref": "#/$defs/id"
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "cost_originator",
+        "bearer",
+        "payer",
+        "beneficiary",
+        "recipient"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/id"
+        },
+        "cost_originator": {
+          "$ref": "#/$defs/id"
+        },
+        "bearer": {
+          "$ref": "#/$defs/id"
+        },
+        "payer": {
+          "$ref": "#/$defs/id"
+        },
+        "beneficiary": {
+          "$ref": "#/$defs/id"
+        },
+        "recipient": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "body",
+        "sha256"
+      ],
+      "properties": {
+        "body": {
+          "type": "string",
+          "maxLength": 5464,
+          "x-base64-bytes": 4096
+        },
+        "sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "namespace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "tag",
+        "gateway",
+        "route"
+      ],
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "tag": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "route": {
+          "const": "full-case-sha256-mod/1"
+        }
+      }
+    },
+    "head": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "scope",
+        "target",
+        "enrollment",
+        "ordinal",
+        "segment",
+        "root"
+      ],
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "enrollment": {
+          "$ref": "#/$defs/digest"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/count"
+        },
+        "segment": {
+          "$ref": "#/$defs/digest"
+        },
+        "root": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "principal",
+        "permission",
+        "document",
+        "revision",
+        "observed_at",
+        "command",
+        "head"
+      ],
+      "properties": {
+        "principal": {
+          "$ref": "#/$defs/id"
+        },
+        "permission": {
+          "enum": [
+            "enroll",
+            "capacity",
+            "submit",
+            "read",
+            "decide",
+            "adjust",
+            "correct",
+            "close",
+            "replace"
+          ]
+        },
+        "document": {
+          "$ref": "#/$defs/digest"
+        },
+        "revision": {
+          "$ref": "#/$defs/count"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/time"
+        },
+        "command": {
+          "$ref": "#/$defs/digest"
+        },
+        "head": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "family_terms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "prerequisites",
+        "ordinary_atoms",
+        "correction_atoms",
+        "source",
+        "supplier_pool",
+        "roles",
+        "assent",
+        "starts_at",
+        "occurs_before",
+        "received_by",
+        "accepted_by",
+        "correction_by"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/family"
+        },
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 31
+          },
+          "minItems": 0,
+          "maxItems": 31,
+          "uniqueItems": true
+        },
+        "ordinary_atoms": {
+          "$ref": "#/$defs/atoms"
+        },
+        "correction_atoms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/atoms"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "supplier_pool": {
+          "$ref": "#/$defs/id"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/digest"
+        },
+        "starts_at": {
+          "$ref": "#/$defs/time"
+        },
+        "occurs_before": {
+          "$ref": "#/$defs/time"
+        },
+        "received_by": {
+          "$ref": "#/$defs/time"
+        },
+        "accepted_by": {
+          "$ref": "#/$defs/time"
+        },
+        "correction_by": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "supplier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "maximum",
+        "consumed",
+        "held",
+        "released"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "maximum": {
+          "$ref": "#/$defs/count"
+        },
+        "consumed": {
+          "$ref": "#/$defs/count"
+        },
+        "held": {
+          "$ref": "#/$defs/count"
+        },
+        "released": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "funding",
+        "positive",
+        "negative",
+        "gross",
+        "roles",
+        "assent"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "funding": {
+          "$ref": "#/$defs/count"
+        },
+        "positive": {
+          "$ref": "#/$defs/count"
+        },
+        "negative": {
+          "$ref": "#/$defs/count"
+        },
+        "gross": {
+          "$ref": "#/$defs/count"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_bytes",
+        "trusted_bytes",
+        "records",
+        "index_pages",
+        "index_values",
+        "workspace_bytes"
+      ],
+      "properties": {
+        "canonical_bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "trusted_bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "records": {
+          "$ref": "#/$defs/count"
+        },
+        "index_pages": {
+          "$ref": "#/$defs/count"
+        },
+        "index_values": {
+          "$ref": "#/$defs/count"
+        },
+        "workspace_bytes": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "counters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segment",
+        "head_revision",
+        "grant",
+        "grant_registry",
+        "allocation",
+        "receipt",
+        "control",
+        "round",
+        "import",
+        "terminal",
+        "allocation_prefix",
+        "receipt_prefix",
+        "index_cardinality",
+        "writer_epoch",
+        "economic_revision",
+        "resource_revision"
+      ],
+      "properties": {
+        "segment": {
+          "$ref": "#/$defs/count"
+        },
+        "head_revision": {
+          "$ref": "#/$defs/count"
+        },
+        "grant": {
+          "$ref": "#/$defs/count"
+        },
+        "grant_registry": {
+          "$ref": "#/$defs/count"
+        },
+        "allocation": {
+          "$ref": "#/$defs/count"
+        },
+        "receipt": {
+          "$ref": "#/$defs/count"
+        },
+        "control": {
+          "$ref": "#/$defs/count"
+        },
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "import": {
+          "$ref": "#/$defs/count"
+        },
+        "terminal": {
+          "$ref": "#/$defs/count"
+        },
+        "allocation_prefix": {
+          "$ref": "#/$defs/count"
+        },
+        "receipt_prefix": {
+          "$ref": "#/$defs/count"
+        },
+        "index_cardinality": {
+          "$ref": "#/$defs/count"
+        },
+        "writer_epoch": {
+          "$ref": "#/$defs/count"
+        },
+        "economic_revision": {
+          "$ref": "#/$defs/count"
+        },
+        "resource_revision": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "store",
+        "registration",
+        "gateway",
+        "namespace",
+        "template",
+        "resources",
+        "counters",
+        "journal_head",
+        "authentication"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "registration": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "namespace": {
+          "$ref": "#/$defs/namespace"
+        },
+        "template": {
+          "const": "complete-ingress/1"
+        },
+        "resources": {
+          "$ref": "#/$defs/resource"
+        },
+        "counters": {
+          "$ref": "#/$defs/counters"
+        },
+        "journal_head": {
+          "$ref": "#/$defs/digest"
+        },
+        "authentication": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "grant",
+        "gateway",
+        "allocation",
+        "category",
+        "claim"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "grant": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "allocation": {
+          "$ref": "#/$defs/count"
+        },
+        "category": {
+          "enum": [
+            "ORDINARY",
+            "ADJUSTMENT"
+          ]
+        },
+        "claim": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case",
+        "delivery",
+        "submission",
+        "token",
+        "gateway",
+        "epoch",
+        "position",
+        "received_at",
+        "journal_head"
+      ],
+      "properties": {
+        "case": {
+          "$ref": "#/$defs/case"
+        },
+        "delivery": {
+          "$ref": "#/$defs/delivery"
+        },
+        "submission": {
+          "$ref": "#/$defs/digest"
+        },
+        "token": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/count"
+        },
+        "position": {
+          "$ref": "#/$defs/count"
+        },
+        "received_at": {
+          "$ref": "#/$defs/time"
+        },
+        "journal_head": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gateway",
+        "status",
+        "cutoff",
+        "allocation_prefix",
+        "receipt_high",
+        "receipt_prefix",
+        "disposition_root",
+        "receipt_root",
+        "observation"
+      ],
+      "properties": {
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "enum": [
+            "COMPLETE_GATEWAY_CUTOFF",
+            "UNRECONCILED",
+            "UNKNOWN_GATEWAY_COVERAGE"
+          ]
+        },
+        "cutoff": {
+          "$ref": "#/$defs/count"
+        },
+        "allocation_prefix": {
+          "$ref": "#/$defs/count"
+        },
+        "receipt_high": {
+          "$ref": "#/$defs/count"
+        },
+        "receipt_prefix": {
+          "$ref": "#/$defs/count"
+        },
+        "disposition_root": {
+          "$ref": "#/$defs/digest"
+        },
+        "receipt_root": {
+          "$ref": "#/$defs/digest"
+        },
+        "observation": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "submission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case",
+        "occurred_at",
+        "evidence",
+        "sender_backfill"
+      ],
+      "properties": {
+        "case": {
+          "$ref": "#/$defs/case"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/time"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "sender_backfill": {
+          "type": "boolean"
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case",
+        "revision",
+        "kind",
+        "signed_atoms",
+        "magnitude",
+        "roles",
+        "assent"
+      ],
+      "properties": {
+        "case": {
+          "$ref": "#/$defs/case"
+        },
+        "revision": {
+          "$ref": "#/$defs/count"
+        },
+        "kind": {
+          "enum": [
+            "ORDINARY",
+            "ADJUSTMENT",
+            "INVERSE",
+            "REPLACEMENT"
+          ]
+        },
+        "signed_atoms": {
+          "$ref": "#/$defs/atoms"
+        },
+        "magnitude": {
+          "$ref": "#/$defs/count"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "families",
+        "unavailable",
+        "supplier_before",
+        "supplier_after",
+        "round",
+        "cutoffs",
+        "closed_at"
+      ],
+      "properties": {
+        "families": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/family"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "unavailable": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/family"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "supplier_before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/supplier"
+          },
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "supplier_after": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/supplier"
+          },
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "cutoffs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverage"
+          },
+          "minItems": 0,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "closed_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "enroll": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registration",
+        "store",
+        "scope",
+        "target",
+        "base_receipt",
+        "base_manifest",
+        "base_atoms",
+        "supplier_booked",
+        "premium_cap",
+        "families",
+        "gateways",
+        "suppliers",
+        "pools"
+      ],
+      "properties": {
+        "registration": {
+          "$ref": "#/$defs/id"
+        },
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "base_receipt": {
+          "$ref": "#/$defs/digest"
+        },
+        "base_manifest": {
+          "$ref": "#/$defs/digest"
+        },
+        "base_atoms": {
+          "$ref": "#/$defs/count"
+        },
+        "supplier_booked": {
+          "$ref": "#/$defs/count"
+        },
+        "premium_cap": {
+          "$ref": "#/$defs/count"
+        },
+        "families": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/family_terms"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "gateways": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/namespace"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "suppliers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/supplier"
+          },
+          "minItems": 0,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "pools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pool"
+          },
+          "minItems": 0,
+          "maxItems": 3,
+          "uniqueItems": true
+        }
+      }
+    },
+    "local_grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grant"
+      ],
+      "properties": {
+        "grant": {
+          "$ref": "#/$defs/grant"
+        }
+      }
+    },
+    "register_grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grant"
+      ],
+      "properties": {
+        "grant": {
+          "$ref": "#/$defs/grant"
+        }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grant",
+        "token"
+      ],
+      "properties": {
+        "grant": {
+          "$ref": "#/$defs/id"
+        },
+        "token": {
+          "$ref": "#/$defs/token"
+        }
+      }
+    },
+    "activate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token",
+        "gateway"
+      ],
+      "properties": {
+        "token": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "receive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token",
+        "gateway",
+        "epoch",
+        "delivery",
+        "submission",
+        "received_at"
+      ],
+      "properties": {
+        "token": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/count"
+        },
+        "delivery": {
+          "$ref": "#/$defs/delivery"
+        },
+        "submission": {
+          "$ref": "#/$defs/submission"
+        },
+        "received_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "return_unused": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token",
+        "gateway",
+        "claim"
+      ],
+      "properties": {
+        "token": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "claim": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "import": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "reconcile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "advance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gateway",
+        "through"
+      ],
+      "properties": {
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "through": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "local_terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grant",
+        "gateway",
+        "proof"
+      ],
+      "properties": {
+        "grant": {
+          "$ref": "#/$defs/id"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "proof": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "retire_grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grant"
+      ],
+      "properties": {
+        "grant": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "begin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "predecessor",
+        "mode",
+        "families",
+        "gateways"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "predecessor": {
+          "$ref": "#/$defs/count"
+        },
+        "mode": {
+          "enum": [
+            "FINISH_ONLY",
+            "CANCELLABLE"
+          ]
+        },
+        "families": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/family"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "gateways": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "maxItems": 4,
+          "uniqueItems": true
+        }
+      }
+    },
+    "seal_begin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "gateway",
+        "predecessor"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "predecessor": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "sealed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "gateway"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "drain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "gateway"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "close": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "closed_at"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "closed_at": {
+          "$ref": "#/$defs/time"
+        }
+      }
+    },
+    "abort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "install": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "gateway",
+        "outcome"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "outcome": {
+          "enum": [
+            "COMMITTED",
+            "ABORTED"
+          ]
+        }
+      }
+    },
+    "supplement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case",
+        "evidence"
+      ],
+      "properties": {
+        "case": {
+          "$ref": "#/$defs/case"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      }
+    },
+    "decide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case",
+        "verdict",
+        "path",
+        "signed_atoms",
+        "pool",
+        "roles",
+        "assent",
+        "reason"
+      ],
+      "properties": {
+        "case": {
+          "$ref": "#/$defs/case"
+        },
+        "verdict": {
+          "enum": [
+            "ALLOW",
+            "DENY"
+          ]
+        },
+        "path": {
+          "enum": [
+            "ORDINARY",
+            "ADJUSTMENT"
+          ]
+        },
+        "signed_atoms": {
+          "$ref": "#/$defs/atoms"
+        },
+        "pool": {
+          "$ref": "#/$defs/id"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/digest"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "x-max-utf8": 256,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+        }
+      }
+    },
+    "correct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case",
+        "expected_revision",
+        "replacement",
+        "roles",
+        "assent"
+      ],
+      "properties": {
+        "case": {
+          "$ref": "#/$defs/case"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/count"
+        },
+        "replacement": {
+          "$ref": "#/$defs/atoms"
+        },
+        "roles": {
+          "$ref": "#/$defs/roles"
+        },
+        "assent": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "replace_writer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gateway",
+        "old_epoch",
+        "new_epoch",
+        "journal_head",
+        "fence"
+      ],
+      "properties": {
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "old_epoch": {
+          "$ref": "#/$defs/count"
+        },
+        "new_epoch": {
+          "$ref": "#/$defs/count"
+        },
+        "journal_head": {
+          "$ref": "#/$defs/digest"
+        },
+        "fence": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "extend_resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "resources"
+      ],
+      "properties": {
+        "host": {
+          "$ref": "#/$defs/id"
+        },
+        "resources": {
+          "$ref": "#/$defs/resource"
+        }
+      }
+    },
+    "command": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ENROLL"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/enroll"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "LOCAL_GRANT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/local_grant"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "REGISTER_GRANT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/register_grant"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ISSUE"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/issue"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ACTIVATE"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/activate"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "RECEIVE"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/receive"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "RETURN_UNUSED"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/return_unused"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "IMPORT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/import"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "RECONCILE"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/reconcile"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ADVANCE"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/advance"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "LOCAL_TERMINAL"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/local_terminal"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "RETIRE_GRANT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/retire_grant"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "BEGIN"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/begin"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "SEAL_BEGIN"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/seal_begin"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "SEALED"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/sealed"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "DRAIN"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/drain"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "READY"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/ready"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "CLOSE"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/close"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ABORT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/abort"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "INSTALL"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/install"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "SUPPLEMENT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/supplement"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "DECIDE"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/decide"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "CORRECT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/correct"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "REPLACE_WRITER"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/replace_writer"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "EXTEND_RESOURCES"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/extend_resources"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        }
+      ]
+    },
+    "effect": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "RECEIPT"
+            },
+            "body": {
+              "$ref": "#/$defs/receipt"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ACTION"
+            },
+            "body": {
+              "$ref": "#/$defs/action"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "CLOSURE"
+            },
+            "body": {
+              "$ref": "#/$defs/certificate"
+            }
+          }
+        }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "code",
+        "effects",
+        "root"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "COMMITTED",
+            "DUPLICATE",
+            "REFUSED",
+            "UNKNOWN"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "x-max-utf8": 64,
+          "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          },
+          "minItems": 0,
+          "maxItems": 128
+        },
+        "root": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "ordinal",
+        "previous",
+        "previous_root",
+        "command",
+        "result",
+        "dependencies"
+      ],
+      "properties": {
+        "profile": {
+          "const": "central-adjudication-r3/1"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/count"
+        },
+        "previous": {
+          "$ref": "#/$defs/digest"
+        },
+        "previous_root": {
+          "$ref": "#/$defs/digest"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "result": {
+          "$ref": "#/$defs/result"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/digest"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      }
+    },
+    "retry_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt",
+        "knowledge",
+        "current_lifecycle",
+        "central_admission",
+        "prefix",
+        "coverage"
+      ],
+      "properties": {
+        "receipt": {
+          "$ref": "#/$defs/receipt"
+        },
+        "knowledge": {
+          "enum": [
+            "AUTHORITATIVE_AT_PREFIX",
+            "CACHED_VERIFIED_PREFIX",
+            "UNKNOWN"
+          ]
+        },
+        "current_lifecycle": {
+          "enum": [
+            "UNKNOWN",
+            "ORDINARY_PENDING",
+            "ADJUSTMENT_PENDING",
+            "FINAL_ALLOW",
+            "FINAL_DENY"
+          ]
+        },
+        "central_admission": {
+          "enum": [
+            "UNKNOWN",
+            "PRESENT_AT_PREFIX",
+            "ABSENT_AT_PREFIX"
+          ]
+        },
+        "prefix": {
+          "$ref": "#/$defs/head"
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverage"
+          },
+          "minItems": 0,
+          "maxItems": 4,
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "x-counters": [
+    "segment",
+    "head_revision",
+    "grant",
+    "grant_registry",
+    "allocation",
+    "receipt",
+    "control",
+    "round",
+    "import",
+    "terminal",
+    "allocation_prefix",
+    "receipt_prefix",
+    "index_cardinality",
+    "writer_epoch",
+    "economic_revision",
+    "resource_revision"
+  ],
+  "x-operation-limit": 262144,
+  "x-trusted-limit": 2097152,
+  "x-segment-limit": 8388608
+}
