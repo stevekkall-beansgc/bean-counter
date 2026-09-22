@@ -2,16 +2,19 @@
   "format": "r3-trace/1",
   "initial": {
     "authority_observations": [
-      "0f9c5593c4d51abfb86ab78f2b51987205761136d19c8916a69932697df3483d",
-      "944199251b4eec32d9ff8646f6ffe237c1b45d14fb34ce70390b89818a98c662",
-      "ec0d41fc71b0c68467da6856a850ebb6a396a8b7c271cd7308fa744f4c5d7dbb"
+      "3c21b1828fb07f07d35462fa36e60f3348d08f0f92505190e6dbcdd55d10c224",
+      "d2fbd3bb9761472ff9f72d9435c4ca4f1e1d8ef3cb6e649a365085c9efccc8df"
     ],
     "authority_documents": [
-      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "6c366c772c67c6506df1029c922a1fc218a98b72dafe0cf01f2193bcc85eefc7",
+      "a3d15400a33aabe24ea9723a7a133a95a5c50948c43d830ab5117bb0a7d7147b",
+      "bb6e1bff47c8965d7697e7177e54a6efa2a4697b4635a4c3b976b292c52e2fd4",
+      "d8b681756c5230bdb84cf215764ccc768e02705a06174bdde6b2bb54999c8f8e",
+      "dab705ce5658923a939b3eb8e369abeaa5426bf8dfdac08a55b1d37c58f118b4"
     ],
     "grant_authentications": [],
     "trusted_observations": [
-      "64009f8aec343b72265055b9228ade3be220c7da267f586fb2cf79467d9f8504"
+      "cc04dfa1daea1fd7bed85a4bedb92d2676a396777dea25d2ad7e9946dd2f4b91"
     ],
     "original_objects": [
       {
@@ -576,7 +579,34 @@
         "journal_head": "0000000000000000000000000000000000000000000000000000000000000000",
         "fence": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
-    }
+    },
+    "authority_sources": [
+      {
+        "body": "eyJlbmRzX2F0IjoiMjEwMC0wMS0wMVQwMDowMDowMC4wMDAwMDBaIiwiaWQiOiJjb21tYW5kLWF1dGhvcml0eSIsImtpbmQiOiJBVVRIT1JJWkFUSU9OIiwicGVybWlzc2lvbnMiOlsiYWRqdXN0IiwiY2FwYWNpdHkiLCJjbG9zZSIsImNvcnJlY3QiLCJkZWNpZGUiLCJlbnJvbGwiLCJyZWFkIiwicmVwbGFjZSIsInN1Ym1pdCJdLCJwcmluY2lwYWwiOiJob3N0IiwicmV2aXNpb24iOiIxIiwic2NvcGUiOlsiZGVtbyIsInNhbmRib3giXSwic291cmNlIjoic3ludGhldGljLWF1dGhvcml0eSIsInN0YXJ0c19hdCI6IjIwMDAtMDEtMDFUMDA6MDA6MDAuMDAwMDAwWiIsInRhcmdldCI6ImRlbW8tc2xpY2UifQ==",
+        "body_hash": "dab705ce5658923a939b3eb8e369abeaa5426bf8dfdac08a55b1d37c58f118b4",
+        "bytes": "343"
+      },
+      {
+        "body": "eyJpZCI6ImZhbWlseS0wIiwia2luZCI6IkFTU0VOVCIsInJldmlzaW9uIjoiMSIsInJvbGVzIjp7ImJlYXJlciI6ImN1c3RvbWVyIiwiYmVuZWZpY2lhcnkiOiJjdXN0b21lciIsImNvc3Rfb3JpZ2luYXRvciI6InZlbmRvciIsInBheWVyIjoiY3VzdG9tZXIiLCJwcm92aWRlciI6InZlbmRvciIsInJlY2lwaWVudCI6InZlbmRvciJ9LCJzY29wZSI6WyJkZW1vIiwic2FuZGJveCJdLCJzb3VyY2UiOiJzeW50aGV0aWMtYXV0aG9yaXR5IiwidGFyZ2V0IjoiZGVtby1zbGljZSIsInRlcm1zIjoiYThiMzIyM2JlMjIwODcyMmFiMzA3ZmUzY2IxOTFlMDI5ZmU3YzRiY2RkNTkxZDgzNzdjNDAxYzQ3ZDU2YTMxOCJ9",
+        "body_hash": "a3d15400a33aabe24ea9723a7a133a95a5c50948c43d830ab5117bb0a7d7147b",
+        "bytes": "345"
+      },
+      {
+        "body": "eyJpZCI6InBvb2wtYWRqdXN0bWVudHMtTkVHQVRJVkUiLCJraW5kIjoiQVNTRU5UIiwicmV2aXNpb24iOiIxIiwicm9sZXMiOnsiYmVhcmVyIjoidmVuZG9yIiwiYmVuZWZpY2lhcnkiOiJ2ZW5kb3IiLCJjb3N0X29yaWdpbmF0b3IiOiJjdXN0b21lciIsInBheWVyIjoidmVuZG9yIiwicHJvdmlkZXIiOiJjdXN0b21lciIsInJlY2lwaWVudCI6ImN1c3RvbWVyIn0sInNjb3BlIjpbImRlbW8iLCJzYW5kYm94Il0sInNvdXJjZSI6InN5bnRoZXRpYy1hdXRob3JpdHkiLCJ0YXJnZXQiOiJkZW1vLXNsaWNlIiwidGVybXMiOiJiYzljZGE1MTA5MzBjZjNhMzFhZjI4YTZhZTczZDMyZDYyMzNkYzNlNzFhZDkyZTM3OWVhOGRhZDk3MThlMzM2In0=",
+        "body_hash": "6c366c772c67c6506df1029c922a1fc218a98b72dafe0cf01f2193bcc85eefc7",
+        "bytes": "362"
+      },
+      {
+        "body": "eyJpZCI6InBvb2wtYWRqdXN0bWVudHMtUE9TSVRJVkUiLCJraW5kIjoiQVNTRU5UIiwicmV2aXNpb24iOiIxIiwicm9sZXMiOnsiYmVhcmVyIjoiY3VzdG9tZXIiLCJiZW5lZmljaWFyeSI6ImN1c3RvbWVyIiwiY29zdF9vcmlnaW5hdG9yIjoidmVuZG9yIiwicGF5ZXIiOiJjdXN0b21lciIsInByb3ZpZGVyIjoidmVuZG9yIiwicmVjaXBpZW50IjoidmVuZG9yIn0sInNjb3BlIjpbImRlbW8iLCJzYW5kYm94Il0sInNvdXJjZSI6InN5bnRoZXRpYy1hdXRob3JpdHkiLCJ0YXJnZXQiOiJkZW1vLXNsaWNlIiwidGVybXMiOiI5NzNlNDIyODk3OWIxN2EzMzI2ZjQ4MDMwM2YzNWFjZThiNWU4MjIzM2FmYWYwZDNhY2E1OGVlOWYxNTRlYzFjIn0=",
+        "body_hash": "bb6e1bff47c8965d7697e7177e54a6efa2a4697b4635a4c3b976b292c52e2fd4",
+        "bytes": "362"
+      },
+      {
+        "body": "eyJpZCI6InBvb2wtYWRqdXN0bWVudHMtWkVSTyIsImtpbmQiOiJBU1NFTlQiLCJyZXZpc2lvbiI6IjEiLCJyb2xlcyI6eyJiZWFyZXIiOiJjdXN0b21lciIsImJlbmVmaWNpYXJ5IjoiY3VzdG9tZXIiLCJjb3N0X29yaWdpbmF0b3IiOiJ2ZW5kb3IiLCJwYXllciI6ImN1c3RvbWVyIiwicHJvdmlkZXIiOiJ2ZW5kb3IiLCJyZWNpcGllbnQiOiJ2ZW5kb3IifSwic2NvcGUiOlsiZGVtbyIsInNhbmRib3giXSwic291cmNlIjoic3ludGhldGljLWF1dGhvcml0eSIsInRhcmdldCI6ImRlbW8tc2xpY2UiLCJ0ZXJtcyI6ImVjODc0M2JjOWE2NzQ1YWM2YmM2MzdjNDNmNmI4MDIwN2U4M2FhOWVjN2FkYTFkNjUxZjEyMWMzMjkxOGNhMmUifQ==",
+        "body_hash": "d8b681756c5230bdb84cf215764ccc768e02705a06174bdde6b2bb54999c8f8e",
+        "bytes": "358"
+      }
+    ]
   },
   "commands": [
     {
@@ -606,15 +636,15 @@
           "gateway": "g0",
           "route": "full-case-sha256-mod/1"
         },
-        "intent": "620ec31c2c878b36065f06a447893400a4ef977dfa6620456d42a9f606766588"
+        "intent": "f6ab7c21465b974213e5efa2a2480c5a4ed4966f9c5bd2c00a98b6a08c4ba08f"
       },
       "authority": {
         "principal": "host",
         "permission": "capacity",
-        "document": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "document": "dab705ce5658923a939b3eb8e369abeaa5426bf8dfdac08a55b1d37c58f118b4",
         "revision": "1",
         "observed_at": "2026-09-22T12:00:00.000000Z",
-        "command": "633eedc0e889094148c5b2a6fa2136912d4c5b2d02b7959ba30e7f9579764d02",
+        "command": "c308044f37db3b3dd90373eebd7fd4fa1e288bbd70447ad13a55d7cac8ff0c6c",
         "head": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     },
@@ -670,7 +700,7 @@
               "beneficiary": "customer",
               "recipient": "vendor"
             },
-            "assent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "assent": "a3d15400a33aabe24ea9723a7a133a95a5c50948c43d830ab5117bb0a7d7147b",
             "starts_at": "2026-09-01T00:00:00.000000Z",
             "occurs_before": "2026-10-01T00:00:00.000000Z",
             "received_by": "2026-10-02T00:00:00.000000Z",
@@ -708,7 +738,7 @@
                   "beneficiary": "vendor",
                   "recipient": "customer"
                 },
-                "assent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                "assent": "6c366c772c67c6506df1029c922a1fc218a98b72dafe0cf01f2193bcc85eefc7"
               },
               {
                 "direction": "POSITIVE",
@@ -720,7 +750,7 @@
                   "beneficiary": "customer",
                   "recipient": "vendor"
                 },
-                "assent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                "assent": "bb6e1bff47c8965d7697e7177e54a6efa2a4697b4635a4c3b976b292c52e2fd4"
               },
               {
                 "direction": "ZERO",
@@ -732,7 +762,7 @@
                   "beneficiary": "customer",
                   "recipient": "vendor"
                 },
-                "assent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                "assent": "d8b681756c5230bdb84cf215764ccc768e02705a06174bdde6b2bb54999c8f8e"
               }
             ]
           }
@@ -747,23 +777,23 @@
             "registration": "registration",
             "host": "g0",
             "ordinal": "1",
-            "segment": "d3d3f39af10d63c88a9c193ae8592e6ab0771a6da60ff0e7fe0c9470c7e68ee5",
-            "root": "8ed04b0794708e9f6fdcefa5d0656d96b53b047090080560acf3e55400fee7c1",
+            "segment": "f33b13ad109d0bdf5d5741ab31b34c34b950828a42a76845f49791c39054db9b",
+            "root": "438f586dc316070d700d43f4c0dc9303f2f315c62aff6fb0516b9346425ba506",
             "fact_kind": "ENROLL_PREPARATION",
             "full_key": "g0",
-            "body_hash": "29fc9415b2fa4269c6a3a915783593e774bc4d40cb0c639f7680127a9a4462cf",
+            "body_hash": "1f64a78e7c422342d80ff204a3da9aa11c23e92d0acb8d6f396fe52ad182663f",
             "bytes": "321",
-            "trusted_observation_ref": "64009f8aec343b72265055b9228ade3be220c7da267f586fb2cf79467d9f8504"
+            "trusted_observation_ref": "cc04dfa1daea1fd7bed85a4bedb92d2676a396777dea25d2ad7e9946dd2f4b91"
           }
         ]
       },
       "authority": {
         "principal": "host",
         "permission": "enroll",
-        "document": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "document": "dab705ce5658923a939b3eb8e369abeaa5426bf8dfdac08a55b1d37c58f118b4",
         "revision": "1",
         "observed_at": "2026-09-22T12:00:00.000000Z",
-        "command": "77b6ca9cb1b44fd24b8566c516645dfcaa5a1b354cdc687c9525bff3123fb1c6",
+        "command": "253a0bae68bb996be8504a249921ebe7f0bfd8884ce0ca57b2bfa021ad1df0ed",
         "head": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     }

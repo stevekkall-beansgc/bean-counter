@@ -21,8 +21,11 @@ class Builder:
   self.p['gateways']=[dict(scope=scope,tag=str(i+1)*32,gateway='g'+str(i),route='full-case-sha256-mod/1') for i in range(gateways)]
   roles=template['roles'];negative=copy.deepcopy(roles);negative.update(provider='customer',cost_originator='customer',bearer='vendor',payer='vendor',beneficiary='vendor',recipient='customer')
   self.p['pools']=pools if pools is not None else [dict(id='adjustments',funding='250',positive='100',negative='150',gross='250',authorizations=v.sorted_set([dict(direction=d,roles=negative if d=='NEGATIVE' else roles,assent='a'*64) for d in ['POSITIVE','NEGATIVE','ZERO']]))]
-  self.p['suppliers']=suppliers or [];self.initial['initial_resources']={h:{d:str(v.M) for d in v.DIMS} for h in ['center']+[g['gateway'] for g in self.p['gateways']]};self.initial['writer_capabilities']={g['gateway']:dict(epoch='1',journal_head=v.ZERO,fence='b'*64) for g in self.p['gateways']};self.initial['initial_counters']={g:{'writer_epoch':{'q':c['epoch'],'R':'0'}} for g,c in self.initial['writer_capabilities'].items()};self.l=v.Ledger(self.initial);self.enroll(preparation_order)
+  if customer and pools is None:self.p['pools']=v.sorted_set([dict(id=id,funding=str(amount),positive=str(amount if direction=='POSITIVE' else 0),negative=str(amount if direction=='NEGATIVE' else 0),gross=str(amount),authorizations=[dict(direction=direction,roles=negative if direction=='NEGATIVE' else roles,assent='a'*64)]) for id,direction,amount in [('positive','POSITIVE',100),('negative','NEGATIVE',150),('zero','ZERO',0)]])
+  self.p['suppliers']=suppliers or [];self.initial['initial_resources']={h:{d:str(v.M) for d in v.DIMS} for h in ['center']+[g['gateway'] for g in self.p['gateways']]};self.initial['writer_capabilities']={g['gateway']:dict(epoch='1',journal_head=v.ZERO,fence='b'*64) for g in self.p['gateways']};self.initial['initial_counters']={g:{'writer_epoch':{'q':c['epoch'],'R':'0'}} for g,c in self.initial['writer_capabilities'].items()};self.enroll(preparation_order)
  def enroll(self,order=None):
+  from authority_fixtures import prepare
+  prepare(self);self.l=v.Ledger(self.initial)
   for o in self.initial['original_objects']:o['origin']=dict(store=self.p['store'],scope=self.p['scope'],registration=self.p['registration'],host=self.p['store'],ordinal='1')
   self.l.initial['original_objects']=copy.deepcopy(self.initial['original_objects'])
   self.p['preparations']=[];intent=v.digest('enrollment',{k:a for k,a in self.p.items() if k!='preparations'})
@@ -32,7 +35,12 @@ class Builder:
   for name in ['authority_documents','authority_observations','grant_authentications','trusted_observations']:self.initial[name]=v.sorted_set(self.initial[name])
   return dict(format='r3-trace/1',initial=self.initial,commands=self.commands)
  def add(self,kind,payload,expect='COMMITTED',permission=None,key=None,observed_at=None):
-  self.seq+=1;key=key or [self.p['scope'],'control',str(self.seq)];c=dict(kind=kind,key=key,payload=copy.deepcopy(payload),authority=dict(principal='host',permission=permission or {'ENROLL':'enroll','RECEIVE':'submit','SUPPLEMENT':'submit','DECIDE':'adjust' if payload.get('path')=='ADJUSTMENT' else 'decide','CORRECT':'correct','BEGIN':'close','CLOSE':'close','ABORT':'close','REPLACE_WRITER':'replace'}.get(kind,'capacity'),document='a'*64,revision='1',observed_at=observed_at or NOW,command=v.ZERO,head=v.ZERO));c['authority']['head']=self.l.journal(self.l.host(c))['root'];c['authority']['command']=v.command_hash(c);
+  payload=copy.deepcopy(payload)
+  if kind in {'DECIDE','CORRECT'} and payload.get('assent')=='a'*64:
+   if kind=='DECIDE' and payload['path']=='ADJUSTMENT':
+    direction='POSITIVE' if int(payload['signed_atoms'])>0 else 'NEGATIVE' if int(payload['signed_atoms'])<0 else 'ZERO';pool=next(q for q in self.p['pools'] if q['id']==payload['pool']);payload['assent']=next(a['assent'] for a in pool['authorizations'] if a['direction']==direction)
+   else:payload['assent']=next(f['assent'] for f in self.p['families'] if f['key']==payload['case'][0])
+  self.seq+=1;key=key or [self.p['scope'],'control',str(self.seq)];c=dict(kind=kind,key=key,payload=copy.deepcopy(payload),authority=dict(principal='host',permission=permission or {'ENROLL':'enroll','RECEIVE':'submit','SUPPLEMENT':'submit','DECIDE':'adjust' if payload.get('path')=='ADJUSTMENT' else 'decide','CORRECT':'correct','BEGIN':'close','CLOSE':'close','ABORT':'close','REPLACE_WRITER':'replace'}.get(kind,'capacity'),document=self.authorization,revision='1',observed_at=observed_at or NOW,command=v.ZERO,head=v.ZERO));c['authority']['head']=self.l.journal(self.l.host(c))['root'];c['authority']['command']=v.command_hash(c);
   for initial in [self.initial,self.l.initial]:
    observation=v.digest('authority',c['authority'])
    if observation not in initial['authority_observations']:initial['authority_observations'].append(observation)
@@ -79,8 +87,10 @@ class Builder:
     self.add('ADVANCE_RECEIPT',dict(gateway=g,through=str(n)));gw=self.l.s['gateways'][g]
  def decide(self,case,a,verdict='ALLOW',path='ORDINARY'):
   terms=self.l.s['families'][v.key(case[0])]['terms'];roles=terms['roles']
-  if path=='ADJUSTMENT':roles=next(x['roles'] for x in self.p['pools'][0]['authorizations'] if x['direction']==('POSITIVE' if a>0 else 'NEGATIVE' if a<0 else 'ZERO'))
-  return self.add('DECIDE',dict(case=case,verdict=verdict,path=path,signed_atoms=str(a),pool='adjustments' if path=='ADJUSTMENT' else 'none',roles=roles,assent='a'*64,reason='explicit retained decision'))
+  pool='none'
+  if path=='ADJUSTMENT':
+   direction='POSITIVE' if a>0 else 'NEGATIVE' if a<0 else 'ZERO';matching=[(q,x) for q in self.p['pools'] for x in q['authorizations'] if x['direction']==direction];selected,au=matching[0];roles=au['roles'];pool=selected['id']
+  return self.add('DECIDE',dict(case=case,verdict=verdict,path=path,signed_atoms=str(a),pool=pool,roles=roles,assent='a'*64,reason='explicit retained decision'))
  def begin(self,families,mode='FINISH_ONLY',gateways=None):
   n=str(self.l.s['last_round']+1);preparations=[];selected=gateways or sorted(self.l.s['gateways'])
   if mode=='CANCELLABLE':
@@ -99,11 +109,10 @@ class Builder:
   self.advance();n=self.begin(families);self.seal(n);self.add('CLOSE',dict(round=n,closed_at=NOW));self.install(n,'COMMITTED');return n
  def checkpoint(self,name):self.checkpoints.append(dict(name=name,through=len(self.commands),customer_atoms=str(self.l.s['customer']),supplier_booked=self.p['supplier_booked']))
 def customer_story():
- b=Builder(customer=True);b.checkpoint('S00');resolution,rt=b.intake(0,'resolution');b.checkpoint('S01');b.decide(resolution,1200);b.checkpoint('S02');upsell,ut=b.intake(1,'qualified-upsell');b.checkpoint('S03');b.decide(upsell,500);b.checkpoint('S04');denied,dt=b.intake(1,'denied-upsell');b.checkpoint('S05');b.decide(denied,0,'DENY');b.checkpoint('S06');late=[]
- for i in [2,3,4]:late.append(b.intake(i,'late-'+str(i)))
- b.checkpoint('S07')
+ b=Builder(customer=True);b.checkpoint('S00');resolution,rt=b.intake(0,'resolution');b.checkpoint('S01');b.decide(resolution,1200);b.checkpoint('S02');denied,dt=b.intake(1,'denied-upsell');b.checkpoint('S03');b.decide(denied,0,'DENY');b.checkpoint('S04');upsell,ut=b.intake(1,'qualified-upsell');b.checkpoint('S05');b.decide(upsell,500);b.checkpoint('S06');late=[]
+ for i in [2,3,4]:late.append(b.intake(i,'late-'+str(i)));b.checkpoint('S'+str(i+5).zfill(2))
  for tid in list(b.l.s['tokens']):b.reconcile(tid)
- b.close([2,3,4]);b.checkpoint('S08');b.decide(late[0][0],100,path='ADJUSTMENT');b.checkpoint('S09');b.decide(late[1][0],-150,path='ADJUSTMENT');b.checkpoint('S10');b.decide(late[2][0],0,path='ADJUSTMENT');b.checkpoint('S11');b.add('CORRECT',dict(case=upsell,expected_revision='1',replacement='300',roles=b.p['families'][1]['roles'],assent='a'*64));b.checkpoint('S12');b.close([0]);b.checkpoint('S13');b.close([1]);b.checkpoint('S14');return b
+ b.close([0,1,2,3,4]);b.checkpoint('S10');b.decide(late[0][0],100,path='ADJUSTMENT');b.checkpoint('S11');b.decide(late[1][0],-150,path='ADJUSTMENT');b.checkpoint('S12');b.decide(late[2][0],0,path='ADJUSTMENT');b.checkpoint('S13');b.add('CORRECT',dict(case=upsell,expected_revision='1',replacement='300',roles=b.p['families'][1]['roles'],assent='a'*64));b.checkpoint('S14');return b
 if __name__=='__main__':
  import sys
  b=customer_story();outputs={'customer-trace.json':b.trace(),'customer-checkpoints.json':b.checkpoints}

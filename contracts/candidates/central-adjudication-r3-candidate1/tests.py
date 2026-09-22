@@ -25,7 +25,7 @@ def retry(b,c):
 def saturation(b):
  for a in b.l.s['resources'].values():a['provisioned']={d:a['used'][d]+a['held'][d] for d in v.DIMS}
 def customer():
- b=customer_story();expected=['10000','10000','11200','11200','11700','11700','11700','11700','11700','11800','11650','11650','11450','11450','11450'];equal([c['customer_atoms'] for c in b.checkpoints],expected);equal(b.l.s['enrollment']['supplier_booked'],'3000');equal(b.l.s['gross'],250);equal(len(b.l.s['entitlements']),5);equal(sum(int(e['body']['signed_atoms']) for e in b.l.s['actions']),1450);equal(10000+1500+500+100-150-500+300,11750)
+ b=customer_story();expected=['10000','10000','11200','11200','11200','11200','11700','11700','11700','11700','11700','11800','11650','11650','11450'];equal([c['customer_atoms'] for c in b.checkpoints],expected);equal(b.l.s['enrollment']['supplier_booked'],'3000');equal(b.l.s['gross'],250);equal(len(b.l.s['entitlements']),5);equal(sum(int(e['body']['signed_atoms']) for e in b.l.s['actions']),1450);equal(10000+1500+500+100-150-500+300,11750)
  for c in list(b.commands):
   retry(b,c);retry(b,c)
 def mixed(n,allunused=False):
@@ -74,7 +74,7 @@ def supplier(last,batch=False,zero=False):
  if not batch:b.close([1])
  equal(b.l.s['suppliers']['pool']['held'],'0');equal(b.l.s['suppliers']['pool']['released'],'0' if zero else '170' if last else '200');assert b.l.s['certificates'][-1]['supplier_after'];return b
 def reenroll(b,p):
- b.p=p;b.commands=[];b.seq=0;b.initial['authority_observations']=[];b.initial['trusted_observations']=[];b.initial['grant_authentications']=[];b.l=v.Ledger(b.initial);b.enroll();return b
+ b.p=p;b.commands=[];b.seq=0;b.initial['authority_observations']=[];b.initial['trusted_observations']=[];b.initial['grant_authentications']=[];b.enroll();return b
 
 def funded_replay(b,name,wide_center=False):
  trace=b.trace();trace['initial']['initial_resources']={h:{d:str(n) for d,n in values.items()} for h,values in b.l.peaks.items()}

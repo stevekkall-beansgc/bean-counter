@@ -26,13 +26,13 @@
   {
     "name": "S04",
     "through": 19,
-    "customer_atoms": "11700",
+    "customer_atoms": "11200",
     "supplier_booked": "3000"
   },
   {
     "name": "S05",
     "through": 25,
-    "customer_atoms": "11700",
+    "customer_atoms": "11200",
     "supplier_booked": "3000"
   },
   {
@@ -43,49 +43,49 @@
   },
   {
     "name": "S07",
-    "through": 44,
+    "through": 32,
     "customer_atoms": "11700",
     "supplier_booked": "3000"
   },
   {
     "name": "S08",
-    "through": 91,
+    "through": 38,
     "customer_atoms": "11700",
     "supplier_booked": "3000"
   },
   {
     "name": "S09",
+    "through": 44,
+    "customer_atoms": "11700",
+    "supplier_booked": "3000"
+  },
+  {
+    "name": "S10",
+    "through": 91,
+    "customer_atoms": "11700",
+    "supplier_booked": "3000"
+  },
+  {
+    "name": "S11",
     "through": 92,
     "customer_atoms": "11800",
     "supplier_booked": "3000"
   },
   {
-    "name": "S10",
+    "name": "S12",
     "through": 93,
     "customer_atoms": "11650",
     "supplier_booked": "3000"
   },
   {
-    "name": "S11",
+    "name": "S13",
     "through": 94,
     "customer_atoms": "11650",
     "supplier_booked": "3000"
   },
   {
-    "name": "S12",
-    "through": 95,
-    "customer_atoms": "11450",
-    "supplier_booked": "3000"
-  },
-  {
-    "name": "S13",
-    "through": 118,
-    "customer_atoms": "11450",
-    "supplier_booked": "3000"
-  },
-  {
     "name": "S14",
-    "through": 141,
+    "through": 95,
     "customer_atoms": "11450",
     "supplier_booked": "3000"
   }

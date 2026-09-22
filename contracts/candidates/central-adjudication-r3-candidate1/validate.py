@@ -88,13 +88,14 @@ def vec(kind):
  r=WORK['transitions'][kind];return dict(zip(DIMS,[r['segment_bytes'],r['new_trusted_bytes'],r['records'],r['index_path_pages'],r['index_value_pages'],r['logical_workspace_bytes']]))
 class Ledger:
  def __init__(self,initial):
-  self._charges=[];self.peaks={};self.read_index={};self.seal_index={};self.enrollment_hash=None;self.initial=copy.deepcopy(initial);self.validate_initial(initial);self.s={'enrollment':None,'preparations':{},'round_preparations':{},'object_inventory':{},'grants':{},'tokens':{},'gateways':{},'cases':{},'deliveries':{},'controls':{},'entitlements':{},'suppliers':{},'pools':{},'families':{},'rounds':{},'active':None,'last_round':0,'customer':0,'gross':0,'positive':0,'negative':0,'actions':[],'certificates':[],'journals':{},'segments':[],'duplicates':0,'refused':0,'resources':{},'counters':{},'allocations':{}}
+  self._charges=[];self.peaks={};self.read_index={};self.seal_index={};self.enrollment_hash=None;self.initial=copy.deepcopy(initial);self.validate_initial(initial);from authority_sources import SourceSet
+  self.authority_sources=SourceSet(initial,sys.modules[__name__]);self.s={'enrollment':None,'preparations':{},'round_preparations':{},'object_inventory':{},'authority_retained':{},'grants':{},'tokens':{},'gateways':{},'cases':{},'deliveries':{},'controls':{},'entitlements':{},'suppliers':{},'pools':{},'families':{},'rounds':{},'active':None,'last_round':0,'customer':0,'gross':0,'positive':0,'negative':0,'actions':[],'certificates':[],'journals':{},'segments':[],'duplicates':0,'refused':0,'resources':{},'counters':{},'allocations':{}}
   for host,provisioned in initial.get('initial_resources',{}).items():
    shape(SCHEMA['$defs']['resource'],provisioned)
    self.s['resources'][host]={'provisioned':{k:int(provisioned[k]) for k in DIMS},'used':dict.fromkeys(DIMS,0),'held':dict.fromkeys(DIMS,0)}
    self.s['counters'][host]={k:{'q':int(initial.get('initial_counters',{}).get(host,{}).get(k,{}).get('q',0)),'R':int(initial.get('initial_counters',{}).get(host,{}).get(k,{}).get('R',0))} for k in SCHEMA['x-counters']}
  def validate_initial(self,x):
-  required={'authority_documents','authority_observations','grant_authentications','trusted_observations','original_objects','original_base_receipt','original_base_manifest','initial_resources','initial_counters','writer_capabilities'}
+  required={'authority_documents','authority_sources','authority_observations','grant_authentications','trusted_observations','original_objects','original_base_receipt','original_base_manifest','initial_resources','initial_counters','writer_capabilities'}
   require(type(x)is dict and set(x)==required,'INITIAL_FIELDS')
   for name in ['authority_documents','authority_observations','grant_authentications','trusted_observations']:
    require(type(x[name])is list and len(x[name])==len(set(x[name])) and x[name]==sorted_set(x[name]),'INITIAL_SET')
@@ -160,7 +161,7 @@ class Ledger:
    if host not in lengths:del self.read_index[host]
    else:del self.read_index[host][lengths[host]:]
  def role(self,c,required):
-  a=c['authority'];require(a['command']==command_hash(c),'AUTH_COMMAND');require(a['document']in self.initial['authority_documents'],'AUTH_DOCUMENT');require(digest('authority',a) in self.initial['authority_observations'],'AUTH_OBSERVATION');guard(a['permission']==required,'AUTH_PERMISSION')
+  self.authority_sources.command(self,c);a=c['authority'];require(a['command']==command_hash(c),'AUTH_COMMAND');require(a['document']in self.initial['authority_documents'],'AUTH_DOCUMENT');require(digest('authority',a) in self.initial['authority_observations'],'AUTH_OBSERVATION');guard(a['permission']==required,'AUTH_PERMISSION')
  def proof(self,p,kinds,fullkeys,binding=None):
   validate_shape('proof',p)
   binding=binding or self.s['enrollment'];require(p['store']==binding['store'] and p['scope']==binding['scope'] and p['registration']==binding['registration'],'PROOF_BINDING')
@@ -175,7 +176,7 @@ class Ledger:
   validate_shape('command',c)
   if c['kind']=='RECEIVE':require(c['key']==c['payload']['delivery'],'RECEIVE_KEY')
   require(len(canonical(c))<=262144,'OPERATION_BYTES')
-  self._charges=[];before_lengths={h:len(a) for h,a in self.read_index.items()};before_seal=dict(self.seal_index);before_peaks=copy.deepcopy(self.peaks)
+  self._charges=[];self._authority_used={};before_lengths={h:len(a) for h,a in self.read_index.items()};before_seal=dict(self.seal_index);before_peaks=copy.deepcopy(self.peaks)
   before={a:(list(b) if a=='segments' else dict(b) if a in {'controls','allocations','grants','tokens','cases','families','object_inventory','deliveries'} else copy.deepcopy(b)) for a,b in self.s.items()};effects=[];objects=[];h=self.host(c);j=self.journal(h);k=c['kind'];p=c['payload'];ck=key([h,c['key']]);ch=command_hash(c)
   token_ids=set()
   if isinstance(p.get('token'),str):token_ids.add(p['token'])
@@ -201,7 +202,7 @@ class Ledger:
    if ck in self.s['controls']:
     old=self.s['controls'][ck];self.role(c,'read');guard(old['digest']==ch,'IDENTITY_CONFLICT');self.s['duplicates']+=1;return {'status':'DUPLICATE','code':'EXACT_RETRY','effects':copy.deepcopy(old['effects']),'root':j['root']}
    self.role(c,{'ENROLL':'enroll','RECEIVE':'submit','SUPPLEMENT':'submit','DECIDE':('adjust' if p.get('path')=='ADJUSTMENT' else 'decide'),'CORRECT':'correct','BEGIN':'close','CLOSE':'close','ABORT':'close','REPLACE_WRITER':'replace'}.get(k,'capacity'))
-   require(c['authority']['head']==j['root'],'AUTH_HEAD')
+   require(c['authority']['head']==j['root'],'AUTH_HEAD');self.authority_sources.economics(self,c)
    if k not in {'ENROLL','PREPARE_ENROLL'}:guard(self.s['enrollment']is not None,'NOT_ENROLLED');guard(c['key'][0]==self.s['enrollment']['scope'],'SCOPE')
    if k in LOCAL and k not in {'PREPARE_ENROLL','LOCAL_GRANT','REPLACE_WRITER'}:
     gw=self.s['gateways'][h];cap=self.initial['writer_capabilities'].get(h);guard(cap is not None,'WRITER_CAPABILITY')
@@ -232,7 +233,7 @@ class Ledger:
     ns=p['gateways'];require(len({g['gateway'] for g in ns})==len(ns) and len({g['tag'] for g in ns})==len(ns),'GATEWAY_DUPLICATE')
     preparation_objects=[];require(len(p['preparations'])==len(ns),'PREPARATION_COUNT');intent=digest('enrollment',{a:b for a,b in p.items() if a!='preparations'})
     for n in ns:
-     g=n['gateway'];matches=[q for q in p['preparations'] if q['host']==g];require(len(matches)==1,'PREPARATION_HOST');proof=matches[0];preparation_objects.append(self.proof(proof,{'ENROLL_PREPARATION'},[g],p));prepared=self.s['preparations'].get(g);require(prepared is not None and prepared['intent']==intent and prepared['namespace']==n and prepared['store']==p['store'] and prepared['scope']==p['scope'] and prepared['registration']==p['registration'],'PREPARATION_BINDING');require(proof['root']==self.journal(g)['root'],'PREPARATION_CURRENT')
+     g=n['gateway'];matches=[q for q in p['preparations'] if q['host']==g];require(len(matches)==1,'PREPARATION_HOST');proof=matches[0];preparation_objects.append(self.proof(proof,{'ENROLL_PREPARATION'},[g],p));prepared=self.s['preparations'].get(g);require(prepared is not None and prepared['intent']==intent and prepared['namespace']==n and prepared['store']==p['store'] and prepared['scope']==p['scope'] and prepared['registration']==p['registration'],'PREPARATION_BINDING');require(proof['root']==self.journal(g)['root'],'PREPARATION_CURRENT');prepared_segment=next(x for x in self.s['segments'] if x['host']==g and x['ordinal']==proof['ordinal']);prepared_doc=self.authority_sources.records[prepared_segment['command']['authority']['document']][1];require(prepared_doc['target']==p['target'],'PREPARATION_AUTH_TARGET')
     for f in families:self.s['families'][key(f['key'])]={'terms':copy.deepcopy(f),'closed':False,'unavailable':False}
     for f in families:
      require(f['roles']['bearer']==f['roles']['payer'] or f['roles'].get('payer_delegation') in self.initial['authority_documents'],'PAYER_DELEGATION');require(f['assent'] in self.initial['authority_documents'],'ASSENT');require(f['starts_at']<f['occurs_before'] and f['received_by']<=f['accepted_by']<=f['correction_by'],'TERMS_WINDOW')
@@ -393,6 +394,7 @@ class Ledger:
    if fact_kind:
     full_key=(p['gateway'] if k=='PREPARE_ENROLL' else digest('namespace',[p['gateway'],p['round']]) if k=='PREPARE_ROUND' else p['registration'] if k=='ENROLL' else p['grant']['id'] if k=='LOCAL_GRANT' else p['token']['id'] if k=='ISSUE' else p['token'] if k in {'RECEIVE','RETURN_UNUSED','RECONCILE'} else p['grant'] if k=='RETIRE_GRANT' else p['round'])
     raw=canonical({'payload':p,'effects':effects});require(len(raw)<=262144,'FACT_BYTES');objects.append({'origin':{'store':p['store'] if k=='PREPARE_ENROLL' else self.s['enrollment']['store'],'scope':p['scope'] if k=='PREPARE_ENROLL' else self.s['enrollment']['scope'],'registration':p['registration'] if k=='PREPARE_ENROLL' else self.s['enrollment']['registration'],'host':h,'ordinal':str(int(j['ordinal'])+1)},'kind':fact_kind,'full_key':full_key,'body':base64.b64encode(raw).decode(),'body_hash':hashlib.sha256(raw).hexdigest(),'bytes':str(len(raw))})
+   authority_objects,authority_dependencies,authority_pending=self.authority_sources.inventory(self,c,h,str(int(j['ordinal'])+1));objects.extend(authority_objects)
    self.s['object_inventory'][h]=dict(self.s['object_inventory'].get(h,{}));known=self.s['object_inventory'][h]
    introduced=[]
    for o in objects:
@@ -407,7 +409,9 @@ class Ledger:
     maximum=WORK['transitions'][charged_kind]['counter_increments']['index_cardinality'];require(actual_index<=maximum,'INDEX_ENVELOPE');self.s['counters'][charged_host]['index_cardinality']['q']-=maximum-actual_index
    objects=sorted_set(objects);self.check_accounts()
    # Retain exactly one segment in the owning journal. No global distributed commit.
-   nr=digest('replay',[j['root'],ch,effects]);result={'status':'COMMITTED','code':k,'effects':effects,'root':nr};seg={'host':h,'profile':'central-adjudication-r3/1','ordinal':str(int(j['ordinal'])+1),'previous':j['segment'],'previous_root':j['root'],'command':copy.deepcopy(c),'result':copy.deepcopy(result),'dependencies':sorted_set(([p['proof']['segment']] if 'proof' in p and isinstance(p['proof'],dict) else [])+([p['begin']['segment']] if 'begin' in p else [])+[q['segment'] for q in p.get('preparations',[])]),'objects':objects};validate_shape('segment',seg);require(len(canonical(c))+len(canonical(result))+sum(int(o['bytes']) for o in {o['body_hash']:o for o in objects}.values())<=2097152,'TRUST_BYTES');require(len(canonical(seg))<=8388608,'SEGMENT_BYTES');j.update({'ordinal':seg['ordinal'],'segment':digest('segment',seg),'root':nr});self.s['segments'].append(seg)
+   nr=digest('replay',[j['root'],ch,effects]);result={'status':'COMMITTED','code':k,'effects':effects,'root':nr};seg={'host':h,'profile':'central-adjudication-r3/1','ordinal':str(int(j['ordinal'])+1),'previous':j['segment'],'previous_root':j['root'],'command':copy.deepcopy(c),'result':copy.deepcopy(result),'dependencies':sorted_set(set(([p['proof']['segment']] if 'proof' in p and isinstance(p['proof'],dict) else [])+([p['begin']['segment']] if 'begin' in p else [])+[q['segment'] for q in p.get('preparations',[])]+authority_dependencies)),'objects':objects};validate_shape('segment',seg);require(len(canonical(c))+len(canonical(result))+sum(int(o['bytes']) for o in {o['body_hash']:o for o in objects}.values())<=2097152,'TRUST_BYTES');require(len(canonical(seg))<=8388608,'SEGMENT_BYTES');j.update({'ordinal':seg['ordinal'],'segment':digest('segment',seg),'root':nr});self.s['segments'].append(seg)
+   self.s['authority_retained'][h]=dict(self.s['authority_retained'].get(h,{}))
+   for identity,entry in authority_pending.items():self.s['authority_retained'][h][identity]=dict(entry,segment=j['segment'])
    for o in objects:known[key([o['origin'],o['kind'],o['full_key'],o['body_hash'],o['bytes']])]=True
    self.s['controls'][ck]={'digest':ch,'effects':copy.deepcopy(effects)};self.read_index.setdefault(h,[]).append({'bytes':canonical(seg),'segment':j['segment'],'root':nr,'previous':seg['previous'],'previous_root':seg['previous_root'],'effects':copy.deepcopy(effects),'proof':copy.deepcopy(p.get('proof'))});
    if k in {'RECEIVE','RETURN_UNUSED'}:
@@ -422,7 +426,7 @@ class Ledger:
    if type(value)is dict:return {str(k):decimals(a) for k,a in value.items()}
    if type(value)is list:return [decimals(a) for a in value]
    return copy.deepcopy(value)
-  return {'preparations':copy.deepcopy(self.s['preparations']),'round_preparations':copy.deepcopy(self.s['round_preparations']),'object_inventory':{host:sorted(values) for host,values in self.s['object_inventory'].items()},'resources':decimals(self.s['resources']),'counters':decimals(self.s['counters']),'allocations':decimals(self.s['allocations']),'grants':{k:{f:copy.deepcopy(a[f]) for f in ['state','local_terminal','token']} for k,a in self.s['grants'].items()},'tokens':{k:{f:a[f] for f in ['state','imported','reconciled','advanced','receipt_advanced']} for k,a in self.s['tokens'].items()},'cases':{k:dict(state=a['state'],transfer=a['transfer'],revision=str(a['revision']),signed=str(a['signed'])) for k,a in self.s['cases'].items()},'entitlements':copy.deepcopy(self.s['entitlements']),'pools':{k:{f:str(a[f]) for f in ['used','positive','negative','gross']} for k,a in self.s['pools'].items()},'suppliers':sorted(copy.deepcopy(list(self.s['suppliers'].values())),key=lambda a:a['id']),'actions':copy.deepcopy(self.s['actions']),'certificates':copy.deepcopy(self.s['certificates'])}
+  return {'authority_retained':copy.deepcopy(self.s['authority_retained']),'preparations':copy.deepcopy(self.s['preparations']),'round_preparations':copy.deepcopy(self.s['round_preparations']),'object_inventory':{host:sorted(values) for host,values in self.s['object_inventory'].items()},'resources':decimals(self.s['resources']),'counters':decimals(self.s['counters']),'allocations':decimals(self.s['allocations']),'grants':{k:{f:copy.deepcopy(a[f]) for f in ['state','local_terminal','token']} for k,a in self.s['grants'].items()},'tokens':{k:{f:a[f] for f in ['state','imported','reconciled','advanced','receipt_advanced']} for k,a in self.s['tokens'].items()},'cases':{k:dict(state=a['state'],transfer=a['transfer'],revision=str(a['revision']),signed=str(a['signed'])) for k,a in self.s['cases'].items()},'entitlements':copy.deepcopy(self.s['entitlements']),'pools':{k:{f:str(a[f]) for f in ['used','positive','negative','gross']} for k,a in self.s['pools'].items()},'suppliers':sorted(copy.deepcopy(list(self.s['suppliers'].values())),key=lambda a:a['id']),'actions':copy.deepcopy(self.s['actions']),'certificates':copy.deepcopy(self.s['certificates'])}
  def summary(self,n):
   return {'commands':n,'segments':len(self.s['segments']),'duplicates':self.s['duplicates'],'refused':self.s['refused'],'grants':len(self.s['grants']),'tokens':len(self.s['tokens']),'receipts':sum(g['receipt'] for g in self.s['gateways'].values()),'cases':len(self.s['cases']),'aliases':sum(t['state']=='ALIAS' for t in self.s['tokens'].values()),'customer_atoms':str(self.s['customer']),'adjustment_gross':str(self.s['gross']),'entitlements':len(self.s['entitlements']),'suppliers':sorted(self.s['suppliers'].values(),key=lambda x:x['id']),'round':str(self.s['last_round']),'allocation_prefix':{g:str(v['allocation_prefix']) for g,v in self.s['gateways'].items()},'receipt_prefix':{g:str(v['receipt_prefix']) for g,v in self.s['gateways'].items()},'root':digest('replay',sorted([[g,j['root']] for g,j in self.s['journals'].items()])),'journals':copy.deepcopy(self.s['journals'])}
 def replay(trace):
