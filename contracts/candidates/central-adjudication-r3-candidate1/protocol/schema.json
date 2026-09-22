@@ -2574,6 +2574,305 @@
           "uniqueItems": true
         }
       }
+    },
+    "expected_prefix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store",
+        "scope",
+        "registration",
+        "host",
+        "ordinal",
+        "segment",
+        "root"
+      ],
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/id"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "registration": {
+          "$ref": "#/$defs/id"
+        },
+        "host": {
+          "$ref": "#/$defs/id"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/count"
+        },
+        "segment": {
+          "$ref": "#/$defs/digest"
+        },
+        "root": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "read_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "pages",
+        "segments"
+      ],
+      "properties": {
+        "bytes": {
+          "$ref": "#/$defs/count"
+        },
+        "pages": {
+          "$ref": "#/$defs/count"
+        },
+        "segments": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "read_cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "ordinal",
+        "byte_offset",
+        "verified_root",
+        "continuation"
+      ],
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/expected_prefix"
+        },
+        "ordinal": {
+          "$ref": "#/$defs/count"
+        },
+        "byte_offset": {
+          "$ref": "#/$defs/count"
+        },
+        "verified_root": {
+          "$ref": "#/$defs/digest"
+        },
+        "continuation": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "read_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "budget"
+      ],
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/expected_prefix"
+        },
+        "budget": {
+          "$ref": "#/$defs/read_budget"
+        },
+        "cursor": {
+          "$ref": "#/$defs/read_cursor"
+        }
+      }
+    },
+    "read_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "expected",
+            "measured"
+          ],
+          "properties": {
+            "status": {
+              "const": "COMPLETE"
+            },
+            "expected": {
+              "$ref": "#/$defs/expected_prefix"
+            },
+            "measured": {
+              "$ref": "#/$defs/read_budget"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "cursor",
+            "measured"
+          ],
+          "properties": {
+            "status": {
+              "const": "INCOMPLETE"
+            },
+            "cursor": {
+              "$ref": "#/$defs/read_cursor"
+            },
+            "measured": {
+              "$ref": "#/$defs/read_budget"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "code"
+          ],
+          "properties": {
+            "status": {
+              "const": "ERROR"
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "x-max-utf8": 64,
+              "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            }
+          }
+        }
+      ]
+    },
+    "comparison_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resolution_atoms"
+      ],
+      "properties": {
+        "resolution_atoms": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "comparison_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected",
+        "policy",
+        "budget"
+      ],
+      "properties": {
+        "expected": {
+          "$ref": "#/$defs/expected_prefix"
+        },
+        "policy": {
+          "$ref": "#/$defs/comparison_policy"
+        },
+        "budget": {
+          "$ref": "#/$defs/read_budget"
+        }
+      }
+    },
+    "comparison_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "expected",
+            "actual",
+            "alternative",
+            "difference",
+            "supplier_booked"
+          ],
+          "properties": {
+            "status": {
+              "const": "COMPARABLE"
+            },
+            "expected": {
+              "$ref": "#/$defs/expected_prefix"
+            },
+            "actual": {
+              "$ref": "#/$defs/atoms"
+            },
+            "alternative": {
+              "$ref": "#/$defs/atoms"
+            },
+            "difference": {
+              "$ref": "#/$defs/atoms"
+            },
+            "supplier_booked": {
+              "$ref": "#/$defs/count"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "UNSUPPORTED"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "x-max-utf8": 256,
+              "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "at_case",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "POLICY_FAILURE"
+            },
+            "at_case": {
+              "$ref": "#/$defs/case"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "x-max-utf8": 256,
+              "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "expected",
+            "reason"
+          ],
+          "properties": {
+            "status": {
+              "const": "INCOMPLETE"
+            },
+            "expected": {
+              "$ref": "#/$defs/expected_prefix"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "x-max-utf8": 256,
+              "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            }
+          }
+        }
+      ]
     }
   },
   "x-counters": [

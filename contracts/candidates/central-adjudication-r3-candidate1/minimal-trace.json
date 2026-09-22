@@ -1,6 +1,9 @@
 {
   "format": "r3-trace/1",
   "initial": {
+    "authority_observations": [
+      "ec0d41fc71b0c68467da6856a850ebb6a396a8b7c271cd7308fa744f4c5d7dbb"
+    ],
     "authority_documents": [
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     ],

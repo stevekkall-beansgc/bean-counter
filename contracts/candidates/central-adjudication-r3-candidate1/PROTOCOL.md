@@ -350,3 +350,85 @@ require a complete retained prefix and are not accepted by this fresh trace form
 `minimal-trace.json` carries six unchanged source documents plus the25 original
 accepted rows; `minimal-segment.json` is its exact newly reconstructed envelope.
 The original80 fixture is a compatibility control, not the customer10000 story.
+
+## Interface refinement D: authority, actual counters and bounded reads
+
+Initial trace fields are exactly those previously listed plus original_objects,
+trusted_observations and authority_observations. Each is required. All digest sets
+are unique and sorted canonical bytes. authority_observations pins
+H(authority,exact command.authority), including current principal/permission/time,
+head and revision; membership of a generic document is insufficient. The trusted
+host, not a caller, supplies these observations. Initial counter q values may
+represent other prior host activity; R must be0 because no unnamed obligation is
+allowed. Every initial resource host and writer capability object is closed.
+Fresh writer capability head is ZERO; epoch is positive. Gateway and center host
+identities differ. LOCAL_GRANT.journal_head is the exact current local root.
+Source proofs must use the owning source host, not a later imported copy.
+
+Permissions: ENROLL=enroll; RECEIVE/SUPPLEMENT=submit; DECIDE=adjust for adjustment
+and decide otherwise; CORRECT=correct; BEGIN/CLOSE/ABORT=close;
+REPLACE_WRITER=replace; every other listed durable command=capacity. Receipt time
+is the genuine authority observation time, at least occurred_at; CLOSE.closed_at
+is its authority observation time. No clamping. Family/pool assent documents and
+required payer delegations must be retained trusted authority members.
+
+The worksheet's index_updates and index_cardinality increment are **reservations**.
+Actual immutable derived index versions use this named inventory. Every command
+has four common versions: occupied command identity, journal ordinal, replay head,
+resource head. Count each following branch entry in addition, without padding:
+
+| Kind | Additional actual index versions beyond four |
+|---|---|
+| ENROLL | each original object, each family, each gateway, each namespace, each supplier, each adjustment pool,32 close-owner allocations per center/gateway, one enrollment allocation |
+| LOCAL_GRANT / REGISTER_GRANT | grant head, funding owner |
+| ISSUE | claim, grant head, allocation position, funding owner |
+| ACTIVATE | local grant and token state |
+| RECEIVE NEW_CASE | case, receipt position, token disposition |
+| RECEIVE ALIAS | token disposition; occupied command index already owns alias delivery→original receipt |
+| RETURN_UNUSED | token disposition and grant tombstone |
+| IMPORT NEW_CASE / ALIAS | admission-case / no case, token import, import position |
+| RECONCILE | disposition reconciliation |
+| ADVANCE / ADVANCE_RECEIPT | gateway's corresponding prefix |
+| LOCAL_TERMINAL / RETIRE_GRANT | grant terminal |
+| BEGIN FINISH_ONLY / CANCELLABLE | round / round plus center and each gateway optional allocation |
+| SEAL_BEGIN / SEALED / DRAIN / READY / ABORT / INSTALL / ACK_INSTALL | corresponding round/gateway fact head |
+| CLOSE | round, certificate, each explicitly closed family, each supplier transition |
+| SUPPLEMENT | case evidence and optional funding owner |
+| DECIDE DENY | case and optional funding owner |
+| DECIDE ALLOW | case, entitlement, funding pool, economic revision, obligation, optional owner, each nonzero action |
+| CORRECT | case revision, economic revision, optional owner, each nonzero inverse/replacement |
+| REPLACE_WRITER / EXTEND_RESOURCES | epoch/target-resource head and optional owner |
+
+Only these actual versions advance q.index_cardinality; reserved but unused index
+headroom is discharged with the consumed slot. A consumed logical capacity slot
+remains charged at its conservative envelope: this is reserved retained capacity,
+not a measurement of backend used pages. Actual physical u and reclaimable slack
+remain store-proof obligations. Actual q exceptions also include alias receipt0
+and DENY economic_revision0. ISSUE releases its registered grant's unused central
+retirement slot because CLAIMED and RETIRED_UNCLAIMED are permanently exclusive.
+
+Closed read shapes are expected_prefix, read_budget, read_cursor, read_request,
+read_response and comparison_* in schema.json. A read cursor belongs to a bounded
+reader session at one authenticated ExpectedPrefix and cannot be imported from a
+caller or another session. It records next host ordinal, byte offset and verified
+root. Each page is at most4096 bytes; budgets independently cap bytes/pages/complete
+segments. INCOMPLETE carries that exact cursor and measured work, no successful
+total and no authoritative write. Cancellation drops only external reader state;
+retrying a read is not a durable command. Old prefixes remain immutable.
+
+SEALED disposition/receipt construction is a read-only fold over its fixed,
+writer-fenced authoritative source prefix. It may yield between pages in the
+reserved gateway round workspace; partial hash state is session staging, never a
+complete root. Repeated traversal does not append progress records. Its cumulative
+work includes every issued cutoff token and every actual receipt through H; the
+local grant's one-time reservation funds the corresponding terminal object reads.
+Only complete verification yields the bounded SEAL fact. Canonical model scans
+reconstruct that fold; adapters must demonstrate paged work and staging enforcement.
+
+`reads.py` supplies canonical read/cursor and comparison vectors over a verified
+model snapshot. This is not an implementation of a database reader or evidence of
+physical bounded memory/nonposting. Comparison permits only replacement of the
+resolution amount, retains actual decisions and adjustment/correction history, and
+returns POLICY_FAILURE with no partial total if the original premium cap is hit.
+Changing any other policy/decision field is structurally unsupported. Complete
+central verification does not assert unknown gateway coverage is complete.
