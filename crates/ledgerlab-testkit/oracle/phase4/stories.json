@@ -1,0 +1,924 @@
+{
+  "authorship": "Literal independent plan arithmetic; no production evaluator output. Test-only labels, not canonical IDs or accepted evidence.",
+  "source": {
+    "complete": true,
+    "semantics": "synthetic-outcome-1",
+    "revision": "9",
+    "terms": {
+      "scope": [
+        "oracle",
+        "synthetic"
+      ],
+      "target": "fixture:T",
+      "currency": "USD",
+      "scale": 2,
+      "unit": "call",
+      "retail_basis": "8000",
+      "supplier_base": "3000",
+      "retail_premium": "5000",
+      "supplier_premium": "10000",
+      "base_cap": false,
+      "families": {
+        "F": {
+          "agreement": "fixture:retail",
+          "binding": "fixture:retail-binding",
+          "book": "retail",
+          "roles": {
+            "provider": "host",
+            "cost_originator": "host",
+            "bearer": "customer",
+            "payer": "customer",
+            "beneficiary": "customer",
+            "recipient": "host"
+          },
+          "source": "urn:synthetic:outcomes",
+          "evidence": "fixture:evidence:F"
+        },
+        "R": {
+          "agreement": "fixture:retail",
+          "binding": "fixture:retail-binding",
+          "book": "retail",
+          "roles": {
+            "provider": "host",
+            "cost_originator": "host",
+            "bearer": "customer",
+            "payer": "customer",
+            "beneficiary": "customer",
+            "recipient": "host"
+          },
+          "source": "urn:synthetic:outcomes",
+          "evidence": "fixture:evidence:R"
+        },
+        "S": {
+          "agreement": "fixture:supplier",
+          "binding": "fixture:supplier-binding",
+          "book": "supplier",
+          "roles": {
+            "provider": "supplier",
+            "cost_originator": "supplier",
+            "bearer": "host",
+            "payer": "host",
+            "beneficiary": "host",
+            "recipient": "supplier"
+          },
+          "source": "urn:synthetic:outcomes",
+          "evidence": "fixture:evidence:S"
+        }
+      },
+      "ordinary_window": [
+        "2026-09-20T10:00:00.000000Z",
+        "2026-09-20T11:00:00.000000Z",
+        "2026-09-20T12:00:00.000000Z",
+        "2026-09-20T13:00:00.000000Z"
+      ],
+      "correction_window": [
+        "2026-09-21T10:00:00.000000Z",
+        "2026-09-21T11:00:00.000000Z",
+        "2026-09-21T12:00:00.000000Z",
+        "2026-09-21T13:00:00.000000Z"
+      ],
+      "authority_assumption": "Synthetic trusted local scoped reader; original verified assent/offer/invocation retained. No public proof flags."
+    },
+    "original": {
+      "label": "P0",
+      "terms": {
+        "scope": [
+          "oracle",
+          "synthetic"
+        ],
+        "target": "fixture:T",
+        "currency": "USD",
+        "scale": 2,
+        "unit": "call",
+        "retail_basis": "8000",
+        "supplier_base": "3000",
+        "retail_premium": "5000",
+        "supplier_premium": "10000",
+        "base_cap": false,
+        "families": {
+          "F": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:F"
+          },
+          "R": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:R"
+          },
+          "S": {
+            "agreement": "fixture:supplier",
+            "binding": "fixture:supplier-binding",
+            "book": "supplier",
+            "roles": {
+              "provider": "supplier",
+              "cost_originator": "supplier",
+              "bearer": "host",
+              "payer": "host",
+              "beneficiary": "host",
+              "recipient": "supplier"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:S"
+          }
+        },
+        "ordinary_window": [
+          "2026-09-20T10:00:00.000000Z",
+          "2026-09-20T11:00:00.000000Z",
+          "2026-09-20T12:00:00.000000Z",
+          "2026-09-20T13:00:00.000000Z"
+        ],
+        "correction_window": [
+          "2026-09-21T10:00:00.000000Z",
+          "2026-09-21T11:00:00.000000Z",
+          "2026-09-21T12:00:00.000000Z",
+          "2026-09-21T13:00:00.000000Z"
+        ],
+        "authority_assumption": "Synthetic trusted local scoped reader; original verified assent/offer/invocation retained. No public proof flags."
+      },
+      "rules": {
+        "F": {
+          "success": {
+            "fixed": "2500"
+          },
+          "corrected": {
+            "fixed": "1000"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        },
+        "R": {
+          "quality": {
+            "percent": [
+              "-10",
+              "1"
+            ]
+          }
+        },
+        "S": {
+          "bonus": {
+            "fixed": "2500"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        }
+      }
+    },
+    "predecessors": [],
+    "base_components": [
+      "10000",
+      "-2000"
+    ],
+    "observation": {
+      "book": "cost_observation",
+      "atoms": "200",
+      "payable": false
+    },
+    "steps": [
+      {
+        "id": "fee",
+        "kind": "ordinary",
+        "family": "F",
+        "revision": "1",
+        "capacity": [
+          "12000",
+          "3000",
+          "0"
+        ],
+        "times": [
+          "2026-09-20T10:30:00.000000Z",
+          "2026-09-20T11:30:00.000000Z",
+          "2026-09-20T12:30:00.000000Z"
+        ],
+        "code": "success"
+      },
+      {
+        "id": "rebate",
+        "kind": "ordinary",
+        "family": "R",
+        "revision": "1",
+        "capacity": [
+          "12000",
+          "3000",
+          "0"
+        ],
+        "times": [
+          "2026-09-20T10:30:00.000000Z",
+          "2026-09-20T11:30:00.000000Z",
+          "2026-09-20T12:30:00.000000Z"
+        ],
+        "code": "quality"
+      },
+      {
+        "id": "supplier",
+        "kind": "ordinary",
+        "family": "S",
+        "revision": "1",
+        "capacity": [
+          "9500",
+          "5500",
+          "0"
+        ],
+        "times": [
+          "2026-09-20T10:30:00.000000Z",
+          "2026-09-20T11:30:00.000000Z",
+          "2026-09-20T12:30:00.000000Z"
+        ],
+        "code": "bonus"
+      },
+      {
+        "id": "fee-zero",
+        "kind": "correct",
+        "family": "F",
+        "revision": "2",
+        "capacity": [
+          "9500",
+          "5500",
+          "0"
+        ],
+        "times": [
+          "2026-09-21T10:30:00.000000Z",
+          "2026-09-21T11:30:00.000000Z",
+          "2026-09-21T12:30:00.000000Z"
+        ],
+        "code": "zero"
+      },
+      {
+        "id": "supplier-zero",
+        "kind": "correct",
+        "family": "S",
+        "revision": "2",
+        "capacity": [
+          "9500",
+          "5500",
+          "0"
+        ],
+        "times": [
+          "2026-09-21T10:30:00.000000Z",
+          "2026-09-21T11:30:00.000000Z",
+          "2026-09-21T12:30:00.000000Z"
+        ],
+        "code": "zero"
+      },
+      {
+        "id": "fee-corrected",
+        "kind": "correct",
+        "family": "F",
+        "revision": "3",
+        "capacity": [
+          "9500",
+          "5500",
+          "0"
+        ],
+        "times": [
+          "2026-09-21T10:30:00.000000Z",
+          "2026-09-21T11:30:00.000000Z",
+          "2026-09-21T12:30:00.000000Z"
+        ],
+        "code": "corrected"
+      },
+      {
+        "id": "fee-reverse",
+        "kind": "reverse",
+        "family": "F",
+        "revision": "4",
+        "capacity": [
+          "9500",
+          "5500",
+          "0"
+        ],
+        "times": [
+          "2026-09-21T10:30:00.000000Z",
+          "2026-09-21T11:30:00.000000Z",
+          "2026-09-21T12:30:00.000000Z"
+        ]
+      },
+      {
+        "id": "fee-reinstate",
+        "kind": "correct",
+        "family": "F",
+        "revision": "5",
+        "capacity": [
+          "9500",
+          "5500",
+          "0"
+        ],
+        "times": [
+          "2026-09-21T10:30:00.000000Z",
+          "2026-09-21T11:30:00.000000Z",
+          "2026-09-21T12:30:00.000000Z"
+        ],
+        "code": "success"
+      },
+      {
+        "id": "closure",
+        "kind": "close",
+        "capacity": [
+          "0",
+          "5500",
+          "9500"
+        ]
+      }
+    ],
+    "receipt_refs": [
+      "historical:base",
+      "historical:fee",
+      "historical:rebate",
+      "historical:supplier",
+      "historical:fee-zero",
+      "historical:supplier-zero",
+      "historical:fee-corrected",
+      "historical:fee-reverse",
+      "historical:fee-reinstate",
+      "historical:closure"
+    ],
+    "retained_evidence": {
+      "base": "synthetic successful final quantity 1",
+      "assent": "synthetic-retail-and-supplier-assents",
+      "offer": "synthetic-supplier-offer",
+      "invocation": "synthetic-nominated-supplier-completion",
+      "base_accepted_at": "2026-09-20T09:00:00.000000Z"
+    }
+  },
+  "candidates": [
+    {
+      "label": "P0",
+      "terms": {
+        "scope": [
+          "oracle",
+          "synthetic"
+        ],
+        "target": "fixture:T",
+        "currency": "USD",
+        "scale": 2,
+        "unit": "call",
+        "retail_basis": "8000",
+        "supplier_base": "3000",
+        "retail_premium": "5000",
+        "supplier_premium": "10000",
+        "base_cap": false,
+        "families": {
+          "F": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:F"
+          },
+          "R": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:R"
+          },
+          "S": {
+            "agreement": "fixture:supplier",
+            "binding": "fixture:supplier-binding",
+            "book": "supplier",
+            "roles": {
+              "provider": "supplier",
+              "cost_originator": "supplier",
+              "bearer": "host",
+              "payer": "host",
+              "beneficiary": "host",
+              "recipient": "supplier"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:S"
+          }
+        },
+        "ordinary_window": [
+          "2026-09-20T10:00:00.000000Z",
+          "2026-09-20T11:00:00.000000Z",
+          "2026-09-20T12:00:00.000000Z",
+          "2026-09-20T13:00:00.000000Z"
+        ],
+        "correction_window": [
+          "2026-09-21T10:00:00.000000Z",
+          "2026-09-21T11:00:00.000000Z",
+          "2026-09-21T12:00:00.000000Z",
+          "2026-09-21T13:00:00.000000Z"
+        ],
+        "authority_assumption": "Synthetic trusted local scoped reader; original verified assent/offer/invocation retained. No public proof flags."
+      },
+      "rules": {
+        "F": {
+          "success": {
+            "fixed": "2500"
+          },
+          "corrected": {
+            "fixed": "1000"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        },
+        "R": {
+          "quality": {
+            "percent": [
+              "-10",
+              "1"
+            ]
+          }
+        },
+        "S": {
+          "bonus": {
+            "fixed": "2500"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        }
+      }
+    },
+    {
+      "label": "P1",
+      "terms": {
+        "scope": [
+          "oracle",
+          "synthetic"
+        ],
+        "target": "fixture:T",
+        "currency": "USD",
+        "scale": 2,
+        "unit": "call",
+        "retail_basis": "8000",
+        "supplier_base": "3000",
+        "retail_premium": "5000",
+        "supplier_premium": "10000",
+        "base_cap": false,
+        "families": {
+          "F": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:F"
+          },
+          "R": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:R"
+          },
+          "S": {
+            "agreement": "fixture:supplier",
+            "binding": "fixture:supplier-binding",
+            "book": "supplier",
+            "roles": {
+              "provider": "supplier",
+              "cost_originator": "supplier",
+              "bearer": "host",
+              "payer": "host",
+              "beneficiary": "host",
+              "recipient": "supplier"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:S"
+          }
+        },
+        "ordinary_window": [
+          "2026-09-20T10:00:00.000000Z",
+          "2026-09-20T11:00:00.000000Z",
+          "2026-09-20T12:00:00.000000Z",
+          "2026-09-20T13:00:00.000000Z"
+        ],
+        "correction_window": [
+          "2026-09-21T10:00:00.000000Z",
+          "2026-09-21T11:00:00.000000Z",
+          "2026-09-21T12:00:00.000000Z",
+          "2026-09-21T13:00:00.000000Z"
+        ],
+        "authority_assumption": "Synthetic trusted local scoped reader; original verified assent/offer/invocation retained. No public proof flags."
+      },
+      "rules": {
+        "F": {
+          "success": {
+            "percent": [
+              "20",
+              "1"
+            ]
+          },
+          "corrected": {
+            "fixed": "1000"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        },
+        "R": {
+          "quality": {
+            "fixed": "-1000"
+          }
+        },
+        "S": {
+          "bonus": {
+            "fixed": "2500"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        }
+      }
+    },
+    {
+      "label": "P2",
+      "terms": {
+        "scope": [
+          "oracle",
+          "synthetic"
+        ],
+        "target": "fixture:T",
+        "currency": "USD",
+        "scale": 2,
+        "unit": "call",
+        "retail_basis": "8000",
+        "supplier_base": "3000",
+        "retail_premium": "5000",
+        "supplier_premium": "10000",
+        "base_cap": false,
+        "families": {
+          "F": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:F"
+          },
+          "R": {
+            "agreement": "fixture:retail",
+            "binding": "fixture:retail-binding",
+            "book": "retail",
+            "roles": {
+              "provider": "host",
+              "cost_originator": "host",
+              "bearer": "customer",
+              "payer": "customer",
+              "beneficiary": "customer",
+              "recipient": "host"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:R"
+          },
+          "S": {
+            "agreement": "fixture:supplier",
+            "binding": "fixture:supplier-binding",
+            "book": "supplier",
+            "roles": {
+              "provider": "supplier",
+              "cost_originator": "supplier",
+              "bearer": "host",
+              "payer": "host",
+              "beneficiary": "host",
+              "recipient": "supplier"
+            },
+            "source": "urn:synthetic:outcomes",
+            "evidence": "fixture:evidence:S"
+          }
+        },
+        "ordinary_window": [
+          "2026-09-20T10:00:00.000000Z",
+          "2026-09-20T11:00:00.000000Z",
+          "2026-09-20T12:00:00.000000Z",
+          "2026-09-20T13:00:00.000000Z"
+        ],
+        "correction_window": [
+          "2026-09-21T10:00:00.000000Z",
+          "2026-09-21T11:00:00.000000Z",
+          "2026-09-21T12:00:00.000000Z",
+          "2026-09-21T13:00:00.000000Z"
+        ],
+        "authority_assumption": "Synthetic trusted local scoped reader; original verified assent/offer/invocation retained. No public proof flags."
+      },
+      "rules": {
+        "F": {
+          "success": {
+            "percent": [
+              "10",
+              "1"
+            ]
+          },
+          "corrected": {
+            "fixed": "1000"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        },
+        "R": {
+          "quality": {
+            "percent": [
+              "-10",
+              "1"
+            ]
+          }
+        },
+        "S": {
+          "bonus": {
+            "fixed": "2500"
+          },
+          "zero": {
+            "fixed": "0"
+          }
+        }
+      }
+    }
+  ],
+  "expected": {
+    "P0": {
+      "replacement": [
+        "2500",
+        "-800",
+        "2500",
+        "0",
+        "0",
+        "1000",
+        "0",
+        "2500"
+      ],
+      "inverse": [
+        "0",
+        "0",
+        "0",
+        "-2500",
+        "-2500",
+        "0",
+        "-1000",
+        "0"
+      ],
+      "delta": [
+        "2500",
+        "-800",
+        "2500",
+        "-2500",
+        "-2500",
+        "1000",
+        "-1000",
+        "2500",
+        "0"
+      ],
+      "retail": [
+        "10500",
+        "9700",
+        "9700",
+        "7200",
+        "7200",
+        "8200",
+        "7200",
+        "9700",
+        "9700"
+      ],
+      "supplier": [
+        "3000",
+        "3000",
+        "5500",
+        "5500",
+        "3000",
+        "3000",
+        "3000",
+        "3000",
+        "3000"
+      ],
+      "step_difference_vs_original": [
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+      ],
+      "retail_difference_vs_original": [
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0",
+        "0"
+      ]
+    },
+    "P1": {
+      "replacement": [
+        "1600",
+        "-1000",
+        "2500",
+        "0",
+        "0",
+        "1000",
+        "0",
+        "1600"
+      ],
+      "inverse": [
+        "0",
+        "0",
+        "0",
+        "-1600",
+        "-2500",
+        "0",
+        "-1000",
+        "0"
+      ],
+      "delta": [
+        "1600",
+        "-1000",
+        "2500",
+        "-1600",
+        "-2500",
+        "1000",
+        "-1000",
+        "1600",
+        "0"
+      ],
+      "retail": [
+        "9600",
+        "8600",
+        "8600",
+        "7000",
+        "7000",
+        "8000",
+        "7000",
+        "8600",
+        "8600"
+      ],
+      "supplier": [
+        "3000",
+        "3000",
+        "5500",
+        "5500",
+        "3000",
+        "3000",
+        "3000",
+        "3000",
+        "3000"
+      ],
+      "step_difference_vs_original": [
+        "-900",
+        "-200",
+        "0",
+        "900",
+        "0",
+        "0",
+        "0",
+        "-900",
+        "0"
+      ],
+      "retail_difference_vs_original": [
+        "-900",
+        "-1100",
+        "-1100",
+        "-200",
+        "-200",
+        "-200",
+        "-200",
+        "-1100",
+        "-1100"
+      ]
+    },
+    "P2": {
+      "replacement": [
+        "800",
+        "-800",
+        "2500",
+        "0",
+        "0",
+        "1000",
+        "0",
+        "800"
+      ],
+      "inverse": [
+        "0",
+        "0",
+        "0",
+        "-800",
+        "-2500",
+        "0",
+        "-1000",
+        "0"
+      ],
+      "delta": [
+        "800",
+        "-800",
+        "2500",
+        "-800",
+        "-2500",
+        "1000",
+        "-1000",
+        "800",
+        "0"
+      ],
+      "retail": [
+        "8800",
+        "8000",
+        "8000",
+        "7200",
+        "7200",
+        "8200",
+        "7200",
+        "8000",
+        "8000"
+      ],
+      "supplier": [
+        "3000",
+        "3000",
+        "5500",
+        "5500",
+        "3000",
+        "3000",
+        "3000",
+        "3000",
+        "3000"
+      ],
+      "step_difference_vs_original": [
+        "-1700",
+        "0",
+        "0",
+        "1700",
+        "0",
+        "0",
+        "0",
+        "-1700",
+        "0"
+      ],
+      "retail_difference_vs_original": [
+        "-1700",
+        "-1700",
+        "-1700",
+        "0",
+        "0",
+        "0",
+        "0",
+        "-1700",
+        "-1700"
+      ]
+    }
+  }
+}

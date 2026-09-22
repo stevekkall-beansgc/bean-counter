@@ -1,0 +1,210 @@
+[
+  {
+    "id": "N01",
+    "attack": "Ordinary successful, zero, negative and capped comparisons",
+    "expected": "Valid supported estimates only; no rows, claim consumption, receipts or intents",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N02",
+    "attack": "A/B/A, B/A, duplicate candidate and concurrent comparisons",
+    "expected": "Per-candidate deterministic values; no shared mutable evaluation or source heads",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N03",
+    "attack": "Cancellation after source read, between candidates, during output; crash and retry",
+    "expected": "No source delta; no misleading partial success; a complete rerun reproduces the result",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N04",
+    "attack": "Submit comparison JSON, renamed preview IDs or hypothetical receipt to acceptance/dispatch",
+    "expected": "Refuse non-command/non-capability; no fallback append or runnable intention",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N05",
+    "attack": "Candidate asks apply, activate, reserve, correct, export, deliver or use write callbacks",
+    "expected": "Explicitly unsupported in comparison; no policy/terms-head, reservation or outbox mutation",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N06",
+    "attack": "Reuse v1/outcome delivery key, semantic family key or receipt ID as comparison ID",
+    "expected": "No alias/claim registration or receipt disclosure through identity shortcuts; conflicting candidate identity diagnosed",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N07",
+    "attack": "Missing predecessor, policy, evidence, target or receipt member",
+    "expected": "Incomplete/replay-unavailable or integrity failure as appropriate; no pending queue, durable identity reservation or network fetch",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N08",
+    "attack": "Hash-correct replacement of historical base/target or omission of unclaimed family",
+    "expected": "Integrity failure against original anchor and complete membership; no repair/rebuild write",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N09",
+    "attack": "Read denied, stale credential/read proof, changed scope/source, authority revoked during read",
+    "expected": "No protected data disclosure; revalidate or refuse stale observation. Never convert retained submit proof into current read permission",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N10",
+    "attack": "Closed supplier reservation, reversed target, expired ordinary window or stale correction revision",
+    "expected": "Historical replay remains historical if readable; new eligibility/correction refuses or is explicitly conditional; no reopen/replenish/refresh of user guard",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N11",
+    "attack": "Malformed candidate, arithmetic overflow, unsupported op, cap/outcome combination",
+    "expected": "Per-candidate refusal and no usable amount; safe diagnostics; other candidates remain independent",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N12",
+    "attack": "Cycles, forward refs, cache identity collision, nonconvergence, excess history/candidates",
+    "expected": "Bounded deterministic refusal, no last-result success and no cache overwrite of another candidate",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N13",
+    "attack": "Outbox prepopulated with held/leased/retrying/quarantined state",
+    "expected": "No lease renewal, retry counter, dispatch attempt, ack, reconciliation, delivery receipt or external call",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N14",
+    "attack": "Source root equals workspace, path alias to source, candidate evidence URL/file reference",
+    "expected": "Refuse unsafe isolation boundary/unsupported fetch; no source copy of credentials or writes",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N15",
+    "attack": "Authorized correction races snapshot acquisition",
+    "expected": "Result identifies coherent before or after snapshot; no invented mixed state; only control writer's expected delta survives reopen",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  },
+  {
+    "id": "N16",
+    "attack": "Zero-sum hidden writes: +X and \u2212X, insert/delete, head bump/restore",
+    "expected": "Attempt trace catches prohibited write; full row/byte comparison catches residue even when totals match",
+    "required_observations": [
+      "B0-before",
+      "B1-after",
+      "B2-reopen",
+      "attempt-trace"
+    ],
+    "evidence": "integration-required",
+    "inventory": "observer.COMMON plus backend-specific PG_ONLY; exact typed rows, columns, schema, controls and destination state"
+  }
+]

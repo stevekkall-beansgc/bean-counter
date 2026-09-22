@@ -5,6 +5,11 @@
 //! binding set, retained evidence, complete chain history, and authority under
 //! ordered locks. Results cannot be passed to the Phase 1 store append port.
 //! No current price, clock, party, causal link, or authority is inferred.
+#[doc(hidden)]
+pub mod comparison;
+#[doc(hidden)]
+pub mod comparison_provenance;
+
 mod compile;
 mod evaluate;
 mod model;

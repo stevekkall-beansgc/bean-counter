@@ -1,0 +1,415 @@
+{
+  "authorship": "Hand-audited existing supplier foundation only. Existing fixed100USD retail=10000 atoms; fixed30USD supplier=3000. No discount, no changed supplier terms, no expected data captured from Rust.",
+  "basis": {
+    "currency": "USD",
+    "scale": 2,
+    "atoms": "10000"
+  },
+  "bindings": [
+    {
+      "binding": "binding-retail",
+      "agreement": "agreement-retail",
+      "book": "retail",
+      "roles": {
+        "bearer": "customer",
+        "beneficiary": "customer",
+        "cost_originator": "host",
+        "payer": "customer",
+        "provider": "host",
+        "recipient": "host"
+      },
+      "booked_net": {
+        "currency": "USD",
+        "scale": 2,
+        "atoms": "10000"
+      },
+      "premium_limit": {
+        "currency": "USD",
+        "scale": 2,
+        "atoms": "10000"
+      }
+    },
+    {
+      "binding": "binding-supplier",
+      "agreement": "agreement-supplier",
+      "book": "supplier",
+      "roles": {
+        "bearer": "host",
+        "beneficiary": "host",
+        "cost_originator": "supplier",
+        "payer": "host",
+        "provider": "supplier",
+        "recipient": "supplier"
+      },
+      "booked_net": {
+        "currency": "USD",
+        "scale": 2,
+        "atoms": "3000"
+      },
+      "premium_limit": {
+        "currency": "USD",
+        "scale": 2,
+        "atoms": "10000"
+      }
+    }
+  ],
+  "original_amounts": [
+    {
+      "agreement": "agreement-retail",
+      "family": "rebate",
+      "code": "none",
+      "amount": {
+        "fixed": {
+          "currency": "USD",
+          "scale": 2,
+          "atoms": "0"
+        }
+      }
+    },
+    {
+      "agreement": "agreement-retail",
+      "family": "rebate",
+      "code": "rebate",
+      "amount": {
+        "percent": {
+          "numerator": "-10",
+          "denominator": "1"
+        }
+      }
+    },
+    {
+      "agreement": "agreement-supplier",
+      "family": "supplier-rebate",
+      "code": "fee",
+      "amount": {
+        "fixed": {
+          "currency": "USD",
+          "scale": 2,
+          "atoms": "2500"
+        }
+      }
+    },
+    {
+      "agreement": "agreement-supplier",
+      "family": "supplier-rebate",
+      "code": "none",
+      "amount": {
+        "fixed": {
+          "currency": "USD",
+          "scale": 2,
+          "atoms": "0"
+        }
+      }
+    },
+    {
+      "agreement": "agreement-supplier",
+      "family": "supplier-rebate",
+      "code": "rebate",
+      "amount": {
+        "percent": {
+          "numerator": "-10",
+          "denominator": "1"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "ordinal": 0,
+      "entry": {
+        "outcome_index": 0
+      },
+      "family": {
+        "agreement": "agreement-supplier",
+        "family": "supplier-rebate"
+      },
+      "revision": "1",
+      "exact": {
+        "numerator": "2500",
+        "denominator": "1"
+      },
+      "inverse": null,
+      "replacement": "2500",
+      "delta": "2500",
+      "difference_from_booked_delta": "0",
+      "reason": "OUTCOME_APPLIED",
+      "binding": {
+        "binding": "binding-supplier",
+        "premium": "2500",
+        "discount": "0",
+        "adjustment": "2500",
+        "net": "5500",
+        "difference_from_booked": "0"
+      },
+      "projected_reservation": {
+        "binding": "binding-supplier",
+        "maximum": "15000",
+        "held": "9500",
+        "consumed": "5500",
+        "released": "0"
+      }
+    },
+    {
+      "ordinal": 1,
+      "entry": {
+        "outcome_index": 1
+      },
+      "family": {
+        "agreement": "agreement-supplier",
+        "family": "supplier-rebate"
+      },
+      "revision": "2",
+      "exact": {
+        "numerator": "0",
+        "denominator": "1"
+      },
+      "inverse": "-2500",
+      "replacement": "0",
+      "delta": "-2500",
+      "difference_from_booked_delta": "0",
+      "reason": "ZERO_ROUNDED",
+      "binding": {
+        "binding": "binding-supplier",
+        "premium": "0",
+        "discount": "0",
+        "adjustment": "0",
+        "net": "3000",
+        "difference_from_booked": "0"
+      },
+      "projected_reservation": {
+        "binding": "binding-supplier",
+        "maximum": "15000",
+        "held": "9500",
+        "consumed": "5500",
+        "released": "0"
+      }
+    },
+    {
+      "ordinal": 2,
+      "entry": {
+        "close_binding": "binding-supplier"
+      },
+      "family": null,
+      "revision": null,
+      "exact": null,
+      "inverse": null,
+      "replacement": null,
+      "delta": "0",
+      "difference_from_booked_delta": "0",
+      "reason": "RESERVATION_CLOSED",
+      "binding": {
+        "binding": "binding-supplier",
+        "premium": "0",
+        "discount": "0",
+        "adjustment": "0",
+        "net": "3000",
+        "difference_from_booked": "0"
+      },
+      "projected_reservation": {
+        "binding": "binding-supplier",
+        "maximum": "15000",
+        "held": "0",
+        "consumed": "5500",
+        "released": "9500"
+      }
+    }
+  ],
+  "latest_by_prefix": [
+    {
+      "bindings": [
+        {
+          "binding": "binding-retail",
+          "premium": "0",
+          "discount": "0",
+          "adjustment": "0",
+          "net": "10000",
+          "difference_from_booked": "0"
+        },
+        {
+          "binding": "binding-supplier",
+          "premium": "0",
+          "discount": "0",
+          "adjustment": "0",
+          "net": "3000",
+          "difference_from_booked": "0"
+        }
+      ],
+      "families": [
+        {
+          "agreement": "agreement-retail",
+          "family": "rebate",
+          "observation": "unobserved",
+          "revision": null,
+          "current_code": null,
+          "amount": null,
+          "ordinary_closed": false
+        },
+        {
+          "agreement": "agreement-supplier",
+          "family": "supplier-rebate",
+          "observation": "unobserved",
+          "revision": null,
+          "current_code": null,
+          "amount": null,
+          "ordinary_closed": false
+        }
+      ],
+      "projected_reservations": [
+        {
+          "binding": "binding-supplier",
+          "maximum": "15000",
+          "held": "12000",
+          "consumed": "3000",
+          "released": "0"
+        }
+      ]
+    },
+    {
+      "bindings": [
+        {
+          "binding": "binding-retail",
+          "premium": "0",
+          "discount": "0",
+          "adjustment": "0",
+          "net": "10000",
+          "difference_from_booked": "0"
+        },
+        {
+          "binding": "binding-supplier",
+          "premium": "2500",
+          "discount": "0",
+          "adjustment": "2500",
+          "net": "5500",
+          "difference_from_booked": "0"
+        }
+      ],
+      "families": [
+        {
+          "agreement": "agreement-retail",
+          "family": "rebate",
+          "observation": "unobserved",
+          "revision": null,
+          "current_code": null,
+          "amount": null,
+          "ordinary_closed": false
+        },
+        {
+          "agreement": "agreement-supplier",
+          "family": "supplier-rebate",
+          "observation": "observed",
+          "revision": "1",
+          "current_code": "fee",
+          "amount": "2500",
+          "ordinary_closed": true
+        }
+      ],
+      "projected_reservations": [
+        {
+          "binding": "binding-supplier",
+          "maximum": "15000",
+          "held": "9500",
+          "consumed": "5500",
+          "released": "0"
+        }
+      ]
+    },
+    {
+      "bindings": [
+        {
+          "binding": "binding-retail",
+          "premium": "0",
+          "discount": "0",
+          "adjustment": "0",
+          "net": "10000",
+          "difference_from_booked": "0"
+        },
+        {
+          "binding": "binding-supplier",
+          "premium": "0",
+          "discount": "0",
+          "adjustment": "0",
+          "net": "3000",
+          "difference_from_booked": "0"
+        }
+      ],
+      "families": [
+        {
+          "agreement": "agreement-retail",
+          "family": "rebate",
+          "observation": "unobserved",
+          "revision": null,
+          "current_code": null,
+          "amount": null,
+          "ordinary_closed": false
+        },
+        {
+          "agreement": "agreement-supplier",
+          "family": "supplier-rebate",
+          "observation": "observed",
+          "revision": "2",
+          "current_code": "none",
+          "amount": "0",
+          "ordinary_closed": true
+        }
+      ],
+      "projected_reservations": [
+        {
+          "binding": "binding-supplier",
+          "maximum": "15000",
+          "held": "9500",
+          "consumed": "5500",
+          "released": "0"
+        }
+      ]
+    },
+    {
+      "bindings": [
+        {
+          "binding": "binding-retail",
+          "premium": "0",
+          "discount": "0",
+          "adjustment": "0",
+          "net": "10000",
+          "difference_from_booked": "0"
+        },
+        {
+          "binding": "binding-supplier",
+          "premium": "0",
+          "discount": "0",
+          "adjustment": "0",
+          "net": "3000",
+          "difference_from_booked": "0"
+        }
+      ],
+      "families": [
+        {
+          "agreement": "agreement-retail",
+          "family": "rebate",
+          "observation": "unobserved",
+          "revision": null,
+          "current_code": null,
+          "amount": null,
+          "ordinary_closed": false
+        },
+        {
+          "agreement": "agreement-supplier",
+          "family": "supplier-rebate",
+          "observation": "observed",
+          "revision": "2",
+          "current_code": "none",
+          "amount": "0",
+          "ordinary_closed": true
+        }
+      ],
+      "projected_reservations": [
+        {
+          "binding": "binding-supplier",
+          "maximum": "15000",
+          "held": "0",
+          "consumed": "5500",
+          "released": "9500"
+        }
+      ]
+    }
+  ]
+}

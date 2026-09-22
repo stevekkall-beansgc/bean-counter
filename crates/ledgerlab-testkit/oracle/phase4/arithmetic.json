@@ -1,0 +1,12 @@
+[
+ {"id":"A02-positive","basis":"1","rule":{"percent":["50","1"]},"rational":["1","2"],"rounded":"1"},
+ {"id":"A02-negative","basis":"1","rule":{"percent":["-50","1"]},"rational":["-1","2"],"rounded":"-1"},
+ {"id":"A03-plus49","basis":"1","rule":{"percent":["49","1"]},"rational":["49","100"],"rounded":"0"},
+ {"id":"A03-minus49","basis":"1","rule":{"percent":["-49","1"]},"rational":["-49","100"],"rounded":"0"},
+ {"id":"A03-plus51","basis":"1","rule":{"percent":["51","1"]},"rational":["51","100"],"rounded":"1"},
+ {"id":"A03-minus51","basis":"1","rule":{"percent":["-51","1"]},"rational":["-51","100"],"rounded":"-1"},
+ {"id":"A05","basis":"0","rule":{"percent":["10","1"]},"rational":["0","1"],"rounded":"0"},
+ {"id":"A23","basis":"8000","rule":{"percent":["10","1"]},"rational":["800","1"],"rounded":"800"},
+ {"id":"A24-at-capacity","basis":"8000","rule":{"percent":["-75","2"]},"rational":["-3000","1"],"rounded":"-3000"},
+ {"id":"A24-over-capacity","basis":"8000","rule":{"percent":["-40","1"]},"rational":["-3200","1"],"rounded":"-3200","eligibility":"refused-discount-capacity"}
+]

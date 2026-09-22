@@ -507,9 +507,3 @@ mod integrity_tests {
 }
 
 pub(crate) mod outcome;
-
-mod outcome_base;
-
-mod outcome_economic;
-
-mod outcome_settlement;

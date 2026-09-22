@@ -1,5 +1,5 @@
 //! Deterministic v2 projection of the existing pure outcome Decision.
-use super::outcome_base::*;
+use super::base::*;
 use ledgerlab_core::{canonical::outcome as codec, policy::chaining::outcomes as o};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -29,7 +29,7 @@ fn dependency(
 fn amount(base: &Base, n: i128) -> Value {
     json!({"currency":base.basis["body"]["amount"]["currency"],"scale":base.basis["body"]["amount"]["scale"],"atoms":n.to_string()})
 }
-pub(super) fn project(
+pub(in crate::service) fn project(
     records: &Records,
     base: &Base,
     event_body: Value,
@@ -391,10 +391,18 @@ pub(super) fn project(
     Ok(rows)
 }
 
-pub(super) fn replay(
+pub(in crate::service) fn replay(
     records: &Records,
     base: &Base,
     decisions: &[Vec<Value>],
+) -> Result<Vec<o::Decision>> {
+    replay_checked(records, base, decisions, &mut || Ok(()))
+}
+pub(in crate::service) fn replay_checked(
+    records: &Records,
+    base: &Base,
+    decisions: &[Vec<Value>],
+    checkpoint: &mut impl FnMut() -> Result<()>,
 ) -> Result<Vec<o::Decision>> {
     let seed = array(&base.acceptance["body"]["members"])?
         .iter()
@@ -407,6 +415,7 @@ pub(super) fn replay(
     )?;
     let mut history = vec![];
     for rows in decisions {
+        checkpoint()?;
         let one = |k: &str| -> Result<&Value> {
             let v = rows.iter().filter(|r| r["kind"] == k).collect::<Vec<_>>();
             check(v.len() == 1)?;

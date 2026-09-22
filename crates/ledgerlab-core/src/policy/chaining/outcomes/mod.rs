@@ -679,21 +679,18 @@ pub fn evaluate(
             replacement.clone()
         }
     };
-    let exact = match &code {
-        None => ExactRatio::integer(0),
-        Some(code) => match &family
-            .codes
-            .iter()
-            .find(|c| c.code == *code)
-            .ok_or_else(|| Error::new("POLICY_OUTCOME_CODE", "predeclared outcome code"))?
-            .amount
-        {
-            Amount::Fixed(m) => ExactRatio::integer(m.atoms()),
-            Amount::Percent(p) => ExactRatio::integer(target.retail_basis.atoms())
-                .mul(p)?
-                .div(&ExactRatio::integer(100))?,
-        },
-    };
+    let amount = code
+        .as_ref()
+        .map(|code| {
+            family
+                .codes
+                .iter()
+                .find(|c| c.code == *code)
+                .map(|c| &c.amount)
+                .ok_or_else(|| Error::new("POLICY_OUTCOME_CODE", "predeclared outcome code"))
+        })
+        .transpose()?;
+    let exact = exact_amount(amount, &target.retail_basis)?;
     let current = Money::new(
         &base.bundle.currency,
         base.bundle.scale,
@@ -715,25 +712,17 @@ pub fn evaluate(
         discount = add_atoms(discount, d.current.atoms().min(0))?;
         premium = add_atoms(premium, d.current.atoms().max(0))?;
     }
-    require(
-        -discount <= booked_net(base, &binding.id)?,
-        "DISCOUNT_EXCEEDS_BASIS",
-        "aggregate active discounts",
-    )?;
     let limit = target
         .policy
         .limits
         .iter()
         .find(|l| l.binding_id == binding.id)
         .expect("frozen limit");
-    require(
-        premium <= limit.premium.atoms(),
-        "PREMIUM_LIMIT",
-        "aggregate active premiums",
-    )?;
-    add_atoms(
-        add_atoms(booked_net(base, &binding.id)?, discount)?,
+    active_net(
+        booked_net(base, &binding.id)?,
+        discount,
         premium,
+        limit.premium.atoms(),
     )?;
     let mut postings = Vec::new();
     let mut explanations = Vec::new();
@@ -790,6 +779,30 @@ pub fn evaluate(
         postings,
         explanations,
     })))
+}
+
+/// Shared numeric kernels. These accept no authority or posting capabilities.
+pub(super) fn exact_amount(amount: Option<&Amount>, retail_basis: &Money) -> Result<ExactRatio> {
+    match amount {
+        None => Ok(ExactRatio::integer(0)),
+        Some(Amount::Fixed(m)) => Ok(ExactRatio::integer(m.atoms())),
+        Some(Amount::Percent(p)) => ExactRatio::integer(retail_basis.atoms())
+            .mul(p)?
+            .div(&ExactRatio::integer(100)),
+    }
+}
+pub(super) fn active_net(base: i128, discount: i128, premium: i128, ceiling: i128) -> Result<i128> {
+    require(
+        -discount <= base,
+        "DISCOUNT_EXCEEDS_BASIS",
+        "aggregate active discounts",
+    )?;
+    require(
+        premium <= ceiling,
+        "PREMIUM_LIMIT",
+        "aggregate active premiums",
+    )?;
+    add_atoms(add_atoms(base, discount)?, premium)
 }
 
 fn validate_outcome_history(history: &[Decision]) -> Result<()> {

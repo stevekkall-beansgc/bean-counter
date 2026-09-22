@@ -26,3 +26,6 @@ pub(crate) mod inspect;
 mod pg_transport_tests;
 #[cfg(test)]
 mod review_tests;
+
+pub(crate) mod comparison;
+pub(crate) mod retained;

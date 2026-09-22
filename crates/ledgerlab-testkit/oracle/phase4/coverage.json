@@ -1,0 +1,596 @@
+[
+  {
+    "id": "F01",
+    "input_story": "T original P0 replay, base only",
+    "plan_expectation": "10,000\u22122,000=8,000 retail. Original supplier 3,000; observation 200 separate. Original receipt unchanged; no new receipt",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F02",
+    "input_story": "T original P0 replay after F and R",
+    "plan_expectation": "F=2,500; R=8,000\u00d7(\u221210)/100=\u2212800. Retail=8,000+2,500\u2212800=9,700; supplier=3,000. Replay each original immutable decision, not merely final balance",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F03",
+    "input_story": "T hypothetical P1, same F/R",
+    "plan_expectation": "F=8,000\u00d720/100=1,600; R=\u22121,000. Retail=8,600, difference from P0=\u22121,100. Break difference into fee \u2212900, rebate \u2212200. Supplier unchanged",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F04",
+    "input_story": "T hypothetical P2, same F/R",
+    "plan_expectation": "F=800; R=\u2212800; retail=8,000, difference from P0=\u22121,700. Both components must remain explained despite net adjustment zero",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F05",
+    "input_story": "Candidate P3 changes base only to 12,000 and keeps booking discount 20%; F/R use P2 percentages",
+    "plan_expectation": "Hypothetical base=12,000\u22122,400=9,600, F=960, R=\u2212960; total=9,600. Explicitly distinguish original B=8,000 from hypothetical B'=9,600; no historical retargeting",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "F06",
+    "input_story": "Prospective P1 future target",
+    "plan_expectation": "Same sample estimate 8,600. \u201cConditional on new accepted binding/activation, complete frozen family set and evidence/authority at future acceptance.\u201d T remains P0 and its existing claims remain consumed",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F07",
+    "input_story": "P1 adds new family \u201cloyalty\u201d worth +300",
+    "plan_expectation": "Hypothetical alternative-design estimate may show 8,900 with new-family assumption. Historical eligibility must refuse that attachment; future eligibility is conditional. Cannot report \u201cowed +300\u201d",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "F08",
+    "input_story": "Separately authorized correction of original P0 F revision1, using predeclared +1,000 code; R unchanged",
+    "plan_expectation": "Inverse \u22122,500 then replacement +1,000; delta \u22121,500. Current retail=8,000+1,000\u2212800=8,200. Comparison emits no postings. A separate ordinary acceptance control would append both nonzero rows atomically",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F09",
+    "input_story": "Proposed correction requests P1 rate/result 1,600 on T",
+    "plan_expectation": "Refuse policy/rate/amount override. Candidate cannot become a new original-policy code or a direct posting",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F10",
+    "input_story": "P0 F\u2192zero code; then correction zero\u2192+1,000",
+    "plan_expectation": "First inverse \u22122,500 only, zero-result explanation, net with R=7,200. Then no zero inverse posting, +1,000 replacement, net=8,200. Both correction explanations always present",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F11",
+    "input_story": "Reverse P0 F with replacement None; reinstate using original permitted +2,500 code",
+    "plan_expectation": "Reverse delta \u22122,500; reinstatement delta +2,500; original receipt remains accessible. Reversed claim cannot be submitted as a new ordinary claim",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "F12",
+    "input_story": "Original F corrected once; retry original F or its semantic duplicate",
+    "plan_expectation": "Reference original ordinary receipt/result +2,500, not corrected +1,000; read authorization precedes disclosure. Comparison creates no alias",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A01",
+    "input_story": "Unit rate USD 0.07 \u00d7 quantity1.5",
+    "plan_expectation": "Exact atoms 21/2 \u2192 +11, BASE_APPLIED. This is a unit-rate product; do not use unrepresentable fixed USD0.105",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A02",
+    "input_story": "Eligible retail B=1, outcome percentages +50% and \u221250% in separate cases",
+    "plan_expectation": "Exact +1/2\u2192+1; \u22121/2\u2192\u22121. Signed half ties away from zero; negative rate legal on approved outcome surface",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A03",
+    "input_story": "B=1 with \u00b149% then \u00b151%, separately",
+    "plan_expectation": "\u00b149/100\u21920 with ZERO_ROUNDED; \u00b151/100\u2192\u00b11. Zero has canonical 0, not \u22120",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A04",
+    "input_story": "Three distinct valid components each unit product USD0.004",
+    "plan_expectation": "Each 2/5 atom\u21920; total0, not round(6/5)=1. No monetary action/effect/intention for zero; no authoritative claim in comparison",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A05",
+    "input_story": "Successful final base100, booking discount100, resulting B=0; outcome10%",
+    "plan_expectation": "Base eligible if otherwise valid; outcome0 and ZERO_ROUNDED. An actual ordinary zero acceptance would own a permanent claim; comparison must not",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A06",
+    "input_story": "Successful quantity0; failed quantity0",
+    "plan_expectation": "Success refuses invalid quantity. Failed work explains FAILED_WORK/no price and cannot become an outcome target; zero-net successful work A05 is different",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A07",
+    "input_story": "Base100, two additive10% discounts",
+    "plan_expectation": "\u221210 and \u221210 from same100; net80. Explain unchanged bases",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A08",
+    "input_story": "Base100, two sequential10% discounts",
+    "plan_expectation": "\u221210 from100, \u22129 from90; net81. Explain second basis90",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A09",
+    "input_story": "Base3 sequential10% then20%, versus20% then10%",
+    "plan_expectation": "First order: \u22123/10\u21920, then \u22123/5\u2192\u22121, net2. Second: \u22123/5\u2192\u22121, then \u22121/5\u21920 on2, net2. Ordered explanation inputs differ even when total agrees",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A10",
+    "input_story": "Base2 sequential25% then50%, versus50% then25%",
+    "plan_expectation": "First: \u22121/2\u2192\u22121 leaves1, \u22121/2\u2192\u22121 leaves0. Second: \u22121 leaves1, \u22121/4\u21920 leaves1. Order is policy semantics; expected totals0 vs1, not a convergence failure",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A11",
+    "input_story": "Base100, additive60%+50% discounts",
+    "plan_expectation": "\u221260\u221250 exceeds100; DISCOUNT_EXCEEDS_BASIS, no partial total or silent floor",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A12",
+    "input_story": "Target B=100; active premium+100 and rebate\u2212101",
+    "plan_expectation": "Reject gross discount101>100 despite net99. Premium does not buy rebate headroom",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A13",
+    "input_story": "Target B=100; retail premium ceiling50; results+50 versus+51",
+    "plan_expectation": "+50 allowed estimate, +51 bound refusal; never clip to50. Negative ceiling or absent finite ceiling refuses target policy",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A14",
+    "input_story": "Max atoms M=999999999999999999999999999999",
+    "plan_expectation": "Representable isolated M is exact; M+1 rejects ARITHMETIC_OVERFLOW. Check each component, sums and correction deltas, not just displayed total",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A15",
+    "input_story": "Unsupported precision, >512-bit actual bounded intermediate, currency/scale/unit mismatch",
+    "plan_expectation": "INPUT_PRECISION / ARITHMETIC_OVERFLOW / mismatch class; no float coercion, currency conversion or partial estimate",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A16",
+    "input_story": "Negative input fixed price/quantity; percent101 in legacy DSL",
+    "plan_expectation": "POLICY_NEGATIVE_AMOUNT / invalid quantity / POLICY_PERCENT_RANGE. Do not confuse these with legal signed approved outcome adjustments",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A17",
+    "input_story": "Legacy closed-stage P=135,C=200,cap315",
+    "plan_expectation": "Credit=\u2212max(0,135+200\u2212315)=\u221220; closure net180; retail total315. CAP_APPLIED",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A18",
+    "input_story": "Same legacy stage cap335,336,135,134",
+    "plan_expectation": "335/336: credit0, CAP_NOT_BINDING, total335. 135: credit\u2212200, closure0,total135. 134<P: CAP_BELOW_BOOKED, no retroactive credit",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A19",
+    "input_story": "Legacy P=0,C=200,cap0",
+    "plan_expectation": "Credit\u2212200, current closure0, total0; supplier fees unchanged",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A20",
+    "input_story": "Legacy A17 supplier share25%, ceiling50; prior supplier fee15",
+    "plan_expectation": "Share180\u00d725/100=45; supplier total60. Retail remains315; allocation view if enabled is45+135=180, informational only",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A21",
+    "input_story": "Legacy share basis1000\u00d725%, ceiling50; tie basis3\u00d750%, ceiling1",
+    "plan_expectation": "First exact250, rounded250 then ceiling50. Second exact3/2\u21922 then ceiling1. SHARE_CEILING; cap after rounding",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A22",
+    "input_story": "Any base bundle with cap (binding or not), plus approved target family",
+    "plan_expectation": "OUTCOME_CAP_COMPOSITION; no target registration or claimed supported composition. A17\u2013A21 stay separate from F01\u2013F12",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A23",
+    "input_story": "Supplier outcome+10% with T retail B8000 and supplier base3000",
+    "plan_expectation": "+800 from retail B, never+300. Supplier total3800; retail unchanged. Separately accepted supplier authority/path required",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A24",
+    "input_story": "Supplier rebate\u221240% then\u221237.5% on T, independent cases",
+    "plan_expectation": "\u22123200 refuses supplier discount capacity3000. \u22123000 allowed exactly, supplier current net0. Retail basis remains8000",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A25",
+    "input_story": "Supplier ordinary+2500 from initial held12000/consumed3000/released0",
+    "plan_expectation": "Hypothetical economics+2500; source capacity stays12000/3000/0. Actual control acceptance would give9500/5500/0; comparison must not",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A26",
+    "input_story": "Previously accepted supplier+2500; correction to0; later explicit closure",
+    "plan_expectation": "Replay capacity after ordinary9500/5500/0, after correction still9500/5500/0, after closure0/5500/9500. Correcting/reversing cannot replenish; comparison cannot release",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A27",
+    "input_story": "Ordinary supplier result after capacity closed; permitted correction after closure",
+    "plan_expectation": "New ordinary refuses. Existing authorized correction may change economics within frozen limits/window, but reservation and its revision remain unchanged",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "A28",
+    "input_story": "BYOK; platform with known observation200; platform unknown cost",
+    "plan_expectation": "BYOK_NO_HOST_COST/no host payable; known observation200 separate; unknown COST_UNKNOWN, not zero-valued known cost and not fabricated payable",
+    "first_slice": "unsupported",
+    "evidence": "scope-refusal-specification",
+    "no_change": "all-protected-state",
+    "note": "No changed base/family/supplier terms or legacy operator is supported; original plan arithmetic is context only."
+  },
+  {
+    "id": "A29",
+    "input_story": "Supplier offer/assent/invocation/delegation missing or wrong nominated completion",
+    "plan_expectation": "No supplier payable/eligible future claim. At most an explicitly conditional candidate estimate; original replay missing required retained proof cannot be \u201cverified\u201d",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D01",
+    "input_story": "Original policy or evaluator version missing",
+    "plan_expectation": "Original replay unavailable; never substitute candidate/current evaluator and report verified",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D02",
+    "input_story": "Missing retained predecessor, evidence content, binding, original evaluation, or original receipt membership",
+    "plan_expectation": "Incomplete/unavailable if legitimately absent; integrity failure if a retained commitment is contradicted. No synthesized evidence or fetched URL",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D03",
+    "input_story": "Modify original amount then recompute all internal hashes",
+    "plan_expectation": "Refuse against unchanged original acceptance anchor/receipt. Self-consistent hashes alone do not prove authentic retained activity",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D04",
+    "input_story": "Drop an unclaimed frozen family and rehash",
+    "plan_expectation": "Reject incomplete target membership; cannot restrict/increase candidate eligibility by rewriting the historical target",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D05",
+    "input_story": "Change candidate name, rule label, delivery ID, or policy version to reuse family",
+    "plan_expectation": "Same permanent claim key; no new historical eligibility. Display identity never keys the economic cache",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D06",
+    "input_story": "Same candidate label with different canonical policies",
+    "plan_expectation": "Distinct digests/results or explicit label-collision error; never silently overwrite. Same claimed digest with different bytes is integrity refusal",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D07",
+    "input_story": "Same event external ID/different source; same source/ID/different scope; changed payload under same scoped identity",
+    "plan_expectation": "Respect structured scope/source identity. No cross-scope disclosure; changed bytes on same identity conflict, never merged activity",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D08",
+    "input_story": "Composite keys ('ab','c') vs ('a','bc'); Unicode composed/decomposed names",
+    "plan_expectation": "Distinct structured identities and original bytes. No string-concatenation or Unicode-normalization collision",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D09",
+    "input_story": "Repeated delivery alias of one operation",
+    "plan_expectation": "Count retained semantic activity once; show alias provenance without registering another durable alias",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D10",
+    "input_story": "Duplicate JSON keys, null required economics, unknown fields, BOM, surrogate, exponent/unsafe numeric token",
+    "plan_expectation": "Strict parse/schema refusal before economic evaluation; safe diagnostics, no repaired candidate silently accepted",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D11",
+    "input_story": "Negative legacy percent, percent>100, missing basis, duplicate component, equal-priority ambiguous match",
+    "plan_expectation": "Compile refusal with applicable stable POLICY_* reason; do not silently choose one rule",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D12",
+    "input_story": "Same-phase forward reference, cyclic basis, recursive shares, arbitrary code/network op",
+    "plan_expectation": "Deterministic POLICY_CYCLE / POLICY_MISSING_BASIS / POLICY_UNSUPPORTED_OP as applicable; no fixed-point iteration or executable evidence",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D13",
+    "input_story": "A/B/A and every permutation of P0/P1/P2",
+    "plan_expectation": "By digest, retail9700/8600/8000 on every run; source B8000 unchanged. Fresh evaluation state for every candidate",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D14",
+    "input_story": "Invalid candidate between two P1 runs",
+    "plan_expectation": "Both P1 results8600; invalid result explicitly refused, no previous result carried forward",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D15",
+    "input_story": "Change current clock/current price after original acceptance",
+    "plan_expectation": "Original replay9700 unchanged; candidate computation with same explicit times unchanged. Future eligibility may report changed prerequisites, separately labeled",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D16",
+    "input_story": "Read-authority revoked, wrong tenant, stale current read proof",
+    "plan_expectation": "Refuse before disclosure, even when a cached/original receipt exists; don't reveal protected evidence IDs in diagnostics",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D17",
+    "input_story": "Submit authority now expired/closed but historical read authorized",
+    "plan_expectation": "Historical original replay remains9700; future posting eligibility unavailable. Retained verification is evidence, not a bearer capability",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D18",
+    "input_story": "Correction revision0 or2 when current1; current moves while comparison runs",
+    "plan_expectation": "Stale revision refuses correction eligibility; no silent user-guard refresh. Snapshot result carries exact source revision",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D19",
+    "input_story": "Forged public may_read/may_correct/Verified flags",
+    "plan_expectation": "Not accepted as host verification; no authority escalation, receipt disclosure or mutation",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D20",
+    "input_story": "W occurrence10:00,11:00; receipt12:00,12:00+1\u00b5s; acceptance13:00,13:00+1\u00b5s",
+    "plan_expectation": "Start inclusive allowed, occurrence end excluded; receipt/acceptance deadlines inclusive, +1\u00b5s refused. Also refuse occurrence>receipt or receipt>acceptance",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D21",
+    "input_story": "Correction occurrence outside ordinary W but inside separately frozen correction window",
+    "plan_expectation": "Allowed if other correction conditions hold; don't apply ordinary window to correction. Equal correction/current acceptance allowed by reconciled semantics",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D22",
+    "input_story": "Candidate or source too large; history truncated; timeout/cancellation",
+    "plan_expectation": "Bounded limit/incomplete result, no usable aggregate, no mutation; full retry reproduces only when complete",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "local-oracle",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D23",
+    "input_story": "Source correction commits between candidate evaluations",
+    "plan_expectation": "All candidates use one coherent capsule or whole comparison restarts with a new identified capsule; never P0 at revision1 and P1 at revision2 labeled same basis",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D24",
+    "input_story": "Attempt promote estimate, supply amount/rate/policy override to correction, dispatch preview object",
+    "plan_expectation": "Refuse at ordinary typed authorization/acceptance boundary; comparison cannot bypass assent, expected-current, source, evidence, capacity or ordinary policy checks",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  },
+  {
+    "id": "D25",
+    "input_story": "Secret canaries in credential files, environment, candidate error text and evidence links",
+    "plan_expectation": "No automatic reads/fetches; no leaked canaries in output/logs/workspace/process arguments/network. User-supplied candidate text must not be echoed unbounded",
+    "first_slice": "supported-or-refused-as-specified",
+    "evidence": "integration-required",
+    "no_change": "all-protected-state",
+    "note": "Production/real-store evidence remains required."
+  }
+]

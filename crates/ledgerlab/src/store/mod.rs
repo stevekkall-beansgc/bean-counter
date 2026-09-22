@@ -9,3 +9,5 @@ pub(crate) mod postgres;
 #[cfg(test)]
 pub(crate) mod outcome_evidence;
 pub(crate) mod outcomes;
+
+pub(crate) mod comparison;

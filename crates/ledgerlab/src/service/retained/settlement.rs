@@ -1,13 +1,13 @@
 //! Reservation accounting projects an already validated economic result. It
 //! never evaluates prices, decides authority, or replenishes post-hoc capacity.
-use super::outcome_base::*;
+use super::base::*;
 use ledgerlab_core::{
     canonical::{self, outcome as codec},
     money::parse_atoms,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-pub(super) fn settlement_hash(domain: &str, v: &Value) -> Result<String> {
+pub(in crate::service) fn settlement_hash(domain: &str, v: &Value) -> Result<String> {
     core(canonical::outcome_digest(codec::SETTLEMENT, domain, v))
 }
 fn number(v: &Value) -> Result<i128> {
@@ -18,7 +18,7 @@ fn number(v: &Value) -> Result<i128> {
 fn make(kind: &str, scope: &Value, body: Value) -> Result<Value> {
     core(codec::envelope(codec::SETTLEMENT, kind, scope, body))
 }
-pub(super) fn checkpoint(
+pub(in crate::service) fn checkpoint(
     records: &Records,
     base: &Base,
     invocation: &str,
@@ -76,7 +76,7 @@ pub(super) fn checkpoint(
     Ok((state, anchor, unit))
 }
 /// A current authority proof must already have been verified by the coordinator.
-pub(super) struct SettlementInput<'a> {
+pub(in crate::service) struct SettlementInput<'a> {
     pub command: Value,
     pub authority: Value,
     pub received: Value,
@@ -87,7 +87,7 @@ pub(super) struct SettlementInput<'a> {
     pub amount: Option<i128>,
     pub authorized_close: bool,
 }
-pub(super) fn project(
+pub(in crate::service) fn project(
     records: &Records,
     base: &Base,
     input: SettlementInput<'_>,

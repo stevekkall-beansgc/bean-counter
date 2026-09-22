@@ -8,55 +8,55 @@ use ledgerlab_core::{
 };
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-pub(super) type Result<T> = std::result::Result<T, ServiceError>;
-pub(super) fn integrity() -> ServiceError {
+pub(in crate::service) type Result<T> = std::result::Result<T, ServiceError>;
+pub(in crate::service) fn integrity() -> ServiceError {
     ServiceError::IntegrityFailure
 }
 #[track_caller]
-pub(super) fn check(v: bool) -> Result<()> {
+pub(in crate::service) fn check(v: bool) -> Result<()> {
     if v {
         Ok(())
     } else {
         Err(integrity())
     }
 }
-pub(super) fn core<T>(r: ledgerlab_core::Result<T>) -> Result<T> {
+pub(in crate::service) fn core<T>(r: ledgerlab_core::Result<T>) -> Result<T> {
     r.map_err(|_| integrity())
 }
-pub(super) fn text(v: &Value) -> Result<&str> {
+pub(in crate::service) fn text(v: &Value) -> Result<&str> {
     v.as_str().ok_or_else(integrity)
 }
-pub(super) fn array(v: &Value) -> Result<&Vec<Value>> {
+pub(in crate::service) fn array(v: &Value) -> Result<&Vec<Value>> {
     v.as_array().ok_or_else(integrity)
 }
-pub(super) fn parse(v: &Value) -> Result<Value> {
+pub(in crate::service) fn parse(v: &Value) -> Result<Value> {
     core(canonical::parse_bounded(
         text(v)?.as_bytes(),
         canonical::BUNDLE_LIMIT,
     ))
 }
-pub(super) fn bytes(v: &Value) -> Result<Vec<u8>> {
+pub(in crate::service) fn bytes(v: &Value) -> Result<Vec<u8>> {
     core(codec::bytes(v))
 }
-pub(super) fn ordered(v: Vec<Value>) -> Result<Vec<Value>> {
+pub(in crate::service) fn ordered(v: Vec<Value>) -> Result<Vec<Value>> {
     core(codec::ordered(v))
 }
-pub(super) fn time(v: &Value) -> Result<Timestamp> {
+pub(in crate::service) fn time(v: &Value) -> Result<Timestamp> {
     core(Timestamp::parse(text(v)?))
 }
-pub(super) fn money(v: &Value) -> Result<Money> {
+pub(in crate::service) fn money(v: &Value) -> Result<Money> {
     serde_json::from_value(v.clone()).map_err(|_| integrity())
 }
-pub(super) fn hash(domain: &str, v: &Value) -> Result<String> {
+pub(in crate::service) fn hash(domain: &str, v: &Value) -> Result<String> {
     core(canonical::outcome_digest(codec::ECONOMIC, domain, v))
 }
-pub(super) fn row(kind: &str, scope: &Value, body: Value) -> Result<Value> {
+pub(in crate::service) fn row(kind: &str, scope: &Value, body: Value) -> Result<Value> {
     core(codec::envelope(codec::ECONOMIC, kind, scope, body))
 }
-pub(super) fn reference(v: &Value) -> Value {
+pub(in crate::service) fn reference(v: &Value) -> Value {
     codec::reference(v)
 }
-pub(super) fn members(v: &[Value]) -> Result<Vec<Value>> {
+pub(in crate::service) fn members(v: &[Value]) -> Result<Vec<Value>> {
     let mut refs = v
         .iter()
         .map(reference)
@@ -66,7 +66,7 @@ pub(super) fn members(v: &[Value]) -> Result<Vec<Value>> {
     Ok(refs.into_iter().map(|v| v.2).collect())
 }
 #[derive(Clone)]
-pub(super) struct Records {
+pub(in crate::service) struct Records {
     pub rows: Vec<Value>,
     map: BTreeMap<Vec<u8>, usize>,
     pub scope: Value,
@@ -183,7 +183,7 @@ fn price(v: &Value) -> Result<Value> {
         object_tag(&k.to_lowercase(), v)
     }
 }
-pub(super) fn projection(original: &Value) -> Result<Value> {
+pub(in crate::service) fn projection(original: &Value) -> Result<Value> {
     let mut v = original.clone();
     v["event"] = parse(&v["event"]["event_utf8"])?;
     for p in v["bundle"]["policies"]
@@ -250,7 +250,7 @@ fn window(v: &Value) -> Result<o::Window> {
         accepted_by: time(&v["accepted_by"])?,
     })
 }
-pub(super) fn policy(v: &Value) -> Result<o::Policy> {
+pub(in crate::service) fn policy(v: &Value) -> Result<o::Policy> {
     Ok(o::Policy {
         version: text(&v["version"])?.into(),
         document: text(&v["document"])?.into(),
@@ -301,14 +301,14 @@ pub(super) fn policy(v: &Value) -> Result<o::Policy> {
     })
 }
 
-pub(super) struct Base {
+pub(in crate::service) struct Base {
     pub evaluation: c::Evaluation,
     pub target: o::Target,
     pub acceptance: Value,
     pub snapshot: Value,
     pub basis: Value,
 }
-pub(super) fn decode_base(records: &Records, anchor: &Value) -> Result<Base> {
+pub(in crate::service) fn decode_base(records: &Records, anchor: &Value) -> Result<Base> {
     #[cfg(test)]
     let _trace = crate::store::postgres::trace::Span::new("decode_base");
     let acceptance = records.deref(anchor)?.clone();
@@ -763,7 +763,11 @@ fn validate_families(
     }
     Ok(())
 }
-pub(super) fn request(records: &Records, base: &Base, data: &Value) -> Result<o::Request> {
+pub(in crate::service) fn request(
+    records: &Records,
+    base: &Base,
+    data: &Value,
+) -> Result<o::Request> {
     check(data["target"] == base.snapshot["body"]["target"])?;
     Ok(o::Request {
         scope: core(Scope::new(
@@ -791,7 +795,11 @@ pub(super) fn request(records: &Records, base: &Base, data: &Value) -> Result<o:
         },
     })
 }
-pub(super) fn verified(records: &Records, r: &o::Request, v: &Value) -> Result<o::Verified> {
+pub(in crate::service) fn verified(
+    records: &Records,
+    r: &o::Request,
+    v: &Value,
+) -> Result<o::Verified> {
     check(
         v["target"] == records.one("target-snapshot")?["body"]["target"]
             && v["agreement_id"] == r.agreement
