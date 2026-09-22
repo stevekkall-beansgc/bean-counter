@@ -60,7 +60,7 @@ Node CLI: `node validate.mjs FILE`, identical contract. No subprocess cross-call
 `replay(trace)`; CLI fixture file envelope is `{"format":"r3-trace/1","initial":
 {...},"commands":[...]}`. `initial` has externally trusted `authority_documents`
 (array of raw digest strings), `grant_authentications` (array of raw digests),
-`authority_observations`, `trusted_observations`, `original_objects`,
+`authority_observations`, `authority_sources`, `trusted_observations`, `original_objects`,
 `original_base_receipt`, `original_base_manifest`, `initial_resources` (one full `resource` vector per host), `initial_counters`
 (map host→map counter→{q,R}, omitted names mean0,0), and `writer_capabilities` (map
 logical gateway→{epoch,journal_head,fence}, supplied by trusted actual adapter).
@@ -524,7 +524,7 @@ arity, then uint16 big-endian byte length and exact raw UTF-8 per component.
 Component types and positions are fixed by the tag and key_components table;
 full nested case identities flatten in that specified order. No JSON framing or
 escaping is used for index keys. Quote/backslash bytes remain literal bytes.
-K=max(9+sum(2+component_bound))=1079, L=8K+1=8633. Path bits are key bits followed
+K=max(9+sum(2+component_bound))=1115, L=8K+1=8921. Path bits are key bits followed
 by one terminator bit and zero padding to L. Immutable replacement reserves L+1
 nodes. Exact full keys remain in terminal values; no digest-only collision bucket.
 
@@ -669,3 +669,81 @@ K+72=1151 fits one4032-byte payload page. The worksheet conservatively reserves
 ceil((maximum command+result+introduced bodies)/4032) pages per changed value,
 which is at least this full-key/reference minimum for every transition. It does
 not require copying the entire source archive or using unbounded collision buckets.
+
+## Scoped correction: exact authority sources (four blockers)
+
+The existing trusted-host boundary is unchanged. `initial.authority_documents`
+remains the externally approved set of raw SHA256 document hashes;
+`authority_observations` still pins the exact current command authority decision.
+Both are necessary. Add `initial.authority_sources`, a canonical-byte-sorted array
+of closed `authority_source` records `{body,body_hash,bytes}`. `body` is canonical
+Base64 of exact canonical JSON conforming to `authority_source_body`; decoded
+bytes must equal its canonical re-encoding, length must equal `bytes`, and raw
+SHA256 must equal `body_hash`. Each source is at most16384 decoded bytes. Source
+hashes must equal the approved document set exactly. Missing/extra/duplicate
+bodies reject. Full identity is `[source,id,revision]`, with source and id each
+at most128 UTF-8 bytes (distinct from event source256). One such identity has one
+immutable body: a second body at that identity rejects even if both digests were
+approved. No signatures, identity provider, or production authentication is added.
+
+Closed body variants share `source,id,revision,scope,target`:
+
+* AUTHORIZATION adds `principal,permissions,starts_at,ends_at`. Exact principal,
+  permission and revision must match `command.authority`; scope matches the full
+  command key and target matches enrollment (ENROLL uses its payload). Observation
+  time lies in `[starts_at,ends_at)`. PREPARE_ENROLL has no accepted enrollment;
+  its document target is additionally checked against the eventual ENROLL target
+  when that preparation proof is consumed. The exact current host observation
+  remains mandatory even when a valid retained source exists.
+* ASSENT adds `roles,terms`. Roles match exactly. `terms=H(authority,X)` where X
+  is a complete family_terms object with only its self-referencing `assent` removed,
+  or `{id,funding,positive,negative,gross,direction,roles}` for the exact pool and
+  directional authorization. Thus signed direction, funding caps, original terms,
+  optional delegation reference, scope and target are bound; no self-hash cycle.
+* DELEGATION adds `roles` without payer_delegation, canonical unique
+  `agreement_ids` (at most32), `maximum_exposure`, `starts_at,ends_at,acceptor`, and
+  embedded `assent:{accepted_at,terms}`. `terms=H(authority,complete delegation
+  body without assent)` and acceptor equals payer. Exact roles, target/scope and
+  applicable agreement IDs must match. Acceptance precedes use; validity is
+  half-open. At ENROLL the family correction window must also finish before the
+  delegation expiry. Each family reserves maximum absolute original/correction
+  result; each pool direction reserves min(funding,gross,directional cap), zero
+  reserves0. Sum those exposure bounds for each shared delegation and require it
+  not exceed maximum_exposure. Every actual economic use rechecks validity and
+  its absolute amount. Bearer!=payer requires a delegation; a present delegation
+  is checked even when bearer==payer. The embedded assent is retained evidence,
+  with authenticity supplied by the existing host-approved source digest.
+
+Reference collection: every command resolves its AUTHORIZATION body. ENROLL also
+resolves all family and pool ASSENT bodies and their present DELEGATION bodies;
+DECIDE/CORRECT resolve their exact ASSENT and present DELEGATION. Other commands
+resolve one source. ENROLL resolves at most83 distinct sources with aggregate
+source decoded bytes<=524288; DECIDE/CORRECT at most3; other commands at most1.
+Bounds are checked before committing any resulting promises, with atomic rollback
+on refusal/exception. Exact retries still verify the current command source and
+host decision, but introduce no records, dependencies, counters or resources.
+
+First reference in an owning journal introduces one object of kind AUTHORITY,
+full_key=[source,id,revision], original source body/hash/length and the same origin
+format as other newly produced objects (own store/scope/registration/host and next
+ordinal). Retain it once in that host. Subsequent uses bind the immutable first
+introduction's segment hash in segment.dependencies; dependencies are unique and
+canonical-byte sorted, including existing protocol dependencies. Never substitute
+a same-hash object at another identity or host. The derived snapshot adds
+`authority_retained:{host:{canonical_full_identity:{hash,bytes,segment}}}`. This is
+an index over retained source objects, not another copy of their bodies. Every
+stored replay must reproduce exact introductions and dependencies; initial source
+availability cannot excuse an omitted persisted object.
+
+Each source introduction consumes its own object/record/index version and decoded
+trusted bytes. The worksheet reserves maximum source resolution reads even when
+already retained: ENROLL512KiB, economic commands49152bytes, other16384bytes.
+ENROLL permits up to216 total objects. Exact per-object Base64 and full-key
+metadata are included in segment maxima; command/effect bytes remain separately
+charged. All original2MiB-trust/8MiB-segment/256KiB-command limits remain unchanged.
+The `authdoc` index tag is `AUTHDOC_`; components are origin store, scope tenant,
+scope environment, registration, host, ordinal, kind, source, id, revision,
+body_hash, bytes, with bounds in resources.json. Its full binary key bound1115
+raises K to1115 and L to8921; each changed path has8922 pages. Existing revision
+keys remain1079 bytes. This is the same existing binary codec with a newly bounded
+source identity; no index/backend redesign.

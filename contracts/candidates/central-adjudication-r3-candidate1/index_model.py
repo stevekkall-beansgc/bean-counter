@@ -18,5 +18,6 @@ def self_test():
  a=['x'*n for n in v.WORK['key_components']['case']];b=list(a);b[-1]=b[-1][:-1]+'y';assert path('case',a)!=path('case',b)
  # Tuple framing preserves boundaries even where concatenation would collide.
  a=['a','bc','d','e'];b=['ab','c','d','e'];assert encode('delivery',a)!=encode('delivery',b)
- return dict(K=1079,L=8633,P=128,pages_per_update=8634)
+ longest=['x'*n for n in v.WORK['key_components']['authdoc']];assert len(encode('authdoc',longest))==1115
+ return dict(K=1115,L=8921,P=128,pages_per_update=8922)
 if __name__=='__main__':print(self_test())

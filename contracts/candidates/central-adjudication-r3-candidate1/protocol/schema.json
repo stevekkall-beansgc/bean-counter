@@ -436,6 +436,264 @@
         }
       }
     },
+    "authority_key": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/id"
+        },
+        {
+          "$ref": "#/$defs/id"
+        },
+        {
+          "$ref": "#/$defs/count"
+        }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "delegated_roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "cost_originator",
+        "bearer",
+        "payer",
+        "beneficiary",
+        "recipient"
+      ],
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/id"
+        },
+        "cost_originator": {
+          "$ref": "#/$defs/id"
+        },
+        "bearer": {
+          "$ref": "#/$defs/id"
+        },
+        "payer": {
+          "$ref": "#/$defs/id"
+        },
+        "beneficiary": {
+          "$ref": "#/$defs/id"
+        },
+        "recipient": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "authority_source_body": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "source",
+            "id",
+            "revision",
+            "scope",
+            "target",
+            "principal",
+            "permissions",
+            "starts_at",
+            "ends_at"
+          ],
+          "properties": {
+            "kind": {
+              "const": "AUTHORIZATION"
+            },
+            "source": {
+              "$ref": "#/$defs/id"
+            },
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "revision": {
+              "$ref": "#/$defs/count"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "target": {
+              "$ref": "#/$defs/id"
+            },
+            "principal": {
+              "$ref": "#/$defs/id"
+            },
+            "permissions": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "enroll",
+                  "capacity",
+                  "submit",
+                  "read",
+                  "decide",
+                  "adjust",
+                  "correct",
+                  "close",
+                  "replace"
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 9,
+              "uniqueItems": true
+            },
+            "starts_at": {
+              "$ref": "#/$defs/time"
+            },
+            "ends_at": {
+              "$ref": "#/$defs/time"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "source",
+            "id",
+            "revision",
+            "scope",
+            "target",
+            "roles",
+            "terms"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ASSENT"
+            },
+            "source": {
+              "$ref": "#/$defs/id"
+            },
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "revision": {
+              "$ref": "#/$defs/count"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "target": {
+              "$ref": "#/$defs/id"
+            },
+            "roles": {
+              "$ref": "#/$defs/roles"
+            },
+            "terms": {
+              "$ref": "#/$defs/digest"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "source",
+            "id",
+            "revision",
+            "scope",
+            "target",
+            "roles",
+            "agreement_ids",
+            "maximum_exposure",
+            "starts_at",
+            "ends_at",
+            "acceptor",
+            "assent"
+          ],
+          "properties": {
+            "kind": {
+              "const": "DELEGATION"
+            },
+            "source": {
+              "$ref": "#/$defs/id"
+            },
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "revision": {
+              "$ref": "#/$defs/count"
+            },
+            "scope": {
+              "$ref": "#/$defs/scope"
+            },
+            "target": {
+              "$ref": "#/$defs/id"
+            },
+            "roles": {
+              "$ref": "#/$defs/delegated_roles"
+            },
+            "agreement_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/id"
+              },
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true
+            },
+            "maximum_exposure": {
+              "$ref": "#/$defs/count"
+            },
+            "starts_at": {
+              "$ref": "#/$defs/time"
+            },
+            "ends_at": {
+              "$ref": "#/$defs/time"
+            },
+            "acceptor": {
+              "$ref": "#/$defs/id"
+            },
+            "assent": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "accepted_at",
+                "terms"
+              ],
+              "properties": {
+                "accepted_at": {
+                  "$ref": "#/$defs/time"
+                },
+                "terms": {
+                  "$ref": "#/$defs/digest"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "authority_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "body",
+        "body_hash",
+        "bytes"
+      ],
+      "properties": {
+        "body": {
+          "type": "string",
+          "maxLength": 21848,
+          "x-base64-bytes": 16384
+        },
+        "body_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "bytes": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
     "resource": {
       "type": "object",
       "additionalProperties": false,
@@ -730,6 +988,9 @@
             },
             {
               "$ref": "#/$defs/id"
+            },
+            {
+              "$ref": "#/$defs/authority_key"
             }
           ]
         },
@@ -2820,7 +3081,7 @@
             "$ref": "#/$defs/object"
           },
           "minItems": 0,
-          "maxItems": 133,
+          "maxItems": 216,
           "uniqueItems": true
         }
       }

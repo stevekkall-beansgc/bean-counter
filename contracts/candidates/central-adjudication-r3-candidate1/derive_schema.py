@@ -20,6 +20,15 @@ D['family_terms']=obj(book=en('RETAIL','SUPPLIER'),key=ref('family'),prerequisit
 D['supplier']=obj(id=ref('id'),maximum=ref('count'),consumed=ref('count'),held=ref('count'),released=ref('count'))
 D['pool_authorization']=obj(direction=en('POSITIVE','NEGATIVE','ZERO'),roles=ref('roles'),assent=ref('digest'))
 D['pool']=obj(id=ref('id'),funding=ref('count'),positive=ref('count'),negative=ref('count'),gross=ref('count'),authorizations=arr(ref('pool_authorization'),3,1,True))
+D['authority_key']=tup(ref('id'),ref('id'),ref('count'))
+D['delegated_roles']=obj(**{k:v for k,v in D['roles']['properties'].items() if k!='payer_delegation'})
+authority_common=dict(source=ref('id'),id=ref('id'),revision=ref('count'),scope=ref('scope'),target=ref('id'))
+D['authority_source_body']={'oneOf':[
+ obj(kind={'const':'AUTHORIZATION'},**authority_common,principal=ref('id'),permissions=arr(D['authority']['properties']['permission'],9,1,True),starts_at=ref('time'),ends_at=ref('time')),
+ obj(kind={'const':'ASSENT'},**authority_common,roles=ref('roles'),terms=ref('digest')),
+ obj(kind={'const':'DELEGATION'},**authority_common,roles=ref('delegated_roles'),agreement_ids=arr(ref('id'),32,1,True),maximum_exposure=ref('count'),starts_at=ref('time'),ends_at=ref('time'),acceptor=ref('id'),assent=obj(accepted_at=ref('time'),terms=ref('digest')))
+]}
+D['authority_source']=obj(body={'type':'string','maxLength':21848,'x-base64-bytes':16384},body_hash=ref('digest'),bytes=ref('count'))
 D['resource']=obj(**{k:ref('count') for k in ['canonical_bytes','trusted_bytes','records','index_pages','index_values','workspace_bytes']})
 COUNTERS=['segment','head_revision','grant','grant_registry','allocation','receipt','control','round','import','terminal','allocation_prefix','receipt_prefix','index_cardinality','writer_epoch','economic_revision','resource_revision']
 D['counters']=obj(**{k:ref('count') for k in COUNTERS})
@@ -27,7 +36,7 @@ D['grant']=obj(id=ref('id'),store=ref('id'),registration=ref('id'),gateway=ref('
 D['fact_kind']=en('ENROLLMENT','ENROLL_PREPARATION','ROUND_PREPARATION','GRANT','CLAIM','RECEIPT','ALIAS','RETURNED_UNUSED','RETIREMENT','RECONCILIATION','INSTALLATION','ORIGINAL_BASE','AUTHORITY','BEGIN','SEAL','TERMINAL')
 D['proof']=obj(store=ref('id'),scope=ref('scope'),registration=ref('id'),host=ref('id'),ordinal=ref('count'),segment=ref('digest'),root=ref('digest'),fact_kind=ref('fact_kind'),full_key={'oneOf':[ref('delivery'),ref('case'),ref('id')]},body_hash=ref('digest'),bytes=ref('count'),trusted_observation_ref=ref('digest'))
 D['object_origin']=obj(store=ref('id'),scope=ref('scope'),registration=ref('id'),host=ref('id'),ordinal=ref('count'))
-D['object']=obj(origin=ref('object_origin'),kind=ref('fact_kind'),full_key={'oneOf':[ref('delivery'),ref('case'),ref('id')]},body={'type':'string','maxLength':349528,'x-base64-bytes':262144},body_hash=ref('digest'),bytes=ref('count'))
+D['object']=obj(origin=ref('object_origin'),kind=ref('fact_kind'),full_key={'oneOf':[ref('delivery'),ref('case'),ref('id'),ref('authority_key')]},body={'type':'string','maxLength':349528,'x-base64-bytes':262144},body_hash=ref('digest'),bytes=ref('count'))
 D['token']=obj(id=ref('id'),grant=ref('id'),gateway=ref('id'),allocation=ref('count'),category=en('ORDINARY','ADJUSTMENT'),claim=ref('digest'))
 D['receipt']=obj(case=ref('case'),delivery=ref('delivery'),submission=ref('digest'),token=ref('id'),gateway=ref('id'),epoch=ref('count'),position=ref('count'),received_at=ref('time'),journal_head=ref('digest'))
 D['coverage']={'oneOf':[obj(gateway=ref('id'),status={'const':'COMPLETE_GATEWAY_CUTOFF'},cutoff=ref('count'),allocation_prefix=ref('count'),receipt_high=ref('count'),receipt_prefix=ref('count'),disposition_root=ref('digest'),receipt_root=ref('digest'),observation=ref('digest')),obj(gateway=ref('id'),status={'const':'UNRECONCILED'},observation=ref('digest')),obj(gateway=ref('id'),status={'const':'UNKNOWN_GATEWAY_COVERAGE'})]}
@@ -78,7 +87,7 @@ D['round_begin']=obj(round=ref('count'),predecessor=ref('count'),mode=en('FINISH
 D['seal']=obj(round=ref('count'),gateway=ref('id'),cutoff=ref('count'),receipt_high=ref('count'),disposition_root=ref('digest'),receipt_root=ref('digest'))
 D['effect']={'oneOf':[obj(kind={'const':k},body=ref(t)) for k,t in [('RECEIPT','receipt'),('ACTION','action'),('CLOSURE','certificate'),('ROUND_BEGIN','round_begin'),('SEAL','seal')]]}
 D['result']=obj(status=en('COMMITTED','DUPLICATE','REFUSED','UNKNOWN'),code=text(64),effects=arr(ref('effect'),128),root=ref('digest'))
-D['segment']=obj(host=ref('id'),profile={'const':'central-adjudication-r3/1'},ordinal=ref('count'),previous=ref('digest'),previous_root=ref('digest'),command=ref('command'),result=ref('result'),dependencies=arr(ref('digest'),128,0,True),objects=arr(ref('object'),133,0,True))
+D['segment']=obj(host=ref('id'),profile={'const':'central-adjudication-r3/1'},ordinal=ref('count'),previous=ref('digest'),previous_root=ref('digest'),command=ref('command'),result=ref('result'),dependencies=arr(ref('digest'),128,0,True),objects=arr(ref('object'),216,0,True))
 D['retry_response']=obj(receipt=ref('receipt'),knowledge=en('AUTHORITATIVE_AT_PREFIX','CACHED_VERIFIED_PREFIX','UNKNOWN'),current_lifecycle=en('UNKNOWN','ORDINARY_PENDING','ADJUSTMENT_PENDING','FINAL_ALLOW','FINAL_DENY'),central_admission=en('UNKNOWN','PRESENT_AT_PREFIX','ABSENT_AT_PREFIX'),prefix=ref('head'),coverage=arr(ref('coverage'),4,0,True))
 D['retry_response']['required'].remove('prefix')
 D['expected_prefix']=obj(store=ref('id'),scope=ref('scope'),target=ref('id'),profile={'const':'central-adjudication-r3/1'},enrollment=ref('digest'),registration=ref('id'),host=ref('id'),ordinal=ref('count'),segment=ref('digest'),root=ref('digest'))
