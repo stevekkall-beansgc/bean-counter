@@ -312,6 +312,30 @@ async fn wait_blocked(c: &tokio_postgres::Client, pid: i32) {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
+
+async fn wait_backend_gone(c: &tokio_postgres::Client, pid: i32) {
+    // Store close joins the local driver; the server observes the socket close
+    // separately. Bound the entire observation (including queries), without
+    // interpreting backend disappearance as a commit or rollback result.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let row = c
+                .query_one(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1), EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1)",
+                    &[&pid],
+                )
+                .await
+                .unwrap();
+            if !row.get::<_, bool>(0) && !row.get::<_, bool>(1) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("discarded backend and its locks must disappear within one second");
+}
+
 #[tokio::test]
 #[ignore = "requires isolated PostgreSQL 17/18 TLS service"]
 async fn postgres_outcome_ordered_real_locks_cancel_and_serializable_restart() {
@@ -358,6 +382,7 @@ async fn postgres_outcome_ordered_real_locks_cancel_and_serializable_restart() {
     let _ = waiter.await;
     first.rollback().await.unwrap();
     f.store.clone().close().await;
+    wait_backend_gone(&f.owner.client, pid).await;
     let exists: bool = f
         .owner
         .client
@@ -1034,6 +1059,7 @@ async fn postgres_outcome_real_commit_cuts_are_unknown_and_retry_recovers() {
             Err(CommitError::OutcomeUnknown)
         ));
         store.close().await;
+        wait_backend_gone(&f.owner.client, pid).await;
         let remaining: i64 = f
             .owner
             .client
@@ -1350,6 +1376,7 @@ async fn postgres_outcome_cancel_pending_delivery_rolls_back_all_companions() {
     // conservative OutcomeUnknown is valid, but success is forbidden.
     assert!(t.commit().await.is_err());
     f.store.clone().close().await;
+    wait_backend_gone(&f.owner.client, pid).await;
     let remaining: i64 = f
         .owner
         .client
