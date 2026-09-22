@@ -1,0 +1,1186 @@
+{
+  "purpose": "Minimal local evidence navigation, not a freeze registry or conformance certification",
+  "observed_at_utc": "2026-09-22T18:43:50.670957+00:00",
+  "coordinator_task": "01a0ca4a-a824-7bb0-aa27-68fb336ace4f",
+  "documentation_task": "01a0ca68-174b-7261-b3af-52fc7cbb2fdb",
+  "runtime_baseline": {
+    "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+    "commit": "84616f43b8900de17392887f46d8947b9087797c",
+    "parent": "be291388492f82485cfc1b51f46c9ad7a2e1b9f9",
+    "branch": "codex/phase4-integration"
+  },
+  "documentation_checkout": {
+    "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/execution/status/ledger-lab",
+    "branch": "codex/ledger-status",
+    "base": "84616f43b8900de17392887f46d8947b9087797c",
+    "final_commit": "recorded only in external status handoff after commit"
+  },
+  "quarantine": {
+    "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+    "head": "66913b65054a3ee4ee32cb7c36873c0c0d9ee092",
+    "parent": "26ff7b54711a45ec23f90988becb160d226071f6",
+    "branch": "codex/adjudication-canonical-candidate4",
+    "candidate4_commit": null
+  },
+  "identity_notes": [
+    "Commit IDs identify immutable source trees; standalone SHA-256/length pairs identify the exact inspected bytes. Report target commits do not make external reports tracked source.",
+    "Absolute paths, branch names, working-tree state and observed_at_utc are local observation-time metadata, not immutable authority.",
+    "The authorization/session log can receive later coordinator updates; its hash records the observed version only. The preserved snapshot remains identified separately by its archive binding.",
+    "New independent oracle outputs postdate archival scope. Their exact hashes and ARTIFACT-HASHES.json are checked, but no archive coverage is invented.",
+    "This manifest and the three new documents exclude self/circular hashes; the final source-manifest hash and documentation commit belong to the external handoff.",
+    "Operational database/log/credential contents are never embedded here. Inventory metadata points to the controlled local archive."
+  ],
+  "preservation_limits": [
+    "APFS copy-on-write copies and restore on the same disk, not off-device backup.",
+    "Update-capable historical transcript has only an observed-byte snapshot; no future append coverage.",
+    "34 inventoried common Git databases plus a 35th unborn tooling database, not 35 committed product repositories.",
+    "Scoped restore integrity does not authenticate historical runs, certify environment portability or prove runtime conformance."
+  ],
+  "sources": [
+    {
+      "id": "approval-plan",
+      "role": "coordinator approval input; historical G0 pending language superseded by authorization",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/TAKEOVER-RECONCILIATION-AND-PLAN.md",
+      "bytes": 35302,
+      "sha256": "4ff7b8f642b2e9375b5d99f587052c44e7f56a0ccc11bfd0bf1a99bca5200651",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/TAKEOVER-RECONCILIATION-AND-PLAN.md",
+        "bytes": 35302,
+        "sha256": "4ff7b8f642b2e9375b5d99f587052c44e7f56a0ccc11bfd0bf1a99bca5200651",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "authorization",
+      "role": "owner authorization recorded by current coordinator; mutable session log",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/AUTHORIZATION-AND-SESSION-RECORD.md",
+      "bytes": 4224,
+      "sha256": "87cc7fad2e3cc2745e5e86fcd5268fcc542f30cae2f88b824809668901b01f9f",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/AUTHORIZATION-AND-SESSION-RECORD.md",
+        "bytes": 2243,
+        "sha256": "6e71ae00ea227df7d4a5c792c4e93d65a580d0ab4bc8c7a232acd1d9709c348c",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": true,
+      "archive_status": "verified earlier authorization snapshot; current mutable log has documented session-dispatch additions"
+    },
+    {
+      "id": "reconciliation",
+      "role": "coordinator read-only source/quarantine identity checks",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/RECONCILIATION-EVIDENCE.json",
+      "bytes": 28849,
+      "sha256": "f8718e48781070196a0349d34009d6a7fa6b265492b014d522386f18ca09bdb9",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/RECONCILIATION-EVIDENCE.json",
+        "bytes": 28849,
+        "sha256": "f8718e48781070196a0349d34009d6a7fa6b265492b014d522386f18ca09bdb9",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "phase1-verdict",
+      "role": "exact original reviewer task-message extract; standalone report unlocated",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "429aa027a696a09cfeb8dc1eada8420e732dda6b",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/RECOVERED-PHASE-1-VERDICT.json",
+      "bytes": 10943,
+      "sha256": "e05761b1fc6e58d5853da50e59cb11e7621d77122e3c0d5ca76bfac544aabc0c",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/RECOVERED-PHASE-1-VERDICT.json",
+        "bytes": 10943,
+        "sha256": "e05761b1fc6e58d5853da50e59cb11e7621d77122e3c0d5ca76bfac544aabc0c",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "phase2-verdict",
+      "role": "exact original reviewer task-message extract; standalone report unlocated",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "6194376a053b8a27887a9b09459054a7af3a1769",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/RECOVERED-PHASE-2-VERDICT.json",
+      "bytes": 7751,
+      "sha256": "facfbac9b8c37b5e41b02a88d552eca1a5d39ce4f4ae6138e5d1fada217d9e3a",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/RECOVERED-PHASE-2-VERDICT.json",
+        "bytes": 7751,
+        "sha256": "facfbac9b8c37b5e41b02a88d552eca1a5d39ce4f4ae6138e5d1fada217d9e3a",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "oracle-checkpoint",
+      "role": "exact original oracle author pause/final-consistency-pending extract",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/ORACLE-PAUSED-CHECKPOINT.json",
+      "bytes": 2664,
+      "sha256": "7911318dd3f6cf1bdc98538babccfff966c9c98dbbc81123ba6f744372cba36e",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/ORACLE-PAUSED-CHECKPOINT.json",
+        "bytes": 2664,
+        "sha256": "7911318dd3f6cf1bdc98538babccfff966c9c98dbbc81123ba6f744372cba36e",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-archive-manifest",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/ARCHIVE-MANIFEST.json",
+      "bytes": 1056,
+      "sha256": "7147da75098fb2e60adf7979e0f6a4dcc41bd9b7b5806fdef36347ac2d5f2a70",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/ARCHIVE-MANIFEST.json",
+        "bytes": 1056,
+        "sha256": "7147da75098fb2e60adf7979e0f6a4dcc41bd9b7b5806fdef36347ac2d5f2a70",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-file-manifest",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/FILE-MANIFEST.jsonl",
+      "bytes": 231146083,
+      "sha256": "da130998f655a6943f5a2fcc962e7916feb2f2292a94300a9430baeb71cc27f1",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/FILE-MANIFEST.jsonl",
+        "bytes": 231146083,
+        "sha256": "da130998f655a6943f5a2fcc962e7916feb2f2292a94300a9430baeb71cc27f1",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-original-paths",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/ORIGINAL-PATHS.json",
+      "bytes": 10415,
+      "sha256": "2ee8c3b17d471163697ec8bcbdb55f0ea7f6a5e3b123f13674f3fbdc4263d5d3",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/ORIGINAL-PATHS.json",
+        "bytes": 10415,
+        "sha256": "2ee8c3b17d471163697ec8bcbdb55f0ea7f6a5e3b123f13674f3fbdc4263d5d3",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-git-provenance",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/GIT-PROVENANCE.json",
+      "bytes": 348167,
+      "sha256": "79a1dd01290c9dfa62722aa4ae6c74dec5058083afea15477c756215ba89b467",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/GIT-PROVENANCE.json",
+        "bytes": 348167,
+        "sha256": "79a1dd01290c9dfa62722aa4ae6c74dec5058083afea15477c756215ba89b467",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-extra-tooling-git-provenance",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/EXTRA-TOOLING-GIT-PROVENANCE.json",
+      "bytes": 1133,
+      "sha256": "d2d66f929bbca81a1a73dd8fca32fd483b9243e36194111c6bbbc7e8ac408ac0",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/EXTRA-TOOLING-GIT-PROVENANCE.json",
+        "bytes": 1133,
+        "sha256": "d2d66f929bbca81a1a73dd8fca32fd483b9243e36194111c6bbbc7e8ac408ac0",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-preservation-seal",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/PRESERVATION-SEAL.json",
+      "bytes": 12266,
+      "sha256": "84e2bde8570614101d7daecf3c1fae69226f92c7f1c875338e5d1dbecabc82b4",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/PRESERVATION-SEAL.json",
+        "bytes": 12266,
+        "sha256": "84e2bde8570614101d7daecf3c1fae69226f92c7f1c875338e5d1dbecabc82b4",
+        "binding": "SEAL-SHA256.txt binds seal; checksum file is external observation, no circular self-hash"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-seal-sha256",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/SEAL-SHA256.txt",
+      "bytes": 89,
+      "sha256": "c79dadd6161c41e09b08b1932cfce898da29b817edb0799c6f15f83cefa9855f",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/SEAL-SHA256.txt",
+        "bytes": 89,
+        "sha256": "c79dadd6161c41e09b08b1932cfce898da29b817edb0799c6f15f83cefa9855f",
+        "binding": "SEAL-SHA256.txt binds seal; checksum file is external observation, no circular self-hash"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "archive-supplement-manifest",
+      "role": "preservation metadata; navigation/integrity only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/supplement-01/SUPPLEMENT-MANIFEST.json",
+      "bytes": 1932,
+      "sha256": "6a0f5858614d17ff5853623a75eb543bcf5ae015fde8945d0f34ba204f5f23ac",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/supplement-01/SUPPLEMENT-MANIFEST.json",
+        "bytes": 1932,
+        "sha256": "6a0f5858614d17ff5853623a75eb543bcf5ae015fde8945d0f34ba204f5f23ac",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "preservation-report",
+      "role": "independent preservation author; scoped archive/restore PASS",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation/preservation-20260922T1830/PRESERVATION-REPORT.md",
+      "bytes": 6966,
+      "sha256": "cc18bce49e60be90ddfadfc610839f7a95042206d279c05081be16e2f086fd41",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/PRESERVATION-REPORT.md",
+        "bytes": 6966,
+        "sha256": "cc18bce49e60be90ddfadfc610839f7a95042206d279c05081be16e2f086fd41",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "restore-proof",
+      "role": "independent preservation author; scoped archive/restore PASS",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation/preservation-20260922T1830/RESTORE-PROOF.md",
+      "bytes": 7574,
+      "sha256": "20e71455d99aee0496be2d6741c3eb9b0e0a14bf1e91cd5b65424af36bac927c",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/RESTORE-PROOF.md",
+        "bytes": 7574,
+        "sha256": "20e71455d99aee0496be2d6741c3eb9b0e0a14bf1e91cd5b65424af36bac927c",
+        "binding": "PRESERVATION-SEAL.json artifacts"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "phase3-fail",
+      "role": "independent reviewer: FAIL, missing fresh host write authorization",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "930497b1d21e684a7814c2edcd72f7676b9d2937",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-final-review/outputs/PHASE-3-INDEPENDENT-REVIEW.md",
+      "bytes": 12912,
+      "sha256": "2d0bdaf52afce86413d4be770d2df8b65e0aec57e0fe073357cf1077ae7389fe",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-final-review/outputs/PHASE-3-INDEPENDENT-REVIEW.md",
+        "bytes": 12912,
+        "sha256": "2d0bdaf52afce86413d4be770d2df8b65e0aec57e0fe073357cf1077ae7389fe",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "phase3-conditional",
+      "role": "independent reviewer: CONDITIONAL; R1 closed, fresh PG concurrency fails",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "8335b0d94432ab4679109cb761703f1ade7a5dbe",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-r1-re-review/outputs/PHASE-3-R1-INDEPENDENT-REVIEW.md",
+      "bytes": 16650,
+      "sha256": "e5988d0db023c7c474a36950e0f25812920d3e863d196c054342001295c85086",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-r1-re-review/outputs/PHASE-3-R1-INDEPENDENT-REVIEW.md",
+        "bytes": 16650,
+        "sha256": "e5988d0db023c7c474a36950e0f25812920d3e863d196c054342001295c85086",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "phase3-pass",
+      "role": "independent reviewer: bounded PASS, affected PG17/18 freshly executed",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "6572f7f06b9c7ad2093d66318ab762b9801791fe",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-r2-re-review/outputs/PHASE-3-R2-INDEPENDENT-REVIEW.md",
+      "bytes": 14153,
+      "sha256": "e65f3f0b6bfa91b48eb068abb1fcc0929d36c4cbf82d5e7bc95cd78e6d406f89",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-r2-re-review/outputs/PHASE-3-R2-INDEPENDENT-REVIEW.md",
+        "bytes": 14153,
+        "sha256": "e65f3f0b6bfa91b48eb068abb1fcc0929d36c4cbf82d5e7bc95cd78e6d406f89",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "phase3-manifest",
+      "role": "reviewer evidence navigation; retained runs, not new executions",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "6572f7f06b9c7ad2093d66318ab762b9801791fe",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-r2-re-review/outputs/review-manifest.json",
+      "bytes": 11015,
+      "sha256": "a08e8cd15bac8b505dfa3995360f80799844d6503d967c158297682073945797",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p3-r2-re-review/outputs/review-manifest.json",
+        "bytes": 11015,
+        "sha256": "a08e8cd15bac8b505dfa3995360f80799844d6503d967c158297682073945797",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "foundation-author",
+      "role": "integration author handoff; PG execution attribution",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/outputs/PHASE-4-FOUNDATION-HANDOFF.md",
+      "bytes": 6224,
+      "sha256": "b963c15ec3bf754877ae6f116649723bffc728455da34d6d39f9bc74fe980de5",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/outputs/PHASE-4-FOUNDATION-HANDOFF.md",
+        "bytes": 6224,
+        "sha256": "b963c15ec3bf754877ae6f116649723bffc728455da34d6d39f9bc74fe980de5",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "foundation-manifest",
+      "role": "integration-author evidence navigation; 129 retained artifacts",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/outputs/foundation-evidence-manifest.json",
+      "bytes": 18265,
+      "sha256": "9656a960663d45605348078f8bab8a7f2f0acedad88a987822668a28f41b58af",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/outputs/foundation-evidence-manifest.json",
+        "bytes": 18265,
+        "sha256": "9656a960663d45605348078f8bab8a7f2f0acedad88a987822668a28f41b58af",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "foundation-review",
+      "role": "independent reviewer: PASS FOUNDATION; PG inspected, not rerun",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-p4-foundation-review/outputs/FOUNDATION-INDEPENDENT-REVIEW.md",
+      "bytes": 10078,
+      "sha256": "e7442a9dee21d8f793a8e093929906d94ab904db2d3b8179719881c4316aaaeb",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-p4-foundation-review/outputs/FOUNDATION-INDEPENDENT-REVIEW.md",
+        "bytes": 10078,
+        "sha256": "e7442a9dee21d8f793a8e093929906d94ab904db2d3b8179719881c4316aaaeb",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate1-fail",
+      "role": "independent reviewer: FAIL trusted-input reserve and first receipt",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": "03aaa1f85562cf498da0f0914b216ccf4ad044e6",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical-review/outputs/CANONICAL-INDEPENDENT-REVIEW.md",
+      "bytes": 15892,
+      "sha256": "59f239f2a4bfc6e983ea390eae6dad6fe9784e4046799fdb2df8df1518ce0411",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical-review/outputs/CANONICAL-INDEPENDENT-REVIEW.md",
+        "bytes": 15892,
+        "sha256": "59f239f2a4bfc6e983ea390eae6dad6fe9784e4046799fdb2df8df1518ce0411",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate2-fail",
+      "role": "independent reviewer: FAIL duplicate close and fenced receipt reserve",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": "26ff7b54711a45ec23f90988becb160d226071f6",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical-rereview/outputs/CANONICAL-INDEPENDENT-REVIEW.md",
+      "bytes": 11471,
+      "sha256": "be76caafdd4e2130f78c28ecee954cba6473c74ff4e02cc7b242c117fb38f8b6",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical-rereview/outputs/CANONICAL-INDEPENDENT-REVIEW.md",
+        "bytes": 11471,
+        "sha256": "be76caafdd4e2130f78c28ecee954cba6473c74ff4e02cc7b242c117fb38f8b6",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate3-fail",
+      "role": "independent reviewer: FAIL mandatory import plus close funding",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": "66913b65054a3ee4ee32cb7c36873c0c0d9ee092",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-candidate3-review/outputs/REVIEW.md",
+      "bytes": 11029,
+      "sha256": "bf140ed36af8bc0a1e21a9ee1e733828a5539b35bfae8536d66c1b939231fe85",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-candidate3-review/outputs/REVIEW.md",
+        "bytes": 11029,
+        "sha256": "bf140ed36af8bc0a1e21a9ee1e733828a5539b35bfae8536d66c1b939231fe85",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate3-probes",
+      "role": "retained independent nine-probe results; not rerun",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": "66913b65054a3ee4ee32cb7c36873c0c0d9ee092",
+        "identity_kind": "external report or recovered extract about target commit; not a tracked report in that repository"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-candidate3-review/outputs/probe-results.json",
+      "bytes": 10534,
+      "sha256": "a091130e5da5a2213b8f7e1aac3a53c792ffcfb0d6f4f70eda9bf108c74908b1",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-candidate3-review/outputs/probe-results.json",
+        "bytes": 10534,
+        "sha256": "a091130e5da5a2213b8f7e1aac3a53c792ffcfb0d6f4f70eda9bf108c74908b1",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "design-r1",
+      "role": "design author: superseded revision 1",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-phase4-extensible-history/outputs/EXTENSIBLE-HISTORY-DESIGN.md",
+      "bytes": 33416,
+      "sha256": "d1e0e7c888a8737a4ec64a841cff19003d31e564d7a83941d8dbe195b702d1f4",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-phase4-extensible-history/outputs/EXTENSIBLE-HISTORY-DESIGN.md",
+        "bytes": 33416,
+        "sha256": "d1e0e7c888a8737a4ec64a841cff19003d31e564d7a83941d8dbe195b702d1f4",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "design-r1-review",
+      "role": "independent reviewer: BLOCKED at revision 1",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-design-review/outputs/REVIEW.md",
+      "bytes": 12837,
+      "sha256": "c6bcd34721ad5680c6cf9657d9e2c7bb85dbf09db7eb0969eb1b0578fe58a93d",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-design-review/outputs/REVIEW.md",
+        "bytes": 12837,
+        "sha256": "c6bcd34721ad5680c6cf9657d9e2c7bb85dbf09db7eb0969eb1b0578fe58a93d",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "design-r2",
+      "role": "design author: superseded revision 2",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-phase4-extensible-history/outputs/EXTENSIBLE-HISTORY-DESIGN-R2.md",
+      "bytes": 58036,
+      "sha256": "342e2c2c82ea4117d1dee37973855db3a3035d4d5b2c5f977c52bb0575def21c",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-phase4-extensible-history/outputs/EXTENSIBLE-HISTORY-DESIGN-R2.md",
+        "bytes": 58036,
+        "sha256": "342e2c2c82ea4117d1dee37973855db3a3035d4d5b2c5f977c52bb0575def21c",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "design-r2-review",
+      "role": "independent reviewer: CONDITIONAL, gateway backing C1",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-r2-review/outputs/REVIEW.md",
+      "bytes": 16914,
+      "sha256": "c0b525b472926100908d70c79c7bf66e88daf2317e3b1291148125cebe44364a",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-r2-review/outputs/REVIEW.md",
+        "bytes": 16914,
+        "sha256": "c0b525b472926100908d70c79c7bf66e88daf2317e3b1291148125cebe44364a",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "design-r3",
+      "role": "design author: R3, design only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-phase4-extensible-history/outputs/EXTENSIBLE-HISTORY-DESIGN-R3.md",
+      "bytes": 70711,
+      "sha256": "341043f03c7879c0d1ef02b76e054e5fd7ab287d745f48d434eb59162d148db6",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-phase4-extensible-history/outputs/EXTENSIBLE-HISTORY-DESIGN-R3.md",
+        "bytes": 70711,
+        "sha256": "341043f03c7879c0d1ef02b76e054e5fd7ab287d745f48d434eb59162d148db6",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "design-r3-review",
+      "role": "independent reviewer: PASS TO CANONICAL DESIGN only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-r3-review/outputs/REVIEW.md",
+      "bytes": 18241,
+      "sha256": "40f7b8fad24e6d7d8d18166fb2efe7273015706b3ea13a29c634900d5b58734c",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-r3-review/outputs/REVIEW.md",
+        "bytes": 18241,
+        "sha256": "40f7b8fad24e6d7d8d18166fb2efe7273015706b3ea13a29c634900d5b58734c",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "oracle-original",
+      "role": "original oracle author; final consistency check pending in own checkpoint",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-canonical-oracle/outputs/ORACLE-ATTACK-PLAN.md",
+      "bytes": 52862,
+      "sha256": "b743edb46017b1a7146b72752aca8d61a90a351374ab490c76b6400919901787",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-extensible-canonical-oracle/outputs/ORACLE-ATTACK-PLAN.md",
+        "bytes": 52862,
+        "sha256": "b743edb46017b1a7146b72752aca8d61a90a351374ab490c76b6400919901787",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "boundary-review",
+      "role": "product reviewer recommendation, adopted via current coordinator authorization",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-product-boundary-reset/outputs/PRODUCT-BOUNDARY-REVIEW.md",
+      "bytes": 20127,
+      "sha256": "45e3e8153ad3ceeebe143c89aedbfd721bbcac6ad639170f1b74ddfa10f82095",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-product-boundary-reset/outputs/PRODUCT-BOUNDARY-REVIEW.md",
+        "bytes": 20127,
+        "sha256": "45e3e8153ad3ceeebe143c89aedbfd721bbcac6ad639170f1b74ddfa10f82095",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "consolidation-inventory",
+      "role": "historical consolidation inventory; scoped snapshot",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-evidence-consolidation/outputs/ledger-lab-inventory.json",
+      "bytes": 372462,
+      "sha256": "a6bd853d36ab9574506ccdacda059edb5dc2c7e6c8f3d9d38560d00ccbc36288",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-evidence-consolidation/outputs/ledger-lab-inventory.json",
+        "bytes": 372462,
+        "sha256": "a6bd853d36ab9574506ccdacda059edb5dc2c7e6c8f3d9d38560d00ccbc36288",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "oracle-new-consistency-review",
+      "role": "later independent standalone oracle specification; 85 artifact assertions, all 16 actual gates pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/CONSISTENCY-REVIEW.md",
+      "bytes": 10078,
+      "sha256": "77dcee6eab0781dac9aaa41388921272f0b422f26b07e12329d148b67055fb9e",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot coordinator execution artifact; not covered by preservation seal"
+    },
+    {
+      "id": "oracle-new-artifact-hashes",
+      "role": "later independent standalone oracle specification; 85 artifact assertions, all 16 actual gates pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/ARTIFACT-HASHES.json",
+      "bytes": 1895,
+      "sha256": "c634758eec89247aecd52a4fa1b152b71480914af6403fea81e5156150607f5f",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot coordinator execution artifact; not covered by preservation seal"
+    },
+    {
+      "id": "oracle-new-oracle-matrix",
+      "role": "later independent standalone oracle specification; 85 artifact assertions, all 16 actual gates pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/ORACLE-MATRIX.md",
+      "bytes": 31184,
+      "sha256": "f8ca821bf657412f77cc5431c30b967a01ac1d702b48854f26eee7605853d43d",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot coordinator execution artifact; not covered by preservation seal"
+    },
+    {
+      "id": "oracle-new-expectations",
+      "role": "later independent standalone oracle specification; 85 artifact assertions, all 16 actual gates pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/EXPECTATIONS.json",
+      "bytes": 40173,
+      "sha256": "8d43d92d2f31be079527e93874bbcb5f8ce05945ba673fe0c47588a89ec4fd67",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot coordinator execution artifact; not covered by preservation seal"
+    },
+    {
+      "id": "oracle-new-customer-story",
+      "role": "later independent standalone oracle specification; 85 artifact assertions, all 16 actual gates pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/CUSTOMER-STORY.md",
+      "bytes": 9334,
+      "sha256": "8b71faff23f33b7099f9f6035b50404f9241d69b817c043292b2cebd1a3fa215",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot coordinator execution artifact; not covered by preservation seal"
+    },
+    {
+      "id": "oracle-new-integrity-check",
+      "role": "later independent standalone oracle specification; 85 artifact assertions, all 16 actual gates pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/INTEGRITY-CHECK.json",
+      "bytes": 7117,
+      "sha256": "fdc487e462a1134098a194fc921f78bb8175753f0200a0653849419f107e4383",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot coordinator execution artifact; not covered by preservation seal"
+    },
+    {
+      "id": "oracle-new-source-evidence",
+      "role": "later independent standalone oracle specification; 85 artifact assertions, all 16 actual gates pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/SOURCE-EVIDENCE.json",
+      "bytes": 92124,
+      "sha256": "7ea23338b714ca6dcaf34c7eb9df869bd80ecd5460d9cdb2a511e943fb700a4d",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot coordinator execution artifact; not covered by preservation seal"
+    },
+    {
+      "id": "baseline-roadmap",
+      "role": "preserved foundation source / historical status or existing freeze authority",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "tracked source at commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/ROADMAP.md",
+      "bytes": 8838,
+      "sha256": "a1d13506197d1dab9542a2582d60152b3fac6b44700e61222095a68172b9f841",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/ROADMAP.md",
+        "bytes": 8838,
+        "sha256": "a1d13506197d1dab9542a2582d60152b3fac6b44700e61222095a68172b9f841",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "baseline-product-phase-3-status",
+      "role": "preserved foundation source / historical status or existing freeze authority",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "tracked source at commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/PRODUCT-PHASE-3-STATUS.md",
+      "bytes": 4955,
+      "sha256": "7af0e826dc767e356fe46270a227e44d3d3c2034defccc32235a96cdeac8bfff",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/PRODUCT-PHASE-3-STATUS.md",
+        "bytes": 4955,
+        "sha256": "7af0e826dc767e356fe46270a227e44d3d3c2034defccc32235a96cdeac8bfff",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "baseline-product-phase-4-foundation",
+      "role": "preserved foundation source / historical status or existing freeze authority",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "tracked source at commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/PRODUCT-PHASE-4-FOUNDATION.md",
+      "bytes": 3147,
+      "sha256": "e878af5243580dba1e85bf457a5fa2d674258091cc0b88d4ebe220bde74a8d56",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/PRODUCT-PHASE-4-FOUNDATION.md",
+        "bytes": 3147,
+        "sha256": "e878af5243580dba1e85bf457a5fa2d674258091cc0b88d4ebe220bde74a8d56",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "baseline-freeze",
+      "role": "preserved foundation source / historical status or existing freeze authority",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "tracked source at commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/contracts/freeze.json",
+      "bytes": 24449,
+      "sha256": "e19f512e99e28e7ff74e5d20673ae4bde0bcd5721a103f00db34aa91f2300567",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/contracts/freeze.json",
+        "bytes": 24449,
+        "sha256": "e19f512e99e28e7ff74e5d20673ae4bde0bcd5721a103f00db34aa91f2300567",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "baseline-outcomes-2-candidate.4",
+      "role": "preserved foundation source / historical status or existing freeze authority",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "tracked source at commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/contracts/freezes/outcomes-2-candidate.4.json",
+      "bytes": 13450,
+      "sha256": "ef8becc0681908eb1b9193c6184b9637eceabb861b5f640c80945e13fb7df0f8",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/contracts/freezes/outcomes-2-candidate.4.json",
+        "bytes": 13450,
+        "sha256": "ef8becc0681908eb1b9193c6184b9637eceabb861b5f640c80945e13fb7df0f8",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "baseline-reservation-settlement-1",
+      "role": "preserved foundation source / historical status or existing freeze authority",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab",
+        "commit": "84616f43b8900de17392887f46d8947b9087797c",
+        "identity_kind": "tracked source at commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/contracts/freezes/reservation-settlement-1.json",
+      "bytes": 6607,
+      "sha256": "aaa7171ff6aa677a2a13bad131f2e6e8521a6f2957a8d06fac5085986c8cc97f",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab/contracts/freezes/reservation-settlement-1.json",
+        "bytes": 6607,
+        "sha256": "aaa7171ff6aa677a2a13bad131f2e6e8521a6f2957a8d06fac5085986c8cc97f",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-options",
+      "role": "canonical author unvalidated WIP; no candidate-4 commit",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/outputs/CANDIDATE4-DESIGN-OPTIONS.md",
+      "bytes": 11750,
+      "sha256": "f5ebe385a2609f4842915674dbd31e42b400046c2efe45819c9881f7db520f7b",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/outputs/CANDIDATE4-DESIGN-OPTIONS.md",
+        "bytes": 11750,
+        "sha256": "f5ebe385a2609f4842915674dbd31e42b400046c2efe45819c9881f7db520f7b",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-bootstrap",
+      "role": "canonical author unvalidated WIP; no candidate-4 commit",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/candidate4-build/bootstrap.py",
+      "bytes": 3043,
+      "sha256": "953a931e7a20e3612d5537b5f234b2391074933e89db4bc17f00b59bd91b07d6",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/candidate4-build/bootstrap.py",
+        "bytes": 3043,
+        "sha256": "953a931e7a20e3612d5537b5f234b2391074933e89db4bc17f00b59bd91b07d6",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-codec.mjs",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/codec.mjs",
+      "bytes": 7599,
+      "sha256": "b46a2bbcce40b1a7f44dd62757bf48eaeb067b58d42224f38a3382399b3ac556",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/codec.mjs",
+        "bytes": 7599,
+        "sha256": "b46a2bbcce40b1a7f44dd62757bf48eaeb067b58d42224f38a3382399b3ac556",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-codec.py",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/codec.py",
+      "bytes": 3014,
+      "sha256": "72c17bb734fc82f75bb9b519c3c2ee9cf5fc23b1087c32b9273c220b9314efb9",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/codec.py",
+        "bytes": 3014,
+        "sha256": "72c17bb734fc82f75bb9b519c3c2ee9cf5fc23b1087c32b9273c220b9314efb9",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-economy.py",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/economy.py",
+      "bytes": 21546,
+      "sha256": "de094f57dc5225dfc4a85e9f935376ac940e185a86cbaaa08147118db553a874",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/economy.py",
+        "bytes": 21546,
+        "sha256": "de094f57dc5225dfc4a85e9f935376ac940e185a86cbaaa08147118db553a874",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-resources.py",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/resources.py",
+      "bytes": 770,
+      "sha256": "4c0342d9356ec999e95b816655864e31067c720b17ced154f6a85564e5e95403",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/resources.py",
+        "bytes": 770,
+        "sha256": "4c0342d9356ec999e95b816655864e31067c720b17ced154f6a85564e5e95403",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-schema.json",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/schema.json",
+      "bytes": 89392,
+      "sha256": "2b58508d4cc9bdf6e27e75932025404ebc551649a78c7d23e8959dab058cf73a",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/schema.json",
+        "bytes": 89392,
+        "sha256": "2b58508d4cc9bdf6e27e75932025404ebc551649a78c7d23e8959dab058cf73a",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-schema.py",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/schema.py",
+      "bytes": 11310,
+      "sha256": "4dbfe92d8af69e6e31ad3b94aa09fc034a83501d890fcfce7599eb3c05abcdf0",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/schema.py",
+        "bytes": 11310,
+        "sha256": "4dbfe92d8af69e6e31ad3b94aa09fc034a83501d890fcfce7599eb3c05abcdf0",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-synthetic.py",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/synthetic.py",
+      "bytes": 2954,
+      "sha256": "3d6ab76dca0a7712033ddb6183d63c68b6d55bb3278bca1e9c36745bbed64098",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/synthetic.py",
+        "bytes": 2954,
+        "sha256": "3d6ab76dca0a7712033ddb6183d63c68b6d55bb3278bca1e9c36745bbed64098",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "candidate4-verify.py",
+      "role": "canonical author untracked WIP; never validated or frozen",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
+        "commit": null,
+        "identity_kind": "standalone artifact"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/verify.py",
+      "bytes": 17624,
+      "sha256": "5b02a552339ee8936562dd2d91568ded8d2457da8120c54a75959b5f31ecc308",
+      "archive": {
+        "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/evidence-archive/preservation-20260922T1830/payload/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab/contracts/candidates/central-adjudication-v1-candidate4/verify.py",
+        "bytes": 17624,
+        "sha256": "5b02a552339ee8936562dd2d91568ded8d2457da8120c54a75959b5f31ecc308",
+        "binding": "FILE-MANIFEST.jsonl original path"
+      },
+      "observation_only": false,
+      "archive_status": "verified preserved binding"
+    }
+  ]
+}

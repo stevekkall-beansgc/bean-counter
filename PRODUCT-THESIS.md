@@ -1,0 +1,39 @@
+# Ledger Lab product thesis
+
+22 September 2026. Owner-adopted direction recorded in the [current coordinator authorization](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/AUTHORIZATION-AND-SESSION-RECORD.md); implementation status is qualified separately in [PROJECT-STATUS.md](PROJECT-STATUS.md).
+
+**Ledger Lab turns agreed, evidenced work and outcomes into authorized economic obligations, with immutable explanations and corrections that downstream finance can reconcile.** It is the economic-decision and immutable-history layer between external observations and downstream finance.
+
+This new overlay supersedes the older event-intelligence/data-product thesis as current product direction. Historical thesis, roadmap and design sources remain unchanged and preserved; their older progress labels and proposals do not override the current owner decisions. The [product-boundary review](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-product-boundary-reset/outputs/PRODUCT-BOUNDARY-REVIEW.md) supplies the rationale; the authorization supplies adoption. The initial buyer is a hypothesis: an AI workflow or tool vendor whose developer or technical founder works with finance. Neither buyer demand nor production readiness has been established.
+
+## Boundary and intended workflow
+
+External meters and applications supply measurements, work facts, outcome claims and evidence references. Hosts supply authenticated identity, permission and assent. Ledger Lab validates the relevant agreements and authority, determines authorized economic effect and records immutable history. An AI assertion or sender flag establishes neither consent nor objective truth.
+
+Downstream billing and finance may format, invoice, collect and reconcile the exported obligations. They must not silently rerate the same obligations into competing amounts. Raw metering, provider-price catalogs, workflow execution, taxes/FX, invoices, collections, payments, settlement, general accounting and hosted operations remain outside this slice. Provider-cost observations are optional, non-payable evidence. Real supplier obligations remain legitimate economics; optional provider-cost evidence must not erase them.
+
+The intended local workflow is terms → final work/outcome → retained rejection → closure → separately authorized adjustment → accepted-result correction → history explanation → optional nonposting comparison → one explicit CSV mapping. Stable obligation/export identities, signed direction and correction references must survive downstream reconciliation. Export/file creation or delivery acknowledgment is not payment. This workflow is a later acceptance target, not a claim that Phase 5 is implemented.
+
+## Full approved Phase 4 and shared invariants
+
+Preserve full Phase 4, extensible history and owner-selected offline B. A disconnected gateway may durably acknowledge previously unknown bounded requests within reserved capacity and its exclusive namespace, under the R3 assumptions. The product cannot claim this guarantee from arithmetic tables, copied databases or a design verdict. The exact requirements below carry forward section 3 of the adopted coordinator plan:
+
+- Original ordinary terms, authorized central ALLOW/DENY for backfill, traceable admitted rejection, and explicit distinction between commercial DENY and operational refusal. Sender flags supply no authority.
+- Post-closure adjustments use independent assent, directional payer/bearer/recipient, limits and funding; original families stay closed, with source lineage retained. Closure transfer promises no award and spends no adjustment funds.
+- One permanent full-family entitlement across cases, segments and ordinary/positive/negative/zero paths. Zero ALLOW consumes entitlement without a zero posting; DENY settles its case. No implicit appeal or second award. Accepted-result correction is separate, authorized, revision-guarded inverse/replacement history.
+- Atomic release of every remaining held supplier atom at the last explicit supplier-family close, including zero-held transitions; no later repair. Gross limits count absolute amounts: +100 and −150 use 250. Rebates, corrections, release and rollover replenish neither consumed supplier capacity nor gross limits.
+- Predeclared bounded acyclic prerequisites on one final target; accepted prerequisites remain facts. Preserve 32-family/four-gateway/eight-supplier-pool/three-adjustment-pool topology; no new families at rollover. Supported percentage controls retain the retail-net basis.
+- Offline receipt means durable exact intake plus a funded import/disposition path under stated assumptions. It is not central admission or billing approval. Local backing precedes central issuance; permanent identities, one authoritative journal, actual writer fencing, protected seal/drain/close resources and truthful UNKNOWN/coverage responses are mandatory.
+- Extensible history preserves entitlement, funding, original receipts and transfer lineage beyond prior limits. It promises neither infinite capacity nor progress without valid authority, accessible authoritative journals and functioning storage. Copied databases and in-memory arithmetic cannot certify physical guarantees.
+
+These rules preserve ordinary awards under original terms, retained commercial rejection, separately funded signed adjustments and immutable accepted-result correction as distinct paths. They prohibit rewriting supplier terms or treating closure, rollover, retries, aliases or new segments as fresh entitlement/capacity. Accepted prerequisites remain historical facts, and operational refusal must never be presented as a retained commercial DENY.
+
+## Comparison and proof obligations
+
+The adopted foundation compares retained supplier chronology under supported tables, keeps actual supplier terms fixed and marks retail alternatives unobserved. Full Phase 4 must demonstrate a genuine customer amount change under a supported alternative on the same retained chronology, preserving actual ALLOW/DENY and actual adjustment/correction terms. Pin the trusted prefix and gateway coverage; infeasible or incomplete cases receive no misleading comparable partial total. Comparison creates no business writes, aliases, claims, postings, export intentions or external calls, established through actual attempt/effect observations and positive controls as well as before/after/reopen inventories.
+
+The original oracle's conditional supplier substitution is not an approved supplier-term change and is not customer comparison evidence. The [later independent oracle packet](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/CONSISTENCY-REVIEW.md) adds customer expectations and coverage, but its 85 artifact assertions are specification checks. All 16 actual gates still require the appropriate canonical/backend/runtime evidence.
+
+The initial synthetic story is support resolution with separately eligible upsell, one USD scale and fixed amounts. Delivery→acceptance and generation→acquisition remain contract controls, not additional applications. Synthetic pricing and assent are not real customer authorization; the frozen 80-atom first slice remains unchanged.
+
+The next decision is owner disposition of the concrete consolidation after independent review. Exact-candidate canonical review, owner freeze/runtime continuation, assembled full Phase 4, Phase 5 workflow, Phase 6 review and main merge are distinct later gates. No scope reduction, payments, downstream rerating, hosted-operation promise or production-readiness claim follows from this thesis.

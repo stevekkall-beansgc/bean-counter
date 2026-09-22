@@ -1,0 +1,44 @@
+# Ledger Lab project status
+
+22 September 2026. Current coordinator: `01a0ca4a-a824-7bb0-aa27-68fb336ace4f`. Documentation task: `01a0ca68-174b-7261-b3af-52fc7cbb2fdb`.
+
+**The owner has adopted the supplier-comparison foundation as the sole runtime baseline. Full Phase 4 remains incomplete; this successor adds documentation only.** The [authorization record](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/AUTHORIZATION-AND-SESSION-RECORD.md) adopts the baseline and [economic-decision thesis](PRODUCT-THESIS.md), superseding the pending-G0 wording in the unchanged [approval plan](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/TAKEOVER-RECONCILIATION-AND-PLAN.md). It permits preservation, additive documentation and canonical preparation/review, with owner disposition of the concrete consolidation before canonical authoring depends on it.
+
+## Baseline and documentation successor
+
+| Identity | Exact value and meaning |
+|---|---|
+| Adopted runtime code | `84616f43b8900de17392887f46d8947b9087797c` |
+| Runtime parent | `be291388492f82485cfc1b51f46c9ad7a2e1b9f9` |
+| Original runtime checkout | `/Users/stephenkall/Documents/Codex/2026-09-21/ledger-lab-p4-integration/work/ledger-lab`; `codex/phase4-integration` |
+| This isolated documentation checkout | `/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/execution/status/ledger-lab`; `codex/ledger-status`, based exactly on the runtime commit |
+| Documentation successor | The single additions-only commit containing this file, PRODUCT-THESIS.md, EVIDENCE-INDEX.md and docs/evidence/source-manifest.json. Its final hash is recorded externally after commit, never guessed or embedded in its own content. It is a proposed consolidation successor awaiting disposition, not a newly reviewed runtime. |
+
+Original foundation and canonical quarantine remain unchanged. The old main branch, frozen roadmap progress and older engineering phase labels do not establish current product completion. Historical pending-review prose in [the foundation report](PRODUCT-PHASE-4-FOUNDATION.md) is superseded only as status by the exact-commit independent review; its bytes remain intact. [Evidence and archive bindings](EVIDENCE-INDEX.md) retain the original reports and failed predecessors.
+
+## Product phases
+
+| Phase | Qualified status and evidence boundary |
+|---|---|
+| 1 | **Frozen, unreleased.** Original independent PASS TO FREEZE at `429aa027a696a09cfeb8dc1eada8420e732dda6b`; freeze successor `3e56ff172d4dba326272c66c85512c8a481f7a52`. Exact original final task message recovered: 110 Rust passed / 13 ignored plus reconstruction and independent attacks. Original standalone report remains unlocated. |
+| 2 | **Integrated, independent bounded PASS** at `6194376a053b8a27887a9b09459054a7af3a1769`. Exact original final task message recovered; original standalone report remains unlocated. Reviewer independently ran 128 passed / 19 ignored. PG17/18 17 tests each and 16 driver/TLS parent tests were inspected author evidence, not fresh reviewer executions. |
+| 3 | **Bounded independent PASS** at `6572f7f06b9c7ad2093d66318ab762b9801791fe`; status-only successor `be291388492f82485cfc1b51f46c9ad7a2e1b9f9`. One final base without predecessor chain and supplier registration/outcome/correction/closure on both stores. Reviewer independently ran 172 passed / 34 ignored and 15 affected tests on each PG17.11/18.6; four reopened prefixes / 82 records. This did not freshly rerun all legacy PG/TLS suites. Initial FAIL and R1 CONDITIONAL remain valid for their respective commits. |
+| 4 | **PASS FOUNDATION only** at the adopted runtime commit: independent 204 passed / 41 ignored and 10 fresh SQLite comparison tests. PG reader/foundation 7 and affected-outcome 15 tests per version are integration-author evidence inspected by the reviewer, including retained statement traces; no fresh PG service execution by that reviewer. Supplier history comparison is implemented; retail alternatives remain unobserved. **Full Phase 4 is incomplete.** |
+| 5 | **Incomplete, not authorized for continuation here.** No completed local outcome-lifecycle operator/CSV workflow or buyer validation. Existing CLI covers the earlier generation slice. |
+| 6 | **Incomplete, not authorized for continuation here.** No assembled final candidate with full independent review or main-merge authorization. |
+
+These are attributed historical results, not fresh executions in this documentation session. Ignored tests are never passes. `sqlite_fake_lost_response` and `postgres18_fake_lost_response` remain open process-durable destination gates. SQLite wrapper instrumentation is not OS-level isolation. Real identity/assent sources, physical durability and resource bounds, environment portability, buyer demand and production readiness are not certified.
+
+## Designs, oracle and quarantine
+
+R3 is **PASS TO CANONICAL DESIGN only**: 70,711 bytes, SHA-256 `341043f03c7879c0d1ef02b76e054e5fd7ab287d745f48d434eb59162d148db6`. Full Phase 4, extensible history and offline B remain approved requirements: disconnected gateways must durably acknowledge brand-new bounded requests within pre-backed capacity and their exclusive namespace. A receipt is not central admission or billing approval. No online-only substitute satisfies this scope.
+
+The original oracle author's final consistency check remained pending at its preserved checkpoint; no conformance ran. The later [independent consistency review](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/CONSISTENCY-REVIEW.md) is complete and hash-pinned: **CONSISTENT FOR INDEPENDENT CANONICAL INPUT** with additive corrections. Its 85 assertions check specification artifacts only; all 16 actual canonical/backend gates remain pending. Its customer comparison is a proposed semantic expectation, not observed product behavior. The old conditional supplier substitution authorizes neither changed supplier terms nor a claim of customer comparison coverage.
+
+Canonical candidates 1–3 failed. The quarantine at `/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab` remains on `codex/adjudication-canonical-candidate4`, HEAD `66913b65054a3ee4ee32cb7c36873c0c0d9ee092`, parent `26ff7b54711a45ec23f90988becb160d226071f6`. HEAD is failed candidate 3. Candidate 4 consists of eight untracked files plus external bootstrap scratch: **no candidate-4 commit, validation, freeze or PASS**. Preserve all of it; it is not an alternate runtime baseline.
+
+## Preservation and next owner gate
+
+Stage A reports scoped preservation and separate restore PASS: [preservation report](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation/preservation-20260922T1830/PRESERVATION-REPORT.md) and [restore proof](/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation/preservation-20260922T1830/RESTORE-PROOF.md). Main archive manifest SHA-256: `7147da75098fb2e60adf7979e0f6a4dcc41bd9b7b5806fdef36347ac2d5f2a70`. The archive covers 34 inventoried Git databases plus a separately found 35th unborn tooling database. Copies and restore are on the same APFS disk; they do not protect against disk failure. The update-capable historical transcript is preserved only as observed bytes. These proofs establish scoped integrity, not runtime or portability certification.
+
+**Next gate: independent consolidation review and owner disposition of this concrete documentation successor and preservation proof.** Canonical authoring depends on that disposition. A future fresh additive canonical candidate must receive exact-candidate independent review; owner contract freeze and runtime continuation remain separate decisions. Full Phase 4 acceptance then requires all economic, customer comparison, actual-store/offline, writer-fencing, physical resource and observed-nonposting evidence on one assembled candidate. Later Phase 5/6 and main merge remain separate gates. This documentation grants no freeze, runtime execution, cleanup, merge, push, release or hosted operations.
