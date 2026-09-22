@@ -265,3 +265,49 @@ DECIDE only ALLOW increments accepted economic revision. Head/segment/resource
 revision increments occur once per committed transition. An optional operation
 cannot consume reserved future headroom. Retrying existing identity changes no
 counter, segment, receipt, grant, allocation, epoch or staging identity.
+
+## Interface refinement B: exact source objects and bounded receipt advance
+
+REGISTER_GRANT, ACTIVATE, RETURN_UNUSED, LOCAL_TERMINAL, SEAL_BEGIN, DRAIN,
+INSTALL and ACK_INSTALL also carry the same typed source proof. Expected sources
+are respectively GRANT, CLAIM, CLAIM, RETIREMENT/RECONCILIATION, BEGIN, SEAL,
+TERMINAL and INSTALLATION. Full key and source gateway/center must match the
+receiving command. `initial.trusted_observations` pins each exact proof observation:
+H(authority,proof with trusted_observation_ref omitted). The pin is supplied by the
+trusted host, not derived by accepting submitted bytes. Also independently verify
+exact source segment/hash/root/body membership against its already reconstructed
+historical journal; an authenticated wrong-body reference still rejects.
+
+Source fact body is canonical `{payload:source_command.payload,effects:source_result.effects}`.
+The inventory stores its raw SHA256, length, canonical Base64 and full key. Local
+GRANT key=grant.id; central CLAIM key=token.id; RECEIPT/ALIAS/RETURNED_UNUSED/
+RECONCILIATION key=token ID; RETIREMENT key=grant ID; BEGIN/SEAL/TERMINAL/
+INSTALLATION key=decimal round string. A proof of a receipt uses the exact source
+RECEIVE fact, whose payload and effect jointly retain submission/evidence and
+original receipt. Local aliases have no new receipt position and retain original
+receipt/token in their effect.
+
+RECONCILE inventory contains the copied local disposition fact plus its own new
+RECONCILIATION fact. IMPORT contains only the copied local fact. ENROLL contains
+exact initial.original_objects only. Other source-producing transitions contain
+one source fact; other transitions contain none. Inventory sorts by canonical
+object bytes. Any command with proof has dependencies=[proof.segment]; otherwise
+empty. All proof paths are immutable historical references, never current-root
+substitution. A source segment includes its inventory in its segment digest.
+
+ADVANCE_RECEIPT is a separate central bounded operation `{gateway,through}`.
+Through must be exactly the next receipt position and its original token imported.
+That original central token pre-funds this slot at ISSUE. IMPORT does not advance
+the receipt cursor. ADVANCE_RECEIPT spends one receipt_prefix counter credit;
+ADVANCE spends one allocation_prefix credit. A NEW_CASE token returns central
+slack only after both required advances; alias/unused tokens need only allocation
+advance and then release their unused receipt-advance slot. This avoids unbounded
+cursor work or losing prepaid headroom when imports arrive out of order.
+
+The worksheet's actual counter vector equals its reservation maximum except
+RECEIVE ALIAS consumes0 receipt increments and DECIDE DENY consumes0 economic
+revision increments; those unused per-slot credits discharge as proven branch
+slack. No other counter is touched by these exceptions. index_cardinality counts
+permanent retained index-version entries (including updates), not live map size.
+All separate visible cursors remain independently range-checked. Every increment
+is checked before mutation and every exact retry consumes0 in every dimension.

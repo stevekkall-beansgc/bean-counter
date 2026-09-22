@@ -599,7 +599,10 @@
         "RECONCILIATION",
         "INSTALLATION",
         "ORIGINAL_BASE",
-        "AUTHORITY"
+        "AUTHORITY",
+        "BEGIN",
+        "SEAL",
+        "TERMINAL"
       ]
     },
     "proof": {
@@ -1079,11 +1082,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "grant"
+        "grant",
+        "proof"
       ],
       "properties": {
         "grant": {
           "$ref": "#/$defs/grant"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1108,7 +1115,8 @@
       "additionalProperties": false,
       "required": [
         "token",
-        "gateway"
+        "gateway",
+        "proof"
       ],
       "properties": {
         "token": {
@@ -1116,6 +1124,9 @@
         },
         "gateway": {
           "$ref": "#/$defs/id"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1157,7 +1168,8 @@
       "required": [
         "token",
         "gateway",
-        "claim"
+        "claim",
+        "proof"
       ],
       "properties": {
         "token": {
@@ -1168,6 +1180,9 @@
         },
         "claim": {
           "$ref": "#/$defs/digest"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1219,6 +1234,22 @@
         }
       }
     },
+    "advance_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gateway",
+        "through"
+      ],
+      "properties": {
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "through": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
     "local_terminal": {
       "type": "object",
       "additionalProperties": false,
@@ -1235,7 +1266,7 @@
           "$ref": "#/$defs/id"
         },
         "proof": {
-          "$ref": "#/$defs/digest"
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1300,7 +1331,8 @@
       "required": [
         "round",
         "gateway",
-        "predecessor"
+        "predecessor",
+        "proof"
       ],
       "properties": {
         "round": {
@@ -1311,6 +1343,9 @@
         },
         "predecessor": {
           "$ref": "#/$defs/count"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1335,7 +1370,8 @@
       "additionalProperties": false,
       "required": [
         "round",
-        "gateway"
+        "gateway",
+        "proof"
       ],
       "properties": {
         "round": {
@@ -1343,6 +1379,9 @@
         },
         "gateway": {
           "$ref": "#/$defs/id"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1392,7 +1431,8 @@
       "required": [
         "round",
         "gateway",
-        "outcome"
+        "outcome",
+        "proof"
       ],
       "properties": {
         "round": {
@@ -1406,6 +1446,9 @@
             "COMMITTED",
             "ABORTED"
           ]
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1414,7 +1457,8 @@
       "additionalProperties": false,
       "required": [
         "round",
-        "gateway"
+        "gateway",
+        "proof"
       ],
       "properties": {
         "round": {
@@ -1422,6 +1466,9 @@
         },
         "gateway": {
           "$ref": "#/$defs/id"
+        },
+        "proof": {
+          "$ref": "#/$defs/proof"
         }
       }
     },
@@ -1804,6 +1851,30 @@
             },
             "payload": {
               "$ref": "#/$defs/advance"
+            },
+            "authority": {
+              "$ref": "#/$defs/authority"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key",
+            "payload",
+            "authority"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ADVANCE_RECEIPT"
+            },
+            "key": {
+              "$ref": "#/$defs/delivery"
+            },
+            "payload": {
+              "$ref": "#/$defs/advance_receipt"
             },
             "authority": {
               "$ref": "#/$defs/authority"
