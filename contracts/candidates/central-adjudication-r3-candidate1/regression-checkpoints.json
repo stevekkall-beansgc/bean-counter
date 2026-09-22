@@ -14,7 +14,7 @@
           "released": "0"
         }
       ],
-      "certificate": "24a126e18d5091984c90f0dc64f74d5a896d6676188996d8f7fca483590644fd"
+      "certificate": "b7fd94e9ede907ef2c94de1baaa64fd7287a879abdc3cb14a46dd8be5ff8b8e6"
     },
     {
       "trace": "vectors/REG06-release170.json",
@@ -29,7 +29,7 @@
           "released": "170"
         }
       ],
-      "certificate": "4a0fc78bced3602660c0d99e4f4ab07c070d979237fec80d487ceaac49410bdf"
+      "certificate": "42bddfbffe7e74538fc9f606afcf8c0e12113ddb3bad11d4cc6434408f207bd2"
     },
     {
       "trace": "vectors/REG09-held200.json",
@@ -44,7 +44,7 @@
           "released": "0"
         }
       ],
-      "certificate": "e719cd1e34898ecef2438521cc593c91c5ddfc2f4143e3c87c03a61c669dc402"
+      "certificate": "9ebba987ac11914d1dc05e4e96436553ca40ee7597ab3581b60de049f022b711"
     },
     {
       "trace": "vectors/REG09-held200.json",
@@ -59,7 +59,7 @@
           "released": "200"
         }
       ],
-      "certificate": "ad757cb7547d73f49bdb9cfc062f40b2ec1b4077f6536c73fa4d790bcc9a8161"
+      "certificate": "9a65333c68f3eb728fa5ed9ab080f7a296326ac3fc25c2ceee10c07c06a8899f"
     }
   ]
 }

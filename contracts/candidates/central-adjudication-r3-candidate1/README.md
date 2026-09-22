@@ -21,7 +21,11 @@ canonical shared journal. `read-vectors.json`, `boundary-vectors.json` and
 
 The customer trace atomically enrolls the unchanged original-profile base with
 retail10000 and supplier3000, then reaches retail11450, gross adjustment250 and
-five entitlements. The alternative resolution1500 comparison totals11750 and
+five entitlements. The95-command witness matches the pinned S00–S14 order,
+including DENY before the eligible upsell, all-family close and closed-family
+correction. Exact authority sources accompany trusted host observations.
+`authority_checks.py` verifies both retention attacks and all15 independent oracle
+checkpoints. The alternative resolution1500 comparison totals11750 and
 changes no actual decision. The original80 fixture remains a separate compatibility
 control. The supplier release170 and partial-held200 regressions are separate.
 

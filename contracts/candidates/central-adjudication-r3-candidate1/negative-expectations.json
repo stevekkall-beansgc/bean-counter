@@ -1,4 +1,15 @@
 {
   "wrong-key.json": "PROOF_KIND_KEY",
-  "wrong-source.json": "PROOF_MEMBERSHIP"
+  "wrong-source.json": "PROOF_MEMBERSHIP",
+  "authority-missing-source.json": "AUTH_SOURCE_MEMBERSHIP",
+  "authority-base64-padbits.json": "BASE64",
+  "authority-identity-body-conflict.json": "AUTH_SOURCE_IDENTITY",
+  "authority-scope.json": "AUTH_SOURCE_SCOPE",
+  "authority-principal.json": "AUTH_SOURCE_BINDING",
+  "authority-revision.json": "AUTH_SOURCE_BINDING",
+  "authority-permission.json": "AUTH_SOURCE_BINDING",
+  "authority-expired.json": "AUTH_SOURCE_WINDOW",
+  "assent-roles.json": "ASSENT_BINDING",
+  "assent-terms.json": "ASSENT_BINDING",
+  "assent-target.json": "AUTH_SOURCE_SCOPE"
 }

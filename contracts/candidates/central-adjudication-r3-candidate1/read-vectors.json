@@ -14,12 +14,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "budget": {
           "bytes": "999999999999999999999999999999",
@@ -37,17 +37,17 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "measured": {
-          "bytes": "312471",
-          "pages": "117",
-          "segments": "77"
+          "bytes": "251633",
+          "pages": "92",
+          "segments": "55"
         },
         "selection": "CURRENT_AT_READ",
         "scope": "CENTRAL_PREFIX",
@@ -83,12 +83,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
           "ordinal": "1",
-          "segment": "7c1fefce4cb0e86ba5b5cc165335cf4e6f1fae5e49da816f5e240aaade9d3866",
-          "root": "2e87185dd03576c5f98c42c4f15f229dc30547fe98e2add894b3f371142048f4"
+          "segment": "90f093c4fbf0b1309ec1c34cbf23b99a3350501a455a0765b8e7b51814356143",
+          "root": "6015a511f46cf9285364b4c15cf8baef8581061837ccdc4997403d0d6d00596e"
         },
         "budget": {
           "bytes": "999999999999999999999999999999",
@@ -106,16 +106,16 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
           "ordinal": "1",
-          "segment": "7c1fefce4cb0e86ba5b5cc165335cf4e6f1fae5e49da816f5e240aaade9d3866",
-          "root": "2e87185dd03576c5f98c42c4f15f229dc30547fe98e2add894b3f371142048f4"
+          "segment": "90f093c4fbf0b1309ec1c34cbf23b99a3350501a455a0765b8e7b51814356143",
+          "root": "6015a511f46cf9285364b4c15cf8baef8581061837ccdc4997403d0d6d00596e"
         },
         "measured": {
-          "bytes": "109863",
-          "pages": "27",
+          "bytes": "117923",
+          "pages": "29",
           "segments": "1"
         },
         "selection": "HISTORICAL_PREFIX",
@@ -152,12 +152,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "budget": {
           "bytes": "1",
@@ -176,17 +176,17 @@
             ],
             "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
             "profile": "central-adjudication-r3/1",
-            "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+            "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
             "registration": "registration",
             "host": "center",
-            "ordinal": "77",
-            "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-            "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+            "ordinal": "55",
+            "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+            "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
           },
           "ordinal": "0",
           "byte_offset": "1",
           "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
-          "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
+          "continuation": "3a3ddf4d888732fe3c7d87493176305c278e12ff5e18b856d671a6295785ffea"
         },
         "measured": {
           "bytes": "1",
@@ -207,12 +207,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -251,12 +251,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "actual": "11450",
         "alternative": "11750",
@@ -281,9 +281,9 @@
           }
         ],
         "measured": {
-          "bytes": "312471",
-          "pages": "117",
-          "segments": "77"
+          "bytes": "251633",
+          "pages": "92",
+          "segments": "55"
         }
       }
     },
@@ -299,12 +299,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "policy": {
           "resolution_atoms": "6000"
@@ -349,9 +349,9 @@
           "resolution"
         ],
         "measured": {
-          "bytes": "312471",
-          "pages": "117",
-          "segments": "77"
+          "bytes": "251633",
+          "pages": "92",
+          "segments": "55"
         },
         "reason": "original premium cap exceeded at this actual acceptance"
       }
@@ -368,12 +368,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -412,12 +412,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "cursor": {
           "expected": {
@@ -428,17 +428,17 @@
             ],
             "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
             "profile": "central-adjudication-r3/1",
-            "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+            "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
             "registration": "registration",
             "host": "center",
-            "ordinal": "77",
-            "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-            "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+            "ordinal": "55",
+            "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+            "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
           },
           "ordinal": "0",
           "byte_offset": "1",
           "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
-          "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
+          "continuation": "3a3ddf4d888732fe3c7d87493176305c278e12ff5e18b856d671a6295785ffea"
         },
         "measured": {
           "bytes": "1",
@@ -460,12 +460,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -485,7 +485,7 @@
             "receipt_prefix": "0",
             "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
             "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
-            "observation": "2b52180f05a6b89d1591a288003d8839a706bc07c64b86172534f7fe88567e5d"
+            "observation": "f0ad121a88baffe1758d377ab981b9b7838121cd82193780a4a9c0d62c8ae98f"
           },
           {
             "gateway": "g1",
@@ -495,19 +495,8 @@
             "receipt_high": "2",
             "receipt_prefix": "2",
             "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
-            "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
-            "observation": "c4fcc008b7f4a0d2275fa5602b34c25ab54ccd2b7b600a789ea57d0ca9f535c9"
-          },
-          {
-            "gateway": "g0",
-            "status": "COMPLETE_GATEWAY_CUTOFF",
-            "cutoff": "2",
-            "allocation_prefix": "2",
-            "receipt_high": "2",
-            "receipt_prefix": "2",
-            "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
-            "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
-            "observation": "5f3972cf65c9e44b04238964e171cca56d91048ffe9eb68284042057bd1a4015"
+            "receipt_root": "7fb9dd7080acabd32e477141f51b1a241db115d78259edca97f179dd7e501c14",
+            "observation": "f4e2e380f78a7383ace49b3fe18650ddbeb4dd49981e34162d09b21e5f410ceb"
           },
           {
             "gateway": "g3",
@@ -516,9 +505,20 @@
             "allocation_prefix": "2",
             "receipt_high": "2",
             "receipt_prefix": "2",
-            "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
-            "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
-            "observation": "92eb4db7629fdc65613d0ed8b806a60b27c1848212c2deecdb5e8f8a133e4e97"
+            "disposition_root": "290be456291f0ce941bd26c7f96bb45d7a0327617e39b70878f6447dc6c4f2e5",
+            "receipt_root": "ec365f7ecea087dbc8ef9477e911cf3a0a25558cf2ea7fe48526cdbdd25427ea",
+            "observation": "346a19618702ce7ce715a8a2e49f4fe7f76a216c68f366d3dd76eb7b3b09ff42"
+          },
+          {
+            "gateway": "g0",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "704cc21ca63f58f616a1b1e268ade7146b1de1938f67262fb0723d7801c43561",
+            "receipt_root": "5f9b1dcec71115273bc8a2ea0464ab51b078dabd2223080f8b47511130a3c069",
+            "observation": "d841a935ec4a19d8da6b498317ab032826f3eaff0121ad64e9945324385fac10"
           }
         ]
       },
@@ -532,12 +532,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "actual": "11450",
         "alternative": "11750",
@@ -553,7 +553,7 @@
             "receipt_prefix": "0",
             "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
             "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
-            "observation": "2b52180f05a6b89d1591a288003d8839a706bc07c64b86172534f7fe88567e5d"
+            "observation": "f0ad121a88baffe1758d377ab981b9b7838121cd82193780a4a9c0d62c8ae98f"
           },
           {
             "gateway": "g1",
@@ -563,19 +563,8 @@
             "receipt_high": "2",
             "receipt_prefix": "2",
             "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
-            "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
-            "observation": "c4fcc008b7f4a0d2275fa5602b34c25ab54ccd2b7b600a789ea57d0ca9f535c9"
-          },
-          {
-            "gateway": "g0",
-            "status": "COMPLETE_GATEWAY_CUTOFF",
-            "cutoff": "2",
-            "allocation_prefix": "2",
-            "receipt_high": "2",
-            "receipt_prefix": "2",
-            "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
-            "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
-            "observation": "5f3972cf65c9e44b04238964e171cca56d91048ffe9eb68284042057bd1a4015"
+            "receipt_root": "7fb9dd7080acabd32e477141f51b1a241db115d78259edca97f179dd7e501c14",
+            "observation": "f4e2e380f78a7383ace49b3fe18650ddbeb4dd49981e34162d09b21e5f410ceb"
           },
           {
             "gateway": "g3",
@@ -584,15 +573,26 @@
             "allocation_prefix": "2",
             "receipt_high": "2",
             "receipt_prefix": "2",
-            "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
-            "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
-            "observation": "92eb4db7629fdc65613d0ed8b806a60b27c1848212c2deecdb5e8f8a133e4e97"
+            "disposition_root": "290be456291f0ce941bd26c7f96bb45d7a0327617e39b70878f6447dc6c4f2e5",
+            "receipt_root": "ec365f7ecea087dbc8ef9477e911cf3a0a25558cf2ea7fe48526cdbdd25427ea",
+            "observation": "346a19618702ce7ce715a8a2e49f4fe7f76a216c68f366d3dd76eb7b3b09ff42"
+          },
+          {
+            "gateway": "g0",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "704cc21ca63f58f616a1b1e268ade7146b1de1938f67262fb0723d7801c43561",
+            "receipt_root": "5f9b1dcec71115273bc8a2ea0464ab51b078dabd2223080f8b47511130a3c069",
+            "observation": "d841a935ec4a19d8da6b498317ab032826f3eaff0121ad64e9945324385fac10"
           }
         ],
         "measured": {
-          "bytes": "312471",
-          "pages": "117",
-          "segments": "77"
+          "bytes": "251633",
+          "pages": "92",
+          "segments": "55"
         }
       }
     },
@@ -608,12 +608,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -633,7 +633,7 @@
             "receipt_prefix": "0",
             "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
             "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
-            "observation": "2b52180f05a6b89d1591a288003d8839a706bc07c64b86172534f7fe88567e5d"
+            "observation": "f0ad121a88baffe1758d377ab981b9b7838121cd82193780a4a9c0d62c8ae98f"
           },
           {
             "gateway": "g1",
@@ -643,19 +643,8 @@
             "receipt_high": "2",
             "receipt_prefix": "2",
             "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
-            "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
-            "observation": "c4fcc008b7f4a0d2275fa5602b34c25ab54ccd2b7b600a789ea57d0ca9f535c9"
-          },
-          {
-            "gateway": "g0",
-            "status": "COMPLETE_GATEWAY_CUTOFF",
-            "cutoff": "2",
-            "allocation_prefix": "2",
-            "receipt_high": "2",
-            "receipt_prefix": "2",
-            "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
-            "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
-            "observation": "5f3972cf65c9e44b04238964e171cca56d91048ffe9eb68284042057bd1a4015"
+            "receipt_root": "7fb9dd7080acabd32e477141f51b1a241db115d78259edca97f179dd7e501c14",
+            "observation": "f4e2e380f78a7383ace49b3fe18650ddbeb4dd49981e34162d09b21e5f410ceb"
           },
           {
             "gateway": "g3",
@@ -664,9 +653,20 @@
             "allocation_prefix": "2",
             "receipt_high": "2",
             "receipt_prefix": "2",
-            "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
-            "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
-            "observation": "92eb4db7629fdc65613d0ed8b806a60b27c1848212c2deecdb5e8f8a133e4e97"
+            "disposition_root": "290be456291f0ce941bd26c7f96bb45d7a0327617e39b70878f6447dc6c4f2e5",
+            "receipt_root": "ec365f7ecea087dbc8ef9477e911cf3a0a25558cf2ea7fe48526cdbdd25427ea",
+            "observation": "346a19618702ce7ce715a8a2e49f4fe7f76a216c68f366d3dd76eb7b3b09ff42"
+          },
+          {
+            "gateway": "g0",
+            "status": "COMPLETE_GATEWAY_CUTOFF",
+            "cutoff": "2",
+            "allocation_prefix": "2",
+            "receipt_high": "2",
+            "receipt_prefix": "2",
+            "disposition_root": "704cc21ca63f58f616a1b1e268ade7146b1de1938f67262fb0723d7801c43561",
+            "receipt_root": "5f9b1dcec71115273bc8a2ea0464ab51b078dabd2223080f8b47511130a3c069",
+            "observation": "d841a935ec4a19d8da6b498317ab032826f3eaff0121ad64e9945324385fac10"
           }
         ]
       },
@@ -684,11 +684,11 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
           "root": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         },
         "budget": {
@@ -711,12 +711,12 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "policy": {
           "resolution_atoms": "1500",
@@ -759,12 +759,12 @@
         ],
         "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
         "profile": "central-adjudication-r3/1",
-        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
         "registration": "registration",
         "host": "center",
-        "ordinal": "77",
-        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+        "ordinal": "55",
+        "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+        "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
       },
       "policy": {
         "resolution_atoms": "1500"
@@ -803,12 +803,12 @@
         ],
         "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
         "profile": "central-adjudication-r3/1",
-        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
         "registration": "registration",
         "host": "center",
-        "ordinal": "77",
-        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+        "ordinal": "55",
+        "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+        "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
       },
       "cursor": {
         "expected": {
@@ -819,17 +819,17 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "ordinal": "0",
         "byte_offset": "1",
         "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
-        "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
+        "continuation": "3a3ddf4d888732fe3c7d87493176305c278e12ff5e18b856d671a6295785ffea"
       },
       "measured": {
         "bytes": "1",
@@ -847,12 +847,12 @@
         ],
         "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
         "profile": "central-adjudication-r3/1",
-        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
         "registration": "registration",
         "host": "center",
-        "ordinal": "77",
-        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+        "ordinal": "55",
+        "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+        "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
       },
       "policy": {
         "resolution_atoms": "1500"
@@ -889,17 +889,17 @@
           ],
           "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
           "registration": "registration",
           "host": "center",
-          "ordinal": "77",
-          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          "ordinal": "55",
+          "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+          "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
         },
         "ordinal": "0",
         "byte_offset": "1",
         "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
-        "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
+        "continuation": "3a3ddf4d888732fe3c7d87493176305c278e12ff5e18b856d671a6295785ffea"
       }
     },
     "final": {
@@ -912,12 +912,12 @@
         ],
         "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
         "profile": "central-adjudication-r3/1",
-        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "enrollment": "39121ae7233723385ae9eab007961ab3a484c7b45172df577bf2dbfe32920338",
         "registration": "registration",
         "host": "center",
-        "ordinal": "77",
-        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
-        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+        "ordinal": "55",
+        "segment": "1246f436e08b9ec36255edd17bf4a8a1f05238788df9fae5fbf7aa1d9870bb8f",
+        "root": "fe42b2d5836eb5534892415a64b4f4a0d6d13f8649cc5b6b8f9559548ce5ed0a"
       },
       "actual": "11450",
       "alternative": "11750",
@@ -942,9 +942,9 @@
         }
       ],
       "measured": {
-        "bytes": "312470",
-        "pages": "117",
-        "segments": "77"
+        "bytes": "251632",
+        "pages": "92",
+        "segments": "55"
       }
     }
   },
@@ -968,12 +968,12 @@
           ],
           "target": "demo-slice",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8b6e89b7c8619314682c5aef413cee01da626438d7885fa2d7445a9c758835a7",
+          "enrollment": "a50bffedcc1fc78fcf73b7450951baca46bb90a313961e1c19c68a8cde98bfde",
           "registration": "registration",
           "host": "g0",
           "ordinal": "11",
-          "segment": "f9cd0420843ecff621aa9430556c16d0affac93701b65354ed27adaa69c08310",
-          "root": "0cd89ff6c44b9da131220dc714bd28588d2425597be33428b948c640181a2def"
+          "segment": "b4ca44b74a901e3f8d0e87cf95792e5358e37710fe1c0f3bac2d1a414acedf05",
+          "root": "8b8657e0b9f6808beecc16bc6ae47e39ddf21fec017bb991e4418ab66225cbd1"
         },
         "round": "1",
         "phase": "DISPOSITIONS",
@@ -996,12 +996,12 @@
           ],
           "target": "demo-slice",
           "profile": "central-adjudication-r3/1",
-          "enrollment": "8b6e89b7c8619314682c5aef413cee01da626438d7885fa2d7445a9c758835a7",
+          "enrollment": "a50bffedcc1fc78fcf73b7450951baca46bb90a313961e1c19c68a8cde98bfde",
           "registration": "registration",
           "host": "g0",
           "ordinal": "11",
-          "segment": "f9cd0420843ecff621aa9430556c16d0affac93701b65354ed27adaa69c08310",
-          "root": "0cd89ff6c44b9da131220dc714bd28588d2425597be33428b948c640181a2def"
+          "segment": "b4ca44b74a901e3f8d0e87cf95792e5358e37710fe1c0f3bac2d1a414acedf05",
+          "root": "8b8657e0b9f6808beecc16bc6ae47e39ddf21fec017bb991e4418ab66225cbd1"
         },
         "round": "1",
         "phase": "COMPLETE",

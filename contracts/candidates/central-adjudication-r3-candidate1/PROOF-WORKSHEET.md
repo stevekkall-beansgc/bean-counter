@@ -13,13 +13,19 @@ contributes its maximum escaped UTF-8 framing to its operation/result/segment
 bound; Base64 expands exact decoded original/source objects. ENROLL allows at most
 128 original objects and at most1MiB decoded original bodies. Source facts are
 nonrecursive bounded typed objects. Imported facts retain the complete exact body.
+The scoped authority correction retains up to83 exact authority/assent/delegation
+sources at enrollment, within a512KiB aggregate decoded-body admission bound.
+Per-source16KiB, complete Base64/object/index framing and per-command source reads
+are reserved by the worksheet. ENROLL maximum trusted bytes2017184 and segment
+bytes3411620 fit unchanged2MiB/8MiB limits. Each owning journal retains a source
+once and later resolves its exact immutable introduction dependency.
 
 Each full index key encodes an eight-byte kind tag, one-byte arity, then a two-byte
 length plus raw UTF-8 bytes for every component. Maximum full revision key:
 9 + 8×2 + 5×128 +256 +128 +30 = **1079** bytes. `index_model.py` constructs these
 bytes, tests tuple-boundary collisions and maximal shared-prefix paths. A fixed
-binary radix path has **L=8K+1=8633**, so immutable replacement reserves at most
-**L+1=8634** path pages per changed logical index. Each logical node has128 bytes with the explicit field layout in PROTOCOL;
+authority-object key is1115 bytes (full source/id/revision included), so the binary radix path has **L=8K+1=8921**, so immutable replacement reserves at most
+**L+1=8922** path pages per changed logical index. Each logical node has128 bytes with the explicit field layout in PROTOCOL;
 value pages are4096 bytes with64 bytes framing and4032 bytes payload and include the complete bounded value/key, never an
 unbounded hash bucket. All named index updates and actual counter branches are
 listed in PROTOCOL refinement D. Actual backend layouts must independently bound

@@ -259,6 +259,11 @@
       "source": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/ARTIFACT-HASHES.json",
       "bytes": 1895,
       "sha256": "c634758eec89247aecd52a4fa1b152b71480914af6403fea81e5156150607f5f"
+    },
+    {
+      "source": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/oracle/EXPECTATIONS.json",
+      "bytes": 40173,
+      "sha256": "8d43d92d2f31be079527e93874bbcb5f8ce05945ba673fe0c47588a89ec4fd67"
     }
   ],
   "original_base_controls": {

@@ -3,7 +3,7 @@ import base64,copy,hashlib
 import validate as v
 START='2000-01-01T00:00:00.000000Z';END='2100-01-01T00:00:00.000000Z'
 def prepare(builder):
- p=builder.p;rows=[]
+ p=builder.p;p['pools']=[copy.deepcopy(x) for x in p['pools']];rows=[]
  def add(body):
   raw=v.canonical(body);h=hashlib.sha256(raw).hexdigest();rows.append(dict(body=base64.b64encode(raw).decode(),body_hash=h,bytes=str(len(raw))));return h
  def common(kind,id):return dict(kind=kind,source='synthetic-authority',id=id,revision='1',scope=p['scope'],target=p['target'])

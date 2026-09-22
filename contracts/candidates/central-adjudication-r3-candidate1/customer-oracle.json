@@ -1,0 +1,819 @@
+{
+  "format": "r3-customer-oracle-extract/1",
+  "source_sha256": "8d43d92d2f31be079527e93874bbcb5f8ce05945ba673fe0c47588a89ec4fd67",
+  "source": "independent oracle EXPECTATIONS.json",
+  "story": {
+    "id": "support-resolution-with-separately-eligible-upsell",
+    "full_family_keys": {
+      "resolution": [
+        "synthetic-support",
+        "agreement-support-v1",
+        "resolution",
+        "final-support-target-1"
+      ],
+      "upsell": [
+        "synthetic-support",
+        "agreement-support-v1",
+        "upsell",
+        "final-support-target-1"
+      ],
+      "late-positive": [
+        "synthetic-support",
+        "agreement-support-v1",
+        "late-positive",
+        "final-support-target-1"
+      ],
+      "late-negative": [
+        "synthetic-support",
+        "agreement-support-v1",
+        "late-negative",
+        "final-support-target-1"
+      ],
+      "late-zero": [
+        "synthetic-support",
+        "agreement-support-v1",
+        "late-zero",
+        "final-support-target-1"
+      ]
+    },
+    "base": {
+      "customer_original_final_retail_net_atoms": "10000",
+      "supplier_booked_net_atoms": "3000",
+      "retail_premium_ceiling_atoms": "5000",
+      "basis_unchanged_after_outcomes": true
+    },
+    "original_fixed_terms": {
+      "resolution_resolved": "1200",
+      "upsell_full": "500",
+      "upsell_corrected": "300",
+      "late_positive_original_unawarded_code": "100",
+      "late_negative_original_unawarded_code": "150",
+      "late_zero_original_unawarded_code": "0"
+    },
+    "windows": {
+      "ordinary": {
+        "starts_at": "2026-09-01T09:00:00.000000Z",
+        "occurs_before": "2026-09-02T00:00:00.000000Z",
+        "received_by": "2026-09-03T00:00:00.000000Z",
+        "accepted_by": "2026-09-04T00:00:00.000000Z"
+      },
+      "correction": {
+        "starts_at": "2026-09-01T09:00:00.000000Z",
+        "occurs_before": "2026-09-10T00:00:00.000000Z",
+        "received_by": "2026-09-11T00:00:00.000000Z",
+        "accepted_by": "2026-09-12T00:00:00.000000Z"
+      },
+      "closure": "authorized early explicit closure, not fabricated deadline expiry"
+    },
+    "independent_adjustment_funding": {
+      "positive": {
+        "limit_atoms": "100",
+        "payer": "customer",
+        "bearer": "customer",
+        "recipient": "vendor"
+      },
+      "negative": {
+        "limit_atoms": "150",
+        "payer": "vendor",
+        "bearer": "vendor",
+        "recipient": "customer"
+      },
+      "zero": {
+        "limit_atoms": "0",
+        "payer": "customer",
+        "bearer": "customer",
+        "recipient": "vendor"
+      }
+    },
+    "adjustment_limits": {
+      "positive_atoms": "100",
+      "negative_atoms": "150",
+      "gross_atoms": "250"
+    },
+    "prefixes": [
+      {
+        "id": "S00",
+        "operation": "ATOMIC_ORIGINAL_BASE_ACCEPTANCE_AND_ENROLLMENT",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "10000",
+        "entitlement_consumers": {
+          "resolution": "UNUSED",
+          "upsell": "UNUSED",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 0,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "base_atoms": "10000",
+          "supplier_booked_atoms": "3000",
+          "families": [
+            "resolution",
+            "upsell",
+            "late-positive",
+            "late-negative",
+            "late-zero"
+          ],
+          "prerequisites": {
+            "upsell": [
+              "resolution"
+            ]
+          },
+          "assent": "synthetic original terms, both parties verified; no original base caps",
+          "retail_premium_ceiling_atoms": "5000",
+          "retail_discount_capacity_atoms": "10000"
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S01",
+        "operation": "DURABLE_RECEIPT_AND_CENTRAL_ADMISSION",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "10000",
+        "entitlement_consumers": {
+          "resolution": "UNUSED",
+          "upsell": "UNUSED",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 0,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "resolution-ok",
+          "family": "resolution",
+          "receipt": "r-resolution",
+          "received_at": "2026-09-01T10:01:00.000000Z",
+          "occurred_at": "2026-09-01T10:00:00.000000Z",
+          "lifecycle": "ORDINARY_PENDING",
+          "evidence": "synthetic final successful support resolution"
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S02",
+        "operation": "AUTHORIZED_ORDINARY_ALLOW",
+        "customer_delta_atoms": "1200",
+        "customer_signed_obligation_total_atoms": "11200",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "UNUSED",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 1,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "resolution-ok",
+          "accepted_at": "2026-09-01T10:02:00.000000Z",
+          "fixed_original_code": "resolved",
+          "current_authority": "valid",
+          "posting": {
+            "payer": "customer",
+            "bearer": "customer",
+            "recipient": "vendor",
+            "magnitude_atoms": "1200"
+          }
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S03",
+        "operation": "DURABLE_RECEIPT_AND_CENTRAL_ADMISSION",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11200",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "UNUSED",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 1,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "upsell-rejected",
+          "family": "upsell",
+          "receipt": "r-denied",
+          "received_at": "2026-09-01T10:03:00.000000Z",
+          "lifecycle": "ORDINARY_PENDING",
+          "evidence": "authentic claim; qualification evidence absent",
+          "sender_backfill": true,
+          "sender_backfill_confers_authority": false
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S04",
+        "operation": "AUTHORIZED_TRACEABLE_DENY",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11200",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "UNUSED",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 1,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "upsell-rejected",
+          "accepted_at": "2026-09-01T10:04:00.000000Z",
+          "decision_authority": "valid",
+          "reason": "required upsell qualification not established",
+          "retained": [
+            "exact submission",
+            "receipt",
+            "evidence",
+            "authority observation",
+            "reason",
+            "decision"
+          ],
+          "entitlement_unchanged": true,
+          "lifecycle": "FINAL_DENY",
+          "not_operational_refusal": true
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S05",
+        "operation": "DURABLE_RECEIPT_AND_CENTRAL_ADMISSION",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11200",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "UNUSED",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 1,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "upsell-qualified",
+          "family": "upsell",
+          "receipt": "r-upsell",
+          "received_at": "2026-09-01T10:05:00.000000Z",
+          "lifecycle": "ORDINARY_PENDING",
+          "evidence": "distinct synthetic business event with qualified upsell evidence; accepted resolution prerequisite retained"
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S06",
+        "operation": "AUTHORIZED_ORDINARY_ALLOW",
+        "customer_delta_atoms": "500",
+        "customer_signed_obligation_total_atoms": "11700",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 2,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "upsell-qualified",
+          "accepted_at": "2026-09-01T10:06:00.000000Z",
+          "fixed_original_code": "upsell-full",
+          "accepted_revision": "1",
+          "posting": {
+            "payer": "customer",
+            "bearer": "customer",
+            "recipient": "vendor",
+            "magnitude_atoms": "500"
+          }
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S07",
+        "operation": "DURABLE_RECEIPT_AND_CENTRAL_ADMISSION",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11700",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 2,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "late-positive-case",
+          "family": "late-positive",
+          "receipt": "r-late-positive",
+          "received_at": "2026-09-01T10:07:00.000000Z",
+          "lifecycle": "ORDINARY_PENDING",
+          "no_award_promised": true
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S08",
+        "operation": "DURABLE_RECEIPT_AND_CENTRAL_ADMISSION",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11700",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 2,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "late-negative-case",
+          "family": "late-negative",
+          "receipt": "r-late-negative",
+          "received_at": "2026-09-01T10:08:00.000000Z",
+          "lifecycle": "ORDINARY_PENDING",
+          "no_award_promised": true
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S09",
+        "operation": "DURABLE_RECEIPT_AND_CENTRAL_ADMISSION",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11700",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 2,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "late-zero-case",
+          "family": "late-zero",
+          "receipt": "r-late-zero",
+          "received_at": "2026-09-01T10:09:00.000000Z",
+          "lifecycle": "ORDINARY_PENDING",
+          "no_award_promised": true
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S10",
+        "operation": "ATOMIC_EXPLICIT_FAMILY_CLOSE_AND_TRANSFER",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11700",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "UNUSED",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 2,
+        "adjustment_gross_atoms": "0",
+        "adjustment_positive_use_atoms": "0",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "0",
+        "adjustment_pool_used_atoms": {
+          "positive": "0",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "certificate": "close-support-1",
+          "accepted_at": "2026-09-01T10:10:00.000000Z",
+          "closed_families": [
+            "resolution",
+            "upsell",
+            "late-positive",
+            "late-negative",
+            "late-zero"
+          ],
+          "transferred_cases": [
+            "late-positive-case",
+            "late-negative-case",
+            "late-zero-case"
+          ],
+          "already_final_cases_unchanged": [
+            "resolution-ok",
+            "upsell-rejected",
+            "upsell-qualified"
+          ],
+          "transfer_funding_use_atoms": "0",
+          "new_lifecycle": "ADJUSTMENT_PENDING",
+          "supplier_release": "No contingent supplier family in this customer fixture; separate ECON fixture supplies last/partial/batch/zero-held obligations. Fixed booked supplier obligation3000 unchanged."
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S11",
+        "operation": "INDEPENDENT_FIRST_ADJUSTMENT_ALLOW",
+        "customer_delta_atoms": "100",
+        "customer_signed_obligation_total_atoms": "11800",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "S11",
+          "late-negative": "UNUSED",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 3,
+        "adjustment_gross_atoms": "100",
+        "adjustment_positive_use_atoms": "100",
+        "adjustment_negative_use_atoms": "0",
+        "adjustment_signed_net_atoms": "100",
+        "adjustment_pool_used_atoms": {
+          "positive": "100",
+          "negative": "0",
+          "zero": "0"
+        },
+        "details": {
+          "case": "late-positive-case",
+          "signed_reference_atoms": "100",
+          "magnitude_atoms": "100",
+          "assent": "distinct synthetic adjustment assent and current delegated authority",
+          "family_remains_closed": true,
+          "source_lineage": [
+            "r-late-positive",
+            "close-support-1"
+          ],
+          "lifecycle": "FINAL_ALLOW",
+          "pool": "positive",
+          "payer": "customer",
+          "bearer": "customer",
+          "recipient": "vendor",
+          "posting_count": 1,
+          "accepted_at": "2026-09-01T10:11:00.000000Z"
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S12",
+        "operation": "INDEPENDENT_FIRST_ADJUSTMENT_ALLOW",
+        "customer_delta_atoms": "-150",
+        "customer_signed_obligation_total_atoms": "11650",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "S11",
+          "late-negative": "S12",
+          "late-zero": "UNUSED"
+        },
+        "consumed_entitlement_count": 4,
+        "adjustment_gross_atoms": "250",
+        "adjustment_positive_use_atoms": "100",
+        "adjustment_negative_use_atoms": "150",
+        "adjustment_signed_net_atoms": "-50",
+        "adjustment_pool_used_atoms": {
+          "positive": "100",
+          "negative": "150",
+          "zero": "0"
+        },
+        "details": {
+          "case": "late-negative-case",
+          "signed_reference_atoms": "-150",
+          "magnitude_atoms": "150",
+          "assent": "distinct synthetic adjustment assent and current delegated authority",
+          "family_remains_closed": true,
+          "source_lineage": [
+            "r-late-negative",
+            "close-support-1"
+          ],
+          "lifecycle": "FINAL_ALLOW",
+          "pool": "negative",
+          "payer": "vendor",
+          "bearer": "vendor",
+          "recipient": "customer",
+          "posting_count": 1,
+          "accepted_at": "2026-09-01T10:12:00.000000Z"
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S13",
+        "operation": "INDEPENDENT_FIRST_ADJUSTMENT_ALLOW",
+        "customer_delta_atoms": "0",
+        "customer_signed_obligation_total_atoms": "11650",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "S11",
+          "late-negative": "S12",
+          "late-zero": "S13"
+        },
+        "consumed_entitlement_count": 5,
+        "adjustment_gross_atoms": "250",
+        "adjustment_positive_use_atoms": "100",
+        "adjustment_negative_use_atoms": "150",
+        "adjustment_signed_net_atoms": "-50",
+        "adjustment_pool_used_atoms": {
+          "positive": "100",
+          "negative": "150",
+          "zero": "0"
+        },
+        "details": {
+          "case": "late-zero-case",
+          "signed_reference_atoms": "0",
+          "magnitude_atoms": "0",
+          "assent": "distinct synthetic adjustment assent and current delegated authority",
+          "family_remains_closed": true,
+          "source_lineage": [
+            "r-late-zero",
+            "close-support-1"
+          ],
+          "lifecycle": "FINAL_ALLOW",
+          "pool": "zero",
+          "payer": "customer",
+          "bearer": "customer",
+          "recipient": "vendor",
+          "posting_count": 0,
+          "accepted_at": "2026-09-01T10:13:00.000000Z"
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      },
+      {
+        "id": "S14",
+        "operation": "AUTHORIZED_ACCEPTED_RESULT_CORRECTION",
+        "customer_delta_atoms": "-200",
+        "customer_signed_obligation_total_atoms": "11450",
+        "entitlement_consumers": {
+          "resolution": "S02",
+          "upsell": "S06",
+          "late-positive": "S11",
+          "late-negative": "S12",
+          "late-zero": "S13"
+        },
+        "consumed_entitlement_count": 5,
+        "adjustment_gross_atoms": "250",
+        "adjustment_positive_use_atoms": "100",
+        "adjustment_negative_use_atoms": "150",
+        "adjustment_signed_net_atoms": "-50",
+        "adjustment_pool_used_atoms": {
+          "positive": "100",
+          "negative": "150",
+          "zero": "0"
+        },
+        "details": {
+          "case": "upsell-qualified",
+          "family": "upsell",
+          "expected_current_revision": "1",
+          "new_revision": "2",
+          "replacement_code": "upsell-corrected",
+          "original_terms_already_permit_code_atoms": "300",
+          "inverse_action_atoms": "-500",
+          "replacement_action_atoms": "300",
+          "atomic_delta_atoms": "-200",
+          "nonzero_action_count": 2,
+          "net_obligation_intention_atoms": "-200",
+          "accepted_at": "2026-09-01T10:14:00.000000Z",
+          "occurred_at": "2026-09-01T10:13:30.000000Z",
+          "received_at": "2026-09-01T10:13:45.000000Z",
+          "separate_correction_authority": "valid and predeclared permitted replacement code; not new policy selection",
+          "entitlement_consumer_still": "S06",
+          "new_first_entitlement_count": 0,
+          "family_remains_closed": true,
+          "adjustment_pool_change_atoms": "0",
+          "supplier_change_atoms": "0",
+          "not_base_or_closed_stage_replacement": true
+        },
+        "storage_template": "PENDING_CANONICAL_DERIVATION; own bounded transition template, guards and invariants ORACLE-MATRIX E/I/K/R apply"
+      }
+    ],
+    "end_state": {
+      "customer_total_atoms": "11450",
+      "supplier_booked_atoms_unchanged": "3000",
+      "ordinary_first_awards_atoms": "1700",
+      "accepted_result_correction_delta_atoms": "-200",
+      "adjustment_signed_net_atoms": "-50",
+      "adjustment_gross_atoms": "250",
+      "current_resolution_result_atoms": "1200",
+      "current_upsell_result_atoms": "300",
+      "all_original_families_closed": true,
+      "entitlements_consumed": 5,
+      "denied_case_retained": true,
+      "transfer_lineage_retained_after_finality": true
+    }
+  },
+  "comparison": {
+    "original": "ORIGINAL_POLICY",
+    "supported_alternative": "RESOLUTION_FIXED_1500",
+    "alternative_changes_only": {
+      "resolution_resolved_atoms": "1500"
+    },
+    "frozen_actual_items": [
+      "base10000",
+      "supplier3000 and all supplier terms",
+      "family membership and prerequisites",
+      "actual ALLOW/DENY choices",
+      "upsell first500",
+      "upsell correction inverse-500 replacement300 at actual time",
+      "actual adjustments+100/-150/0 and their independent funding",
+      "receipts/admissions/closure/authority/evidence chronology"
+    ],
+    "observed_customer_amount": {
+      "original_atoms": "11450",
+      "alternative_atoms": "11750",
+      "difference_atoms": "300",
+      "classification": "OBSERVED_CUSTOMER; not forecast or unobserved retail table"
+    },
+    "prefix_totals": [
+      {
+        "prefix": "S00",
+        "original_customer_total_atoms": "10000",
+        "alternative_customer_total_atoms": "10000"
+      },
+      {
+        "prefix": "S01",
+        "original_customer_total_atoms": "10000",
+        "alternative_customer_total_atoms": "10000"
+      },
+      {
+        "prefix": "S02",
+        "original_customer_total_atoms": "11200",
+        "alternative_customer_total_atoms": "11500"
+      },
+      {
+        "prefix": "S03",
+        "original_customer_total_atoms": "11200",
+        "alternative_customer_total_atoms": "11500"
+      },
+      {
+        "prefix": "S04",
+        "original_customer_total_atoms": "11200",
+        "alternative_customer_total_atoms": "11500"
+      },
+      {
+        "prefix": "S05",
+        "original_customer_total_atoms": "11200",
+        "alternative_customer_total_atoms": "11500"
+      },
+      {
+        "prefix": "S06",
+        "original_customer_total_atoms": "11700",
+        "alternative_customer_total_atoms": "12000"
+      },
+      {
+        "prefix": "S07",
+        "original_customer_total_atoms": "11700",
+        "alternative_customer_total_atoms": "12000"
+      },
+      {
+        "prefix": "S08",
+        "original_customer_total_atoms": "11700",
+        "alternative_customer_total_atoms": "12000"
+      },
+      {
+        "prefix": "S09",
+        "original_customer_total_atoms": "11700",
+        "alternative_customer_total_atoms": "12000"
+      },
+      {
+        "prefix": "S10",
+        "original_customer_total_atoms": "11700",
+        "alternative_customer_total_atoms": "12000"
+      },
+      {
+        "prefix": "S11",
+        "original_customer_total_atoms": "11800",
+        "alternative_customer_total_atoms": "12100"
+      },
+      {
+        "prefix": "S12",
+        "original_customer_total_atoms": "11650",
+        "alternative_customer_total_atoms": "11950"
+      },
+      {
+        "prefix": "S13",
+        "original_customer_total_atoms": "11650",
+        "alternative_customer_total_atoms": "11950"
+      },
+      {
+        "prefix": "S14",
+        "original_customer_total_atoms": "11450",
+        "alternative_customer_total_atoms": "11750"
+      }
+    ],
+    "infeasible_alternative": {
+      "resolution_atoms": "6000",
+      "first_infeasible_prefix": "S02",
+      "constraint": "6000>frozen retail premium ceiling5000",
+      "comparable_total": null,
+      "no_partial_comparable_total": true
+    },
+    "unsupported": [
+      "supplier-price substitution",
+      "change actual DENY to ALLOW",
+      "change eligibility or topology",
+      "reprice original base",
+      "substitute actual adjustment or correction terms"
+    ],
+    "snapshot": {
+      "expected_prefix": "trusted terminal S14 plus all intervening protocol segments; exact wire ID/ordinal/root pending canonical derivation",
+      "required_coverage_entries": [
+        "g0",
+        "g1",
+        "g2",
+        "g3"
+      ],
+      "full_variant": "each named finite gateway cutoff verified and imported at selected P",
+      "unfenced_variant": "g3 UNKNOWN; COMPLETE_CENTRAL_PREFIX only plus exact g0-g2 cutoff coverage; not all ingress now",
+      "budget_exhaustion": "INCOMPLETE with exact cursor; comparable total null"
+    },
+    "nonposting_expected": {
+      "business_writes": 0,
+      "business_locks": 0,
+      "new_aliases": 0,
+      "new_claims": 0,
+      "postings": 0,
+      "intentions": 0,
+      "capacity_allocations": 0,
+      "external_calls": 0,
+      "evidence": "actual before/after/reopen inventories plus attempted-statement/effect observation and working positive control required"
+    }
+  }
+}

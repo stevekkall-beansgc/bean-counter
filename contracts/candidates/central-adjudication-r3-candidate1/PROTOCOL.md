@@ -665,7 +665,7 @@ A terminal logical value leaf stores the full binary key plus72 bytes of fixed
 reference framing: version1,flags1,key-length2,record-length4,record-hash32 and
 source-segment32. The bounded canonical record/object is already retained in its
 charged segment inventory; value references never substitute for typed membership.
-K+72=1151 fits one4032-byte payload page. The worksheet conservatively reserves
+K+72=1187 fits one4032-byte payload page. The worksheet conservatively reserves
 ceil((maximum command+result+introduced bodies)/4032) pages per changed value,
 which is at least this full-key/reference minimum for every transition. It does
 not require copying the entire source archive or using unbounded collision buckets.
