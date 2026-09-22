@@ -698,7 +698,8 @@ function delegation(s,roles,scope,target,agreement,amount,at,windowEnd=null) {
   sourceContext(body,scope,target);
   const stripped={...roles};delete stripped.payer_delegation;
   const terms={...body};delete terms.assent;
-  if(!same(body.roles,stripped) || body.acceptor!==roles.payer || body.assent.terms!==digest('authority',terms) || !body.agreement_ids.includes(agreement) || body.assent.accepted_at>at || at<body.starts_at || at>=body.ends_at || (windowEnd!==null && windowEnd>body.ends_at) || bigint(amount)>bigint(body.maximum_exposure)) denial('DELEGATION_BINDING');
+  if(!same(body.roles,stripped) || body.acceptor!==roles.payer || body.assent.terms!==digest('authority',terms) || !body.agreement_ids.includes(agreement) || body.assent.accepted_at>at || at<body.starts_at || at>=body.ends_at || bigint(amount)>bigint(body.maximum_exposure)) denial('DELEGATION_BINDING');
+  if(windowEnd!==null && windowEnd>=body.ends_at) denial('DELEGATION_WINDOW');
   return body;
 }
 function validateEnrollmentSources(s,p,observedAt) {

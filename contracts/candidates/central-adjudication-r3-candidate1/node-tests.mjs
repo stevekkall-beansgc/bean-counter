@@ -181,6 +181,24 @@ test('accepted delegated correction retains the same exact payer source',()=>{
   assert.equal(Object.keys(x.snapshot.authority_retained.center).length,6);
 });
 
+test('a delegated family correction window must end strictly before expiry',()=>{
+  const t=prefix(vector('authority-delegation'),2);
+  resign(t,1,(c,trace)=>{
+    const family=c.payload.families[0],oldDelegation=family.roles.payer_delegation;
+    family.roles.payer_delegation=replaceAuthoritySource(trace,oldDelegation,body=>{
+      body.ends_at=family.correction_by;
+      const terms={...body};delete terms.assent;
+      body.assent.terms=digest('authority',terms);
+    });
+    family.assent=replaceAuthoritySource(trace,family.assent,body=>{
+      body.roles=family.roles;
+      const terms={...family};delete terms.assent;
+      body.terms=digest('authority',terms);
+    });
+  });
+  assert.throws(()=>replay(t),{code:'DELEGATION_WINDOW'});
+});
+
 test('a business refusal cannot hide an unresolved economic authority source',()=>{
   const t=customer(),index=t.commands.findIndex(c=>c.kind==='DECIDE');
   resign(t,index,c=>{c.payload.case[2]='missing-case';c.payload.assent='0'.repeat(64)});
