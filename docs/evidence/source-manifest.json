@@ -1,6 +1,6 @@
 {
   "purpose": "Minimal local evidence navigation, not a freeze registry or conformance certification",
-  "observed_at_utc": "2026-09-22T18:43:50.670957+00:00",
+  "observed_at_utc": "2026-09-22T19:15:01.921999+00:00",
   "coordinator_task": "01a0ca4a-a824-7bb0-aa27-68fb336ace4f",
   "documentation_task": "01a0ca68-174b-7261-b3af-52fc7cbb2fdb",
   "runtime_baseline": {
@@ -13,7 +13,10 @@
     "path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/execution/status/ledger-lab",
     "branch": "codex/ledger-status",
     "base": "84616f43b8900de17392887f46d8947b9087797c",
-    "final_commit": "recorded only in external status handoff after commit"
+    "final_commit": "recorded only in external status-r2 handoff after follow-on commit",
+    "first_documentation_commit": "11c4920de3b52898b63d4d752c5a2cdb2db4bfd7",
+    "correction_parent": "11c4920de3b52898b63d4d752c5a2cdb2db4bfd7",
+    "base_role": "combined additions-only diff base and adopted runtime baseline; not the correction commit parent"
   },
   "quarantine": {
     "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-adjudication-canonical/work/ledger-lab",
@@ -28,13 +31,15 @@
     "The authorization/session log can receive later coordinator updates; its hash records the observed version only. The preserved snapshot remains identified separately by its archive binding.",
     "New independent oracle outputs postdate archival scope. Their exact hashes and ARTIFACT-HASHES.json are checked, but no archive coverage is invented.",
     "This manifest and the three new documents exclude self/circular hashes; the final source-manifest hash and documentation commit belong to the external handoff.",
-    "Operational database/log/credential contents are never embedded here. Inventory metadata points to the controlled local archive."
+    "Operational database/log/credential contents are never embedded here. Inventory metadata points to the controlled local archive.",
+    "The first documentation commit remains preserved as the actual parent. Old preservation proof hashes identify historical author claims, not independently passed corrected restoration. New correction/reviewer artifacts are post-snapshot and not covered by the original preservation seal."
   ],
   "preservation_limits": [
     "APFS copy-on-write copies and restore on the same disk, not off-device backup.",
     "Update-capable historical transcript has only an observed-byte snapshot; no future append coverage.",
     "34 inventoried common Git databases plus a 35th unborn tooling database, not 35 committed product repositories.",
-    "Scoped restore integrity does not authenticate historical runs, certify environment portability or prove runtime conformance."
+    "Scoped restore integrity does not authenticate historical runs, certify environment portability or prove runtime conformance.",
+    "Independent C1 found eight invalid reverse worktree registrations in the original disposable restore. A new author proof is separately pinned; exact corrected-proof/documentation independent re-review remains pending."
   ],
   "sources": [
     {
@@ -319,7 +324,7 @@
     },
     {
       "id": "preservation-report",
-      "role": "independent preservation author; scoped archive/restore PASS",
+      "role": "preservation author historical scoped PASS claim; original restore later received independent CONDITIONAL C1, not retroactively passed",
       "source_identity": {
         "repository": null,
         "commit": null,
@@ -339,7 +344,7 @@
     },
     {
       "id": "restore-proof",
-      "role": "independent preservation author; scoped archive/restore PASS",
+      "role": "preservation author historical scoped PASS claim; original restore later received independent CONDITIONAL C1, not retroactively passed",
       "source_identity": {
         "repository": null,
         "commit": null,
@@ -1181,6 +1186,219 @@
       },
       "observation_only": false,
       "archive_status": "verified preserved binding"
+    },
+    {
+      "id": "consolidation-conditional-review",
+      "role": "independent reviewer: CONDITIONAL at original documentation commit; C1 eight malformed restored reverse registrations",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/execution/status/ledger-lab",
+        "commit": "11c4920de3b52898b63d4d752c5a2cdb2db4bfd7",
+        "identity_kind": "external review about target commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/consolidation-review/CONSOLIDATION-INDEPENDENT-REVIEW.md",
+      "bytes": 14791,
+      "sha256": "696347ff4d812e4d51a9cab074abd780a73f4294fe9bc2e9001dabca784438cf",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "consolidation-review-pins",
+      "role": "independent reviewer report/evidence pins, excludes self",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/execution/status/ledger-lab",
+        "commit": "11c4920de3b52898b63d4d752c5a2cdb2db4bfd7",
+        "identity_kind": "external review about target commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/consolidation-review/REVIEW-OUTPUT-HASHES.json",
+      "bytes": 1528,
+      "sha256": "5894b3874f9f195f71de6e3c95d85fb0e95ff323bf29ff1776b5e60899dab067",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "consolidation-pointer-finding",
+      "role": "independent reviewer exact C1 pointer/path/hash evidence",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/execution/status/ledger-lab",
+        "commit": "11c4920de3b52898b63d4d752c5a2cdb2db4bfd7",
+        "identity_kind": "external review about target commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/consolidation-review/INDEPENDENT-METADATA-CHECK.json",
+      "bytes": 42077,
+      "sha256": "77a93434221623736f77cf72bbe26372db2cc5162c6885eecf05bfb6875c79e2",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "consolidation-payload-finding",
+      "role": "independent full archive/first-restore payload check; eight permitted-area mapping errors",
+      "source_identity": {
+        "repository": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/execution/status/ledger-lab",
+        "commit": "11c4920de3b52898b63d4d752c5a2cdb2db4bfd7",
+        "identity_kind": "external review about target commit"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/consolidation-review/INDEPENDENT-PAYLOAD-CHECK.json",
+      "bytes": 2251,
+      "sha256": "f87f427d4d3ed46a1fa5b39e931a7b659aeedc8040735c843facdcf28eae52d3",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restore-proof-r2",
+      "role": "preservation author: local R2 verification PASS; exact-proof independent re-review pending",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/RESTORE-PROOF-R2.md",
+      "bytes": 13702,
+      "sha256": "a99bda26c6da6e1162b44a61d8fca34276f21d5e58322a375a564df26b620726",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-seal",
+      "role": "new author proof/report/evidence/helper pin manifest; original archive seal unchanged",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/R2-EVIDENCE-MANIFEST.json",
+      "bytes": 10844,
+      "sha256": "881dbd0044b7275c378f6a52d05bc85ba10b65bd4b77f7c0bc46bda456a0ad2c",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-seal-digest",
+      "role": "external digest of R2 evidence manifest; no circular hash",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/R2-SEAL-SHA256.txt",
+      "bytes": 201,
+      "sha256": "af293a66eb71d6cf73ea7639ea2788b5587428d310940d18b8b3539c3fad2e1d",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-manifest",
+      "role": "original archive and defective-proof lineage; new corrected restore mapping",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/R2-RESTORE-MANIFEST.json",
+      "bytes": 3007,
+      "sha256": "9069161212a37013f2a532b0ae725837a9406276aeb2f4d08748e5c4405f76d1",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-pointers",
+      "role": "eight original/raw/old-defective/new pointer bindings; author evidence",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/CORRECTED-POINTERS.json",
+      "bytes": 28670,
+      "sha256": "209f941e0866c563bacd15bf402d1a2aa7e40b0dd310ac7153e2af6a747064a6",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-git",
+      "role": "author verification of 19 linked pairs, 54 registrations, 35 databases; no independent re-review inferred",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/GIT-PROOF-R2.json",
+      "bytes": 402498,
+      "sha256": "677cb4882fb4153b09c135b0c973db4d5fcb7147d2de07d103f0f46978966989",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-exceptions",
+      "role": "exact 71 allowed relocation exceptions in new proof only",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/POST-RELOCATION-EXCEPTIONS.json",
+      "bytes": 49077,
+      "sha256": "c52eb851ff79c9f807f94ca584d0dff7a7940576e76f4ef99ad091c4632c9c39",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-payload",
+      "role": "author complete post-relocation payload verification; zero unexpected differences",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/POST-RELOCATION-PAYLOAD-CHECK.json",
+      "bytes": 526,
+      "sha256": "b63813bf9c1edd264b66b3c8ddd6f541dd34763c65bd5f5e6224ecde6c6eb839",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
+    },
+    {
+      "id": "restoration-r2-prior-unchanged",
+      "role": "author prior-material protection checks and limits; originals/archive/first proof unchanged",
+      "source_identity": {
+        "repository": null,
+        "commit": null,
+        "identity_kind": "standalone post-snapshot correction evidence"
+      },
+      "original_path": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/outputs/execution/preservation-r2/UNCHANGED-PRIOR-MATERIAL.json",
+      "bytes": 29951,
+      "sha256": "b068bf73b1df005dbce4b708ef6cbb62229f872646e4b82f9fd2219dedd45623",
+      "archive": null,
+      "observation_only": false,
+      "archive_status": "post-snapshot correction/reviewer artifact; not part of the unchanged original archive"
     }
-  ]
+  ],
+  "prior_documentation_observed_at_utc": "2026-09-22T18:43:50.670957+00:00",
+  "preservation_disposition": {
+    "original_author_claim": "PASS for scoped preservation and restore; historical claim retained unchanged",
+    "independent_original_review": {
+      "target_commit": "11c4920de3b52898b63d4d752c5a2cdb2db4bfd7",
+      "verdict": "CONDITIONAL documentation/preservation gate only",
+      "finding": "C1: eight malformed restored linked-worktree back-pointers; raw archive and other documented source/evidence checks passed",
+      "report_id": "consolidation-conditional-review"
+    },
+    "corrected_proof": {
+      "report_id": "restore-proof-r2",
+      "role": "preservation author correction in a new proof tree; original defective restore/archive/reports unchanged",
+      "author_verdict": "Local R2 verification PASS; independent exact-proof re-review pending",
+      "root": "/Users/stephenkall/Documents/Codex/2026-09-22/ledger-lab-astra-coordinator/work/restore-proof/preservation-r2/restored"
+    },
+    "independent_corrected_proof_and_successor_review": "pending exact-target re-review; no combined gate PASS inferred",
+    "owner_consolidation_disposition": "pending after independent re-review"
+  }
 }
