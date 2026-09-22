@@ -311,3 +311,42 @@ slack. No other counter is touched by these exceptions. index_cardinality counts
 permanent retained index-version entries (including updates), not live map size.
 All separate visible cursors remain independently range-checked. Every increment
 is checked before mutation and every exact retry consumes0 in every dimension.
+
+## Interface refinement C: retained cutoffs and exact intake retry
+
+RECEIVE.key equals RECEIVE.payload.delivery. Its stable command digest is
+H(command,[kind,key,payload.submission]); assigned gateway/token/epoch/time stay
+in the original immutable segment, but are not resupplied as retry identity.
+All other command digests remain H(command,[kind,key,payload]).
+
+BEGIN has one ROUND_BEGIN effect with body `{round,predecessor,mode,cutoffs}`;
+cutoffs is the canonical sorted set of `{gateway,cutoff}`. SEALED has one SEAL
+effect with `{round,gateway,cutoff,receipt_high,disposition_root,receipt_root}`.
+The disposition root is H(result,[[allocation,token_id,disposition],...]) in
+numeric allocation order for this gateway through the BEGIN cutoff. Disposition
+is exactly NEW_CASE, ALIAS or RETURNED_UNUSED; any unresolved token refuses seal.
+The receipt root is H(receipt,[[position,full_receipt],...]) in numeric position
+order for every actual receipt at this gateway through the actual high-water,
+including above-cutoff receipts. These bounded source facts retain the roots;
+actual stores reconstruct the streams with bounded paged work. DRAIN retains its
+source proof.trusted_observation_ref; CLOSE coverage.observation uses that exact
+reference, and copies its sealed cutoffs/roots/high-water plus central prefixes.
+
+An ALIAS source fact retains a RECEIPT effect containing the original full receipt
+and original token; its payload retains the alias token. RETURNED_UNUSED retains
+its payload token and exact CLAIM proof, which resolves to the unique grant/token.
+Neither needs an invented posting or receipt position.
+
+Introduced trusted bytes for a local segment equal canonical command length plus
+canonical result length plus decoded object body bytes, counting a repeated exact
+body_hash once. Object framing and Base64 expansion count toward segment bytes.
+Proof metadata counts inside the command. Referenced source segments remain old
+bounded read dependencies, not newly trusted copies. The worksheet reserves a
+conservative envelope over this exact measured quantity.
+
+The fresh synthetic trace starts every writer capability journal_head at ZERO.
+Each owning journal evolves independently. Nonzero preexisting initial anchors
+require a complete retained prefix and are not accepted by this fresh trace form.
+`minimal-trace.json` carries six unchanged source documents plus the25 original
+accepted rows; `minimal-segment.json` is its exact newly reconstructed envelope.
+The original80 fixture is a compatibility control, not the customer10000 story.

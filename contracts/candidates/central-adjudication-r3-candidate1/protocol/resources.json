@@ -157,6 +157,8 @@
     "correct": 3982,
     "replace_writer": 517,
     "extend_resources": 570,
+    "round_begin": 1374,
+    "seal": 569,
     "effect": 93314,
     "result": 11944566,
     "retry_response": 8705

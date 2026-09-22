@@ -1035,7 +1035,8 @@
           },
           "minItems": 1,
           "maxItems": 32,
-          "uniqueItems": true
+          "uniqueItems": true,
+          "x-ordered": true
         },
         "gateways": {
           "type": "array",
@@ -1044,7 +1045,8 @@
           },
           "minItems": 1,
           "maxItems": 4,
-          "uniqueItems": true
+          "uniqueItems": true,
+          "x-ordered": true
         },
         "suppliers": {
           "type": "array",
@@ -2267,6 +2269,84 @@
         }
       ]
     },
+    "round_begin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "predecessor",
+        "mode",
+        "cutoffs"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "predecessor": {
+          "$ref": "#/$defs/count"
+        },
+        "mode": {
+          "enum": [
+            "FINISH_ONLY",
+            "CANCELLABLE"
+          ]
+        },
+        "cutoffs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gateway",
+              "cutoff"
+            ],
+            "properties": {
+              "gateway": {
+                "$ref": "#/$defs/id"
+              },
+              "cutoff": {
+                "$ref": "#/$defs/count"
+              }
+            }
+          },
+          "minItems": 0,
+          "maxItems": 4,
+          "uniqueItems": true
+        }
+      }
+    },
+    "seal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "gateway",
+        "cutoff",
+        "receipt_high",
+        "disposition_root",
+        "receipt_root"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/count"
+        },
+        "gateway": {
+          "$ref": "#/$defs/id"
+        },
+        "cutoff": {
+          "$ref": "#/$defs/count"
+        },
+        "receipt_high": {
+          "$ref": "#/$defs/count"
+        },
+        "disposition_root": {
+          "$ref": "#/$defs/digest"
+        },
+        "receipt_root": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
     "effect": {
       "oneOf": [
         {
@@ -2314,6 +2394,38 @@
             },
             "body": {
               "$ref": "#/$defs/certificate"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ROUND_BEGIN"
+            },
+            "body": {
+              "$ref": "#/$defs/round_begin"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "body"
+          ],
+          "properties": {
+            "kind": {
+              "const": "SEAL"
+            },
+            "body": {
+              "$ref": "#/$defs/seal"
             }
           }
         }
