@@ -18,7 +18,7 @@ def main():
    raw=(HERE/entry['path']).read_bytes();assert len(raw)==entry['bytes'] and hashlib.sha256(raw).hexdigest()==entry['sha256'],('inventory',entry['path'])
   for entry in json.loads((HERE/'SOURCE-PROVENANCE.json').read_text())['repository_dependencies']:
    raw=(REPO/entry['path']).read_bytes();assert len(raw)==entry['bytes'] and hashlib.sha256(raw).hexdigest()==entry['sha256'],('source dependency',entry['path'])
-  for script in ['derive_schema.py','derive_resources.py','boundary_vectors.py','index_model.py','fixtures.py','tests.py','read_vectors.py','transition_matrix.py','inventory.py']:run(script.removesuffix('.py'),[sys.executable,str(HERE/script)])
+  for script in ['derive_schema.py','derive_resources.py','boundary_vectors.py','index_model.py','fixtures.py','tests.py','read_vectors.py','transition_matrix.py','regression_checks.py','inventory.py']:run(script.removesuffix('.py'),[sys.executable,str(HERE/script)])
   traces=[HERE/'minimal-trace.json',HERE/'customer-trace.json']+sorted((HERE/'vectors').glob('*.json'));node=os.environ.get('NODE') or shutil.which('node')
   if not args.python_only:assert node and (HERE/'validate.mjs').exists() and (HERE/'node-tests.mjs').exists(),'independent Node validator required';run('node-tests',[node,str(HERE/'node-tests.mjs')])
   for trace in traces:

@@ -10,8 +10,8 @@
           "id": "pool",
           "maximum": "500",
           "consumed": "330",
-          "held": "0",
-          "released": "170"
+          "held": "170",
+          "released": "0"
         }
       ],
       "certificate": "24a126e18d5091984c90f0dc64f74d5a896d6676188996d8f7fca483590644fd"
@@ -40,8 +40,8 @@
           "id": "pool",
           "maximum": "500",
           "consumed": "300",
-          "held": "0",
-          "released": "200"
+          "held": "200",
+          "released": "0"
         }
       ],
       "certificate": "e719cd1e34898ecef2438521cc593c91c5ddfc2f4143e3c87c03a61c669dc402"
