@@ -60,6 +60,7 @@ Node CLI: `node validate.mjs FILE`, identical contract. No subprocess cross-call
 `replay(trace)`; CLI fixture file envelope is `{"format":"r3-trace/1","initial":
 {...},"commands":[...]}`. `initial` has externally trusted `authority_documents`
 (array of raw digest strings), `grant_authentications` (array of raw digests),
+`authority_observations`, `trusted_observations`, `original_objects`,
 `original_base_receipt`, `original_base_manifest`, `initial_resources` (one full `resource` vector per host), `initial_counters`
 (map host→map counter→{q,R}, omitted names mean0,0), and `writer_capabilities` (map
 logical gateway→{epoch,journal_head,fence}, supplied by trusted actual adapter).
@@ -122,8 +123,8 @@ staging until same-identity authoritative resolution. Exact retry is read-only.
 | ADVANCE | Through is exactly next allocation; terminal and imported-if-consumed; monotonic allocation cursor. Separately advance contiguous imported original receipt prefix. Original token may import before earlier alias allocation | central token |
 | RETIRE_GRANT | Same lock as ISSUE; only registered unclaimed; permanent RETIRED_UNCLAIMED, claim forever barred | central grant |
 | LOCAL_TERMINAL | Exact authoritative central retirement/reconciliation proof; no timeout/absence release; retain local permanent terminal; release only unused slack, not used pages/IDs | original local grant |
-| BEGIN | One new round, previous terminal installed at every required gateway; requested nonempty newly closed family set; pin mode, finite allocation cutoffs and predecessor; FINISH_ONLY consumes designated protected family bundle; CANCELLABLE buys whole independent bundle | protected or optional round |
-| SEAL_BEGIN | Exact active round/predecessor, current writer; serialize with receipt commit, switch OPEN→SEALING; no new local intake | round local seal slot |
+| BEGIN | One new round, previous terminal installed at every required gateway; requested nonempty newly closed family set; pin mode, finite allocation cutoffs, global predecessor and each gateway acknowledged predecessor; FINISH_ONLY consumes designated protected family bundle; CANCELLABLE buys whole independent bundle | protected or optional round |
+| SEAL_BEGIN | Exact retained BEGIN and local gateway predecessor, current writer; serialize with receipt commit, switch OPEN→SEALING; no new local intake | round local seal slot |
 | SEALED | All issued tokens through cutoff terminal locally, including undelivered; actual receipt high-water/root includes receipts from above-cutoff adjustment tokens consumed before SEAL_BEGIN; store exact seal | round local sealed slot |
 | DRAIN | Exact seal, central allocation cursor>=cutoff and every receipt through actual high-water imported; bind allocation disposition and receipt roots/counts. An allocation count is never a receipt count | round central drain slot |
 | READY | Every fenced gateway drained, exact selected cutoffs and actual high-waters; revalidation failure appends nothing | round |
@@ -218,7 +219,7 @@ references. Original allocation2 can import before dependent alias allocation1.
 
 Each segment has `objects`, a bounded typed exact-object inventory. Body is Base64
 of strict canonical bytes; bytes and raw SHA256 bind decoded bytes and full key.
-Kinds are closed. Previously retained objects are hash dependencies, not recopied.
+Kinds are closed. Previously retained exact typed identities remain bound dependencies, not recopied; a shared body hash alone never establishes that identity.
 Imported receipt includes exact submission/evidence and original receipt bodies.
 An alias proof identifies the exact mapping plus immutable original receipt/token.
 Unused proof identifies the permanent grant-token tombstone. Source segments are
@@ -245,22 +246,24 @@ allowed only when payer==bearer. No fabricated null delegation. UNKNOWN lifecycl
 without a verified head omits prefix; it must not invent a zero-filled head.
 
 Resource vectors are per-host, six-dimensional. `initial_resources[host]` gives
-provisioned capacity, `initial_counters[host][name]={q,R}` gives prior obligations.
+provisioned capacity, `initial_counters[host][name]={q,R}` gives the closed fresh-genesis counter state (q0/R0 except writer_epoch1).
 `protocol/resources.json` derives complete retained slot/bundle costs. Reserve all
 retained dimensions additively per owner; workspace is the maximum slot workspace
 within an owner, held additively across owners. This deliberately conservative
 profile gives each live owner its own bounded recoverable staging slot. Only one
 operation at a time uses an owner's slot; unknown outcome keeps it held. Local
 grant.resources/counters must cover its entire local_grant bundle before export.
-Enrollment pre-funds32 finish_central bundles and32 finish_gateway bundles per
-gateway; optional cancellable rounds allocate separate complete bundles. Resource
+Each gateway PREPARE_ENROLL pre-funds32 local finish_gateway bundles; central
+ENROLL pre-funds32 finish_central bundles. Cancellable rounds similarly prepare
+local optional bundles before central BEGIN. Resource
 release requires exact terminal proof. Used immutable bytes/pages never return to
 free. ACK_INSTALL is a separate central commit after local INSTALL.
 
 `counter_increments` in the worksheet is a per-slot maximum credit vector, not
 permission to increment unrelated semantic counters. Actual fields increment only
 for their owning transition. RECEIVE creates one receipt position for NEW_CASE,
-zero for ALIAS; IMPORT adds one original receipt-import fact or zero for ALIAS;
+zero for ALIAS; IMPORT increments the token-import counter for either branch,
+while an alias adds no new original receipt position;
 DECIDE only ALLOW increments accepted economic revision. Head/segment/resource
 revision increments occur once per committed transition. An optional operation
 cannot consume reserved future headroom. Retrying existing identity changes no
@@ -303,10 +306,10 @@ slack only after both required advances; alias/unused tokens need only allocatio
 advance and then release their unused receipt-advance slot. This avoids unbounded
 cursor work or losing prepaid headroom when imports arrive out of order.
 
-The worksheet's actual counter vector equals its reservation maximum except
-RECEIVE ALIAS consumes0 receipt increments and DECIDE DENY consumes0 economic
-revision increments; those unused per-slot credits discharge as proven branch
-slack. No other counter is touched by these exceptions. index_cardinality counts
+Actual counters use the owning transition's applicable increments, with named
+actual index-version counts instead of padded maxima. RECEIVE ALIAS consumes0
+receipt increments and DECIDE DENY consumes0 economic revision increments;
+unused per-slot credits discharge as proven branch slack. index_cardinality counts
 permanent retained index-version entries (including updates), not live map size.
 All separate visible cursors remain independently range-checked. Every increment
 is checked before mutation and every exact retry consumes0 in every dimension.
@@ -587,3 +590,82 @@ complete read includes one UNKNOWN_GATEWAY_COVERAGE entry per enrolled gateway;
 this deliberately conservative projection never implies complete durable ingress.
 A comparison can instead carry exact retained certificate coverage, which must
 match the committed fields, not merely reuse a trusted observation digest.
+
+## Final read and subset-round refinements
+
+ExpectedPrefix explicitly includes logical store, scope, target, profile,
+enrollment digest, registration, host, ordinal, segment and root. Every binding is
+checked; registration never substitutes for target/profile/enrollment. The immutable
+enrollment digest is computed at ENROLL, so prefix validation does not reserialize
+terms before its budget starts.
+
+Routing uses the immutable ordered ENROLL.gateways array. Preparation arrival order
+cannot influence ownership. The permuted-preparation vector covers every owner.
+
+The center retains an acknowledged-round cursor per gateway, changed only by its
+exact ACK_INSTALL. Each BEGIN ROUND_BEGIN.cutoffs item binds gateway_predecessor
+from that cursor, independently of the global predecessor. PREPARE_ROUND binds the
+requested global round and precise locally installed predecessor; gaps are allowed
+for skipped gateways. BEGIN checks those preparations against central acknowledged
+cursors. SEAL_BEGIN and INSTALL compare the bound gateway predecessor with local
+installed state. INSTALL carries both `proof` (TERMINAL) and `begin` (BEGIN); both
+exact source facts/dependencies are funded even if the gateway never saw BEGIN.
+The terminal outcome cannot smuggle a current global round into local knowledge.
+ACK_INSTALL has one additional actual/index-reserved version for its central
+per-gateway acknowledged cursor. Alternating subset rounds remain possible and
+unselected gateways are never silently reported as covered.
+
+SealReader now walks immutable local disposition/allocation and receipt/position
+indexes maintained by the corresponding successful local commits. Constructor
+work is constant: it captures prefix, cutoff, actual H and funded owner. Every
+entry is fetched by its exact next numeric position during charged traversal;
+a missing position is a hole, never an omitted token. No whole-cutoff list or sort
+is constructed. One bounded entry (at most8192 bytes), two page buffers and hash/
+cursor state fit the32768-byte logical lane. The SEALED transition uses this same
+fold, rather than a separate unbounded history hash helper. Partial source reads
+cannot produce a terminal root. Derived index rollback is covered along with all
+authoritative state; actual physical index persistence remains a runtime proof.
+
+ComparisonReader folds ACTION effects and requested coverage as each charged
+segment finishes verification. These fields are bounded by the same segment bytes;
+there is no second uncharged sweep over action/certificate history. Its state is
+premium/delta, first failure, at most4 coverage flags and one verified read cursor.
+INCOMPLETE includes exact cursor and measured work with no successful total; resume
+must keep ExpectedPrefix, policy and coverage unchanged in that reader session.
+Completion/cancellation releases the cursor. Wrong or merely hash-known coverage
+cannot match a retained exact closure observation. The ordinary comparison helper
+is one-shot; resumable callers use ComparisonReader explicitly.
+
+Each successful command checks all six host held totals against the sum of exact
+owner allocations and every counter R against the remaining named slots, with
+q+R<=M. Refusal and exception restore authoritative maps, immutable-read-index
+membership, local scan-index membership and diagnostic peak accounting. Exact
+retry appends no segment, index, resource debit or counter increment.
+
+Seal fold page/cursor rule: phases are DISPOSITIONS then RECEIPTS, with numeric
+entries1..cutoff and1..H respectively. Entry0 is the single byte `[`, entry i is
+its canonical array value prefixed by `,` exactly when i>1, and entry N+1 is `]`.
+Those canonical entry fragments are materialized in the corresponding local
+immutable index during the already funded disposition/receipt commit. Scanning
+looks up a fragment by position and never reserializes it per continuation.
+Each read step consumes min(4032, remaining fragment bytes, remaining byte budget)
+bytes and one page credit; fragments do not share that logical page credit.
+A partially read fragment retains byte_offset. On fragment completion, entry
+increments and offset becomes0. Completing `]` advances phase and resets entry0;
+completing receipt `]` yields COMPLETE. Opening/closing brackets each cost one byte
+and one page. A zero byte/page budget makes no progress. Only complete phases
+expose roots. Cursor binds exact ExpectedPrefix/round/phase/entry/byte_offset and
+is usable only within its live private session; abort drops it. Hash state uses
+the existing domain+NUL prefix followed by these exact canonical array bytes.
+The three-unused sample therefore costs102 bytes and7 logical pages when read
+without a smaller budget; repeated7-byte/two-page calls have explicit measured
+partial work and the same final roots.
+
+A terminal logical value leaf stores the full binary key plus72 bytes of fixed
+reference framing: version1,flags1,key-length2,record-length4,record-hash32 and
+source-segment32. The bounded canonical record/object is already retained in its
+charged segment inventory; value references never substitute for typed membership.
+K+72=1151 fits one4032-byte payload page. The worksheet conservatively reserves
+ceil((maximum command+result+introduced bodies)/4032) pages per changed value,
+which is at least this full-key/reference minimum for every transition. It does
+not require copying the entire source archive or using unbounded collision buckets.

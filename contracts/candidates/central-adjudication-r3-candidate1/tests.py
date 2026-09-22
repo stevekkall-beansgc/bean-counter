@@ -52,7 +52,7 @@ def cancellation(stage):
  if stage=='ready':b.add('DRAIN',dict(round=n,gateway='g0',proof=b.proof('SEAL',n)));b.add('READY',dict(round=n))
  b.add('ABORT',dict(round=n));b.install(n,'ABORTED');equal(b.l.s['gateways']['g0']['clock_floor'],'0001-01-01T00:00:00.000000Z')
  if stage not in {'sealed','ready'}:b.unused(tid)
- b.advance();saturation(b);n2=b.begin([0]);old=next(c for c in b.commands if c['kind']=='ABORT');retry(b,old);equal(b.l.s['active'],2);b.add('ABORT',dict(round=n2),expect='REFUSED');b.seal(n2);b.add('SEAL_BEGIN',dict(round=n,gateway='g0',predecessor='0',proof=b.proof('BEGIN',n)),expect='REFUSED');b.add('INSTALL',dict(round=n,gateway='g0',outcome='ABORTED',proof=b.proof('TERMINAL',n)),expect='REFUSED');b.add('CLOSE',dict(round=n2,closed_at=NOW));b.install(n2,'COMMITTED');return b
+ b.advance();saturation(b);n2=b.begin([0]);old=next(c for c in b.commands if c['kind']=='ABORT');retry(b,old);equal(b.l.s['active'],2);b.add('ABORT',dict(round=n2),expect='REFUSED');b.seal(n2);b.add('SEAL_BEGIN',dict(round=n,gateway='g0',predecessor='0',proof=b.proof('BEGIN',n)),expect='REFUSED');b.add('INSTALL',dict(round=n,gateway='g0',outcome='ABORTED',proof=b.proof('TERMINAL',n),begin=b.proof('BEGIN',n)),expect='REFUSED');b.add('CLOSE',dict(round=n2,closed_at=NOW));b.install(n2,'COMMITTED');return b
 
 def resource_boundary(d,offset):
  initial=json.loads((HERE/'minimal-trace.json').read_text())['initial'];initial.pop('optional_rounds',None);l=v.Ledger(initial);needed=v.vec('IMPORT')[d];l.s['resources']['center']['provisioned'][d]=needed+offset
@@ -121,7 +121,7 @@ def retirement():
   c=copy.deepcopy(c);c['authority']['head']=b.l.journal(b.l.host(c))['root'];c['authority']['command']=v.command_hash(c)
   for name in ['grant_authentications','trusted_observations']:b.initial[name]=original['initial'][name];b.l.initial[name]=original['initial'][name]
   b.add(c['kind'],c['payload'])
- b.add('RETIRE_GRANT',dict(grant=gid));b.claim(gid,expect='REFUSED');b.add('LOCAL_TERMINAL',dict(grant=gid,gateway='g0',proof=b.proof('RETIREMENT',gid)));equal(b.l.s['grants'][gid]['local_terminal'],True)
+ b.add('RETIRE_GRANT',dict(grant=gid));b.claim(gid,expect='REFUSED');b.add('LOCAL_TERMINAL',dict(grant=gid,gateway='g0',proof=b.proof('RETIREMENT',gid)));equal(b.l.s['grants'][gid]['local_terminal'],True);funded_replay(b,'grant-retirement')
 
 def rollback():
  b=Builder(families=1,gateways=1);case,tid=b.intake(0,'pending');b.reconcile(tid);b.close([0]);p=dict(case=case,verdict='ALLOW',path='ADJUSTMENT',signed_atoms='100',pool='adjustments',roles=b.p['families'][0]['roles'],assent='a'*64,reason='attempt')
@@ -258,8 +258,44 @@ def terminal_races():
   b=Builder(families=1,gateways=1);n=b.begin([0],'CANCELLABLE');b.seal(n);b.add(winner,dict(round=n,**({'closed_at':NOW} if winner=='CLOSE' else {})));loser='ABORT' if winner=='CLOSE' else 'CLOSE';before=copy.deepcopy(no_authoritative(b.l.s));b.add(loser,dict(round=n,**({'closed_at':NOW} if loser=='CLOSE' else {})),expect='REFUSED');equal(no_authoritative(b.l.s),before);b.install(n,'COMMITTED' if winner=='CLOSE' else 'ABORTED');funded_replay(b,'terminal-race-'+winner.lower())
 
 
+def subset_and_delayed():
+ b=Builder(families=3,gateways=2)
+ for family,gateway,mode in [(0,'g0','FINISH_ONLY'),(1,'g1','CANCELLABLE'),(2,'g0','FINISH_ONLY')]:
+  n=b.begin([family],mode,[gateway]);b.seal(n);b.add('CLOSE',dict(round=n,closed_at=NOW));b.install(n,'COMMITTED')
+ equal(b.l.s['gateways']['g0']['acknowledged'],3);equal(b.l.s['gateways']['g1']['acknowledged'],2);equal([c['cutoffs'][0]['gateway'] for c in b.l.s['certificates']],['g0','g1','g0']);funded_replay(b,'alternating-subset-rounds')
+ b=Builder(families=1,gateways=1);n=b.begin([0],'CANCELLABLE');b.add('ABORT',dict(round=n));b.add('SEAL_BEGIN',dict(round=n,gateway='g0',predecessor='0',proof=b.proof('BEGIN',n)));b.install(n,'ABORTED');b.add('SEAL_BEGIN',dict(round=n,gateway='g0',predecessor='0',proof=b.proof('BEGIN',n)),expect='REFUSED');b.close([0]);funded_replay(b,'unseen-abort-delayed-begin')
+
+def preparation_order():
+ b=Builder(families=1,gateways=4,preparation_order=['g3','g1','g0','g2']);found={}
+ for i in range(100):
+  case=[b.p['families'][0]['key'],'source','permuted'+str(i)];found.setdefault(b.owner(case),case)
+ for g,case in found.items():tid=b.issue(g);b.receive(tid,case);b.import_token(tid);b.reconcile(tid)
+ equal(set(found),{'g0','g1','g2','g3'});b.close([0]);funded_replay(b,'permuted-preparation-order')
+
+def comparison_resume():
+ from reads import ComparisonReader,Reader,expected
+ b=customer_story();request=dict(expected=expected(b.l),policy={'resolution_atoms':'1500'},coverage=[dict(gateway=g,status='UNKNOWN_GATEWAY_COVERAGE') for g in sorted(b.l.s['gateways'])],budget={'bytes':'4096','pages':'1','segments':'1'});reader=ComparisonReader(b.l);calls=0;before=copy.deepcopy(no_authoritative(b.l.s))
+ while True:
+  r=reader.read(request);calls+=1
+  if r['status']!='INCOMPLETE':break
+  assert 'alternative' not in r;request['cursor']=r['cursor'];assert calls<1000
+ equal(r['alternative'],'11750');equal(no_authoritative(b.l.s),before)
+ for field in ['target','enrollment','profile']:
+  pin=expected(b.l);pin[field]='f'*64 if field=='enrollment' else 'wrong';reject(lambda:Reader(b.l).start(pin))
+
+
+def supplemental_control():
+ b=Builder(families=1,gateways=1);case,tid=b.intake(0,'supplement');body=base64.b64encode(b'additional evidence').decode();b.add('SUPPLEMENT',dict(case=case,evidence=[dict(body=body,sha256=hashlib.sha256(b'additional evidence').hexdigest())]));b.decide(case,0,'DENY');b.reconcile(tid);b.close([0]);funded_replay(b,'supplement-control')
+
+
+def saved_close_unimported():
+ b=Builder(families=2,gateways=1,suppliers=[dict(id='pool',maximum='500',consumed='330',held='170',released='0')]);p=copy.deepcopy(b.p)
+ for f in p['families']:f.update(book='SUPPLIER',supplier_pool='pool')
+ b=reenroll(b,p);b.close([0]);old=copy.deepcopy(next(c for c in b.commands if c['kind']=='CLOSE'));case=[b.p['families'][1]['key'],'source','unimported'];tid=b.issue('g0');b.receive(tid,case);before=copy.deepcopy(no_authoritative(b.l.s));retry(b,old);equal(no_authoritative(b.l.s),before);equal(b.l.s['suppliers']['pool']['held'],'170');n=b.begin([1]);b.add('SEAL_BEGIN',dict(round=n,gateway='g0',predecessor='1',proof=b.proof('BEGIN',n)));b.add('SEALED',dict(round=n,gateway='g0'));b.add('DRAIN',dict(round=n,gateway='g0',proof=b.proof('SEAL',n)),expect='REFUSED');b.import_token(tid);b.reconcile(tid);b.advance();b.add('DRAIN',dict(round=n,gateway='g0',proof=b.proof('SEAL',n)));b.add('READY',dict(round=n));b.add('CLOSE',dict(round=n,closed_at=NOW));b.install(n,'COMMITTED');equal(b.l.s['suppliers']['pool']['released'],'170');funded_replay(b,'REG02-saved-close-unimported')
+
+
 def main():
- test('terminal-close-abort-winners',terminal_races);test('stored-semantic-and-bounded-reader-integrity',read_integrity);test('seal-scan-yield-abort-resume',seal_scan);test('provenance-and-genesis-attacks',provenance_attacks);test('delayed-seal-observation',lambda:funded_replay(delayed_seal(),'delayed-seal-observation'));test('independent-host-identity',lambda:funded_replay(host_identity(),'independent-host-identity'));test('strict-encoding-evidence-decimal-boundaries',encoding);test('customer-S00-S14-and-exact-retries',customer);test('base-retained-mutation',base_mutations);test('routing16-and-namespace-boundaries',namespace_routes);test('read-cursors-unknown-comparison',reads_and_comparison);test('unclaimed-retirement-and-no-revival',retirement);test('late-refusal-exception-full-rollback',rollback);test('C1-uncovered-issuance',uncovered_issuance);test('optional-round-exhaustion',repeated_cancel);test('writer-epoch-guards',writer_epoch);test('measured-envelopes-and-maximal-key-paths',measured_envelopes);test('expected-prefix-truncation',truncation);test('max-topology32-4-8-3',topology);test('independent-gross249-250-251',gross_boundaries);test('directional-caps-and-shared-funding-races',directional_funding);test('genuine-clock-lower-bound',clock_floor)
+ test('REG02-saved-close-with-unimported-receipt',saved_close_unimported);test('supplement-control',supplemental_control);test('subset-rounds-and-unseen-abort',subset_and_delayed);test('routing-independent-of-preparation-arrival',preparation_order);test('comparison-resume-and-prefix-binding',comparison_resume);test('terminal-close-abort-winners',terminal_races);test('stored-semantic-and-bounded-reader-integrity',read_integrity);test('seal-scan-yield-abort-resume',seal_scan);test('provenance-and-genesis-attacks',provenance_attacks);test('delayed-seal-observation',lambda:funded_replay(delayed_seal(),'delayed-seal-observation'));test('independent-host-identity',lambda:funded_replay(host_identity(),'independent-host-identity'));test('strict-encoding-evidence-decimal-boundaries',encoding);test('customer-S00-S14-and-exact-retries',customer);test('base-retained-mutation',base_mutations);test('routing16-and-namespace-boundaries',namespace_routes);test('read-cursors-unknown-comparison',reads_and_comparison);test('unclaimed-retirement-and-no-revival',retirement);test('late-refusal-exception-full-rollback',rollback);test('C1-uncovered-issuance',uncovered_issuance);test('optional-round-exhaustion',repeated_cancel);test('writer-epoch-guards',writer_epoch);test('measured-envelopes-and-maximal-key-paths',measured_envelopes);test('expected-prefix-truncation',truncation);test('max-topology32-4-8-3',topology);test('independent-gross249-250-251',gross_boundaries);test('directional-caps-and-shared-funding-races',directional_funding);test('genuine-clock-lower-bound',clock_floor)
  for d in v.DIMS:
   for n in [-1,0,1]:test('resource-'+d+'-'+str(n),lambda d=d,n=n:resource_boundary(d,n))
  for name in v.SCHEMA['x-counters']:

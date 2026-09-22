@@ -2,7 +2,7 @@
 import copy,json,sys
 import validate as v
 from fixtures import HERE,customer_story
-from reads import Reader,expected,compare
+from reads import Reader,ComparisonReader,expected,compare
 from seal_reader import SealReader
 
 def build():
@@ -13,12 +13,12 @@ def build():
   request=dict(expected=current,policy={'resolution_atoms':replacement},budget=budget,coverage=coverage);rows.append(dict(name=name,kind='compare',request=request,response=compare(b.l,request)))
  bad=copy.deepcopy(rows[-1]['request']);bad['coverage'][0]['receipt_high']='999';rows.append(dict(name='known-observation-wrong-coverage',kind='compare',request=bad,error='COVERAGE_EXACT_PREFIX'))
  bad=copy.deepcopy(rows[0]['request']);bad['expected']['root']='f'*64;rows.append(dict(name='wrong-expected-root',kind='read',request=bad,error='EXPECTED_PREFIX'))
- bad=copy.deepcopy(rows[3]['request']);bad['policy']['invent_decision']=True;rows.append(dict(name='unsupported-policy-field',kind='compare',request=bad,error='UNKNOWN_FIELD'))
+ bad=copy.deepcopy(rows[3]['request']);bad['policy']['invent_decision']=True;rows.append(dict(name='unsupported-policy-field',kind='compare',request=bad,error='FIELDS'))
  for row in rows:
   call=lambda:Reader(b.l).read(row['request']) if row['kind']=='read' else compare(b.l,row['request'])
   if 'error'in row:
    try:call()
-   except ValueError:pass
+   except ValueError as error:assert str(error)==row['error'],(row['name'],str(error),row['error'])
    else:raise AssertionError(row['name'])
   else:assert call()==row['response']
  trace=v.strict((HERE/'vectors/seal-scan.json').read_bytes());ledger=v.Ledger(trace['initial']);through=0
@@ -26,7 +26,8 @@ def build():
   ledger.execute(c);through+=1
   if c['kind']=='SEAL_BEGIN':break
  scan=SealReader(ledger,'g0','1');partial=scan.read(1,1);scan.abort();complete=SealReader(ledger,'g0','1').read(v.M,v.M)
- return dict(format='r3-read-vectors/1',source_trace='customer-trace.json',operations=rows,seal=dict(source_trace='vectors/seal-scan.json',through=str(through),gateway='g0',round='1',partial_budget={'bytes':'1','pages':'1'},partial=partial,complete=complete,abort_error='SCAN_ABORTED',resume_budget={'bytes':'7','pages':'2'}))
+ request=copy.deepcopy(rows[3]['request']);request['budget']={'bytes':'1','pages':'1','segments':'1'};comparison=ComparisonReader(b.l);first_comparison=comparison.read(request);resume_request=copy.deepcopy(request);resume_request.update(cursor=first_comparison['cursor'],budget=large);final_comparison=comparison.read(resume_request)
+ return dict(format='r3-read-vectors/1',source_trace='customer-trace.json',operations=rows,comparison_resume=dict(request=request,first=first_comparison,resume_request=resume_request,final=final_comparison),seal=dict(source_trace='vectors/seal-scan.json',through=str(through),gateway='g0',round='1',partial_budget={'bytes':'1','pages':'1'},partial=partial,complete=complete,abort_error='SCAN_ABORTED',resume_budget={'bytes':'7','pages':'2'}))
 def main():
  raw=json.dumps(build(),indent=2)+'\n';path=HERE/'read-vectors.json'
  if '--write' in sys.argv:path.write_text(raw)

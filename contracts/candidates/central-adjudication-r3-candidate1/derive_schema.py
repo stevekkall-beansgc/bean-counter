@@ -71,16 +71,17 @@ P={
 for k in ['REGISTER_GRANT','ACTIVATE','RETURN_UNUSED','LOCAL_TERMINAL','SEAL_BEGIN','DRAIN','INSTALL','ACK_INSTALL']:
  P[k]['properties']['proof']=ref('proof')
  if 'proof' not in P[k]['required']: P[k]['required'].append('proof')
+P['INSTALL']['properties']['begin']=ref('proof');P['INSTALL']['required'].append('begin')
 for k,v in P.items():D[k.lower()]=v
 D['command']={'oneOf':[obj(kind={'const':k},key=ref('delivery'),payload=ref(k.lower()),authority=ref('authority')) for k in P]}
-D['round_begin']=obj(round=ref('count'),predecessor=ref('count'),mode=en('FINISH_ONLY','CANCELLABLE'),cutoffs=arr(obj(gateway=ref('id'),cutoff=ref('count')),4,0,True))
+D['round_begin']=obj(round=ref('count'),predecessor=ref('count'),mode=en('FINISH_ONLY','CANCELLABLE'),cutoffs=arr(obj(gateway=ref('id'),cutoff=ref('count'),gateway_predecessor=ref('count')),4,0,True))
 D['seal']=obj(round=ref('count'),gateway=ref('id'),cutoff=ref('count'),receipt_high=ref('count'),disposition_root=ref('digest'),receipt_root=ref('digest'))
 D['effect']={'oneOf':[obj(kind={'const':k},body=ref(t)) for k,t in [('RECEIPT','receipt'),('ACTION','action'),('CLOSURE','certificate'),('ROUND_BEGIN','round_begin'),('SEAL','seal')]]}
 D['result']=obj(status=en('COMMITTED','DUPLICATE','REFUSED','UNKNOWN'),code=text(64),effects=arr(ref('effect'),128),root=ref('digest'))
 D['segment']=obj(host=ref('id'),profile={'const':'central-adjudication-r3/1'},ordinal=ref('count'),previous=ref('digest'),previous_root=ref('digest'),command=ref('command'),result=ref('result'),dependencies=arr(ref('digest'),128,0,True),objects=arr(ref('object'),133,0,True))
 D['retry_response']=obj(receipt=ref('receipt'),knowledge=en('AUTHORITATIVE_AT_PREFIX','CACHED_VERIFIED_PREFIX','UNKNOWN'),current_lifecycle=en('UNKNOWN','ORDINARY_PENDING','ADJUSTMENT_PENDING','FINAL_ALLOW','FINAL_DENY'),central_admission=en('UNKNOWN','PRESENT_AT_PREFIX','ABSENT_AT_PREFIX'),prefix=ref('head'),coverage=arr(ref('coverage'),4,0,True))
 D['retry_response']['required'].remove('prefix')
-D['expected_prefix']=obj(store=ref('id'),scope=ref('scope'),registration=ref('id'),host=ref('id'),ordinal=ref('count'),segment=ref('digest'),root=ref('digest'))
+D['expected_prefix']=obj(store=ref('id'),scope=ref('scope'),target=ref('id'),profile={'const':'central-adjudication-r3/1'},enrollment=ref('digest'),registration=ref('id'),host=ref('id'),ordinal=ref('count'),segment=ref('digest'),root=ref('digest'))
 D['read_budget']=obj(bytes=ref('count'),pages=ref('count'),segments=ref('count'))
 D['read_cursor']=obj(expected=ref('expected_prefix'),ordinal=ref('count'),byte_offset=ref('count'),verified_root=ref('digest'),continuation=ref('digest'))
 D['read_request']=obj(expected=ref('expected_prefix'),budget=ref('read_budget'))
@@ -91,7 +92,8 @@ D['seal_budget']=obj(bytes=ref('count'),pages=ref('count'))
 D['seal_read_response']={'oneOf':[obj(status={'const':'INCOMPLETE'},cursor=ref('seal_cursor'),measured=ref('seal_budget')),obj(status={'const':'COMPLETE'},cursor=ref('seal_cursor'),measured=ref('seal_budget'),disposition_root=ref('digest'),receipt_root=ref('digest'))]}
 D['comparison_policy']=obj(resolution_atoms=ref('count'))
 D['comparison_request']=obj(expected=ref('expected_prefix'),policy=ref('comparison_policy'),budget=ref('read_budget'),coverage=arr(ref('coverage'),4,1,True))
-D['comparison_response']={'oneOf':[obj(status={'const':'COMPARABLE'},expected=ref('expected_prefix'),actual=ref('atoms'),alternative=ref('atoms'),difference=ref('atoms'),supplier_booked=ref('count'),coverage=arr(ref('coverage'),4,1,True)),obj(status={'const':'UNSUPPORTED'},reason=text(256)),obj(status={'const':'POLICY_FAILURE'},at_case=ref('case'),reason=text(256)),obj(status={'const':'INCOMPLETE'},expected=ref('expected_prefix'),reason=text(256))]}
+D['comparison_request']['properties']['cursor']=ref('read_cursor')
+D['comparison_response']={'oneOf':[obj(status={'const':'COMPARABLE'},expected=ref('expected_prefix'),actual=ref('atoms'),alternative=ref('atoms'),difference=ref('atoms'),supplier_booked=ref('count'),coverage=arr(ref('coverage'),4,1,True),measured=ref('read_budget')),obj(status={'const':'UNSUPPORTED'},reason=text(256),measured=ref('read_budget')),obj(status={'const':'POLICY_FAILURE'},at_case=ref('case'),reason=text(256),measured=ref('read_budget')),obj(status={'const':'INCOMPLETE'},expected=ref('expected_prefix'),reason=text(256),cursor=ref('read_cursor'),measured=ref('read_budget'))]}
 s={'$schema':'https://json-schema.org/draft/2020-12/schema','$id':'urn:ledgerlab:central-adjudication-r3:1','$ref':'#/$defs/segment','$defs':D,'x-counters':COUNTERS,'x-operation-limit':262144,'x-trusted-limit':2097152,'x-segment-limit':8388608}
 expected=json.dumps(s,indent=2,ensure_ascii=False)+'\n'
 if '--write' in sys.argv:(root/'protocol/schema.json').write_text(expected)

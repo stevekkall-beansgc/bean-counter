@@ -12,11 +12,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "budget": {
           "bytes": "999999999999999999999999999999",
@@ -32,14 +35,17 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "measured": {
-          "bytes": "303843",
+          "bytes": "312471",
           "pages": "117",
           "segments": "77"
         },
@@ -75,6 +81,9 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "1",
@@ -95,6 +104,9 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "1",
@@ -138,11 +150,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "budget": {
           "bytes": "1",
@@ -159,16 +174,19 @@
               "synthetic",
               "sandbox"
             ],
+            "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+            "profile": "central-adjudication-r3/1",
+            "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
             "registration": "registration",
             "host": "center",
             "ordinal": "77",
-            "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-            "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+            "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+            "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
           },
           "ordinal": "0",
           "byte_offset": "1",
           "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
-          "continuation": "012c7ec52bc068bb37e9a375255086810a3a7bea099d4e59d976d34be4313718"
+          "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
         },
         "measured": {
           "bytes": "1",
@@ -187,11 +205,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -228,11 +249,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "actual": "11450",
         "alternative": "11750",
@@ -255,7 +279,12 @@
             "gateway": "g3",
             "status": "UNKNOWN_GATEWAY_COVERAGE"
           }
-        ]
+        ],
+        "measured": {
+          "bytes": "312471",
+          "pages": "117",
+          "segments": "77"
+        }
       }
     },
     {
@@ -268,11 +297,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "policy": {
           "resolution_atoms": "6000"
@@ -316,6 +348,11 @@
           "source",
           "resolution"
         ],
+        "measured": {
+          "bytes": "312471",
+          "pages": "117",
+          "segments": "77"
+        },
         "reason": "original premium cap exceeded at this actual acceptance"
       }
     },
@@ -329,11 +366,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -370,13 +410,42 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
-        "reason": "verification budget exhausted; no successful total"
+        "cursor": {
+          "expected": {
+            "store": "center",
+            "scope": [
+              "synthetic",
+              "sandbox"
+            ],
+            "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+            "profile": "central-adjudication-r3/1",
+            "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+            "registration": "registration",
+            "host": "center",
+            "ordinal": "77",
+            "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+            "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+          },
+          "ordinal": "0",
+          "byte_offset": "1",
+          "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
+          "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
+        },
+        "measured": {
+          "bytes": "1",
+          "pages": "1",
+          "segments": "0"
+        },
+        "reason": "verification and policy fold incomplete; no successful total"
       }
     },
     {
@@ -389,11 +458,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -413,7 +485,7 @@
             "receipt_prefix": "0",
             "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
             "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
-            "observation": "64168f9d6b96683112b59e1324f5be485ca4c8ed6cdc1cfcbf57b890013dc931"
+            "observation": "2b52180f05a6b89d1591a288003d8839a706bc07c64b86172534f7fe88567e5d"
           },
           {
             "gateway": "g1",
@@ -424,7 +496,7 @@
             "receipt_prefix": "2",
             "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
             "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
-            "observation": "0b50946aa9965b496c7d072f2eba57c373d11bf0173956277c653d8c98c1c360"
+            "observation": "c4fcc008b7f4a0d2275fa5602b34c25ab54ccd2b7b600a789ea57d0ca9f535c9"
           },
           {
             "gateway": "g0",
@@ -435,7 +507,7 @@
             "receipt_prefix": "2",
             "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
             "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
-            "observation": "24174c086dde46f440ce9a24184ba9231b58d6bcece1a6bd22a27eb4a2325f00"
+            "observation": "5f3972cf65c9e44b04238964e171cca56d91048ffe9eb68284042057bd1a4015"
           },
           {
             "gateway": "g3",
@@ -446,7 +518,7 @@
             "receipt_prefix": "2",
             "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
             "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
-            "observation": "f6322d514a1e68054be0c644b15f343b20abdec72012fbaac1e8ee2a50db21a4"
+            "observation": "92eb4db7629fdc65613d0ed8b806a60b27c1848212c2deecdb5e8f8a133e4e97"
           }
         ]
       },
@@ -458,11 +530,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "actual": "11450",
         "alternative": "11750",
@@ -478,7 +553,7 @@
             "receipt_prefix": "0",
             "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
             "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
-            "observation": "64168f9d6b96683112b59e1324f5be485ca4c8ed6cdc1cfcbf57b890013dc931"
+            "observation": "2b52180f05a6b89d1591a288003d8839a706bc07c64b86172534f7fe88567e5d"
           },
           {
             "gateway": "g1",
@@ -489,7 +564,7 @@
             "receipt_prefix": "2",
             "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
             "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
-            "observation": "0b50946aa9965b496c7d072f2eba57c373d11bf0173956277c653d8c98c1c360"
+            "observation": "c4fcc008b7f4a0d2275fa5602b34c25ab54ccd2b7b600a789ea57d0ca9f535c9"
           },
           {
             "gateway": "g0",
@@ -500,7 +575,7 @@
             "receipt_prefix": "2",
             "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
             "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
-            "observation": "24174c086dde46f440ce9a24184ba9231b58d6bcece1a6bd22a27eb4a2325f00"
+            "observation": "5f3972cf65c9e44b04238964e171cca56d91048ffe9eb68284042057bd1a4015"
           },
           {
             "gateway": "g3",
@@ -511,9 +586,14 @@
             "receipt_prefix": "2",
             "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
             "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
-            "observation": "f6322d514a1e68054be0c644b15f343b20abdec72012fbaac1e8ee2a50db21a4"
+            "observation": "92eb4db7629fdc65613d0ed8b806a60b27c1848212c2deecdb5e8f8a133e4e97"
           }
-        ]
+        ],
+        "measured": {
+          "bytes": "312471",
+          "pages": "117",
+          "segments": "77"
+        }
       }
     },
     {
@@ -526,11 +606,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "policy": {
           "resolution_atoms": "1500"
@@ -550,7 +633,7 @@
             "receipt_prefix": "0",
             "disposition_root": "20fa70067d76526b32a0c897603327a7dcea4b9f24bf2a25121cb1ada902faa5",
             "receipt_root": "4d13ec1416f53cc8c7f1b298344655369c9ba6c6c4b533308cfb368a69951e02",
-            "observation": "64168f9d6b96683112b59e1324f5be485ca4c8ed6cdc1cfcbf57b890013dc931"
+            "observation": "2b52180f05a6b89d1591a288003d8839a706bc07c64b86172534f7fe88567e5d"
           },
           {
             "gateway": "g1",
@@ -561,7 +644,7 @@
             "receipt_prefix": "2",
             "disposition_root": "11763091084d98cf5930ef71e70d2d9846c254be43ef9d10346a0ebbd1574423",
             "receipt_root": "cbd921aaa192ac149ee862128d84c3b72a78a6a932cc5c42cca23e4741b06550",
-            "observation": "0b50946aa9965b496c7d072f2eba57c373d11bf0173956277c653d8c98c1c360"
+            "observation": "c4fcc008b7f4a0d2275fa5602b34c25ab54ccd2b7b600a789ea57d0ca9f535c9"
           },
           {
             "gateway": "g0",
@@ -572,7 +655,7 @@
             "receipt_prefix": "2",
             "disposition_root": "248356692cb7e2665922d5ade3d7f5613e9c2b935734b1fd2261e63a205bb59b",
             "receipt_root": "211860205b5a44b9d9d62e4256d952b309a5a80d531f9f2817b84debbb5251e3",
-            "observation": "24174c086dde46f440ce9a24184ba9231b58d6bcece1a6bd22a27eb4a2325f00"
+            "observation": "5f3972cf65c9e44b04238964e171cca56d91048ffe9eb68284042057bd1a4015"
           },
           {
             "gateway": "g3",
@@ -583,7 +666,7 @@
             "receipt_prefix": "2",
             "disposition_root": "5a3a0c72da2e23595ed957425aee53ea91285b3674c2467bbba7b67e42f0507e",
             "receipt_root": "64444662c08c64422f9955a290e2196e9ae4b3df879c215ce89e92c6d02dc7be",
-            "observation": "f6322d514a1e68054be0c644b15f343b20abdec72012fbaac1e8ee2a50db21a4"
+            "observation": "92eb4db7629fdc65613d0ed8b806a60b27c1848212c2deecdb5e8f8a133e4e97"
           }
         ]
       },
@@ -599,10 +682,13 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
           "root": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         },
         "budget": {
@@ -623,11 +709,14 @@
             "synthetic",
             "sandbox"
           ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
           "registration": "registration",
           "host": "center",
           "ordinal": "77",
-          "segment": "3976e600af7a7c381fad5581f8a1a6a72369bd4af0def44e05d94e362c87973b",
-          "root": "7a3d0b3e69b17bf6dcc3d2573cc83a72ddca6675993f772e5f94945676f1190f"
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
         },
         "policy": {
           "resolution_atoms": "1500",
@@ -657,9 +746,208 @@
           }
         ]
       },
-      "error": "UNKNOWN_FIELD"
+      "error": "FIELDS"
     }
   ],
+  "comparison_resume": {
+    "request": {
+      "expected": {
+        "store": "center",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+        "profile": "central-adjudication-r3/1",
+        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "registration": "registration",
+        "host": "center",
+        "ordinal": "77",
+        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+      },
+      "policy": {
+        "resolution_atoms": "1500"
+      },
+      "budget": {
+        "bytes": "1",
+        "pages": "1",
+        "segments": "1"
+      },
+      "coverage": [
+        {
+          "gateway": "g0",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g1",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g2",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g3",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        }
+      ]
+    },
+    "first": {
+      "status": "INCOMPLETE",
+      "expected": {
+        "store": "center",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+        "profile": "central-adjudication-r3/1",
+        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "registration": "registration",
+        "host": "center",
+        "ordinal": "77",
+        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+      },
+      "cursor": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+        },
+        "ordinal": "0",
+        "byte_offset": "1",
+        "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
+        "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
+      },
+      "measured": {
+        "bytes": "1",
+        "pages": "1",
+        "segments": "0"
+      },
+      "reason": "verification and policy fold incomplete; no successful total"
+    },
+    "resume_request": {
+      "expected": {
+        "store": "center",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+        "profile": "central-adjudication-r3/1",
+        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "registration": "registration",
+        "host": "center",
+        "ordinal": "77",
+        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+      },
+      "policy": {
+        "resolution_atoms": "1500"
+      },
+      "budget": {
+        "bytes": "999999999999999999999999999999",
+        "pages": "999999999999999999999999999999",
+        "segments": "999999999999999999999999999999"
+      },
+      "coverage": [
+        {
+          "gateway": "g0",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g1",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g2",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g3",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        }
+      ],
+      "cursor": {
+        "expected": {
+          "store": "center",
+          "scope": [
+            "synthetic",
+            "sandbox"
+          ],
+          "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+          "registration": "registration",
+          "host": "center",
+          "ordinal": "77",
+          "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+          "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+        },
+        "ordinal": "0",
+        "byte_offset": "1",
+        "verified_root": "0000000000000000000000000000000000000000000000000000000000000000",
+        "continuation": "ee3b0b967c00fd48a91b22e4ded6a7a76599c0d362ec477b3b29a8dbcf13025c"
+      }
+    },
+    "final": {
+      "status": "COMPARABLE",
+      "expected": {
+        "store": "center",
+        "scope": [
+          "synthetic",
+          "sandbox"
+        ],
+        "target": "ev2_880ee04b436aff38e4a25e086a67cf1c1a09a7786527c10fb87e84b48991b516",
+        "profile": "central-adjudication-r3/1",
+        "enrollment": "8bbcd7a82ca5905facbb0c073b4a8b94b9ddd0dfd452d2af3752ba133769b3d9",
+        "registration": "registration",
+        "host": "center",
+        "ordinal": "77",
+        "segment": "876272bb6fcdd9962e50a48aa323ae2d8c1c3ba524879075573210136f0dc798",
+        "root": "20e179f5d274e0c25d450e6ba70513b57749815048c4c774c75abadead8128f6"
+      },
+      "actual": "11450",
+      "alternative": "11750",
+      "difference": "300",
+      "supplier_booked": "3000",
+      "coverage": [
+        {
+          "gateway": "g0",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g1",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g2",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        },
+        {
+          "gateway": "g3",
+          "status": "UNKNOWN_GATEWAY_COVERAGE"
+        }
+      ],
+      "measured": {
+        "bytes": "312470",
+        "pages": "117",
+        "segments": "77"
+      }
+    }
+  },
   "seal": {
     "source_trace": "vectors/seal-scan.json",
     "through": "25",
@@ -678,11 +966,14 @@
             "demo",
             "sandbox"
           ],
+          "target": "demo-slice",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8b6e89b7c8619314682c5aef413cee01da626438d7885fa2d7445a9c758835a7",
           "registration": "registration",
           "host": "g0",
           "ordinal": "11",
-          "segment": "719333e04c43cf31ac221f0614eba27274be8169d7220e27f0fdced01add8e60",
-          "root": "72054794cacc2c69380b4824b97ac2749bd8f13c2ed565321a7e44b0ad52c3e5"
+          "segment": "f9cd0420843ecff621aa9430556c16d0affac93701b65354ed27adaa69c08310",
+          "root": "0cd89ff6c44b9da131220dc714bd28588d2425597be33428b948c640181a2def"
         },
         "round": "1",
         "phase": "DISPOSITIONS",
@@ -703,11 +994,14 @@
             "demo",
             "sandbox"
           ],
+          "target": "demo-slice",
+          "profile": "central-adjudication-r3/1",
+          "enrollment": "8b6e89b7c8619314682c5aef413cee01da626438d7885fa2d7445a9c758835a7",
           "registration": "registration",
           "host": "g0",
           "ordinal": "11",
-          "segment": "719333e04c43cf31ac221f0614eba27274be8169d7220e27f0fdced01add8e60",
-          "root": "72054794cacc2c69380b4824b97ac2749bd8f13c2ed565321a7e44b0ad52c3e5"
+          "segment": "f9cd0420843ecff621aa9430556c16d0affac93701b65354ed27adaa69c08310",
+          "root": "0cd89ff6c44b9da131220dc714bd28588d2425597be33428b948c640181a2def"
         },
         "round": "1",
         "phase": "COMPLETE",

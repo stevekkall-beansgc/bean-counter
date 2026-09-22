@@ -1,0 +1,65 @@
+{
+  "format": "r3-regression-checkpoints/1",
+  "close_prefixes": [
+    {
+      "trace": "vectors/REG06-release170.json",
+      "through": 19,
+      "round": "1",
+      "suppliers": [
+        {
+          "id": "pool",
+          "maximum": "500",
+          "consumed": "330",
+          "held": "0",
+          "released": "170"
+        }
+      ],
+      "certificate": "24a126e18d5091984c90f0dc64f74d5a896d6676188996d8f7fca483590644fd"
+    },
+    {
+      "trace": "vectors/REG06-release170.json",
+      "through": 27,
+      "round": "2",
+      "suppliers": [
+        {
+          "id": "pool",
+          "maximum": "500",
+          "consumed": "330",
+          "held": "0",
+          "released": "170"
+        }
+      ],
+      "certificate": "4a0fc78bced3602660c0d99e4f4ab07c070d979237fec80d487ceaac49410bdf"
+    },
+    {
+      "trace": "vectors/REG09-held200.json",
+      "through": 8,
+      "round": "1",
+      "suppliers": [
+        {
+          "id": "pool",
+          "maximum": "500",
+          "consumed": "300",
+          "held": "0",
+          "released": "200"
+        }
+      ],
+      "certificate": "e719cd1e34898ecef2438521cc593c91c5ddfc2f4143e3c87c03a61c669dc402"
+    },
+    {
+      "trace": "vectors/REG09-held200.json",
+      "through": 16,
+      "round": "2",
+      "suppliers": [
+        {
+          "id": "pool",
+          "maximum": "500",
+          "consumed": "300",
+          "held": "0",
+          "released": "200"
+        }
+      ],
+      "certificate": "ad757cb7547d73f49bdb9cfc062f40b2ec1b4077f6536c73fa4d790bcc9a8161"
+    }
+  ]
+}

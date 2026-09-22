@@ -6,7 +6,7 @@ import validate as v
 HERE=Path(__file__).resolve().parent;REPO=HERE.parents[2]
 NOW='2026-09-22T12:00:00.000000Z'
 class Builder:
- def __init__(self,customer=False,families=5,gateways=4,suppliers=None,pools=None):
+ def __init__(self,customer=False,families=5,gateways=4,suppliers=None,pools=None,preparation_order=None):
   minimal=json.loads((HERE/'minimal-trace.json').read_text());self.initial=copy.deepcopy(minimal['initial']);self.p=copy.deepcopy(next(c['payload'] for c in minimal['commands'] if c['kind']=='ENROLL'));self.initial.pop('optional_rounds',None);self.p['preparations']=[];self.commands=[];self.seq=0;self.checkpoints=[]
   if customer:
    rows=json.loads((REPO/'contracts/candidates/v2/goldens/supplier-separation.json').read_text())['seed'];objects=[];hashes={}
@@ -21,12 +21,12 @@ class Builder:
   self.p['gateways']=[dict(scope=scope,tag=str(i+1)*32,gateway='g'+str(i),route='full-case-sha256-mod/1') for i in range(gateways)]
   roles=template['roles'];negative=copy.deepcopy(roles);negative.update(provider='customer',cost_originator='customer',bearer='vendor',payer='vendor',beneficiary='vendor',recipient='customer')
   self.p['pools']=pools if pools is not None else [dict(id='adjustments',funding='250',positive='100',negative='150',gross='250',authorizations=v.sorted_set([dict(direction=d,roles=negative if d=='NEGATIVE' else roles,assent='a'*64) for d in ['POSITIVE','NEGATIVE','ZERO']]))]
-  self.p['suppliers']=suppliers or [];self.initial['initial_resources']={h:{d:str(v.M) for d in v.DIMS} for h in ['center']+[g['gateway'] for g in self.p['gateways']]};self.initial['writer_capabilities']={g['gateway']:dict(epoch='1',journal_head=v.ZERO,fence='b'*64) for g in self.p['gateways']};self.initial['initial_counters']={g:{'writer_epoch':{'q':c['epoch'],'R':'0'}} for g,c in self.initial['writer_capabilities'].items()};self.l=v.Ledger(self.initial);self.enroll()
- def enroll(self):
+  self.p['suppliers']=suppliers or [];self.initial['initial_resources']={h:{d:str(v.M) for d in v.DIMS} for h in ['center']+[g['gateway'] for g in self.p['gateways']]};self.initial['writer_capabilities']={g['gateway']:dict(epoch='1',journal_head=v.ZERO,fence='b'*64) for g in self.p['gateways']};self.initial['initial_counters']={g:{'writer_epoch':{'q':c['epoch'],'R':'0'}} for g,c in self.initial['writer_capabilities'].items()};self.l=v.Ledger(self.initial);self.enroll(preparation_order)
+ def enroll(self,order=None):
   for o in self.initial['original_objects']:o['origin']=dict(store=self.p['store'],scope=self.p['scope'],registration=self.p['registration'],host=self.p['store'],ordinal='1')
   self.l.initial['original_objects']=copy.deepcopy(self.initial['original_objects'])
   self.p['preparations']=[];intent=v.digest('enrollment',{k:a for k,a in self.p.items() if k!='preparations'})
-  for n in self.p['gateways']:self.add('PREPARE_ENROLL',dict(store=self.p['store'],scope=self.p['scope'],registration=self.p['registration'],gateway=n['gateway'],namespace=n,intent=intent))
+  for n in ([next(x for x in self.p['gateways'] if x['gateway']==g) for g in order] if order else self.p['gateways']):self.add('PREPARE_ENROLL',dict(store=self.p['store'],scope=self.p['scope'],registration=self.p['registration'],gateway=n['gateway'],namespace=n,intent=intent))
   self.p['preparations']=v.sorted_set([self.proof('ENROLL_PREPARATION',n['gateway']) for n in self.p['gateways']]);self.add('ENROLL',self.p)
  def trace(self):
   for name in ['authority_documents','authority_observations','grant_authentications','trusted_observations']:self.initial[name]=v.sorted_set(self.initial[name])
@@ -81,20 +81,20 @@ class Builder:
   terms=self.l.s['families'][v.key(case[0])]['terms'];roles=terms['roles']
   if path=='ADJUSTMENT':roles=next(x['roles'] for x in self.p['pools'][0]['authorizations'] if x['direction']==('POSITIVE' if a>0 else 'NEGATIVE' if a<0 else 'ZERO'))
   return self.add('DECIDE',dict(case=case,verdict=verdict,path=path,signed_atoms=str(a),pool='adjustments' if path=='ADJUSTMENT' else 'none',roles=roles,assent='a'*64,reason='explicit retained decision'))
- def begin(self,families,mode='FINISH_ONLY'):
-  n=str(self.l.s['last_round']+1);preparations=[]
+ def begin(self,families,mode='FINISH_ONLY',gateways=None):
+  n=str(self.l.s['last_round']+1);preparations=[];selected=gateways or sorted(self.l.s['gateways'])
   if mode=='CANCELLABLE':
-   for g in sorted(self.l.s['gateways']):
-    self.add('PREPARE_ROUND',dict(round=n,predecessor=str(self.l.s['last_round']),gateway=g,mode=mode,enrollment=v.digest('enrollment',self.l.s['enrollment']),proof=self.proof('ENROLLMENT',self.p['registration'])));preparations.append(self.proof('ROUND_PREPARATION',v.digest('namespace',[g,n])))
-  self.add('BEGIN',dict(preparations=v.sorted_set(preparations),round=n,predecessor=str(self.l.s['last_round']),mode=mode,families=v.sorted_set([self.p['families'][i]['key'] for i in families]),gateways=sorted(self.l.s['gateways'])));return n
+   for g in selected:
+    self.add('PREPARE_ROUND',dict(round=n,predecessor=str(self.l.s['gateways'][g]['installed']),gateway=g,mode=mode,enrollment=v.digest('enrollment',self.l.s['enrollment']),proof=self.proof('ENROLLMENT',self.p['registration'])));preparations.append(self.proof('ROUND_PREPARATION',v.digest('namespace',[g,n])))
+  self.add('BEGIN',dict(preparations=v.sorted_set(preparations),round=n,predecessor=str(self.l.s['last_round']),mode=mode,families=v.sorted_set([self.p['families'][i]['key'] for i in families]),gateways=sorted(selected)));return n
  def seal(self,n):
   r=self.l.s['rounds'][int(n)]
   for g in r['gateways']:
-   self.add('SEAL_BEGIN',dict(round=n,gateway=g,predecessor=str(r['predecessor']),proof=self.proof('BEGIN',n)));self.add('SEALED',dict(round=n,gateway=g));self.add('DRAIN',dict(round=n,gateway=g,proof=self.proof('SEAL',n)))
+   self.add('SEAL_BEGIN',dict(round=n,gateway=g,predecessor=str(r['gateway_predecessors'][g]),proof=self.proof('BEGIN',n)));self.add('SEALED',dict(round=n,gateway=g));self.add('DRAIN',dict(round=n,gateway=g,proof=self.proof('SEAL',n)))
   self.add('READY',dict(round=n))
  def install(self,n,outcome):
   for g in self.l.s['rounds'][int(n)]['gateways']:
-   self.add('INSTALL',dict(round=n,gateway=g,outcome=outcome,proof=self.proof('TERMINAL',n)));self.add('ACK_INSTALL',dict(round=n,gateway=g,proof=self.proof('INSTALLATION',n)))
+   self.add('INSTALL',dict(round=n,gateway=g,outcome=outcome,proof=self.proof('TERMINAL',n),begin=self.proof('BEGIN',n)));self.add('ACK_INSTALL',dict(round=n,gateway=g,proof=self.proof('INSTALLATION',n)))
  def close(self,families):
   self.advance();n=self.begin(families);self.seal(n);self.add('CLOSE',dict(round=n,closed_at=NOW));self.install(n,'COMMITTED');return n
  def checkpoint(self,name):self.checkpoints.append(dict(name=name,through=len(self.commands),customer_atoms=str(self.l.s['customer']),supplier_booked=self.p['supplier_booked']))

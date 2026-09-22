@@ -28,7 +28,7 @@ def size(s):
 # Revision index adds revision. This is the maximum of every listed index key.
 keys={'delivery':[128,128,256,128],'case':[128]*5+[256,128],'revision':[128]*5+[256,128,30],'grant':[128]*6,'token':[128,128,128,128],'round':[128,128,128,30],'family':[128]*5,'allocation':[128,128,128,128,30],'receipt':[128,128,128,128,30],'namespace':[128,128,32],'authority':[128,128,128,128],'resource':[128,128,128,256,128],'control':[128,128,128,256,128],'object':[128,128,128,128,128,30,32,128,64,30]}
 K=max(9+sum(2+x for x in a) for a in keys.values());L=8*K+1;P=128
-counts={'PREPARE_ENROLL':40,'PREPARE_ROUND':7,'ENROLL':224,'LOCAL_GRANT':6,'REGISTER_GRANT':6,'ISSUE':8,'ACTIVATE':6,'RECEIVE':7,'RETURN_UNUSED':6,'IMPORT':7,'RECONCILE':5,'ADVANCE':5,'ADVANCE_RECEIPT':5,'LOCAL_TERMINAL':5,'RETIRE_GRANT':5,'BEGIN':6,'SEAL_BEGIN':5,'SEALED':5,'DRAIN':5,'READY':5,'CLOSE':80,'ABORT':5,'INSTALL':5,'ACK_INSTALL':5,'SUPPLEMENT':6,'DECIDE':11,'CORRECT':9,'REPLACE_WRITER':6,'EXTEND_RESOURCES':6}
+counts={'PREPARE_ENROLL':40,'PREPARE_ROUND':7,'ENROLL':224,'LOCAL_GRANT':6,'REGISTER_GRANT':6,'ISSUE':8,'ACTIVATE':6,'RECEIVE':7,'RETURN_UNUSED':6,'IMPORT':7,'RECONCILE':5,'ADVANCE':5,'ADVANCE_RECEIPT':5,'LOCAL_TERMINAL':5,'RETIRE_GRANT':5,'BEGIN':6,'SEAL_BEGIN':5,'SEALED':5,'DRAIN':5,'READY':5,'CLOSE':80,'ABORT':5,'INSTALL':5,'ACK_INSTALL':6,'SUPPLEMENT':6,'DECIDE':11,'CORRECT':9,'REPLACE_WRITER':6,'EXTEND_RESOURCES':6}
 effect_types={'BEGIN':('round_begin',1),'SEALED':('seal',1),'RECEIVE':('receipt',1),'DECIDE':('action',1),'CORRECT':('action',2),'CLOSE':('certificate',1)}
 # Fixed segment excludes command/result/dependency values, supplied separately.
 empty={'host':'\\'*128,'profile':'central-adjudication-r3/1','ordinal':'9'*30,'previous':'f'*64,'previous_root':'f'*64,'command':None,'result':None,'dependencies':['f'*64]*128,'objects':[]}
@@ -39,7 +39,7 @@ for alt in D['command']['oneOf']:
  result=2+len('"status":"COMMITTED","code":')+130+len(',"effects":[] ,"root":')+66+e
  source_fact_kinds={'PREPARE_ENROLL','PREPARE_ROUND','ENROLL','LOCAL_GRANT','ISSUE','RECEIVE','RETURN_UNUSED','RECONCILE','RETIRE_GRANT','BEGIN','SEALED','CLOSE','ABORT','INSTALL'}
  own_fact=c+result+32 if k in source_fact_kinds else 0
- source_map={'ENROLL':['PREPARE_ENROLL']*4,'BEGIN':['PREPARE_ROUND']*4,'PREPARE_ROUND':['ENROLL'],'LOCAL_GRANT':['ENROLL'],'REGISTER_GRANT':['LOCAL_GRANT'],'ACTIVATE':['ISSUE'],'RETURN_UNUSED':['ISSUE'],'IMPORT':['RECEIVE'],'RECONCILE':['RECEIVE'],'LOCAL_TERMINAL':['RECONCILE'],'SEAL_BEGIN':['BEGIN'],'DRAIN':['SEALED'],'INSTALL':['CLOSE'],'ACK_INSTALL':['INSTALL']}
+ source_map={'ENROLL':['PREPARE_ENROLL']*4,'BEGIN':['PREPARE_ROUND']*4,'PREPARE_ROUND':['ENROLL'],'LOCAL_GRANT':['ENROLL'],'REGISTER_GRANT':['LOCAL_GRANT'],'ACTIVATE':['ISSUE'],'RETURN_UNUSED':['ISSUE'],'IMPORT':['RECEIVE'],'RECONCILE':['RECEIVE'],'LOCAL_TERMINAL':['RECONCILE'],'SEAL_BEGIN':['BEGIN'],'DRAIN':['SEALED'],'INSTALL':['CLOSE','BEGIN'],'ACK_INSTALL':['INSTALL']}
  def fact_bound(source):
   st,sn=effect_types.get(source,('receipt',0));return size(D[source.lower()])+sn*(size(D[st])+64)+64
  copied_fact=sum(fact_bound(t) for t in source_map.get(k,[]))

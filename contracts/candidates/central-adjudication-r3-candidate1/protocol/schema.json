@@ -1679,7 +1679,8 @@
         "round",
         "gateway",
         "outcome",
-        "proof"
+        "proof",
+        "begin"
       ],
       "properties": {
         "round": {
@@ -1695,6 +1696,9 @@
           ]
         },
         "proof": {
+          "$ref": "#/$defs/proof"
+        },
+        "begin": {
           "$ref": "#/$defs/proof"
         }
       }
@@ -2591,13 +2595,17 @@
             "additionalProperties": false,
             "required": [
               "gateway",
-              "cutoff"
+              "cutoff",
+              "gateway_predecessor"
             ],
             "properties": {
               "gateway": {
                 "$ref": "#/$defs/id"
               },
               "cutoff": {
+                "$ref": "#/$defs/count"
+              },
+              "gateway_predecessor": {
                 "$ref": "#/$defs/count"
               }
             }
@@ -2874,6 +2882,9 @@
       "required": [
         "store",
         "scope",
+        "target",
+        "profile",
+        "enrollment",
         "registration",
         "host",
         "ordinal",
@@ -2886,6 +2897,15 @@
         },
         "scope": {
           "$ref": "#/$defs/scope"
+        },
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "profile": {
+          "const": "central-adjudication-r3/1"
+        },
+        "enrollment": {
+          "$ref": "#/$defs/digest"
         },
         "registration": {
           "$ref": "#/$defs/id"
@@ -3197,6 +3217,9 @@
           "minItems": 1,
           "maxItems": 4,
           "uniqueItems": true
+        },
+        "cursor": {
+          "$ref": "#/$defs/read_cursor"
         }
       }
     },
@@ -3212,7 +3235,8 @@
             "alternative",
             "difference",
             "supplier_booked",
-            "coverage"
+            "coverage",
+            "measured"
           ],
           "properties": {
             "status": {
@@ -3241,6 +3265,9 @@
               "minItems": 1,
               "maxItems": 4,
               "uniqueItems": true
+            },
+            "measured": {
+              "$ref": "#/$defs/read_budget"
             }
           }
         },
@@ -3249,7 +3276,8 @@
           "additionalProperties": false,
           "required": [
             "status",
-            "reason"
+            "reason",
+            "measured"
           ],
           "properties": {
             "status": {
@@ -3260,6 +3288,9 @@
               "minLength": 1,
               "x-max-utf8": 256,
               "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            },
+            "measured": {
+              "$ref": "#/$defs/read_budget"
             }
           }
         },
@@ -3269,7 +3300,8 @@
           "required": [
             "status",
             "at_case",
-            "reason"
+            "reason",
+            "measured"
           ],
           "properties": {
             "status": {
@@ -3283,6 +3315,9 @@
               "minLength": 1,
               "x-max-utf8": 256,
               "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            },
+            "measured": {
+              "$ref": "#/$defs/read_budget"
             }
           }
         },
@@ -3292,7 +3327,9 @@
           "required": [
             "status",
             "expected",
-            "reason"
+            "reason",
+            "cursor",
+            "measured"
           ],
           "properties": {
             "status": {
@@ -3306,6 +3343,12 @@
               "minLength": 1,
               "x-max-utf8": 256,
               "pattern": "^[^\\x00-\\x1f\\x7f]+$"
+            },
+            "cursor": {
+              "$ref": "#/$defs/read_cursor"
+            },
+            "measured": {
+              "$ref": "#/$defs/read_budget"
             }
           }
         }
