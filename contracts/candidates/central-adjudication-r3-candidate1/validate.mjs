@@ -355,7 +355,7 @@ function actualIndex(s,c) {
   else if(kind==='CORRECT') extra=3+s.currentEffects.filter(e=>e.kind==='ACTION').length;
   else denial('INDEX_KIND');
   const introductions=s.pendingIntroductions??0;
-  if(kind==='ENROLL' || kind==='PREPARE_ENROLL' || kind==='PREPARE_ROUND') return BigInt(4+extra);
+  if(kind==='ENROLL' || kind==='PREPARE_ENROLL' || kind==='PREPARE_ROUND') return BigInt(4+extra+(s.pendingAuthorityIntroductions??0));
   return BigInt(4+extra+introductions);
 }
 function spend(s,host,owner,kind,c) {
@@ -399,9 +399,9 @@ function initialState(trace) {
   requireRecord(trace,['format','initial','commands']);
   if (trace.format!=='r3-trace/1' || !Array.isArray(trace.commands)) denial('TRACE_FORMAT');
   const i=trace.initial;
-  const initialFields=['authority_documents','authority_observations','grant_authentications','original_base_receipt','original_base_manifest','initial_resources','initial_counters','writer_capabilities','original_objects','trusted_observations'];
+  const initialFields=['authority_documents','authority_sources','authority_observations','grant_authentications','original_base_receipt','original_base_manifest','initial_resources','initial_counters','writer_capabilities','original_objects','trusted_observations'];
   if(!isObject(i) || Object.keys(i).some(k=>!initialFields.includes(k)) || initialFields.some(k=>!Object.hasOwn(i,k))) denial('TRACE_INITIAL');
-  if (!Array.isArray(i.authority_documents) || !Array.isArray(i.grant_authentications) || !isObject(i.initial_resources) || !isObject(i.initial_counters) || !isObject(i.writer_capabilities)) denial('TRACE_INITIAL');
+  if (!Array.isArray(i.authority_documents) || !Array.isArray(i.authority_sources) || !Array.isArray(i.grant_authentications) || !isObject(i.initial_resources) || !isObject(i.initial_counters) || !isObject(i.writer_capabilities)) denial('TRACE_INITIAL');
   for (const x of [...i.authority_documents,...i.grant_authentications,i.original_base_receipt,i.original_base_manifest]) requireShape('digest',x);
   if(!Array.isArray(i.original_objects) || i.original_objects.length>128) denial('ORIGINAL_OBJECTS');
   if(!Array.isArray(i.trusted_observations)) denial('TRUSTED_OBSERVATIONS');
@@ -411,6 +411,19 @@ function initialState(trace) {
   for(const x of i.trusted_observations) requireShape('digest',x);
   sortedSet(i.trusted_observations);
   sortedSet(i.authority_documents);
+  sortedSet(i.authority_sources);
+  const authoritySources=new Map(),authorityIdentities=new Map();
+  for(const record of i.authority_sources) {
+    if(!isObject(record) || typeof record.body!=='string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(record.body) || Buffer.from(record.body,'base64').toString('base64')!==record.body) denial('BASE64');
+    requireShape('authority_source',record);
+    const raw=Buffer.from(record.body,'base64'),body=strictParse(raw),encoded=Buffer.from(canonical(body));
+    if(!raw.equals(encoded) || raw.length>16384 || String(raw.length)!==record.bytes || createHash('sha256').update(raw).digest('hex')!==record.body_hash || !validate_shape('authority_source_body',body)) denial('AUTH_SOURCE_BODY');
+    const identity=canonical([body.source,body.id,body.revision]);
+    if(authorityIdentities.has(identity) || authoritySources.has(record.body_hash)) denial('AUTH_SOURCE_IDENTITY');
+    authorityIdentities.set(identity,record.body_hash);
+    authoritySources.set(record.body_hash,{record,body,identity});
+  }
+  if(!same([...authoritySources.keys()].sort(),[...i.authority_documents].sort())) denial('AUTH_SOURCE_MEMBERSHIP');
   sortedSet(i.grant_authentications);
   sortedSet(i.original_objects);
   if(!Array.isArray(i.authority_observations)) denial('AUTHORITY_OBSERVATIONS');
@@ -428,7 +441,7 @@ function initialState(trace) {
   }
   const writers=new Map();
   for(const [gateway,cap] of Object.entries(i.writer_capabilities)) { requireShape('id',gateway); if(!isObject(cap) || Object.keys(cap).sort().join(',')!=='epoch,fence,journal_head') denial('WRITER_CAPABILITY'); requireShape('count',cap.epoch); requireShape('digest',cap.journal_head); requireShape('digest',cap.fence); if(cap.epoch!=='1' || cap.journal_head!==ZERO || cap.fence===ZERO || counters.get(gateway)?.get('writer_epoch')?.q!==1n) denial('WRITER_CAPABILITY'); writers.set(gateway,{...cap}); }
-  return {journals:new Map(),segments:0,duplicates:0,refused:0,authority:new Set(i.authority_documents),authorityObs:new Set(i.authority_observations),grantAuth:new Set(i.grant_authentications),trustedObs:new Set(i.trusted_observations),originalObjects:i.original_objects,baseReceipt:i.original_base_receipt,baseManifest:i.original_base_manifest,
+  return {journals:new Map(),segments:0,duplicates:0,refused:0,authority:new Set(i.authority_documents),authoritySources,authorityRetained:new Map(),authorityObs:new Set(i.authority_observations),grantAuth:new Set(i.grant_authentications),trustedObs:new Set(i.trusted_observations),originalObjects:i.original_objects,baseReceipt:i.original_base_receipt,baseManifest:i.original_base_manifest,
     resources,counters,writers,enrollment:null,preparations:new Map(),roundPreparations:new Map(),objectInventory:new Map(),localClaims:new Map(),localBegins:new Map(),localInstalled:new Map(),gatewayAck:new Map(),localDispositionBytes:new Map(),localReceiptBytes:new Map(),gateways:[],family:new Map(),suppliers:new Map(),pools:new Map(),grants:new Map(),tokens:new Map(),cases:new Map(),deliveries:new Map(),commands:new Map(),round:null,lastRound:0n,customer:0n,premiumUsed:0n,gross:0n,entitlements:new Map(),actions:[],certificates:[],allocationPrefix:new Map(),receiptPrefix:new Map(),allocationNext:new Map(),receiptNext:new Map(),clockFloor:new Map(),coverage:new Map()};
 }
 function permissionFor(c,s) {
@@ -452,12 +465,27 @@ function journal(s,host) {
   if(!s.journals.has(host)) s.journals.set(host,{root:ZERO,previous:ZERO,ordinal:0n,segments:new Map(),bytes:new Map(),byOrdinal:new Map()});
   return s.journals.get(host);
 }
+function authoritySource(s,hash,kind) {
+  const found=s.authoritySources.get(hash);
+  if(!found || (kind && found.body.kind!==kind)) denial('AUTH_SOURCE_MEMBERSHIP');
+  return found;
+}
+function sourceContext(body,scope,target) {
+  if(!same(body.scope,scope) || body.target!==target) denial('AUTH_SOURCE_SCOPE');
+}
 function checkAuthority(c,s,duplicate,host) {
   const a=c.authority, h=commandDigest(c);
   if(a.command!==h || !s.authority.has(a.document)) denial('AUTHORITY_INTEGRITY');
   if(!s.authorityObs.has(digest('authority',a))) denial('AUTHORITY_OBSERVATION');
   if(duplicate) { if(a.permission!=='read') denial('RETRY_READ_AUTHORITY'); }
   else if(a.permission!==permissionFor(c,s)) denial('AUTHORITY_PERMISSION');
+  const body=authoritySource(s,a.document,'AUTHORIZATION').body;
+  const scope=c.kind==='ENROLL'||c.kind==='PREPARE_ENROLL'?c.payload.scope:s.enrollment?.scope;
+  if(!scope || !same(c.key[0],scope)) denial('AUTH_SOURCE_SCOPE');
+  if(c.kind==='PREPARE_ENROLL') { if(!same(body.scope,scope)) denial('AUTH_SOURCE_SCOPE'); }
+  else sourceContext(body,scope,c.kind==='ENROLL'?c.payload.target:s.enrollment?.target);
+  if(body.principal!==a.principal || body.revision!==a.revision || !body.permissions.includes(a.permission)) denial('AUTH_SOURCE_BINDING');
+  if(a.observed_at<body.starts_at || a.observed_at>=body.ends_at) denial('AUTH_SOURCE_WINDOW');
   if(!duplicate && a.head!==journal(s,host).root) denial('AUTHORITY_HEAD');
 }
 function getFamily(s,k) { const f=s.family.get(familyKey(k)); if(!f) refuse('UNKNOWN_FAMILY'); return f; }
@@ -645,9 +673,54 @@ function sourceFact(c,s,effects,origin) {
   }[c.kind];
   return choice?object(choice[0],choice[1],{payload:p,effects},origin):null;
 }
-function rolesAuthorized(s,roles) {
-  if(roles.payer!==roles.bearer && (!roles.payer_delegation || !s.authority.has(roles.payer_delegation))) refuse('PAYER_DELEGATION');
-  if(roles.payer===roles.bearer && roles.payer_delegation && !s.authority.has(roles.payer_delegation)) refuse('PAYER_DELEGATION');
+function authorizationReferences(s,c) {
+  const p=c.payload,hashes=new Set([c.authority.document]);
+  if(c.kind==='ENROLL') {
+    for(const f of p.families) { hashes.add(f.assent);if(f.roles.payer_delegation) hashes.add(f.roles.payer_delegation); }
+    for(const pool of p.pools) for(const a of pool.authorizations) { hashes.add(a.assent);if(a.roles.payer_delegation) hashes.add(a.roles.payer_delegation); }
+  }
+  if(c.kind==='DECIDE'||c.kind==='CORRECT') { hashes.add(p.assent);if(p.roles.payer_delegation) hashes.add(p.roles.payer_delegation); }
+  const limit=c.kind==='ENROLL'?83:['DECIDE','CORRECT'].includes(c.kind)?3:1;
+  const resolved=[...hashes].map(hash=>authoritySource(s,hash));
+  const bytes=resolved.reduce((n,x)=>n+bigint(x.record.bytes),0n);
+  if(resolved.length>limit || bytes>BigInt(c.kind==='ENROLL'?524288:limit*16384)) denial('AUTH_SOURCE_LIMIT');
+  return resolved.sort((a,b)=>a.identity<b.identity?-1:a.identity>b.identity?1:0);
+}
+function checkAssent(s,hash,scope,target,roles,terms) {
+  const body=authoritySource(s,hash,'ASSENT').body;
+  sourceContext(body,scope,target);
+  if(!same(body.roles,roles) || body.terms!==digest('authority',terms)) denial('ASSENT_BINDING');
+}
+function delegation(s,roles,scope,target,agreement,amount,at,windowEnd=null) {
+  const hash=roles.payer_delegation;
+  if(!hash) { if(roles.payer!==roles.bearer) refuse('PAYER_DELEGATION');return null; }
+  const body=authoritySource(s,hash,'DELEGATION').body;
+  sourceContext(body,scope,target);
+  const stripped={...roles};delete stripped.payer_delegation;
+  const terms={...body};delete terms.assent;
+  if(!same(body.roles,stripped) || body.acceptor!==roles.payer || body.assent.terms!==digest('authority',terms) || !body.agreement_ids.includes(agreement) || body.assent.accepted_at>at || at<body.starts_at || at>=body.ends_at || (windowEnd!==null && windowEnd>body.ends_at) || bigint(amount)>bigint(body.maximum_exposure)) denial('DELEGATION_BINDING');
+  return body;
+}
+function validateEnrollmentSources(s,p,observedAt) {
+  const exposures=new Map();
+  const addExposure=(hash,n)=>{if(hash) exposures.set(hash,(exposures.get(hash)??0n)+n);};
+  for(const f of p.families) {
+    const terms={...f};delete terms.assent;
+    checkAssent(s,f.assent,p.scope,p.target,f.roles,terms);
+    const amounts=[f.ordinary_atoms,...f.correction_atoms].map(x=>{const n=bigint(x);return n<0n?-n:n;});
+    const max=amounts.reduce((a,b)=>a>b?a:b,0n);
+    delegation(s,f.roles,p.scope,p.target,f.key[1],max,observedAt,f.correction_by);
+    addExposure(f.roles.payer_delegation,max);
+  }
+  const agreements=[...new Set(p.families.map(f=>f.key[1]))];
+  for(const pool of p.pools) for(const a of pool.authorizations) {
+    checkAssent(s,a.assent,p.scope,p.target,a.roles,{id:pool.id,funding:pool.funding,positive:pool.positive,negative:pool.negative,gross:pool.gross,direction:a.direction,roles:a.roles});
+    const cap=a.direction==='POSITIVE'?bigint(pool.positive):a.direction==='NEGATIVE'?bigint(pool.negative):0n;
+    const bound=[bigint(pool.funding),bigint(pool.gross),cap].reduce((v,n)=>v<n?v:n);
+    for(const agreement of agreements) delegation(s,a.roles,p.scope,p.target,agreement,bound,observedAt);
+    addExposure(a.roles.payer_delegation,bound);
+  }
+  for(const [hash,n] of exposures) if(n>bigint(authoritySource(s,hash,'DELEGATION').body.maximum_exposure)) denial('DELEGATION_EXPOSURE');
 }
 function effect(kind,body) { return {kind,body}; }
 function cacheLocalRow(s,target,gateway,position,row) {
@@ -767,6 +840,7 @@ function execute(c,s) {
       break;
     }
     case 'ENROLL': {
+      validateEnrollmentSources(s,p,c.authority.observed_at);
       if(s.enrollment) refuse('ALREADY_ENROLLED');
       const hostNames=[p.store,...p.gateways.map(g=>g.gateway)].sort();
       if(!same([...s.resources.keys()].sort(),hostNames) || !same([...s.writers.keys()].sort(),p.gateways.map(g=>g.gateway).sort())) denial('INITIAL_HOSTS');
@@ -779,7 +853,8 @@ function execute(c,s) {
       for(const proof of p.preparations) {
         const prep=s.preparations.get(proof.host),g=p.gateways.find(x=>x.gateway===proof.host);
         if(!prep || !g || prepSeen.has(proof.host) || prep.intent!==expectedIntent || prep.store!==p.store || prep.registration!==p.registration || !same(prep.scope,p.scope) || !same(prep.namespace,g)) refuse('ENROLL_PREPARATIONS');
-        sourceFor(s,proof,'ENROLL_PREPARATION',proof.host,proof.host);
+        const preparation=sourceFor(s,proof,'ENROLL_PREPARATION',proof.host,proof.host);
+        if(authoritySource(s,preparation.segment.command.authority.document,'AUTHORIZATION').body.target!==p.target) denial('AUTH_SOURCE_SCOPE');
         prepSeen.add(proof.host);
       }
       if(p.base_receipt!==s.baseReceipt || p.base_manifest!==s.baseManifest) denial('BASE_ANCHOR');
@@ -798,11 +873,12 @@ function execute(c,s) {
         if(f.book==='RETAIL' && f.supplier_pool!=='none') refuse('RETAIL_SUPPLIER_POOL');
         if(f.book==='SUPPLIER' && !suppliers.has(f.supplier_pool)) refuse('UNKNOWN_SUPPLIER');
         if(f.book==='SUPPLIER' && bigint(f.ordinary_atoms)<0n) refuse('SUPPLIER_NEGATIVE_ORDINARY');
-        if(!s.authority.has(f.assent)) refuse('MISSING_ASSENT');
-        rolesAuthorized(s,f.roles);
       }
       const pools=new Map();
-      for(const x of p.pools) { if(pools.has(x.id)) refuse('POOL_DUPLICATE'); for(const a of x.authorizations) { rolesAuthorized(s,a.roles); if(!s.authority.has(a.assent)) refuse('MISSING_ASSENT'); } pools.set(x.id,{...x,funding:bigint(x.funding),positive:bigint(x.positive),negative:bigint(x.negative),gross:bigint(x.gross),fundingUsed:0n,positiveUsed:0n,negativeUsed:0n,grossUsed:0n}); }
+      for(const x of p.pools) {
+        if(pools.has(x.id)) refuse('POOL_DUPLICATE');
+        pools.set(x.id,{...x,funding:bigint(x.funding),positive:bigint(x.positive),negative:bigint(x.negative),gross:bigint(x.gross),fundingUsed:0n,positiveUsed:0n,negativeUsed:0n,grossUsed:0n});
+      }
       s.enrollment={...p}; delete s.pendingEnrollment; s.gateways=p.gateways; s.family=families; s.suppliers=suppliers; s.pools=pools; s.customer=bigint(p.base_atoms);
       for(const g of p.gateways) { s.allocationPrefix.set(g.gateway,0n); s.receiptPrefix.set(g.gateway,0n); s.allocationNext.set(g.gateway,0n); s.receiptNext.set(g.gateway,0n); s.localInstalled.set(g.gateway,0n); s.gatewayAck.set(g.gateway,0n); s.clockFloor.set(g.gateway,'0001-01-01T00:00:00.000000Z'); }
       break;
@@ -1097,6 +1173,16 @@ function execute(c,s) {
       const q=s.cases.get(caseKey(p.case));
       if(!q || q.status!=='PENDING' || q.path!==p.path) refuse('CASE_DECISION_STATE');
       const f=getFamily(s,p.case[0]);
+      if(p.path==='ORDINARY') {
+        const terms={...s.enrollment.families[f.index]};delete terms.assent;
+        checkAssent(s,p.assent,s.enrollment.scope,s.enrollment.target,p.roles,terms);
+      } else {
+        const pool=s.pools.get(p.pool),direction=bigint(p.signed_atoms)===0n?'ZERO':bigint(p.signed_atoms)>0n?'POSITIVE':'NEGATIVE';
+        if(!pool) refuse('ADJUSTMENT_AUTHORITY');
+        checkAssent(s,p.assent,s.enrollment.scope,s.enrollment.target,p.roles,{id:pool.id,funding:String(pool.funding),positive:String(pool.positive),negative:String(pool.negative),gross:String(pool.gross),direction,roles:p.roles});
+      }
+      const signed=bigint(p.signed_atoms),proposedMagnitude=signed<0n?-signed:signed;
+      delegation(s,p.roles,s.enrollment.scope,s.enrollment.target,f.key[1],proposedMagnitude,c.authority.observed_at);
       if(p.verdict==='DENY') { if(bigint(p.signed_atoms)!==0n) refuse('DENY_AMOUNT'); q.status='DENIED'; q.decision='DENY'; break; }
       const fk=familyKey(f.key);
       if(s.entitlements.has(fk)) refuse('ENTITLEMENT_USED');
@@ -1129,6 +1215,9 @@ function execute(c,s) {
       const q=s.cases.get(caseKey(p.case));
       if(!q || q.status!=='ALLOWED' || q.revision!==bigint(p.expected_revision)) refuse('CORRECTION_REVISION');
       const f=getFamily(s,p.case[0]),amount=bigint(p.replacement);
+      const terms={...s.enrollment.families[f.index]};delete terms.assent;
+      checkAssent(s,p.assent,s.enrollment.scope,s.enrollment.target,p.roles,terms);
+      delegation(s,p.roles,s.enrollment.scope,s.enrollment.target,f.key[1],amount<0n?-amount:amount,c.authority.observed_at);
       if(c.authority.observed_at>f.correction_by || !f.correction_atoms.includes(p.replacement) || !same(p.roles,f.roles) || p.assent!==f.assent) refuse('CORRECTION_AUTHORITY');
       const old=q.currentAmount;
       if(f.book==='RETAIL' && q.path==='ORDINARY') {
@@ -1199,14 +1288,25 @@ function snapshot(s) {
     used:String(p.fundingUsed),positive:String(p.positiveUsed),negative:String(p.negativeUsed),gross:String(p.grossUsed),
   }]));
   const suppliers=[...s.suppliers.values()].map(x=>({id:x.id,maximum:String(x.maximum),consumed:String(x.consumed),held:String(x.held),released:String(x.released)})).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+  const authority_retained=byKey([...s.authorityRetained].map(([host,records])=>[host,byKey([...records].map(([identity,v])=>[identity,{hash:v.hash,bytes:v.bytes,segment:v.segment}]))]));
   return {resources,counters,allocations,grants,tokens,cases,entitlements:byKey(s.entitlements),pools,suppliers,
     preparations:byKey(s.preparations),round_preparations:byKey(s.roundPreparations),
     object_inventory:byKey([...s.objectInventory].map(([host,ids])=>[host,[...ids].sort()])),
-    actions:s.actions,certificates:s.certificates};
+    authority_retained,actions:s.actions,certificates:s.certificates};
 }
 
 function inventoryFor(s,c,host,effects) {
   const proposed=[];
+  const retained=s.authorityRetained.get(host)??new Map(),dependencies=new Set();
+  for(const source of s.currentAuthoritySources) {
+    const prior=retained.get(source.identity);
+    if(prior) {
+      const segment=journal(s,host).segments.get(prior.segment);
+      if(prior.hash!==source.record.body_hash || !segment?.objects.some(o=>o.kind==='AUTHORITY' && same(o.full_key,[source.body.source,source.body.id,source.body.revision]) && o.body_hash===source.record.body_hash && o.bytes===source.record.bytes)) denial('AUTH_SOURCE_RETAINED');
+      dependencies.add(prior.segment);
+    } else proposed.push(object('AUTHORITY',[source.body.source,source.body.id,source.body.revision],source.body,originFor(s,c,host)));
+  }
+  s.pendingAuthorityDependencies=dependencies;
   if(c.kind==='ENROLL') proposed.push(...s.originalObjects);
   if(c.payload.proof) proposed.push(proveSource(s,c.payload.proof).object);
   if(c.payload.begin) proposed.push(proveSource(s,c.payload.begin).object);
@@ -1243,15 +1343,15 @@ function runReplay(trace) {
     // Committed journal segments and trust anchors are immutable during a
     // tentative operation. Excluding them keeps a long refused-operation
     // schedule from repeatedly cloning the entire authenticated history.
-    const stable=['journals','commands','authority','authorityObs','grantAuth','trustedObs','originalObjects','baseReceipt','baseManifest','localDispositionBytes','localReceiptBytes'];
+    const stable=['journals','commands','authority','authoritySources','authorityObs','grantAuth','trustedObs','originalObjects','baseReceipt','baseManifest','localDispositionBytes','localReceiptBytes'];
     const mutable={...s};
     for(const name of stable) mutable[name]=null;
     const backup=structuredClone(mutable);
     for(const name of stable) backup[name]=s[name];
     let effects;
     let objects;
-    try { s.pendingRows=[];if(c.payload.proof && c.kind!=='IMPORT') proveSource(s,c.payload.proof);effects=execute(c,s); s.currentEffects=effects; objects=inventoryFor(s,c,host,effects); s.pendingIntroductions=objects.length; resourceFlow(s,c,host); demandResourceConservation(s,host); delete s.currentEffects;delete s.pendingIntroductions; }
-    catch(e) { if(e instanceof Refusal) { if(process.env.R3_DEBUG) process.stderr.write(`${c.kind}: ${e.code}\n`);Object.assign(s,backup);delete s.pendingRows;delete s.currentEffects;delete s.pendingIntroductions;delete s.pendingEnrollment;s.refused++; continue; } throw e; }
+    try { s.pendingRows=[];s.currentAuthoritySources=authorizationReferences(s,c);if(c.payload.proof && c.kind!=='IMPORT') proveSource(s,c.payload.proof);effects=execute(c,s); s.currentEffects=effects; objects=inventoryFor(s,c,host,effects); s.pendingIntroductions=objects.length;s.pendingAuthorityIntroductions=objects.filter(o=>o.kind==='AUTHORITY').length; resourceFlow(s,c,host); demandResourceConservation(s,host); delete s.currentEffects;delete s.pendingIntroductions;delete s.pendingAuthorityIntroductions; }
+    catch(e) { if(e instanceof Refusal) { if(process.env.R3_DEBUG) process.stderr.write(`${c.kind}: ${e.code}\n`);Object.assign(s,backup);delete s.pendingRows;delete s.currentEffects;delete s.currentAuthoritySources;delete s.pendingAuthorityDependencies;delete s.pendingIntroductions;delete s.pendingAuthorityIntroductions;delete s.pendingEnrollment;s.refused++; continue; } throw e; }
     for(const row of s.pendingRows) {
       const target=s[row.target];if(!target.has(row.gateway)) target.set(row.gateway,new Map());
       target.get(row.gateway).set(row.position,row.bytes);
@@ -1262,7 +1362,9 @@ function runReplay(trace) {
     const j=journal(s,host),root=digest('replay',[j.root,dg,effects]);
     if(!s.objectInventory.has(host)) s.objectInventory.set(host,new Set());
     for(const o of objects) s.objectInventory.get(host).add(objectIdentity(o));
-    const dependencies=[...(c.payload.proof?[c.payload.proof.segment]:[]),...(c.payload.begin?[c.payload.begin.segment]:[]),...(c.payload.preparations??[]).map(x=>x.segment)].sort();
+    const dependencies=[...new Set([...(c.payload.proof?[c.payload.proof.segment]:[]),...(c.payload.begin?[c.payload.begin.segment]:[]),...(c.payload.preparations??[]).map(x=>x.segment),...s.pendingAuthorityDependencies])].sort();
+    delete s.pendingAuthorityDependencies;
+    delete s.currentAuthoritySources;
     const segment={profile:'central-adjudication-r3/1',host,ordinal:String(j.ordinal+1n),previous:j.previous,previous_root:j.root,command:c,result:{status:'COMMITTED',code:c.kind,effects,root},dependencies,objects};
     requireShape('result',segment.result);
     requireShape('segment',segment);
@@ -1271,6 +1373,8 @@ function runReplay(trace) {
     const encodedSegment=Buffer.from(canonical(segment));
     if(encodedSegment.length>SCHEMA['x-segment-limit']) denial('SEGMENT_LIMIT');
     j.ordinal++; j.previous=digest('segment',segment); j.root=root; j.segments.set(j.previous,segment);j.byOrdinal.set(String(j.ordinal),j.previous);j.bytes.set(String(j.ordinal),encodedSegment);s.segments++;
+    if(!s.authorityRetained.has(host)) s.authorityRetained.set(host,new Map());
+    for(const o of objects.filter(o=>o.kind==='AUTHORITY')) s.authorityRetained.get(host).set(canonical(o.full_key),{hash:o.body_hash,bytes:o.bytes,segment:j.previous});
     if(s.writers.has(host)) s.writers.get(host).journal_head=root;
     s.commands.set(k,{digest:dg,result:segment.result});
   }

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { canonical, compare_policy, compare_request, create_comparison_session, create_read_session, create_seal_session, decodeIndexKey, digest, encodeIndexKey, percentAtoms, read_prefix, replay, strictParse, validate_shape } from './validate.mjs';
 
 const file=(name)=>strictParse(readFileSync(new URL(name,import.meta.url)));
@@ -14,6 +16,23 @@ function replaceHash(set,oldHash,newHash) {
   assert.notEqual(index,-1);
   set.splice(index,1,newHash);
   set.sort();
+}
+function replaceAuthoritySource(t,hash,change) {
+  const record=t.initial.authority_sources.find(x=>x.body_hash===hash);
+  assert.ok(record);
+  const body=strictParse(Buffer.from(record.body,'base64'));
+  change(body);
+  const bytes=Buffer.from(canonical(body));
+  const next=createHash('sha256').update(bytes).digest('hex');
+  record.body=bytes.toString('base64');record.bytes=String(bytes.length);record.body_hash=next;
+  replaceHash(t.initial.authority_documents,hash,next);
+  t.initial.authority_sources.sort((a,b)=>canonical(a)<canonical(b)?-1:canonical(a)>canonical(b)?1:0);
+  for(const command of t.commands) if(command.authority.document===hash) {
+    const old=digest('authority',command.authority);
+    command.authority.document=next;
+    replaceHash(t.initial.authority_observations,old,digest('authority',command.authority));
+  }
+  return next;
 }
 function resign(t,index,mutate) {
   const c=t.commands[index],old=digest('authority',c.authority);
@@ -45,29 +64,32 @@ test('strict JSON and canonical Unicode reject lossy or ambiguous bytes',()=>{
   assert.throws(()=>canonical({constructor:'unsafe'}));
 });
 
-test('all 42 independent binary full-key goldens roundtrip with bounded framing',()=>{
+test('all 45 independent binary full-key goldens roundtrip with bounded framing',()=>{
   const rows=file('./index-vectors.json').vectors;
-  assert.equal(rows.length,42);
+  assert.equal(rows.length,45);
   const tags=new Set(),kinds=new Set();
   for(const row of rows) {
     const bytes=encodeIndexKey(row.kind,row.components);
     assert.equal(bytes.toString('hex'),row.hex,row.kind);
     assert.deepEqual(decodeIndexKey(bytes),{kind:row.kind,components:row.components});
-    assert.ok(bytes.length<=1079);
+    assert.ok(bytes.length<=1115);
     tags.add(bytes.subarray(0,8).toString('ascii'));kinds.add(row.kind);
     assert.throws(()=>decodeIndexKey(Buffer.concat([bytes,Buffer.from([0])])),{code:'INDEX_TRAILING'});
     assert.throws(()=>encodeIndexKey(row.kind,[...row.components,'extra']),{code:'INDEX_ARITY'});
   }
-  assert.equal(kinds.size,14);assert.equal(tags.size,14);
-  assert.equal(Math.max(...rows.map(row=>Buffer.from(row.hex,'hex').length)),1079);
+  assert.equal(kinds.size,15);assert.equal(tags.size,15);
   const worksheet=file('./protocol/resources.json');
-  assert.equal(worksheet.maximum_key_bytes,1079);
-  assert.equal(worksheet.binary_radix_depth,8*1079+1);
-  assert.equal(worksheet.pages_per_index_update,8*1079+2);
+  assert.equal(Math.max(...rows.map(row=>Buffer.from(row.hex,'hex').length)),1115);
+  const fullAuthorityKey=encodeIndexKey('authdoc',worksheet.key_components.authdoc.map(n=>'a'.repeat(n)));
+  assert.equal(fullAuthorityKey.length,1115);
+  assert.deepEqual(decodeIndexKey(fullAuthorityKey).components,worksheet.key_components.authdoc.map(n=>'a'.repeat(n)));
+  assert.equal(worksheet.maximum_key_bytes,1115);
+  assert.equal(worksheet.binary_radix_depth,8*1115+1);
+  assert.equal(worksheet.pages_per_index_update,8*1115+2);
   assert.equal(Object.values(worksheet.node_layout).reduce((a,b)=>a+b,0),128);
   assert.equal(worksheet.value_page_header_bytes+worksheet.value_page_payload_bytes,4096);
   for(const [kind,limits] of Object.entries(worksheet.key_components)) {
-    assert.equal(9+limits.reduce((n,v)=>n+2+v,0)<=1079,true,kind);
+    assert.equal(9+limits.reduce((n,v)=>n+2+v,0)<=1115,true,kind);
   }
 });
 
@@ -87,15 +109,82 @@ test('closed shapes enforce conditional nested schemas, amounts and exact eviden
 
 test('two-host enrollment reproduces both segment chains and the frozen 80-atom anchor',()=>{
   const x=replay(minimal()),s=x.summary;
-  assert.equal(s.root,'897176331b938be83e1b914f3cda3deb29bfb1840bbb54d9ea272e23e5d3e24f');
+  assert.equal(s.root,'b8f6b83f3f599e787e00a6db6db2e21218b7efdbadc1404208baa74e162ba697');
   assert.equal(s.customer_atoms,'80');
   assert.equal(s.segments,2);
   assert.equal(s.journals.center.ordinal,'1');
   assert.equal(s.journals.g0.ordinal,'1');
-  assert.equal(Object.keys(x.snapshot.object_inventory.center).length,33);
+  assert.equal(Object.keys(x.snapshot.object_inventory.center).length,38);
+  assert.equal(Object.keys(x.snapshot.authority_retained.center).length,5);
+  assert.equal(Object.keys(x.snapshot.authority_retained.g0).length,1);
   const segment=file('./minimal-segment.json');
   assert.equal(digest('segment',segment),s.journals.center.segment);
   assert.ok(segment.objects.every(o=>o.origin.host==='center' || o.origin.host==='g0'));
+  assert.equal(segment.objects.filter(o=>o.kind==='AUTHORITY').length,5);
+  assert.ok(segment.dependencies.includes(s.journals.g0.segment));
+});
+
+test('authority source bytes, approved set, and full identity are exact',()=>{
+  const missing=minimal();
+  missing.initial.authority_sources.pop();
+  assert.throws(()=>replay(missing),{code:'AUTH_SOURCE_MEMBERSHIP'});
+  const altered=minimal(),first=altered.initial.authority_sources[0];
+  first.bytes=String(Number(first.bytes)+1);
+  assert.throws(()=>replay(altered),{code:'AUTH_SOURCE_BODY'});
+  const conflict=minimal(),original=conflict.initial.authority_sources[0];
+  const body=strictParse(Buffer.from(original.body,'base64'));
+  body.principal='other';
+  const raw=Buffer.from(canonical(body)),hash=createHash('sha256').update(raw).digest('hex');
+  conflict.initial.authority_sources.push({body:raw.toString('base64'),body_hash:hash,bytes:String(raw.length)});
+  conflict.initial.authority_sources.sort((a,b)=>canonical(a)<canonical(b)?-1:canonical(a)>canonical(b)?1:0);
+  conflict.initial.authority_documents.push(hash);conflict.initial.authority_documents.sort();
+  assert.throws(()=>replay(conflict),{code:'AUTH_SOURCE_IDENTITY'});
+});
+
+test('coherently rehashed authorizations still bind principal, scope, revision, permission and time',()=>{
+  const changes=[
+    [b=>{b.principal='other'},'AUTH_SOURCE_BINDING'],
+    [b=>{b.scope=['other','sandbox']},'AUTH_SOURCE_SCOPE'],
+    [b=>{b.revision='2'},'AUTH_SOURCE_BINDING'],
+    [b=>{b.permissions=b.permissions.filter(p=>p!=='capacity')},'AUTH_SOURCE_BINDING'],
+    [b=>{b.ends_at='2026-01-01T00:00:00.000000Z'},'AUTH_SOURCE_WINDOW'],
+  ];
+  for(const [change,code] of changes) {
+    const t=minimal(),hash=t.commands[0].authority.document;
+    replaceAuthoritySource(t,hash,change);
+    assert.throws(()=>replay(prefix(t,1)),{code});
+  }
+});
+
+test('all thirteen serialized invalid traces return their exact error and nonzero CLI exit',()=>{
+  const expected=file('./negative-expectations.json');
+  assert.equal(Object.keys(expected).length,13);
+  for(const [name,code] of Object.entries(expected)) {
+    assert.throws(()=>replay(file(`./negative-vectors/${name}`)),{code},name);
+    const run=spawnSync(process.execPath,[fileURLToPath(new URL('./validate.mjs',import.meta.url)),fileURLToPath(new URL(`./negative-vectors/${name}`,import.meta.url))],{encoding:'utf8'});
+    assert.equal(run.status,1,name);
+    const response=strictParse(run.stdout);
+    assert.deepEqual(Object.keys(response).sort(),['accepted','error'],name);
+    assert.equal(response.accepted,false,name);
+    assert.equal(response.error,code,name);
+  }
+});
+
+test('accepted delegated correction retains the same exact payer source',()=>{
+  const x=replay(vector('authority-delegation'));
+  assert.equal(x.summary.root,'7e0e5b6fa9a2f9be794c5dfa69e6c962bb809b7c452e0de3579ee8a05ed3c0c9');
+  assert.equal(x.summary.customer_atoms,'380');
+  assert.deepEqual(x.snapshot.actions.map(a=>a.body.kind),['ORDINARY','INVERSE','REPLACEMENT']);
+  const source=x.snapshot.actions[0].body.roles.payer_delegation;
+  assert.ok(source);
+  assert.ok(x.snapshot.actions.every(a=>a.body.roles.payer_delegation===source));
+  assert.equal(Object.keys(x.snapshot.authority_retained.center).length,6);
+});
+
+test('a business refusal cannot hide an unresolved economic authority source',()=>{
+  const t=customer(),index=t.commands.findIndex(c=>c.kind==='DECIDE');
+  resign(t,index,c=>{c.payload.case[2]='missing-case';c.payload.assent='0'.repeat(64)});
+  assert.throws(()=>replay(prefix(t,index+1)),{code:'AUTH_SOURCE_MEMBERSHIP'});
 });
 
 test('frozen v2 source bodies reject coherently rehashed extra and missing nested fields',()=>{
@@ -120,26 +209,37 @@ test('each of six center resource dimensions can block ENROLL without a partial 
   }
 });
 
-test('customer history keeps retail and supplier books separate through fifteen checkpoints',()=>{
+test('customer history follows S00–S14 and keeps the supplier book separate',()=>{
   const t=customer(),rows=file('./customer-checkpoints.json');
   assert.equal(rows.length,15);
-  const expected=[10000,10000,11200,11200,11700,11700,11700,11700,11700,11800,11650,11650,11450,11450,11450];
+  const expected=[10000,10000,11200,11200,11200,11200,11700,11700,11700,11700,11700,11800,11650,11650,11450];
+  const entitlements=[0,0,1,1,1,1,2,2,2,2,2,3,4,5,5];
+  const actions=[0,0,1,1,1,1,2,2,2,2,2,3,4,4,6];
   for(let i=0;i<rows.length;i++) {
-    const s=replay(prefix(t,rows[i].through)).summary;
+    const x=replay(prefix(t,rows[i].through)),s=x.summary;
     assert.equal(s.customer_atoms,String(expected[i]),rows[i].name);
     assert.equal(s.customer_atoms,rows[i].customer_atoms,rows[i].name);
+    assert.equal(s.entitlements,entitlements[i],rows[i].name);
+    assert.equal(x.snapshot.actions.length,actions[i],rows[i].name);
+    assert.equal(rows[i].supplier_booked,'3000',rows[i].name);
+    if(i===10) {
+      assert.equal(x.snapshot.certificates.length,1);
+      assert.equal(x.snapshot.certificates[0].families.length,5);
+    }
   }
   const x=replay(t),s=x.summary;
-  assert.equal(s.root,'7e37bc9682e1451c8435712ad8a4ea9d7d3e7855686f3a7078f32ba76a4e6b3a');
+  assert.equal(s.root,'2b14f8c71f6960bbff8833fcf7d063e563bd108e986f9323a039e6e38f1e1a81');
   assert.equal(s.adjustment_gross,'250');
   assert.equal(s.entitlements,5);
-  assert.equal(s.round,'3');
+  assert.equal(s.round,'1');
   assert.equal(s.suppliers.length,0);
   assert.equal(Object.keys(s.journals).length,5);
-  assert.equal(x.snapshot.certificates.length,3);
-  assert.equal(x.snapshot.allocations['close:2'].slots.length,0);
-  assert.ok(x.snapshot.allocations['close:3'].slots.length>0);
-  assert.ok(x.snapshot.allocations['close:4'].slots.length>0);
+  assert.equal(x.snapshot.certificates.length,1);
+  assert.equal(x.snapshot.allocations['close:0'].slots.length,0);
+  assert.ok(x.snapshot.allocations['close:1'].slots.length>0);
+  assert.ok(x.snapshot.allocations['close:2'].slots.length>0);
+  assert.deepEqual(x.snapshot.actions.slice(-2).map(a=>a.body.kind),['INVERSE','REPLACEMENT']);
+  assert.deepEqual(x.snapshot.actions.slice(-2).map(a=>a.body.signed_atoms),['-500','300']);
   for(const [host,account] of Object.entries(x.snapshot.resources))for(const dimension of Object.keys(account.held)) {
     const sum=Object.values(x.snapshot.allocations).filter(owner=>owner.host===host).reduce((n,owner)=>n+BigInt(owner.held[dimension]),0n);
     assert.equal(String(sum),account.held[dimension],`${host}/${dimension}`);
@@ -148,9 +248,9 @@ test('customer history keeps retail and supplier books separate through fifteen 
 
 test('published host and delayed seal vectors preserve independent journals',()=>{
   const expected={
-    'delayed-seal-observation':'85ef056273821242cd3326aea8edf635b4a471c1cab67f7f30ec488fb630cc4d',
-    'independent-host-identity':'2059ad79192b449c7b88bc208d449cd29607c3aadcaf173b0ac38871b599d72d',
-    'seal-scan':'d77a34b9a1909a4cd432be208338cb8884d6d4a86566b6bc19d3b7c5527e45aa',
+    'delayed-seal-observation':'5f0abb85601ee8a9b83fda3d78fa4be8f2c6499ca7dee167d01cd62a29e446c1',
+    'independent-host-identity':'1a61cbc359968fad2f98dc4a5c48761c21c1081580e66274a7e6b77e96ef4746',
+    'seal-scan':'1e43576c5fff0dd4dae1744c02a11c154b97865ddd0f4a5b78026c02abb57c00',
   };
   for(const [name,root] of Object.entries(expected))assert.equal(replay(vector(name)).summary.root,root,name);
   const host=replay(vector('independent-host-identity')).summary;
@@ -180,9 +280,7 @@ test('economic role and authority substitutions cannot borrow an observed grant'
   forged.commands[index].authority.principal='forged-principal';
   assert.throws(()=>replay(prefix(forged,index+1)),{code:'AUTHORITY_OBSERVATION'});
   resign(t,index,c=>{c.payload.roles.payer='vendor'});
-  const s=replay(prefix(t,index+1)).summary;
-  assert.equal(s.refused,1);
-  assert.equal(s.adjustment_gross,'0');
+  assert.throws(()=>replay(prefix(t,index+1)),{code:'ASSENT_BINDING'});
 });
 
 test('directional signed rounding and gross budgets match independent boundary rows',()=>{
