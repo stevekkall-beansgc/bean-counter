@@ -126,10 +126,10 @@
     "object": 351770,
     "token": 946,
     "receipt": 4217,
-    "coverage": 748,
+    "coverage": 747,
     "submission": 90996,
     "action": 4058,
-    "certificate": 93288,
+    "certificate": 93284,
     "enroll": 199743,
     "local_grant": 3236,
     "register_grant": 7104,
@@ -159,9 +159,17 @@
     "extend_resources": 570,
     "round_begin": 1374,
     "seal": 569,
-    "effect": 93314,
-    "result": 11944566,
-    "retry_response": 8705
+    "effect": 93310,
+    "result": 11944054,
+    "retry_response": 8701,
+    "expected_prefix": 1530,
+    "read_budget": 127,
+    "read_cursor": 1798,
+    "read_request": 3488,
+    "read_response": 1970,
+    "comparison_policy": 53,
+    "comparison_request": 4748,
+    "comparison_response": 4759
   },
   "transitions": {
     "ENROLL": {
@@ -724,16 +732,16 @@
     },
     "CLOSE": {
       "command_bytes": 2039,
-      "result_bytes": 93567,
-      "segment_bytes": 234506,
-      "new_trusted_bytes": 191244,
+      "result_bytes": 93563,
+      "segment_bytes": 234494,
+      "new_trusted_bytes": 191236,
       "records": 3,
       "index_updates": 80,
       "index_path_pages": 690720,
       "index_value_pages": 3760,
       "index_page_bytes": 88412160,
       "index_value_bytes": 15400960,
-      "logical_workspace_bytes": 104282132,
+      "logical_workspace_bytes": 104282108,
       "counter_increments": {
         "segment": 1,
         "head_revision": 1,
@@ -1008,7 +1016,7 @@
     "records": 3,
     "index_path_pages": 690720,
     "index_value_pages": 3760,
-    "logical_workspace_bytes": 104282132
+    "logical_workspace_bytes": 104282108
   },
   "bundles": {
     "local_grant": {
@@ -1132,13 +1140,13 @@
       ],
       "slot_count": 11,
       "retained": {
-        "segment_bytes": 489623,
-        "new_trusted_bytes": 337297,
+        "segment_bytes": 489611,
+        "new_trusted_bytes": 337289,
         "records": 15,
         "index_path_pages": 1165590,
         "index_value_pages": 4075
       },
-      "peak_workspace": 104282132,
+      "peak_workspace": 104282108,
       "counters": {
         "segment": 11,
         "head_revision": 11,
@@ -1209,13 +1217,13 @@
       ],
       "slot_count": 12,
       "retained": {
-        "segment_bytes": 506284,
-        "new_trusted_bytes": 341819,
+        "segment_bytes": 506272,
+        "new_trusted_bytes": 341811,
         "records": 17,
         "index_path_pages": 1208760,
         "index_value_pages": 4085
       },
-      "peak_workspace": 104282132,
+      "peak_workspace": 104282108,
       "counters": {
         "segment": 12,
         "head_revision": 12,

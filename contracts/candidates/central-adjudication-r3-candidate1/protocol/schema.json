@@ -791,52 +791,88 @@
       }
     },
     "coverage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "gateway",
-        "status",
-        "cutoff",
-        "allocation_prefix",
-        "receipt_high",
-        "receipt_prefix",
-        "disposition_root",
-        "receipt_root",
-        "observation"
-      ],
-      "properties": {
-        "gateway": {
-          "$ref": "#/$defs/id"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gateway",
+            "status",
+            "cutoff",
+            "allocation_prefix",
+            "receipt_high",
+            "receipt_prefix",
+            "disposition_root",
+            "receipt_root",
+            "observation"
+          ],
+          "properties": {
+            "gateway": {
+              "$ref": "#/$defs/id"
+            },
+            "status": {
+              "const": "COMPLETE_GATEWAY_CUTOFF"
+            },
+            "cutoff": {
+              "$ref": "#/$defs/count"
+            },
+            "allocation_prefix": {
+              "$ref": "#/$defs/count"
+            },
+            "receipt_high": {
+              "$ref": "#/$defs/count"
+            },
+            "receipt_prefix": {
+              "$ref": "#/$defs/count"
+            },
+            "disposition_root": {
+              "$ref": "#/$defs/digest"
+            },
+            "receipt_root": {
+              "$ref": "#/$defs/digest"
+            },
+            "observation": {
+              "$ref": "#/$defs/digest"
+            }
+          }
         },
-        "status": {
-          "enum": [
-            "COMPLETE_GATEWAY_CUTOFF",
-            "UNRECONCILED",
-            "UNKNOWN_GATEWAY_COVERAGE"
-          ]
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gateway",
+            "status",
+            "observation"
+          ],
+          "properties": {
+            "gateway": {
+              "$ref": "#/$defs/id"
+            },
+            "status": {
+              "const": "UNRECONCILED"
+            },
+            "observation": {
+              "$ref": "#/$defs/digest"
+            }
+          }
         },
-        "cutoff": {
-          "$ref": "#/$defs/count"
-        },
-        "allocation_prefix": {
-          "$ref": "#/$defs/count"
-        },
-        "receipt_high": {
-          "$ref": "#/$defs/count"
-        },
-        "receipt_prefix": {
-          "$ref": "#/$defs/count"
-        },
-        "disposition_root": {
-          "$ref": "#/$defs/digest"
-        },
-        "receipt_root": {
-          "$ref": "#/$defs/digest"
-        },
-        "observation": {
-          "$ref": "#/$defs/digest"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "gateway",
+            "status"
+          ],
+          "properties": {
+            "gateway": {
+              "$ref": "#/$defs/id"
+            },
+            "status": {
+              "const": "UNKNOWN_GATEWAY_COVERAGE"
+            }
+          }
         }
-      }
+      ]
     },
     "submission": {
       "type": "object",
@@ -2759,7 +2795,8 @@
       "required": [
         "expected",
         "policy",
-        "budget"
+        "budget",
+        "coverage"
       ],
       "properties": {
         "expected": {
@@ -2770,6 +2807,15 @@
         },
         "budget": {
           "$ref": "#/$defs/read_budget"
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverage"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true
         }
       }
     },
@@ -2784,7 +2830,8 @@
             "actual",
             "alternative",
             "difference",
-            "supplier_booked"
+            "supplier_booked",
+            "coverage"
           ],
           "properties": {
             "status": {
@@ -2804,6 +2851,15 @@
             },
             "supplier_booked": {
               "$ref": "#/$defs/count"
+            },
+            "coverage": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/coverage"
+              },
+              "minItems": 1,
+              "maxItems": 4,
+              "uniqueItems": true
             }
           }
         },

@@ -395,7 +395,7 @@ resource head. Count each following branch entry in addition, without padding:
 | CLOSE | round, certificate, each explicitly closed family, each supplier transition |
 | SUPPLEMENT | case evidence and optional funding owner |
 | DECIDE DENY | case and optional funding owner |
-| DECIDE ALLOW | case, entitlement, funding pool, economic revision, obligation, optional owner, each nonzero action |
+| DECIDE ALLOW | case, entitlement, funding pool, economic revision, optional owner, plus obligation and action only when nonzero |
 | CORRECT | case revision, economic revision, optional owner, each nonzero inverse/replacement |
 | REPLACE_WRITER / EXTEND_RESOURCES | epoch/target-resource head and optional owner |
 
@@ -432,3 +432,15 @@ resolution amount, retains actual decisions and adjustment/correction history, a
 returns POLICY_FAILURE with no partial total if the original premium cap is hit.
 Changing any other policy/decision field is structurally unsupported. Complete
 central verification does not assert unknown gateway coverage is complete.
+
+UNKNOWN_GATEWAY_COVERAGE has exactly gateway/status; UNRECONCILED has
+only gateway/status/observation. Counts/roots are present only in complete
+coverage, never fabricated as zero for UNKNOWN. Comparison requests carry exactly
+one coverage entry per enrolled gateway, and comparable output preserves it.
+Full replica/read-only snapshots are test artifacts, not bounded journal records.
+The replay output includes snapshot with resources/counters/allocations, permanent
+grant/token states, cases/transfer lineage, entitlements/pools/suppliers and exact
+actions/certificates. Decimal quantities stay strings; terminal owner allocations
+remain present with empty slots and zero holds. State maps may contain null for a
+grant without a token or case without a transfer; this is diagnostic state, not
+an optional canonical-record field.

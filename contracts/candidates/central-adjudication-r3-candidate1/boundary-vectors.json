@@ -1,0 +1,190 @@
+{
+  "format": "r3-boundary-vectors/1",
+  "arithmetic": [
+    {
+      "base_atoms": "10000",
+      "rate_percent": "12",
+      "numerator": "1200",
+      "denominator": "1",
+      "rounded": "1200",
+      "inverse": "-1200"
+    },
+    {
+      "base_atoms": "10000",
+      "rate_percent": "15",
+      "numerator": "1500",
+      "denominator": "1",
+      "rounded": "1500",
+      "inverse": "-1500"
+    },
+    {
+      "base_atoms": "10000",
+      "rate_percent": "-1.5",
+      "numerator": "-150",
+      "denominator": "1",
+      "rounded": "-150",
+      "inverse": "150"
+    },
+    {
+      "base_atoms": "10005",
+      "rate_percent": "10",
+      "numerator": "2001",
+      "denominator": "2",
+      "rounded": "1001",
+      "inverse": "-1001"
+    },
+    {
+      "base_atoms": "10005",
+      "rate_percent": "-10",
+      "numerator": "-2001",
+      "denominator": "2",
+      "rounded": "-1001",
+      "inverse": "1001"
+    }
+  ],
+  "routes": [
+    {
+      "case": [
+        [
+          [
+            "synthetic",
+            "sandbox"
+          ],
+          "agreement",
+          "family",
+          "target"
+        ],
+        "source",
+        "0"
+      ],
+      "hash": "f8b9570815759fc2b236d439162c7778a0195da565904be0e960ff5897e0e694",
+      "owner": 0
+    },
+    {
+      "case": [
+        [
+          [
+            "synthetic",
+            "sandbox"
+          ],
+          "agreement",
+          "family",
+          "target"
+        ],
+        "source",
+        "3"
+      ],
+      "hash": "71c70ba0229b4b9ac819c8ef76ebba82956bda4429e34c954432008ce75efa01",
+      "owner": 1
+    },
+    {
+      "case": [
+        [
+          [
+            "synthetic",
+            "sandbox"
+          ],
+          "agreement",
+          "family",
+          "target"
+        ],
+        "source",
+        "6"
+      ],
+      "hash": "741149f067948d2bd70daf6409bd0b3a3303c6de59382a9c12b1a16c96efc202",
+      "owner": 2
+    },
+    {
+      "case": [
+        [
+          [
+            "synthetic",
+            "sandbox"
+          ],
+          "agreement",
+          "family",
+          "target"
+        ],
+        "source",
+        "2"
+      ],
+      "hash": "dad27567ca5d636d3cec7fa25c71a83d880320d55fb5cc838430488917b22c0b",
+      "owner": 3
+    }
+  ],
+  "canonical": [
+    {
+      "value": {},
+      "utf8_hex": "7b7d",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    {
+      "value": {
+        "": 1,
+        "😀": 2
+      },
+      "utf8_hex": "7b22f09f9880223a322c22ee8080223a317d",
+      "sha256": "28c95d1bbb2209223307e62f489020e8f9e0cfa16adf2daf6d88127a1e8dd22a"
+    },
+    {
+      "value": {
+        "quoted": "\"\\",
+        "control": "\b\t\n\f\r\u0001"
+      },
+      "utf8_hex": "7b22636f6e74726f6c223a225c625c745c6e5c665c725c7530303031222c2271756f746564223a225c225c5c227d",
+      "sha256": "180858d998f729e8e7b71e981b6d1f0115eb27d4fc778e5f6c545f16ca54119f"
+    },
+    {
+      "value": [
+        [
+          "x",
+          "y"
+        ],
+        "source",
+        "external"
+      ],
+      "utf8_hex": "5b5b2278222c2279225d2c22736f75726365222c2265787465726e616c225d",
+      "sha256": "cba5165d53a6e1c9617c6d70383ad9e93d4529ef3f600e11a451349c5921c521"
+    },
+    {
+      "value": {
+        "é": "é"
+      },
+      "utf8_hex": "7b22c3a9223a2265cc81227d",
+      "sha256": "9a151d61a548075d200d74d947eed85188cff71905143cfb0f585deb38f826e0"
+    }
+  ],
+  "gross": [
+    {
+      "positive": "100",
+      "negative": "150",
+      "gross": "250",
+      "net": "-50",
+      "cap": "249",
+      "allowed": false
+    },
+    {
+      "positive": "100",
+      "negative": "150",
+      "gross": "250",
+      "net": "-50",
+      "cap": "250",
+      "allowed": true
+    },
+    {
+      "positive": "100",
+      "negative": "150",
+      "gross": "250",
+      "net": "-50",
+      "cap": "251",
+      "allowed": true
+    }
+  ],
+  "limits": {
+    "operation": 262144,
+    "trusted": 2097152,
+    "segment": 8388608,
+    "evidence": 4096,
+    "counter": "999999999999999999999999999999"
+  }
+}
