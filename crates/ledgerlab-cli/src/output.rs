@@ -93,6 +93,11 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
         LocalError::Service(ServiceError::IntegrityFailure) => {
             super::error("INTEGRITY_FAILURE", "retained data failed verification", 9)
         }
+        LocalError::Service(ServiceError::ReadBudgetExhausted) => super::error(
+            "READ_BUDGET_EXHAUSTED",
+            "the read reached its requested resource budget",
+            7,
+        ),
         LocalError::Service(ServiceError::Retryable | ServiceError::Unavailable) => super::error(
             "UNAVAILABLE",
             "local store is busy or unavailable; retry the same input",
