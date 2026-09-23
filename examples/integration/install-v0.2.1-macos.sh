@@ -6,9 +6,17 @@ if [ "$#" -ne 1 ]; then
     exit 2
 fi
 
-if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ] || [ "$(sw_vers -productVersion)" != "26.6.2" ]; then
-    echo "unsupported host: this artifact was tested on macOS 26.6.2 with Apple silicon" >&2
+if [ "$(uname -s)" != "Darwin" ] || [ "$(uname -m)" != "arm64" ]; then
+    echo "incompatible host: the pinned artifact is macOS arm64" >&2
     exit 2
+fi
+host_version=$(sw_vers -productVersion)
+if ! printf '%s\n' "$host_version" | awk -F. 'NF >= 2 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { ok=($1 >= 11) } END { exit !ok }'; then
+    echo "incompatible or unknown macOS version '$host_version': the published binary declares macOS 11.0 as its minimum" >&2
+    exit 2
+fi
+if [ "$host_version" != "26.6.2" ]; then
+    echo "warning: macOS $host_version is not the tested 26.6.2 host; the binary declares minos 11.0, which does not certify behavior on this version" >&2
 fi
 
 destination=$1

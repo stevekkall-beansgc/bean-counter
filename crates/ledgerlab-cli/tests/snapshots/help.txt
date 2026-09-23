@@ -41,7 +41,7 @@ Exit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;
 9 integrity failure. Retry unknown outcomes with the same event identity.
 
 Ordinary local billing (separate installation):
-  billing setup DIR --setup FILE       Guided, confirmed private setup
+  billing setup DIR [--setup FILE]     Guided, confirmed private setup
   billing init DIR --setup FILE        Noninteractive JSON setup
   billing [--directory DIR] accept FILE|-
   billing [--directory DIR] outcome FILE|-

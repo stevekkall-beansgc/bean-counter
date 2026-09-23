@@ -105,7 +105,7 @@ fn guided_billing_setup_refuses_noninteractive_use_without_creating_a_path() {
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(matches!(
         value["code"].as_str(),
-        Some("SETUP_REQUIRES_TERMINAL" | "UNSUPPORTED_PLATFORM")
+        Some("SETUP_REQUIRES_TERMINAL" | "INCOMPATIBLE_PLATFORM")
     ));
     assert!(!destination.exists());
 }

@@ -16,7 +16,7 @@ ledger --help
 
 The first build may download locked dependencies. Add `--offline` only after populating the cache. This command installs from the checked-out source. Record its exact commit; [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) identify published versions. The installed `ledger` binary needs no Cargo, Python, Node, Docker, cloud account, model key or network service for billing. Preserve the source commit and binary SHA-256 with operational records. See [resources and costs](resources-and-costs.md).
 
-For the pinned v0.2.1 native archive, artifact checksum verification, guided setup and a machine-readable product example, see [local product integration](../examples/integration/README.md). The artifact is unsigned and tested only on macOS 26.6.2 with Apple silicon.
+For the pinned v0.2.1 macOS archive, artifact checksum verification, guided setup and machine-readable product examples, see [local product integration](../examples/integration/README.md). The released archive is unsigned and tested on macOS 26.6.2 with Apple silicon. This Stage 2 source candidate also exercises native Linux x86-64 guided setup, but Linux support remains unclaimed until the packaged install and full-path checks pass on Ubuntu 24.04 CI. Windows is deferred.
 
 ## Set up explicit terms
 
@@ -31,7 +31,7 @@ ledger billing init ./billing --setup examples/billing/setup.json
 ledger billing --directory ./billing accept examples/billing/event.json --json
 ```
 
-For a terminal-guided confirmation of explicit terms, use `ledger billing setup ./billing --setup examples/billing/setup.json`. It validates and summarizes the terms before asking you to type `CREATE`, requires a new private path, and refuses on an untested host. For scripts, agents and products, keep using `billing init DIR --setup FILE --json`; it is noninteractive and does not make up any configuration.
+For an interactive setup with no hand-authored JSON, use `ledger billing setup ./billing`. It asks for the actual parties, agreement, exact price, fixed outcome codes, UTC reporting/correction windows, retained assent evidence, and truthful authority/finality attestations. Read and submit permissions are required; correction permission is optional and separately confirmed. It displays the validated terms and entered assertions for review, then requires `CREATE`; `cancel`, invalid terms, or an existing destination do not initialize a store. The generated configuration is retained as `./billing/setup.json` with private file permissions for repeat use. The program does not obtain assent or verify authority. `ledger billing setup DIR --setup FILE` remains available when terms were prepared separately. For scripts, agents and products, use `billing init DIR --setup FILE --json`; this remains noninteractive. The native binary requires macOS on Apple silicon. Setup was exercised on macOS 26.6.2; other macOS versions are untested. The published artifact declares a macOS 11.0 minimum, which is a loader/build declaration and does not certify runtime behavior on every later version.
 
 Initialization books nothing. Successful acceptance returns a `base-acceptance` receipt whose `body.target` is the target ID. With the unchanged example, the customer owes 250 atoms = USD 2.50. Copy the target ID into `TARGET`:
 

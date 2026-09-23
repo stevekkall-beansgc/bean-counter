@@ -1,6 +1,6 @@
 # Quiescent backup and recovery
 
-Supported procedure for the macOS local SQLite billing profile. A JSON statement is not a backup. Back up the complete installation: `billing.json`, `.gitignore`, `.ledger/local.db`, `.ledger/owner.lock`, and any `.ledger/local.db-wal`, `.ledger/local.db-shm` or other retained state present. Keep private directory/file permissions. Do not cherry-pick database files, omit sidecars, edit SQL, or delete the lock file.
+Supported procedure for the local SQLite billing profile. A JSON statement is not a backup. Back up the complete installation: the private setup configuration, `.ledger/local.db`, `.ledger/owner.lock`, and any `.ledger/local.db-wal`, `.ledger/local.db-shm` or other retained state present. Keep private directory/file permissions. Do not cherry-pick database files, omit sidecars, edit SQL, or delete the lock file. This procedure was previously exercised on macOS; its Ubuntu 24.04 x86-64 candidate path remains untested until the authorized package/recovery CI journey passes.
 
 1. Stop the invoking application and all CLI work; wait for every process to exit and its store to close. Prevent new invocations for the whole copy. The copy command below does not acquire the Ledger owner lock and is supported **only under this administrator-enforced quiescence**. If any process is still running or uncertain, do not copy.
 2. Save a complete statement and permission status for reconciliation. Those commands must finish before copying. Record source commit/binary hash, time and the backup's cutoff/hash separately.

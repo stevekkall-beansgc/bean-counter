@@ -59,6 +59,9 @@ impl BillingLedger {
             "ordinary_window": family["ordinary"],
             "correction_window": family["corrections"],
             "permissions": setup.permissions,
+            "replacement_codes": family["replacement_codes"],
+            "allow_reversal": family["allow_reversal"],
+            "premium_ceiling": setup.outcome_policy["limits"][0]["premium"],
             "operator_evidence": {
                 "assent": !setup.assent_evidence.is_empty(),
                 "authority_attestation": !setup.operator_attestation.is_empty(),
