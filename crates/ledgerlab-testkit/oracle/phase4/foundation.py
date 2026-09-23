@@ -10,7 +10,7 @@ R3_SQLITE = {
     'r3_journals', 'r3_segments', 'r3_segment_pages', 'r3_objects',
     'r3_object_pages', 'r3_heads', 'r3_head_versions', 'r3_commands',
     'r3_namespaces', 'r3_deliveries', 'r3_index_pages', 'r3_index_roots',
-    'r3_held_intentions', 'r3_storage_profile',
+    'r3_held_intentions', 'r3_storage_profile', 'r3_commit_witness',
 }
 
 

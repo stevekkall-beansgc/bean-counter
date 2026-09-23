@@ -101,7 +101,7 @@ impl AdjudicationStore for SqliteAdjudicationStore {
             retained,
             Count::new(self.pages.into()).map_err(core)?,
             Count::new(wal).map_err(core)?,
-            self.workspace,
+            Count::new(self.workspace.value() + 16384).map_err(core)?,
             Count::ZERO,
             self.workspace,
             transaction.clone(),

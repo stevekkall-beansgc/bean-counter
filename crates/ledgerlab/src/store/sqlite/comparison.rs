@@ -124,6 +124,8 @@ impl ComparisonReadStore for SqliteStore {
             } else {
                 None
             };
+            self.require_published()
+                .map_err(|_| ReadError::Unavailable)?;
             let mut connection = self.inner.readers.acquire().await.map_err(db)?;
             // Even an interrupted BEGIN/ROLLBACK discards this session; it can
             // never return to the pool with an uncertain transaction state.

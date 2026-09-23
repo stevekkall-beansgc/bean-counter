@@ -32,6 +32,7 @@ impl super::SqliteStore {
         let key = wire::ProofFullKey::V2(j.registration.clone());
         let origin=tokio::time::timeout(std::time::Duration::from_secs(2),async {
             let _lane=if self.inner.adjudication_enabled.load(std::sync::atomic::Ordering::Acquire) {Some(self.inner.adjudication_gate.read().await)}else{None};
+            self.require_published()?;
             let mut c=self.inner.readers.acquire().await?;
             let rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT metadata FROM r3_objects WHERE journal=? AND kind='ENROLLMENT' AND full_key=? AND length(metadata) BETWEEN 2 AND 8192 LIMIT 2")
                 .bind(journal_key(j)?).bind(r3::canonical_bytes(&key,4096).map_err(core)?).fetch_all(&mut *c).await?;
@@ -78,6 +79,7 @@ impl super::SqliteStore {
             } else {
                 None
             };
+            self.require_published()?;
             let mut tx = self.inner.readers.begin().await?;
             let installation = super::read::installation(&mut tx).await?;
             if installation.logical_store_id != journal.store.as_str() {

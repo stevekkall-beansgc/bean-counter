@@ -53,6 +53,7 @@ pub(crate) struct SqliteTx {
     pub(super) physical_lane: Option<OwnedRwLockWriteGuard<()>>,
     pub(super) adjudication: Option<super::adjudication::tx::Context>,
     pub(super) physical_start_pages: Option<u32>,
+    pub(super) fence_start_changes: Option<i64>,
     #[cfg(test)]
     pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
@@ -196,8 +197,9 @@ impl AcceptanceTx for SqliteTx {
                 Err(_) => Err(CommitError::OutcomeUnknown),
             };
         }
-        let tx = self.transaction.take().expect("live transaction");
+        let mut tx = self.transaction.take().expect("live transaction");
         let store = Arc::clone(&self.store);
+        let fence_start_changes = self.fence_start_changes;
         let slot = self.slot.take();
         let physical_lane = self.physical_lane.take();
         let (send, receive) = oneshot::channel();
@@ -207,7 +209,52 @@ impl AcceptanceTx for SqliteTx {
             let _slot = slot;
             let _physical_lane = physical_lane;
             let drain_deadline = Instant::now() + Duration::from_secs(5);
-            let result = match timeout_at(drain_deadline, tx.commit()).await {
+            let publication = async {
+                let new = if let (Some(fence), Some(before)) =
+                    (&store._owner.fence, fence_start_changes)
+                {
+                    let after: i64 = sqlx::query_scalar("SELECT total_changes()")
+                        .fetch_one(&mut *tx)
+                        .await?;
+                    if after != before {
+                        Some(fence.prepare(&mut tx).await?)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                #[cfg(test)]
+                if store.fence_cut.load(Ordering::Acquire) == 11 {
+                    std::process::exit(77);
+                }
+                #[cfg(test)]
+                if store.fence_cut.load(Ordering::Acquire) == 1 {
+                    return Err(StoreError::Deadline);
+                }
+                tx.commit().await?;
+                #[cfg(test)]
+                if store.fence_cut.load(Ordering::Acquire) == 12 {
+                    std::process::exit(77);
+                }
+                #[cfg(test)]
+                if store.fence_cut.load(Ordering::Acquire) == 2 {
+                    return Err(StoreError::Deadline);
+                }
+                if let (Some(fence), Some(new)) = (&store._owner.fence, new) {
+                    fence.finish(new)?;
+                }
+                #[cfg(test)]
+                if store.fence_cut.load(Ordering::Acquire) == 13 {
+                    std::process::exit(77);
+                }
+                #[cfg(test)]
+                if store.fence_cut.load(Ordering::Acquire) == 3 {
+                    return Err(StoreError::Deadline);
+                }
+                Ok::<(), StoreError>(())
+            };
+            let result = match timeout_at(drain_deadline, publication).await {
                 Ok(Ok(())) => Ok(()),
                 _ => {
                     store.disabled.store(true, Ordering::Release);

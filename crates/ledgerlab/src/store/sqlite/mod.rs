@@ -2,6 +2,7 @@
 mod adjudication;
 mod comparison;
 mod connect;
+mod fence;
 mod inspect;
 pub(crate) mod migrate;
 mod outbox;
@@ -43,6 +44,8 @@ struct Inner {
     adjudication_gate: Arc<RwLock<()>>,
     #[cfg(test)]
     fail_after_original_base: AtomicBool,
+    #[cfg(test)]
+    fence_cut: std::sync::atomic::AtomicU8,
 }
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
@@ -51,10 +54,36 @@ pub(crate) struct SqliteStore {
     pub diagnostics: Diagnostics,
 }
 impl SqliteStore {
+    fn require_published(&self) -> Result<(), StoreError> {
+        if let Some(fence) = &self.inner._owner.fence {
+            if self.inner.disabled.load(Ordering::Acquire) || !fence.is_stable() {
+                return Err(StoreError::WritesDisabled);
+            }
+        }
+        Ok(())
+    }
     /// Explicit empty-store initialization, never implicitly run by open().
     #[allow(dead_code)] // Explicit provisioning; opening never invokes it.
     pub async fn create(path: &Path, installation: Installation) -> Result<Self, StoreError> {
-        let owner = Arc::new(owner::Owner::acquire(path)?);
+        Self::create_with_anchor(path, installation, None).await
+    }
+    pub(crate) async fn create_fenced(
+        path: &Path,
+        installation: Installation,
+        anchor: &Path,
+    ) -> Result<Self, StoreError> {
+        Self::create_with_anchor(path, installation, Some(anchor)).await
+    }
+    async fn create_with_anchor(
+        path: &Path,
+        installation: Installation,
+        anchor: Option<&Path>,
+    ) -> Result<Self, StoreError> {
+        let mut owner = owner::Owner::acquire(path)?;
+        if let Some(anchor) = anchor {
+            owner.fence = Some(Arc::new(fence::Fence::acquire(anchor, path)?));
+        }
+        let owner = Arc::new(owner);
         let mut file = OpenOptions::new();
         file.write(true).create_new(true);
         #[cfg(unix)]
@@ -69,11 +98,19 @@ impl SqliteStore {
         let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
         write::operation(&mut tx, &WriteOp::SeedInstallation(installation)).await?;
         tx.commit().await?;
+        if let Some(fence) = &owner.fence {
+            fence.initialize(&mut conn).await?;
+        }
         conn.close().await?;
         Self::from_owner(owner).await
     }
     pub async fn open(path: &Path) -> Result<Self, StoreError> {
         Self::from_owner(Arc::new(owner::Owner::acquire(path)?)).await
+    }
+    pub(crate) async fn open_fenced(path: &Path, anchor: &Path) -> Result<Self, StoreError> {
+        let mut owner = owner::Owner::acquire(path)?;
+        owner.fence = Some(Arc::new(fence::Fence::acquire(anchor, path)?));
+        Self::from_owner(Arc::new(owner)).await
     }
     async fn from_owner(owner: Arc<owner::Owner>) -> Result<Self, StoreError> {
         let mut conn = connect::initial(&owner).await?;
@@ -82,6 +119,20 @@ impl SqliteStore {
         migrate::verify(&mut conn).await?;
         connect::integrity(&mut conn).await?;
         read::installation(&mut conn).await?;
+        if let Some(fence) = &owner.fence {
+            fence.recover(&mut conn).await?;
+            owner.adjudication_enabled.store(true, Ordering::Release);
+        } else {
+            let anchored: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM r3_commit_witness)")
+                    .fetch_one(&mut conn)
+                    .await?;
+            if anchored {
+                return Err(StoreError::InvalidStore(
+                    "R3 anchor must be supplied by trusted host",
+                ));
+            }
+        }
         let r3_pages: Option<(i64, Vec<u8>)> = sqlx::query_as(
             "SELECT maximum_pages,profile FROM r3_storage_profile WHERE singleton=1",
         )
@@ -109,6 +160,8 @@ impl SqliteStore {
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),
                 #[cfg(test)]
                 fail_after_original_base: AtomicBool::new(false),
+                #[cfg(test)]
+                fence_cut: std::sync::atomic::AtomicU8::new(0),
                 _owner: owner,
             }),
             diagnostics,
@@ -180,6 +233,7 @@ impl SqliteStore {
             } else {
                 None
             };
+            self.require_published()?;
             let mut c = self.inner.readers.acquire().await?;
             read::identity(&mut c, s, source, external).await
         })
@@ -254,6 +308,15 @@ impl SqliteStore {
         } else {
             None
         };
+        let fence_start_changes = if self.inner._owner.fence.is_some() {
+            Some(
+                sqlx::query_scalar("SELECT total_changes()")
+                    .fetch_one(&mut *transaction)
+                    .await?,
+            )
+        } else {
+            None
+        };
         Ok(SqliteTx {
             transaction: Some(transaction),
             store: Arc::clone(&self.inner),
@@ -264,6 +327,7 @@ impl SqliteStore {
             physical_lane,
             adjudication: None,
             physical_start_pages,
+            fence_start_changes,
             #[cfg(test)]
             outcome_fault: None,
         })

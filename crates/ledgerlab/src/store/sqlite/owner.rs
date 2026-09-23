@@ -17,6 +17,7 @@ pub(super) struct Owner {
     pub adjudication_gate: Arc<tokio::sync::RwLock<()>>,
     pub adjudication_max_pages: AtomicU32,
     pub mandatory_queue: Arc<tokio::sync::Semaphore>,
+    pub fence: Option<Arc<super::fence::Fence>>,
 }
 impl Owner {
     pub fn acquire(path: &Path) -> Result<Self, StoreError> {
@@ -72,6 +73,7 @@ impl Owner {
             adjudication_gate: Arc::new(tokio::sync::RwLock::new(())),
             adjudication_max_pages: AtomicU32::new(0),
             mandatory_queue: Arc::new(tokio::sync::Semaphore::new(1)),
+            fence: None,
         })
     }
     pub fn verify_path(&self) -> Result<(), StoreError> {

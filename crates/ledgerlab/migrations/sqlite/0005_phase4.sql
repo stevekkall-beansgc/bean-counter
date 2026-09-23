@@ -149,3 +149,12 @@ CREATE TRIGGER r3_journal_delete BEFORE DELETE ON r3_journals BEGIN SELECT RAISE
 CREATE TRIGGER r3_head_revision BEFORE UPDATE OF revision ON r3_heads WHEN NEW.revision<=OLD.revision BEGIN SELECT RAISE(ABORT,'R3 head revision must advance'); END;
 CREATE TRIGGER r3_journal_ordinal BEFORE UPDATE OF ordinal ON r3_journals WHEN NEW.ordinal<=OLD.ordinal BEGIN SELECT RAISE(ABORT,'R3 journal ordinal must advance'); END;
 PRAGMA user_version=5;
+
+-- Private backend publication witness; never a protocol counter or receipt.
+CREATE TABLE r3_commit_witness (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ anchor TEXT NOT NULL CHECK(length(anchor)=64),
+ hash TEXT NOT NULL CHECK(length(hash)=64)
+) STRICT;
+CREATE TRIGGER r3_witness_identity BEFORE UPDATE OF singleton,anchor ON r3_commit_witness BEGIN SELECT RAISE(ABORT,'permanent R3 anchor'); END;
+CREATE TRIGGER r3_witness_delete BEFORE DELETE ON r3_commit_witness BEGIN SELECT RAISE(ABORT,'permanent R3 anchor'); END;

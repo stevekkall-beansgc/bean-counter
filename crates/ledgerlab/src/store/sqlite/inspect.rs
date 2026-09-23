@@ -21,6 +21,7 @@ impl SqliteStore {
             } else {
                 None
             };
+            self.require_published()?;
             read::installation(&mut *self.inner.readers.acquire().await?).await
         })
         .await
@@ -42,6 +43,7 @@ impl SqliteStore {
             } else {
                 None
             };
+            self.require_published()?;
             self.inspect_unleased(s, source, target).await
         })
         .await
