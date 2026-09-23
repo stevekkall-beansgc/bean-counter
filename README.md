@@ -4,7 +4,7 @@ Local billing with durable receipts, explained corrections and complete statemen
 
 Bean Counter is an Apache-2.0 local SQLite billing CLI, developed as Ledger Lab. The command remains `ledger` and the Rust crates remain `ledgerlab*`. Configure explicit customer terms, record fixed-price work, apply authorized adjustments and corrections, and export reconciled JSON statements. No hosted account, model API, runtime subscription or payment processor is required.
 
-**Current scope:** one customer/agreement per installation, local OS/filesystem administration and tested macOS/Apple silicon behavior. Users supply compute, memory, storage and backups. Resource reservations and completion guarantees, PostgreSQL product support, multi-host writer replacement and advanced comparison are deferred. Independent acceptance remains platform-blocked; author validation is not an independent PASS. Read the [current requirements and supported/deferred matrix](CURRENT-REQUIREMENTS.md).
+**Current scope:** one customer/agreement per installation, local OS/filesystem administration and tested macOS/Apple silicon behavior. Users supply compute, memory, storage and backups. Resource reservations and completion guarantees, PostgreSQL product support, multi-host writer replacement and advanced comparison are deferred. The amended local phases are complete with owner acceptance; the owner waived separate independent review, which did not occur or pass. Read the [public status](STATUS.md) and [supported/deferred matrix](CURRENT-REQUIREMENTS.md).
 
 The repository also contains frozen contracts, the bounded first acceptance slice, a typed pure core, reference histories, bounded outbox primitives and a local SQLite developer CLI. `ledger init --demo`, `accept`, `preview`, and `explain` run without Docker, Node, a cloud account, or a paid provider. Those commands still save and preview only the original generation slice; they do not expose the new outcome lifecycle. No HTTP service or payment execution is included. See the [local quickstart](docs/quickstart.md) for the runnable CLI workflow.
 
@@ -23,7 +23,7 @@ Build with the pinned Rust 1.98.1 development compiler and native C/linker tools
 
 ## Local finance CSV
 
-[WORKFLOW.md](WORKFLOW.md) provides the installed synthetic billing-to-finance example, explicit account mapping, stable repeat export and reconciliation. See the [CSV contract](docs/finance-csv.md) and [owner end-to-end walkthrough](docs/finance-e2e.md). Independent acceptance remains platform-blocked.
+[WORKFLOW.md](WORKFLOW.md) provides the installed synthetic billing-to-finance example, explicit account mapping, stable repeat export and reconciliation. See the [CSV contract](docs/finance-csv.md) and [owner end-to-end walkthrough](docs/finance-e2e.md). The [public status](STATUS.md) distinguishes owner acceptance from the waived independent-review gate.
 
 ## Validate locally
 

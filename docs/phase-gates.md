@@ -1,8 +1,8 @@
 # Remaining gates
 
-**Active Phase 5/6 amendment:** the local SQLite CSV workflow and exact-candidate review preparation in [CURRENT-REQUIREMENTS.md](../CURRENT-REQUIREMENTS.md) supersede the conflicting historical Phase 5/6 rows below. Independent acceptance remains blocked, not passed.
+**Current local-profile status:** the reduced Phase 4, published finance CSV Phase 5 and amended Phase 6 are complete. Phase 6 closed with owner acceptance and an explicit waiver of its separate independent-review requirement; independent technical review was not completed or passed. See [STATUS.md](../STATUS.md) and [CURRENT-REQUIREMENTS.md](../CURRENT-REQUIREMENTS.md).
 
-**Current release amendment:** [Bean Counter local SQLite requirements](../CURRENT-REQUIREMENTS.md) supersede conflicting publication prerequisites below for the supported billing profile. The historical gates remain preserved; deferred resource guarantees and platforms are not passed.
+**Historical full-platform gate inventory below:** [Bean Counter local SQLite requirements](../CURRENT-REQUIREMENTS.md) supersede conflicting publication prerequisites for the supported billing profile. The rows below retain the original plan and are not the current local release checklist. Deferred resource guarantees and platforms have not passed.
 
 ## Before Phase 1 integration exits
 
@@ -22,6 +22,6 @@
 - Phase 5 export/restore/import/cutover preserving bytes/IDs with dispatch held; restore drills before production trials.
 - Phase 6 generated DTO/schema/OpenAPI/SDK agreement, auth/origin/limits, CLI/HTTP/inspector and onboarding.
 - Phase 7 full native target matrix, ABI, PG17/18 current patched minors, exact archives/images, SBOM/provenance/license inventory, offline cached build, clean download and performance evidence.
-- Publication namespace availability/ownership, remote/Agency registration and release infrastructure remain publication gates. No remote repository exists and nothing has been published or registered by this task. The task scope overrides the broader repo-release bootstrap checklist.
+- Historical publication namespace and release-infrastructure gates applied before the public repository existed. The current public repository and v0.2.1 release are documented in [STATUS.md](../STATUS.md); future local-profile releases use the [current release requirements](../CURRENT-REQUIREMENTS.md).
 
 Closed gates: canonical-record blocker addendum accepted and independently checked; usable zero-cost local Rust/Git toolchain verified. `PHASE-0-BLOCKERS.md` remains historical evidence, not an active stop instruction.

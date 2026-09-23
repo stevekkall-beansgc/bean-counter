@@ -1,6 +1,6 @@
 # Bean Counter local SQLite release profile
 
-This profile implements [the current owner amendment](../CURRENT-REQUIREMENTS.md). The historical `targets.toml` and `artifact-manifest.schema.json` describe the broader platform contract. They remain unchanged and are not evidence that PostgreSQL, a multi-platform matrix or reserved-resource completion has passed.
+This profile implements [the current owner amendment](../CURRENT-REQUIREMENTS.md); [STATUS.md](../STATUS.md) gives the concise public status. The reduced local phases are complete with owner acceptance, and the separate independent-review requirement was waived rather than passed. The historical `targets.toml` and `artifact-manifest.schema.json` describe the broader platform contract. They remain unchanged and are not evidence that PostgreSQL, a multi-platform matrix or reserved-resource completion has passed.
 
 The public destination is `stevekkall-beansgc/bean-counter`. Release notes on GitHub are the changelog. Rust crates and the executable retain their existing names; no crates.io, npm, container or hosted-service publication is part of this release. The package version is independent of frozen economic profile identifiers. `ledgerlab::billing::CONTRACT_VERSION` identifies the current local billing facade and JSON contract family.
 

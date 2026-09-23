@@ -1,8 +1,12 @@
-# Release contract, not certification
+# Release support and historical contract
 
-**Current scope amendment (2026-09-23):** [Bean Counter local SQLite requirements](../CURRENT-REQUIREMENTS.md) and [release profile](local-sqlite.md) govern the newly authorized publication. The historical full-platform contract below remains preserved; its old no-publication/CI exception no longer governs the current profile. Deferred guarantees and platforms have not passed.
+The [current status](../STATUS.md), [local SQLite requirements](../CURRENT-REQUIREMENTS.md) and [release profile](local-sqlite.md) govern the published product. [v0.2.1](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.2.1) passed the local-profile release gates and exact-commit compliance CI, and provides an unsigned Apple-silicon macOS archive with checksums and provenance. The amended local phases are complete with owner acceptance; separate independent review was waived, not passed. Deferred guarantees and platforms have not passed.
 
-`targets.toml` freezes the exact design §21/24 matrix. No archive, image or platform has been certified. This Mac runs macOS 26 and supplies development evidence only. Ubuntu 22.04 sets the intended Linux build environment; inspect finished binaries for actual ABI requirements. No universal Linux/Alpine/kernel promise follows from a Rust target triple.
+## Historical full-platform contract
+
+The remaining text preserves the original broader release plan as historical requirements. It does not expand the supported local profile or negate its published release.
+
+`targets.toml` freezes the exact design §21/24 matrix. That full-platform matrix has not been certified. The separate local-profile v0.2.1 native archive was tested on macOS 26.6.2 with Apple silicon; this does not certify other platforms. Ubuntu 22.04 was an intended Linux build environment in the original plan; inspect finished binaries for actual ABI requirements. No universal Linux/Alpine/kernel promise follows from a Rust target triple.
 
 One foreground process, stable operator credentials, explicit config/secrets, loopback default, one HTTP port, authenticated economic routes, trusted-proxy TLS boundary for non-loopback, bounded resources and 20-second drain with at least 30-second host grace. PostgreSQL runs with read-only root/config and no writable HOME/project. SQLite requires one owning process and the complete durable data directory, WAL/FULL/foreign keys and verified macOS fullfsync. Independent writers require PostgreSQL. One fenced dispatcher; imported/restored state holds dispatch until reconciliation. No company/model/telemetry service dependency.
 
@@ -10,8 +14,8 @@ One foreground process, stable operator credentials, explicit config/secrets, lo
 
 ## Runner and namespace inventory
 
-The [official runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) lists ubuntu-22.04, ubuntu-22.04-arm, ubuntu-24.04, ubuntu-24.04-arm, macos-15 ARM64 and windows-2022. This is documentation inventory only, observed during Phase 0; no remote job ran. Actual runner execution, images, availability and cost controls remain a Phase 1/7 gate. Standard public runners can be used without mandatory compute spend; private/larger-runner use requires separate budgeting.
+The original Phase 0 [runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) listed ubuntu-22.04, ubuntu-22.04-arm, ubuntu-24.04, ubuntu-24.04-arm, macos-15 ARM64 and windows-2022. That list was documentation inventory, not execution evidence for the full platform. The local-profile exact-commit compliance CI did run for v0.2.1; the broader native platform matrix remains unverified. Private/larger-runner use requires separate budgeting.
 
-Public crates.io API lookups for the three package names did not return usable evidence through the web tool. Namespace ownership/availability remains unverified; no name is reserved. Npm/image names likewise must be confirmed before publication. These do not block local Phase 1 work.
+Historical crates.io lookups did not establish ownership of the three package names. The Rust crates are not published to crates.io; npm/image publication is not claimed. Namespace questions do not block the existing source and native-archive GitHub releases.
 
-No CI workflow is activated in this local, unpublished repository. `scripts/check.sh` is the complete local Phase 0 gate. A Phase 1 pipeline task must select verified immutable action revisions, establish a remote/public-cost policy and run the listed native smoke jobs; inventing action pins or reporting unrun CI green would be misleading. Phase 7 owns release/periodic workflows, SBOM/provenance and exact artifact tests. This is the documented exception to the repo-release day-one CI/remote checklist under the task's no-publication scope.
+At Phase 0, this repository was local and unpublished, with `scripts/check.sh` as its local scaffold gate. That exception ended when the local SQLite profile was published. The current release path uses manifest-owned local QA and exact-commit hosted compliance CI; v0.2.1 also shipped source/build identities, SPDX inventory, checksums and a verified installed walkthrough. The original Phase 7 multi-platform certification remains deferred.

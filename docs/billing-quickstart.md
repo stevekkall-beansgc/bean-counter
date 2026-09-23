@@ -2,7 +2,7 @@
 
 This is a source-installable, bounded local profile for one operator-controlled customer/agreement per installation. It uses the existing pure economic engine and frozen v2 outcome records. It accepts independent successful `content.generated` work at one fixed USD price, one fixed-amount outcome family, and corrections to that family's claim. A correction appends the exact inverse of the current adjustment plus the permitted replacement. It does not edit the original charge. Supplier obligations, predecessor chains, remote authentication, payments and tax invoices are outside this profile.
 
-Local implementation checks are not independent acceptance. Independent review remains platform-blocked; this delivery does not complete Phase 4 or establish production readiness. The earlier demo and Phase 4 records remain historical evidence.
+The reduced local SQLite Phase 4 is complete. Its author checks and owner acceptance are not independent technical review: the owner waived that separate requirement for the amended local Phase 6, and no independent PASS is claimed. The original full Phase 4 and production host certification remain outside this delivery. See [current status](../STATUS.md); earlier demo and phase records remain historical evidence.
 
 ## Install
 

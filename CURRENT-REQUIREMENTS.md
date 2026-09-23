@@ -1,6 +1,6 @@
 # Bean Counter: current local SQLite requirements
 
-Amended 2026-09-23 by the project owner. Bean Counter is the public project name for the Ledger Lab implementation; the `ledger` command, `ledgerlab*` crates and existing schema identifiers retain their names for compatibility. This amendment starts from `7af0e502aec31078f45260223ce32cf6476b2b47`.
+Amended 2026-09-23 by the project owner; current status is summarized in [STATUS.md](STATUS.md). Bean Counter is the public project name for the Ledger Lab implementation; the `ledger` command, `ledgerlab*` crates and existing schema identifiers retain their names for compatibility. The initial local-profile amendment started from `7af0e502aec31078f45260223ce32cf6476b2b47`; the published local profile is v0.2.1.
 
 This is the current acceptance and publication scope for `ledger billing`. It supersedes conflicting full-platform publication prerequisites in the historical phase gates, design sources, roadmap and release matrix. Historical specifications, frozen contracts, failures and review verdicts remain intact. A deferred requirement has not passed. Existing pricing, authority, storage-integrity and unsupported-capability guards remain mandatory.
 
@@ -20,8 +20,8 @@ This is the current acceptance and publication scope for `ledger billing`. It su
 | PostgreSQL | **Deferred product support.** Historical backend tests do not certify this billing profile. Existing unsupported operations continue to refuse. |
 | Distributed/offline hosts | **Deferred:** multi-host guarantees and writer replacement. |
 | Advanced comparison | **Deferred.** Existing foundations do not establish completed support. |
-| Hosted operations | **Deferred:** HTTP service, remote authentication, hosted deployment, infrastructure provisioning, payment execution and Phase 5/6 expansion. |
-| Independent acceptance | **Platform-blocked.** Author tests and coordinator evidence inspection are not independent acceptance. Publication is authorized with this gap disclosed; no full original G2/all-16-R3 PASS is claimed. |
+| Hosted operations | **Deferred:** HTTP service, remote authentication, hosted deployment, infrastructure provisioning and payment execution. The bounded local Phase 5/6 work is complete; broader original Phase 5/6 platform expansion is not. |
+| Independent review | **Waived by owner for the amended local Phase 6.** No independent technical review was completed or passed. Author tests and owner acceptance are distinct from independent review; no full original G2/all-16-R3 PASS is claimed. |
 
 ## Required behavior under resource failure
 
@@ -41,8 +41,8 @@ See [release profile](release/local-sqlite.md), [quickstart](docs/billing-quicks
 
 ## Amended local Phases 5 and 6 (2026-09-23)
 
-The released local SQLite v0.1.0 baseline replaces the original full-Phase-4 prerequisite for these phases. Phase 5 adds one generic finance CSV projection of authoritative retained postings: explicit validated account mapping, pinned complete snapshot, stable record/export IDs, exact signed amounts and correction references, deterministic retries, reconciliation and honest file-failure behavior. It does not add accounting/tax policy, imports, a vendor connector, delivery acknowledgment or payments. See WORKFLOW.md and docs/finance-csv.md.
+The released local SQLite v0.1.0 baseline replaced the original full-Phase-4 prerequisite for these phases. The reduced local Phase 4 is complete. Phase 5 is complete and published: one generic finance CSV projection of authoritative retained postings with explicit validated account mapping, pinned complete snapshot, stable record/export IDs, exact signed amounts and correction references, deterministic retries, reconciliation and honest file-failure behavior. It does not add accounting/tax policy, imports, a vendor connector, delivery acknowledgment or payments. See [WORKFLOW.md](WORKFLOW.md) and [docs/finance-csv.md](docs/finance-csv.md).
 
-Phase 6 requires exact-candidate supported-path QA, author inspection and material fixes, plus review preparation. Independent acceptance remains platform-blocked; no retry, substitute reviewer or author-as-independent claim is allowed. Phase 6 therefore remains INCOMPLETE for independent acceptance until legitimately available. Old both-store, remote-destination, multi-host and protected-resource matrices are excluded. Preserve all existing guards and frozen bytes.
+The amended local Phase 6 is **complete with owner acceptance** after exact-candidate supported-path QA, author inspection, material fixes and review preparation. The owner explicitly waived the separate independent-review requirement. Independent technical review did not occur or pass; author work is not presented as independent. The original full-platform both-store, remote-destination, multi-host and protected-resource matrices remain outside this completed local scope. Preserve all existing guards and frozen bytes.
 
-The initial local implementation authorization permitted work on an isolated branch only. A separate owner release authorization governs any main integration, push, tag and release of this bounded CSV addition; release gates and disclosure of the independent acceptance gap still apply. Hosted service, shared-tooling change, purchase and production-data use remain outside scope. Other deferred/paused capabilities remain deferred.
+The local SQLite and CSV work was published through the Bean release gates; [v0.2.1](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.2.1) is the current native release. Historical branch-only and release-authorization steps are preserved in the original task evidence, not active publication blockers. Future releases still require the normal gates and accurate disclosure of the waived review. Hosted service, shared-tooling change, purchase and production-data use remain outside scope. Other deferred/paused capabilities remain deferred.
