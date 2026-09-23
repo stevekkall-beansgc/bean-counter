@@ -547,3 +547,6 @@ async fn actual_ordered_overlap_issue_wins_before_retirement() {
     h.close().await;
     eprintln!("ordered actual overlap: validated ISSUE held live SQL transaction while RETIRE entered and blocked; one claim; fresh-head retirement refused; prepaid disposal/finish/reopen PASS");
 }
+
+#[path = "replacement_process_tests.rs"]
+mod replacement_process_tests;
