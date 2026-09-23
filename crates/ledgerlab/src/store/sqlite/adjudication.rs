@@ -1,4 +1,5 @@
 //! Bounded R3 persistence primitives. Economic/authority validation stays in the coordinator.
+mod persist;
 use crate::{
     service::accept::adjudication::TrustedJournalHead,
     store::{
@@ -169,7 +170,7 @@ pub(super) async fn saved(
     let root = Digest::parse(&row.try_get::<String, _>(5)?).map_err(core)?;
     let observation = r3::raw_sha256(
         &r3::canonical_bytes(
-            &json!(["sqlite-saved-journal/1", journal, n, segment, root]),
+            &json!(["sqlite-primary-journal/1", journal, n, segment, root]),
             r3::COMMAND_BYTES,
         )
         .map_err(core)?,
@@ -236,4 +237,35 @@ pub(super) async fn segment_page(
     };
     result.validate().map_err(core)?;
     Ok(result)
+}
+
+pub(super) async fn object_page(
+    c: &mut SqliteConnection,
+    j: &JournalIdentity,
+    q: &crate::store::adjudication::ObjectPageRequest,
+) -> Result<Vec<u8>, StoreError> {
+    if q.max_bytes == 0 || usize::from(q.max_bytes) > r3::PAGE_BYTES || q.key.len() > 4096 {
+        return Err(invalid());
+    }
+    let journal = journal_key(j)?;
+    let origin = r3::canonical_bytes(&q.origin, 2048).map_err(core)?;
+    let kind = serde_json::to_value(&q.kind).map_err(|_| invalid())?;
+    let kind = kind.as_str().ok_or_else(invalid)?;
+    let length: i64 = sqlx::query_scalar("SELECT byte_length FROM r3_objects WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=?")
+        .bind(&journal).bind(&origin).bind(kind).bind(&q.key).bind(q.hash.as_str()).fetch_one(&mut *c).await?;
+    if !(2..=262144).contains(&length) || q.offset.value() >= length as u128 {
+        return Err(invalid());
+    }
+    let offset = q.offset.value() as usize;
+    let page = offset / r3::PAGE_BYTES;
+    let within = offset % r3::PAGE_BYTES;
+    let take = usize::from(q.max_bytes)
+        .min(r3::PAGE_BYTES - within)
+        .min(length as usize - offset);
+    let bytes: Vec<u8> = sqlx::query_scalar("SELECT substr(bytes,?,?) FROM r3_object_pages WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=? AND page=?")
+        .bind(within as i64+1).bind(take as i64).bind(&journal).bind(&origin).bind(kind).bind(&q.key).bind(q.hash.as_str()).bind(page as i64).fetch_one(c).await?;
+    if bytes.len() != take {
+        return Err(invalid());
+    }
+    Ok(bytes)
 }
