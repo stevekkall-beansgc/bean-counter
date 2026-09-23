@@ -107,7 +107,7 @@ pub(super) async fn inventory(store: &SqliteStore) -> Vec<(String, Vec<String>, 
             .iter()
             .filter(|t| t.as_str() != "_sqlx_migrations")
             .count(),
-        48 // Original 33 plus all 15 additive R3 tables; inventory includes both.
+        52 // Original 33, 15 R3 tables and 4 local billing tables; inventory includes all.
     );
     let mut out = vec![];
     for t in tables {
