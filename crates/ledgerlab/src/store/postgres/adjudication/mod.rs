@@ -1,6 +1,14 @@
 //! Native byte-preserving R3 PostgreSQL projections. No physical admission or
 //! CommitCapability is implemented here; reads and storage primitives do not
 //! certify reserved PGDATA/WAL/temp backing or writer recovery.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Private filesystem fence awaits coordinated PostgreSQL witness/gate integration"
+    )
+)]
+mod fence;
 mod locks;
 mod persist;
 mod read;
