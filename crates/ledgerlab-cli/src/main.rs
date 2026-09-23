@@ -207,10 +207,10 @@ fn main() -> ExitCode {
     }
     let wants_json =
         raw.iter().any(|s| s == "--json") || raw.windows(2).any(|s| s == ["--format", "json"]);
-    let (result, code, json_output) = match parse(&raw) {
+    let (result, code, json_output, billing_output) = match parse(&raw) {
         Err(message) => {
             let (v, c) = error("USAGE", message, 2);
-            (v, c, wants_json)
+            (v, c, wants_json, false)
         }
         Ok(a) => {
             let result = match tokio::runtime::Builder::new_current_thread()
@@ -222,7 +222,7 @@ fn main() -> ExitCode {
                     .unwrap_or_else(output::local_error),
                 Err(_) => error("UNAVAILABLE", "could not start local runtime", 7),
             };
-            (result.0, result.1, a.json)
+            (result.0, result.1, a.json, a.command == "billing")
         }
     };
     if json_output {
@@ -233,7 +233,7 @@ fn main() -> ExitCode {
             result["code"].as_str().unwrap_or("ERROR"),
             result["message"].as_str().unwrap_or("operation failed")
         );
-    } else if raw.first().is_some_and(|s| s == "billing") {
+    } else if billing_output {
         println!(
             "{}",
             serde_json::to_string_pretty(&result).expect("billing JSON")

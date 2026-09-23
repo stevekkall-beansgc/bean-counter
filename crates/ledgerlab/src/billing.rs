@@ -112,7 +112,47 @@ impl BillingLedger {
         }
         Ok(Self { store })
     }
+    pub async fn permission_status(&self) -> local::Result<Value> {
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let setup = service::permissions::effective(&snapshot)?;
+        tx.rollback().await.map_err(store_error)?;
+        Ok(
+            json!({"status":"ok","revision":setup.grant_revision.to_string(),"permissions":setup.permissions,"changes":snapshot.permissions.iter().map(|r|serde_json::from_slice::<Value>(r).expect("validated permission")).collect::<Vec<_>>()}),
+        )
+    }
+    /// Local filesystem administrator control, even when all event rights are revoked.
+    pub async fn permissions(&self, raw: &[u8]) -> local::Result<Value> {
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let (result, plan) = service::permissions::prepare(&snapshot, raw)?;
+        tx.billing_permissions(&plan).await.map_err(store_error)?;
+        match tx.commit().await {
+            Ok(()) => Ok(result),
+            Err(CommitError::RolledBack(e)) => Err(store_error(e).into()),
+            Err(CommitError::OutcomeUnknown) => {
+                Err(service::reject("BILLING_CONTROL_OUTCOME_UNKNOWN").into())
+            }
+        }
+    }
     pub async fn accept(&self, raw: &[u8]) -> local::Result<Value> {
+        self.submit(raw, None).await
+    }
+    pub async fn outcome(&self, raw: &[u8]) -> local::Result<Value> {
+        self.submit(raw, Some(false)).await
+    }
+    pub async fn correct(&self, raw: &[u8]) -> local::Result<Value> {
+        self.submit(raw, Some(true)).await
+    }
+    async fn submit(&self, raw: &[u8], correction: Option<bool>) -> local::Result<Value> {
         let at = local::now()?;
         let mut tx = self
             .store
@@ -120,7 +160,11 @@ impl BillingLedger {
             .await
             .map_err(store_error)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
-        let (result, plan) = service::prepare(&snapshot, raw, &at)?;
+        let (result, plan) = if let Some(correction) = correction {
+            service::adjustment::prepare(&snapshot, raw, &at, correction)?
+        } else {
+            service::prepare(&snapshot, raw, &at)?
+        };
         if let Some(plan) = plan {
             tx.append_billing(&plan).await.map_err(store_error)?;
             match tx.commit().await {

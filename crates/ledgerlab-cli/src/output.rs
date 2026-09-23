@@ -108,6 +108,14 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
             "local store is busy or unavailable; retry the same input",
             7,
         ),
+        LocalError::Service(ServiceError::Rejection(code))
+            if code == "BILLING_CONTROL_OUTCOME_UNKNOWN" =>
+        {
+            (
+                json!({"status":"outcome_unknown","code":code,"message":"Permission update may have committed. Inspect permissions before retrying; do not assume rollback."}),
+                8,
+            )
+        }
         LocalError::Service(ServiceError::Rejection(code)) => {
             let exit = rejection(&code);
             super::error(&code, "request rejected", exit)

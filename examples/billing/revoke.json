@@ -1,0 +1,8 @@
+{
+  "schema": "ledger-billing-permissions/1",
+  "expected_revision": "1",
+  "permissions": [
+    "read"
+  ],
+  "reason": "EXAMPLE ONLY. Replace with the actual reason for revocation."
+}

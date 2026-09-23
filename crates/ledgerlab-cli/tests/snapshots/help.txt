@@ -43,6 +43,9 @@ Exit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;
 Ordinary local billing (separate installation):
   billing init DIR --setup FILE
   billing [--directory DIR] accept FILE|-
+  billing [--directory DIR] outcome FILE|-
+  billing [--directory DIR] correct FILE|-
+  billing [--directory DIR] permissions [FILE|-]
   billing [--directory DIR] explain TARGET_ID
   billing [--directory DIR] statement --customer CUSTOMER
 Billing output is JSON (pretty-printed unless --json). No payment or tax invoice.

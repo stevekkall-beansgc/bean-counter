@@ -1,6 +1,6 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
-pub const HELP:&str="\nOrdinary local billing (separate installation):\n  billing init DIR --setup FILE\n  billing [--directory DIR] accept FILE|-\n  billing [--directory DIR] explain TARGET_ID\n  billing [--directory DIR] statement --customer CUSTOMER\nBilling output is JSON (pretty-printed unless --json). No payment or tax invoice.\n";
+pub const HELP:&str="\nOrdinary local billing (separate installation):\n  billing init DIR --setup FILE\n  billing [--directory DIR] accept FILE|-\n  billing [--directory DIR] outcome FILE|-\n  billing [--directory DIR] correct FILE|-\n  billing [--directory DIR] permissions [FILE|-]\n  billing [--directory DIR] explain TARGET_ID\n  billing [--directory DIR] statement --customer CUSTOMER\nBilling output is JSON (pretty-printed unless --json). No payment or tax invoice.\n";
 pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     if a.config != Path::new("ledger.json") {
         return Ok(error(
@@ -27,7 +27,7 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             0,
         ));
     }
-    let input = if let ["accept", file] = args.as_slice() {
+    let input = if let ["accept" | "outcome" | "correct" | "permissions", file] = args.as_slice() {
         Some(if *file == "-" {
             local::read_bounded(std::io::stdin().lock(), local::EVENT_LIMIT)?
         } else {
@@ -38,13 +38,20 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     };
     if !matches!(
         args.as_slice(),
-        ["accept", _] | ["explain", _] | ["statement", "--customer", _]
+        ["accept" | "outcome" | "correct" | "permissions", _]
+            | ["explain", _]
+            | ["permissions"]
+            | ["statement", "--customer", _]
     ) {
         return Ok(error("USAGE", HELP, 2));
     }
     let ledger = BillingLedger::open(&directory).await?;
     let result = match args.as_slice() {
+        ["permissions"] => ledger.permission_status().await,
+        ["permissions", _] => ledger.permissions(input.as_ref().unwrap()).await,
         ["accept", _] => ledger.accept(input.as_ref().unwrap()).await,
+        ["outcome", _] => ledger.outcome(input.as_ref().unwrap()).await,
+        ["correct", _] => ledger.correct(input.as_ref().unwrap()).await,
         ["explain", id] => ledger.explain(id).await,
         ["statement", "--customer", customer] => ledger.statement(customer, None).await,
         _ => unreachable!(),

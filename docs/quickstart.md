@@ -1,3 +1,5 @@
+For operator-configured retail billing, outcomes and corrections, use the separate [billing quickstart](billing-quickstart.md). This page retains the synthetic development demo.
+
 # Local developer quickstart
 
 Ledger Lab records work, applies its agreed price, and explains the immutable

@@ -12,11 +12,17 @@ use ledgerlab_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+pub(crate) mod adjustment;
+mod history;
+pub(crate) mod permissions;
+mod setup_policy;
 
 /// Trusted local control input. Event input never supplies these values.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Setup {
+    #[serde(skip)]
+    pub grant_revision: u64,
     pub schema: String,
     pub scope: Scope,
     pub store_id: String,
@@ -69,7 +75,8 @@ fn doc(r: &Value) -> String {
 impl Setup {
     pub(crate) fn parse(raw: &[u8]) -> Result<Self> {
         let value = canonical::parse_bounded(raw, 65536).map_err(|_| reject("BILLING_SETUP"))?;
-        let s: Self = serde_json::from_value(value).map_err(|_| reject("BILLING_SETUP"))?;
+        let mut s: Self = serde_json::from_value(value).map_err(|_| reject("BILLING_SETUP"))?;
+        s.grant_revision = 1;
         require(s.schema == "ledger-local-billing/1", "BILLING_SETUP")?;
         for v in [
             &s.store_id,
@@ -110,6 +117,7 @@ impl Setup {
                 && s.permissions.iter().collect::<BTreeSet<_>>().len() == s.permissions.len(),
             "BILLING_PERMISSIONS",
         )?;
+        setup_policy::validate(&s)?;
         Ok(s)
     }
 }
@@ -152,7 +160,7 @@ pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Va
         &scope,
         "grant",
         "grant",
-        json!({"scope":scope,"principal":s.operator,"source":s.source,"permissions":s.permissions,"revision":"1","active":true}),
+        json!({"scope":scope,"principal":s.operator,"source":s.source,"permissions":s.permissions,"revision":s.grant_revision.to_string(),"active":true}),
     )?;
     let context_doc = evidence(
         &scope,
@@ -215,7 +223,7 @@ pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Va
     let authority = c::SourceAuthority {
         source: s.source.clone(),
         grant: doc(&grant),
-        revision: core(Revision::new(1))?,
+        revision: core(Revision::new(s.grant_revision))?,
         active: true,
         event_types: vec![EventKind::Generated],
         relations: vec![],
@@ -462,6 +470,7 @@ fn identity_refs(v: &Value, out: &mut BTreeSet<(String, String)>) {
 /// Only this coordinator constructs a complete, verified economic append.
 pub(crate) struct ValidatedEntry {
     count: i64,
+    alias: Option<i64>,
     source: String,
     external: String,
     semantic: Vec<u8>,
@@ -470,6 +479,9 @@ pub(crate) struct ValidatedEntry {
     bundle: Vec<u8>,
 }
 impl ValidatedEntry {
+    pub(crate) fn alias(&self) -> Option<i64> {
+        self.alias
+    }
     pub(crate) fn expected_count(&self) -> i64 {
         self.count
     }
@@ -520,12 +532,63 @@ fn decode_entry(s: &Setup, e: &crate::store::sqlite::BillingEntry) -> Result<Rec
 fn receipt(records: &Records) -> Result<Value> {
     Ok(records.one("base-acceptance")?.clone())
 }
+type Prepared = (Value, Option<ValidatedEntry>);
+fn duplicate(
+    snapshot: &crate::store::sqlite::BillingSnapshot,
+    audit: &history::Audit,
+    source: &str,
+    external: &str,
+    ingress: &[u8],
+    facts: &[u8],
+    semantic: &[u8],
+) -> Result<Option<Prepared>> {
+    // Identity takes precedence over semantic lookup across the entire snapshot.
+    for e in &snapshot.entries {
+        if e.source == source && e.external_id == external {
+            require(e.ingress == ingress, "IDENTITY_CONFLICT")?;
+            return Ok(Some((
+                json!({"status":"duplicate","kind":"identity","receipt":audit.receipts[&e.ordinal]}),
+                None,
+            )));
+        }
+    }
+    for a in &snapshot.aliases {
+        if a.source == source && a.external_id == external {
+            require(a.ingress == ingress, "IDENTITY_CONFLICT")?;
+            return Ok(Some((
+                json!({"status":"duplicate","kind":"identity","receipt":audit.receipts[&a.ordinal]}),
+                None,
+            )));
+        }
+    }
+    for e in &snapshot.entries {
+        if e.source == source && e.semantic_key == semantic {
+            require(e.facts == facts, "SEMANTIC_CONFLICT")?;
+            require(snapshot.aliases.len() < 1000, "BILLING_HISTORY_LIMIT")?;
+            let plan = ValidatedEntry {
+                count: snapshot.entries.len() as i64,
+                alias: Some(e.ordinal),
+                source: source.into(),
+                external: external.into(),
+                ingress: ingress.into(),
+                facts: vec![],
+                semantic: vec![],
+                bundle: vec![],
+            };
+            return Ok(Some((
+                json!({"status":"duplicate","kind":"semantic","receipt":audit.receipts[&e.ordinal]}),
+                Some(plan),
+            )));
+        }
+    }
+    Ok(None)
+}
 pub(crate) fn prepare(
     snapshot: &crate::store::sqlite::BillingSnapshot,
     raw: &[u8],
     at: &Timestamp,
 ) -> Result<(Value, Option<ValidatedEntry>)> {
-    let s = Setup::parse(&snapshot.setup)?;
+    let s = permissions::effective(snapshot)?;
     require(
         s.permissions.iter().any(|p| p == "read"),
         "BILLING_UNAUTHORIZED",
@@ -541,23 +604,17 @@ pub(crate) fn prepare(
     let ingress = event.candidate().ingress_bytes().as_slice().to_vec();
     let semantic = bytes(&json!(["base", event.candidate().operation_id()]))?;
     let facts = bytes(&event.completion_facts(&[]).map_err(|e| reject(e.code))?)?;
-    for (i, e) in snapshot.entries.iter().enumerate() {
-        b::check(e.ordinal == i as i64 + 1)?;
-        let records = decode_entry(&s, e)?;
-        if e.source == event.source() && e.external_id == event.candidate().external_id() {
-            require(e.ingress == ingress, "IDENTITY_CONFLICT")?;
-            return Ok((
-                json!({"status":"duplicate","kind":"identity","receipt":receipt(&records)?}),
-                None,
-            ));
-        }
-        if e.source == event.source() && e.semantic_key == semantic {
-            require(e.facts == facts, "SEMANTIC_CONFLICT")?;
-            return Ok((
-                json!({"status":"duplicate","kind":"semantic","receipt":receipt(&records)?}),
-                None,
-            ));
-        }
+    let audit = history::load(&s, snapshot)?;
+    if let Some(result) = duplicate(
+        snapshot,
+        &audit,
+        event.source(),
+        event.candidate().external_id(),
+        &ingress,
+        &facts,
+        &semantic,
+    )? {
+        return Ok(result);
     }
     require(snapshot.entries.len() < 1000, "BILLING_HISTORY_LIMIT")?;
     let rows = base(&s, raw, at)?;
@@ -571,6 +628,7 @@ pub(crate) fn prepare(
     Ok((
         result,
         Some(ValidatedEntry {
+            alias: None,
             count: snapshot.entries.len() as i64,
             source: event.source().into(),
             external: event.candidate().external_id().into(),
@@ -586,7 +644,7 @@ pub(crate) fn statement(
     customer: &str,
     target: Option<&str>,
 ) -> Result<Value> {
-    let s = Setup::parse(&snapshot.setup)?;
+    let s = permissions::effective(snapshot)?;
     require(
         s.permissions.iter().any(|p| p == "read"),
         "BILLING_UNAUTHORIZED",
@@ -595,19 +653,26 @@ pub(crate) fn statement(
     let mut entries = vec![];
     let mut net = 0i128;
     let mut roots = vec![];
-    for (i, e) in snapshot.entries.iter().enumerate() {
-        b::check(e.ordinal == i as i64 + 1)?;
-        let records = decode_entry(&s, e)?;
-        let accepted = receipt(&records)?;
-        roots.push(reference(&accepted));
-        if target.is_some_and(|id| accepted["body"]["target"] != id && accepted["id"] != id) {
+    let audit = history::load(&s, snapshot)?;
+    for e in &snapshot.entries {
+        let rows = &audit.rows[&e.ordinal];
+        let accepted = &audit.receipts[&e.ordinal];
+        let entry_target = if accepted["kind"] == "base-acceptance" {
+            accepted["body"]["target"].clone()
+        } else {
+            rows.iter()
+                .find(|r| r["kind"] == "event")
+                .ok_or_else(b::integrity)?["body"]["data"]["target"]
+                .clone()
+        };
+        roots.push(reference(accepted));
+        if target.is_some_and(|id| entry_target != id && accepted["id"] != id) {
             continue;
         }
         let mut total = 0;
-        let postings = records
-            .rows
+        let postings = rows
             .iter()
-            .filter(|r| r["kind"] == "base-posting")
+            .filter(|r| r["kind"] == "base-posting" || r["kind"] == "action")
             .cloned()
             .collect::<Vec<_>>();
         for p in &postings {
@@ -617,7 +682,7 @@ pub(crate) fn statement(
             ))?;
         }
         net = core(ledgerlab_core::money::add_atoms(net, total))?;
-        entries.push(json!({"ordinal":e.ordinal.to_string(),"source":e.source,"external_id":e.external_id,"target":accepted["body"]["target"],"receipt":accepted,"postings":postings,"net_atoms":total.to_string(),"records":records.rows}));
+        entries.push(json!({"ordinal":e.ordinal.to_string(),"source":e.source,"external_id":e.external_id,"target":entry_target,"receipt":accepted,"postings":postings,"net_atoms":total.to_string(),"records":rows}));
     }
     require(target.is_none() || !entries.is_empty(), "BILLING_NOT_FOUND")?;
     Ok(

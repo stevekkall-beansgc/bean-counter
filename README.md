@@ -8,6 +8,10 @@ The repository also contains frozen contracts, the bounded first acceptance slic
 
 The frozen first slice shows demo-customer owing demo-host USD 0.80 for generation: USD 1.00 charge less USD 0.20 customer discount, with dispatch held. Supplier obligations and provider cost observations are separate; neither is recorded in this demo. The separate design onboarding chain totals 120 atoms. The [upcoming linked-work story](docs/upcoming-story.md) is documentation only; it creates no ledger history.
 
+## Ordinary local billing
+
+A separate `ledger billing` profile now accepts operator-configured fixed-price retail work, outcome adjustments and authorized corrections, with durable receipts, duplicate protection, revocable local permissions and complete JSON statements. Start with the [billing quickstart](docs/billing-quickstart.md), [recovery procedure](docs/billing-recovery.md) and [resource/cost manifest](docs/resources-and-costs.md). It uses fresh setup, not the synthetic demo bootstrap. The current native profile is bounded local SQLite on tested macOS/Apple silicon. Independent acceptance remains platform-blocked; this is not a public release or completion of Phase 4.
+
 ## Validate locally
 
 Use Rust 1.98.1 with rustfmt/Clippy, Python 3.11+ and Node. The Python minimum is for test tooling only; no product MSRV is declared. Install the pinned document-test requirements into a local virtual environment if they are not already present:
