@@ -602,3 +602,21 @@ impl super::SqliteStore {
         out
     }
 }
+
+/// Test-only scheduling latch; no plan/capability/SQL behavior is replaced.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct AppendPause {
+    pub reached: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
+}
+#[cfg(test)]
+impl super::SqliteStore {
+    pub(crate) fn test_pause_next_append(&self) -> std::sync::Arc<AppendPause> {
+        let pause = std::sync::Arc::new(AppendPause::default());
+        let mut slot = self.inner.append_pause.lock().unwrap();
+        assert!(slot.is_none());
+        *slot = Some(pause.clone());
+        pause
+    }
+}

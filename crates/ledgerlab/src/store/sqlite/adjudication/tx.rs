@@ -252,6 +252,14 @@ impl AdjudicationTx for super::super::SqliteTx {
         if self.failed || self.physical_lane.is_none() {
             return Err(invalid());
         }
+        #[cfg(test)]
+        {
+            let pause = self.store.append_pause.lock().unwrap().take();
+            if let Some(pause) = pause {
+                pause.reached.notify_one();
+                pause.release.notified().await;
+            }
+        }
         self.failed = true;
         let c = self.adjudication.as_ref().ok_or_else(invalid)?;
         if c.appended

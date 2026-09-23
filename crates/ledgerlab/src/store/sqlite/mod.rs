@@ -48,6 +48,8 @@ struct Inner {
     fail_after_original_base: AtomicBool,
     #[cfg(test)]
     fence_cut: std::sync::atomic::AtomicU8,
+    #[cfg(test)]
+    append_pause: Mutex<Option<Arc<adjudication::AppendPause>>>,
 }
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
@@ -174,6 +176,8 @@ impl SqliteStore {
                 fail_after_original_base: AtomicBool::new(false),
                 #[cfg(test)]
                 fence_cut: std::sync::atomic::AtomicU8::new(0),
+                #[cfg(test)]
+                append_pause: Mutex::new(None),
                 _owner: owner,
             }),
             diagnostics,

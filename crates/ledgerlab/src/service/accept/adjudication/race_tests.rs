@@ -6,12 +6,13 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use tokio::sync::Barrier;
+use tokio::sync::{Barrier, Notify};
 
 struct AtAdmission<S> {
     inner: S,
     gate: Arc<Barrier>,
     first: AtomicBool,
+    ordered: Option<(Arc<Notify>, Arc<Notify>)>,
 }
 impl<S: AdjudicationStore<Tx = SqliteTx>> AdjudicationStore for AtAdmission<S> {
     type Tx = SqliteTx;
@@ -22,6 +23,24 @@ impl<S: AdjudicationStore<Tx = SqliteTx>> AdjudicationStore for AtAdmission<S> {
     ) -> Result<SqliteTx, StoreError> {
         if self.first.swap(false, Ordering::SeqCst) {
             self.gate.wait().await;
+            if let Some((allow, attempted)) = &self.ordered {
+                allow.notified().await;
+                let mut pending = Box::pin(self.inner.begin_adjudication(w, d));
+                let mut entered = false;
+                return std::future::poll_fn(|cx| {
+                    let poll = std::future::Future::poll(pending.as_mut(), cx);
+                    if !entered {
+                        assert!(
+                            poll.is_pending(),
+                            "actual admission must wait behind live validated transaction"
+                        );
+                        entered = true;
+                        attempted.notify_one();
+                    }
+                    poll
+                })
+                .await;
+            }
         }
         self.inner.begin_adjudication(w, d).await
     }
@@ -78,7 +97,15 @@ impl Harness {
     async fn race(
         &mut self,
         owner: &str,
+        commands: [Value; 2],
+    ) -> (usize, Value, wire::CommandResult) {
+        self.race_ordered(owner, commands, None).await
+    }
+    async fn race_ordered(
+        &mut self,
+        owner: &str,
         mut commands: [Value; 2],
+        preferred: Option<usize>,
     ) -> (usize, Value, wire::CommandResult) {
         for c in &mut commands {
             hydrate(c, &self.proofs, &self.roots[owner]);
@@ -88,7 +115,10 @@ impl Harness {
             .await;
         let barrier = Arc::new(Barrier::new(3));
         let mut jobs = Vec::new();
-        for c in &commands {
+        let allow = Arc::new(Notify::new());
+        let attempted = Arc::new(Notify::new());
+        let pause = preferred.map(|_| self.host.0.stores[owner].test_pause_next_append());
+        for (index, c) in commands.iter().enumerate() {
             let command = parsed(c);
             let inner = self.host.0.stores[owner]
                 .provision_adjudication_with_ceiling(
@@ -104,6 +134,9 @@ impl Harness {
                 inner,
                 gate: barrier.clone(),
                 first: AtomicBool::new(true),
+                ordered: preferred
+                    .filter(|winner| index != *winner)
+                    .map(|_| (allow.clone(), attempted.clone())),
             };
             let host = self.race_host();
             let j = journal(owner);
@@ -114,6 +147,16 @@ impl Harness {
         tokio::time::timeout(Duration::from_secs(10), barrier.wait())
             .await
             .expect("both live calls entered actual admission");
+        if let Some(pause) = pause {
+            tokio::time::timeout(Duration::from_secs(10), pause.reached.notified())
+                .await
+                .unwrap();
+            allow.notify_one();
+            tokio::time::timeout(Duration::from_secs(10), attempted.notified())
+                .await
+                .unwrap();
+            pause.release.notify_one();
+        }
         let mut results = Vec::new();
         for job in jobs {
             results.push(job.await.unwrap());
@@ -482,3 +525,25 @@ fn routed_case(name: &str, family: &Value) -> Value {
 
 #[path = "replacement_tests.rs"]
 mod replacement_tests;
+
+#[tokio::test]
+async fn actual_ordered_overlap_issue_wins_before_retirement() {
+    let mut h = Harness::new().await;
+    h.grant_and_register(1).await;
+    let commands = [
+        h.issue_command(1),
+        h.command("RETIRE_GRANT", json!({"grant":h.grant_name(1)})),
+    ];
+    let (winner, saved, result) = h.race_ordered("center", commands.clone(), Some(0)).await;
+    assert_eq!(winner, 0);
+    h.refuses_unchanged("center", commands[1].clone(), "GRANT_CLAIMED")
+        .await;
+    let c = h.return_command(1);
+    h.step(c).await;
+    h.settle_token(1, false, None).await;
+    h.finish(1, 0).await;
+    h.reopen().await;
+    h.retry_exact("center", &saved, &result).await;
+    h.close().await;
+    eprintln!("ordered actual overlap: validated ISSUE held live SQL transaction while RETIRE entered and blocked; one claim; fresh-head retirement refused; prepaid disposal/finish/reopen PASS");
+}
