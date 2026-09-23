@@ -507,3 +507,5 @@ mod integrity_tests {
 }
 
 pub(crate) mod outcome;
+
+pub(crate) mod adjudication;

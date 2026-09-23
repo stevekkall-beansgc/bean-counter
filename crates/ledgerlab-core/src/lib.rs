@@ -1,6 +1,7 @@
 //! Pure, synchronous Ledger Lab semantics. All resolved context is supplied as data.
 #![forbid(unsafe_code)]
 
+pub mod adjudication;
 pub mod canonical;
 pub mod domain;
 pub mod money;

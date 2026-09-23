@@ -11,3 +11,5 @@ pub(crate) mod outcome_evidence;
 pub(crate) mod outcomes;
 
 pub(crate) mod comparison;
+
+pub(crate) mod adjudication;
