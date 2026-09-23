@@ -85,6 +85,32 @@ fn send(dir: &Path, command: &str, value: &Value, exit: i32) -> Value {
 }
 
 #[test]
+fn guided_billing_setup_refuses_noninteractive_use_without_creating_a_path() {
+    let d = temp();
+    let destination = d.path().join("billing");
+    let setup = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/integration/setup-synthetic.json")
+        .canonicalize()
+        .unwrap();
+    let args = [
+        "billing",
+        "setup",
+        destination.to_str().unwrap(),
+        "--setup",
+        setup.to_str().unwrap(),
+        "--json",
+    ];
+    let output = invoke(d.path(), &args, None);
+    assert_eq!(output.status.code(), Some(2));
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(matches!(
+        value["code"].as_str(),
+        Some("SETUP_REQUIRES_TERMINAL" | "UNSUPPORTED_PLATFORM")
+    ));
+    assert!(!destination.exists());
+}
+
+#[test]
 fn full_local_workflow_matches_frozen_receipt_and_snapshots() {
     let d = init();
     let dir = d.path();

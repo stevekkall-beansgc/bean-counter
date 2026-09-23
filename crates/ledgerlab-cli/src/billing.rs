@@ -1,6 +1,7 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
-pub const HELP:&str="\nOrdinary local billing (separate installation):\n  billing init DIR --setup FILE\n  billing [--directory DIR] accept FILE|-\n  billing [--directory DIR] outcome FILE|-\n  billing [--directory DIR] correct FILE|-\n  billing [--directory DIR] permissions [FILE|-]\n  billing [--directory DIR] explain TARGET_ID\n  billing [--directory DIR] statement --customer CUSTOMER\n  billing [--directory DIR] export-csv --customer CUSTOMER --snapshot HASH --mapping FILE --output FILE\nBilling output is JSON (pretty-printed unless --json). No payment or tax invoice.\n";
+use std::io::{IsTerminal, Write};
+pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR --setup FILE       Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] accept FILE|-\n  billing [--directory DIR] outcome FILE|-\n  billing [--directory DIR] correct FILE|-\n  billing [--directory DIR] permissions [FILE|-]\n  billing [--directory DIR] explain TARGET_ID\n  billing [--directory DIR] statement --customer CUSTOMER\n  billing [--directory DIR] export-csv --customer CUSTOMER --snapshot HASH --mapping FILE --output FILE\nBilling output is JSON (pretty-printed unless --json). No payment or tax invoice.\n";
 pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     if a.config != Path::new("ledger.json") {
         return Ok(error(
@@ -19,6 +20,75 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         args.remove(i);
     }
     let args = args.iter().map(String::as_str).collect::<Vec<_>>();
+    if let ["setup", dir, "--setup", file] = args.as_slice() {
+        let tested_os = std::process::Command::new("/usr/bin/sw_vers")
+            .arg("-productVersion")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .is_some_and(|version| version.trim() == "26.6.2");
+        if std::env::consts::OS != "macos" || std::env::consts::ARCH != "aarch64" || !tested_os {
+            return Ok(error(
+                "UNSUPPORTED_PLATFORM",
+                "guided setup is limited to the tested macOS 26.6.2 Apple-silicon profile",
+                2,
+            ));
+        }
+        if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+            return Ok(error(
+                "SETUP_REQUIRES_TERMINAL",
+                "guided setup needs an interactive terminal; use billing init DIR --setup FILE for explicit noninteractive setup",
+                2,
+            ));
+        }
+        let path = Path::new(dir);
+        if path.exists() || std::fs::symlink_metadata(path).is_ok() {
+            return Ok(error(
+                "BILLING_DIRECTORY_EXISTS",
+                "guided setup will not reuse or modify an existing path; choose a new private directory",
+                2,
+            ));
+        }
+        let raw = local::read_file(Path::new(file), local::CONFIG_LIMIT)?;
+        let summary = BillingLedger::setup_summary(&raw)?;
+        eprintln!("Bean Counter local billing setup");
+        eprintln!("The terms below are operator-provided. Review the assent and attestations in the input file; this command does not obtain customer consent.");
+        eprintln!("Supported profile: tested macOS 26.6.2 on Apple silicon; this binary reports macOS/aarch64.");
+        eprintln!("Source build version: {}", env!("CARGO_PKG_VERSION"));
+        eprintln!("Destination: {dir}");
+        eprintln!(
+            "{}",
+            serde_json::to_string_pretty(&summary).expect("setup summary JSON")
+        );
+        eprint!("Type CREATE to initialize this new private installation: ");
+        std::io::stderr().flush().map_err(LocalError::from)?;
+        let mut answer = String::new();
+        std::io::stdin()
+            .read_line(&mut answer)
+            .map_err(LocalError::from)?;
+        if answer.trim() != "CREATE" {
+            return Ok(error(
+                "SETUP_CANCELLED",
+                "setup cancelled; no installation was created",
+                2,
+            ));
+        }
+        BillingLedger::init(path, &raw).await?;
+        return Ok((
+            json!({
+                "status": "initialized",
+                "directory": dir,
+                "profile": "local-retail",
+                "dispatch": "disabled",
+                "customer": summary["customer"],
+                "agreement": summary["agreement"],
+                "price_usd": summary["price_usd"],
+                "version": env!("CARGO_PKG_VERSION")
+            }),
+            0,
+        ));
+    }
     if let ["init", dir, "--setup", file] = args.as_slice() {
         let raw = local::read_file(Path::new(file), local::CONFIG_LIMIT)?;
         BillingLedger::init(Path::new(dir), &raw).await?;

@@ -16,6 +16,8 @@ ledger --help
 
 The first build may download locked dependencies. Add `--offline` only after populating the cache. This command installs from the checked-out source. Record its exact commit; [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) identify published versions. The installed `ledger` binary needs no Cargo, Python, Node, Docker, cloud account, model key or network service for billing. Preserve the source commit and binary SHA-256 with operational records. See [resources and costs](resources-and-costs.md).
 
+For the pinned v0.2.1 native archive, artifact checksum verification, guided setup and a machine-readable product example, see [local product integration](../examples/integration/README.md). The artifact is unsigned and tested only on macOS 26.6.2 with Apple silicon.
+
 ## Set up explicit terms
 
 Copy `examples/billing/setup.json` and edit it before using actual customer information. The example is illustrative input, not real external customer assent. Supply fresh scope, store, customer, agreement and binding identifiers; an absolute source URI; the exact agreed price; the acceptor; retained assent evidence; and truthful operator attestations of authority and finality. Match the binding and source throughout the outcome policy. The program retains these assertions but does not obtain or independently authenticate customer consent.
@@ -28,6 +30,8 @@ Policy input is strict: exactly one outcome family, 1–32 fixed USD/scale-2 cod
 ledger billing init ./billing --setup examples/billing/setup.json
 ledger billing --directory ./billing accept examples/billing/event.json --json
 ```
+
+For a terminal-guided confirmation of explicit terms, use `ledger billing setup ./billing --setup examples/billing/setup.json`. It validates and summarizes the terms before asking you to type `CREATE`, requires a new private path, and refuses on an untested host. For scripts, agents and products, keep using `billing init DIR --setup FILE --json`; it is noninteractive and does not make up any configuration.
 
 Initialization books nothing. Successful acceptance returns a `base-acceptance` receipt whose `body.target` is the target ID. With the unchanged example, the customer owes 250 atoms = USD 2.50. Copy the target ID into `TARGET`:
 

@@ -24,6 +24,49 @@ pub struct BillingLedger {
     store: SqliteStore,
 }
 impl BillingLedger {
+    /// Validate operator setup input and return a safe summary for confirmation.
+    /// Evidence text is deliberately omitted from the returned summary.
+    pub fn setup_summary(raw: &[u8]) -> local::Result<Value> {
+        let setup = service::Setup::parse(raw)?;
+        let family = &setup.outcome_policy["families"][0];
+        let codes = family["codes"]
+            .as_array()
+            .expect("validated outcome codes")
+            .iter()
+            .map(|code| {
+                json!({
+                    "code": code["code"],
+                    "currency": code["amount"]["money"]["currency"],
+                    "scale": code["amount"]["money"]["scale"],
+                    "atoms": code["amount"]["money"]["atoms"]
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "profile": "local-retail",
+            "schema": setup.schema,
+            "scope": setup.scope,
+            "store_id": setup.store_id,
+            "source": setup.source,
+            "customer": setup.customer,
+            "host": setup.host,
+            "agreement": setup.agreement,
+            "binding": setup.binding,
+            "price_usd": setup.price,
+            "accepted_at": setup.accepted_at,
+            "outcome_family": family["family"],
+            "outcome_codes": codes,
+            "ordinary_window": family["ordinary"],
+            "correction_window": family["corrections"],
+            "permissions": setup.permissions,
+            "operator_evidence": {
+                "assent": !setup.assent_evidence.is_empty(),
+                "authority_attestation": !setup.operator_attestation.is_empty(),
+                "finality_attestation": !setup.finality_attestation.is_empty()
+            }
+        }))
+    }
+
     /// Create a separate real-terms installation. Existing destinations refuse;
     /// initialization stores no accepted work or synthetic economic history.
     pub async fn init(path: &Path, setup: &[u8]) -> local::Result<()> {
@@ -219,5 +262,23 @@ impl BillingLedger {
     }
     pub async fn close(self) {
         self.store.close().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BillingLedger;
+
+    #[test]
+    fn setup_summary_validates_terms_without_exposing_evidence_text() {
+        let raw = include_bytes!("../../../examples/integration/setup-synthetic.json");
+        let summary = BillingLedger::setup_summary(raw).unwrap();
+        assert_eq!(summary["customer"], "synthetic-customer");
+        assert_eq!(summary["price_usd"], "0.02");
+        assert_eq!(summary["outcome_codes"][0]["atoms"], "98");
+        assert_eq!(summary["outcome_codes"][1]["atoms"], "-2");
+        let serialized = serde_json::to_string(&summary).unwrap();
+        assert!(!serialized.contains("No real customer assent"));
+        assert!(!serialized.contains("No real authority attested"));
     }
 }

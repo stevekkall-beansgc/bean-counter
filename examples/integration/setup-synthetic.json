@@ -1,0 +1,47 @@
+{
+  "schema": "ledger-local-billing/1",
+  "scope": ["example-company", "local"],
+  "store_id": "synthetic-product-integration",
+  "operator": "synthetic-operator",
+  "source": "urn:example:product",
+  "customer": "synthetic-customer",
+  "host": "synthetic-host",
+  "agreement": "synthetic-agreement",
+  "binding": "synthetic-binding",
+  "price": "0.02",
+  "accepted_at": "2026-09-22T00:00:00.000000Z",
+  "acceptor": "synthetic-authorized-acceptor",
+  "assent_evidence": "SYNTHETIC DEMONSTRATION ONLY. No real customer assent.",
+  "operator_attestation": "SYNTHETIC DEMONSTRATION ONLY. No real authority attested.",
+  "finality_attestation": "Synthetic completed-work demonstration only.",
+  "permissions": ["read", "submit", "correct"],
+  "outcome_policy": {
+    "version": "1",
+    "families": [{
+      "family": "delivery",
+      "binding_id": "synthetic-binding",
+      "source": "urn:example:product",
+      "correction_source": "urn:example:product",
+      "evidence_required": true,
+      "ordinary": {
+        "starts_at": "2026-09-22T13:00:00.000000Z",
+        "occurs_before": "2026-10-01T00:00:00.000000Z",
+        "received_by": "2026-10-02T00:00:00.000000Z",
+        "accepted_by": "2026-10-03T00:00:00.000000Z"
+      },
+      "corrections": {
+        "starts_at": "2026-09-22T13:00:00.000000Z",
+        "occurs_before": "2026-10-15T00:00:00.000000Z",
+        "received_by": "2026-10-16T00:00:00.000000Z",
+        "accepted_by": "2026-10-17T00:00:00.000000Z"
+      },
+      "codes": [
+        {"code":"success","amount":{"kind":"fixed","money":{"currency":"USD","scale":2,"atoms":"98"}}},
+        {"code":"unsuccessful-by-cutoff","amount":{"kind":"fixed","money":{"currency":"USD","scale":2,"atoms":"-2"}}}
+      ],
+      "replacement_codes": ["success", "unsuccessful-by-cutoff"],
+      "allow_reversal": true
+    }],
+    "limits": [{"binding_id":"synthetic-binding","premium":{"currency":"USD","scale":2,"atoms":"98"}}]
+  }
+}
