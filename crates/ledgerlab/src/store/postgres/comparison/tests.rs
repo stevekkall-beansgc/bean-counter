@@ -227,11 +227,13 @@ async fn inventory(session: &Session) -> Value {
         )
         .await
         .unwrap();
-    assert_eq!(rows.len(), 37);
+    assert_eq!(rows.len(), 53); // Original37 plus all16 native R3 tables.
     let mut tables = serde_json::Map::new();
     for row in rows {
         let name: String = row.get(0);
-        assert!(name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+        assert!(name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'));
         let columns = session.client.query("SELECT column_name,data_type,is_nullable,column_default FROM information_schema.columns WHERE table_schema='ledgerlab' AND table_name=$1 ORDER BY ordinal_position", &[&name]).await.unwrap().iter().map(|r| json!([r.get::<_,String>(0),r.get::<_,String>(1),r.get::<_,String>(2),r.get::<_,Option<String>>(3)])).collect::<Vec<_>>();
         let data = session.client.query(&format!("SELECT row_to_json(t)::text FROM ledgerlab.\"{name}\" t ORDER BY row_to_json(t)::text"), &[]).await.unwrap().iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>();
         tables.insert(name, json!({"columns":columns,"rows":data}));

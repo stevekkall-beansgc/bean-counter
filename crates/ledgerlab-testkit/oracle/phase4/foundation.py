@@ -13,6 +13,10 @@ R3_SQLITE = {
     'r3_held_intentions', 'r3_storage_profile', 'r3_commit_witness',
 }
 
+# Schema5 PostgreSQL uses native scope locks and a fixed recovery slot; its
+# external publication premise differs from SQLite's commit-witness table.
+R3_POSTGRES = (R3_SQLITE - {'r3_commit_witness'}) | {'r3_scope_locks', 'r3_unresolved_work'}
+
 
 def stable(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(',', ':'), allow_nan=False)
@@ -36,10 +40,21 @@ def inventory(snapshot, backend):
         assert tables['user_version']['columns'] == ['value']
         version = tables['user_version']['rows']
         assert len(version) == 1 and re.fullmatch(r'0|[1-9][0-9]*',version[0])
-        application = COMMON | (R3_SQLITE if version == ['5'] else set())
+        assert version in (['4'], ['5'], ['6']), 'unsupported SQLite inventory version'
+        application = COMMON | (R3_SQLITE if version in (['5'], ['6']) else set())
         assert set(tables) in (application | {'sqlite_schema','user_version'}, application | {'sqlite_schema','user_version','_sqlx_migrations'})
     else:
-        assert type(snapshot) is dict and set(snapshot) == COMMON | PG_ONLY
+        assert type(snapshot) is dict and 'migration_history' in snapshot
+        try:
+            migrations = [json.loads(row) for row in snapshot['migration_history']['rows']]
+            assert all(type(row) is dict and type(row.get('version')) is int for row in migrations)
+            versions = {row['version'] for row in migrations}
+            assert len(versions) == len(migrations)
+        except (ValueError, TypeError, KeyError) as error:
+            raise AssertionError('malformed migration inventory') from error
+        assert versions in (set(range(1, 5)), set(range(1, 6))), 'unsupported PG inventory version'
+        application = COMMON | PG_ONLY | (R3_POSTGRES if 5 in versions else set())
+        assert set(snapshot) == application, 'missing/unexpected PG table'
         tables = snapshot
     for name, table in tables.items():
         assert type(table) is dict and set(table) == {'columns', 'rows'}

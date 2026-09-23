@@ -1,7 +1,8 @@
 """Checker sensitivity only; actual store evidence is supplied by integration."""
 import copy
+import json
 import unittest
-from foundation import no_change
+from foundation import no_change, R3_SQLITE, R3_POSTGRES
 from observer import COMMON, PG_ONLY
 
 
@@ -15,6 +16,7 @@ def seed(backend):
         snapshot = {name: {'columns': [['key', 'text', 'NO', None], ['value', 'bytea', 'YES', None]],
                            'rows': ['{"key":"synthetic","value":"\\\\x00"}']}
                     for name in sorted(COMMON | PG_ONLY)}
+        snapshot['migration_history'] = {'columns': [['version','bigint','NO',None],['checksum','text','NO',None]], 'rows': [json.dumps({'version': version, 'checksum': 'synthetic'}) for version in range(1,5)]}
         metadata = {'schema': {'indexes':[['index','definition']], 'constraints':[['table','constraint','definition']], 'triggers':[]}}
     return {'backend': backend, 'B0': snapshot, 'B1': copy.deepcopy(snapshot), 'B2': copy.deepcopy(snapshot),
             'attempted_writes': 0, 'external_calls': 0,
@@ -25,6 +27,40 @@ class FoundationInventory(unittest.TestCase):
     def test_unchanged_backend_shapes(self):
         for backend in ('sqlite', 'postgres17', 'postgres18'):
             no_change(seed(backend))
+
+    def test_current_additive_schema_inventory_is_complete(self):
+        for backend in ('sqlite', 'postgres17', 'postgres18'):
+            for version in ((5,6) if backend == 'sqlite' else (5,)):
+                evidence = seed(backend)
+                added = R3_SQLITE if backend == 'sqlite' else R3_POSTGRES
+                for stage in ('B0','B1','B2'):
+                    if backend == 'sqlite':
+                        evidence[stage].extend([[name,['value'],["X'00'"]] for name in sorted(added)])
+                        next(row for row in evidence[stage] if row[0]=='user_version')[2] = [str(version)]
+                        evidence['metadata'][stage]['user_version'] = [str(version)]
+                    else:
+                        evidence[stage].update({name:{'columns':[['value','bytea','NO',None]],'rows':['{"value":"synthetic"}']} for name in added})
+                        evidence[stage]['migration_history']['rows'].append(json.dumps({'version':5,'checksum':'synthetic'}))
+                no_change(evidence)
+                for name in added:
+                    # Even simultaneous omission from every snapshot must fail;
+                    # equality by itself is insufficient inventory evidence.
+                    omitted = copy.deepcopy(evidence)
+                    for stage in ('B0','B1','B2'):
+                        if backend == 'sqlite': omitted[stage] = [r for r in omitted[stage] if r[0] != name]
+                        else: del omitted[stage][name]
+                    with self.assertRaises(AssertionError): no_change(omitted)
+                    changed = copy.deepcopy(evidence)
+                    if backend == 'sqlite': next(r for r in changed['B1'] if r[0] == name)[2].append("X'01'")
+                    else: changed['B1'][name]['rows'].append('{"value":"changed"}')
+                    with self.assertRaises(AssertionError): no_change(changed)
+                unknown = copy.deepcopy(evidence)
+                for stage in ('B0','B1','B2'):
+                    if backend == 'sqlite':
+                        next(row for row in unknown[stage] if row[0]=='user_version')[2] = ['7']
+                        unknown['metadata'][stage]['user_version'] = ['7']
+                    else: unknown[stage]['migration_history']['rows'].append(json.dumps({'version':6,'checksum':'synthetic'}))
+                with self.assertRaises(AssertionError): no_change(unknown)
 
     def test_every_table_and_column_mutation(self):
         for backend in ('sqlite', 'postgres17', 'postgres18'):
