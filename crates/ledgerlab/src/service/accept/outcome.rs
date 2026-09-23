@@ -1251,3 +1251,136 @@ pub(crate) fn prepare_fresh_base<A: OutcomeAuthority>(
         _ => Err(integrity()),
     }
 }
+
+/// Validate the unchanged original v2 acceptance for atomic R3 enrollment.
+/// This is not a Phase 3 contingent-reservation registration: an original base
+/// may already have consumed and released its full invocation exposure.
+/// The actual original evaluator, exact evidence and all absence/current guards
+/// remain mandatory. No settlement state or new commercial right is synthesized.
+pub(crate) fn prepare_original_base<A: OutcomeAuthority>(
+    c: &OutcomeCommand,
+    authority: &A,
+    snapshot: &OutcomeSnapshot,
+    existing_delivery: Option<&StoredCompositeDelivery>,
+) -> Result<ValidatedOriginalBasePlan> {
+    use OutcomeLockClass as L;
+    use OutcomeLockMode as M;
+    let OutcomeOperation::FinalBase { seed } = &c.operation else {
+        return Err(ServiceError::Rejection("ORIGINAL_BASE_REQUIRED".into()));
+    };
+    check(existing_delivery.is_none())?;
+    let locks = fresh_base_locks(c)?;
+    validate_snapshot_heads(snapshot, &locks, c)?;
+    let records = Records::new(&snapshot.records, json!(scoped(c)))?;
+    records.documents()?;
+    let fresh = Records::new(seed, json!(scoped(c)))?;
+    let base = b::decode_base(&fresh, &reference(fresh.one("base-acceptance")?))?;
+    check(base.snapshot["body"]["target"] == c.target)?;
+    let (event, command, key) = operation(c)?;
+    let proof = authority.verify(c, snapshot, true)?;
+    verify_proof(c, snapshot, &proof, &records, &key.source, true, "register")?;
+    check(snapshot.anchors.is_empty())?;
+    for h in &snapshot.heads {
+        if matches!(
+            h.lock.class,
+            L::Target
+                | L::Reservation
+                | L::Claim
+                | L::BindingAggregate
+                | L::InvocationConsumption
+                | L::BaseReversal
+        ) {
+            check(h.revision.is_none() && h.value.is_none())?;
+        }
+    }
+    check(
+        proof.finality
+            && base
+                .target
+                .verification()
+                .verified_assents
+                .iter()
+                .chain(&base.target.verification().verified_offers)
+                .chain(&base.target.verification().verified_delegations)
+                .all(|d| proof.verified_terms.contains(d)),
+    )?;
+    let original = base.evaluation.source_authority();
+    check(
+        original.source == key.source
+            && original.grant == records.document(&proof.authority["grant"]["id"])?
+            && serde_json::to_value(original.revision).map_err(|_| integrity())?
+                == proof.authority["grant_revision"]
+            && base.evaluation.received_at() == Some(&c.received_at)
+            && base.target.verification().accepted_at == c.accepted_at,
+    )?;
+    for document in [
+        base.target.policy().document.clone(),
+        fresh.document(&base.snapshot["body"]["finality_evidence"])?,
+    ] {
+        check(proof.verified_terms.contains(&document))?;
+    }
+    for policy in fresh
+        .rows
+        .iter()
+        .filter(|r| r["kind"] == "policy-snapshot" && r["body"]["book"] == "supplier")
+    {
+        check(
+            proof
+                .verified_terms
+                .contains(&fresh.document(&policy["body"]["supplier_authorization"])?),
+        )?;
+    }
+    let mut writes = vec![new_write(
+        snapshot,
+        lock(c, L::Target, vec![json!(c.target)], M::Write)?,
+        json!({"profile":"r3-original-base/1","base":reference(&base.acceptance),"records":b::ordered(fresh.rows.iter().map(reference).collect())?}),
+    )?];
+    for row in fresh
+        .rows
+        .iter()
+        .filter(|r| r["kind"] == "binding-snapshot")
+    {
+        check(
+            current(
+                snapshot,
+                c,
+                L::Binding,
+                vec![row["body"]["binding_id"].clone()],
+            )? == Some(json!({"active":true,"binding":reference(row)})),
+        )?;
+        writes.push(new_write(
+            snapshot,
+            lock(
+                c,
+                L::BindingAggregate,
+                vec![json!(c.target), row["body"]["binding_id"].clone()],
+                M::Write,
+            )?,
+            json!({"revisions":[]}),
+        )?);
+    }
+    writes.push(new_write(snapshot,lock(c,L::InvocationConsumption,vec![json!(c.invocation_id)],M::Write)?,json!({"profile":"r3-original-base/1","target":c.target,"base":reference(&base.acceptance)}))?);
+    writes.push(new_write(
+        snapshot,
+        lock(c, L::BaseReversal, vec![json!(c.target)], M::Write)?,
+        json!({"reversed":false}),
+    )?);
+    Ok(ValidatedOriginalBasePlan {
+        resolve: OutcomeResolve {
+            delivery: key,
+            target: c.target.clone(),
+            invocation_id: c.invocation_id.clone(),
+            family_key: None,
+            required: c.required.clone(),
+            locks,
+        },
+        observed: snapshot.heads.clone(),
+        records: fresh.rows.iter().map(bytes).collect::<Result<_>>()?,
+        writes,
+        ingress: ingress(c, &event)?,
+        ingress_hash: ingress_hash(c, &event, &command)?,
+        receipt: bytes(&base.acceptance)?,
+    })
+}
+
+pub(crate) use super::adjudication::ValidatedOriginalBasePlan;

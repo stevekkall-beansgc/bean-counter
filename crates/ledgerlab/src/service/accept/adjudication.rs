@@ -159,6 +159,7 @@ pub(crate) enum OriginalBaseWrites {
         writes: Vec<WriteOp>,
     },
     V2(Box<ValidatedOutcomePlan>),
+    OriginalV2(Box<ValidatedOriginalBasePlan>),
 }
 #[derive(Clone, Debug)]
 #[expect(
@@ -361,3 +362,6 @@ pub(crate) use run::{run, AdjudicationHost, SourceRequest};
 
 #[cfg(test)]
 mod sqlite_tests;
+
+mod original_base;
+pub(crate) use original_base::ValidatedOriginalBasePlan;

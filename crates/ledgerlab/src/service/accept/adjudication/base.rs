@@ -17,7 +17,7 @@ fn require(ok: bool) -> Result<()> {
 }
 impl FreshBaseAcceptance {
     pub(crate) fn from_fresh_v2(
-        plan: ValidatedOutcomePlan,
+        plan: ValidatedOriginalBasePlan,
         terms: &wire::Enroll,
         exact_members: Vec<wire::RetainedObject>,
     ) -> Result<Self> {
@@ -47,13 +47,7 @@ impl FreshBaseAcceptance {
             )?;
             let verified = r3::proofs::VerifiedObjectBytes::check(object.clone())?;
             bytes += verified.bytes().len();
-            require(
-                bytes <= 1_048_576
-                    && plan
-                        .economic_records()
-                        .iter()
-                        .any(|r| r == verified.bytes()),
-            )?;
+            require(bytes <= 1_048_576 && plan.records().iter().any(|r| r == verified.bytes()))?;
             let row: Value =
                 ledgerlab_core::canonical::parse_bounded(verified.bytes(), r3::COMMAND_BYTES)?;
             let kind = row["kind"].as_str().ok_or_else(|| Error {
@@ -133,17 +127,10 @@ impl FreshBaseAcceptance {
                 detail: "missing".into(),
             })?;
         require(*hash == terms.base_manifest)?;
-        let saved = plan
-            .delivery()
-            .economic_receipt
-            .as_ref()
-            .ok_or_else(|| Error {
-                code: "ORIGINAL_BASE_RECEIPT",
-                detail: "missing".into(),
-            })?;
+        let saved = plan.receipt();
         require(r3::raw_sha256(saved) == terms.base_receipt)?;
         Ok(Self {
-            writes: OriginalBaseWrites::V2(Box::new(plan)),
+            writes: OriginalBaseWrites::OriginalV2(Box::new(plan)),
             absence: vec![],
             manifest: terms.base_manifest.clone(),
             receipt: terms.base_receipt.clone(),
