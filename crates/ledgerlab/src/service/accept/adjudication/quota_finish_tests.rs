@@ -3,6 +3,13 @@
 use super::*;
 #[tokio::test]
 async fn actual_all_finish_kinds_recover_after_optional_grant_exhaustion() {
+    finish_cut_matrix(&[11, 12, 13]).await;
+}
+#[tokio::test]
+async fn actual_all_finish_kinds_survive_death_after_committed_response() {
+    finish_cut_matrix(&[14]).await;
+}
+async fn finish_cut_matrix(cuts: &[u8]) {
     let kinds = [
         "BEGIN",
         "SEAL_BEGIN",
@@ -26,7 +33,7 @@ async fn actual_all_finish_kinds_recover_after_optional_grant_exhaustion() {
         .collect();
     assert_eq!(expected, kinds.into_iter().collect());
     for selected in kinds {
-        for cut in [11, 12, 13] {
+        for &cut in cuts {
             let mut h =
                 Harness::with_budgets(super::super::super::scale_tests::budgets(2), false, true)
                     .await;

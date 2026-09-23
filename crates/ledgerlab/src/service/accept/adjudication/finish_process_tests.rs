@@ -6,7 +6,7 @@ async fn protected_process_entry() {
     let Ok(path) = std::env::var("LEDGERLAB_PROTECTED_PROCESS") else {
         return;
     };
-    let v: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let v: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let input = fixture();
     let sources: Vec<wire::AuthoritySource> =
         serde_json::from_value(input["initial"]["authority_sources"].clone()).unwrap();
@@ -51,7 +51,10 @@ async fn protected_process_entry() {
         )
         .await
         .unwrap();
-    host.0.stores[owner].test_publication_cut(v["cut"].as_u64().unwrap() as u8);
+    let cut = v["cut"].as_u64().unwrap() as u8;
+    if cut != 14 {
+        host.0.stores[owner].test_publication_cut(cut);
+    }
     let result = run(
         &configured,
         &host,
@@ -60,10 +63,24 @@ async fn protected_process_entry() {
         deadline(),
     )
     .await;
+    if cut == 14 {
+        // The client has actually received COMMITTED. Persist its exact response
+        // outside the database, then terminate without graceful store shutdown.
+        let result = result.unwrap();
+        assert_eq!(result.status, wire::CommandResultStatus::Committed);
+        let acknowledged = std::path::Path::new(&path).with_extension("ack.json");
+        std::fs::write(&acknowledged, serde_json::to_vec(&result).unwrap()).unwrap();
+        std::fs::File::open(&acknowledged)
+            .unwrap()
+            .sync_all()
+            .unwrap();
+        std::process::exit(77);
+    }
     panic!("real publication cut did not exit: {result:?}");
 }
 impl Harness {
     async fn process_commit(&mut self, owner: &str, mut c: Value, cut: u8) {
+        assert!([11, 12, 13, 14].contains(&cut));
         hydrate(&mut c, &self.proofs, &self.roots[owner]);
         let mut before = BTreeMap::new();
         let mut paths = BTreeMap::new();
@@ -158,6 +175,21 @@ impl Harness {
             assert_eq!(
                 self.host.0.stores[owner].test_full_inventory().await,
                 recovered
+            );
+        }
+        if cut == 14 {
+            let mut acknowledged: wire::CommandResult =
+                serde_json::from_slice(&std::fs::read(path.with_extension("ack.json")).unwrap())
+                    .unwrap();
+            assert_eq!(acknowledged.status, wire::CommandResultStatus::Committed);
+            assert_eq!(acknowledged.code, c["kind"].as_str().unwrap());
+            // The saved-outcome API deliberately changes the retry envelope;
+            // root and every typed effect must remain the acknowledged values.
+            acknowledged.status = wire::CommandResultStatus::Duplicate;
+            acknowledged.code = "EXACT_RETRY".into();
+            assert_eq!(
+                result, acknowledged,
+                "saved response after acknowledged process death"
             );
         }
         self.accept_observed(owner, c.clone(), result).await;
