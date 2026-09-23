@@ -45,7 +45,7 @@ impl From<tokio_postgres::Error> for UpgradeError {
     }
 }
 
-/// Upgrade exact SQLite schema 1/2/3 to 4 under the directory's exclusive owner.
+/// Upgrade exact SQLite schema 1/2/3/4 to 5 under the directory's exclusive owner.
 /// Once started, cancellation of the caller does not cancel maintenance. The
 /// supervised operation retains ownership through completion and driver cleanup.
 pub async fn upgrade_sqlite(

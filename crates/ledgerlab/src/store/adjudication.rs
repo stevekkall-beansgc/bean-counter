@@ -7,7 +7,7 @@ use super::{
     ports::AcceptanceTx,
 };
 use crate::service::accept::adjudication::{
-    CommitCapability, TrustedPrefix, ValidatedAdjudicationPlan, VerifiedSource,
+    CommitCapability, TrustedJournalHead, TrustedPrefix, ValidatedAdjudicationPlan, VerifiedSource,
 };
 use ledgerlab_core::adjudication::{
     commands as wire,
@@ -119,10 +119,6 @@ impl Guard {
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) struct JournalIdentity {
     pub store: Id,
     pub scope: wire::Scope,
@@ -175,6 +171,7 @@ pub(crate) enum HeadKind {
     Resource,
     Counter,
     VerifiedCursor,
+    Delivery,
 }
 #[derive(Clone, Debug)]
 #[expect(
@@ -215,7 +212,7 @@ pub(crate) struct SavedOutcome {
 )]
 pub(crate) struct LockedInputs {
     pub journal: JournalIdentity,
-    pub prefix: TrustedPrefix,
+    pub prefix: TrustedJournalHead,
     pub heads: Vec<ObservedHead>,
     pub retained: Vec<wire::RetainedObject>,
     pub sources: Vec<VerifiedSource>,

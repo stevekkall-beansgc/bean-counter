@@ -189,3 +189,6 @@ impl AcceptanceStore for SqliteStore {
         })
     }
 }
+
+#[cfg(test)]
+mod adjudication_tests;

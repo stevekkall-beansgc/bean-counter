@@ -7,6 +7,7 @@ const SQL: &str = include_str!("../../../migrations/sqlite/0001_first_slice.sql"
 const OUTBOX: &str = include_str!("../../../migrations/sqlite/0002_outbox.sql");
 const SAFETY: &str = include_str!("../../../migrations/sqlite/0003_outbox_safety.sql");
 const OUTCOMES: &str = include_str!("../../../migrations/sqlite/0004_outcomes.sql");
+const PHASE4: &str = include_str!("../../../migrations/sqlite/0005_phase4.sql");
 fn migrator() -> Migrator {
     Migrator::with_migrations(vec![
         Migration::new(
@@ -37,6 +38,13 @@ fn migrator() -> Migrator {
             OUTCOMES.into_sql_str(),
             false,
         ),
+        Migration::new(
+            5,
+            "phase4".into(),
+            MigrationType::Simple,
+            PHASE4.into_sql_str(),
+            false,
+        ),
     ])
 }
 #[allow(dead_code)] // Explicit migration-owner provisioning; never run by open.
@@ -48,7 +56,7 @@ pub(super) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     let current: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if current != 4 {
+    if current != 5 {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     version(conn).await?;
@@ -58,7 +66,7 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
     let v: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if !(1..=4).contains(&v) {
+    if !(1..=5).contains(&v) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     let migrations = migrator();
@@ -147,7 +155,7 @@ async fn upgrade_connection(
     if lose_ack {
         return Err(UpgradeError::OutcomeUnknown);
     }
-    Ok(if from == 4 {
+    Ok(if from == 5 {
         UpgradeResult::AlreadyCurrent
     } else {
         UpgradeResult::Upgraded
