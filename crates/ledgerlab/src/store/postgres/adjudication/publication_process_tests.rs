@@ -25,7 +25,7 @@ fn record(anchor: &Path) -> serde_json::Value {
 fn document() -> WriteOp {
     crate::store::sqlite::tests::seed().remove(0)
 }
-async fn read_document(store: &PostgresStore) {
+pub(super) async fn read_document(store: &PostgresStore) {
     let WriteOp::Journal(row) = document() else {
         panic!("document fixture")
     };
@@ -39,7 +39,7 @@ async fn read_document(store: &PostgresStore) {
     );
     tx.commit().await.unwrap();
 }
-async fn native_read(store: &PostgresStore, present: bool) {
+pub(super) async fn native_read(store: &PostgresStore, present: bool) {
     let (j, s) = sample();
     let command = parsed(&s);
     let mut tx = store
@@ -98,7 +98,7 @@ async fn native_read(store: &PostgresStore, present: bool) {
     // Existing saved commands and guards are read-only; no publication nonce.
     tx.rollback().await.unwrap();
 }
-async fn write_one(store: &PostgresStore, native: bool) {
+pub(super) async fn write_one(store: &PostgresStore, native: bool) {
     if native {
         let (j, s) = sample();
         let command = parsed(&s);
