@@ -59,7 +59,7 @@ pub async fn upgrade_sqlite(
         .unwrap_or(Err(UpgradeError::OutcomeUnknown))
 }
 
-/// Upgrade exact PostgreSQL schema 1/2/3 to 4 with a migration-owner connection.
+/// Upgrade exact unbound PostgreSQL schema 1/2/3/4/5 to 6 with a migration-owner connection.
 /// The runtime role remains non-owning and cannot perform this operation.
 /// Cancellation of the caller leaves the bounded supervisor running.
 pub async fn upgrade_postgres(

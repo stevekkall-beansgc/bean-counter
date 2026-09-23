@@ -213,6 +213,11 @@ async fn upgrade_client(
         return Err(UpgradeError::Refused);
     }
     let from = version(&tx).await?;
+    if from >= 6 {
+        // This entry point has no external owner. A bound installation needs
+        // separately coordinated anchored maintenance; never bypass its fence.
+        super::require_unbound(&tx).await?;
+    }
     for (v, sql, hash) in [
         (2_i64, OUTBOX, outbox_checksum()),
         (3, SAFETY, safety_checksum()),

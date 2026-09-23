@@ -1,6 +1,7 @@
 //! Concrete PostgreSQL adapter. A bounded lease owns a dedicated verified session;
 //! it is discarded after each transaction, so uncertain sessions cannot be reused.
 mod adjudication;
+mod bootstrap;
 pub(crate) mod comparison;
 #[path = "proof/connect.rs"]
 pub(crate) mod connect;
@@ -76,6 +77,7 @@ impl PostgresConfig {
 }
 struct Inner {
     config: PostgresConfig,
+    publication: Option<Arc<adjudication::publication::PublicationOwner>>,
     slots: Arc<Semaphore>,
     closed: AtomicBool,
     tasks: Mutex<Vec<JoinHandle<()>>>,
@@ -101,12 +103,37 @@ pub(crate) struct PostgresStore {
 }
 impl PostgresStore {
     pub async fn open(config: PostgresConfig) -> Result<Self, StoreError> {
+        Self::open_with_owner(config, None).await
+    }
+    /// Private real publication route; physical admission is still disabled.
+    pub(crate) async fn open_fenced(
+        config: PostgresConfig,
+        directory: &std::path::Path,
+    ) -> Result<Self, StoreError> {
+        let publication = adjudication::publication::PublicationOwner::acquire(directory)?;
+        Self::open_with_owner(config, Some(publication)).await
+    }
+    async fn open_with_owner(
+        config: PostgresConfig,
+        publication: Option<Arc<adjudication::publication::PublicationOwner>>,
+    ) -> Result<Self, StoreError> {
         let session = config.connect().await?;
         let version = verify_server(&session.client).await?;
         #[cfg(not(test))]
         let _ = version;
         migrate::verify(&session.client).await?;
         verify_role(&session.client).await?;
+        if let Some(owner) = &publication {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let pid = Arc::new(std::sync::atomic::AtomicI32::new(0));
+            let mut gate =
+                adjudication::recovery::Gate::acquire_raw(&config, deadline, &pid).await?;
+            owner.recover_under_gate(&mut gate, deadline).await?;
+            gate.resolve_after_publication().await?;
+            gate.finish().await?;
+        } else {
+            require_unbound(&session.client).await?;
+        }
         #[cfg(test)]
         let pid: i32 = session
             .client
@@ -117,6 +144,7 @@ impl PostgresStore {
         Ok(Self {
             inner: Arc::new(Inner {
                 config,
+                publication,
                 slots: Arc::new(Semaphore::new(5)),
                 closed: AtomicBool::new(false),
                 tasks: Mutex::new(Vec::new()),
@@ -179,20 +207,11 @@ impl PostgresStore {
         source: &str,
         external: &str,
     ) -> Result<Option<StoredIdentity>, StoreError> {
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let _permit = timeout_at(deadline, self.inner.slots.clone().acquire_owned())
-            .await
-            .map_err(|_| StoreError::Deadline)?
-            .map_err(|_| StoreError::WritesDisabled)?;
-        timeout_at(deadline, async {
-            let session = self.inner.config.connect().await?;
-            verify_server(&session.client).await?;
-            let result = read::identity(&session.client, s, source, external).await;
-            session.discard().await;
-            result
-        })
-        .await
-        .map_err(|_| StoreError::Deadline)?
+        use crate::store::ports::AcceptanceTx;
+        let mut tx = self.begin(Instant::now() + Duration::from_secs(2)).await?;
+        let result = tx.load_identity(s, source, external).await;
+        tx.rollback().await?;
+        result
     }
 }
 impl AcceptanceStore for PostgresStore {
@@ -211,6 +230,27 @@ impl AcceptanceStore for PostgresStore {
         tx::start(self.inner.clone(), permit, deadline).await
     }
 }
+// Bound databases may only be read through the owner that recovered the
+// separately retained publication record. Check inside each pinned snapshot,
+// not merely when the store handle was first opened.
+async fn require_unbound<C: tokio_postgres::GenericClient + Sync>(
+    client: &C,
+) -> Result<(), StoreError> {
+    let row = client
+        .query_one(
+            "SELECT anchor,witness FROM ledgerlab.r3_commit_witness WHERE singleton=1",
+            &[],
+        )
+        .await?;
+    let zero = "0".repeat(64);
+    if row.try_get::<_, String>(0)? != zero || row.try_get::<_, String>(1)? != zero {
+        return Err(StoreError::InvalidStore(
+            "PostgreSQL database requires its trusted publication owner",
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) async fn verify_server<C: tokio_postgres::GenericClient + Sync>(
     client: &C,
 ) -> Result<i32, StoreError> {
@@ -244,3 +284,6 @@ impl crate::store::outcomes::OutcomeStore for PostgresStore {
         self.begin(deadline).await
     }
 }
+
+#[cfg(test)]
+mod publication_driver_tests;

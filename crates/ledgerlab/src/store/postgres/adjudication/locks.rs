@@ -5,6 +5,7 @@ pub(in crate::store::postgres) struct Locked {
     pub journal: Option<JournalIdentity>,
     pub guards: Vec<Guard>,
     pub appended: bool,
+    pub inserted_guard: bool,
 }
 impl Locked {
     pub fn require(&self, j: &JournalIdentity) -> Result<(), StoreError> {
@@ -53,7 +54,7 @@ pub(super) async fn acquire<C: GenericClient + Sync>(
                 if v[0] != json!(j.scope) {
                     return Err(invalid());
                 }
-                super::super::outcomes::lock_one(c, l).await?;
+                held.inserted_guard |= super::super::outcomes::lock_one(c, l).await?;
                 olds.push(l.clone());
             }
             Guard::R3 { class, host, key } => {
@@ -61,7 +62,7 @@ pub(super) async fn acquire<C: GenericClient + Sync>(
                     return Err(invalid());
                 }
                 let tag = i16::try_from(class.storage_tag()).map_err(|_| invalid())?;
-                c.execute("INSERT INTO ledgerlab.r3_scope_locks(journal,class,full_key) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",&[&jk,&tag,key]).await?;
+                held.inserted_guard |= c.execute("INSERT INTO ledgerlab.r3_scope_locks(journal,class,full_key) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",&[&jk,&tag,key]).await? != 0;
                 c.query_one("SELECT full_key FROM ledgerlab.r3_scope_locks WHERE journal=$1 AND class=$2 AND full_key=$3 FOR UPDATE",&[&jk,&tag,key]).await?;
             }
         }

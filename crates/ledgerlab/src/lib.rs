@@ -150,6 +150,20 @@ impl Ledger {
             ),
         })
     }
+    /// Reopen PostgreSQL with its separately retained trusted-host publication
+    /// owner. This does not enable R3 physical resource admission.
+    pub async fn open_postgres_fenced(
+        config: PostgresConfig,
+        anchor: &Path,
+    ) -> Result<Self, ServiceError> {
+        Ok(Self {
+            store: Backend::Postgres(
+                store::postgres::PostgresStore::open_fenced(config, anchor)
+                    .await
+                    .map_err(service::store_error)?,
+            ),
+        })
+    }
     pub async fn open_postgres(config: PostgresConfig) -> Result<Self, ServiceError> {
         Ok(Self {
             store: Backend::Postgres(

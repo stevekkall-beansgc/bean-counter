@@ -7,6 +7,9 @@ use crate::store::{
     ports::AcceptanceTx,
     records::*,
 };
+use adjudication::publication::{
+    PublicationOutcome, PublicationOwner, SnapshotPin, SqlCommitOutcome, WritePublication,
+};
 use adjudication::recovery::{Disposition, Gate, Work};
 use std::{
     sync::{
@@ -77,6 +80,68 @@ pub(crate) struct PostgresTx {
     #[cfg(test)]
     pub(crate) pid: i32,
 }
+struct DriverState {
+    config: super::PostgresConfig,
+    gate: Option<Gate>,
+    admission_pid: Arc<AtomicI32>,
+    publication: Option<Arc<PublicationOwner>>,
+    pin: Option<SnapshotPin>,
+    write: Option<WritePublication>,
+    unbound_locked: bool,
+}
+impl DriverState {
+    async fn ensure_gate(&mut self, deadline: Instant) -> Result<(), StoreError> {
+        if self.gate.is_none() {
+            self.gate = Some(if let Some(owner) = &self.publication {
+                let mut gate =
+                    Gate::acquire_raw(&self.config, deadline, &self.admission_pid).await?;
+                owner.recover_under_gate(&mut gate, deadline).await?;
+                gate.resolve_after_publication().await?;
+                gate
+            } else {
+                Gate::acquire(&self.config, deadline, &self.admission_pid).await?
+            });
+        }
+        Ok(())
+    }
+    async fn mutation(
+        &mut self,
+        tx: &Transaction<'_>,
+        deadline: Instant,
+    ) -> Result<(), StoreError> {
+        self.ensure_gate(deadline).await?;
+        if let Some(owner) = &self.publication {
+            if self.write.is_none() {
+                self.write = Some(
+                    owner
+                        .begin_write(
+                            self.gate.as_mut().ok_or(StoreError::WritesDisabled)?,
+                            tx,
+                            self.pin.as_ref().ok_or(StoreError::WritesDisabled)?,
+                            deadline,
+                        )
+                        .await?,
+                );
+            }
+        } else if !self.unbound_locked {
+            // Recheck under a transaction lock so old unfenced handles cannot
+            // write after a trusted owner binds the installation.
+            tx.query_one(
+                "SELECT singleton FROM ledgerlab.r3_commit_witness WHERE singleton=1 FOR UPDATE",
+                &[],
+            )
+            .await?;
+            super::require_unbound(tx).await?;
+            self.unbound_locked = true;
+        }
+        Ok(())
+    }
+    fn dirty(&mut self) {
+        if let Some(write) = &mut self.write {
+            write.mark_mutation();
+        }
+    }
+}
 pub(super) async fn start(
     owner: Arc<Inner>,
     permit: OwnedSemaphorePermit,
@@ -102,6 +167,7 @@ pub(super) async fn start_work(
             return Err(StoreError::WritesDisabled);
         }
         let config = owner.config.clone();
+        let publication = owner.publication.clone();
         #[cfg(test)]
         let trace_label = super::trace::label();
         let handle = tokio::spawn(async move {
@@ -117,7 +183,15 @@ pub(super) async fn start_work(
                     return;
                 }
             };
-            let mut gate = None;
+            let mut state = DriverState {
+                config: config.clone(),
+                gate: None,
+                admission_pid: control_pid.clone(),
+                publication,
+                pin: None,
+                write: None,
+                unbound_locked: false,
+            };
             let result = async {
                 super::verify_server(&session.client).await?;
                 let pid: i32 = session
@@ -126,9 +200,13 @@ pub(super) async fn start_work(
                     .await?
                     .try_get(0)?;
                 if let Some(work) = work {
-                    let mut owned = Gate::acquire(&config, deadline, &control_pid).await?;
-                    owned.arm(&session.client, work).await?;
-                    gate = Some(owned);
+                    state.ensure_gate(deadline).await?;
+                    state
+                        .gate
+                        .as_mut()
+                        .ok_or(StoreError::WritesDisabled)?
+                        .arm(&session.client, work)
+                        .await?;
                 }
                 let tx = session
                     .client
@@ -136,6 +214,11 @@ pub(super) async fn start_work(
                     .isolation_level(IsolationLevel::Serializable)
                     .start()
                     .await?;
+                if let Some(owner) = &state.publication {
+                    state.pin = Some(owner.pin_snapshot(&tx, deadline).await?);
+                } else {
+                    super::require_unbound(&tx).await?;
+                }
                 Ok::<_, StoreError>((tx, pid))
             };
             let mut pending = None;
@@ -146,23 +229,13 @@ pub(super) async fn start_work(
                         {
                             pending = super::trace::scope(
                                 trace_label,
-                                drive(
-                                    tx,
-                                    receiver,
-                                    deadline,
-                                    &config,
-                                    &mut gate,
-                                    &control_pid,
-                                    pid,
-                                ),
+                                drive(tx, receiver, deadline, &mut state, pid),
                             )
                             .await;
                         }
                         #[cfg(not(test))]
                         {
-                            pending =
-                                drive(tx, receiver, deadline, &config, &mut gate, &control_pid)
-                                    .await;
+                            pending = drive(tx, receiver, deadline, &mut state).await;
                         }
                     } else {
                         let _ = timeout_at(Instant::now() + Duration::from_secs(5), tx.rollback())
@@ -177,10 +250,34 @@ pub(super) async fn start_work(
                 }
             }
             session.discard().await;
-            let claimed = gate.as_ref().is_some_and(|g| g.work.is_some());
-            let resolution = match gate {
-                Some(g) => g.finish().await,
-                None => Ok(None),
+            let claimed = state.gate.as_ref().is_some_and(|g| g.work.is_some());
+            let sql_outcome = match pending.as_ref().map(|(_, result)| result) {
+                Some(Ok(())) => SqlCommitOutcome::Committed,
+                Some(Err(CommitError::OutcomeUnknown)) => SqlCommitOutcome::Unknown,
+                _ => SqlCommitOutcome::RolledBack,
+            };
+            let settled = if let Some(write) = state.write.take() {
+                match state.gate.as_mut() {
+                    Some(gate) => match write
+                        .settle_after_exit(
+                            gate,
+                            sql_outcome,
+                            Instant::now() + Duration::from_secs(5),
+                        )
+                        .await
+                    {
+                        PublicationOutcome::StableOld | PublicationOutcome::StableNew => Ok(()),
+                        PublicationOutcome::Unresolved(error) => Err(error),
+                    },
+                    None => Err(StoreError::WritesDisabled),
+                }
+            } else {
+                Ok(())
+            };
+            let resolution = match (settled, state.gate.take()) {
+                (Ok(()), Some(g)) => g.finish().await,
+                (Ok(()), None) => Ok(None),
+                (Err(e), _) => Err(e), // Never clear a still-unpublished native result.
             };
             if let Some((reply, mut outcome)) = pending {
                 if outcome.is_ok()
@@ -253,24 +350,11 @@ type CommitDelivery = (
     oneshot::Sender<Result<(), CommitError>>,
     Result<(), CommitError>,
 );
-async fn ensure_gate(
-    gate: &mut Option<Gate>,
-    config: &super::PostgresConfig,
-    deadline: Instant,
-    pid: &Arc<AtomicI32>,
-) -> Result<(), StoreError> {
-    if gate.is_none() {
-        *gate = Some(Gate::acquire(config, deadline, pid).await?);
-    }
-    Ok(())
-}
 async fn drive(
     tx: Transaction<'_>,
     mut commands: mpsc::UnboundedReceiver<Command>,
     deadline: Instant,
-    config: &super::PostgresConfig,
-    gate: &mut Option<Gate>,
-    admission_pid: &Arc<AtomicI32>,
+    state: &mut DriverState,
     #[cfg(test)] pid: i32,
 ) -> Option<CommitDelivery> {
     let mut failed = false;
@@ -323,10 +407,11 @@ async fn drive(
                     async {
                         clamp(&tx, deadline).await?;
                         if matches!(&op, adjudication::Operation::Locks(..)) {
-                            ensure_gate(gate, config, deadline, admission_pid).await?;
+                            state.mutation(&tx, deadline).await?;
                         }
                         if let adjudication::Operation::Append(p) = &op {
-                            if !gate
+                            if !state
+                                .gate
                                 .as_ref()
                                 .and_then(|g| g.work.as_ref())
                                 .is_some_and(|w| w.matches(p))
@@ -336,7 +421,13 @@ async fn drive(
                                 ));
                             }
                         }
-                        adjudication::operation(&tx, &mut native, &mut held, &mut steps, op).await
+                        let value =
+                            adjudication::operation(&tx, &mut native, &mut held, &mut steps, op)
+                                .await?;
+                        if native.inserted_guard || native.appended {
+                            state.dirty();
+                        }
+                        Ok(value)
                     },
                 )
                 .await
@@ -362,10 +453,15 @@ async fn drive(
                                 OutcomeValue::Unit
                             }
                             OutcomeOp::Locks(scopes) => {
-                                if scopes.iter().any(|l| l.mode == OutcomeLockMode::Write) {
-                                    ensure_gate(gate, config, deadline, admission_pid).await?;
+                                if scopes.iter().any(|l| l.mode == OutcomeLockMode::Write)
+                                    || outcomes::missing_guards(&tx, &scopes).await?
+                                {
+                                    state.mutation(&tx, deadline).await?;
                                 }
                                 outcomes::lock(&tx, &mut held, &scopes).await?;
+                                if held.inserted_guard {
+                                    state.dirty();
+                                }
                                 OutcomeValue::Unit
                             }
                             OutcomeOp::Lookup(key) => {
@@ -375,9 +471,10 @@ async fn drive(
                                 outcomes::resolve(&tx, &mut held, &q).await?,
                             ),
                             OutcomeOp::Append(plan) => {
-                                ensure_gate(gate, config, deadline, admission_pid).await?;
+                                state.mutation(&tx, deadline).await?;
 
                                 outcomes::append(&tx, &held, &plan, &mut steps).await?;
+                                state.dirty();
                                 OutcomeValue::Unit
                             }
                         })
@@ -434,8 +531,10 @@ async fn drive(
                     deadline.min(Instant::now() + Duration::from_secs(2)),
                     async {
                         clamp(&tx, deadline).await?;
-                        ensure_gate(gate, config, deadline, admission_pid).await?;
-                        write::operation(&tx, &op).await
+                        state.mutation(&tx, deadline).await?;
+                        write::operation(&tx, &op).await?;
+                        state.dirty();
+                        Ok(())
                     },
                 )
                 .await
@@ -470,6 +569,16 @@ async fn drive(
             }
             Command::Commit(reply) => {
                 let drain = Instant::now() + Duration::from_secs(5);
+                if !failed && Instant::now() < deadline {
+                    if let Some(write) = &mut state.write {
+                        // The nonce is private storage publication metadata, not
+                        // an economic generation or a substitute for command identity.
+                        let prepared = write
+                            .prepare_commit(&tx, b"ledgerlab-postgres-transaction/1", deadline)
+                            .await;
+                        failed = prepared.is_err();
+                    }
+                }
                 let result = if failed || Instant::now() >= deadline {
                     match timeout_at(drain, tx.rollback()).await {
                         Ok(Ok(())) => Err(CommitError::RolledBack(StoreError::Integrity(

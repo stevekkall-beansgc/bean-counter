@@ -17,6 +17,7 @@ mod tests;
 pub(crate) struct PostgresComparisonStore {
     config: PostgresConfig,
     identity: String,
+    publication: Option<std::sync::Arc<super::adjudication::publication::PublicationOwner>>,
     #[cfg(test)]
     audit: std::sync::Arc<std::sync::Mutex<tests::Audit>>,
 }
@@ -28,7 +29,17 @@ impl PostgresComparisonStore {
             audit: std::sync::Arc::new(std::sync::Mutex::new(tests::Audit::new(&config))),
             config,
             identity,
+            publication: None,
         })
+    }
+    /// Bound readers inherit the actual configured owner, never a request DTO.
+    pub(super) fn from_owner(
+        store: &super::PostgresStore,
+        identity: String,
+    ) -> Result<Self, ReadError> {
+        let mut reader = Self::new(store.inner.config.clone(), identity)?;
+        reader.publication = store.inner.publication.clone();
+        Ok(reader)
     }
 }
 pub(crate) struct PostgresComparisonTx {
@@ -37,6 +48,7 @@ pub(crate) struct PostgresComparisonTx {
 }
 struct State {
     session: Session,
+    _publication: Option<super::adjudication::publication::SnapshotPin>,
     deadline: Instant,
     identity: String,
     budget: ReadBudget,
@@ -69,7 +81,21 @@ impl ComparisonReadStore for PostgresComparisonStore {
                 .batch_execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
                 .await
                 .map_err(db)?;
-            // Pin before returning: authority, preflight and retained rows share it.
+            // Pin publication before any application rows can leave this read.
+            let publication = if let Some(owner) = &self.publication {
+                Some(
+                    owner
+                        .pin_snapshot(&session.client, deadline)
+                        .await
+                        .map_err(|_| ReadError::Unavailable)?,
+                )
+            } else {
+                super::require_unbound(&session.client)
+                    .await
+                    .map_err(|_| ReadError::Unavailable)?;
+                None
+            };
+            // Authority, preflight and retained rows share this snapshot.
             let pinned = session
                 .client
                 .query_one("SELECT pg_current_snapshot()::text,pg_backend_pid()", &[])
@@ -87,6 +113,7 @@ impl ComparisonReadStore for PostgresComparisonStore {
                 discarded: false,
                 state: Some(State {
                     session,
+                    _publication: publication,
                     deadline,
                     identity: self.identity.clone(),
                     budget: ReadBudget::default(),

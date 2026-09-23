@@ -14,6 +14,7 @@ const HISTORY_LIMIT: i64 = 8 * 1024 * 1024;
 pub(super) struct Locked {
     locks: Vec<OutcomeLock>,
     resolved: Option<OutcomeResolve>,
+    pub inserted_guard: bool,
 }
 #[derive(Default)]
 pub(super) struct Steps {
@@ -126,10 +127,26 @@ pub(super) async fn lock<C: GenericClient + Sync>(
         }
     }
     for l in scopes {
-        lock_one(c, l).await?;
+        held.inserted_guard |= lock_one(c, l).await?;
     }
     held.locks = scopes.to_vec();
     Ok(())
+}
+
+async fn guard_exists<C: GenericClient + Sync>(c: &C, l: &OutcomeLock) -> Result<bool, StoreError> {
+    let s = lock_scope(l)?;
+    Ok(c.query_opt("SELECT key FROM ledgerlab.outcome_scope_locks WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4", &[&s[0], &s[1], &class(l), &l.key]).await?.is_some())
+}
+pub(super) async fn missing_guards<C: GenericClient + Sync>(
+    c: &C,
+    scopes: &[OutcomeLock],
+) -> Result<bool, StoreError> {
+    for l in scopes {
+        if !guard_exists(c, l).await? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // Used by the native R3 adapter to interleave unchanged legacy tags with R3
@@ -137,9 +154,15 @@ pub(super) async fn lock<C: GenericClient + Sync>(
 pub(super) async fn lock_one<C: GenericClient + Sync>(
     c: &C,
     l: &OutcomeLock,
-) -> Result<(), StoreError> {
+) -> Result<bool, StoreError> {
     let s = lock_scope(l)?;
-    c.execute("INSERT INTO ledgerlab.outcome_scope_locks(tenant,environment,class,key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", &[&s[0],&s[1],&class(l),&l.key]).await?;
+    // Existing read guards do not issue a nominally idempotent write. Missing
+    // rows are preflighted by the supervisor before taking a publication lease.
+    let inserted = if guard_exists(c, l).await? {
+        false
+    } else {
+        c.execute("INSERT INTO ledgerlab.outcome_scope_locks(tenant,environment,class,key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", &[&s[0],&s[1],&class(l),&l.key]).await? != 0
+    };
     let sql = match l.mode {
             OutcomeLockMode::Read => "SELECT key FROM ledgerlab.outcome_scope_locks WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR SHARE",
             OutcomeLockMode::Write => "SELECT key FROM ledgerlab.outcome_scope_locks WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR UPDATE",
@@ -152,7 +175,7 @@ pub(super) async fn lock_one<C: GenericClient + Sync>(
         // An absent head remains protected by the scope guard and append CAS.
         c.query_opt("SELECT revision FROM ledgerlab.outcome_heads WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR UPDATE", &[&s[0],&s[1],&class(l),&l.key]).await?;
     }
-    Ok(())
+    Ok(inserted)
 }
 pub(super) fn native_empty(held: &Locked) -> bool {
     held.locks.is_empty() && held.resolved.is_none()
