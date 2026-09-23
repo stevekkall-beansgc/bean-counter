@@ -287,6 +287,10 @@ pub(super) async fn start_work(
                 {
                     outcome = Err(CommitError::OutcomeUnknown);
                 }
+                #[cfg(test)]
+                if outcome.is_ok() {
+                    super::trace::publication_cut(3).await;
+                }
                 let _ = reply.send(outcome);
             }
         });
@@ -577,6 +581,10 @@ async fn drive(
                             .prepare_commit(&tx, b"ledgerlab-postgres-transaction/1", deadline)
                             .await;
                         failed = prepared.is_err();
+                        #[cfg(test)]
+                        if !failed {
+                            super::trace::publication_cut(1).await;
+                        }
                     }
                 }
                 let result = if failed || Instant::now() >= deadline {
@@ -597,6 +605,10 @@ async fn drive(
                         _ => Err(CommitError::OutcomeUnknown),
                     }
                 };
+                #[cfg(test)]
+                if result.is_ok() {
+                    super::trace::publication_cut(2).await;
+                }
                 #[cfg(test)]
                 super::trace::log(format_args!(
                     "op_end pid={pid} op={operation} remaining_ms={} result={result:?}",

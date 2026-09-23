@@ -47,3 +47,22 @@ impl Drop for Span {
         }
     }
 }
+
+/// Actual process-kill rendezvous, compiled only in the test module. The parent
+/// selects one exact child phase and kills it; this never simulates SQL success.
+pub(crate) async fn publication_cut(phase: u8) {
+    if std::env::var("LEDGERLAB_PG_PUBLICATION_CUT")
+        .ok()
+        .and_then(|v| v.parse::<u8>().ok())
+        != Some(phase)
+    {
+        return;
+    }
+    use std::io::Write;
+    let path = std::env::var_os("LEDGERLAB_PG_PUBLICATION_READY").expect("child ready path");
+    let mut file = std::fs::File::create(path).expect("child ready file");
+    file.write_all(format!("{}:{phase}", std::process::id()).as_bytes())
+        .unwrap();
+    file.sync_all().unwrap();
+    std::future::pending::<()>().await;
+}
