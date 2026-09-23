@@ -12,7 +12,8 @@ async fn actual_each_resource_dimension_exhaustion_preserves_outstanding_token_f
         bundle.workspace_bytes = bundle.workspace_bytes.max(peak);
     }
     for dimension in 0..6 {
-        for short in [true, false] {
+        for offset in [-1i128, 0, 1] {
+            let short = offset < 0;
             let mut budgets = super::super::scale_tests::budgets(2);
             let mut values = budgets["g1"].dimensions();
             // PREPARE's transient workspace was fully released in its creating
@@ -28,9 +29,13 @@ async fn actual_each_resource_dimension_exhaustion_preserves_outstanding_token_f
                         .value(),
             )
             .unwrap();
-            if short {
-                values[dimension] = Count::new(values[dimension].value() - 1).unwrap();
-            }
+            values[dimension] = Count::new(
+                values[dimension]
+                    .value()
+                    .checked_add_signed(offset)
+                    .unwrap(),
+            )
+            .unwrap();
             budgets.insert("g1".into(), wire::Resource::from_dimensions(values));
             let mut h = Harness::with_budgets(budgets, false, true).await;
             h.grant_and_register(1).await;
@@ -62,8 +67,8 @@ async fn actual_each_resource_dimension_exhaustion_preserves_outstanding_token_f
                 let slack = provisioned.value() - used.value() - held.value();
                 assert_eq!(
                     slack + u128::from(short && dimension == i),
-                    bundle.dimensions()[i].value(),
-                    "sole admission deficit {dimension}/{i}"
+                    bundle.dimensions()[i].value() + u128::from(offset > 0 && dimension == i),
+                    "isolated admission boundary {dimension}/{i}/offset{offset}"
                 );
             }
             let before = h.host.0.stores["g1"].test_full_inventory().await;
@@ -100,7 +105,7 @@ async fn actual_each_resource_dimension_exhaustion_preserves_outstanding_token_f
             h.reopen().await;
             h.assert_all_owner_accounts().await;
             h.close().await;
-            eprintln!("actual resource frontier dimension{dimension} short{short}:exact sole deficit, optionalgrant {}, outstandingtoken prepaid return/settlement/finish/reopen", if short {"refused unchanged"} else {"admitted and retired"});
+            eprintln!("actual resource frontier dimension{dimension} offset{offset}:isolated one-short/exact/one-spare boundary, optionalgrant {}, outstandingtoken prepaid return/settlement/finish/reopen", if short {"refused unchanged"} else {"admitted and retired"});
         }
     }
 }
