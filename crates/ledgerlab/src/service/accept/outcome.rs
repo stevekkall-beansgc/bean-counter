@@ -1194,3 +1194,60 @@ pub(crate) mod fixture;
 #[cfg(test)]
 #[path = "outcome_tests.rs"]
 mod tests;
+
+/// R3 atomic enrollment reuses original validation without committing a base
+/// first. Caller acquires this complete old-profile lock set in the combined R3
+/// transaction and passes its exact locked snapshot to `prepare_fresh_base`.
+pub(crate) fn fresh_base_locks(c: &OutcomeCommand) -> Result<Vec<OutcomeLock>> {
+    let OutcomeOperation::FinalBase { seed } = &c.operation else {
+        return Err(ServiceError::Rejection("ORIGINAL_BASE_REQUIRED".into()));
+    };
+    let records = Records::new(seed, json!(scoped(c)))?;
+    let base = b::decode_base(&records, &reference(records.one("base-acceptance")?))?;
+    let mut locks =
+        normalize_locks([baseline_locks(c)?, full_locks(c, &base, &records)?].concat())?;
+    for lock in &mut locks {
+        if lock.class == OutcomeLockClass::Admission {
+            lock.mode = OutcomeLockMode::Write;
+        }
+    }
+    Ok(locks)
+}
+
+/// No write, lock acquisition or commit. A separately accepted target/base is
+/// refused, including a matching old receipt; ENROLL needs fresh atomic writes.
+pub(crate) fn prepare_fresh_base<A: OutcomeAuthority>(
+    c: &OutcomeCommand,
+    authority: &A,
+    snapshot: &OutcomeSnapshot,
+    existing_delivery: Option<&StoredCompositeDelivery>,
+) -> Result<ValidatedOutcomePlan> {
+    let OutcomeOperation::FinalBase { seed } = &c.operation else {
+        return Err(ServiceError::Rejection("ORIGINAL_BASE_REQUIRED".into()));
+    };
+    check(existing_delivery.is_none())?;
+    let locks = fresh_base_locks(c)?;
+    validate_snapshot_heads(snapshot, &locks, c)?;
+    check(current(snapshot, c, OutcomeLockClass::Target, vec![json!(c.target)])?.is_none())?;
+    let records = Records::new(&snapshot.records, json!(scoped(c)))?;
+    records.documents()?;
+    let fresh = Records::new(seed, json!(scoped(c)))?;
+    let base = b::decode_base(&fresh, &reference(fresh.one("base-acceptance")?))?;
+    check(base.snapshot["body"]["target"] == c.target)?;
+    let (event, command, key) = operation(c)?;
+    let resolve = OutcomeResolve {
+        delivery: key.clone(),
+        target: c.target.clone(),
+        invocation_id: c.invocation_id.clone(),
+        family_key: None,
+        required: c.required.clone(),
+        locks,
+    };
+    let proof = authority.verify(c, snapshot, true)?;
+    match build(
+        c, &event, &command, &key, snapshot, &resolve, &fresh, &base, &records, None, &proof, false,
+    )? {
+        Some(Prepared::Append(plan, false)) => Ok(plan),
+        _ => Err(integrity()),
+    }
+}

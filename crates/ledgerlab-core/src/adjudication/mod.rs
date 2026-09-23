@@ -4,6 +4,7 @@ pub mod commands;
 pub mod proofs;
 pub mod reads;
 pub mod resources;
+pub mod runtime;
 pub mod types;
 use crate::{Error, Result};
 use serde::{de::DeserializeOwned, Serialize};

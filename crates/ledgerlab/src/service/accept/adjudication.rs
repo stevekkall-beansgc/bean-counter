@@ -50,7 +50,7 @@ impl TrustedPrefix {
     reason = "Typed seam review; production adapters/executor are the next assigned gate"
 )]
 pub(crate) struct VerifiedSource {
-    prefix: TrustedPrefix,
+    prefix: TrustedJournalHead,
     proof: wire::Proof,
     exact_object: wire::RetainedObject,
 }
@@ -59,7 +59,7 @@ pub(crate) struct VerifiedSource {
     reason = "Typed seam review; production adapters/executor are the next assigned gate"
 )]
 impl VerifiedSource {
-    pub(crate) fn prefix(&self) -> &TrustedPrefix {
+    pub(crate) fn prefix(&self) -> &TrustedJournalHead {
         &self.prefix
     }
     pub(crate) fn proof(&self) -> &wire::Proof {
@@ -82,7 +82,7 @@ pub(crate) struct CommitCapability {
     transaction: Digest,
     storage_incarnation: Digest,
     writer_epoch: Count,
-    recovered_through: TrustedPrefix,
+    recovered_through: TrustedJournalHead,
     allocation_owner: Id,
     physical: PhysicalEnvelope,
 }
@@ -114,7 +114,7 @@ impl CommitCapability {
     pub(crate) fn transaction(&self) -> &Digest {
         &self.transaction
     }
-    pub(crate) fn recovered_through(&self) -> &TrustedPrefix {
+    pub(crate) fn recovered_through(&self) -> &TrustedJournalHead {
         &self.recovered_through
     }
     pub(crate) fn storage_incarnation(&self) -> &Digest {
@@ -204,7 +204,7 @@ pub(crate) struct IndexChange {
 pub(crate) struct ValidatedAdjudicationPlan {
     journal: JournalIdentity,
     command: ParsedCommand,
-    prior: TrustedPrefix,
+    prior: TrustedJournalHead,
     segment: wire::Segment,
     exact_segment: Vec<u8>,
     sources: Vec<VerifiedSource>,
@@ -229,7 +229,7 @@ impl ValidatedAdjudicationPlan {
     pub(crate) fn command(&self) -> &ParsedCommand {
         &self.command
     }
-    pub(crate) fn prior(&self) -> &TrustedPrefix {
+    pub(crate) fn prior(&self) -> &TrustedJournalHead {
         &self.prior
     }
     pub(crate) fn segment(&self) -> &wire::Segment {
@@ -339,7 +339,10 @@ impl FreshBaseAcceptance {
     pub(crate) fn receipt(&self) -> &Digest {
         &self.receipt
     }
-    pub(crate) fn members(&self) -> &[wire::RetainedObject] {
+    pub(crate) fn exact_members(&self) -> &[wire::RetainedObject] {
         &self.exact_members
     }
 }
+
+mod backend;
+pub(crate) use backend::TrustedJournalHead;
