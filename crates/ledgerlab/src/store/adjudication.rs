@@ -286,6 +286,26 @@ pub(crate) trait AdjudicationReadTx: Send {
     /// Obtained independently from committed membership under the primary snapshot.
     fn expected_prefix(&self) -> &TrustedPrefix;
     fn lease(&self) -> &ReadLease;
+    fn authority_source(
+        &mut self,
+        hash: &Digest,
+        at: Count,
+    ) -> impl Future<Output = Result<wire::AuthoritySource, StoreError>> + Send;
+    /// Forward ordinal discovery within the selected immutable prefix.
+    fn segment_hash(
+        &mut self,
+        ordinal: Count,
+    ) -> impl Future<Output = Result<Digest, StoreError>> + Send;
+    /// One bounded point at a historical ordinal, never later than this snapshot.
+    fn historical_state(
+        &mut self,
+        key: &HeadKey,
+        at: Count,
+    ) -> impl Future<
+        Output = Result<Option<ledgerlab_core::adjudication::runtime::points::State>, StoreError>,
+    > + Send;
+    /// Actual charged work, including snapshot initialization and metadata reads.
+    fn measured(&mut self) -> impl Future<Output = Result<wire::ReadBudget, StoreError>> + Send;
     /// Indexed address, metadata preflight, at most 4096 bytes; old dependencies
     /// and semantic verification work charge the same request/session budget.
     fn segment_page(

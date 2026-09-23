@@ -781,6 +781,9 @@ async fn actual_flow(customer: bool) {
     assert_eq!(saved.root, last_root);
     drop(configured);
     reader_checks::check(&host.stores["center"], &witness).await;
+    if customer {
+        comparison_checks::check(&host.stores["center"], &witness).await;
+    }
     for store in host.stores.into_values() {
         store.close().await;
     }
@@ -1117,3 +1120,6 @@ async fn oracle_case<S: AdjudicationStore>(
 mod reader_checks;
 #[path = "remaining_tests.rs"]
 mod remaining_tests;
+
+#[path = "comparison_checks.rs"]
+mod comparison_checks;

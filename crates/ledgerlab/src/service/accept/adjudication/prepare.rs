@@ -21,7 +21,7 @@ fn require(ok: bool, code: &'static str) -> Result<()> {
 fn scalar(n: usize) -> Result<Count> {
     Count::new(n as u128)
 }
-fn key_kind(k: p::PointKind) -> HeadKind {
+pub(super) fn key_kind(k: p::PointKind) -> HeadKind {
     match k {
         p::PointKind::Enrollment => HeadKind::Enrollment,
         p::PointKind::Authority => HeadKind::Authority,
@@ -79,7 +79,7 @@ pub(crate) enum Prepared {
         high: Count,
     },
 }
-fn b64(bytes: &[u8]) -> String {
+pub(super) fn b64(bytes: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for c in bytes.chunks(3) {

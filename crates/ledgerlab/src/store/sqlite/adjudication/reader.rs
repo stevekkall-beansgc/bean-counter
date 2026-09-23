@@ -16,6 +16,14 @@ type Result<T> = std::result::Result<T, StoreError>;
 const BYTES: u128 = physical::READER_WORKSPACE_BYTES;
 const PAGES: u128 = 4096;
 enum Request {
+    Authority(
+        Digest,
+        Count,
+        oneshot::Sender<Result<wire::AuthoritySource>>,
+    ),
+    SegmentHash(Count, oneshot::Sender<Result<Digest>>),
+    State(HeadKey, Count, oneshot::Sender<Result<Option<State>>>),
+    Measured(oneshot::Sender<Result<wire::ReadBudget>>),
     Gateway(
         HeadKey,
         Option<wire::Delivery>,
@@ -43,10 +51,94 @@ struct Session {
     journal: JournalIdentity,
     at: Count,
     budget: wire::ReadBudget,
+    initial_budget: wire::ReadBudget,
     seen: BTreeSet<String>,
     deadline: Instant,
 }
 impl Session {
+    async fn authority(&mut self, hash: &Digest, at: Count) -> Result<wire::AuthoritySource> {
+        if at > self.at {
+            return Err(invalid());
+        }
+        self.charge(8192, 2)?;
+        let journal = journal_key(&self.journal)?;
+        let raw:Vec<u8>=sqlx::query_scalar("SELECT metadata FROM r3_objects WHERE journal=? AND kind='AUTHORITY' AND body_hash=? AND ordinal<=? ORDER BY ordinal LIMIT 1")
+            .bind(journal).bind(hash.as_str()).bind(at.value().to_be_bytes().as_slice()).fetch_one(self.tx()).await?;
+        let meta = ledgerlab_core::canonical::parse_bounded(&raw, 8192).map_err(core)?;
+        let origin: wire::ObjectOrigin =
+            serde_json::from_value(meta["origin"].clone()).map_err(|_| invalid())?;
+        let size: Count = serde_json::from_value(meta["bytes"].clone()).map_err(|_| invalid())?;
+        if size.value() > 16384 || meta["body_hash"] != hash.as_str() {
+            return Err(invalid());
+        }
+        let key = r3::canonical_bytes(&meta["full_key"], 4096).map_err(core)?;
+        let mut bytes = Vec::with_capacity(size.value() as usize);
+        while bytes.len() < size.value() as usize {
+            bytes.extend(
+                self.object(&ObjectPageRequest {
+                    origin: origin.clone(),
+                    kind: wire::FactKind::Authority,
+                    key: key.clone(),
+                    hash: hash.clone(),
+                    offset: Count::new(bytes.len() as u128).map_err(core)?,
+                    max_bytes: 4096,
+                })
+                .await?,
+            );
+        }
+        if bytes.len() as u128 != size.value() || r3::raw_sha256(&bytes) != *hash {
+            return Err(invalid());
+        }
+        Ok(wire::AuthoritySource {
+            body: crate::service::accept::adjudication::encode_source(&bytes),
+            body_hash: hash.clone(),
+            bytes: size,
+        })
+    }
+    async fn segment_hash(&mut self, n: Count) -> Result<Digest> {
+        if n == Count::ZERO || n > self.at {
+            return Err(invalid());
+        }
+        self.charge(64, 1)?;
+        let key = journal_key(&self.journal)?;
+        let hash: String =
+            sqlx::query_scalar("SELECT segment FROM r3_segments WHERE journal=? AND ordinal=?")
+                .bind(key)
+                .bind(n.value().to_be_bytes().as_slice())
+                .fetch_one(self.tx())
+                .await?;
+        Digest::parse(&hash).map_err(core)
+    }
+    async fn historical_state(&mut self, key: &HeadKey, at: Count) -> Result<Option<State>> {
+        if key.journal != self.journal
+            || at > self.at
+            || key.full_key.is_empty()
+            || key.full_key.len() > r3::MAX_KEY_BYTES
+        {
+            return Err(invalid());
+        }
+        self.charge(64, 1)?;
+        self.state(key.kind, &key.full_key, at).await
+    }
+    fn measured(&self) -> Result<wire::ReadBudget> {
+        Ok(wire::ReadBudget {
+            bytes: self
+                .initial_budget
+                .bytes
+                .checked_sub(self.budget.bytes)
+                .map_err(core)?,
+            pages: self
+                .initial_budget
+                .pages
+                .checked_sub(self.budget.pages)
+                .map_err(core)?,
+            segments: self
+                .initial_budget
+                .segments
+                .checked_sub(self.budget.segments)
+                .map_err(core)?,
+        })
+    }
     async fn gateway(
         &mut self,
         key: &HeadKey,
@@ -338,6 +430,7 @@ async fn start(
         journal: selection.journal.clone(),
         at: Count::ZERO,
         budget: budget.clone(),
+        initial_budget: budget.clone(),
         seen: BTreeSet::new(),
         deadline,
     };
@@ -479,6 +572,22 @@ fn spawn(
             let request = tokio::select! {biased;_=tokio::time::sleep_until(deadline)=>None,r=receive.recv()=>r};
             let Some(request) = request else { break };
             let stop = match request {
+                Request::Authority(hash, at, mut reply) => {
+                    let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.authority(&hash,at))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
+                    let stop = result.is_err();
+                    reply.send(result).is_err() || stop
+                }
+                Request::SegmentHash(n, mut reply) => {
+                    let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.segment_hash(n))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
+                    let stop = result.is_err();
+                    reply.send(result).is_err() || stop
+                }
+                Request::State(key, at, mut reply) => {
+                    let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.historical_state(&key,at))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
+                    let stop = result.is_err();
+                    reply.send(result).is_err() || stop
+                }
+                Request::Measured(reply) => reply.send(session.measured()).is_err(),
                 Request::Gateway(key, delivery, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.gateway(&key,delivery.as_ref()))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
                     let stop = result.is_err();
@@ -576,6 +685,41 @@ impl AdjudicationReadTx for SqliteAdjudicationRead {
     fn lease(&self) -> &ReadLease {
         &self.lease
     }
+    async fn authority_source(
+        &mut self,
+        hash: &Digest,
+        at: Count,
+    ) -> Result<wire::AuthoritySource> {
+        let (send, receive) = oneshot::channel();
+        self.send
+            .try_send(Request::Authority(hash.clone(), at, send))
+            .map_err(|_| StoreError::Overloaded)?;
+        reply(self.deadline, receive).await
+    }
+    async fn segment_hash(&mut self, n: Count) -> Result<Digest> {
+        let (send, receive) = oneshot::channel();
+        self.send
+            .try_send(Request::SegmentHash(n, send))
+            .map_err(|_| StoreError::Overloaded)?;
+        reply(self.deadline, receive).await
+    }
+    async fn historical_state(&mut self, key: &HeadKey, at: Count) -> Result<Option<State>> {
+        if key.full_key.is_empty() || key.full_key.len() > r3::MAX_KEY_BYTES {
+            return Err(invalid());
+        }
+        let (send, receive) = oneshot::channel();
+        self.send
+            .try_send(Request::State(key.clone(), at, send))
+            .map_err(|_| StoreError::Overloaded)?;
+        reply(self.deadline, receive).await
+    }
+    async fn measured(&mut self) -> Result<wire::ReadBudget> {
+        let (send, receive) = oneshot::channel();
+        self.send
+            .try_send(Request::Measured(send))
+            .map_err(|_| StoreError::Overloaded)?;
+        reply(self.deadline, receive).await
+    }
     async fn segment_page(&mut self, q: &IndexedPageRequest) -> Result<PageFragment> {
         let (send, receive) = oneshot::channel();
         self.send
@@ -630,5 +774,27 @@ impl super::super::SqliteStore {
             let rows=q.fetch_all(&mut *c).await.unwrap();
             assert!(rows.iter().any(|row|row.get::<String,_>("detail").contains(index)), "indexed bounded lookup {index}: {rows:?}");
         }
+    }
+}
+
+#[cfg(test)]
+impl super::super::SqliteStore {
+    pub(crate) async fn test_comparison_driver_positive_controls(&self) {
+        use crate::store::ports::{AcceptanceStore, AcceptanceTx};
+        let mut tx = self
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
+        // Real driver operations; zero affected business rows and rolled-back DDL
+        // demonstrate why unchanged inventories alone cannot prove nonposting.
+        sqlx::query("UPDATE r3_heads SET revision=revision WHERE 0")
+            .execute(tx.conn())
+            .await
+            .unwrap();
+        sqlx::query("CREATE TEMP TABLE comparison_observer_probe(id INTEGER)")
+            .execute(tx.conn())
+            .await
+            .unwrap();
+        tx.rollback().await.unwrap();
     }
 }

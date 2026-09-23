@@ -93,7 +93,8 @@ pub(super) fn live_pages(kind: &str, t: &Template) -> Result<u128, StoreError> {
     } else {
         128
     };
-    let rows = 3 + 2 * n + 2 * objects + 3 * heads + namespaces + actions;
+    // Charge the additional retained-authority lookup index for every object.
+    let rows = 3 + 2 * n + 3 * objects + 3 * heads + namespaces + actions;
     let bytes = 3 * s
         + 10240 * n
         + 24576 * objects

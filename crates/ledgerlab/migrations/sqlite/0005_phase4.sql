@@ -162,3 +162,6 @@ CREATE TRIGGER r3_witness_delete BEFORE DELETE ON r3_commit_witness BEGIN SELECT
 -- Bounded first-unavailability lookup, within the two-index physical envelope.
 CREATE INDEX r3_family_first_closure ON r3_head_versions(journal,kind,full_key,ordinal) WHERE kind=9 AND json_extract(CAST(value AS TEXT),'$.body.first_closure') IS NOT NULL;
 CREATE UNIQUE INDEX r3_command_ordinal ON r3_commands(journal,ordinal);
+
+-- Bounded retained authority lookup for historical economic reconstruction.
+CREATE INDEX r3_authority_hash ON r3_objects(journal,kind,body_hash,ordinal);

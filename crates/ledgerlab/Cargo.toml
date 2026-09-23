@@ -25,3 +25,4 @@ webpki-roots = { version = "=1.0.9", default-features = false }
 ledgerlab-core = { workspace = true, features = ["test-failpoints"] }
 ledgerlab-testkit = { path = "../ledgerlab-testkit" }
 tempfile = "=3.27.0"
+tracing = "=0.1.44"

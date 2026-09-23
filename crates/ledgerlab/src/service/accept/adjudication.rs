@@ -77,10 +77,6 @@ pub(crate) struct CommitCapability {
     writer_fence: Option<Digest>,
 }
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) struct PhysicalEnvelope {
     maximum_retained_bytes: Count,
     maximum_index_pages: Count,
@@ -318,6 +314,9 @@ pub(crate) use backend::TrustedJournalHead;
 mod authority;
 mod prepare;
 pub(crate) use prepare::Prepared;
+pub(crate) fn encode_source(bytes: &[u8]) -> String {
+    prepare::b64(bytes)
+}
 mod base;
 
 mod run;
@@ -332,3 +331,6 @@ pub(crate) use original_base::ValidatedOriginalBasePlan;
 
 #[cfg(test)]
 mod base_fixture;
+
+mod comparison;
+pub use comparison::SqliteComparison;

@@ -1,5 +1,6 @@
 //! Pure incremental first-path transitions over explicitly observed point rows.
 mod economic;
+pub use economic::{replay_economics, EconomicReplay};
 mod terminal;
 use super::{accounting::Worksheet, command_digest, command_value, hash, points::*};
 use crate::adjudication::{

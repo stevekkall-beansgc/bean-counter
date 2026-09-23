@@ -1,7 +1,7 @@
 //! Decisions use a bounded family topology and point-local signed capacity.
 //! Corrections retain entitlement and pool usage and emit exact inverse/replacement.
 use super::*;
-fn family(v: &mut View<'_>, key: &w::Family) -> Result<FamilyState> {
+fn family(v: &mut impl EconomicPoints, key: &w::Family) -> Result<FamilyState> {
     match v.load(&Point::family(key)?)? {
         State::Family(f) => Ok(*f),
         _ => Err(fail("FAMILY")),
@@ -46,10 +46,43 @@ fn action(
         },
     })
 }
+trait EconomicPoints {
+    fn enrolled(&mut self) -> Result<EnrollmentState>;
+    fn load(&mut self, point: &Point) -> Result<State>;
+    fn put(&mut self, point: Point, state: State) -> Result<()>;
+}
+impl EconomicPoints for View<'_> {
+    fn enrolled(&mut self) -> Result<EnrollmentState> {
+        View::enrolled(self)
+    }
+    fn load(&mut self, point: &Point) -> Result<State> {
+        View::load(self, point)
+    }
+    fn put(&mut self, point: Point, state: State) -> Result<()> {
+        View::put(self, point, state)
+    }
+}
 pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result<usize> {
+    let command = v.input.command;
+    let host = v.input.host;
+    let indices = business(v, command, host, &mut d.effects)?;
+    v.reserve(
+        &d.funding.owner,
+        std::slice::from_ref(&d.funding.slot),
+        work,
+    )?;
+    d.funding.release = true;
+    Ok(indices)
+}
+fn business(
+    v: &mut impl EconomicPoints,
+    command: &w::Command,
+    host: &Id,
+    effects: &mut Vec<w::Effect>,
+) -> Result<usize> {
     let enrollment = v.enrolled()?;
-    require(enrollment.terms.store == *v.input.host, "CENTRAL_HOST")?;
-    let (key, authority) = match v.input.command {
+    require(enrollment.terms.store == *host, "CENTRAL_HOST")?;
+    let (key, authority) = match command {
         w::Command::Decide {
             payload, authority, ..
         } => (&payload.case, authority),
@@ -64,7 +97,7 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
     };
     let mut f = family(v, &key.0)?;
     let now = &authority.observed_at;
-    match v.input.command {
+    match command {
         w::Command::Decide { payload: p, .. } => {
             let status = c.effective_status(&f);
             require(
@@ -196,7 +229,7 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
                     &p.roles,
                     &p.assent,
                 ) {
-                    d.effects.push(a);
+                    effects.push(a);
                 }
                 v.put(Point::family(&key.0)?, State::Family(Box::new(f)))?;
             }
@@ -230,7 +263,7 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
                 &p.roles,
                 &p.assent,
             ) {
-                d.effects.push(a);
+                effects.push(a);
             }
             if let Some(a) = action(
                 &c,
@@ -240,7 +273,7 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
                 &p.roles,
                 &p.assent,
             ) {
-                d.effects.push(a);
+                effects.push(a);
             }
             consume(&mut f, &c)?;
             v.put(Point::family(&key.0)?, State::Family(Box::new(f)))?;
@@ -248,15 +281,70 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
         _ => unreachable!(),
     }
     v.put(Point::case(key)?, State::Case(Box::new(c)))?;
-    v.reserve(
-        &d.funding.owner,
-        std::slice::from_ref(&d.funding.slot),
-        work,
-    )?;
-    d.funding.release = true;
-    Ok(match v.input.command {
+    Ok(match command {
         w::Command::Decide { payload, .. } if payload.verdict == w::DecideVerdict::Deny => 6,
-        w::Command::Decide { .. } => 9 + if d.effects.is_empty() { 0 } else { 2 },
-        _ => 7 + d.effects.len(),
+        w::Command::Decide { .. } => 9 + if effects.is_empty() { 0 } else { 2 },
+        _ => 7 + effects.len(),
     })
+}
+
+/// Pure detached semantic evaluation for a SELECT-only historical reader. This
+/// carries no resource reservation, commit capability or authoritative plan.
+#[derive(Clone, Debug)]
+pub enum EconomicReplay {
+    Need(Vec<Point>),
+    Checked {
+        states: Vec<(Point, State)>,
+        effects: Vec<w::Effect>,
+    },
+}
+pub fn replay_economics(
+    command: &w::Command,
+    host: &Id,
+    enrollment: &EnrollmentState,
+    observations: &[(Point, State)],
+) -> Result<EconomicReplay> {
+    command.validate()?;
+    require(observations.len() <= 256, "RESOLUTION_BOUND")?;
+    struct Detached<'a> {
+        enrollment: &'a EnrollmentState,
+        observations: &'a [(Point, State)],
+        pending: BTreeMap<Point, State>,
+        missing: Vec<Point>,
+    }
+    impl EconomicPoints for Detached<'_> {
+        fn enrolled(&mut self) -> Result<EnrollmentState> {
+            Ok(self.enrollment.clone())
+        }
+        fn load(&mut self, point: &Point) -> Result<State> {
+            if let Some(value) = self.pending.get(point) {
+                return Ok(value.clone());
+            }
+            if let Some((_, value)) = self.observations.iter().find(|(p, _)| p == point) {
+                return Ok(value.clone());
+            }
+            self.missing.push(point.clone());
+            Err(fail("NEED_POINT"))
+        }
+        fn put(&mut self, point: Point, state: State) -> Result<()> {
+            self.load(&point)?;
+            self.pending.insert(point, state);
+            Ok(())
+        }
+    }
+    let mut view = Detached {
+        enrollment,
+        observations,
+        pending: BTreeMap::new(),
+        missing: vec![],
+    };
+    let mut effects = vec![];
+    match business(&mut view, command, host, &mut effects) {
+        Ok(_) => Ok(EconomicReplay::Checked {
+            states: view.pending.into_iter().collect(),
+            effects,
+        }),
+        Err(e) if e.code == "NEED_POINT" => Ok(EconomicReplay::Need(view.missing)),
+        Err(e) => Err(e),
+    }
 }
