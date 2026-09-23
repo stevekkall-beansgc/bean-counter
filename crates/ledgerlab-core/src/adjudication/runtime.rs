@@ -151,3 +151,5 @@ pub mod transition;
 
 #[cfg(test)]
 mod tests;
+
+pub mod seal;

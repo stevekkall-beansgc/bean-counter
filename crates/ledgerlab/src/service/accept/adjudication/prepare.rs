@@ -68,6 +68,16 @@ fn point_kind(k: HeadKind) -> p::PointKind {
 pub(crate) enum Prepared {
     Need(Vec<HeadKey>),
     Plan(Box<ValidatedAdjudicationPlan>),
+    NeedEnrollment {
+        journal: JournalIdentity,
+        registration: Id,
+    },
+    NeedSealScan {
+        round: Count,
+        gateway: Id,
+        cutoff: Count,
+        high: Count,
+    },
 }
 fn b64(bytes: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -134,7 +144,7 @@ fn head(j: &JournalIdentity, p: p::Point) -> HeadKey {
         full_key: p.key,
     }
 }
-fn parsed_state(raw: &[u8]) -> Result<p::State> {
+pub(super) fn parsed_state(raw: &[u8]) -> Result<p::State> {
     let v = ledgerlab_core::canonical::parse_bounded(raw, r3::COMMAND_BYTES)?;
     require(
         r3::canonical_bytes(&v, r3::COMMAND_BYTES)? == raw,
@@ -154,6 +164,20 @@ pub(crate) fn prepare_locked<A: AdjudicationAuthority>(
     base: Option<&FreshBaseAcceptance>,
     guards: &[Guard],
 ) -> Result<Prepared> {
+    prepare_with_seal(command, inputs, capability, authority, base, guards, None)
+}
+pub(super) fn prepare_with_seal<A: AdjudicationAuthority>(
+    command: &ParsedCommand,
+    inputs: &LockedInputs,
+    capability: &CommitCapability,
+    authority: &A,
+    base: Option<&FreshBaseAcceptance>,
+    guards: &[Guard],
+    seal: Option<&super::seal::VerifiedSealScan>,
+) -> Result<Prepared> {
+    if let Some(scan) = seal {
+        scan.check(capability)?;
+    }
     require(
         inputs.journal == *capability.journal()
             && inputs.journal == *inputs.prefix.journal()
@@ -204,12 +228,39 @@ pub(crate) fn prepare_locked<A: AdjudicationAuthority>(
             _ => None,
         })
     };
+    let target = target.or_else(|| {
+        inputs
+            .sources
+            .iter()
+            .find(|s| s.object().kind == wire::FactKind::Enrollment)
+            .and_then(|s| {
+                let bytes = r3::proofs::VerifiedObjectBytes::check(s.object().clone()).ok()?;
+                let v = ledgerlab_core::canonical::parse_bounded(bytes.bytes(), r3::COMMAND_BYTES)
+                    .ok()?;
+                Id::parse(v["payload"]["target"].as_str()?).ok()
+            })
+    });
     let auth = authority
         .current(command, inputs, AuthorityAccess::NewTransition)
         .map_err(|e| Error {
             code: "AUTH_HOST",
             detail: e.to_string(),
         })?;
+    let mut authority_needs = Vec::new();
+    for observed in &auth.current_heads {
+        require(observed.key.journal == inputs.journal, "AUTHORITY_HOST")?;
+        if let Some(locked) = inputs.heads.iter().find(|h| h.key == observed.key) {
+            require(
+                locked.revision == observed.revision && locked.value == observed.value,
+                "AUTH_CURRENT_HEAD",
+            )?;
+        } else {
+            authority_needs.push(observed.key.clone());
+        }
+    }
+    if !authority_needs.is_empty() {
+        return Ok(Prepared::Need(authority_needs));
+    }
     let sources = authority::Sources::new(&auth.exact_sources)?;
     sources.current(
         command,
@@ -328,6 +379,16 @@ pub(crate) fn prepare_locked<A: AdjudicationAuthority>(
             object: s.object().clone(),
         })
         .collect();
+    if kind == "ENROLL" {
+        for preparation in &inputs.sources {
+            if preparation.proof().fact_kind == wire::FactKind::EnrollPreparation {
+                require(
+                    preparation.authorizing_target() == target.as_ref(),
+                    "PREPARATION_AUTH_TARGET",
+                )?;
+            }
+        }
+    }
     let transition = tr::step(&tr::Input {
         command: command.command(),
         store: &inputs.journal.store,
@@ -339,7 +400,60 @@ pub(crate) fn prepare_locked<A: AdjudicationAuthority>(
         observations: &observations,
         sources: &source_facts,
         introduced_objects: objects.len() + usize::from(own_fact),
-    })?;
+        seal: seal.map(|s| s.value()),
+    });
+    let transition = match transition {
+        Ok(x) => x,
+        Err(e) if e.code == "NEED_ENROLLMENT" => {
+            return Ok(Prepared::NeedEnrollment {
+                journal: JournalIdentity {
+                    host: inputs.journal.store.clone(),
+                    ..inputs.journal.clone()
+                },
+                registration: inputs.journal.registration.clone(),
+            })
+        }
+        Err(e) if e.code == "NEED_SEAL_SCAN" => {
+            let n = Count::parse(cv["payload"]["round"].as_str().expect("validated round"))?;
+            let gateway = inputs.journal.host.clone();
+            let r = observations
+                .iter()
+                .find_map(|o| match &o.state {
+                    Some(p::State::Round(r)) if r.begin.round == n => Some(r),
+                    _ => None,
+                })
+                .ok_or_else(|| Error {
+                    code: "ROUND",
+                    detail: "scan binding".into(),
+                })?;
+            let cutoff = r
+                .gateways
+                .iter()
+                .find(|g| g.gateway == gateway)
+                .ok_or_else(|| Error {
+                    code: "GATEWAY",
+                    detail: "scan binding".into(),
+                })?
+                .cutoff;
+            let high = observations
+                .iter()
+                .find_map(|o| match &o.state {
+                    Some(p::State::Gateway(g)) if g.namespace.gateway == gateway => Some(g.receipt),
+                    _ => None,
+                })
+                .ok_or_else(|| Error {
+                    code: "GATEWAY",
+                    detail: "scan high water".into(),
+                })?;
+            return Ok(Prepared::NeedSealScan {
+                round: n,
+                gateway,
+                cutoff,
+                high,
+            });
+        }
+        Err(e) => return Err(e),
+    };
     let delta = match transition {
         tr::Step::Need(points) => {
             return Ok(Prepared::Need(
@@ -413,6 +527,53 @@ pub(crate) fn prepare_locked<A: AdjudicationAuthority>(
             <= r3::INTRODUCED_TRUST_BYTES,
         "TRUST_BYTES",
     )?;
+    let work = rt::accounting::Worksheet::frozen()?;
+    let template = work.template(kind)?;
+    require(
+        exact_segment.len() as u64 <= template.segment_bytes
+            && command.bytes().len()
+                + r3::canonical_bytes(&segment.result, r3::SEGMENT_BYTES)?.len()
+                + trusted
+                <= template.new_trusted_bytes as usize
+            && segment.objects.len() + 1 <= template.records as usize,
+        "PAID_ENVELOPE",
+    )?;
+    require(kind == "ENROLL" || base.is_none(), "UNEXPECTED_BASE")?;
+    let before = observations
+        .iter()
+        .find_map(|o| match &o.state {
+            Some(p::State::Resource(r)) => Some(r),
+            _ => None,
+        })
+        .ok_or_else(|| Error {
+            code: "RESOURCE_HOST",
+            detail: "before account".into(),
+        })?;
+    let after = delta
+        .mutations
+        .iter()
+        .find_map(|m| match &m.state {
+            p::State::Resource(r) => Some(r),
+            _ => None,
+        })
+        .ok_or_else(|| Error {
+            code: "RESOURCE_HOST",
+            detail: "after account".into(),
+        })?;
+    let actual = after.used.checked_sub(&before.used)?;
+    let counter_actual = after.q.checked_sub(&before.q)?;
+    let conversion = ReservationConversion {
+        owner: Id::parse(&delta.funding.owner)?,
+        slot: Id::parse(kind)?,
+        discharged: actual.clone(),
+        actual,
+        counter_reserved: template.counters()?,
+        counter_actual,
+    };
+    let closure = segment.result.effects.iter().find_map(|e| match e {
+        wire::Effect::Closure { body } => Some(body.clone()),
+        _ => None,
+    });
     let mut writes = delta
         .mutations
         .iter()
@@ -445,10 +606,10 @@ pub(crate) fn prepare_locked<A: AdjudicationAuthority>(
         guards: guards.to_vec(),
         observed: inputs.heads.clone(),
         writes,
-        resources: vec![],
+        resources: vec![conversion],
         indices: vec![],
         base: base.cloned().map(Box::new),
-        closure: None,
+        closure,
         held_intentions: vec![],
     })))
 }

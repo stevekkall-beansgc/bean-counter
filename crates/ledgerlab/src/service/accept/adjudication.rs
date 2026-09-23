@@ -53,6 +53,7 @@ pub(crate) struct VerifiedSource {
     prefix: TrustedJournalHead,
     proof: wire::Proof,
     exact_object: wire::RetainedObject,
+    authorizing_target: Option<Id>,
 }
 #[expect(
     dead_code,
@@ -64,6 +65,9 @@ impl VerifiedSource {
     }
     pub(crate) fn proof(&self) -> &wire::Proof {
         &self.proof
+    }
+    pub(crate) fn authorizing_target(&self) -> Option<&Id> {
+        self.authorizing_target.as_ref()
     }
     pub(crate) fn object(&self) -> &wire::RetainedObject {
         &self.exact_object
@@ -350,3 +354,7 @@ mod authority;
 mod prepare;
 pub(crate) use prepare::{prepare_locked, Prepared};
 mod base;
+
+mod run;
+mod seal;
+pub(crate) use run::{run, AdjudicationHost, SourceRequest};

@@ -1,4 +1,5 @@
 //! Pure incremental first-path transitions over explicitly observed point rows.
+mod terminal;
 use super::{accounting::Worksheet, command_digest, command_value, hash, points::*};
 use crate::adjudication::{
     self as r3, commands as w,
@@ -88,6 +89,7 @@ pub struct Input<'a> {
     pub observations: &'a [Observation],
     pub sources: &'a [SourceFact],
     pub introduced_objects: usize,
+    pub seal: Option<&'a w::Seal>,
 }
 #[derive(Clone, Debug)]
 pub struct Funding {
@@ -139,6 +141,47 @@ impl View<'_> {
     fn enrolled(&mut self) -> Result<EnrollmentState> {
         match self.load(&enrollment(self.input.registration)?)? {
             State::Enrollment(v) => Ok(*v),
+            State::Preparation(preparation) => {
+                let source = self
+                    .input
+                    .sources
+                    .iter()
+                    .find(|s| {
+                        s.object.kind == w::FactKind::Enrollment
+                            && s.proof.host == *self.input.store
+                    })
+                    .ok_or_else(|| fail("NEED_ENROLLMENT"))?;
+                let source = self.source(
+                    &source.proof,
+                    &[w::FactKind::Enrollment],
+                    self.input.registration,
+                )?;
+                let terms: w::Enroll = source.payload()?;
+                let mut intent = serde_json::to_value(&terms).map_err(|_| fail("ENROLLMENT"))?;
+                intent
+                    .as_object_mut()
+                    .ok_or_else(|| fail("ENROLLMENT"))?
+                    .remove("preparations");
+                require(
+                    terms.store == preparation.store
+                        && terms.scope == preparation.scope
+                        && terms.registration == preparation.registration
+                        && terms.gateways.contains(&preparation.namespace)
+                        && hash("enrollment", &intent)? == preparation.intent,
+                    "ENROLLMENT_INTENT",
+                )?;
+                let state = EnrollmentState {
+                    enrollment: hash("enrollment", &terms)?,
+                    terms,
+                    active_round: None,
+                    last_round: Count::ZERO,
+                };
+                self.put(
+                    enrollment(self.input.registration)?,
+                    State::Enrollment(Box::new(state.clone())),
+                )?;
+                Ok(state)
+            }
             _ => Err(fail("NOT_ENROLLED")),
         }
     }
@@ -161,6 +204,13 @@ impl View<'_> {
         }
     }
     fn source(&self, p: &w::Proof, kind: &[w::FactKind], key: &Id) -> Result<&SourceFact> {
+        let cv = command_value(self.input.command)?;
+        require(
+            p.store == *self.input.store
+                && p.registration == *self.input.registration
+                && serde_json::to_value(&p.scope).map_err(|_| fail("SCOPE"))? == cv["key"][0],
+            "PROOF_BINDING",
+        )?;
         self.input
             .sources
             .iter()
@@ -250,6 +300,8 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
     let cv = command_value(i.command)?;
     let kind = cv["kind"].as_str().ok_or_else(|| fail("COMMAND"))?;
     let work = Worksheet::frozen()?;
+    let mut terminal_indexes = None;
+    let mut prepaid = false;
     let mut d = Delta {
         mutations: vec![],
         effects: vec![],
@@ -284,12 +336,14 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                 gateway(i.host)?,
                 State::Gateway(Box::new(new_gateway(p.namespace.clone(), i.writer_epoch))),
             )?;
+            v.reserve(&d.funding.owner, &[kind.into()], &work)?;
+            d.funding.release = true;
+            charge(v, &d, &work, kind, 40)?;
+            prepaid = true;
             for n in 0..32 {
                 let o = owner("close", &n)?;
                 v.reserve(&o, work.bundle("finish_gateway")?, &work)?;
             }
-            v.reserve(&d.funding.owner, &[kind.into()], &work)?;
-            d.funding.release = true;
             d.fact = Some((w::FactKind::EnrollPreparation, p.gateway.clone()));
         }
         w::Command::Enroll {
@@ -388,6 +442,21 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                     State::Supplier(supplier.clone()),
                 )?;
             }
+            v.reserve(&d.funding.owner, &[kind.into()], &work)?;
+            d.funding.release = true;
+            charge(
+                v,
+                &d,
+                &work,
+                kind,
+                4 + p.families.len()
+                    + 2 * p.gateways.len()
+                    + p.suppliers.len()
+                    + p.pools.len()
+                    + 32
+                    + 1,
+            )?;
+            prepaid = true;
             for n in 0..32 {
                 v.reserve(&owner("close", &n)?, work.bundle("finish_central")?, &work)?;
             }
@@ -400,8 +469,6 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                     last_round: Count::ZERO,
                 })),
             )?;
-            v.reserve(&d.funding.owner, &[kind.into()], &work)?;
-            d.funding.release = true;
             d.fact = Some((w::FactKind::Enrollment, p.registration.clone()));
             d.enrollment = Some(p.clone());
         }
@@ -467,14 +534,10 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                     terminal: false,
                 })),
             )?;
-            v.put(
-                enrollment(i.registration)?,
-                State::Enrollment(Box::new(EnrollmentState {
-                    enrollment: hash("enrollment", &enroll)?,
-                    terms: enroll,
-                    active_round: None,
-                    last_round: Count::ZERO,
-                })),
+            let cached = v.enrolled()?;
+            require(
+                cached.terms == enroll && gw.epoch == i.writer_epoch,
+                "ENROLLMENT_PROOF",
             )?;
             gw.epoch = i.writer_epoch;
             v.put(gateway(i.host)?, State::Gateway(Box::new(gw)))?;
@@ -590,6 +653,10 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
             g.token = Some(p.token.clone());
             d.funding.owner = owner("grant-local", &g.grant.id)?;
             v.put(grant(&g.grant.id, false)?, State::Grant(Box::new(g)))?;
+            v.put(
+                Point::position(PointKind::Allocation, i.host, t.token.allocation)?,
+                State::Position(p.token.clone()),
+            )?;
             v.put(token(&p.token)?, State::Token(Box::new(t)))?;
         }
         w::Command::Receive {
@@ -655,7 +722,14 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
             }
             let submission = hash("submission", &p.submission)?;
             let cp = Point::case(&p.submission.case)?;
-            let receipt = if let Some(State::Case(existing)) = v.read(&cp)? {
+            let existing = v.read(&cp)?;
+            require(
+                existing
+                    .as_ref()
+                    .is_none_or(|s| matches!(s, State::Case(_))),
+                "CASE_HEAD",
+            )?;
+            let receipt = if let Some(State::Case(existing)) = existing {
                 require(existing.submission == submission, "CASE_CONFLICT")?;
                 t.status = TokenStatus::Alias;
                 d.funding.actual_receipt = false;
@@ -800,19 +874,9 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
             d.funding.actual_receipt = t.status == TokenStatus::NewCase;
             v.put(token(&p.token)?, State::Token(Box::new(t)))?;
         }
-        _ => return Err(fail("TRANSITION_NOT_IN_FIRST_CHECKPOINT")),
-    }
-    let ap = account(i.host)?;
-    let op = allocation(&d.funding.owner)?;
-    let State::Resource(mut resources) = v.load(&ap)? else {
-        return Err(fail("RESOURCE_HOST"));
-    };
-    let State::Allocation(mut owned) = v.load(&op)? else {
-        return Err(fail("UNFUNDED"));
-    };
-    let mut actual = work.template(kind)?.counters()?;
-    if kind == "RECEIVE" && !d.funding.actual_receipt {
-        actual.receipt = Count::ZERO;
+        _ => {
+            terminal_indexes = Some(terminal::apply(v, &mut d, &work)?);
+        }
     }
     let base = match kind {
         "PREPARE_ENROLL" => 40,
@@ -838,14 +902,43 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                 6
             }
         }
-        _ => return Err(fail("INDEX_TEMPLATE")),
+        _ => terminal_indexes.ok_or_else(|| fail("INDEX_TEMPLATE"))?,
     };
-    actual.index_cardinality = Count::new((base + i.introduced_objects) as u128)?;
-    resources.spend(&mut owned, kind, &actual, &work)?;
+    if !prepaid {
+        charge(v, &d, &work, kind, base)?;
+    }
+    Ok(d)
+}
+
+fn charge(v: &mut View<'_>, d: &Delta, work: &Worksheet, kind: &str, base: usize) -> Result<()> {
+    let i = v.input;
+    let ap = account(i.host)?;
+    let op = allocation(&d.funding.owner)?;
+    let State::Resource(mut resources) = v.load(&ap)? else {
+        return Err(fail("RESOURCE_HOST"));
+    };
+    let State::Allocation(mut owned) = v.load(&op)? else {
+        return Err(fail("UNFUNDED"));
+    };
+    let mut actual = work.template(kind)?.counters()?;
+    if kind == "RECEIVE" && !d.funding.actual_receipt {
+        actual.receipt = Count::ZERO;
+    }
+    let cached = usize::from(
+        matches!(kind, "SEAL_BEGIN" | "INSTALL")
+            && i.observations
+                .iter()
+                .any(|o| matches!(o.state, Some(State::Preparation(_))))
+            && v.pending
+                .values()
+                .any(|s| matches!(s, State::Enrollment(_))),
+    );
+    actual.index_cardinality = Count::new((base + i.introduced_objects + cached) as u128)?;
+    resources.spend(&mut owned, kind, &actual, work)?;
     if d.funding.release {
-        resources.terminal_slack(&mut owned, &work)?;
+        resources.terminal_slack(&mut owned, work)?;
     }
     v.put(ap, State::Resource(resources))?;
     v.put(op, State::Allocation(owned))?;
-    Ok(d)
+    Ok(())
 }

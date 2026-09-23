@@ -11,6 +11,12 @@ use std::collections::BTreeMap;
 pub struct Worksheet {
     pub transitions: BTreeMap<String, Template>,
     pub bundles: BTreeMap<String, Bundle>,
+    schema_maxima: BTreeMap<String, u64>,
+    pages_per_index_update: u64,
+    value_page_payload_bytes: u64,
+    value_page_header_bytes: u64,
+    node_bytes: u64,
+    value_page_bytes: u64,
 }
 #[derive(Clone, Deserialize)]
 pub struct Template {
@@ -48,8 +54,58 @@ fn err(detail: &str) -> Error {
     Error::new("UNFUNDED", detail)
 }
 impl Worksheet {
+    /// Immutable frozen derivation plus explicit runtime-only first-use source
+    /// acquisition costs. Native adapters MUST price this same augmented view.
     pub fn frozen() -> Result<Self> {
-        serde_json::from_str(include_str!("../../../../../contracts/candidates/central-adjudication-r3-candidate1/protocol/resources.json")).map_err(|e|err(&e.to_string()))
+        let mut value:Self=serde_json::from_str(include_str!("../../../../../contracts/candidates/central-adjudication-r3-candidate1/protocol/resources.json")).map_err(|e|err(&e.to_string()))?;
+        let extra = value.enrollment_cache_augmentation()?;
+        for kind in ["SEAL_BEGIN", "INSTALL"] {
+            let t = value
+                .transitions
+                .get_mut(kind)
+                .ok_or_else(|| err("finish template"))?;
+            t.segment_bytes += extra[0];
+            t.new_trusted_bytes += extra[1];
+            t.records += extra[2];
+            t.index_path_pages += extra[3];
+            t.index_value_pages += extra[4];
+            t.logical_workspace_bytes += extra[5];
+            *t.counter_increments
+                .get_mut("index_cardinality")
+                .ok_or_else(|| err("index counter"))? += 2;
+            if t.segment_bytes > 8 * 1024 * 1024 || t.new_trusted_bytes > 2 * 1024 * 1024 {
+                return Err(err("runtime acquisition envelope"));
+            }
+        }
+        Ok(value)
+    }
+
+    /// Full bounded ENROLLMENT fact + dependency and one cached terms head.
+    /// The general retained-object maximum includes Base64 and source identity;
+    /// the source fact adds exactly {"effects":[],"payload":...} framing (24).
+    /// Two immutable index versions each reserve one full K-bit radix path.
+    /// SQL adapters use their separately proved conservative physical envelope.
+    pub fn enrollment_cache_augmentation(&self) -> Result<[u64; 6]> {
+        let enroll = *self
+            .schema_maxima
+            .get("enroll")
+            .ok_or_else(|| err("enroll maximum"))?;
+        let object = *self
+            .schema_maxima
+            .get("object")
+            .ok_or_else(|| err("object maximum"))?;
+        let canonical = object + 70;
+        let trust = enroll + 24;
+        let paths = 2 * self.pages_per_index_update;
+        // Cached State::Enrollment adds 89 framing bytes, a 64-byte digest and
+        // two maximal 30-digit counters: 89+64+60=213. Key/value framing is K+72.
+        let cache = enroll + 213 + crate::adjudication::MAX_KEY_BYTES as u64 + 72;
+        let values = (object + self.value_page_header_bytes)
+            .div_ceil(self.value_page_payload_bytes)
+            + cache.div_ceil(self.value_page_payload_bytes);
+        let workspace =
+            canonical + trust + paths * self.node_bytes + values * self.value_page_bytes;
+        Ok([canonical, trust, 2, paths, values, workspace])
     }
     pub fn template(&self, kind: &str) -> Result<&Template> {
         self.transitions
@@ -194,5 +250,53 @@ impl ResourceState {
         allocation.held = Resource::zero();
         allocation.slots.clear();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn runtime_first_use_is_prepaid_and_bounded() {
+        let w = Worksheet::frozen().unwrap();
+        let extra = w.enrollment_cache_augmentation().unwrap();
+        assert_eq!(extra[0], 353232);
+        assert_eq!(extra[1], 215236);
+        assert_eq!(extra[2], 2);
+        assert_eq!(extra[3], 17844);
+        assert_eq!(extra[4], 142);
+        for kind in ["SEAL_BEGIN", "INSTALL"] {
+            let t = w.template(kind).unwrap();
+            assert!(t.segment_bytes <= 8 * 1024 * 1024 && t.new_trusted_bytes <= 2 * 1024 * 1024);
+            assert!(w
+                .bundle("finish_gateway")
+                .unwrap()
+                .iter()
+                .any(|s| s == kind));
+        }
+        let mut a = ResourceState::genesis(
+            Resource::from_dimensions([Count::new(Count::MAX).unwrap(); 6]),
+            Count::new(1).unwrap(),
+        );
+        let mut owner = a
+            .reserve("test".into(), w.bundle("finish_gateway").unwrap(), &w)
+            .unwrap();
+        let before = a.clone();
+        let owned_before = owner.clone();
+        assert!(a
+            .spend(&mut owner, "RECEIVE", &Counters::zero(), &w)
+            .is_err());
+        assert_eq!(a, before);
+        assert_eq!(owner, owned_before);
+        let t = w.template("SEAL_BEGIN").unwrap();
+        a.spend(&mut owner, "SEAL_BEGIN", &t.counters().unwrap(), &w)
+            .unwrap();
+        let before = a.clone();
+        let owned_before = owner.clone();
+        assert!(a
+            .spend(&mut owner, "SEAL_BEGIN", &t.counters().unwrap(), &w)
+            .is_err());
+        assert_eq!(a, before);
+        assert_eq!(owner, owned_before);
     }
 }

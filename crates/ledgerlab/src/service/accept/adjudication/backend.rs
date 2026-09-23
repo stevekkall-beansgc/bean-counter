@@ -208,6 +208,34 @@ impl VerifiedSource {
                 && r3::runtime::hash("segment", &segment)? == proof.segment,
             "source segment membership",
         )?;
+        let command = r3::runtime::command_value(&segment.command)?;
+        let mut authorizing_target = None;
+        for object in &segment.objects {
+            if object.kind == wire::FactKind::Authority
+                && command["authority"]["document"] == object.body_hash.as_str()
+            {
+                let raw = r3::proofs::VerifiedObjectBytes::check(object.clone())?;
+                let body: wire::AuthoritySourceBody = r3::parse_exact(raw.bytes(), 16384)?;
+                let body = serde_json::to_value(body).map_err(|_| Error {
+                    code: "AUTH_SOURCE",
+                    detail: "serialization".into(),
+                })?;
+                require(
+                    body["kind"] == "AUTHORIZATION"
+                        && body["scope"] == command["key"][0]
+                        && body["principal"] == command["authority"]["principal"]
+                        && body["revision"] == command["authority"]["revision"],
+                    "source authority body",
+                )?;
+                authorizing_target =
+                    Some(Id::parse(body["target"].as_str().ok_or_else(|| {
+                        Error {
+                            code: "AUTH_TARGET",
+                            detail: "source target".into(),
+                        }
+                    })?)?);
+            }
+        }
         let pkey = r3::canonical_bytes(&proof.full_key, r3::COMMAND_BYTES)?;
         let mut found = None;
         for object in segment.objects {
@@ -237,6 +265,7 @@ impl VerifiedSource {
             prefix: head,
             proof,
             exact_object,
+            authorizing_target,
         })
     }
 }

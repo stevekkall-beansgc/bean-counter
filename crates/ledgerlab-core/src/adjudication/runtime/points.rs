@@ -261,3 +261,15 @@ pub struct AuthorityState {
     pub origin: w::ObjectOrigin,
     pub segment: Digest,
 }
+
+impl CaseState {
+    /// A committed family certificate transfers pending interpretation without
+    /// rewriting N case rows. Accepted/denied facts remain final.
+    pub fn effective_status(&self, family: &FamilyState) -> CaseStatus {
+        if self.status == CaseStatus::OrdinaryPending && family.unavailable {
+            CaseStatus::AdjustmentPending
+        } else {
+            self.status
+        }
+    }
+}
