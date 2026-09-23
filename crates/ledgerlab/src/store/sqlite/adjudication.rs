@@ -497,6 +497,12 @@ pub(super) async fn object_page(
 
 #[cfg(test)]
 impl super::SqliteStore {
+    pub(crate) fn test_publication_cut(&self, cut: u8) {
+        assert!([0, 11, 12, 13].contains(&cut));
+        self.inner
+            .fence_cut
+            .store(cut, std::sync::atomic::Ordering::Release);
+    }
     /// One-shot fault after actual original base SQL, before any R3 projection.
     pub(crate) fn test_fail_after_original_base(&self) {
         self.inner
@@ -553,13 +559,29 @@ impl super::SqliteStore {
                 .unwrap();
             out.insert(
                 if pragma == "max_page_count" {
-                    "maximum_pages".into()
+                    "reader_maximum_pages".into()
                 } else {
                     pragma.into()
                 },
                 n as u128,
             );
         }
+        let maximum: i64 =
+            sqlx::query_scalar("SELECT maximum_pages FROM r3_storage_profile WHERE singleton=1")
+                .fetch_one(&mut *c)
+                .await
+                .unwrap();
+        out.insert("maximum_pages".into(), maximum as u128);
+        let mut writer = self.inner.writer.acquire().await.unwrap();
+        let enforced: i64 = sqlx::query_scalar("PRAGMA max_page_count")
+            .fetch_one(&mut *writer)
+            .await
+            .unwrap();
+        assert_eq!(
+            enforced, maximum,
+            "actual writer enforces provisioned profile"
+        );
+        out.insert("writer_maximum_pages".into(), enforced as u128);
         let wal = self.inner._owner.database.with_file_name("local.db-wal");
         out.insert(
             "wal_bytes".into(),
