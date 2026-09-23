@@ -13,6 +13,7 @@ struct AtAdmission<S> {
     gate: Arc<Barrier>,
     first: AtomicBool,
     ordered: Option<(Arc<Notify>, Arc<Notify>)>,
+    mandatory_busy_ok: bool,
 }
 impl<S: AdjudicationStore<Tx = SqliteTx>> AdjudicationStore for AtAdmission<S> {
     type Tx = SqliteTx;
@@ -30,10 +31,11 @@ impl<S: AdjudicationStore<Tx = SqliteTx>> AdjudicationStore for AtAdmission<S> {
                 return std::future::poll_fn(|cx| {
                     let poll = std::future::Future::poll(pending.as_mut(), cx);
                     if !entered {
-                        assert!(
-                            poll.is_pending(),
-                            "actual admission must wait behind live validated transaction"
-                        );
+                        if self.mandatory_busy_ok && matches!(&poll, std::task::Poll::Ready(Err(StoreError::Overloaded))) {
+                            eprintln!("actual concurrent mandatory admission refused busy while validated transaction held");
+                        } else {
+                            assert!(poll.is_pending(), "actual admission must wait behind live validated transaction");
+                        }
                         entered = true;
                         attempted.notify_one();
                     }
@@ -104,8 +106,18 @@ impl Harness {
     async fn race_ordered(
         &mut self,
         owner: &str,
+        commands: [Value; 2],
+        preferred: Option<usize>,
+    ) -> (usize, Value, wire::CommandResult) {
+        self.race_ordered_admission(owner, commands, preferred, false)
+            .await
+    }
+    async fn race_ordered_admission(
+        &mut self,
+        owner: &str,
         mut commands: [Value; 2],
         preferred: Option<usize>,
+        mandatory_busy_ok: bool,
     ) -> (usize, Value, wire::CommandResult) {
         for c in &mut commands {
             hydrate(c, &self.proofs, &self.roots[owner]);
@@ -134,6 +146,7 @@ impl Harness {
                 inner,
                 gate: barrier.clone(),
                 first: AtomicBool::new(true),
+                mandatory_busy_ok,
                 ordered: preferred
                     .filter(|winner| index != *winner)
                     .map(|_| (allow.clone(), attempted.clone())),
@@ -185,7 +198,7 @@ impl Harness {
             "RETIRE_GRANT" => Some(("RETIREMENT", c["payload"]["grant"].clone())),
             "RECEIVE" => Some(("RECEIPT", c["payload"]["token"].clone())),
             "RETURN_UNUSED" => Some(("RETURNED_UNUSED", c["payload"]["token"].clone())),
-            "DECIDE" => None,
+            "DECIDE" | "ACTIVATE" => None,
             _ => panic!("race kind"),
         };
         if let Some((kind, key)) = fact {
@@ -206,7 +219,9 @@ impl Harness {
             .await;
         assert_eq!(after["segments"], before["segments"] + 1);
         self.retry_exact(owner, &c, &result).await;
-        self.last = Some((owner.into(), c.clone(), result.clone()));
+        let mut read_retry = c.clone();
+        read_retry["authority"]["permission"] = json!("read");
+        self.last = Some((owner.into(), read_retry, result.clone()));
         eprintln!(
             "actual overlapping race {} vs {}: winner {} root {}",
             commands[0]["kind"],
@@ -553,3 +568,6 @@ mod replacement_process_tests;
 
 #[path = "resource_admission_tests.rs"]
 mod resource_admission_tests;
+
+#[path = "transition_race_tests.rs"]
+mod transition_race_tests;
