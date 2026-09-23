@@ -985,7 +985,12 @@ async fn postgres_bound_comparison_owner_reads_without_publication() {
     f.writer = PostgresStore::open_with_owner(config(&f.name, WRITER), Some(owner))
         .await
         .unwrap();
-    f.reader = PostgresComparisonStore::from_owner(&f.writer, "synthetic-store".into()).unwrap();
+    f.reader = PostgresComparisonStore::from_owner(
+        config(&f.name, WRITER),
+        "synthetic-store".into(),
+        f.writer.inner.publication.clone().unwrap(),
+    )
+    .unwrap();
     let before = f.inventory().await;
     let auth = ReadAuthority::allowed();
     let (a, b) = tokio::join!(
@@ -1005,7 +1010,12 @@ async fn postgres_bound_comparison_owner_reads_without_publication() {
     let reopened = PostgresStore::open_fenced(config(&name, WRITER), &anchor)
         .await
         .unwrap();
-    let reader = PostgresComparisonStore::from_owner(&reopened, "synthetic-store".into()).unwrap();
+    let reader = PostgresComparisonStore::from_owner(
+        config(&name, WRITER),
+        "synthetic-store".into(),
+        reopened.inner.publication.clone().unwrap(),
+    )
+    .unwrap();
     let operation = ComparisonOperation::begin(Cancellation::default()).unwrap();
     let again = load_workspace(&reader, &auth, &f.who, f.selection, &operation)
         .await

@@ -34,11 +34,12 @@ impl PostgresComparisonStore {
     }
     /// Bound readers inherit the actual configured owner, never a request DTO.
     pub(super) fn from_owner(
-        store: &super::PostgresStore,
+        config: PostgresConfig,
         identity: String,
+        owner: std::sync::Arc<super::adjudication::publication::PublicationOwner>,
     ) -> Result<Self, ReadError> {
-        let mut reader = Self::new(store.inner.config.clone(), identity)?;
-        reader.publication = store.inner.publication.clone();
+        let mut reader = Self::new(config, identity)?;
+        reader.publication = Some(owner);
         Ok(reader)
     }
 }
