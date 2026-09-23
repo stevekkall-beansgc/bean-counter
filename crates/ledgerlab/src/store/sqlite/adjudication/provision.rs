@@ -11,9 +11,15 @@ fn incarnation(
     store: &super::super::SqliteStore,
     j: &JournalIdentity,
 ) -> Result<Digest, StoreError> {
+    owner_incarnation(&store.inner._owner, j)
+}
+fn owner_incarnation(
+    owner: &super::super::owner::Owner,
+    j: &JournalIdentity,
+) -> Result<Digest, StoreError> {
     use std::os::unix::fs::MetadataExt;
-    store.inner._owner.verify_path()?;
-    let m = std::fs::metadata(&store.inner._owner.database)?;
+    owner.verify_path()?;
+    let m = std::fs::metadata(&owner.database)?;
     Ok(r3::raw_sha256(
         &r3::canonical_bytes(
             &json!([
@@ -29,6 +35,36 @@ fn incarnation(
         )
         .map_err(core)?,
     ))
+}
+
+pub(in crate::store::sqlite) fn verify_stored_profile(
+    owner: &super::super::owner::Owner,
+    bytes: &[u8],
+) -> Result<(), StoreError> {
+    let value = ledgerlab_core::canonical::parse_bounded(bytes, 8192).map_err(core)?;
+    if r3::canonical_bytes(&value, 8192).map_err(core)? != bytes
+        || value.as_object().is_none_or(|m| m.len() != 4)
+    {
+        return Err(invalid());
+    }
+    let parts = value["journal"].as_array().ok_or_else(invalid)?;
+    if parts.len() != 4 {
+        return Err(invalid());
+    }
+    let id =
+        |v: &serde_json::Value| r3::types::Id::parse(v.as_str().ok_or_else(invalid)?).map_err(core);
+    let j = JournalIdentity {
+        store: id(&parts[0])?,
+        scope: serde_json::from_value(parts[1].clone()).map_err(|_| invalid())?,
+        registration: id(&parts[2])?,
+        host: id(&parts[3])?,
+    };
+    if value["incarnation"] != owner_incarnation(owner, &j)?.as_str() {
+        return Err(StoreError::InvalidStore(
+            "R3 storage copy requires actual fenced recovery",
+        ));
+    }
+    Ok(())
 }
 
 impl super::super::SqliteStore {

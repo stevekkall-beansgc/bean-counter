@@ -265,6 +265,57 @@ async fn load(
     facade::load_workspace(&LabelledReader(store, label), a, &w, s, &op).await
 }
 #[tokio::test]
+async fn comparison_sqlite_r3_profile_preserves_legacy_workspace_and_nonposting_on_reopen() {
+    use crate::store::adjudication::JournalIdentity;
+    use ledgerlab_core::adjudication::{
+        commands as w,
+        runtime::accounting::Worksheet,
+        types::{Count, Id},
+    };
+    let f = fixture::lifecycle();
+    let (dir, store) = prepared(&f, f.plans.len()).await;
+    let authority = LocalAuthority::new(&f);
+    let original = load(&store, &f, &authority).await.unwrap();
+    let installation = store.local_installation().await.unwrap();
+    let j = JournalIdentity {
+        store: Id::parse(&installation.logical_store_id).unwrap(),
+        scope: w::Scope(
+            Id::parse("synthetic").unwrap(),
+            Id::parse("sandbox").unwrap(),
+        ),
+        registration: Id::parse("r3-registration").unwrap(),
+        host: Id::parse("r3-gateway").unwrap(),
+    };
+    let ws = Worksheet::frozen().unwrap();
+    let logical = ws.template("PREPARE_ENROLL").unwrap().resources().unwrap();
+    let configured = store
+        .provision_adjudication(j, logical, 65536, Count::new(1u128 << 40).unwrap())
+        .await
+        .unwrap();
+    let before = inventory(&store).await;
+    let profiled = load(&store, &f, &authority).await.unwrap();
+    assert_eq!(profiled.fingerprint(), original.fingerprint());
+    assert_eq!(profiled.historical_receipts().len(), f.plans.len());
+    drop(configured);
+    let store = reopen(&dir, store, &before).await;
+    assert_eq!(
+        load(&store, &f, &authority).await.unwrap().fingerprint(),
+        original.fingerprint()
+    );
+    for (scope, disclosure) in [(true, false), (false, true)] {
+        let mut denied = LocalAuthority::new(&f);
+        denied.deny_scope = scope;
+        denied.deny_disclosure = disclosure;
+        assert!(matches!(
+            load(&store, &f, &denied).await,
+            Err(ComparisonError::Denied)
+        ));
+    }
+    assert_eq!(inventory(&store).await, before);
+    store.close().await;
+}
+
+#[tokio::test]
 async fn comparison_sqlite_success_denials_enforcement_and_reopen() {
     let f = fixture::lifecycle();
     let (dir, mut store) = prepared(&f, f.plans.len()).await;

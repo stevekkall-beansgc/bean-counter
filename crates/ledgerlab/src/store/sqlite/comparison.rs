@@ -78,7 +78,7 @@ fn class(c: OutcomeLockClass) -> i64 {
 /// Every application statement is recorded before submission in tests. The
 /// production gate accepts only this module's single SELECT statements. BEGIN
 /// and ROLLBACK remain SQLx's tracked transaction lifecycle, never caller SQL.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct ReadStatements {
     #[cfg(test)]
     trace: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
@@ -104,22 +104,26 @@ pub(crate) struct SqliteComparisonRead {
     // A cancelled method cannot be resumed with a partly loaded budget/snapshot.
     ready: bool,
     authority_scope: Option<[String; 2]>,
+    bounded: Option<lease::Bounded>,
 }
 impl ComparisonReadStore for SqliteStore {
     type Read = SqliteComparisonRead;
     async fn begin_read(&self, deadline: Instant) -> Result<Self::Read> {
-        // This legacy API exposes a caller-held MVCC transaction. Its lifetime
-        // cannot be capped while the caller is idle. R3 uses immutable-prefix
-        // bounded page sessions instead, so this capability is not admitted.
-        if self
-            .inner
-            .adjudication_enabled
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err(ReadError::Unavailable);
-        }
         let deadline = deadline.min(Instant::now() + Duration::from_secs(5));
         timeout_at(deadline, async {
+            let lane = if self
+                .inner
+                .adjudication_enabled
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                Some(
+                    std::sync::Arc::clone(&self.inner.adjudication_gate)
+                        .read_owned()
+                        .await,
+                )
+            } else {
+                None
+            };
             let mut connection = self.inner.readers.acquire().await.map_err(db)?;
             // Even an interrupted BEGIN/ROLLBACK discards this session; it can
             // never return to the pool with an uncertain transaction state.
@@ -143,13 +147,18 @@ impl ComparisonReadStore for SqliteStore {
                     .fetch_one(&mut *transaction)
                     .await
                     .map_err(db)?;
-            Ok(SqliteComparisonRead {
+            let read = SqliteComparisonRead {
                 transaction: Some(transaction),
                 deadline,
                 budget: ReadBudget::default(),
                 statements,
                 ready: true,
                 authority_scope: None,
+                bounded: None,
+            };
+            Ok(match lane {
+                Some(lane) => lease::spawn(read, lane),
+                None => read,
             })
         })
         .await
@@ -564,6 +573,13 @@ impl ComparisonReadTx for SqliteComparisonRead {
         &mut self,
         who: &AuthenticatedReadContext,
     ) -> Result<ReadAuthorityObservation> {
+        if let Some(bounded) = &self.bounded {
+            require(self.ready)?;
+            self.ready = false;
+            let result = bounded.authority(who.clone()).await;
+            self.ready = result.is_ok();
+            return result;
+        }
         require(self.ready && self.authority_scope.is_none())?;
         self.ready = false;
         let r = timeout_at(self.deadline, self.authority(who))
@@ -573,6 +589,11 @@ impl ComparisonReadTx for SqliteComparisonRead {
         r
     }
     async fn load_retained(&mut self, s: &RetainedSelection) -> Result<RawRetainedSnapshot> {
+        if let Some(bounded) = &self.bounded {
+            require(self.ready)?;
+            self.ready = false;
+            return bounded.retained(s.clone()).await;
+        }
         require(self.ready)?;
         self.ready = false;
         timeout_at(self.deadline, self.retained(s))
@@ -580,6 +601,9 @@ impl ComparisonReadTx for SqliteComparisonRead {
             .map_err(|_| ReadError::Deadline)?
     }
     async fn finish(mut self) -> Result<()> {
+        if let Some(bounded) = self.bounded.take() {
+            return bounded.finish().await;
+        }
         let tx = self.transaction.take().ok_or(ReadError::Unavailable)?;
         timeout_at(self.deadline, tx.rollback())
             .await
@@ -587,6 +611,7 @@ impl ComparisonReadTx for SqliteComparisonRead {
             .map_err(db)
     }
 }
+mod lease;
 #[cfg(test)]
 #[path = "comparison_tests.rs"]
 mod tests;

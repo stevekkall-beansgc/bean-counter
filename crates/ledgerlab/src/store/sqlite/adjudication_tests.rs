@@ -86,17 +86,15 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
     reopened.close().await;
     let copy = tempfile::tempdir().unwrap();
     std::fs::copy(dir.path().join("local.db"), copy.path().join("local.db")).unwrap();
-    let copied = SqliteStore::open(copy.path()).await.unwrap();
-    assert!(copied
-        .provision_adjudication(journal, logical, 65536, backing)
-        .await
-        .is_err());
-    copied.close().await;
+    assert!(SqliteStore::open(copy.path()).await.is_err());
 }
 
 #[tokio::test]
 async fn r3_writer_lane_is_shared_and_requires_completed_checkpoint() {
-    use crate::store::{comparison::ComparisonReadStore, errors::StoreError};
+    use crate::store::{
+        comparison::{ComparisonReadStore, ComparisonReadTx},
+        errors::StoreError,
+    };
     use std::sync::atomic::Ordering;
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::create(dir.path(), tests::installation())
@@ -107,10 +105,31 @@ async fn r3_writer_lane_is_shared_and_requires_completed_checkpoint() {
         .inner
         .adjudication_enabled
         .store(true, Ordering::Release);
-    assert!(store
+    store
         .begin_read(Instant::now() + Duration::from_secs(1))
         .await
-        .is_err());
+        .unwrap()
+        .finish()
+        .await
+        .unwrap();
+    // Holding an idle client handle pins writers only until its actual worker
+    // deadline. The worker rolls back even though the client remains alive.
+    let idle = store
+        .begin_read(Instant::now() + Duration::from_millis(150))
+        .await
+        .unwrap();
+    assert!(matches!(
+        contender
+            .begin(Instant::now() + Duration::from_millis(20))
+            .await,
+        Err(StoreError::Deadline)
+    ));
+    let resumed = contender
+        .begin(Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    resumed.rollback().await.unwrap();
+    assert!(idle.finish().await.is_err());
     let tx = store
         .begin(Instant::now() + Duration::from_secs(2))
         .await

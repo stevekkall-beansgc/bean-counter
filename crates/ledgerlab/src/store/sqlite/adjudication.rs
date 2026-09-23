@@ -17,6 +17,7 @@ use ledgerlab_core::adjudication::{
     types::{Count, Digest},
 };
 pub(super) use physical::{charge_legacy, physical_usage};
+pub(super) use provision::verify_stored_profile;
 use serde_json::json;
 use sqlx::{Row, SqliteConnection};
 

@@ -80,11 +80,13 @@ impl SqliteStore {
         migrate::verify(&mut conn).await?;
         connect::integrity(&mut conn).await?;
         read::installation(&mut conn).await?;
-        let r3_pages: Option<i64> =
-            sqlx::query_scalar("SELECT maximum_pages FROM r3_storage_profile WHERE singleton=1")
-                .fetch_optional(&mut conn)
-                .await?;
-        if let Some(pages) = r3_pages {
+        let r3_pages: Option<(i64, Vec<u8>)> = sqlx::query_as(
+            "SELECT maximum_pages,profile FROM r3_storage_profile WHERE singleton=1",
+        )
+        .fetch_optional(&mut conn)
+        .await?;
+        if let Some((pages, profile)) = r3_pages {
+            adjudication::verify_stored_profile(&owner, &profile)?;
             owner.adjudication_max_pages.store(
                 u32::try_from(pages).map_err(|_| StoreError::InvalidStore("R3 page quota"))?,
                 Ordering::Release,
