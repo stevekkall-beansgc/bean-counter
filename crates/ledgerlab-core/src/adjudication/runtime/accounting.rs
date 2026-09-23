@@ -77,6 +77,35 @@ impl Worksheet {
                 return Err(err("runtime acquisition envelope"));
             }
         }
+        // Runtime point records add one <=1713-byte admitted-role tuple per
+        // case, <=54 bytes of monotone ordinary usage per family, and <256
+        // bytes of usage counters per pool. One extra 4032-byte payload page
+        // per affected head safely covers every prior page-boundary alignment.
+        // ENROLL topology is <=32 families and <=16 pools; DECIDE touches at
+        // most case/family/pool, CORRECT case/family, CLOSE <=32 families.
+        for (kind, pages) in [("ENROLL", 48), ("DECIDE", 3), ("CORRECT", 2), ("CLOSE", 32)] {
+            let t = value
+                .transitions
+                .get_mut(kind)
+                .ok_or_else(|| err("economic head template"))?;
+            t.index_value_pages += pages;
+            t.logical_workspace_bytes += pages * value.value_page_bytes;
+        }
+        // Premium checks visit at most32 current family heads, never lifetime
+        // actions. Each includes family terms, entitlement and bounded framing.
+        let family = *value
+            .schema_maxima
+            .get("family_terms")
+            .ok_or_else(|| err("family maximum"))?;
+        let entitlement = *value
+            .schema_maxima
+            .get("entitlement_head")
+            .ok_or_else(|| err("entitlement maximum"))?;
+        value
+            .transitions
+            .get_mut("DECIDE")
+            .ok_or_else(|| err("decision template"))?
+            .logical_workspace_bytes += 32 * (family + entitlement + 512);
         Ok(value)
     }
 
@@ -256,6 +285,38 @@ impl ResourceState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn economic_point_growth_and_bounded_topology_reads_are_prepaid() {
+        let original: Worksheet = serde_json::from_str(include_str!("../../../../../contracts/candidates/central-adjudication-r3-candidate1/protocol/resources.json")).unwrap();
+        let actual = Worksheet::frozen().unwrap();
+        assert_eq!(original.schema_maxima["roles"], 1713);
+        assert!(original.schema_maxima["roles"] + 64 < 4032);
+        for (kind, pages) in [("ENROLL", 48), ("DECIDE", 3), ("CORRECT", 2), ("CLOSE", 32)] {
+            let before = original.template(kind).unwrap();
+            let after = actual.template(kind).unwrap();
+            assert_eq!(after.index_value_pages - before.index_value_pages, pages);
+            let reads = if kind == "DECIDE" {
+                32 * (original.schema_maxima["family_terms"]
+                    + original.schema_maxima["entitlement_head"]
+                    + 512)
+            } else {
+                0
+            };
+            assert_eq!(
+                after.logical_workspace_bytes - before.logical_workspace_bytes,
+                pages * 4096 + reads
+            );
+            assert_eq!(
+                after.segment_bytes, before.segment_bytes,
+                "economic wire unchanged"
+            );
+        }
+        assert!(actual
+            .bundle("finish_central")
+            .unwrap()
+            .iter()
+            .any(|s| s == "CLOSE"));
+    }
     #[test]
     fn runtime_first_use_is_prepaid_and_bounded() {
         let w = Worksheet::frozen().unwrap();

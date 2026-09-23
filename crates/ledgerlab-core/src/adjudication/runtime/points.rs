@@ -113,6 +113,8 @@ pub struct CaseState {
     pub status: CaseStatus,
     pub revision: Count,
     pub signed: crate::adjudication::types::Atoms,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admitted_roles: Option<w::Roles>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaseStatus {
@@ -133,6 +135,9 @@ pub struct FamilyState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<Time>,
     pub entitlement: w::EntitlementHead,
+    /// Positive original ordinary usage is monotone; a correction never returns it.
+    #[serde(default)]
+    pub ordinary_positive: Count,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -194,6 +199,7 @@ pub enum State {
     Allocation(AllocationState),
     Position(Id),
     Supplier(w::Supplier),
+    Adjustment(Box<AdjustmentState>),
     Delivery(Box<super::DeliveryState>),
     Authority(Box<AuthorityState>),
     /// Trusted host administrative current authorization, provisioned separately
@@ -275,4 +281,14 @@ impl CaseState {
             self.status
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdjustmentState {
+    pub terms: w::Pool,
+    pub funding_used: Count,
+    pub positive_used: Count,
+    pub negative_used: Count,
+    pub gross_used: Count,
 }

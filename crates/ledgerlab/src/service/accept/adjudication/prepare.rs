@@ -269,9 +269,29 @@ pub(super) fn prepare_with_seal<A: AdjudicationAuthority>(
         AuthorityAccess::NewTransition,
     )?;
     sources.enrollment(command)?;
+    if matches!(kind, "DECIDE" | "CORRECT") {
+        let terms = observations
+            .iter()
+            .find_map(|o| match &o.state {
+                Some(p::State::Enrollment(e)) => Some(&e.terms),
+                _ => None,
+            })
+            .ok_or_else(|| Error {
+                code: "ENROLLMENT",
+                detail: "economic authority".into(),
+            })?;
+        sources.economics(command, terms)?;
+    }
     let used = sources.used.borrow();
     require(
-        used.len() <= if kind == "ENROLL" { 83 } else { 1 },
+        used.len()
+            <= if kind == "ENROLL" {
+                83
+            } else if matches!(kind, "DECIDE" | "CORRECT") {
+                3
+            } else {
+                1
+            },
         "AUTH_SOURCE_COUNT",
     )?;
     let next = inputs.prefix.ordinal().checked_add(Count::new(1)?)?;

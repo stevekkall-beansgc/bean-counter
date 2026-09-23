@@ -1,4 +1,5 @@
 //! Pure incremental first-path transitions over explicitly observed point rows.
+mod economic;
 mod terminal;
 use super::{accounting::Worksheet, command_digest, command_value, hash, points::*};
 use crate::adjudication::{
@@ -437,6 +438,7 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                         first_closure: None,
                         closed_at: None,
                         entitlement: w::EntitlementHead::Unconsumed {},
+                        ordinary_positive: Count::ZERO,
                     })),
                 )?;
             }
@@ -473,6 +475,18 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                 v.put(
                     gateway(&ns.gateway)?,
                     State::Gateway(Box::new(new_gateway(ns.clone(), Count::ZERO))),
+                )?;
+            }
+            for pool in &p.pools {
+                v.put(
+                    id(PointKind::Adjustment, *b"ADJPOOL_", pool.id.as_str())?,
+                    State::Adjustment(Box::new(AdjustmentState {
+                        terms: pool.clone(),
+                        funding_used: Count::ZERO,
+                        positive_used: Count::ZERO,
+                        negative_used: Count::ZERO,
+                        gross_used: Count::ZERO,
+                    })),
                 )?;
             }
             for supplier in &p.suppliers {
@@ -804,6 +818,7 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                         status: CaseStatus::Local,
                         revision: Count::ZERO,
                         signed: Atoms::new(0)?,
+                        admitted_roles: None,
                     })),
                 )?;
                 v.put(
@@ -891,6 +906,7 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                         },
                         revision: Count::ZERO,
                         signed: Atoms::new(0)?,
+                        admitted_roles: None,
                     })),
                 )?;
                 v.put(
@@ -920,6 +936,9 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
             d.funding.owner = owner("token", &p.token)?;
             d.funding.actual_receipt = t.status == TokenStatus::NewCase;
             v.put(token(&p.token)?, State::Token(Box::new(t)))?;
+        }
+        w::Command::Decide { .. } | w::Command::Correct { .. } => {
+            terminal_indexes = Some(economic::apply(v, &mut d, &work)?);
         }
         _ => {
             terminal_indexes = Some(terminal::apply(v, &mut d, &work)?);
@@ -970,6 +989,10 @@ fn charge(v: &mut View<'_>, d: &Delta, work: &Worksheet, kind: &str, base: usize
     let mut actual = work.template(kind)?.counters()?;
     if kind == "RECEIVE" && !d.funding.actual_receipt {
         actual.receipt = Count::ZERO;
+    }
+    if matches!(i.command,w::Command::Decide{payload,..} if payload.verdict==w::DecideVerdict::Deny)
+    {
+        actual.economic_revision = Count::ZERO;
     }
     let cached = usize::from(
         matches!(kind, "SEAL_BEGIN" | "INSTALL")

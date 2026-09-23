@@ -69,6 +69,36 @@ fn run_trace(trace: &Value, limit: usize, refusals: &[(usize, &str)]) {
                 .unwrap()
             }));
         }
+        if host == center {
+            // Separate TEST admission prices runtime point growth; immutable
+            // canonical vector budgets/bytes remain unchanged. Fund all32
+            // protected closures and each optional economic command in scope.
+            let frozen: Value = serde_json::from_str(include_str!("../../../../../contracts/candidates/central-adjudication-r3-candidate1/protocol/resources.json")).unwrap();
+            let decisions = trace["commands"].as_array().unwrap()[..limit]
+                .iter()
+                .filter(|c| c["kind"] == "DECIDE")
+                .count() as u128;
+            let corrections = trace["commands"].as_array().unwrap()[..limit]
+                .iter()
+                .filter(|c| c["kind"] == "CORRECT")
+                .count() as u128;
+            let pages = 48 + 32 * 32 + 3 * decisions + 2 * corrections;
+            let work = pages * 4096
+                + decisions
+                    * 32
+                    * u128::from(
+                        frozen["schema_maxima"]["family_terms"].as_u64().unwrap()
+                            + frozen["schema_maxima"]["entitlement_head"]
+                                .as_u64()
+                                .unwrap()
+                            + 512,
+                    );
+            let extra = [0, 0, 0, 0, pages, work];
+            let dims = resource.dimensions();
+            resource = w::Resource::from_dimensions(std::array::from_fn(|n| {
+                Count::new(dims[n].value().saturating_add(extra[n]).min(Count::MAX)).unwrap()
+            }));
+        }
         stores.entry(host.clone()).or_default().insert(
             Point::id(PointKind::Resource, *b"RESOURCE", host).unwrap(),
             (

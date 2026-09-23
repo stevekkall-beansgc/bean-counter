@@ -257,6 +257,78 @@ impl Sources {
         Ok(())
     }
 
+    /// Exact original/pool assent and any payer delegation are rechecked at
+    /// every economic use, in addition to current host command authorization.
+    pub(super) fn economics(
+        &self,
+        command: &ParsedCommand,
+        enrollment: &wire::Enroll,
+    ) -> Result<()> {
+        let c = r3::runtime::command_value(command.command())?;
+        let kind = c["kind"].as_str().unwrap_or("");
+        if !matches!(kind, "DECIDE" | "CORRECT") {
+            return Ok(());
+        }
+        let context = serde_json::to_value(enrollment).map_err(|_| err("ENROLLMENT", "shape"))?;
+        let p = &c["payload"];
+        let family = enrollment
+            .families
+            .iter()
+            .find(|f| serde_json::to_value(&f.key).ok() == Some(p["case"][0].clone()))
+            .ok_or_else(|| err("FAMILY", "unknown"))?;
+        let mut terms = serde_json::to_value(family).map_err(|_| err("FAMILY", "shape"))?;
+        let exposure = if kind == "CORRECT" {
+            &p["replacement"]
+        } else {
+            &p["signed_atoms"]
+        }
+        .as_str()
+        .and_then(|n| n.parse::<i128>().ok())
+        .ok_or_else(|| err("AMOUNT", "parse"))?
+        .unsigned_abs();
+        if kind == "DECIDE" && p["path"] == "ADJUSTMENT" {
+            let pool = enrollment
+                .pools
+                .iter()
+                .find(|a| a.id.as_str() == p["pool"].as_str().unwrap_or(""))
+                .ok_or_else(|| err("POOL", "unknown"))?;
+            terms = serde_json::to_value(pool).map_err(|_| err("POOL", "shape"))?;
+            let object = terms.as_object_mut().expect("typed pool");
+            object.remove("authorizations");
+            let signed = p["signed_atoms"]
+                .as_str()
+                .unwrap()
+                .parse::<i128>()
+                .map_err(|_| err("AMOUNT", "parse"))?;
+            object.insert(
+                "direction".into(),
+                json!(if signed > 0 {
+                    "POSITIVE"
+                } else if signed < 0 {
+                    "NEGATIVE"
+                } else {
+                    "ZERO"
+                }),
+            );
+            object.insert("roles".into(), p["roles"].clone());
+        } else {
+            terms
+                .as_object_mut()
+                .expect("typed family")
+                .remove("assent");
+        }
+        self.assent(&p["assent"], &p["roles"], &terms, &context)?;
+        self.delegation(
+            &p["roles"],
+            &context,
+            &[p["case"][0][1].clone()],
+            exposure,
+            c["authority"]["observed_at"].as_str().unwrap(),
+            None,
+        )?;
+        Ok(())
+    }
+
     pub(super) fn current(
         &self,
         command: &ParsedCommand,
