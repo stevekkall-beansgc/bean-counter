@@ -224,6 +224,17 @@ impl super::super::SqliteStore {
             pages = u32::try_from(maximum).map_err(|_| invalid())?;
             transaction.rollback().await?;
         } else {
+            // A new cumulative allocation must start at R3 genesis. Occupied
+            // pages from arbitrary prior R3 history do not carry its prepaid
+            // tree-occupancy credits; a missing profile is not a reset path.
+            let prior: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM r3_journals)")
+                .fetch_one(transaction.conn())
+                .await?;
+            if prior {
+                return Err(StoreError::InvalidStore(
+                    "R3 history lacks its original allocation",
+                ));
+            }
             let baseline: i64 = sqlx::query_scalar("PRAGMA page_count")
                 .fetch_one(transaction.conn())
                 .await?;
@@ -308,4 +319,58 @@ pub(super) fn verify_incarnation(
         return Err(invalid());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::sqlite::{tests::installation, SqliteStore};
+    use r3::types::Id;
+    #[tokio::test]
+    async fn new_physical_profile_refuses_unfunded_preexisting_r3_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let anchor = tempfile::tempdir().unwrap();
+        let install = installation();
+        let j = JournalIdentity {
+            store: Id::parse(&install.logical_store_id).unwrap(),
+            scope: wire::Scope(
+                Id::parse(&install.scope.tenant).unwrap(),
+                Id::parse(&install.scope.environment).unwrap(),
+            ),
+            registration: Id::parse("new-registration").unwrap(),
+            host: Id::parse("new-host").unwrap(),
+        };
+        let store = SqliteStore::create_fenced(dir.path(), install, anchor.path())
+            .await
+            .unwrap();
+        let mut tx = store
+            .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO r3_journals VALUES(x'01',x'7b7d',zeroblob(16),?,?)")
+            .bind("0".repeat(64))
+            .bind("0".repeat(64))
+            .execute(tx.conn())
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let before = store.test_full_inventory().await;
+        let mut logical = wire::Resource::zero();
+        logical.workspace_bytes = Count::new(r3::SEGMENT_BYTES as u128).unwrap();
+        assert!(matches!(
+            store
+                .provision_adjudication(j, logical, 65536, Count::new(1u128 << 40).unwrap())
+                .await,
+            Err(StoreError::InvalidStore(
+                "R3 history lacks its original allocation"
+            ))
+        ));
+        assert_eq!(store.test_full_inventory().await, before);
+        store.close().await;
+        let reopened = SqliteStore::open_fenced(dir.path(), anchor.path())
+            .await
+            .unwrap();
+        assert_eq!(reopened.test_full_inventory().await, before);
+        reopened.close().await;
+    }
 }

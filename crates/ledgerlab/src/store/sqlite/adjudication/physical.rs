@@ -1,5 +1,6 @@
 //! Conservative native-SQL projection, separate from the canonical radix model.
-//! Exact source/balancing proof and observed growth are acceptance obligations.
+//! Source worksheet: docs/phase4/SQLITE-PHYSICAL-PAGES.md. Host backing and
+//! allocator bounds remain separate independent acceptance obligations.
 use super::*;
 use r3::runtime::accounting::{Template, Worksheet};
 
@@ -129,6 +130,8 @@ pub(super) fn live_pages(kind: &str, t: &Template) -> Result<u128, StoreError> {
         + 24576
         + 2048 * namespaces
         + 10240 * actions;
+    // Cumulative occupied-cell and payload inequalities include every native
+    // index and object page; 9 is not a per-insert split-depth assumption.
     Ok(9 * rows + (bytes + 16384 * rows).div_ceil(4092))
 }
 
@@ -206,4 +209,31 @@ pub(super) fn check_plan(
         return Err(StoreError::Overloaded);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn physical_credits_dominate_all_frozen_native_projections() {
+        let worksheet = Worksheet::frozen().unwrap();
+        for (kind, t) in &worksheet.transitions {
+            let s = u128::from(t.segment_bytes);
+            let n = s.div_ceil(4096);
+            let o = u128::from(t.records.saturating_sub(1).min(216));
+            let h = u128::from(t.counter_increments["index_cardinality"]).min(256);
+            let g = if kind == "ENROLL" { 4 } else { 0 };
+            let a = if matches!(kind.as_str(), "PREPARE_ENROLL" | "ENROLL") {
+                0
+            } else {
+                128
+            };
+            let payload = 3 * s + 17508 * n + 44850 * o + 555805 * h + 30880 + 2083 * g + 10738 * a;
+            let native = 19 + 10 * n + 14 * o + 19 * h + 5 * g + 5 * a + payload.div_ceil(4092);
+            assert!(live_pages(kind, t).unwrap() >= native, "{kind}");
+        }
+        let transient = 4 * (2 * (9u128 * 1024 * 1024).div_ceil(4092) + 8 * 21 + 2);
+        assert_eq!(transient, 19136);
+        assert!(TRANSIENT_PAGES >= transient);
+    }
 }
