@@ -227,7 +227,7 @@ async fn inventory(session: &Session) -> Value {
         )
         .await
         .unwrap();
-    assert_eq!(rows.len(), 53); // Original37 plus all16 native R3 tables.
+    assert_eq!(rows.len(), 54); // Original37 plus17 native R3 tables, including publication witness.
     let mut tables = serde_json::Map::new();
     for row in rows {
         let name: String = row.get(0);

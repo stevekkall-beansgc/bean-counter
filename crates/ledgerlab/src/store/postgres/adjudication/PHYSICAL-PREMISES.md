@@ -21,6 +21,7 @@ attainable by one valid command.
 
 | Native table | Row value payload, bytes | Index key payloads, bytes |
 | --- | ---: | --- |
+| r3_commit_witness | 130 | 2 |
 | r3_scope_locks | 2232 | 2232 |
 | r3_journals | 5355 | 1115 |
 | r3_storage_profile | 17535 | 4, 1115 |
@@ -46,7 +47,7 @@ listed for schema completeness, not claimed as a used physical index scheme.
 
 The actual catalog inventory also includes all original/legacy tables and the
 shared delivery namespace, including the additional prior-prefix expression
-index. They are not covered by the 16-row numerical table. Their trigger writes,
+index. They are not covered by the 17-row numerical table. Their trigger writes,
 original-base acceptance writes, all indexes and physical costs must be included
 in a future complete per-command quote. Omitting them would understate ENROLL.
 

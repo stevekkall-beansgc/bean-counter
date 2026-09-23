@@ -18,6 +18,11 @@ struct RowInput {
 // on TOAST are intentionally not guessed from these application-level lengths.
 const ROWS: &[RowInput] = &[
     RowInput {
+        table: "r3_commit_witness",
+        value_bytes: 2 + 2 * HASH,
+        index_key_bytes: &[2],
+    },
+    RowInput {
         table: "r3_scope_locks",
         value_bytes: J + 2 + J,
         index_key_bytes: &[J + 2 + J],
@@ -102,7 +107,7 @@ const ROWS: &[RowInput] = &[
 fn native_physical_input_worksheet_is_explicitly_not_an_allocation_quote() {
     assert_eq!(r3::SEGMENT_BYTES, 8_388_608);
     assert_eq!(r3::PAGE_BYTES, 4096);
-    assert_eq!(ROWS.len(), 16);
+    assert_eq!(ROWS.len(), 17);
     let mut names = std::collections::BTreeSet::new();
     for r in ROWS {
         assert!(names.insert(r.table));

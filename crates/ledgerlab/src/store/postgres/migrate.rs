@@ -6,6 +6,11 @@ const OUTBOX: &str = include_str!("../../../migrations/postgres/0002_outbox.sql"
 const SAFETY: &str = include_str!("../../../migrations/postgres/0003_outbox_safety.sql");
 const OUTCOMES: &str = include_str!("../../../migrations/postgres/0004_outcomes.sql");
 const ADJUDICATION: &str = include_str!("../../../migrations/postgres/0005_phase4.sql");
+const PUBLICATION: &str = include_str!("../../../migrations/postgres/0006_publication_witness.sql");
+fn publication_checksum() -> String {
+    ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &PUBLICATION)
+        .expect("static SQL text")
+}
 fn adjudication_checksum() -> String {
     ledgerlab_core::canonical::hash(ledgerlab_core::canonical::Domain::Document, &ADJUDICATION)
         .expect("static SQL text")
@@ -52,6 +57,12 @@ pub(crate) async fn create(
     tx.batch_execute(SAFETY).await?;
     tx.batch_execute(OUTCOMES).await?;
     tx.batch_execute(ADJUDICATION).await?;
+    tx.batch_execute(PUBLICATION).await?;
+    tx.execute(
+        "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES (6,$1)",
+        &[&publication_checksum()],
+    )
+    .await?;
     tx.execute(
         "INSERT INTO ledgerlab.migration_history (version,checksum) VALUES (5,$1)",
         &[&adjudication_checksum()],
@@ -87,12 +98,13 @@ pub(crate) async fn create(
     grant_base_runtime(&tx, runtime_role).await?;
     grant_outcomes(&tx, runtime_role).await?;
     grant_adjudication(&tx, runtime_role).await?;
+    grant_publication(&tx, runtime_role).await?;
     tx.batch_execute(&format!("GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {runtime_role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {runtime_role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {runtime_role};")).await?;
     tx.commit().await?;
     Ok(())
 }
 pub(crate) async fn verify<C: GenericClient + Sync>(client: &C) -> Result<(), StoreError> {
-    if version(client).await? != 5 {
+    if version(client).await? != 6 {
         return Err(StoreError::InvalidStore(
             "unsupported PostgreSQL write schema",
         ));
@@ -112,8 +124,9 @@ async fn version<C: GenericClient + Sync>(client: &C) -> Result<i64, StoreError>
         safety_checksum(),
         outcomes_checksum(),
         adjudication_checksum(),
+        publication_checksum(),
     ];
-    if rows.is_empty() || rows.len() > 5 {
+    if rows.is_empty() || rows.len() > 6 {
         return Err(StoreError::InvalidStore(
             "PostgreSQL migration checksum mismatch",
         ));
@@ -205,6 +218,7 @@ async fn upgrade_client(
         (3, SAFETY, safety_checksum()),
         (4, OUTCOMES, outcomes_checksum()),
         (5, ADJUDICATION, adjudication_checksum()),
+        (6, PUBLICATION, publication_checksum()),
     ] {
         if v > from {
             tx.batch_execute(sql).await?;
@@ -220,6 +234,7 @@ async fn upgrade_client(
     tx.batch_execute(&format!("GRANT SELECT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {role}; GRANT INSERT ON ledgerlab.dispatch_attempts,ledgerlab.delivery_observations,ledgerlab.reconciliation_reports,ledgerlab.delivery_quarantines TO {role}; GRANT UPDATE ON ledgerlab.delivery_state,ledgerlab.dispatcher_head TO {role}; GRANT UPDATE (dispatch_hold,dispatch_enabled) ON ledgerlab.installation TO {role};")).await?;
     grant_outcomes(&tx, role).await?;
     grant_adjudication(&tx, role).await?;
+    grant_publication(&tx, role).await?;
     verify(&tx).await?;
     tx.commit()
         .await
@@ -228,7 +243,7 @@ async fn upgrade_client(
     if lose_ack {
         return Err(UpgradeError::OutcomeUnknown);
     }
-    Ok(if from == 5 {
+    Ok(if from == 6 {
         UpgradeResult::AlreadyCurrent
     } else {
         UpgradeResult::Upgraded
@@ -260,3 +275,8 @@ async fn grant_adjudication<C: GenericClient + Sync>(tx: &C, role: &str) -> Resu
 #[cfg(test)]
 #[path = "adjudication_schema_tests.rs"]
 mod adjudication_schema_tests;
+
+async fn grant_publication<C: GenericClient + Sync>(tx: &C, role: &str) -> Result<(), StoreError> {
+    tx.batch_execute(&format!("GRANT SELECT ON ledgerlab.r3_commit_witness TO {role}; GRANT UPDATE (witness) ON ledgerlab.r3_commit_witness TO {role};")).await?;
+    Ok(())
+}

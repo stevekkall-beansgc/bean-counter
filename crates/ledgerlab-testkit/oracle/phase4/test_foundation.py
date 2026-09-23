@@ -2,7 +2,7 @@
 import copy
 import json
 import unittest
-from foundation import no_change, R3_SQLITE, R3_POSTGRES
+from foundation import no_change, R3_SQLITE, R3_POSTGRES, R3_POSTGRES_V6
 from observer import COMMON, PG_ONLY
 
 
@@ -30,9 +30,9 @@ class FoundationInventory(unittest.TestCase):
 
     def test_current_additive_schema_inventory_is_complete(self):
         for backend in ('sqlite', 'postgres17', 'postgres18'):
-            for version in ((5,6) if backend == 'sqlite' else (5,)):
+            for version in (5,6):
                 evidence = seed(backend)
-                added = R3_SQLITE if backend == 'sqlite' else R3_POSTGRES
+                added = R3_SQLITE if backend == 'sqlite' else R3_POSTGRES_V6 if version == 6 else R3_POSTGRES
                 for stage in ('B0','B1','B2'):
                     if backend == 'sqlite':
                         evidence[stage].extend([[name,['value'],["X'00'"]] for name in sorted(added)])
@@ -40,7 +40,7 @@ class FoundationInventory(unittest.TestCase):
                         evidence['metadata'][stage]['user_version'] = [str(version)]
                     else:
                         evidence[stage].update({name:{'columns':[['value','bytea','NO',None]],'rows':['{"value":"synthetic"}']} for name in added})
-                        evidence[stage]['migration_history']['rows'].append(json.dumps({'version':5,'checksum':'synthetic'}))
+                        evidence[stage]['migration_history']['rows'].extend(json.dumps({'version':v,'checksum':'synthetic'}) for v in range(5,version+1))
                 no_change(evidence)
                 for name in added:
                     # Even simultaneous omission from every snapshot must fail;
@@ -59,7 +59,7 @@ class FoundationInventory(unittest.TestCase):
                     if backend == 'sqlite':
                         next(row for row in unknown[stage] if row[0]=='user_version')[2] = ['7']
                         unknown['metadata'][stage]['user_version'] = ['7']
-                    else: unknown[stage]['migration_history']['rows'].append(json.dumps({'version':6,'checksum':'synthetic'}))
+                    else: unknown[stage]['migration_history']['rows'].append(json.dumps({'version':7,'checksum':'synthetic'}))
                 with self.assertRaises(AssertionError): no_change(unknown)
 
     def test_every_table_and_column_mutation(self):

@@ -240,7 +240,7 @@ async fn postgres_r3_schema_maximum_keys_counters_and_immutable_projections() {
     assert_eq!(retained, ("RESOLVING".into(), j, delivery, hash));
     tx.rollback().await.unwrap();
     runtime.discard().await;
-    eprintln!("actual PostgreSQL{major}: schema5/create+runtime reopen, maximum compact/full keys, 8MiB readback, M boundary/exact successor, immutable projections and shared namespace guards PASS; no R3 capability/physical proof");
+    eprintln!("actual PostgreSQL{major}: schema6/create+runtime reopen, maximum compact/full keys, 8MiB readback, M boundary/exact successor, immutable projections and shared namespace guards PASS; no R3 capability/physical proof");
 }
 
 async fn inventory(client: &Client) -> Vec<(String, Vec<String>)> {
@@ -256,8 +256,16 @@ async fn inventory(client: &Client) -> Vec<(String, Vec<String>)> {
 #[tokio::test]
 #[ignore = "requires explicit isolated PostgreSQL17/18 TLS test database"]
 async fn postgres_r3_upgrade_from_populated_v4_rolls_back_and_preserves_old_records() {
+    upgrade_populated(4).await;
+}
+#[tokio::test]
+#[ignore = "requires explicit isolated PostgreSQL17/18 TLS test database"]
+async fn postgres_r3_upgrade_from_populated_v5_rolls_back_and_preserves_old_records() {
+    upgrade_populated(5).await;
+}
+async fn upgrade_populated(from: i64) {
     use crate::maintenance::UpgradeResult;
-    let database = format!("ledgerlab_r3_upgrade_{}", std::process::id());
+    let database = format!("ledgerlab_r3_upgrade{from}_{}", std::process::id());
     let admin = config("ledgerlab", "postgres").connect().await.unwrap();
     admin
         .client
@@ -273,7 +281,11 @@ async fn postgres_r3_upgrade_from_populated_v4_rolls_back_and_preserves_old_reco
         (2, OUTBOX, outbox_checksum()),
         (3, SAFETY, safety_checksum()),
         (4, OUTCOMES, outcomes_checksum()),
+        (5, ADJUDICATION, adjudication_checksum()),
     ] {
+        if n > from {
+            break;
+        }
         tx.batch_execute(sql).await.unwrap();
         tx.execute(
             "INSERT INTO ledgerlab.migration_history VALUES($1,$2)",
@@ -290,7 +302,28 @@ async fn postgres_r3_upgrade_from_populated_v4_rolls_back_and_preserves_old_reco
     {
         super::super::write::operation(&tx, &op).await.unwrap();
     }
-    tx.batch_execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC; ALTER TABLE ledgerlab.migration_history ADD CONSTRAINT test_stop_next_version CHECK(version<5)").await.unwrap();
+    if from == 5 {
+        // Retain actual R3 native rows as well as legacy installation records.
+        tx.execute(
+            "INSERT INTO ledgerlab.r3_journals VALUES($1,$2,$3,$4,$4)",
+            &[
+                &b"upgrade-journal".as_slice(),
+                &b"{}".as_slice(),
+                &0u128.to_be_bytes().as_slice(),
+                &"a".repeat(64),
+            ],
+        )
+        .await
+        .unwrap();
+        tx.execute(
+            "INSERT INTO ledgerlab.r3_scope_locks VALUES($1,9,$2)",
+            &[&b"upgrade-journal".as_slice(), &b"held-key".as_slice()],
+        )
+        .await
+        .unwrap();
+        grant_adjudication(&tx, ROLE).await.unwrap();
+    }
+    tx.batch_execute(&format!("REVOKE CREATE ON SCHEMA public FROM PUBLIC; ALTER TABLE ledgerlab.migration_history ADD CONSTRAINT test_stop_next_version CHECK(version<{})", from + 1)).await.unwrap();
     grant_base_runtime(&tx, ROLE).await.unwrap();
     grant_outcomes(&tx, ROLE).await.unwrap();
     tx.commit().await.unwrap();
@@ -298,7 +331,7 @@ async fn postgres_r3_upgrade_from_populated_v4_rolls_back_and_preserves_old_reco
     assert!(upgrade(owner_config.clone(), "store-demo-slice", ROLE)
         .await
         .is_err());
-    assert_eq!(version(&owner.client).await.unwrap(), 4);
+    assert_eq!(version(&owner.client).await.unwrap(), from);
     assert_eq!(
         inventory(&owner.client).await,
         before,
@@ -329,11 +362,168 @@ async fn postgres_r3_upgrade_from_populated_v4_rolls_back_and_preserves_old_reco
             assert!(after.contains(&(table, rows)), "retained table changed");
         }
     }
-    assert_eq!(version(&owner.client).await.unwrap(), 5);
+    assert_eq!(version(&owner.client).await.unwrap(), 6);
     owner.discard().await;
     let store = super::super::PostgresStore::open(config(&database, ROLE))
         .await
         .unwrap();
     store.close().await;
-    eprintln!("actual populated v4→v5: forced upgrade rollback, successful upgrade, identical old records, idempotent retry and runtime reopen PASS");
+    eprintln!("actual populated v{from}→v6: forced upgrade rollback, successful upgrade, identical old records, idempotent retry and runtime reopen PASS");
+}
+
+#[tokio::test]
+#[ignore = "requires explicit isolated PostgreSQL17/18 TLS test database"]
+async fn postgres_r3_publication_witness_is_owner_bound_and_runtime_cas_only() {
+    use tokio_postgres::error::SqlState;
+    async fn publication_refused(
+        tx: &tokio_postgres::Transaction<'_>,
+        sql: &str,
+        args: &[&(dyn ToSql + Sync)],
+        expected: SqlState,
+    ) {
+        tx.batch_execute("SAVEPOINT publication_negative")
+            .await
+            .unwrap();
+        let error = tx.execute(sql, args).await.unwrap_err();
+        assert_eq!(
+            error.as_db_error().map(|e| e.code()),
+            Some(&expected),
+            "{sql}: {error:?}"
+        );
+        tx.batch_execute(
+            "ROLLBACK TO SAVEPOINT publication_negative; RELEASE SAVEPOINT publication_negative",
+        )
+        .await
+        .unwrap();
+    }
+    let database = format!("ledgerlab_r3_witness_{}", std::process::id());
+    let admin = config("ledgerlab", "postgres").connect().await.unwrap();
+    admin
+        .client
+        .batch_execute(&format!("CREATE DATABASE {database}"))
+        .await
+        .unwrap();
+    admin.discard().await;
+    let mut owner = config(&database, "postgres").connect().await.unwrap();
+    create(&mut owner.client, installation(), ROLE)
+        .await
+        .unwrap();
+    let zero = "0".repeat(64);
+    let row = owner
+        .client
+        .query_one(
+            "SELECT anchor,witness FROM ledgerlab.r3_commit_witness WHERE singleton=1",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), zero);
+    assert_eq!(row.get::<_, String>(1), zero);
+    let mut runtime = config(&database, ROLE).connect().await.unwrap();
+    let tx = runtime.client.transaction().await.unwrap();
+    publication_refused(
+        &tx,
+        "UPDATE ledgerlab.r3_commit_witness SET anchor=repeat('a',64)",
+        &[],
+        SqlState::INSUFFICIENT_PRIVILEGE,
+    )
+    .await;
+    publication_refused(
+        &tx,
+        "UPDATE ledgerlab.r3_commit_witness SET witness=repeat('b',64)",
+        &[],
+        SqlState::CHECK_VIOLATION,
+    )
+    .await;
+    publication_refused(
+        &tx,
+        "INSERT INTO ledgerlab.r3_commit_witness VALUES (1,repeat('a',64),repeat('b',64))",
+        &[],
+        SqlState::INSUFFICIENT_PRIVILEGE,
+    )
+    .await;
+    publication_refused(
+        &tx,
+        "DELETE FROM ledgerlab.r3_commit_witness",
+        &[],
+        SqlState::INSUFFICIENT_PRIVILEGE,
+    )
+    .await;
+    publication_refused(
+        &tx,
+        "TRUNCATE ledgerlab.r3_commit_witness",
+        &[],
+        SqlState::INSUFFICIENT_PRIVILEGE,
+    )
+    .await;
+    tx.rollback().await.unwrap();
+    let tx = owner.client.transaction().await.unwrap();
+    for invalid in [
+        "NULL",
+        "repeat('A',64)",
+        "repeat('a',63)",
+        "repeat('a',65)",
+        "repeat('a',64)||chr(10)",
+    ] {
+        publication_refused(
+            &tx,
+            &format!(
+                "UPDATE ledgerlab.r3_commit_witness SET anchor={invalid},witness=repeat('b',64)"
+            ),
+            &[],
+            if invalid == "NULL" {
+                SqlState::NOT_NULL_VIOLATION
+            } else {
+                SqlState::CHECK_VIOLATION
+            },
+        )
+        .await;
+    }
+    tx.rollback().await.unwrap();
+    // Only the trusted migration owner can bind UNBOUND. Production bootstrap
+    // must additionally verify excluded writers and original database lineage.
+    owner.client.execute("UPDATE ledgerlab.r3_commit_witness SET anchor=repeat('a',64),witness=repeat('b',64) WHERE singleton=1 AND anchor=$1 AND witness=$1",&[&zero]).await.unwrap();
+    let tx = runtime.client.transaction().await.unwrap();
+    assert_eq!(tx.execute("UPDATE ledgerlab.r3_commit_witness SET witness=repeat('c',64) WHERE singleton=1 AND anchor=repeat('a',64) AND witness=repeat('b',64)",&[]).await.unwrap(),1);
+    assert_eq!(tx.execute("UPDATE ledgerlab.r3_commit_witness SET witness=repeat('d',64) WHERE singleton=1 AND anchor=repeat('a',64) AND witness=repeat('b',64)",&[]).await.unwrap(),0);
+    for invalid in ["NULL", "repeat('C',64)", "repeat('c',63)", "repeat('0',64)"] {
+        publication_refused(
+            &tx,
+            &format!("UPDATE ledgerlab.r3_commit_witness SET witness={invalid}"),
+            &[],
+            if invalid == "NULL" {
+                SqlState::NOT_NULL_VIOLATION
+            } else {
+                SqlState::CHECK_VIOLATION
+            },
+        )
+        .await;
+    }
+    publication_refused(
+        &tx,
+        "UPDATE ledgerlab.r3_commit_witness SET singleton=2",
+        &[],
+        SqlState::INSUFFICIENT_PRIVILEGE,
+    )
+    .await;
+    publication_refused(
+        &tx,
+        "UPDATE ledgerlab.r3_commit_witness SET anchor=repeat('d',64)",
+        &[],
+        SqlState::INSUFFICIENT_PRIVILEGE,
+    )
+    .await;
+    let row = tx
+        .query_one(
+            "SELECT anchor,witness FROM ledgerlab.r3_commit_witness WHERE singleton=1",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), "a".repeat(64));
+    assert_eq!(row.get::<_, String>(1), "c".repeat(64));
+    tx.commit().await.unwrap();
+    runtime.discard().await;
+    owner.discard().await;
+    eprintln!("actual owner-bound publication singleton: UNBOUND cannot grant authority; runtime exact CAS only, identity/deletion/invalid state refused; isolated DB retained");
 }

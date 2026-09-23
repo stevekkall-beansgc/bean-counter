@@ -16,6 +16,7 @@ R3_SQLITE = {
 # Schema5 PostgreSQL uses native scope locks and a fixed recovery slot; its
 # external publication premise differs from SQLite's commit-witness table.
 R3_POSTGRES = (R3_SQLITE - {'r3_commit_witness'}) | {'r3_scope_locks', 'r3_unresolved_work'}
+R3_POSTGRES_V6 = R3_POSTGRES | {'r3_commit_witness'}
 
 
 def stable(value):
@@ -52,8 +53,8 @@ def inventory(snapshot, backend):
             assert len(versions) == len(migrations)
         except (ValueError, TypeError, KeyError) as error:
             raise AssertionError('malformed migration inventory') from error
-        assert versions in (set(range(1, 5)), set(range(1, 6))), 'unsupported PG inventory version'
-        application = COMMON | PG_ONLY | (R3_POSTGRES if 5 in versions else set())
+        assert versions in (set(range(1, 5)), set(range(1, 6)), set(range(1, 7))), 'unsupported PG inventory version'
+        application = COMMON | PG_ONLY | (R3_POSTGRES_V6 if 6 in versions else R3_POSTGRES if 5 in versions else set())
         assert set(snapshot) == application, 'missing/unexpected PG table'
         tables = snapshot
     for name, table in tables.items():
