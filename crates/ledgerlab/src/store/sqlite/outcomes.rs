@@ -565,3 +565,74 @@ mod tests;
 #[cfg(test)]
 #[path = "outcome_atomic_tests.rs"]
 mod atomic_tests;
+
+impl SqliteStore {
+    /// Explicit trusted host control-plane provisioning. Only exact evidence and
+    /// current Authority/Binding heads may be written; never accepted base state.
+    pub(crate) async fn provision_original_authority(
+        &self,
+        records: &[Vec<u8>],
+        changes: &[(OutcomeLock, Option<String>, Vec<u8>)],
+    ) -> Result<(), StoreError> {
+        use crate::store::ports::AcceptanceTx;
+        use ledgerlab_core::canonical::{self as c, outcome as codec, Domain};
+        if self.inner._owner.fence.is_none()
+            || !self.inner.adjudication_enabled.load(Ordering::Acquire)
+            || records.len() > 128
+            || records.iter().map(Vec::len).sum::<usize>() > 1_048_576
+            || changes.is_empty()
+            || changes.len() > 33
+        {
+            return Err(invalid());
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut tx = self.begin(deadline).await?;
+        let installation = tx.load_installation().await?;
+        let scope = [installation.scope.tenant, installation.scope.environment];
+        let mut locks = vec![OutcomeLock {
+            class: OutcomeLockClass::Admission,
+            key: canonical(&serde_json::json!([scope]))?,
+            mode: OutcomeLockMode::Write,
+        }];
+        locks.extend(changes.iter().map(|h| h.0.clone()));
+        tx.lock_scopes(&locks).await?;
+        tx.failed = true;
+        let result = timeout_at(deadline, async {
+            for bytes in records {
+                if bytes.len() > 262144 { return Err(invalid()); }
+                let v = codec::decode(bytes).map_err(|_|invalid())?;
+                let r = record_ref(bytes)?;
+                if r.kind != "evidence" || r.scope != scope { return Err(invalid()); }
+                let body=&v["body"];
+                let raw=body["utf8"].as_str().ok_or_else(invalid)?;
+                let doc=c::parse_bounded(raw.as_bytes(),262144).map_err(|_|invalid())?;
+                let hash=c::digest(Domain::Document,&serde_json::json!([body["document_type"],1,doc])).map_err(|_|invalid())?;
+                if canonical(&doc)?!=raw.as_bytes() || body["document_version"]!=1 || body["document_hash"]!=hash || body["document_id"]!=format!("doc_{}",&hash[7..]) { return Err(invalid()); }
+                insert_record(tx.conn(),bytes,&mut Boundaries{#[cfg(test)] fault:None}).await?;
+            }
+            for (lock,expected,value) in changes {
+                if !matches!(lock.class,OutcomeLockClass::Authority|OutcomeLockClass::Binding)
+                    || lock.mode!=OutcomeLockMode::Write || value.len()>16384
+                    || json(&lock.key)?[0]!=serde_json::json!(scope)
+                    || canonical(&json(value)?)?!=*value
+                { return Err(invalid()); }
+                let old=head(tx.conn(),lock).await?;
+                if old.revision!=*expected { return Err(StoreError::ExpectedCurrent); }
+                let revision=expected.as_ref().map(|r|r.parse::<u64>().map_err(|_|invalid())).transpose()?.unwrap_or(0).checked_add(1).filter(|n|*n<=i64::MAX as u64).ok_or_else(invalid)?.to_string();
+                let changed=if let Some(expected)=expected {
+                    sqlx::query("UPDATE outcome_heads SET revision=?,value=? WHERE class=? AND key=? AND revision=?").bind(&revision).bind(value).bind(class(lock.class)).bind(&lock.key).bind(expected).execute(tx.conn()).await?.rows_affected()
+                } else {
+                    sqlx::query("INSERT INTO outcome_heads VALUES(?,?,?,?)").bind(class(lock.class)).bind(&lock.key).bind(&revision).bind(value).execute(tx.conn()).await?.rows_affected()
+                };
+                if changed!=1 { return Err(StoreError::ExpectedCurrent); }
+            }
+            Ok::<(),StoreError>(())
+        }).await.map_err(|_|StoreError::Deadline)?;
+        if let Err(error) = result {
+            tx.rollback().await?;
+            return Err(error);
+        }
+        tx.failed = false;
+        tx.commit().await.map_err(|_| StoreError::WritesDisabled)
+    }
+}

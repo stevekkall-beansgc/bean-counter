@@ -1,6 +1,7 @@
 //! One bounded acceptance coordinator over concrete durable stores.
 #![forbid(unsafe_code)]
 pub use service::accept::adjudication::SqliteComparison;
+pub mod central;
 pub mod gateway;
 pub mod local;
 pub mod maintenance;
