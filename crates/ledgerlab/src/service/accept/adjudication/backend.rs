@@ -155,7 +155,10 @@ impl CommitCapability {
         recovered_through: TrustedJournalHead,
         allocation_owner: Id,
         physical: PhysicalEnvelope,
+        resource_ceiling: wire::Resource,
+        writer_fence: Option<Digest>,
     ) -> Result<Self> {
+        resource_ceiling.validate()?;
         require(
             journal == *recovered_through.journal(),
             "capability recovered journal",
@@ -173,6 +176,8 @@ impl CommitCapability {
             recovered_through,
             allocation_owner,
             physical,
+            resource_ceiling,
+            writer_fence,
         })
     }
 }

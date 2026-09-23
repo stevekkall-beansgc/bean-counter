@@ -174,6 +174,29 @@ impl super::super::SqliteStore {
         legacy_pages: u32,
         backing_bytes: Count,
     ) -> Result<tx::SqliteAdjudicationStore, StoreError> {
+        self.provision_adjudication_with_ceiling(
+            j,
+            logical.clone(),
+            logical,
+            legacy_pages,
+            backing_bytes,
+        )
+        .await
+    }
+    /// The host reserves the complete physical ceiling before any promise. An
+    /// EXTEND command may activate only its already funded, unpledged remainder.
+    pub(crate) async fn provision_adjudication_with_ceiling(
+        &self,
+        j: JournalIdentity,
+        initial: wire::Resource,
+        logical: wire::Resource,
+        legacy_pages: u32,
+        backing_bytes: Count,
+    ) -> Result<tx::SqliteAdjudicationStore, StoreError> {
+        initial.validate().map_err(core)?;
+        if !initial.fits(&logical) {
+            return Err(StoreError::Overloaded);
+        }
         logical.validate().map_err(core)?;
         if logical.workspace_bytes.value() < r3::SEGMENT_BYTES as u128 {
             return Err(StoreError::Overloaded);
@@ -222,7 +245,7 @@ impl super::super::SqliteStore {
                 .execute(transaction.conn())
                 .await?;
             let state = State::Resource(Box::new(ResourceState::genesis(
-                logical.clone(),
+                initial,
                 Count::new(u128::from(j.host != j.store)).map_err(core)?,
             )));
             let key = index_key(*b"RESOURCE", &[j.host.as_str().as_bytes()]).map_err(core)?;

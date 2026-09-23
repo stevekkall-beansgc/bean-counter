@@ -89,6 +89,8 @@ pub(crate) struct CommitCapability {
     recovered_through: TrustedJournalHead,
     allocation_owner: Id,
     physical: PhysicalEnvelope,
+    resource_ceiling: wire::Resource,
+    writer_fence: Option<Digest>,
 }
 #[derive(Clone, Debug)]
 #[expect(
@@ -109,6 +111,12 @@ pub(crate) struct PhysicalEnvelope {
     reason = "Typed seam review; production adapters/executor are the next assigned gate"
 )]
 impl CommitCapability {
+    pub(crate) fn resource_ceiling(&self) -> &wire::Resource {
+        &self.resource_ceiling
+    }
+    pub(crate) fn writer_fence(&self) -> Option<&Digest> {
+        self.writer_fence.as_ref()
+    }
     pub(crate) fn journal(&self) -> &JournalIdentity {
         &self.journal
     }

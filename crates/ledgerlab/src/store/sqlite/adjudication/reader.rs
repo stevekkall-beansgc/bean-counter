@@ -267,7 +267,11 @@ async fn start(
     )
     .await
     .map_err(|_| StoreError::Deadline)?;
-    if store.inner.disabled.load(std::sync::atomic::Ordering::Acquire) {
+    if store
+        .inner
+        .disabled
+        .load(std::sync::atomic::Ordering::Acquire)
+    {
         return Err(StoreError::WritesDisabled);
     }
     store.require_published()?;

@@ -17,7 +17,8 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
         types::{Count, Id},
     };
     let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::create(dir.path(), tests::installation())
+    let anchor = tempfile::tempdir().unwrap();
+    let store = SqliteStore::create_fenced(dir.path(), tests::installation(), anchor.path())
         .await
         .unwrap();
     let install = tests::installation();
@@ -42,8 +43,25 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
     let maximum = ws.template("PREPARE_ENROLL").unwrap().resources().unwrap();
     logical = logical.checked_add(&maximum).unwrap();
     let backing = Count::new(1u128 << 40).unwrap();
+    let ceiling = logical.checked_add(&maximum).unwrap();
+    assert!(store
+        .provision_adjudication_with_ceiling(
+            journal.clone(),
+            logical.clone(),
+            ceiling.clone(),
+            65536,
+            Count::new(1).unwrap()
+        )
+        .await
+        .is_err());
     let configured = store
-        .provision_adjudication(journal.clone(), logical.clone(), 65536, backing)
+        .provision_adjudication_with_ceiling(
+            journal.clone(),
+            logical.clone(),
+            ceiling.clone(),
+            65536,
+            backing,
+        )
         .await
         .unwrap();
     let work = WorkRequest {
@@ -53,6 +71,10 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
         mandatory: false,
         maximum,
     };
+    let fence = configured
+        .writer_fence(Instant::now() + Duration::from_secs(5))
+        .await
+        .unwrap();
     let mut tx = configured
         .begin_adjudication(&work, Instant::now() + Duration::from_secs(5))
         .await
@@ -66,6 +88,8 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
     let cap = tx.commit_capability().await.unwrap();
     assert_eq!(cap.recovered_through().ordinal(), Count::ZERO);
     assert_eq!(cap.epoch().value(), 1);
+    assert_eq!(cap.resource_ceiling(), &ceiling);
+    assert_eq!(cap.writer_fence(), Some(&fence));
     let pages: i64 = sqlx::query_scalar("PRAGMA max_page_count")
         .fetch_one(tx.conn())
         .await
@@ -75,6 +99,13 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
         pages as u128 * 4096
     );
     tx.rollback().await.unwrap();
+    assert_eq!(
+        configured
+            .writer_fence(Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap(),
+        fence
+    );
     let optional_slots = std::sync::Arc::clone(&store.inner.queue)
         .acquire_many_owned(65)
         .await
@@ -95,9 +126,17 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
     drop(optional_slots);
     drop(configured);
     store.close().await;
-    let reopened = SqliteStore::open(dir.path()).await.unwrap();
+    let reopened = SqliteStore::open_fenced(dir.path(), anchor.path())
+        .await
+        .unwrap();
     let configured = reopened
-        .provision_adjudication(journal.clone(), logical.clone(), 65536, backing)
+        .provision_adjudication_with_ceiling(
+            journal.clone(),
+            logical.clone(),
+            ceiling.clone(),
+            65536,
+            backing,
+        )
         .await
         .unwrap();
     drop(configured);

@@ -49,6 +49,29 @@ fn reject_link(path: &Path) -> Result<(), StoreError> {
     }
 }
 impl Fence {
+    /// A trusted local receipt-commit exclusion witness. The live OS lock is
+    /// retained by the owner; this digest binds its STABLE publication to the
+    /// exact recovered journal/epoch/incarnation selected under the SQL gate.
+    pub(super) fn observation(
+        &self,
+        binding: &[u8],
+    ) -> Result<ledgerlab_core::adjudication::types::Digest, StoreError> {
+        let state = self.state.lock().map_err(|_| invalid())?;
+        let Some(State::Stable { witness }) = &*state else {
+            return Err(invalid());
+        };
+        let bytes = ledgerlab_core::adjudication::canonical_bytes(
+            &serde_json::json!([
+                "sqlite-recovered-writer/1",
+                self.id,
+                witness.hash,
+                raw_sha256(binding)
+            ]),
+            4096,
+        )
+        .map_err(|_| invalid())?;
+        Ok(raw_sha256(&bytes))
+    }
     pub(super) fn is_stable(&self) -> bool {
         self.state
             .lock()

@@ -20,6 +20,8 @@ pub(in crate::store::sqlite) struct Context {
     pub incarnation: Digest,
     pub epoch: Count,
     pub physical: PhysicalEnvelope,
+    pub resource_ceiling: wire::Resource,
+    pub writer_fence: Option<Digest>,
     pub guards: Vec<Guard>,
     pub appended: bool,
 }
@@ -74,7 +76,7 @@ impl AdjudicationStore for SqliteAdjudicationStore {
             return Err(invalid());
         };
         resource.validate().map_err(core)?;
-        if resource.provisioned != self.logical {
+        if !resource.provisioned.fits(&self.logical) {
             return Err(invalid());
         }
         static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -107,6 +109,12 @@ impl AdjudicationStore for SqliteAdjudicationStore {
             transaction.clone(),
         )
         .map_err(core)?;
+        let writer_fence = writer_fence(
+            &self.store,
+            &prior,
+            resource.q.writer_epoch,
+            &self.incarnation,
+        )?;
         tx.adjudication = Some(Context {
             work: work.clone(),
             prior,
@@ -114,6 +122,8 @@ impl AdjudicationStore for SqliteAdjudicationStore {
             incarnation: self.incarnation.clone(),
             epoch: resource.q.writer_epoch,
             physical,
+            resource_ceiling: self.logical.clone(),
+            writer_fence,
             guards: vec![],
             appended: false,
         });
@@ -224,6 +234,8 @@ impl AdjudicationTx for super::super::SqliteTx {
             c.prior.clone(),
             c.work.owner.clone(),
             c.physical.clone(),
+            c.resource_ceiling.clone(),
+            c.writer_fence.clone(),
         )
         .map_err(core)
     }
@@ -244,6 +256,8 @@ impl AdjudicationTx for super::super::SqliteTx {
             || c.incarnation != *cap.storage_incarnation()
             || c.epoch != cap.epoch()
             || c.work.owner != *cap.allocation_owner()
+            || c.resource_ceiling != *cap.resource_ceiling()
+            || c.writer_fence.as_ref() != cap.writer_fence()
             || c.guards != p.guards()
             || c.prior.ordinal() != p.prior().ordinal()
             || c.prior.root() != p.prior().root()
@@ -305,5 +319,65 @@ impl AdjudicationTx for super::super::SqliteTx {
                 Err(e)
             }
         }
+    }
+}
+
+fn writer_fence(
+    store: &super::super::SqliteStore,
+    prior: &TrustedJournalHead,
+    epoch: Count,
+    incarnation: &Digest,
+) -> Result<Option<Digest>, StoreError> {
+    let Some(fence) = &store.inner._owner.fence else {
+        return Ok(None);
+    };
+    let j = prior.journal();
+    let binding = r3::canonical_bytes(
+        &json!([
+            j.store,
+            j.scope,
+            j.registration,
+            j.host,
+            prior.ordinal(),
+            prior.segment(),
+            prior.root(),
+            epoch,
+            incarnation
+        ]),
+        8192,
+    )
+    .map_err(core)?;
+    fence.observation(&binding).map(Some)
+}
+impl SqliteAdjudicationStore {
+    /// Host-only payload discovery; no epoch increment, append or publication.
+    pub(crate) async fn writer_fence(&self, deadline: Instant) -> Result<Digest, StoreError> {
+        use crate::store::ports::AcceptanceTx;
+        provision::verify_incarnation(&self.store, &self.journal, &self.incarnation)?;
+        let mut tx = self.store.begin_lane(deadline, false).await?;
+        let prior = head(tx.conn(), &self.journal).await?;
+        let key = HeadKey {
+            journal: self.journal.clone(),
+            kind: HeadKind::Resource,
+            full_key: index_key(*b"RESOURCE", &[self.journal.host.as_str().as_bytes()])
+                .map_err(core)?,
+        };
+        let observed = point(tx.conn(), &key).await?;
+        let state: r3::runtime::points::State =
+            serde_json::from_slice(observed.value.as_deref().ok_or_else(invalid)?)
+                .map_err(|_| invalid())?;
+        let r3::runtime::points::State::Resource(resource) = state else {
+            return Err(invalid());
+        };
+        resource.validate().map_err(core)?;
+        let result = writer_fence(
+            &self.store,
+            &prior,
+            resource.q.writer_epoch,
+            &self.incarnation,
+        )?
+        .ok_or_else(invalid)?;
+        tx.rollback().await?;
+        Ok(result)
     }
 }
