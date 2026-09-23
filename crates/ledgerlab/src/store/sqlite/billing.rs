@@ -138,7 +138,7 @@ mod tests {
     }
     #[tokio::test]
     async fn billing_write_failure_cancel_and_unknown_commit_reopen() {
-        for cut in [0, 1, 2, 3] {
+        for cut in [0, 1, 2, 3, 4] {
             let temp = tempfile::tempdir().unwrap();
             let path = temp.path().canonicalize().unwrap().join("billing");
             BillingLedger::init(&path, SETUP).await.unwrap();
@@ -146,14 +146,42 @@ mod tests {
             if cut == 0 {
                 sqlx::raw_sql("CREATE TRIGGER injected_billing_failure BEFORE INSERT ON billing_entries BEGIN SELECT RAISE(ABORT,'test write failure'); END;").execute(&store.inner.writer).await.unwrap();
             }
+            let old_limit: i64 = sqlx::query_scalar("PRAGMA max_page_count")
+                .fetch_one(&store.inner.writer)
+                .await
+                .unwrap();
+            if cut == 4 {
+                let pages: i64 = sqlx::query_scalar("PRAGMA page_count")
+                    .fetch_one(&store.inner.writer)
+                    .await
+                    .unwrap();
+                sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "PRAGMA max_page_count={pages}"
+                )))
+                .execute(&store.inner.writer)
+                .await
+                .unwrap();
+            }
             let (mut tx, plan) = plan(&store).await;
-            if cut == 0 {
-                assert!(tx.append_billing(&plan).await.is_err());
+            if cut == 0 || cut == 4 {
+                let error = tx.append_billing(&plan).await.unwrap_err();
+                if cut == 4 {
+                    assert!(error.to_string().contains("full"), "{error}");
+                }
                 assert!(matches!(tx.commit().await, Err(CommitError::RolledBack(_))));
-                sqlx::raw_sql("DROP TRIGGER injected_billing_failure")
+                if cut == 0 {
+                    sqlx::raw_sql("DROP TRIGGER injected_billing_failure")
+                        .execute(&store.inner.writer)
+                        .await
+                        .unwrap();
+                } else {
+                    sqlx::query(sqlx::AssertSqlSafe(format!(
+                        "PRAGMA max_page_count={old_limit}"
+                    )))
                     .execute(&store.inner.writer)
                     .await
                     .unwrap();
+                }
             } else {
                 tx.append_billing(&plan).await.unwrap();
                 if cut == 3 {
@@ -184,6 +212,60 @@ mod tests {
             );
             ledger.close().await;
         }
+    }
+    #[tokio::test]
+    async fn populated_billing_tables_refuse_mutation_without_changing_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(&path, SETUP).await.unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        ledger.accept(EVENT).await.unwrap();
+        let mut alias: serde_json::Value = serde_json::from_slice(EVENT).unwrap();
+        alias["id"] = serde_json::json!("alias");
+        ledger
+            .accept(&serde_json::to_vec(&alias).unwrap())
+            .await
+            .unwrap();
+        ledger.permissions(br#"{"schema":"ledger-billing-permissions/1","expected_revision":"1","permissions":["read"],"reason":"test revocation"}"#).await.unwrap();
+        let before = ledger.statement("customer-1", None).await.unwrap();
+        let permissions = ledger.permission_status().await.unwrap();
+        ledger.close().await;
+        let store = SqliteStore::open(&path.join(".ledger")).await.unwrap();
+        for (table, column) in [
+            ("billing_setup", "canonical_bytes"),
+            ("billing_entries", "bundle"),
+            ("billing_aliases", "ingress"),
+            ("billing_permissions", "canonical_bytes"),
+        ] {
+            let count: i64 =
+                sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                    .fetch_one(&store.inner.readers)
+                    .await
+                    .unwrap();
+            assert!(count > 0);
+            for sql in [
+                format!("UPDATE {table} SET {column}={column}"),
+                format!("DELETE FROM {table}"),
+            ] {
+                let error = sqlx::query(sqlx::AssertSqlSafe(sql))
+                    .execute(&store.inner.writer)
+                    .await
+                    .unwrap_err();
+                assert!(error.to_string().contains("immutable billing"), "{error}");
+            }
+        }
+        store.close().await;
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        assert_eq!(ledger.statement("customer-1", None).await.unwrap(), before);
+        assert_eq!(ledger.permission_status().await.unwrap(), permissions);
+        assert_eq!(
+            ledger
+                .accept(&serde_json::to_vec(&alias).unwrap())
+                .await
+                .unwrap()["status"],
+            "duplicate"
+        );
+        ledger.close().await;
     }
     #[test]
     #[ignore = "subprocess crash helper; invoked by billing_process_exit_reopens_atomically"]

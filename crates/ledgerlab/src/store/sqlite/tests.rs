@@ -700,6 +700,20 @@ async fn immutable_guards_cover_every_journal_table() {
     drop(ledger);
     let before = dump(&store).await;
     let tables:Vec<String>=sqlx::query_scalar("SELECT DISTINCT tbl_name FROM sqlite_schema WHERE type='trigger' AND name LIKE '%_no_update' ORDER BY tbl_name").fetch_all(&store.inner.readers).await.unwrap();
+    // The ordinary billing profile has separate populated guard coverage in
+    // billing::tests; this fixture populates the original journal only.
+    assert_eq!(
+        tables
+            .iter()
+            .filter(|t| t.starts_with("billing_"))
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["billing_entries", "billing_setup"]
+    );
+    let tables: Vec<_> = tables
+        .into_iter()
+        .filter(|t| !t.starts_with("billing_"))
+        .collect();
     assert_eq!(tables.len(), 22);
     for table in tables {
         for sql in [

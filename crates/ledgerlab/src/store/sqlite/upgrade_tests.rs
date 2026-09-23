@@ -280,13 +280,37 @@ async fn sqlite_r3_reader_bound_upgrade_validates_old_keys_and_guards_new_keys()
         );
         assert_eq!(
             version(&mut conn).await.unwrap(),
-            if malformed { 5 } else { 6 }
+            if malformed { 5 } else { 8 }
         );
-        assert_eq!(
-            dump(&mut conn).await,
-            before,
-            "additive key guards never rewrite retained rows"
-        );
+        let after = dump(&mut conn).await;
+        for row in &before {
+            assert!(
+                after.contains(row),
+                "additive migration changed retained table {}",
+                row.0
+            );
+        }
+        let added: Vec<_> = after
+            .iter()
+            .filter(|row| !before.iter().any(|old| old.0 == row.0))
+            .collect();
+        if malformed {
+            assert!(added.is_empty());
+        } else {
+            assert_eq!(
+                added.iter().map(|r| r.0.as_str()).collect::<Vec<_>>(),
+                [
+                    "billing_aliases",
+                    "billing_entries",
+                    "billing_permissions",
+                    "billing_setup"
+                ]
+            );
+            assert!(
+                added.iter().all(|r| r.1.is_empty()),
+                "migration cannot seed billing history"
+            );
+        }
         if !malformed {
             for sql in [
                 "INSERT INTO r3_objects SELECT journal,ordinal,'unknown-kind',origin,full_key,body_hash,byte_length,metadata FROM r3_objects",
@@ -295,7 +319,7 @@ async fn sqlite_r3_reader_bound_upgrade_validates_old_keys_and_guards_new_keys()
                 let error = sqlx::query(AssertSqlSafe(sql)).execute(&mut conn).await.unwrap_err();
                 assert!(error.to_string().contains("unbounded R3 fact kind"), "{error}");
             }
-            assert_eq!(dump(&mut conn).await, before);
+            assert_eq!(dump(&mut conn).await, after);
             assert_eq!(
                 upgrade_sqlite(dir.path(), "store-demo-slice").await,
                 Ok(UpgradeResult::AlreadyCurrent)

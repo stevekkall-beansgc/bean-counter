@@ -41,8 +41,12 @@ def inventory(snapshot, backend):
         assert tables['user_version']['columns'] == ['value']
         version = tables['user_version']['rows']
         assert len(version) == 1 and re.fullmatch(r'0|[1-9][0-9]*',version[0])
-        assert version in (['4'], ['5'], ['6']), 'unsupported SQLite inventory version'
-        application = COMMON | (R3_SQLITE if version in (['5'], ['6']) else set())
+        assert version in (['4'], ['5'], ['6'], ['7'], ['8']), 'unsupported SQLite inventory version'
+        application = COMMON | (R3_SQLITE if version != ['4'] else set())
+        if int(version[0]) >= 7:
+            application |= {'billing_setup', 'billing_entries'}
+        if int(version[0]) >= 8:
+            application |= {'billing_aliases', 'billing_permissions'}
         assert set(tables) in (application | {'sqlite_schema','user_version'}, application | {'sqlite_schema','user_version','_sqlx_migrations'})
     else:
         assert type(snapshot) is dict and 'migration_history' in snapshot
