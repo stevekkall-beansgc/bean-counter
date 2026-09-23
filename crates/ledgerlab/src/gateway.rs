@@ -51,6 +51,32 @@ fn core<T>(result: ledgerlab_core::Result<T>) -> Result<T, ServiceError> {
     result.map_err(|e| ServiceError::Rejection(e.code.into()))
 }
 impl OfflineGateway {
+    /// Accept or retry an exact receipt, explicitly separating local durability
+    /// from central lifecycle knowledge. This offline host has no central read.
+    pub async fn receive_receipt(
+        &self,
+        key: wire::Delivery,
+        payload: wire::Receive,
+        context: GatewayContext,
+        timeout: Duration,
+    ) -> Result<wire::RetryResponse, ServiceError> {
+        offline_receipt(self.receive(key, payload, context, timeout).await?)
+    }
+
+    /// Recover a retained receipt with current local read authorization. Missing
+    /// means no local saved result, never central absence or commercial denial.
+    pub async fn receipt_status(
+        &self,
+        key: wire::Delivery,
+        context: GatewayContext,
+        timeout: Duration,
+    ) -> Result<Option<wire::RetryResponse>, ServiceError> {
+        self.status(key, context, timeout)
+            .await?
+            .map(offline_receipt)
+            .transpose()
+    }
+
     #[cfg(test)]
     pub(crate) fn test_store(&self) -> &SqliteStore {
         &self.store
@@ -109,6 +135,9 @@ impl OfflineGateway {
         core(payload.validate())?;
         if payload.gateway != self.journal.host || key.0 != self.journal.scope {
             return Err(ServiceError::Rejection("WRONG_OWNER".into()));
+        }
+        if payload.delivery != key {
+            return Err(ServiceError::Rejection("TOKEN_STATE".into()));
         }
         let deadline = Instant::now() + timeout.min(Duration::from_secs(30));
         let (discovery, saved, prefix) = self
@@ -204,6 +233,27 @@ impl OfflineGateway {
     pub async fn close(self) {
         self.store.close().await;
     }
+}
+fn offline_receipt(result: wire::CommandResult) -> Result<wire::RetryResponse, ServiceError> {
+    if !matches!(
+        result.status,
+        wire::CommandResultStatus::Committed | wire::CommandResultStatus::Duplicate
+    ) {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let [wire::Effect::Receipt { body }] = result.effects.as_slice() else {
+        return Err(ServiceError::IntegrityFailure);
+    };
+    let response = wire::RetryResponse {
+        receipt: body.clone(),
+        knowledge: wire::RetryResponseKnowledge::Unknown,
+        current_lifecycle: wire::RetryResponseCurrentLifecycle::Unknown,
+        central_admission: wire::RetryResponseCentralAdmission::Unknown,
+        prefix: None,
+        coverage: vec![],
+    };
+    core(response.validate())?;
+    Ok(response)
 }
 struct LocalHost {
     discovery: ObservedHead,
