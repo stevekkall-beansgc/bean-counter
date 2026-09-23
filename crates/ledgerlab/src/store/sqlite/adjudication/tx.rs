@@ -265,7 +265,10 @@ impl AdjudicationTx for super::super::SqliteTx {
             self.failed = false;
             match base.writes() {
                 OriginalBaseWrites::V2(plan) => self.append_outcome(plan).await?,
-                OriginalBaseWrites::OriginalV2(_) => return Err(invalid()),
+                OriginalBaseWrites::OriginalV2(plan) => {
+                    let journal = journal_key(p.journal())?;
+                    self.append_original_base(plan, &journal).await?;
+                }
                 OriginalBaseWrites::V1 { writes, .. } => {
                     use crate::store::ports::AcceptanceTx;
                     for op in writes {

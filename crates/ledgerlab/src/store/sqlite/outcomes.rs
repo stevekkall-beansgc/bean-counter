@@ -1,4 +1,5 @@
 //! SQLite mapping of the coordinator-owned outcome protocol. No economics here.
+mod original;
 use super::{SqliteStore, SqliteTx};
 use crate::store::{errors::StoreError, outcomes::*, ports::AcceptanceStore};
 use ledgerlab_core::canonical::{parse_bounded, CanonicalBytes};
