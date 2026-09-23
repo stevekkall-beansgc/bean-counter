@@ -179,6 +179,7 @@ async fn postgres_r3_schema_maximum_keys_counters_and_immutable_projections() {
     .unwrap();
     refused(&tx,"INSERT INTO ledgerlab.acceptance_delivery_namespace VALUES('synthetic','sandbox','source',$1,'v1')",&[&external]).await;
     tx.rollback().await.unwrap();
+    owner.client.execute("INSERT INTO ledgerlab.r3_unresolved_work(singleton,generation,state) VALUES(1,$1,'IDLE')", &[&zero]).await.unwrap();
     owner.discard().await;
     let store = super::super::PostgresStore::open(config(&database, ROLE))
         .await
@@ -199,6 +200,41 @@ async fn postgres_r3_schema_maximum_keys_counters_and_immutable_projections() {
         &[],
     )
     .await;
+    // CHECK must be FALSE, never UNKNOWN, for each omitted resolving identity.
+    const RESOLVING: &str = "UPDATE ledgerlab.r3_unresolved_work SET state='RESOLVING',backend_pid=pg_backend_pid(),backend_start=(SELECT backend_start FROM pg_stat_activity WHERE pid=pg_backend_pid()),journal=$1,delivery=$2,command_hash=$3 WHERE singleton=1";
+    for missing in 0..3 {
+        let journal = (missing != 0).then_some(j.as_slice());
+        let delivery_key = (missing != 1).then_some(delivery.as_slice());
+        let command_hash = (missing != 2).then_some(hash.as_str());
+        tx.batch_execute("SAVEPOINT missing_identity")
+            .await
+            .unwrap();
+        let error = tx
+            .execute(RESOLVING, &[&journal, &delivery_key, &command_hash])
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_db_error().unwrap().code(),
+            &tokio_postgres::error::SqlState::CHECK_VIOLATION,
+            "missing identity field {missing}"
+        );
+        tx.batch_execute(
+            "ROLLBACK TO SAVEPOINT missing_identity; RELEASE SAVEPOINT missing_identity",
+        )
+        .await
+        .unwrap();
+    }
+    assert_eq!(
+        tx.execute(RESOLVING, &[&j, &delivery, &hash])
+            .await
+            .unwrap(),
+        1
+    );
+    let retained: (String, Vec<u8>, Vec<u8>, String) = {
+        let row = tx.query_one("SELECT state,journal,delivery,command_hash FROM ledgerlab.r3_unresolved_work WHERE singleton=1", &[]).await.unwrap();
+        (row.get(0), row.get(1), row.get(2), row.get(3))
+    };
+    assert_eq!(retained, ("RESOLVING".into(), j, delivery, hash));
     tx.rollback().await.unwrap();
     runtime.discard().await;
     eprintln!("actual PostgreSQL{major}: schema5/create+runtime reopen, maximum compact/full keys, 8MiB readback, M boundary/exact successor, immutable projections and shared namespace guards PASS; no R3 capability/physical proof");

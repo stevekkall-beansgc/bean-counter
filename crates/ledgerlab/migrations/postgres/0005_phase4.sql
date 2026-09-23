@@ -123,6 +123,7 @@ CREATE TABLE r3_unresolved_work (
  backend_pid INTEGER, backend_start TIMESTAMPTZ,
  journal BYTEA, delivery BYTEA, command_hash TEXT COLLATE "C",
  CHECK((state='IDLE') OR (backend_pid IS NOT NULL AND backend_start IS NOT NULL
+   AND journal IS NOT NULL AND delivery IS NOT NULL AND command_hash IS NOT NULL
    AND octet_length(journal) BETWEEN 1 AND 1115
    AND octet_length(delivery) BETWEEN 2 AND 4096 AND command_hash ~ '^[0-9a-f]{64}$'))
 );
