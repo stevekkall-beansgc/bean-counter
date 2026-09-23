@@ -8,7 +8,7 @@ I/O bounds, or protected completion. Those remain separate physical gates.
 Premises are the pinned SQLite3.51.3 source, 4096-byte pages, zero header reserved
 bytes, no auto-vacuum, memory mapping disabled and forced exact/range indexes.
 Migration6 validates existing object kinds and installs immutable-row insert guards
-for the closed16 FactKind values, each at most17 ASCII bytes. Full persisted index
+for the closed16 FactKind values, each at most18 ASCII bytes. Full persisted index
 keys, including record headers, rowid/page suffixes and up to256 UTF-8 bytes in a
 SQL length64 digest, are below8192 bytes. No digest-only identity substitution occurs.
 
