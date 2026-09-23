@@ -358,3 +358,6 @@ mod base;
 mod run;
 mod seal;
 pub(crate) use run::{run, AdjudicationHost, SourceRequest};
+
+#[cfg(test)]
+mod sqlite_tests;
