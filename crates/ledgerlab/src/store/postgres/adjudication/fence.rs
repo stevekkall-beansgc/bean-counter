@@ -17,26 +17,29 @@ const MAX_BINDING: usize = 4096;
 /// Parsed backend observation only. Construction is not proof of SQL authority,
 /// database lineage, ownership, external recovery, or physical backing.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct DatabaseWitness {
+pub(in crate::store::postgres) struct DatabaseWitness {
     anchor: Digest,
     witness: Digest,
 }
 impl DatabaseWitness {
-    pub(super) fn from_database(anchor: &str, witness: &str) -> Result<Self, StoreError> {
+    pub(in crate::store::postgres) fn from_database(
+        anchor: &str,
+        witness: &str,
+    ) -> Result<Self, StoreError> {
         Ok(Self {
             anchor: Digest::parse(anchor).map_err(|_| invalid())?,
             witness: Digest::parse(witness).map_err(|_| invalid())?,
         })
     }
-    pub(super) fn anchor(&self) -> &Digest {
+    pub(in crate::store::postgres) fn anchor(&self) -> &Digest {
         &self.anchor
     }
-    pub(super) fn witness(&self) -> &Digest {
+    pub(in crate::store::postgres) fn witness(&self) -> &Digest {
         &self.witness
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum RecoveryDisposition {
+pub(in crate::store::postgres) enum RecoveryDisposition {
     UnchangedStable,
     RecoveredOld,
     RecoveredNew,
@@ -243,6 +246,14 @@ impl Fence {
         memory.state = Some(state);
         memory.poisoned = false;
         Ok(())
+    }
+    pub(super) fn needs_initialization(&self) -> Result<bool, StoreError> {
+        self.check_identity()?;
+        let m = self.memory.lock().map_err(|_| invalid())?;
+        if m.poisoned {
+            return Err(invalid());
+        }
+        Ok(m.state.is_none())
     }
     /// Caller must bootstrap this exact witness in SQL under migration-owner
     /// lineage/exclusion rules. This method cannot certify those premises.

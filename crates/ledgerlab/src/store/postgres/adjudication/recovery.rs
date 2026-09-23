@@ -48,6 +48,7 @@ pub(in crate::store::postgres) struct Resolution {
 }
 pub(in crate::store::postgres) struct Gate {
     session: Session,
+    publication_identity: Arc<()>,
     pub work: Option<Work>,
     generation: Option<Count>,
     pub prior_resolution: Option<Resolution>,
@@ -93,6 +94,19 @@ impl Gate {
         deadline: Instant,
         pid: &Arc<AtomicI32>,
     ) -> Result<Self, StoreError> {
+        let mut gate = Self::acquire_raw(config, deadline, pid).await?;
+        timeout_at(deadline, gate.resolve_after_publication())
+            .await
+            .map_err(|_| StoreError::Deadline)??;
+        Ok(gate)
+    }
+    /// Acquire exclusion only. Anchored callers MUST recover external
+    /// publication before resolve_after_publication, arm, or application reads.
+    pub async fn acquire_raw(
+        config: &PostgresConfig,
+        deadline: Instant,
+        pid: &Arc<AtomicI32>,
+    ) -> Result<Self, StoreError> {
         timeout_at(deadline, async {
             let session = config.connect().await?;
             super::super::verify_server(&session.client).await?;
@@ -107,17 +121,56 @@ impl Gate {
                 .client
                 .query_one("SELECT pg_advisory_lock($1)", &[&GATE])
                 .await?;
-            let mut gate = Self {
+            Ok(Self {
                 session,
+                publication_identity: Arc::new(()),
                 work: None,
                 generation: None,
                 prior_resolution: None,
-            };
-            gate.prior_resolution = gate.resolve().await?;
-            Ok(gate)
+            })
         })
         .await
         .map_err(|_| StoreError::Deadline)?
+    }
+    pub(super) fn publication_identity(&self) -> Arc<()> {
+        self.publication_identity.clone()
+    }
+    /// Control session is still protected by the independent advisory gate.
+    /// Only publication's short witness-lock transaction may borrow it here.
+    pub(super) fn publication_client(&mut self) -> &mut tokio_postgres::Client {
+        &mut self.session.client
+    }
+    /// Must follow STABLE publication recovery on the anchored route. No new
+    /// work may be armed until this exact saved/nonmembership resolution ends.
+    pub async fn resolve_after_publication(&mut self) -> Result<(), StoreError> {
+        self.prior_resolution = self.resolve().await?;
+        Ok(())
+    }
+    /// Read-only exit proof. A missing/unknown backend start cannot establish
+    /// absence. Does not inspect saved outcomes or consume the staging slot.
+    pub(super) async fn require_prior_exit(&self) -> Result<(), StoreError> {
+        let row = self.session.client.query_one(
+            "SELECT state,backend_pid,backend_start::text FROM ledgerlab.r3_unresolved_work WHERE singleton=1", &[]
+        ).await?;
+        match row.try_get::<_, &str>(0)? {
+            "IDLE" => Ok(()),
+            "RESOLVING" => {
+                let pid: i32 = row.try_get(1)?;
+                let start: String = row.try_get(2)?;
+                self.require_exit(pid, &start).await
+            }
+            _ => Err(invalid()),
+        }
+    }
+    async fn require_exit(&self, pid: i32, start: &str) -> Result<(), StoreError> {
+        let live: bool = self.session.client.query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND (backend_start IS NULL OR backend_start=$2::text::timestamptz)) OR (NOT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND backend_start<>$2::text::timestamptz) AND EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1))", &[&pid, &start]
+        ).await?.try_get(0)?;
+        if live {
+            Err(StoreError::WritesDisabled)
+        } else {
+            Ok(())
+        }
     }
     pub async fn arm<C: GenericClient + Sync>(
         &mut self,
@@ -176,10 +229,7 @@ impl Gate {
         }
         let pid: i32 = row.try_get(2)?;
         let start: String = row.try_get(3)?;
-        let live:bool=self.session.client.query_one("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND (backend_start IS NULL OR backend_start=$2::text::timestamptz)) OR (NOT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND backend_start<>$2::text::timestamptz) AND EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1))",&[&pid,&start]).await?.try_get(0)?;
-        if live {
-            return Err(StoreError::WritesDisabled);
-        }
+        self.require_exit(pid, &start).await?;
         let jb: Vec<u8> = row.try_get(4)?;
         let j = decode_journal(&jb)?;
         let key: wire::Delivery =

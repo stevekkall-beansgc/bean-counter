@@ -11,6 +11,14 @@
 mod fence;
 mod locks;
 mod persist;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Private publication coordinator awaits driver integration"
+    )
+)]
+pub(super) mod publication;
 mod read;
 pub(super) mod recovery;
 mod resolve;
