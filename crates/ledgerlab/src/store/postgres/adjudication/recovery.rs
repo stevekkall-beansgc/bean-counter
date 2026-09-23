@@ -95,9 +95,28 @@ impl Gate {
         pid: &Arc<AtomicI32>,
     ) -> Result<Self, StoreError> {
         let mut gate = Self::acquire_raw(config, deadline, pid).await?;
-        timeout_at(deadline, gate.resolve_after_publication())
-            .await
-            .map_err(|_| StoreError::Deadline)??;
+        timeout_at(deadline, async {
+            // A handle opened while UNBOUND may survive owner bootstrap. Do
+            // not resolve/clear a later bound PENDING result through that stale
+            // handle. The independent gate also excludes bootstrap while this
+            // fresh control snapshot proves the singleton is still UNBOUND.
+            let tx = gate.session.client.build_transaction()
+                .isolation_level(tokio_postgres::IsolationLevel::ReadCommitted)
+                .start().await?;
+            let row = tx.query_one(
+                "SELECT anchor,witness FROM ledgerlab.r3_commit_witness WHERE singleton=1 FOR UPDATE", &[]
+            ).await?;
+            let zero = "0".repeat(64);
+            if row.try_get::<_, &str>(0)? != zero || row.try_get::<_, &str>(1)? != zero {
+                return Err(StoreError::InvalidStore(
+                    "bound PostgreSQL work requires publication recovery",
+                ));
+            }
+            tx.rollback().await?;
+            gate.resolve_after_publication().await
+        })
+        .await
+        .map_err(|_| StoreError::Deadline)??;
         Ok(gate)
     }
     /// Acquire exclusion only. Anchored callers MUST recover external
