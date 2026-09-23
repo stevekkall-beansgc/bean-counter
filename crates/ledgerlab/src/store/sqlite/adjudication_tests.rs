@@ -413,3 +413,128 @@ async fn r3_pages_are_bounded_immutable_and_ordinals_exceed_i64() {
     drop(writer);
     reopened.close().await;
 }
+
+#[tokio::test]
+async fn r3_optional_legacy_quota_rejects_growth_and_freelist_reuse_atomically() {
+    use crate::store::{
+        adjudication::*,
+        errors::{CommitError, StoreError},
+    };
+    use ledgerlab_core::adjudication::{
+        commands as w,
+        runtime::accounting::Worksheet,
+        types::{Count, Id},
+    };
+    for reuse in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let installation = tests::installation();
+        let store = SqliteStore::create(dir.path(), installation.clone())
+            .await
+            .unwrap();
+        if reuse {
+            // Test-only setup creates free pages before provisioning; the scratch
+            // table is absent from the actual profile and business inventory.
+            let mut conn = store.inner.writer.acquire().await.unwrap();
+            sqlx::query("CREATE TABLE quota_scratch (body BLOB)")
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO quota_scratch VALUES (zeroblob(262144))")
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+            sqlx::query("DROP TABLE quota_scratch")
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+        }
+        let journal = JournalIdentity {
+            store: Id::parse(&installation.logical_store_id).unwrap(),
+            scope: w::Scope(
+                Id::parse(&installation.scope.tenant).unwrap(),
+                Id::parse(&installation.scope.environment).unwrap(),
+            ),
+            registration: Id::parse("quota-test").unwrap(),
+            host: Id::parse("gateway-quota").unwrap(),
+        };
+        let maximum = Worksheet::frozen()
+            .unwrap()
+            .template("PREPARE_ENROLL")
+            .unwrap()
+            .resources()
+            .unwrap();
+        let configured = store
+            .provision_adjudication(
+                journal.clone(),
+                maximum.clone(),
+                0,
+                Count::new(1u128 << 40).unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut tx = store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap();
+        let before = super::adjudication::physical_usage(tx.conn())
+            .await
+            .unwrap();
+        let file_before: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(tx.conn())
+            .await
+            .unwrap();
+        // Exercise the real legacy commit boundary with a physical append. This
+        // deliberately does not claim to be an accepted business command.
+        sqlx::query("INSERT INTO outcome_records VALUES ('synthetic','sandbox','evidence',X'01',?,zeroblob(131072))").bind(format!("sha256:{}","0".repeat(64))).execute(tx.conn()).await.unwrap();
+        assert!(
+            super::adjudication::physical_usage(tx.conn())
+                .await
+                .unwrap()
+                > before
+        );
+        let file_after: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(tx.conn())
+            .await
+            .unwrap();
+        if reuse {
+            assert_eq!(
+                file_after, file_before,
+                "free pages reused without file growth"
+            );
+        } else {
+            assert!(file_after > file_before);
+        }
+        assert!(matches!(
+            tx.commit().await,
+            Err(CommitError::RolledBack(StoreError::Overloaded))
+        ));
+        let mut read = store.inner.readers.acquire().await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM outcome_records")
+            .fetch_one(&mut *read)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        let used: Vec<u8> = sqlx::query_scalar("SELECT legacy_used FROM r3_storage_profile")
+            .fetch_one(&mut *read)
+            .await
+            .unwrap();
+        assert_eq!(used, 0u128.to_be_bytes());
+        drop(read);
+        let work = WorkRequest {
+            journal,
+            owner: Id::parse("owner").unwrap(),
+            transition: ledgerlab_core::adjudication::raw_sha256(b"quota-work"),
+            mandatory: false,
+            maximum,
+        };
+        configured
+            .begin_adjudication(&work, Instant::now() + Duration::from_secs(5))
+            .await
+            .unwrap()
+            .rollback()
+            .await
+            .unwrap();
+        drop(configured);
+        store.close().await;
+    }
+}
