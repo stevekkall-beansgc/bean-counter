@@ -29,7 +29,9 @@ async fn dump(client: &Client) -> Vec<(String, Vec<String>)> {
     let mut result = vec![];
     for row in tables {
         let table: String = row.get(0);
-        assert!(table.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'));
+        assert!(table
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'));
         let projection = if table == "dispatcher_head" {
             "(to_jsonb(t)-'revision')::text"
         } else {
