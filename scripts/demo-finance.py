@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ledger', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path, help='New directory; refuses reuse')
-    parser.add_argument('--checks', action='store_true', help='Also run isolated negative and incremental checks')
+    parser.add_argument('--checks', action='store_true', help='Also run isolated refusal, incremental, and outcome-pricing examples')
     args = parser.parse_args()
     binary = args.ledger.resolve(strict=True)
     root = args.output.absolute()
@@ -36,6 +36,103 @@ def main():
         value = json.loads(result.stdout)
         commands.append({'args': list(words), 'exit': result.returncode, 'result': value})
         return value
+
+    def run_in(directory, *words, expected=0):
+        result = subprocess.run([str(binary), 'billing', *words, '--json'], cwd=directory,
+                                text=True, capture_output=True)
+        assert result.returncode == expected, (words, result.returncode, result.stdout, result.stderr)
+        value = json.loads(result.stdout)
+        commands.append({'cwd': str(directory.relative_to(root)), 'args': list(words),
+                         'exit': result.returncode, 'result': value})
+        return value
+
+    def run_outcome_examples():
+        """Use fresh synthetic stores to show each supported outcome balance."""
+        outcome_root = root / 'outcome-pricing'
+        outcome_root.mkdir(mode=0o700)
+        setup = {
+            'schema': 'ledger-local-billing/1', 'scope': ['example-company', 'local'],
+            'store_id': 'synthetic-outcome-demo', 'operator': 'synthetic-operator',
+            'source': 'urn:synthetic:outcome', 'customer': 'synthetic-customer',
+            'host': 'synthetic-host', 'agreement': 'synthetic-outcome-agreement',
+            'binding': 'synthetic-outcome-binding', 'price': '0.02',
+            'accepted_at': '2026-09-22T00:00:00.000000Z',
+            'acceptor': 'synthetic-authorized-acceptor',
+            'assent_evidence': 'Synthetic demonstration only: retained assent.',
+            'operator_attestation': 'Synthetic demonstration only: authority attested.',
+            'finality_attestation': 'Successful work submitted under these terms is final for billing.',
+            'permissions': ['read', 'submit', 'correct'],
+            'outcome_policy': {
+                'version': '1', 'families': [{
+                    'family': 'delivery', 'binding_id': 'synthetic-outcome-binding',
+                    'source': 'urn:synthetic:outcome', 'correction_source': 'urn:synthetic:outcome',
+                    'evidence_required': True,
+                    'ordinary': {'starts_at': '2026-09-22T13:00:00.000000Z',
+                                 'occurs_before': '2027-01-01T00:00:00.000000Z',
+                                 'received_by': '2027-01-02T00:00:00.000000Z',
+                                 'accepted_by': '2027-01-03T00:00:00.000000Z'},
+                    'corrections': {'starts_at': '2026-09-22T13:00:00.000000Z',
+                                    'occurs_before': '2027-02-01T00:00:00.000000Z',
+                                    'received_by': '2027-02-02T00:00:00.000000Z',
+                                    'accepted_by': '2027-02-03T00:00:00.000000Z'},
+                    'codes': [
+                        {'code': 'success', 'amount': {'kind': 'fixed', 'money':
+                         {'currency': 'USD', 'scale': 2, 'atoms': '98'}}},
+                        {'code': 'unsuccessful-by-cutoff', 'amount': {'kind': 'fixed', 'money':
+                         {'currency': 'USD', 'scale': 2, 'atoms': '-2'}}}],
+                    'replacement_codes': ['success', 'unsuccessful-by-cutoff'],
+                    'allow_reversal': True}],
+                'limits': [{'binding_id': 'synthetic-outcome-binding',
+                            'premium': {'currency': 'USD', 'scale': 2, 'atoms': '98'}}]}}
+        base_event = {'schema': 'ledger-event/1', 'id': 'work-1', 'operation_id': 'operation-1',
+                      'type': 'content.generated', 'customer': 'synthetic-customer',
+                      'occurred_at': '2026-09-22T12:00:00.000000Z'}
+        outcomes = {
+            'success': {'id': 'outcome-success', 'code': 'success'},
+            'unsuccessful': {'id': 'outcome-unsuccessful', 'code': 'unsuccessful-by-cutoff'}}
+        corrections = {'schema': 'ledger-billing-correction/1', 'id': 'correction-success',
+                       'family': 'delivery', 'occurred_at': '2026-09-23T14:00:00.000000Z',
+                       'evidence': 'Synthetic only: corrected outcome evidence.',
+                       'expected_revision': '1', 'replacement':
+                       {'kind': 'code', 'code': 'unsuccessful-by-cutoff'}}
+        results = {}
+        for case in ('no-outcome', 'success', 'unsuccessful', 'success-corrected'):
+            case_dir = outcome_root / case
+            case_dir.mkdir(mode=0o700)
+            case_setup = dict(setup, store_id='synthetic-' + case)
+            (case_dir / 'setup.json').write_text(json.dumps(case_setup, indent=2) + '\n')
+            event = dict(base_event)
+            (case_dir / 'event.json').write_text(json.dumps(event, indent=2) + '\n')
+            run_in(case_dir, 'init', 'store', '--setup', 'setup.json')
+            accepted = run_in(case_dir, '--directory', 'store', 'accept', 'event.json')
+            target = accepted['receipt']['body']['target']
+            if case != 'no-outcome':
+                name = 'success' if case in ('success', 'success-corrected') else 'unsuccessful'
+                data = dict(outcomes[name], schema='ledger-billing-outcome/1', target=target,
+                            family='delivery', occurred_at='2026-09-23T13:00:00.000000Z',
+                            evidence='Synthetic only: operator attestation for this example.')
+                outcome_file = case_dir / 'outcome.json'
+                outcome_file.write_text(json.dumps(data, indent=2) + '\n')
+                first_outcome = run_in(case_dir, '--directory', 'store', 'outcome', 'outcome.json')
+                if case == 'success':
+                    retry = run_in(case_dir, '--directory', 'store', 'outcome', 'outcome.json')
+                    assert retry['receipt'] == first_outcome['receipt']
+                if case == 'success-corrected':
+                    correction = dict(corrections, target=target)
+                    (case_dir / 'correction.json').write_text(json.dumps(correction, indent=2) + '\n')
+                    run_in(case_dir, '--directory', 'store', 'correct', 'correction.json')
+            statement = run_in(case_dir, '--directory', 'store', 'statement',
+                               '--customer', 'synthetic-customer')
+            amounts = [int(posting['body']['amount']['atoms'])
+                       for entry in statement['entries'] for posting in entry.get('postings', [])]
+            expected = {'no-outcome': [2], 'success': [2, 98],
+                        'unsuccessful': [2, -2], 'success-corrected': [2, 98, -98, -2]}[case]
+            assert amounts == expected, (case, amounts)
+            assert statement['complete'] is True and statement['cutoff'] == str(len(statement['entries']))
+            assert int(statement['net_atoms']) == sum(expected)
+            results[case] = {'posting_atoms': amounts, 'net_atoms': statement['net_atoms'],
+                             'complete': statement['complete']}
+        return results
 
     def billing(*words, expected=0):
         return run('--directory', 'store', *words, expected=expected)
@@ -166,6 +263,7 @@ def main():
         billing('permissions', 'revoke.json')
         assert export('denied.csv', current['snapshot_hash'], expected=6)['complete'] is False
         assert not (root / 'denied.csv').exists()
+        outcome_results = run_outcome_examples()
     assert not list(root.glob('.ledger-finance-*.tmp'))
     report = {'synthetic': True, 'independent_acceptance': False, 'export_id': first_export['export_id'],
               'snapshot_hash': pinned['snapshot_hash'], 'cutoff': '5', 'posting_rows': 6, 'net_atoms': '500',
@@ -173,7 +271,9 @@ def main():
               'consumer_repeat_duplicates': 6, 'extended_checks': args.checks,
               'csv_sha256': hashlib.sha256((root / 'finance.csv').read_bytes()).hexdigest(),
               'binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
-              'expected_amounts_by_decision': expected_by_decision, 'commands': commands}
+              'expected_amounts_by_decision': expected_by_decision,
+              'outcome_pricing_examples': outcome_results if args.checks else None,
+              'commands': commands}
     save('RESULT.json', report)
     print(json.dumps({k: v for k, v in report.items() if k != 'commands'}, indent=2))
 
