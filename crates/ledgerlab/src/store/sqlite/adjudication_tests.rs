@@ -114,7 +114,21 @@ async fn r3_pages_are_bounded_immutable_and_ordinals_exceed_i64() {
         .await
         .unwrap();
     let mut conn = store.inner.writer.acquire().await.unwrap();
-    let j = b"storage-pages".to_vec();
+    use crate::store::adjudication::JournalIdentity;
+    use ledgerlab_core::adjudication::{
+        commands::Scope,
+        types::{Count, Digest, Id},
+    };
+    let identity = JournalIdentity {
+        store: Id::parse("store-demo-slice").unwrap(),
+        scope: Scope(
+            Id::parse("tenant").unwrap(),
+            Id::parse("environment").unwrap(),
+        ),
+        registration: Id::parse("registration").unwrap(),
+        host: Id::parse("store-demo-slice").unwrap(),
+    };
+    let j = super::adjudication::journal_key(&identity).unwrap();
     sqlx::query("INSERT INTO r3_journals VALUES (?,?,?,?,?)")
         .bind(&j)
         .bind(b"{}".as_slice())
@@ -201,5 +215,38 @@ async fn r3_pages_are_bounded_immutable_and_ordinals_exceed_i64() {
             .await
             .unwrap();
     assert_eq!(sizes, vec![4096; 3]);
+    let mut reader = reopened.inner.readers.acquire().await.unwrap();
+    let fragment = super::adjudication::segment_page(
+        &mut reader,
+        &identity,
+        &Digest::parse(&format!("{:064x}", 1)).unwrap(),
+        Count::ZERO,
+        17,
+        31,
+    )
+    .await
+    .unwrap();
+    assert_eq!(fragment.bytes, vec![b'x'; 31]);
+    assert_eq!(fragment.offset, 17);
+    assert_eq!(fragment.total_bytes.value(), 4096);
+    assert!(super::adjudication::segment_page(
+        &mut reader,
+        &identity,
+        &Digest::parse(&format!("{:064x}", 1)).unwrap(),
+        Count::ZERO,
+        4090,
+        31
+    )
+    .await
+    .is_err());
+    drop(reader);
+    let mut writer = reopened.inner.writer.acquire().await.unwrap();
+    assert!(sqlx::query("DELETE FROM r3_journals")
+        .execute(&mut *writer)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("permanent R3 journal identity"));
+    drop(writer);
     reopened.close().await;
 }

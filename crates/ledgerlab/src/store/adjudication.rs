@@ -202,7 +202,7 @@ pub(crate) struct HeadWrite {
 pub(crate) struct SavedOutcome {
     pub command: Vec<u8>,
     pub result: wire::CommandResult,
-    pub prefix: wire::ExpectedPrefix,
+    pub prefix: TrustedJournalHead,
     pub receipt: Option<wire::Receipt>,
 }
 #[derive(Clone, Debug)]

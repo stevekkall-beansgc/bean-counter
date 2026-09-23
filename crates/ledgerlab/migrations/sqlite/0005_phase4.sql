@@ -24,18 +24,19 @@ CREATE TABLE r3_segment_pages (
 ) STRICT;
 CREATE TABLE r3_objects (
  journal BLOB NOT NULL, ordinal BLOB NOT NULL, kind TEXT NOT NULL,
+ origin BLOB NOT NULL CHECK(length(origin) BETWEEN 2 AND 2048),
  full_key BLOB NOT NULL CHECK(length(full_key) BETWEEN 1 AND 4096),
  body_hash TEXT NOT NULL CHECK(length(body_hash)=64),
  byte_length INTEGER NOT NULL CHECK(byte_length BETWEEN 2 AND 262144),
  metadata BLOB NOT NULL CHECK(length(metadata) BETWEEN 2 AND 8192),
- PRIMARY KEY(journal,ordinal,kind,full_key,body_hash),
+ PRIMARY KEY(journal,origin,kind,full_key,body_hash),
  FOREIGN KEY(journal,ordinal) REFERENCES r3_segments(journal,ordinal) DEFERRABLE INITIALLY DEFERRED
 ) STRICT;
 CREATE TABLE r3_object_pages (
- journal BLOB NOT NULL, ordinal BLOB NOT NULL, kind TEXT NOT NULL, full_key BLOB NOT NULL, body_hash TEXT NOT NULL,
+ journal BLOB NOT NULL, origin BLOB NOT NULL, kind TEXT NOT NULL, full_key BLOB NOT NULL, body_hash TEXT NOT NULL,
  page INTEGER NOT NULL CHECK(page BETWEEN 0 AND 63), bytes BLOB NOT NULL CHECK(length(bytes) BETWEEN 1 AND 4096),
- PRIMARY KEY(journal,ordinal,kind,full_key,body_hash,page),
- FOREIGN KEY(journal,ordinal,kind,full_key,body_hash) REFERENCES r3_objects DEFERRABLE INITIALLY DEFERRED
+ PRIMARY KEY(journal,origin,kind,full_key,body_hash,page),
+ FOREIGN KEY(journal,origin,kind,full_key,body_hash) REFERENCES r3_objects DEFERRABLE INITIALLY DEFERRED
 ) STRICT;
 CREATE TABLE r3_heads (
  journal BLOB NOT NULL REFERENCES r3_journals(journal) DEFERRABLE INITIALLY DEFERRED,
@@ -132,4 +133,8 @@ CREATE TRIGGER r3_index_roots_immutable_update BEFORE UPDATE ON r3_index_roots B
 CREATE TRIGGER r3_index_roots_immutable_delete BEFORE DELETE ON r3_index_roots BEGIN SELECT RAISE(ABORT,'immutable R3 storage'); END;
 CREATE TRIGGER r3_held_intentions_immutable_update BEFORE UPDATE ON r3_held_intentions BEGIN SELECT RAISE(ABORT,'immutable R3 storage'); END;
 CREATE TRIGGER r3_held_intentions_immutable_delete BEFORE DELETE ON r3_held_intentions BEGIN SELECT RAISE(ABORT,'immutable R3 storage'); END;
+CREATE TRIGGER r3_head_delete BEFORE DELETE ON r3_heads BEGIN SELECT RAISE(ABORT,'permanent R3 head identity'); END;
+CREATE TRIGGER r3_journal_delete BEFORE DELETE ON r3_journals BEGIN SELECT RAISE(ABORT,'permanent R3 journal identity'); END;
+CREATE TRIGGER r3_head_revision BEFORE UPDATE OF revision ON r3_heads WHEN NEW.revision<=OLD.revision BEGIN SELECT RAISE(ABORT,'R3 head revision must advance'); END;
+CREATE TRIGGER r3_journal_ordinal BEFORE UPDATE OF ordinal ON r3_journals WHEN NEW.ordinal<=OLD.ordinal BEGIN SELECT RAISE(ABORT,'R3 journal ordinal must advance'); END;
 PRAGMA user_version=5;
