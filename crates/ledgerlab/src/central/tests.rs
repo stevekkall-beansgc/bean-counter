@@ -88,6 +88,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::with_extension(false).await
+    }
+    async fn with_extension(extend: bool) -> Self {
         let v = fixture();
         let raw = records(&v);
         let base = OriginalBaseProposal::from_records(raw.clone()).unwrap();
@@ -171,7 +174,15 @@ impl Fixture {
                 target: serde_json::from_value(v["commands"][4]["payload"]["target"].clone())
                     .unwrap(),
                 resources: resources.clone(),
-                ceiling: resources,
+                ceiling: if extend && host == "g1" {
+                    resources
+                        .checked_add(&wire::Resource::from_dimensions(
+                            [Count::new(1).unwrap(); 6],
+                        ))
+                        .unwrap()
+                } else {
+                    resources
+                },
                 legacy_pages: 65536,
                 backing_bytes: Count::new(1 << 40).unwrap(),
                 authority_source: Id::parse("synthetic-authority").unwrap(),
@@ -703,3 +714,6 @@ async fn public_proof_and_fence_reads_bind_current_target_before_and_after_enrol
     );
     f.host.close().await;
 }
+
+#[path = "public_paths.rs"]
+mod public_paths;
