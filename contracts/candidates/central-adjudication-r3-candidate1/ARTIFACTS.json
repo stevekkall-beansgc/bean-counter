@@ -204,8 +204,8 @@
     },
     {
       "path": "node-tests.mjs",
-      "bytes": 24225,
-      "sha256": "fcfb473994f041c02ffb93b7644e5a06736376e161c8e3fdd9fd425a80b137af"
+      "bytes": 26735,
+      "sha256": "4bf0cbb140c4d7e7f27ddfab42c270489981a5eb2901761b3ef41c71b96c2590"
     },
     {
       "path": "protocol/resources.json",
@@ -259,8 +259,8 @@
     },
     {
       "path": "validate.mjs",
-      "bytes": 109763,
-      "sha256": "a969998b8fee1bc1d176c288ca7490a714e2a424d8d655368e54f9340d3b8b1c"
+      "bytes": 109737,
+      "sha256": "0ba43cb9307b99ca43bbb49cbc5d6ee24ac7d9b77cac25d8d4e2f962f596dde5"
     },
     {
       "path": "validate.py",
