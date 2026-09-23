@@ -2,7 +2,7 @@
 //! original-29 customer enrollment and four-gateway routing. No fixture is edited.
 use super::*;
 
-fn budgets(n: usize) -> BTreeMap<String, wire::Resource> {
+pub(super) fn budgets(n: usize) -> BTreeMap<String, wire::Resource> {
     let ws = Worksheet::frozen().unwrap();
     ["center", "g0", "g1", "g2", "g3"]
         .into_iter()

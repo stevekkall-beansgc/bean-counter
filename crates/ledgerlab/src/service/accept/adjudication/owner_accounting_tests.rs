@@ -24,7 +24,9 @@ fn decode_blob(quoted: &str) -> Vec<u8> {
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
         .collect()
 }
-fn heads(inventory: &[(String, Vec<String>, Vec<String>)]) -> BTreeMap<String, Vec<Value>> {
+pub(super) fn heads(
+    inventory: &[(String, Vec<String>, Vec<String>)],
+) -> BTreeMap<String, Vec<Value>> {
     let (_, columns, rows) = inventory
         .iter()
         .find(|(name, _, _)| name == "r3_heads")

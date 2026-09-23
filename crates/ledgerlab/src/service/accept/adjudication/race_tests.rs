@@ -550,3 +550,6 @@ async fn actual_ordered_overlap_issue_wins_before_retirement() {
 
 #[path = "replacement_process_tests.rs"]
 mod replacement_process_tests;
+
+#[path = "resource_admission_tests.rs"]
+mod resource_admission_tests;
