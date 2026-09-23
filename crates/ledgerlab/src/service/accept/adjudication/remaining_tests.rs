@@ -49,6 +49,8 @@ struct Harness {
     serial: usize,
     last: Option<(String, Value, wire::CommandResult)>,
     ceilings: BTreeMap<String, wire::Resource>,
+    budgets: BTreeMap<String, wire::Resource>,
+    quiet: bool,
     _dirs: Vec<(tempfile::TempDir, tempfile::TempDir)>,
 }
 impl Harness {
@@ -56,6 +58,17 @@ impl Harness {
         Self::with_extension_backing(false).await
     }
     async fn with_extension_backing(extend: bool) -> Self {
+        let budgets = ["center", "g0", "g1", "g2", "g3"]
+            .into_iter()
+            .map(|h| (h.into(), flow_budget(h)))
+            .collect();
+        Self::with_budgets(budgets, extend, false).await
+    }
+    async fn with_budgets(
+        budgets: BTreeMap<String, wire::Resource>,
+        extend: bool,
+        quiet: bool,
+    ) -> Self {
         let input = fixture();
         let base = BaseFixture::new(&input);
         let sources: Vec<wire::AuthoritySource> =
@@ -73,20 +86,21 @@ impl Harness {
                 .await
                 .unwrap();
             let ceiling = if extend && name == "g1" {
-                flow_budget(name)
+                budgets[name]
+                    .clone()
                     .checked_add(&wire::Resource::from_dimensions(
                         [Count::new(1).unwrap(); 6],
                     ))
                     .unwrap()
             } else {
-                flow_budget(name)
+                budgets[name].clone()
             };
             ceilings.insert(name.to_owned(), ceiling.clone());
             drop(
                 store
                     .provision_adjudication_with_ceiling(
                         journal(name),
-                        flow_budget(name),
+                        budgets[name].clone(),
                         ceiling,
                         65536,
                         Count::new(1u128 << 40).unwrap(),
@@ -134,6 +148,8 @@ impl Harness {
             serial: 0,
             last: None,
             ceilings,
+            budgets,
+            quiet,
             _dirs: dirs,
         };
         for i in 0..5 {
@@ -149,7 +165,7 @@ impl Harness {
         c["key"][2] = json!(format!("remaining-{}", self.serial));
         c["authority"]["permission"] = json!(match kind {
             "ABORT" | "BEGIN" | "CLOSE" => "close",
-            "SUPPLEMENT" => "submit",
+            "SUPPLEMENT" | "RECEIVE" => "submit",
             "REPLACE_WRITER" => "replace",
             _ => "capacity",
         });
@@ -194,7 +210,7 @@ impl Harness {
         let configured = self.host.0.stores[&owner]
             .provision_adjudication_with_ceiling(
                 journal(&owner),
-                flow_budget(&owner),
+                self.budgets[&owner].clone(),
                 self.ceilings[&owner].clone(),
                 65536,
                 Count::new(1u128 << 40).unwrap(),
@@ -236,7 +252,21 @@ impl Harness {
             "ENROLL" => Some(("ENROLLMENT", json!("registration"))),
             "LOCAL_GRANT" => Some(("GRANT", c["payload"]["grant"]["id"].clone())),
             "ISSUE" => Some(("CLAIM", c["payload"]["token"]["id"].clone())),
-            "RECEIVE" => Some(("RECEIPT", c["payload"]["token"].clone())),
+            "RECEIVE" => Some((
+                if serde_json::to_value(&result.effects)
+                    .unwrap()
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|e| e["kind"] == "RECEIPT" && e["body"]["token"] != c["payload"]["token"])
+                {
+                    "ALIAS"
+                } else {
+                    "RECEIPT"
+                },
+                c["payload"]["token"].clone(),
+            )),
+            "RETURN_UNUSED" => Some(("RETURNED_UNUSED", c["payload"]["token"].clone())),
             "RETIRE_GRANT" => Some(("RETIREMENT", c["payload"]["grant"].clone())),
             "RECONCILE" => Some(("RECONCILIATION", c["payload"]["token"].clone())),
             "BEGIN" => Some(("BEGIN", c["payload"]["round"].clone())),
@@ -272,11 +302,13 @@ impl Harness {
         assert_eq!(saved.root, result.root);
         assert_eq!(saved.effects, result.effects);
         self.last = Some((owner.clone(), c, result.clone()));
-        eprintln!(
-            "remaining {kind} {owner} ordinal{} root{}",
-            self.ordinals[&owner],
-            result.root.as_str()
-        );
+        if !self.quiet {
+            eprintln!(
+                "remaining {kind} {owner} ordinal{} root{}",
+                self.ordinals[&owner],
+                result.root.as_str()
+            );
+        }
         Some(result)
     }
     async fn step(&mut self, c: Value) -> wire::CommandResult {
@@ -296,7 +328,7 @@ impl Harness {
         let configured = self.host.0.stores[host]
             .provision_adjudication_with_ceiling(
                 journal(host),
-                flow_budget(host),
+                self.budgets[host].clone(),
                 self.ceilings[host].clone(),
                 65536,
                 Count::new(1u128 << 40).unwrap(),
@@ -335,7 +367,7 @@ impl Harness {
         let configured = self.host.0.stores[owner]
             .provision_adjudication_with_ceiling(
                 journal(owner),
-                flow_budget(owner),
+                self.budgets[owner].clone(),
                 self.ceilings[owner].clone(),
                 65536,
                 Count::new(1u128 << 40).unwrap(),
@@ -730,3 +762,5 @@ async fn actual_replacement_excludes_stale_epoch_and_retains_prepaid_token_finis
 
 #[path = "gateway_tests.rs"]
 mod gateway_tests;
+#[path = "scale_tests.rs"]
+mod scale_tests;
