@@ -6,6 +6,56 @@ use r3::runtime::accounting::{Template, Worksheet};
 pub(super) const TRANSIENT_PAGES: u128 = 24576;
 pub(super) const FIXED_PAGES: u128 = 256;
 
+pub(in crate::store::sqlite) async fn physical_usage(
+    c: &mut SqliteConnection,
+) -> Result<u32, StoreError> {
+    let pages: i64 = sqlx::query_scalar("PRAGMA page_count")
+        .fetch_one(&mut *c)
+        .await?;
+    let free: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+        .fetch_one(c)
+        .await?;
+    if free < 0 || pages < free {
+        return Err(invalid());
+    }
+    u32::try_from(pages - free).map_err(|_| invalid())
+}
+/// Optional legacy work owns a separate finite allowance. Reuse of a free page
+/// is charged too; raw file growth alone would let it consume R3's reserved room.
+pub(in crate::store::sqlite) async fn charge_legacy(
+    c: &mut SqliteConnection,
+    before: u32,
+) -> Result<(), StoreError> {
+    let after = physical_usage(c).await?;
+    let delta = after.saturating_sub(before);
+    if delta == 0 {
+        return Ok(());
+    }
+    let (limit, used): (i64, Vec<u8>) = sqlx::query_as(
+        "SELECT legacy_allowance,legacy_used FROM r3_storage_profile WHERE singleton=1",
+    )
+    .fetch_one(&mut *c)
+    .await?;
+    let used = ordinal(used)?;
+    let next = used
+        .checked_add(Count::new(delta.into()).map_err(core)?)
+        .map_err(core)?;
+    if next.value() > limit as u128 {
+        return Err(StoreError::Overloaded);
+    }
+    let result = sqlx::query(
+        "UPDATE r3_storage_profile SET legacy_used=? WHERE singleton=1 AND legacy_used=?",
+    )
+    .bind(next.value().to_be_bytes().as_slice())
+    .bind(used.value().to_be_bytes().as_slice())
+    .execute(c)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
 fn add(a: u128, b: u128) -> Result<u128, StoreError> {
     a.checked_add(b).ok_or(StoreError::Overloaded)
 }

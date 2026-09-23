@@ -16,10 +16,33 @@ use ledgerlab_core::adjudication::{
     runtime::index_key,
     types::{Count, Digest},
 };
+pub(super) use physical::{charge_legacy, physical_usage};
 use serde_json::json;
 use sqlx::{Row, SqliteConnection};
 
 impl super::SqliteStore {
+    pub(crate) async fn adjudication_enrollment_source(
+        &self,
+        j: &JournalIdentity,
+    ) -> Result<VerifiedSource, StoreError> {
+        if j.host != j.store {
+            return Err(invalid());
+        }
+        let key = wire::ProofFullKey::V2(j.registration.clone());
+        let origin=tokio::time::timeout(std::time::Duration::from_secs(2),async {
+            let _lane=if self.inner.adjudication_enabled.load(std::sync::atomic::Ordering::Acquire) {Some(self.inner.adjudication_gate.read().await)}else{None};
+            let mut c=self.inner.readers.acquire().await?;
+            let rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT metadata FROM r3_objects WHERE journal=? AND kind='ENROLLMENT' AND full_key=? AND length(metadata) BETWEEN 2 AND 8192 LIMIT 2")
+                .bind(journal_key(j)?).bind(r3::canonical_bytes(&key,4096).map_err(core)?).fetch_all(&mut *c).await?;
+            if rows.len()!=1 {return Err(invalid());}
+            let metadata=ledgerlab_core::canonical::parse_bounded(&rows[0],8192).map_err(core)?;
+            let origin:wire::ObjectOrigin=serde_json::from_value(metadata["origin"].clone()).map_err(|_|invalid())?;
+            if origin.store!=j.store || origin.scope!=j.scope || origin.registration!=j.registration || origin.host!=j.host {return Err(invalid());}
+            Ok::<_,StoreError>(origin)
+        }).await.map_err(|_|StoreError::Deadline)??;
+        self.adjudication_source(j, origin.ordinal, &wire::FactKind::Enrollment, &key)
+            .await
+    }
     pub(crate) async fn adjudication_exact_source(
         &self,
         proof: &wire::Proof,

@@ -214,13 +214,24 @@ impl AcceptanceStore for SqliteStore {
         } else {
             None
         };
-        let transaction = timeout_at(wait, self.inner.writer.begin_with("BEGIN IMMEDIATE"))
+        let mut transaction = timeout_at(wait, self.inner.writer.begin_with("BEGIN IMMEDIATE"))
             .await
             .map_err(|_| StoreError::Deadline)??;
         if self.inner.disabled.load(Ordering::Acquire) {
             transaction.rollback().await?;
             return Err(StoreError::WritesDisabled);
         }
+        let physical_start_pages = if self
+            .inner
+            ._owner
+            .adjudication_max_pages
+            .load(Ordering::Acquire)
+            > 0
+        {
+            Some(adjudication::physical_usage(&mut transaction).await?)
+        } else {
+            None
+        };
         Ok(SqliteTx {
             transaction: Some(transaction),
             store: Arc::clone(&self.inner),
@@ -230,6 +241,7 @@ impl AcceptanceStore for SqliteStore {
             outcome_locks: Vec::new(),
             physical_lane,
             adjudication: None,
+            physical_start_pages,
             #[cfg(test)]
             outcome_fault: None,
         })

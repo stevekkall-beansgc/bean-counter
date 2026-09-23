@@ -416,6 +416,54 @@ impl OutcomeStore for SqliteStore {
         self.begin(deadline).await
     }
 }
+
+#[cfg(test)]
+impl SqliteStore {
+    /// Only original-profile evidence and current authority/binding heads. An
+    /// accepted base/receipt/target cannot enter through this test setup helper.
+    pub(crate) async fn test_provision_outcome_evidence(
+        &self,
+        records: &[Vec<u8>],
+        heads: &[ObservedOutcomeHead],
+    ) -> Result<(), StoreError> {
+        use crate::store::ports::AcceptanceTx;
+        let mut tx = self.begin(Instant::now() + Duration::from_secs(5)).await?;
+        let installation = tx.load_installation().await?;
+        for bytes in records {
+            let r = record_ref(bytes)?;
+            if r.kind != "evidence"
+                || r.scope
+                    != [
+                        installation.scope.tenant.clone(),
+                        installation.scope.environment.clone(),
+                    ]
+            {
+                return Err(invalid());
+            }
+            insert_record(tx.conn(), bytes, &mut Boundaries { fault: None }).await?;
+        }
+        for h in heads {
+            if let (Some(revision), Some(value)) = (&h.revision, &h.value) {
+                if !matches!(
+                    h.lock.class,
+                    OutcomeLockClass::Authority | OutcomeLockClass::Binding
+                ) {
+                    return Err(invalid());
+                }
+                sqlx::query("INSERT INTO outcome_heads VALUES (?,?,?,?)")
+                    .bind(class(h.lock.class))
+                    .bind(&h.lock.key)
+                    .bind(revision)
+                    .bind(value)
+                    .execute(tx.conn())
+                    .await?;
+            } else if h.revision.is_some() || h.value.is_some() {
+                return Err(invalid());
+            }
+        }
+        tx.commit().await.map_err(|_| StoreError::WritesDisabled)
+    }
+}
 impl OutcomeTx for SqliteTx {
     async fn lock_scopes(&mut self, scopes: &[OutcomeLock]) -> Result<(), StoreError> {
         if self.failed {

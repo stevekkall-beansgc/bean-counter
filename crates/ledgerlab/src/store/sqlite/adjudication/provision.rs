@@ -32,6 +32,102 @@ fn incarnation(
 }
 
 impl super::super::SqliteStore {
+    /// Trusted host control-plane provisioning of one current authority document.
+    /// This changes no accepted base, business journal or historical source fact.
+    pub(crate) async fn provision_adjudication_authority(
+        &self,
+        j: &JournalIdentity,
+        source: &wire::AuthoritySource,
+        expected: Option<Count>,
+    ) -> Result<ObservedHead, StoreError> {
+        source.validate().map_err(core)?;
+        let raw = r3::proofs::decode_base64(&source.body, 16384).map_err(core)?;
+        if raw.len() as u128 != source.bytes.value() || r3::raw_sha256(&raw) != source.body_hash {
+            return Err(invalid());
+        }
+        let parsed: wire::AuthoritySourceBody = r3::parse_exact(&raw, 16384).map_err(core)?;
+        let body = serde_json::to_value(parsed).map_err(|_| invalid())?;
+        if body["scope"] != json!(j.scope) {
+            return Err(invalid());
+        }
+        let key = HeadKey {
+            journal: j.clone(),
+            kind: HeadKind::Authority,
+            full_key: index_key(
+                *b"AUTHCURR",
+                &[
+                    body["source"].as_str().ok_or_else(invalid)?.as_bytes(),
+                    body["id"].as_str().ok_or_else(invalid)?.as_bytes(),
+                ],
+            )
+            .map_err(core)?,
+        };
+        let mut tx = self
+            .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+            .await?;
+        head(tx.conn(), j).await?;
+        let observed = point(tx.conn(), &key).await?;
+        if observed.revision != expected {
+            return Err(StoreError::ExpectedCurrent);
+        }
+        let value = r3::canonical_bytes(
+            &json!({"kind":"AuthorityCurrent","body":source}),
+            r3::COMMAND_BYTES,
+        )
+        .map_err(core)?;
+        if observed.value.as_ref() == Some(&value) {
+            tx.rollback().await?;
+            return Ok(observed);
+        }
+        if let Some(old) = &observed.value {
+            let v =
+                ledgerlab_core::canonical::parse_bounded(old, r3::COMMAND_BYTES).map_err(core)?;
+            if v["kind"] != "AuthorityCurrent" {
+                return Err(invalid());
+            }
+            let old_source: wire::AuthoritySource =
+                serde_json::from_value(v["body"].clone()).map_err(|_| invalid())?;
+            let old_body = ledgerlab_core::canonical::parse_bounded(
+                &r3::proofs::decode_base64(&old_source.body, 16384).map_err(core)?,
+                16384,
+            )
+            .map_err(core)?;
+            let old_revision: Count =
+                serde_json::from_value(old_body["revision"].clone()).map_err(|_| invalid())?;
+            let revision: Count =
+                serde_json::from_value(body["revision"].clone()).map_err(|_| invalid())?;
+            if revision <= old_revision {
+                return Err(invalid());
+            }
+        }
+        let revision = expected
+            .unwrap_or(Count::ZERO)
+            .checked_add(Count::new(1).map_err(core)?)
+            .map_err(core)?;
+        let journal = journal_key(j)?;
+        let changed = if let Some(expected) = expected {
+            sqlx::query("UPDATE r3_heads SET revision=?,value=? WHERE journal=? AND kind=? AND full_key=? AND revision=?").bind(revision.value().to_be_bytes().as_slice()).bind(&value).bind(&journal).bind(head_tag(HeadKind::Authority)).bind(&key.full_key).bind(expected.value().to_be_bytes().as_slice()).execute(tx.conn()).await?.rows_affected()
+        } else {
+            sqlx::query("INSERT INTO r3_heads VALUES (?,?,?,?,?)")
+                .bind(&journal)
+                .bind(head_tag(HeadKind::Authority))
+                .bind(&key.full_key)
+                .bind(revision.value().to_be_bytes().as_slice())
+                .bind(&value)
+                .execute(tx.conn())
+                .await?
+                .rows_affected()
+        };
+        if changed != 1 {
+            return Err(StoreError::ExpectedCurrent);
+        }
+        tx.commit().await.map_err(|_| StoreError::WritesDisabled)?;
+        Ok(ObservedHead {
+            key,
+            revision: Some(revision),
+            value: Some(value),
+        })
+    }
     /// Called during exclusive host setup, before exposing acceptance handles.
     /// `backing_bytes` is an assigned host storage/work allocation, never df/free
     /// space. The physical projection remains subject to independent acceptance.
@@ -92,7 +188,7 @@ impl super::super::SqliteStore {
                 .await?;
             let state = State::Resource(Box::new(ResourceState::genesis(
                 logical.clone(),
-                Count::new(1).map_err(core)?,
+                Count::new(u128::from(j.host != j.store)).map_err(core)?,
             )));
             let key = index_key(*b"RESOURCE", &[j.host.as_str().as_bytes()]).map_err(core)?;
             sqlx::query("INSERT INTO r3_heads VALUES (?,?,?,?,?)")

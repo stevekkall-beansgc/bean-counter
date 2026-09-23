@@ -255,6 +255,7 @@ impl AdjudicationTx for super::super::SqliteTx {
             .await
             .map_err(|_| StoreError::Deadline)??;
         if let Some(base) = p.base() {
+            let before = physical::physical_usage(self.conn()).await?;
             timeout_at(
                 self.deadline,
                 persist::reassert(self.conn(), base.absence()),
@@ -272,6 +273,9 @@ impl AdjudicationTx for super::super::SqliteTx {
                 }
             }
             self.failed = true;
+            timeout_at(self.deadline, physical::charge_legacy(self.conn(), before))
+                .await
+                .map_err(|_| StoreError::Deadline)??;
         }
         let result = timeout_at(self.deadline, persist::plan(self.conn(), p))
             .await

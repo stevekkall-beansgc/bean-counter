@@ -46,6 +46,7 @@ CREATE TABLE r3_object_pages (
  PRIMARY KEY(journal,origin,kind,full_key,body_hash,page),
  FOREIGN KEY(journal,origin,kind,full_key,body_hash) REFERENCES r3_objects DEFERRABLE INITIALLY DEFERRED
 ) STRICT;
+CREATE INDEX r3_fact_lookup ON r3_objects(journal,kind,full_key);
 CREATE TABLE r3_heads (
  journal BLOB NOT NULL REFERENCES r3_journals(journal) DEFERRABLE INITIALLY DEFERRED,
  kind INTEGER NOT NULL CHECK(kind BETWEEN 0 AND 17), full_key BLOB NOT NULL CHECK(length(full_key) BETWEEN 1 AND 1115),

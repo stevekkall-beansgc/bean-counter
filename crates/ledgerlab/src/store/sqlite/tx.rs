@@ -52,6 +52,7 @@ pub(crate) struct SqliteTx {
     pub(super) outcome_locks: Vec<crate::store::outcomes::OutcomeLock>,
     pub(super) physical_lane: Option<OwnedRwLockWriteGuard<()>>,
     pub(super) adjudication: Option<super::adjudication::tx::Context>,
+    pub(super) physical_start_pages: Option<u32>,
     #[cfg(test)]
     pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
@@ -168,6 +169,25 @@ impl AcceptanceTx for SqliteTx {
         }
     }
     async fn commit(mut self) -> Result<(), CommitError> {
+        if !self.failed && Instant::now() < self.deadline && self.adjudication.is_none() {
+            if let Some(before) = self.physical_start_pages {
+                self.failed = true;
+                let result = timeout_at(
+                    self.deadline,
+                    super::adjudication::charge_legacy(self.conn(), before),
+                )
+                .await
+                .map_err(|_| StoreError::Deadline)
+                .and_then(|r| r);
+                if let Err(error) = result {
+                    return match self.rollback().await {
+                        Ok(()) => Err(CommitError::RolledBack(error)),
+                        Err(_) => Err(CommitError::OutcomeUnknown),
+                    };
+                }
+                self.failed = false;
+            }
+        }
         if self.failed || Instant::now() >= self.deadline {
             return match self.rollback().await {
                 Ok(()) => Err(CommitError::RolledBack(StoreError::Integrity(
