@@ -104,6 +104,14 @@ fn routed_case(original: &str, family: &Value) -> Value {
     panic!("route search")
 }
 async fn scenario(name: &str, n: usize, smoke: bool) -> BTreeMap<String, u128> {
+    scenario_with_comparison(name, n, smoke, false).await
+}
+async fn scenario_with_comparison(
+    name: &str,
+    n: usize,
+    smoke: bool,
+    comparison: bool,
+) -> BTreeMap<String, u128> {
     let input = vector(name);
     let mut commands: Vec<Value> = input["commands"].as_array().unwrap()[2..].to_vec();
     if smoke {
@@ -236,6 +244,15 @@ async fn scenario(name: &str, n: usize, smoke: bool) -> BTreeMap<String, u128> {
     }
     h.reopen().await;
     historical_read(&h, &family, n).await;
+    if comparison {
+        let before = compare_large(&h).await;
+        h.reopen().await;
+        assert_eq!(
+            h.host.0.stores["center"].test_full_inventory().await,
+            before
+        );
+        eprintln!("large comparison post-report authoritative reopen inventory unchanged");
+    }
     eprintln!(
         "scale {name} DONE ordinals {:?} roots {:?}",
         h.ordinals, h.roots
@@ -371,4 +388,111 @@ async fn historical_read(h: &Harness, family: &Value, n: usize) {
         old.ordinal.value(),
         current.ordinal.value()
     );
+}
+
+#[tokio::test]
+async fn actual_stored_comparison_crosses_1024_segments() {
+    scenario_with_comparison("pending255", 255, false, true).await;
+}
+async fn compare_large(h: &Harness) -> Vec<(String, Vec<String>, Vec<String>)> {
+    use crate::store::adjudication::{
+        AdjudicationReadStore, AdjudicationReadTx, SnapshotSelection,
+    };
+    let store = &h.host.0.stores["center"];
+    let budget = wire::ReadBudget {
+        bytes: Count::new(16 * 1024 * 1024).unwrap(),
+        pages: Count::new(4096).unwrap(),
+        segments: Count::new(1).unwrap(),
+    };
+    let read = store
+        .begin_adjudication_read(
+            &SnapshotSelection {
+                journal: journal("center"),
+                historical: None,
+            },
+            &budget,
+            deadline(),
+        )
+        .await
+        .unwrap();
+    let expected = read.expected_prefix().expected().clone();
+    read.finish().await.unwrap();
+    assert!(expected.ordinal.value() > 1024);
+    let before = store.test_full_inventory().await;
+    let coverage: Vec<_> = h.enrollment["gateways"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| wire::Coverage::UnknownGatewayCoverage {
+            gateway: serde_json::from_value(g["gateway"].clone()).unwrap(),
+        })
+        .collect();
+    for amount in [1200, 1500] {
+        let mut request = wire::ComparisonRequest {
+            expected: expected.clone(),
+            policy: wire::ComparisonPolicy {
+                resolution_atoms: Count::new(amount).unwrap(),
+            },
+            budget: budget.clone(),
+            coverage: coverage.clone(),
+            cursor: None,
+        };
+        let mut comparison = SqliteComparison::from_store(store, &request, &budget)
+            .await
+            .unwrap();
+        let mut segments = 0;
+        let mut calls = 0;
+        loop {
+            calls += 1;
+            match comparison
+                .advance(&request)
+                .await
+                .unwrap_or_else(|e| panic!("large report policy{amount} call{calls}: {e}"))
+            {
+                wire::ComparisonResponse::Incomplete {
+                    cursor, measured, ..
+                } => {
+                    segments += measured.segments.value();
+                    request.cursor = Some(*cursor);
+                }
+                wire::ComparisonResponse::Comparable {
+                    actual,
+                    alternative,
+                    difference,
+                    supplier_booked,
+                    coverage: reported,
+                    measured,
+                    ..
+                } => {
+                    segments += measured.segments.value();
+                    // These histories contain admissions and closure, no economic
+                    // ALLOW. Changing the award amount cannot invent an award.
+                    assert_eq!(
+                        (
+                            actual.value(),
+                            alternative.value(),
+                            difference.value(),
+                            supplier_booked.value()
+                        ),
+                        (10000, 10000, 0, 3000)
+                    );
+                    assert_eq!(reported, coverage);
+                    assert_eq!(segments, expected.ordinal.value());
+                    assert_eq!(calls, expected.ordinal.value());
+                    break;
+                }
+                other => panic!("large stored report {other:?}"),
+            }
+            if calls % 256 == 0 {
+                eprintln!(
+                    "actual comparison policy{amount} validated{calls}/{} central segments",
+                    expected.ordinal.value()
+                );
+            }
+        }
+        drop(comparison);
+        assert_eq!(store.test_full_inventory().await, before);
+        eprintln!("actual comparison policy{amount} COMPLETE{segments} segments/{calls} calls; actual10000 alternative10000 supplier3000; explicit unknown offline coverage; inventory unchanged");
+    }
+    before
 }

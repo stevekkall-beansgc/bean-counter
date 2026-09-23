@@ -781,11 +781,24 @@ async fn actual_flow(customer: bool) {
     assert_eq!(saved.root, last_root);
     drop(configured);
     reader_checks::check(&host.stores["center"], &witness).await;
+    let report_inventory = if customer {
+        Some(host.stores["center"].test_full_inventory().await)
+    } else {
+        None
+    };
     if customer {
         comparison_checks::check(&host.stores["center"], &witness).await;
     }
     for store in host.stores.into_values() {
         store.close().await;
+    }
+    if let Some(before) = report_inventory {
+        let reopened = SqliteStore::open_fenced(dirs[0].path(), anchors[0].path())
+            .await
+            .unwrap();
+        assert_eq!(reopened.test_full_inventory().await, before);
+        reopened.close().await;
+        eprintln!("customer comparison post-report authoritative reopen inventory unchanged");
     }
     if let Ok(path) = std::env::var("LEDGERLAB_R3_ACTUAL_TRACE") {
         std::fs::write(path,serde_json::to_vec_pretty(&serde_json::json!({"format":"ledgerlab-actual-sqlite-first-path/1","steps":witness,"heads":roots,"ordinals":ordinals.iter().map(|(k,v)|(k.clone(),v.to_string())).collect::<BTreeMap<_,_>>(),"physical_g2":"PENDING","durable_publication":"external per-store STABLE anchor outside database directory","customer_story":if customer {"EXACT_95"} else {"FIRST_PATH_ONLY"},"oracle_checkpoints":customer_oracle.checkpoints})).unwrap()).unwrap();
