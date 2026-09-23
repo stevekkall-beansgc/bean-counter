@@ -1,5 +1,6 @@
 //! Local composition root: argument parsing and presentation, no economics.
 #![forbid(unsafe_code)]
+mod billing;
 mod output;
 use ledgerlab::local::{self, ExplainTarget, LocalError, LocalLedger};
 use serde_json::{json, Value};
@@ -79,6 +80,9 @@ fn error(code: &str, message: &str, exit: u8) -> (Value, u8) {
     )
 }
 async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
+    if a.command == "billing" {
+        return billing::run(a).await;
+    }
     match a.command.as_str() {
         "init" => {
             if a.rest.iter().filter(|s| s.as_str() == "--demo").count() != 1
@@ -194,7 +198,7 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
 fn main() -> ExitCode {
     let raw: Vec<String> = env::args().skip(1).collect();
     if raw.iter().any(|s| matches!(s.as_str(), "--help" | "-h")) {
-        print!("{HELP}");
+        print!("{HELP}{}", billing::HELP);
         return ExitCode::SUCCESS;
     }
     if raw == ["--version"] {
@@ -228,6 +232,11 @@ fn main() -> ExitCode {
             "{}: {}",
             result["code"].as_str().unwrap_or("ERROR"),
             result["message"].as_str().unwrap_or("operation failed")
+        );
+    } else if raw.first().is_some_and(|s| s == "billing") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).expect("billing JSON")
         );
     } else {
         print!("{}", output::text(&result));

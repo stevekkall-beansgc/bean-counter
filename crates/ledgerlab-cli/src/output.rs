@@ -15,8 +15,13 @@ fn conflict(k: ConflictKind) -> &'static str {
     }
 }
 fn rejection(code: &str) -> u8 {
-    if code == "SOURCE_UNAUTHORIZED" {
+    if matches!(
+        code,
+        "SOURCE_UNAUTHORIZED" | "BILLING_UNAUTHORIZED" | "BILLING_SCOPE"
+    ) {
         6
+    } else if matches!(code, "IDENTITY_CONFLICT" | "SEMANTIC_CONFLICT") {
+        4
     } else {
         3
     }

@@ -1,0 +1,173 @@
+//! Local filesystem-authorized ordinary SQLite billing. Not a remote API.
+use crate::{
+    local::{self, LocalError},
+    service::{billing as service, store_error},
+    store::{
+        errors::CommitError,
+        ports::{AcceptanceStore, AcceptanceTx},
+        records::Installation,
+        sqlite::SqliteStore,
+    },
+    ServiceError,
+};
+use serde_json::{json, Value};
+use std::{fs, path::Path, time::Duration};
+use tokio::time::Instant;
+
+pub struct BillingLedger {
+    store: SqliteStore,
+}
+impl BillingLedger {
+    /// Create a separate real-terms installation. Existing destinations refuse;
+    /// initialization stores no accepted work or synthetic economic history.
+    pub async fn init(path: &Path, setup: &[u8]) -> local::Result<()> {
+        let setup = service::Setup::parse(setup)?;
+        let path = local::normalize_path(path)?;
+        if path.exists() {
+            if !path.is_dir() || fs::read_dir(&path)?.next().is_some() {
+                return Err(LocalError::Config(
+                    "billing init requires a new or empty directory",
+                ));
+            }
+            local::private_existing(&path, true)?;
+        } else {
+            local::private_dir(&path)?;
+        }
+        let data = path.join(".ledger");
+        local::private_dir(&data)?;
+        let store = SqliteStore::create(
+            &data,
+            Installation {
+                scope: crate::store::records::Scope {
+                    tenant: setup.scope.tenant().into(),
+                    environment: setup.scope.environment().into(),
+                },
+                logical_store_id: setup.store_id.clone(),
+                mode: "real".into(),
+                admission: "open".into(),
+                dispatch_hold: true,
+                dispatch_enabled: false,
+                generation: 0,
+            },
+        )
+        .await
+        .map_err(store_error)?;
+        let result=async {
+            let raw=ledgerlab_core::canonical::outcome::bytes(&json!(setup)).map_err(|_|ServiceError::IntegrityFailure)?;
+            let mut tx=store.begin(Instant::now()+Duration::from_secs(5)).await.map_err(store_error)?;
+            tx.billing_setup(&raw).await.map_err(store_error)?;
+            // Initialization has no economic delivery to resolve. A failed init
+            // is left visible and never silently replaced or opened as ready.
+            tx.commit().await.map_err(|_|ServiceError::Unavailable)?;
+            let config=serde_json::to_vec_pretty(&json!({"schema":"ledger-billing-installation/1","scope":setup.scope,"store_id":setup.store_id})).map_err(|_|ServiceError::IntegrityFailure)?;
+            local::write_new(&path.join("billing.json"),&config)?;
+            local::write_new(&path.join(".gitignore"),b".ledger/\n")?;
+            Ok::<_,LocalError>(())
+        }.await;
+        store.close().await;
+        result
+    }
+    pub async fn open(path: &Path) -> local::Result<Self> {
+        let path = local::normalize_path(path)?;
+        local::private_existing(&path, true)?;
+        let raw = local::read_file(&path.join("billing.json"), local::CONFIG_LIMIT)?;
+        let config = ledgerlab_core::canonical::parse(&raw)
+            .map_err(|_| LocalError::Config("invalid billing.json"))?;
+        if config.as_object().is_none_or(|o| o.len() != 3)
+            || config["schema"] != "ledger-billing-installation/1"
+        {
+            return Err(LocalError::Config("invalid billing installation"));
+        }
+        let data = path.join(".ledger");
+        local::private_existing(&data, true)?;
+        local::private_existing(&data.join("local.db"), false)?;
+        let store = SqliteStore::open(&data).await.map_err(store_error)?;
+        let result = async {
+            let mut tx = store
+                .begin(Instant::now() + Duration::from_secs(5))
+                .await
+                .map_err(store_error)?;
+            let installation = tx.load_installation().await.map_err(store_error)?;
+            let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+            let setup = service::Setup::parse(&snapshot.setup)?;
+            service::require(
+                config["scope"] == json!(setup.scope)
+                    && config["store_id"] == setup.store_id
+                    && installation.logical_store_id == setup.store_id
+                    && installation.scope.tenant == setup.scope.tenant()
+                    && installation.scope.environment == setup.scope.environment()
+                    && installation.mode == "real"
+                    && installation.admission == "open"
+                    && installation.dispatch_hold
+                    && !installation.dispatch_enabled,
+                "BILLING_INSTALLATION",
+            )?;
+            tx.rollback().await.map_err(store_error)?;
+            Ok::<_, ServiceError>(())
+        }
+        .await;
+        if let Err(e) = result {
+            store.close().await;
+            return Err(e.into());
+        }
+        Ok(Self { store })
+    }
+    pub async fn accept(&self, raw: &[u8]) -> local::Result<Value> {
+        let at = local::now()?;
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let (result, plan) = service::prepare(&snapshot, raw, &at)?;
+        if let Some(plan) = plan {
+            tx.append_billing(&plan).await.map_err(store_error)?;
+            match tx.commit().await {
+                Ok(()) => (),
+                Err(CommitError::RolledBack(e)) => return Err(store_error(e).into()),
+                Err(CommitError::OutcomeUnknown) => {
+                    let setup = service::Setup::parse(&snapshot.setup)?;
+                    return Err(ServiceError::OutcomeUnknown {
+                        scope: [
+                            setup.scope.tenant().into(),
+                            setup.scope.environment().into(),
+                        ],
+                        source: plan.source().into(),
+                        external_id: plan.external_id().into(),
+                    }
+                    .into());
+                }
+            }
+        } else {
+            tx.rollback().await.map_err(store_error)?;
+        }
+        Ok(result)
+    }
+    pub async fn statement(&self, customer: &str, target: Option<&str>) -> local::Result<Value> {
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let result = service::statement(&snapshot, customer, target)?;
+        tx.rollback().await.map_err(store_error)?;
+        Ok(result)
+    }
+    pub async fn explain(&self, target: &str) -> local::Result<Value> {
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let setup = service::Setup::parse(&snapshot.setup)?;
+        let result = service::statement(&snapshot, &setup.customer, Some(target))?;
+        tx.rollback().await.map_err(store_error)?;
+        Ok(result)
+    }
+    pub async fn close(self) {
+        self.store.close().await;
+    }
+}

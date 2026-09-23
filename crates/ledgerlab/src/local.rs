@@ -287,7 +287,7 @@ pub fn read_bounded(reader: impl Read, limit: u64) -> Result<Vec<u8>> {
 /// Normalize explicit paths while rejecting symlinks before any `..` collapse.
 /// Relative input/config/init paths are explicit user choices; storage is further
 /// confined to the config directory by `open`.
-fn normalize_path(path: &Path) -> Result<PathBuf> {
+pub(crate) fn normalize_path(path: &Path) -> Result<PathBuf> {
     let mut prefix = if path.is_absolute() {
         PathBuf::new()
     } else {
@@ -317,7 +317,7 @@ fn normalize_path(path: &Path) -> Result<PathBuf> {
     }
     Ok(prefix)
 }
-fn private_existing(path: &Path, directory: bool) -> Result<()> {
+pub(crate) fn private_existing(path: &Path, directory: bool) -> Result<()> {
     let m = fs::symlink_metadata(path)?;
     if m.file_type().is_symlink() || (directory && !m.is_dir()) || (!directory && !m.is_file()) {
         return Err(LocalError::Config("invalid local storage path"));
@@ -333,7 +333,7 @@ fn private_existing(path: &Path, directory: bool) -> Result<()> {
     }
     Ok(())
 }
-fn private_dir(path: &Path) -> Result<()> {
+pub(crate) fn private_dir(path: &Path) -> Result<()> {
     let mut options = fs::DirBuilder::new();
     #[cfg(unix)]
     {
@@ -343,7 +343,7 @@ fn private_dir(path: &Path) -> Result<()> {
     options.create(path)?;
     Ok(())
 }
-fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -356,7 +356,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     f.sync_all()?;
     Ok(())
 }
-fn now() -> Result<Timestamp> {
+pub(crate) fn now() -> Result<Timestamp> {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| LocalError::Config("system clock precedes Unix epoch"))?;

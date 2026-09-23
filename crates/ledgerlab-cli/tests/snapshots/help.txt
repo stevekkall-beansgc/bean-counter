@@ -39,3 +39,10 @@ sidecars. File inputs are regular files, at most 256 KiB.
 Exit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;
 4 conflict; 5 waiting; 6 unauthorized; 7 busy/unavailable; 8 outcome unknown;
 9 integrity failure. Retry unknown outcomes with the same event identity.
+
+Ordinary local billing (separate installation):
+  billing init DIR --setup FILE
+  billing [--directory DIR] accept FILE|-
+  billing [--directory DIR] explain TARGET_ID
+  billing [--directory DIR] statement --customer CUSTOMER
+Billing output is JSON (pretty-printed unless --json). No payment or tax invoice.

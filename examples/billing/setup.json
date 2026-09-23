@@ -1,0 +1,47 @@
+{
+  "schema": "ledger-local-billing/1",
+  "scope": ["example-company", "local"],
+  "store_id": "example-billing-1",
+  "operator": "example-operator",
+  "source": "urn:example:work",
+  "customer": "customer-1",
+  "host": "example-company",
+  "agreement": "agreement-1",
+  "binding": "binding-1",
+  "price": "2.50",
+  "accepted_at": "2026-09-01T00:00:00.000000Z",
+  "acceptor": "customer-authorized-acceptor",
+  "assent_evidence": "EXAMPLE ONLY. Replace with the actual retained agreement evidence before recording real obligations.",
+  "operator_attestation": "EXAMPLE ONLY. Replace with your truthful attestation of the acceptor's authority and agreement to these exact terms.",
+  "finality_attestation": "Successful work submitted under these terms is final for billing.",
+  "permissions": ["read", "submit", "correct"],
+  "outcome_policy": {
+    "version": "1",
+    "families": [{
+      "family": "quality",
+      "binding_id": "binding-1",
+      "source": "urn:example:work",
+      "correction_source": "urn:example:work",
+      "evidence_required": true,
+      "ordinary": {
+        "starts_at": "2026-09-01T00:00:00.000000Z",
+        "occurs_before": "2027-01-01T00:00:00.000000Z",
+        "received_by": "2027-01-02T00:00:00.000000Z",
+        "accepted_by": "2027-01-03T00:00:00.000000Z"
+      },
+      "corrections": {
+        "starts_at": "2026-09-01T00:00:00.000000Z",
+        "occurs_before": "2027-02-01T00:00:00.000000Z",
+        "received_by": "2027-02-02T00:00:00.000000Z",
+        "accepted_by": "2027-02-03T00:00:00.000000Z"
+      },
+      "codes": [
+        {"code":"rebate","amount":{"kind":"fixed","money":{"currency":"USD","scale":2,"atoms":"-50"}}},
+        {"code":"none","amount":{"kind":"fixed","money":{"currency":"USD","scale":2,"atoms":"0"}}}
+      ],
+      "replacement_codes": ["none", "rebate"],
+      "allow_reversal": true
+    }],
+    "limits": [{"binding_id":"binding-1","premium":{"currency":"USD","scale":2,"atoms":"0"}}]
+  }
+}
