@@ -225,3 +225,97 @@ async fn actual_replacement_recovers_unactivated_active_receipt_and_tombstone_ob
     eprintln!("actual complete replacement: epoch2; five retained grant states, three original/new receipts, permanent unused tombstone; copied inode refused; original fenced recovery exact");
     h.close().await;
 }
+
+fn overwrite_same_inode(path: &std::path::Path, bytes: &[u8]) {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .unwrap();
+    file.write_all(bytes).unwrap();
+    file.sync_all().unwrap();
+    drop(file);
+    // Only this test's closed, disposable store is changed. A stale backup
+    // must not recover newer acknowledged rows from a leftover WAL.
+    for name in ["local.db-wal", "local.db-shm"] {
+        match std::fs::remove_file(path.parent().unwrap().join(name)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => panic!("{e}"),
+        }
+    }
+}
+impl Harness {
+    async fn gateway_backup(&mut self) -> Vec<u8> {
+        self.host.0.stores.remove("g1").unwrap().close().await;
+        let bytes = std::fs::read(self._dirs[2].0.path().join("local.db")).unwrap();
+        self.host.0.stores.insert(
+            "g1".into(),
+            SqliteStore::open_fenced(self._dirs[2].0.path(), self._dirs[2].1.path())
+                .await
+                .unwrap(),
+        );
+        bytes
+    }
+}
+#[tokio::test]
+async fn actual_same_inode_backup_missing_grant_or_receipt_refuses_without_central() {
+    use std::os::unix::fs::MetadataExt;
+    for missing in ["grant", "receipt"] {
+        let mut h = Harness::new().await;
+        h.quiet = true;
+        let mut backup = h.gateway_backup().await;
+        h.grant_and_register(1).await;
+        let c = h.issue_command(1);
+        h.step(c).await;
+        h.activate_token(1).await;
+        if missing == "receipt" {
+            backup = h.gateway_backup().await;
+        }
+        let c = h.receive_command(1, 1);
+        let saved = h.step(c).await;
+        assert!(saved
+            .effects
+            .iter()
+            .any(|e| matches!(e, wire::Effect::Receipt { .. })));
+        let acknowledged = h.host.0.stores["g1"].test_full_inventory().await;
+        for store in std::mem::take(&mut h.host.0.stores).into_values() {
+            store.close().await;
+        }
+        // All five owners, including central, are now offline. The local
+        // rollback-independent anchor is the only admissible recovery witness.
+        let db = h._dirs[2].0.path();
+        let anchor = h._dirs[2].1.path();
+        let path = db.join("local.db");
+        let inode = std::fs::metadata(&path).unwrap().ino();
+        let current = std::fs::read(&path).unwrap();
+        let witness = std::fs::read(anchor.join("state.json")).unwrap();
+        assert_ne!(current, backup);
+        overwrite_same_inode(&path, &backup);
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+        assert!(matches!(
+            SqliteStore::open_fenced(db, anchor).await,
+            Err(StoreError::InvalidStore(_))
+        ));
+        assert!(SqliteStore::open(db).await.is_err());
+        assert_eq!(std::fs::read(anchor.join("state.json")).unwrap(), witness);
+        // Positive control restores the exact latest closed test database, not
+        // the anchor. It must recover the acknowledged receipt and saved retry.
+        overwrite_same_inode(&path, &current);
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+        h.reopen().await;
+        assert_eq!(
+            h.host.0.stores["g1"].test_full_inventory().await,
+            acknowledged
+        );
+        h.settle_token(1, true, None).await;
+        h.command_step("ADVANCE_RECEIPT", json!({"gateway":"g1","through":"1"}))
+            .await;
+        h.finish(1, 0).await;
+        h.reopen().await;
+        h.assert_all_owner_accounts().await;
+        h.close().await;
+        eprintln!("actual same-inode stale backup missing {missing}: centraloffline; originalanchor unchanged; staleopen and anchoromission refused; exactlatest restore preserved receipt/retry and prepaid finish");
+    }
+}
