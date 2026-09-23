@@ -486,7 +486,7 @@ impl<'a> SqliteComparison<'a> {
                             require(!observations.iter().any(|(p, _)| p == &point))?;
                             let state = read
                                 .historical_state(
-                                    &head(&journal(&expected), &point),
+                                    &head(&journal(expected), &point),
                                     core(progress.next.checked_sub(Count::new(1).expect("one")))?,
                                 )
                                 .await
@@ -503,7 +503,7 @@ impl<'a> SqliteComparison<'a> {
             };
             for (point, state) in states {
                 require(
-                    read.historical_state(&head(&journal(&expected), &point), progress.next)
+                    read.historical_state(&head(&journal(expected), &point), progress.next)
                         .await
                         .map_err(store_error)?
                         == Some(state),

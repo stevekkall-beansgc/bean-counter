@@ -88,7 +88,8 @@ impl Harness {
             .await;
         let barrier = Arc::new(Barrier::new(3));
         let mut jobs = Vec::new();
-        for c in commands.iter().cloned() {
+        for c in &commands {
+            let command = parsed(c);
             let inner = self.host.0.stores[owner]
                 .provision_adjudication_with_ceiling(
                     journal(owner),
@@ -107,7 +108,7 @@ impl Harness {
             let host = self.race_host();
             let j = journal(owner);
             jobs.push(tokio::spawn(async move {
-                run(&store, &host, j, parsed(&c), deadline()).await
+                run(&store, &host, j, command, deadline()).await
             }));
         }
         tokio::time::timeout(Duration::from_secs(10), barrier.wait())
