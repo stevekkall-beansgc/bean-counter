@@ -115,3 +115,40 @@ alignment. Later commands are compared with explicit derived-provenance fields
 listed, never silently normalized into a cross-backend byte-identity claim.
 The normative host-provenance contract permits these distinct trusted inputs;
 no production observation domain was changed to manufacture equal roots.
+
+## Remaining native branch controls
+
+`runtime_remaining.rs` exercises ABORT, PREPARE_ROUND, RETIRE_GRANT,
+RETURN_UNUSED, SUPPLEMENT and EXTEND_RESOURCES through the same real native
+transaction/coordinator path. The extension ceiling is an explicitly assumed
+**test input**, not a PG allocation or admission observation. Each committed
+command has a saved retry with unchanged retained inventory. Refusals compare
+all application tables on all five hosts (except the operational unresolved
+slot); successful transitions also check that the other four hosts are unchanged.
+
+The branch controls cover cancellation before/after local begin, seal and ready;
+close-versus-abort terminal refusal; abort followed by original FINISH_ONLY
+completion; permanent grant retirement and returned-unused disposition;
+cumulative supplement bounds and immutable original receipt/submission; and
+extension up to an assumed host ceiling with over-ceiling refusal. Reopen retains
+exact saved outcomes. These remain semantic/persistence tests under the stated
+physical assumption, not proof of prebacked PostgreSQL completion.
+
+Positive REPLACE_WRITER is deliberately absent. The real dedicated native
+control session establishes live same-primary exclusion and waits for prior
+work to exit before resolving its saved outcome. Its fixed unresolved-slot
+generation is not a trusted durable storage incarnation, nor proof that a
+restored primary contains all acknowledged history. The harness therefore keeps
+`writer_fence=None`; a replacement carrying a caller digest must refuse with
+FENCE_PROOF and unchanged state. No digest of a PID/head is substituted for the
+missing trusted fence. A production replacement path still requires that
+external recovery/ownership premise as well as physical admission.
+
+Remaining-branch authoring status at preservation: **WIP, not a passing gate**.
+The first PG17 five-group run passed the six-cut cancellation group and failed
+four fixtures during PREPARE/ENROLL with Retryable. A traced extension rerun
+passed the six commits and over-ceiling refusal, then failed DROP DATABASE
+cleanup with statement timeout57014. The setup causes remain unlocalized; no
+production timeout was changed. Raw logs/source fingerprints and the separate
+cleanup observation are preserved in the external pg-remaining-diagnosis packet.
+Further PG runs paused for coordinator/independent acceptance reconciliation.

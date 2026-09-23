@@ -78,6 +78,7 @@ struct PgRuntimeHarness<'a> {
     store: &'a PostgresStore,
     command: ParsedCommand,
     fail_at: Option<usize>,
+    assumed_ceiling: Option<wire::Resource>,
     fault_count: Arc<AtomicU64>,
 }
 struct PgRuntimeTx {
@@ -86,6 +87,7 @@ struct PgRuntimeTx {
     work: WorkRequest,
     transaction: Digest,
     fail_at: Option<usize>,
+    assumed_ceiling: Option<wire::Resource>,
     fault_count: Arc<AtomicU64>,
 }
 impl AdjudicationStore for PgRuntimeHarness<'_> {
@@ -101,7 +103,8 @@ impl AdjudicationStore for PgRuntimeHarness<'_> {
         let inner = self
             .store
             .begin_native_storage(w.journal.clone(), &self.command, d)
-            .await?;
+            .await
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?;
         let transaction = r3::raw_sha256(
             format!(
                 "TEST-ONLY-live-PG-transaction:{}:{}",
@@ -116,6 +119,7 @@ impl AdjudicationStore for PgRuntimeHarness<'_> {
             work: w.clone(),
             transaction,
             fail_at: self.fail_at,
+            assumed_ceiling: self.assumed_ceiling.clone(),
             fault_count: self.fault_count.clone(),
         })
     }
@@ -124,7 +128,8 @@ impl AdjudicationTx for PgRuntimeTx {
     async fn lock_adjudication(&mut self, g: &[Guard]) -> Result<(), StoreError> {
         self.inner
             .native_adjudication(Operation::Locks(self.journal.clone(), g.to_vec()))
-            .await?;
+            .await
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?;
         Ok(())
     }
     async fn lookup_adjudication(
@@ -135,7 +140,8 @@ impl AdjudicationTx for PgRuntimeTx {
         let Value::Saved(v) = self
             .inner
             .native_adjudication(Operation::Lookup(j.clone(), k.clone()))
-            .await?
+            .await
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -145,7 +151,8 @@ impl AdjudicationTx for PgRuntimeTx {
         let Value::Resolved(v) = self
             .inner
             .native_adjudication(Operation::Resolve(q.clone()))
-            .await?
+            .await
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -155,7 +162,8 @@ impl AdjudicationTx for PgRuntimeTx {
         let Value::Head(head) = self
             .inner
             .native_adjudication(Operation::Head(self.journal.clone()))
-            .await?
+            .await
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -182,7 +190,9 @@ impl AdjudicationTx for PgRuntimeTx {
             head,
             self.work.owner.clone(),
             physical,
-            budget(self.journal.host.as_str()),
+            self.assumed_ceiling
+                .clone()
+                .unwrap_or_else(|| budget(self.journal.host.as_str())),
             None,
         )
         .map_err(core)
@@ -195,7 +205,8 @@ impl AdjudicationTx for PgRuntimeTx {
         let Value::Head(now) = self
             .inner
             .native_adjudication(Operation::Head(self.journal.clone()))
-            .await?
+            .await
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -209,7 +220,10 @@ impl AdjudicationTx for PgRuntimeTx {
             return Err(invalid());
         }
         if let Some(at) = self.fail_at {
-            self.inner.fail_outcome_at(at).await?;
+            self.inner
+                .fail_outcome_at(at)
+                .await
+                .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?;
         }
         let result = self
             .inner
@@ -225,7 +239,7 @@ impl AdjudicationTx for PgRuntimeTx {
             );
             self.fault_count.fetch_add(1, Ordering::Relaxed);
         }
-        result?;
+        result.inspect_err(|e| eprintln!("PG_RUNTIME_APPEND_ERROR {e:?}"))?;
         Ok(())
     }
 }
@@ -587,11 +601,21 @@ async fn execute(
     c: &Json,
     fail: Option<usize>,
 ) -> Result<wire::CommandResult, ServiceError> {
+    execute_with_ceiling(h, owner, c, fail, None).await
+}
+async fn execute_with_ceiling(
+    h: &Host,
+    owner: &str,
+    c: &Json,
+    fail: Option<usize>,
+    assumed_ceiling: Option<wire::Resource>,
+) -> Result<wire::CommandResult, ServiceError> {
     let parsed = parse(c);
     let store = PgRuntimeHarness {
         store: &h.stores[owner].store,
         command: parsed.clone(),
         fail_at: fail,
+        assumed_ceiling,
         fault_count: h.fault_count.clone(),
     };
     coordinator::run(&store, h, journal(owner), parsed, deadline()).await
@@ -794,3 +818,6 @@ async fn native_runtime_prepare_and_atomic_original_enroll() {
 
 #[path = "runtime_customer.rs"]
 mod runtime_customer;
+
+#[path = "runtime_remaining.rs"]
+mod runtime_remaining;

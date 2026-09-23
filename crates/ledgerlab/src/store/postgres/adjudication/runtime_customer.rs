@@ -5,10 +5,10 @@ use std::collections::BTreeSet;
 #[path = "runtime_oracle.rs"]
 mod runtime_oracle;
 use runtime_oracle::CustomerOracle;
-fn proof_key(v: &Json) -> String {
+pub(super) fn proof_key(v: &Json) -> String {
     serde_json::to_string(&json!([v["host"], v["fact_kind"], v["full_key"]])).unwrap()
 }
-fn hydrate(c: &mut Json, proofs: &BTreeMap<String, Json>, root: &Digest) {
+pub(super) fn hydrate(c: &mut Json, proofs: &BTreeMap<String, Json>, root: &Digest) {
     for field in ["proof", "begin"] {
         if c["payload"].get(field).is_some() {
             c["payload"][field] = proofs[&proof_key(&c["payload"][field])].clone();
@@ -32,7 +32,7 @@ fn hydrate(c: &mut Json, proofs: &BTreeMap<String, Json>, root: &Digest) {
     c["authority"]["head"] = json!(root);
     c["authority"]["command"] = json!(runtime::command_digest(parse(c).command()).unwrap());
 }
-fn fact(c: &Json) -> Option<(&'static str, Json)> {
+pub(super) fn fact(c: &Json) -> Option<(&'static str, Json)> {
     let p = &c["payload"];
     Some(match c["kind"].as_str().unwrap() {
         "PREPARE_ENROLL" => ("ENROLL_PREPARATION", p["gateway"].clone()),
