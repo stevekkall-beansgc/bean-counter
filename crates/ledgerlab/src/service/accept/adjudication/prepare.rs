@@ -347,6 +347,10 @@ pub(super) fn prepare_with_seal<A: AdjudicationAuthority>(
                 && cv["payload"]["base_manifest"] == b.manifest().as_str(),
             "ORIGINAL_BASE_BINDING",
         )?;
+        require(
+            b.exact_members().iter().all(|o| o.origin == own_origin),
+            "ORIGINAL_ORIGIN",
+        )?;
         objects.extend_from_slice(b.exact_members());
     }
     let known: BTreeSet<_> = inputs

@@ -367,6 +367,53 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                 .ok_or_else(|| fail("ENROLL"))?
                 .remove("preparations");
             let intent = hash("enrollment", &intent)?;
+            require(
+                p.gateways
+                    .iter()
+                    .map(|g| g.gateway.as_str())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    == p.gateways.len()
+                    && p.gateways
+                        .iter()
+                        .map(|g| g.tag.as_str())
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        == p.gateways.len(),
+                "GATEWAY_DUPLICATE",
+            )?;
+            require(
+                p.suppliers
+                    .iter()
+                    .map(|p| p.id.as_str())
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len()
+                    == p.suppliers.len()
+                    && p.pools
+                        .iter()
+                        .map(|p| p.id.as_str())
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        == p.pools.len(),
+                "POOL_DUPLICATE",
+            )?;
+            for f in &p.families {
+                require(
+                    f.starts_at.as_str() < f.occurs_before.as_str()
+                        && f.received_by.as_str() <= f.accepted_by.as_str()
+                        && f.accepted_by.as_str() <= f.correction_by.as_str(),
+                    "TERMS_WINDOW",
+                )?;
+                require(
+                    match f.book {
+                        w::FamilyTermsBook::Retail => f.supplier_pool.as_str() == "none",
+                        w::FamilyTermsBook::Supplier => {
+                            p.suppliers.iter().any(|s| s.id == f.supplier_pool)
+                        }
+                    },
+                    "SUPPLIER_FAMILY",
+                )?;
+            }
             let mut keys = std::collections::BTreeSet::new();
             for (n, f) in p.families.iter().enumerate() {
                 require(

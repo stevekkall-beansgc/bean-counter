@@ -186,6 +186,19 @@ async fn attempt<T: AdjudicationTx, H: AdjudicationHost<T>>(
     if let Some(saved) = saved {
         let previous = core(ParsedCommand::parse(&saved.command))?;
         let observation = host.current(command, &inputs, AuthorityAccess::ReadSavedResult)?;
+        let mut missing = Vec::new();
+        for current in &observation.current_heads {
+            required(current.key.journal == *journal)?;
+            if let Some(locked) = inputs.heads.iter().find(|h| h.key == current.key) {
+                required(locked.revision == current.revision && locked.value == current.value)?;
+            } else {
+                missing.push(current.key.clone());
+            }
+        }
+        if !missing.is_empty() {
+            let guards = missing.iter().map(point_guard).collect();
+            return Ok(Attempt::Restart(missing, guards));
+        }
         let sources = core(authority::Sources::new(&observation.exact_sources))?;
         let target = inputs
             .heads
