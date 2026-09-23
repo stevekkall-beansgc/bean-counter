@@ -669,19 +669,21 @@ pub(crate) fn statement(
         if target.is_some_and(|id| entry_target != id && accepted["id"] != id) {
             continue;
         }
-        let mut total = 0;
+        let mut total = 0i128;
         let postings = rows
             .iter()
             .filter(|r| r["kind"] == "base-posting" || r["kind"] == "action")
             .cloned()
             .collect::<Vec<_>>();
         for p in &postings {
-            total = core(ledgerlab_core::money::add_atoms(
-                total,
-                b::money(&p["body"]["amount"])?.atoms(),
-            ))?;
+            // A statement spans independent accepted decisions. Their exact
+            // aggregate may exceed the per-record Money bound without making
+            // any retained posting invalid. Keep checked wide integer totals.
+            total = total
+                .checked_add(b::money(&p["body"]["amount"])?.atoms())
+                .ok_or_else(b::integrity)?;
         }
-        net = core(ledgerlab_core::money::add_atoms(net, total))?;
+        net = net.checked_add(total).ok_or_else(b::integrity)?;
         entries.push(json!({"ordinal":e.ordinal.to_string(),"source":e.source,"external_id":e.external_id,"target":entry_target,"receipt":accepted,"postings":postings,"net_atoms":total.to_string(),"records":rows}));
     }
     require(target.is_none() || !entries.is_empty(), "BILLING_NOT_FOUND")?;
