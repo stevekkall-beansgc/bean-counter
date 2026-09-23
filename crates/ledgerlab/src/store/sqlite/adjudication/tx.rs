@@ -5,7 +5,7 @@ use crate::{
     service::accept::adjudication::{
         CommitCapability, OriginalBaseWrites, PhysicalEnvelope, ValidatedAdjudicationPlan,
     },
-    store::{adjudication::*, outcomes::OutcomeTx, ports::AcceptanceStore},
+    store::{adjudication::*, outcomes::OutcomeTx},
 };
 use std::{
     sync::atomic::{AtomicU64, Ordering},
@@ -48,7 +48,7 @@ impl AdjudicationStore for SqliteAdjudicationStore {
         {
             return Err(StoreError::Overloaded);
         }
-        let mut tx = self.store.begin(deadline).await?;
+        let mut tx = self.store.begin_lane(deadline, work.mandatory).await?;
         tx.failed = true;
         let page_size: i64 = sqlx::query_scalar("PRAGMA page_size")
             .fetch_one(tx.conn())

@@ -186,13 +186,29 @@ impl SqliteStore {
 impl AcceptanceStore for SqliteStore {
     type Tx = SqliteTx;
     async fn begin(&self, deadline: Instant) -> Result<SqliteTx, StoreError> {
+        self.begin_lane(deadline, false).await
+    }
+}
+impl SqliteStore {
+    /// Mandatory R3 work has a reserved admission slot that optional callers
+    /// cannot consume. Both lanes still share the same fair physical writer gate.
+    async fn begin_lane(&self, deadline: Instant, mandatory: bool) -> Result<SqliteTx, StoreError> {
         if self.inner.disabled.load(Ordering::Acquire) {
             return Err(StoreError::WritesDisabled);
         }
-        let slot = Arc::clone(&self.inner.queue)
+        let queue = if mandatory {
+            &self.inner._owner.mandatory_queue
+        } else {
+            &self.inner.queue
+        };
+        let slot = Arc::clone(queue)
             .try_acquire_owned()
             .map_err(|_| StoreError::Overloaded)?;
-        let wait = deadline.min(Instant::now() + Duration::from_millis(500));
+        let wait = if mandatory {
+            deadline
+        } else {
+            deadline.min(Instant::now() + Duration::from_millis(500))
+        };
         let physical_lane = if self.inner.adjudication_enabled.load(Ordering::Acquire) {
             let lane = timeout_at(
                 wait,

@@ -75,6 +75,24 @@ async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation(
         pages as u128 * 4096
     );
     tx.rollback().await.unwrap();
+    let optional_slots = std::sync::Arc::clone(&store.inner.queue)
+        .acquire_many_owned(65)
+        .await
+        .unwrap();
+    assert!(matches!(
+        configured
+            .begin_adjudication(&work, Instant::now() + Duration::from_secs(2))
+            .await,
+        Err(crate::store::errors::StoreError::Overloaded)
+    ));
+    let mut mandatory = work.clone();
+    mandatory.mandatory = true;
+    let tx = configured
+        .begin_adjudication(&mandatory, Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    tx.rollback().await.unwrap();
+    drop(optional_slots);
     drop(configured);
     store.close().await;
     let reopened = SqliteStore::open(dir.path()).await.unwrap();
