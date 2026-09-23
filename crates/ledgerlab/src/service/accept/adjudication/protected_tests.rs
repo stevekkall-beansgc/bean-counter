@@ -136,31 +136,37 @@ impl Harness {
     async fn accept_observed(&mut self, owner: &str, mut c: Value, result: wire::CommandResult) {
         *self.ordinals.get_mut(owner).unwrap() += 1;
         self.roots.insert(owner.into(), result.root.clone());
-        let (kind, key) = match c["kind"].as_str().unwrap() {
-            "PREPARE_ROUND" => (
+        let fact = match c["kind"].as_str().unwrap() {
+            "PREPARE_ROUND" => Some((
                 "ROUND_PREPARATION",
                 json!(rt::hash(
                     "namespace",
                     &json!([c["payload"]["gateway"], c["payload"]["round"]])
                 )
                 .unwrap()),
-            ),
-            "BEGIN" => ("BEGIN", c["payload"]["round"].clone()),
-            "CLOSE" => ("TERMINAL", c["payload"]["round"].clone()),
-            "INSTALL" => ("INSTALLATION", c["payload"]["round"].clone()),
+            )),
+            "BEGIN" => Some(("BEGIN", c["payload"]["round"].clone())),
+            "CLOSE" => Some(("TERMINAL", c["payload"]["round"].clone())),
+            "INSTALL" => Some(("INSTALLATION", c["payload"]["round"].clone())),
+            "ISSUE" => Some(("CLAIM", c["payload"]["token"]["id"].clone())),
+            "RETURN_UNUSED" => Some(("RETURNED_UNUSED", c["payload"]["token"].clone())),
+            "RECONCILE" => Some(("RECONCILIATION", c["payload"]["token"].clone())),
+            "ACTIVATE" => None,
             _ => panic!("observed transition"),
         };
-        let source = self.host.0.stores[owner]
-            .adjudication_source(
-                &journal(owner),
-                Count::new(self.ordinals[owner]).unwrap(),
-                &serde_json::from_value(json!(kind)).unwrap(),
-                &serde_json::from_value(key).unwrap(),
-            )
-            .await
-            .unwrap();
-        let proof = serde_json::to_value(source.proof()).unwrap();
-        self.proofs.insert(proof_key(&proof), proof);
+        if let Some((kind, key)) = fact {
+            let source = self.host.0.stores[owner]
+                .adjudication_source(
+                    &journal(owner),
+                    Count::new(self.ordinals[owner]).unwrap(),
+                    &serde_json::from_value(json!(kind)).unwrap(),
+                    &serde_json::from_value(key).unwrap(),
+                )
+                .await
+                .unwrap();
+            let proof = serde_json::to_value(source.proof()).unwrap();
+            self.proofs.insert(proof_key(&proof), proof);
+        }
         let configured = self.host.0.stores[owner]
             .provision_adjudication_with_ceiling(
                 journal(owner),

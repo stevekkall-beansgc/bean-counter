@@ -199,3 +199,134 @@ async fn actual_protected_close_and_install_process_cuts_finish_exactly_once() {
         }
     }
 }
+
+impl Harness {
+    async fn cut_or_step(&mut self, owner: &str, c: Value, selected: &str, cut: u8) {
+        if c["kind"] == selected {
+            self.process_commit(owner, c, cut).await;
+        } else {
+            self.step(c).await;
+        }
+    }
+}
+#[tokio::test]
+async fn actual_loaded_token_process_cuts_preserve_prepaid_finish() {
+    for selected in [
+        "ISSUE",
+        "ACTIVATE",
+        "RETURN_UNUSED",
+        "RECONCILE",
+        "CLOSE",
+        "INSTALL",
+    ] {
+        for cut in [11, 12, 13] {
+            let mut h = Harness::new().await;
+            h.quiet = true;
+            // First token is consumed and remains unimported at the seal. A
+            // second uniquely backed token is issued but never activated.
+            for i in 5..10 {
+                let c = h.input["commands"][i].clone();
+                if i == 8 {
+                    h.cut_or_step("g1", c, selected, cut).await;
+                } else {
+                    h.step(c).await;
+                }
+            }
+            for i in 26..29 {
+                let c = h.input["commands"][i].clone();
+                if i == 28 {
+                    h.cut_or_step("center", c, selected, cut).await;
+                } else {
+                    h.step(c).await;
+                }
+            }
+            let c = h.full_begin_command(1, "FINISH_ONLY", vec![]);
+            h.step(c).await;
+            for gateway in ["g0", "g1", "g2", "g3"] {
+                let proof = h.proof("center", "BEGIN", json!("1"));
+                h.command_step(
+                    "SEAL_BEGIN",
+                    json!({"gateway":gateway,"round":"1","predecessor":"0","proof":proof}),
+                )
+                .await;
+            }
+            let proof = h.proof("center", "CLAIM", json!("token4"));
+            let claim = h.input["commands"][28]["payload"]["token"]["claim"].clone();
+            let c = h.command(
+                "RETURN_UNUSED",
+                json!({"gateway":"g1","token":"token4","claim":claim,"proof":proof}),
+            );
+            h.cut_or_step("g1", c, selected, cut).await;
+            h.step(h.input["commands"][10].clone()).await;
+            h.step(h.input["commands"][44].clone()).await;
+            h.step(h.input["commands"][45].clone()).await;
+            let proof = h.proof("g1", "RETURNED_UNUSED", json!("token4"));
+            let c = h.command("RECONCILE", json!({"token":"token4","proof":proof}));
+            h.cut_or_step("center", c, selected, cut).await;
+            h.step(h.input["commands"][51].clone()).await;
+            for i in [60, 61, 62] {
+                h.step(h.input["commands"][i].clone()).await;
+            }
+            for gateway in ["g0", "g1", "g2", "g3"] {
+                h.command_step("SEALED", json!({"gateway":gateway,"round":"1"}))
+                    .await;
+                let proof = h.proof(gateway, "SEAL", json!("1"));
+                h.command_step(
+                    "DRAIN",
+                    json!({"gateway":gateway,"round":"1","proof":proof}),
+                )
+                .await;
+            }
+            h.ready(1).await;
+            let c = h.terminal_command("CLOSE", 1);
+            h.cut_or_step("center", c, selected, cut).await;
+            for gateway in ["g0", "g1", "g2", "g3"] {
+                let c = h.full_install_command(1, gateway, "COMMITTED");
+                if gateway == "g1" {
+                    h.cut_or_step(gateway, c, selected, cut).await;
+                } else {
+                    h.step(c).await;
+                }
+                h.full_ack(1, gateway).await;
+            }
+            h.reopen().await;
+            h.assert_actual_accounts().await;
+            for token in ["token1", "token4"] {
+                for owner in ["center", "g1"] {
+                    let (_, State::Token(t)) = h
+                        .state(
+                            owner,
+                            HeadKind::Token,
+                            rt::points::Point::id(
+                                rt::points::PointKind::Token,
+                                *b"TOKEN___",
+                                token,
+                            )
+                            .unwrap(),
+                            GuardClass::GatewayRound,
+                        )
+                        .await
+                    else {
+                        panic!("token");
+                    };
+                    assert_eq!(
+                        t.status,
+                        if token == "token1" {
+                            rt::points::TokenStatus::NewCase
+                        } else {
+                            rt::points::TokenStatus::ReturnedUnused
+                        }
+                    );
+                    if owner == "center" {
+                        assert!(t.reconciled && t.advanced);
+                        assert_eq!(t.imported, token == "token1");
+                        assert_eq!(t.receipt_advanced, token == "token1");
+                    }
+                    assert_eq!(t.receipt.is_some(), token == "token1");
+                }
+            }
+            eprintln!("loaded actual {selected} cut{cut}: consumed receipt imported; unactivated token permanently returned; all five families/four gateways finished and reopened");
+            h.close().await;
+        }
+    }
+}
