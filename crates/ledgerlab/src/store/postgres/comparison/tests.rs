@@ -993,12 +993,24 @@ async fn postgres_bound_comparison_owner_reads_without_publication() {
     .unwrap();
     let before = f.inventory().await;
     let auth = ReadAuthority::allowed();
-    let (a, b) = tokio::join!(
-        f.workspace(&auth, f.selection.clone()),
-        f.workspace(&auth, f.selection.clone())
+    // Raw read snapshots coexist; report preparation separately owns the
+    // existing single-workspace permit and is intentionally sequential.
+    let (left, right) = tokio::join!(
+        f.reader.begin_read(Instant::now() + Duration::from_secs(5)),
+        f.reader.begin_read(Instant::now() + Duration::from_secs(5))
     );
-    let a = a.unwrap();
-    let b = b.unwrap();
+    let mut left = left.unwrap();
+    let mut right = right.unwrap();
+    left.load_authority(&f.who).await.unwrap();
+    right.load_authority(&f.who).await.unwrap();
+    let left_rows = left.load_retained(&f.selection).await.unwrap();
+    let right_rows = right.load_retained(&f.selection).await.unwrap();
+    assert!(!left_rows.records.is_empty());
+    assert_eq!(left_rows.records, right_rows.records);
+    left.finish().await.unwrap();
+    right.finish().await.unwrap();
+    let a = f.workspace(&auth, f.selection.clone()).await.unwrap();
+    let b = f.workspace(&auth, f.selection.clone()).await.unwrap();
     assert_eq!(a.historical_receipts().len(), 4);
     assert_eq!(a.fingerprint(), b.fingerprint());
     f.unchanged(&before, "bound-owner-comparison").await;
