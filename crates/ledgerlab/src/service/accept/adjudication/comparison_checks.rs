@@ -8,6 +8,44 @@ pub(super) async fn check(store: &SqliteStore, witness: &[Value]) {
         None
     };
     let before = store.test_full_inventory().await;
+    use crate::outbox::fake::MemoryDestination;
+    if audit.is_some() {
+        use crate::outbox::{
+            fake::{Mode, Outcome},
+            Attempt, Lease, Request,
+        };
+        let destination = MemoryDestination::new();
+        let calls = MemoryDestination::test_boundary_calls();
+        destination.fence("observer-control", 1, 10).unwrap();
+        let attempt = Attempt {
+            lease: Lease {
+                store_id: "observer-control".into(),
+                owner: "control".into(),
+                generation: 1,
+                restore_generation: 1,
+            },
+            number: 1,
+            until: 10,
+            request: Request {
+                store_id: "observer-control".into(),
+                key: "positive".into(),
+                request_hash: "synthetic-control".into(),
+                payload: b"control".to_vec(),
+            },
+        };
+        assert!(matches!(
+            destination.send(&attempt, 1, Mode::Normal),
+            Outcome::Delivered(_)
+        ));
+        assert!(matches!(
+            destination.lookup("observer-control", "positive", Mode::Normal),
+            Outcome::Delivered(_)
+        ));
+        assert_eq!(MemoryDestination::test_boundary_calls() - calls, 3);
+        assert_eq!(store.test_full_inventory().await, before);
+        eprintln!("R3_DESTINATION_POSITIVE_CONTROLS actual fake-destination fence/send/lookup observed3calls, successful independent receipt, ledger inventory unchanged");
+    }
+
     if let Some(audit) = &audit {
         audit.begin();
         store.test_comparison_driver_positive_controls().await;
@@ -76,6 +114,7 @@ pub(super) async fn check(store: &SqliteStore, witness: &[Value]) {
         if let Some(audit) = &audit {
             audit.begin();
         }
+        let external_before = MemoryDestination::test_boundary_calls();
         let mut comparison = SqliteComparison::from_store(store, &request, &budget)
             .await
             .unwrap();
@@ -257,6 +296,17 @@ pub(super) async fn check(store: &SqliteStore, witness: &[Value]) {
             }
         }
         drop(comparison);
+        if audit.is_some() {
+            let calls = MemoryDestination::test_boundary_calls() - external_before;
+            assert_eq!(
+                calls, 0,
+                "comparison invoked an external destination boundary"
+            );
+            eprintln!(
+                "R3_DESTINATION_OBSERVATION policy{amount} actual_fake_destination_calls={calls}"
+            );
+        }
+
         if let Some(audit) = &audit {
             let statements = audit.end();
             assert!(statements.len() > 100);

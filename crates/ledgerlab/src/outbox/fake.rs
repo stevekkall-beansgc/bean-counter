@@ -37,11 +37,26 @@ struct Data {
 pub struct MemoryDestination {
     inner: Arc<Mutex<Data>>,
 }
+// Count actual destination-boundary invocations across all instances in an
+// isolated test process. Storage inventories cannot detect even failed calls.
+#[cfg(test)]
+static BOUNDARY_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+fn observed_boundary() {
+    BOUNDARY_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
 impl MemoryDestination {
+    #[cfg(test)]
+    pub(crate) fn test_boundary_calls() -> u64 {
+        BOUNDARY_CALLS.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
     pub(crate) fn fence(&self, store: &str, generation: i64, until: i64) -> Result<()> {
+        #[cfg(test)]
+        observed_boundary();
         let mut d = self.inner.lock().map_err(|_| Error::Unavailable)?;
         if d.fences.get(store).is_some_and(|(g, _)| *g > generation) {
             return Err(Error::Fenced);
@@ -50,6 +65,8 @@ impl MemoryDestination {
         Ok(())
     }
     pub(crate) fn generation(&self, store: &str) -> i64 {
+        #[cfg(test)]
+        observed_boundary();
         self.inner
             .lock()
             .expect("fake lock")
@@ -60,6 +77,8 @@ impl MemoryDestination {
     /// Simulates receiving a request atomically at the external system. A request
     /// already received before fencing may have executed; reconcile its stable key.
     pub(crate) fn send(&self, a: &Attempt, now: i64, mode: Mode) -> Outcome {
+        #[cfg(test)]
+        observed_boundary();
         let mut d = self.inner.lock().expect("fake lock");
         if now >= a.until
             || !d
@@ -98,6 +117,8 @@ impl MemoryDestination {
         }
     }
     pub fn receipts(&self, store: &str) -> Vec<Receipt> {
+        #[cfg(test)]
+        observed_boundary();
         self.inner
             .lock()
             .expect("fake lock")
@@ -108,6 +129,8 @@ impl MemoryDestination {
             .collect()
     }
     pub(crate) fn lookup(&self, store: &str, key: &str, mode: Mode) -> Outcome {
+        #[cfg(test)]
+        observed_boundary();
         if matches!(mode, Mode::UnknownLookup) {
             return Outcome::Unknown;
         }
@@ -119,6 +142,8 @@ impl MemoryDestination {
             .map_or(Outcome::Absent, |r| Outcome::Delivered(r.clone()))
     }
     pub(crate) fn keys_page(&self, store: &str, after: &str) -> Vec<String> {
+        #[cfg(test)]
+        observed_boundary();
         self.inner
             .lock()
             .expect("fake lock")
@@ -133,6 +158,8 @@ impl MemoryDestination {
             .collect()
     }
     pub(crate) fn inventory_digest(&self, store: &str, mode: Mode) -> Result<Option<String>> {
+        #[cfg(test)]
+        observed_boundary();
         if matches!(mode, Mode::UnknownLookup) {
             return Ok(None);
         }
