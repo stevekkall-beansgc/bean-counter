@@ -1,5 +1,7 @@
 # Remaining gates
 
+**Active Phase 5/6 amendment:** the local SQLite CSV workflow and exact-candidate review preparation in [CURRENT-REQUIREMENTS.md](../CURRENT-REQUIREMENTS.md) supersede the conflicting historical Phase 5/6 rows below. Independent acceptance remains blocked, not passed.
+
 **Current release amendment:** [Bean Counter local SQLite requirements](../CURRENT-REQUIREMENTS.md) supersede conflicting publication prerequisites below for the supported billing profile. The historical gates remain preserved; deferred resource guarantees and platforms are not passed.
 
 ## Before Phase 1 integration exits

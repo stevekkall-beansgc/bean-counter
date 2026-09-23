@@ -1,0 +1,12 @@
+{
+  "schema": "ledger-billing-correction/1",
+  "id": "reversal-1",
+  "target": "REPLACE_WITH_ACCEPTED_TARGET_ID",
+  "family": "quality",
+  "occurred_at": "2026-09-22T00:00:00.000000Z",
+  "evidence": "EXAMPLE ONLY. Replace with the factual reason and retained evidence for this correction.",
+  "expected_revision": "2",
+  "replacement": {
+    "kind": "reverse"
+  }
+}

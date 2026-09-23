@@ -38,3 +38,11 @@ Publish source, license, examples, these requirements and truthful release notes
 Only intended Git history and approved release artifacts are publishable. Retained local databases, customer data, credentials, tool caches and internal session dumps remain private. Historical technical reports may refer to local evidence paths that are unavailable in a public checkout; those references are not bundled evidence or current acceptance proof.
 
 See [release profile](release/local-sqlite.md), [quickstart](docs/billing-quickstart.md) and [contributor rules](AGENTS.md).
+
+## Amended local Phases 5 and 6 (2026-09-23)
+
+The released local SQLite v0.1.0 baseline replaces the original full-Phase-4 prerequisite for these phases. Phase 5 adds one generic finance CSV projection of authoritative retained postings: explicit validated account mapping, pinned complete snapshot, stable record/export IDs, exact signed amounts and correction references, deterministic retries, reconciliation and honest file-failure behavior. It does not add accounting/tax policy, imports, a vendor connector, delivery acknowledgment or payments. See WORKFLOW.md and docs/finance-csv.md.
+
+Phase 6 requires exact-candidate supported-path QA, author inspection and material fixes, plus review preparation. Independent acceptance remains platform-blocked; no retry, substitute reviewer or author-as-independent claim is allowed. Phase 6 therefore remains INCOMPLETE for independent acceptance until legitimately available. Old both-store, remote-destination, multi-host and protected-resource matrices are excluded. Preserve all existing guards and frozen bytes.
+
+This authorization permits local implementation and commits on an isolated branch only. It does not authorize a new main merge/push, tag/release, hosted service, shared-tooling change, purchase or production-data use. Other deferred/paused capabilities remain deferred.

@@ -21,6 +21,10 @@ cargo build --release --locked -p ledgerlab-cli
 
 Build with the pinned Rust 1.98.1 development compiler and native C/linker tools. Build dependencies need an initial download; an installed binary does not need Rust, Python or Node. No minimum supported Rust version or untested OS support is claimed.
 
+## Local finance CSV (unreleased Phase 5 candidate)
+
+[WORKFLOW.md](WORKFLOW.md) provides the installed synthetic billing-to-finance example, explicit account mapping, stable repeat export and reconciliation. See [CSV contract](docs/finance-csv.md). Phase 6 independent acceptance remains platform-blocked; this branch is not a new public release.
+
 ## Validate locally
 
 Use Rust 1.98.1 with rustfmt/Clippy, Python 3.11+ and Node. The Python minimum is for test tooling only; no product MSRV is declared. Install the pinned document-test requirements into a local virtual environment if they are not already present:

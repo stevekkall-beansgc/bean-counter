@@ -1,6 +1,6 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
-pub const HELP:&str="\nOrdinary local billing (separate installation):\n  billing init DIR --setup FILE\n  billing [--directory DIR] accept FILE|-\n  billing [--directory DIR] outcome FILE|-\n  billing [--directory DIR] correct FILE|-\n  billing [--directory DIR] permissions [FILE|-]\n  billing [--directory DIR] explain TARGET_ID\n  billing [--directory DIR] statement --customer CUSTOMER\nBilling output is JSON (pretty-printed unless --json). No payment or tax invoice.\n";
+pub const HELP:&str="\nOrdinary local billing (separate installation):\n  billing init DIR --setup FILE\n  billing [--directory DIR] accept FILE|-\n  billing [--directory DIR] outcome FILE|-\n  billing [--directory DIR] correct FILE|-\n  billing [--directory DIR] permissions [FILE|-]\n  billing [--directory DIR] explain TARGET_ID\n  billing [--directory DIR] statement --customer CUSTOMER\n  billing [--directory DIR] export-csv --customer CUSTOMER --snapshot HASH --mapping FILE --output FILE\nBilling output is JSON (pretty-printed unless --json). No payment or tax invoice.\n";
 pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     if a.config != Path::new("ledger.json") {
         return Ok(error(
@@ -42,10 +42,43 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             | ["explain", _]
             | ["permissions"]
             | ["statement", "--customer", _]
+            | [
+                "export-csv",
+                "--customer",
+                _,
+                "--snapshot",
+                _,
+                "--mapping",
+                _,
+                "--output",
+                _
+            ]
     ) {
         return Ok(error("USAGE", HELP, 2));
     }
     let ledger = BillingLedger::open(&directory).await?;
+    if let ["export-csv", "--customer", customer, "--snapshot", snapshot, "--mapping", mapping, "--output", output] =
+        args.as_slice()
+    {
+        let result = match local::read_file(Path::new(mapping), local::CONFIG_LIMIT) {
+            Ok(raw) => {
+                ledger
+                    .export_csv(customer, snapshot, &raw, Path::new(output))
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+        ledger.close().await;
+        return Ok(match result {
+            Ok(value) => (value, 0),
+            Err(e) => {
+                let (mut value, code) = super::output::local_error(e);
+                value["complete"] = json!(false);
+                value["export_warning"] = json!("No successful export was acknowledged. A complete file may exist after a final directory-sync failure; inspect it before retrying to a new path. Billing history was not changed by this export.");
+                (value, code)
+            }
+        });
+    }
     let result = match args.as_slice() {
         ["permissions"] => ledger.permission_status().await,
         ["permissions", _] => ledger.permissions(input.as_ref().unwrap()).await,

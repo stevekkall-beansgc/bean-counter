@@ -1,0 +1,8 @@
+{
+  "schema": "ledger-event/1",
+  "id": "work-1",
+  "operation_id": "operation-1",
+  "type": "content.generated",
+  "customer": "customer-1",
+  "occurred_at": "2026-09-01T00:00:00.000000Z"
+}

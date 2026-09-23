@@ -1,0 +1,9 @@
+{
+  "schema": "ledger-billing-outcome/1",
+  "id": "quality-1",
+  "target": "REPLACE_WITH_ACCEPTED_TARGET_ID",
+  "family": "quality",
+  "occurred_at": "2026-09-22T00:00:00.000000Z",
+  "evidence": "EXAMPLE ONLY. Replace with the actual retained outcome evidence.",
+  "code": "rebate"
+}

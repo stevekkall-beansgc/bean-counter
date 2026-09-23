@@ -1,0 +1,7 @@
+{
+  "schema": "ledger-finance-mapping/1",
+  "accounts": {
+    "customer-1": "customer-account",
+    "example-company": "merchant-account"
+  }
+}

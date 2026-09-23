@@ -16,7 +16,9 @@ use tokio::time::Instant;
 
 /// Version of the local billing facade and JSON contract family.
 /// Frozen economic record profiles have their own independent versions.
-pub const CONTRACT_VERSION: &str = "v0.1";
+pub const CONTRACT_VERSION: &str = "v0.2";
+
+mod export;
 
 pub struct BillingLedger {
     store: SqliteStore,
