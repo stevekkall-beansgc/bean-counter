@@ -2,6 +2,7 @@
 mod persist;
 mod physical;
 mod provision;
+mod reader;
 mod resolve;
 pub(super) mod tx;
 use crate::{

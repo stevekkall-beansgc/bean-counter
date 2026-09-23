@@ -99,7 +99,7 @@ async fn prepared(f: &fixture::Fixture, n: usize) -> (tempfile::TempDir, SqliteS
 }
 // Full application table/column inventories and all physical values, never a
 // hard-coded subset. Includes DDL, indexes and trigger definitions on reopen.
-async fn inventory(store: &SqliteStore) -> Vec<(String, Vec<String>, Vec<String>)> {
+pub(super) async fn inventory(store: &SqliteStore) -> Vec<(String, Vec<String>, Vec<String>)> {
     let mut tx = store.inner.readers.begin().await.unwrap();
     let tables:Vec<String>=sqlx::query_scalar("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetch_all(&mut *tx).await.unwrap();
     assert_eq!(

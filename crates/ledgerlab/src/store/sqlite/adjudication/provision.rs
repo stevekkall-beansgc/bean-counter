@@ -205,9 +205,7 @@ impl super::super::SqliteStore {
                 .fetch_one(transaction.conn())
                 .await?;
             pages = physical::total_pages(&logical, baseline as u128, u128::from(legacy_pages))?;
-            let wal = 32 + (u128::from(pages) + 2 + 65536u128.div_ceil(4120)) * 4120;
-            let needed =
-                u128::from(pages) * 4096 + wal + 2 * logical.workspace_bytes.value() + 16384;
+            let needed = physical::backing_needed(pages, logical.workspace_bytes)?;
             if needed > backing_bytes.value() {
                 return Err(StoreError::Overloaded);
             }

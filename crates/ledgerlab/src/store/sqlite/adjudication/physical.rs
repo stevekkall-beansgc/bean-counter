@@ -5,6 +5,21 @@ use r3::runtime::accounting::{Template, Worksheet};
 
 pub(super) const TRANSIENT_PAGES: u128 = 24576;
 pub(super) const FIXED_PAGES: u128 = 256;
+pub(super) const READER_WORKSPACE_BYTES: u128 = 16 * 1024 * 1024;
+
+pub(super) fn backing_needed(pages: u32, workspace: Count) -> Result<u128, StoreError> {
+    let frames = u128::from(pages) + 2 + 65536u128.div_ceil(4120);
+    let wal = 32 + frames * 4120;
+    // The first 32KiB WAL-index region has 4062 entries; later regions 4096.
+    let shm = 32768 * (frames + 34).div_ceil(4096);
+    add(
+        add(
+            u128::from(pages) * 4096 + wal + shm,
+            mul(2, workspace.value())?,
+        )?,
+        16384 + READER_WORKSPACE_BYTES,
+    )
+}
 
 pub(in crate::store::sqlite) async fn physical_usage(
     c: &mut SqliteConnection,

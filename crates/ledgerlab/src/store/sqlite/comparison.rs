@@ -617,3 +617,10 @@ mod lease;
 #[cfg(test)]
 #[path = "comparison_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+impl super::SqliteStore {
+    pub(crate) async fn test_full_inventory(&self) -> Vec<(String, Vec<String>, Vec<String>)> {
+        tests::inventory(self).await
+    }
+}
