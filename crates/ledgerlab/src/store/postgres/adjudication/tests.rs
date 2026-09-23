@@ -505,3 +505,6 @@ mod physical;
 
 #[path = "runtime_tests.rs"]
 mod runtime_tests;
+
+#[path = "publication_process_tests.rs"]
+mod publication_process_tests;
