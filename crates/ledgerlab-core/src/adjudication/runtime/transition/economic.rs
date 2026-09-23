@@ -248,7 +248,11 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
         _ => unreachable!(),
     }
     v.put(Point::case(key)?, State::Case(Box::new(c)))?;
-    v.reserve(&d.funding.owner, &[d.funding.slot.clone()], work)?;
+    v.reserve(
+        &d.funding.owner,
+        std::slice::from_ref(&d.funding.slot),
+        work,
+    )?;
     d.funding.release = true;
     Ok(match v.input.command {
         w::Command::Decide { payload, .. } if payload.verdict == w::DecideVerdict::Deny => 6,

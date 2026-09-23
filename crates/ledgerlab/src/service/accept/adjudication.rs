@@ -19,10 +19,6 @@ pub(crate) struct TrustedPrefix {
     selection: PrefixSelection,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) enum PrefixSelection {
     CurrentAtRead,
     Historical,
@@ -45,20 +41,12 @@ impl TrustedPrefix {
 /// Complete source membership and semantic reconstruction through a host-observed
 /// historical prefix; a submitted hash/root never creates this witness.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) struct VerifiedSource {
     prefix: TrustedJournalHead,
     proof: wire::Proof,
     exact_object: wire::RetainedObject,
     authorizing_target: Option<Id>,
 }
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 impl VerifiedSource {
     pub(crate) fn prefix(&self) -> &TrustedJournalHead {
         &self.prefix
@@ -77,10 +65,6 @@ impl VerifiedSource {
 /// actual exclusion and protected work allocation are held. Fields are private.
 /// Possessing a signing key, a path or an epoch DTO cannot manufacture this lease.
 #[derive(Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) struct CommitCapability {
     journal: JournalIdentity,
     transaction: Digest,
@@ -106,10 +90,6 @@ pub(crate) struct PhysicalEnvelope {
     protected_workspace_bytes: Count,
     enforcement_observation: Digest,
 }
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 impl CommitCapability {
     pub(crate) fn resource_ceiling(&self) -> &wire::Resource {
         &self.resource_ceiling
@@ -170,10 +150,6 @@ pub(crate) enum OriginalBaseWrites {
     OriginalV2(Box<ValidatedOriginalBasePlan>),
 }
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) struct FreshBaseAcceptance {
     writes: OriginalBaseWrites,
     absence: Vec<ObservedHead>,
@@ -197,10 +173,6 @@ pub(crate) struct ReservationConversion {
     pub counter_actual: wire::Counters,
 }
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) struct IndexChange {
     pub full_key: Vec<u8>,
     pub old_root: Digest,
@@ -299,10 +271,6 @@ pub(crate) struct VerifiedReadContinuation {
 /// Current trusted host resolution supplies exact authority source bodies as well
 /// as the current head; neither sender flags nor membership in a digest set suffice.
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) struct AuthorityObservation {
     principal: Id,
     command: Digest,
@@ -313,10 +281,6 @@ pub(crate) struct AuthorityObservation {
     exact_sources: Vec<wire::AuthoritySource>,
     current_heads: Vec<ObservedHead>,
 }
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) trait AdjudicationAuthority: Send + Sync {
     fn current(
         &self,
@@ -326,19 +290,11 @@ pub(crate) trait AdjudicationAuthority: Send + Sync {
     ) -> Result<AuthorityObservation, crate::ServiceError>;
 }
 #[derive(Clone, Copy, Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 pub(crate) enum AuthorityAccess {
     ReadSavedResult,
     NewTransition,
 }
 
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
-)]
 impl FreshBaseAcceptance {
     pub(crate) fn writes(&self) -> &OriginalBaseWrites {
         &self.writes
@@ -361,7 +317,7 @@ mod backend;
 pub(crate) use backend::TrustedJournalHead;
 mod authority;
 mod prepare;
-pub(crate) use prepare::{prepare_locked, Prepared};
+pub(crate) use prepare::Prepared;
 mod base;
 
 mod run;

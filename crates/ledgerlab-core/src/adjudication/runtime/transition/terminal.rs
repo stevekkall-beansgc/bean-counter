@@ -105,7 +105,11 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
         w::Command::ExtendResources { payload: p, .. } => {
             require(p.host == *i.host, "RESOURCE_HOST")?;
             // Admin costs must fit existing admission before the extension.
-            v.reserve(&d.funding.owner, &[d.funding.slot.clone()], work)?;
+            v.reserve(
+                &d.funding.owner,
+                std::slice::from_ref(&d.funding.slot),
+                work,
+            )?;
             let point = account(i.host)?;
             let State::Resource(mut a) = v.load(&point)? else {
                 return Err(fail("RESOURCE_HOST"));
@@ -138,7 +142,11 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
                 p.journal_head == *i.prior_root && i.writer_fence == Some(&p.fence),
                 "FENCE_PROOF",
             )?;
-            v.reserve(&d.funding.owner, &[d.funding.slot.clone()], work)?;
+            v.reserve(
+                &d.funding.owner,
+                std::slice::from_ref(&d.funding.slot),
+                work,
+            )?;
             g.epoch = p.new_epoch;
             v.put(gateway(i.host)?, State::Gateway(Box::new(g)))?;
             d.funding.release = true;
@@ -167,14 +175,18 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
             let key = Id::parse(hash("namespace", &json!([p.gateway, p.round]))?.as_str())?;
             let point = id(PointKind::Round, *b"RND_PREP", key.as_str())?;
             v.absent(&point)?;
-            v.reserve(&d.funding.owner, &[d.funding.slot.clone()], work)?;
+            v.reserve(
+                &d.funding.owner,
+                std::slice::from_ref(&d.funding.slot),
+                work,
+            )?;
             v.reserve(
                 &owner("optional-round", &p.round)?,
                 work.bundle("cancel_gateway")?,
                 work,
             )?;
             d.funding.release = true;
-            v.put(point, State::RoundPreparation(p.clone()))?;
+            v.put(point, State::RoundPreparation(Box::new(p.clone())))?;
             d.fact = Some((w::FactKind::RoundPreparation, key));
             Ok(7)
         }
@@ -231,7 +243,11 @@ pub(super) fn apply(v: &mut View<'_>, d: &mut Delta, work: &Worksheet) -> Result
                 })
                 .collect();
             sorted(&mut case.supplements)?;
-            v.reserve(&d.funding.owner, &[d.funding.slot.clone()], work)?;
+            v.reserve(
+                &d.funding.owner,
+                std::slice::from_ref(&d.funding.slot),
+                work,
+            )?;
             d.funding.release = true;
             v.put(point, State::Case(case))?;
             Ok(6)

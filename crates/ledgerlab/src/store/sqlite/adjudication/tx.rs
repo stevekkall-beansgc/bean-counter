@@ -263,6 +263,7 @@ impl AdjudicationTx for super::super::SqliteTx {
             || c.work.owner != *cap.allocation_owner()
             || c.resource_ceiling != *cap.resource_ceiling()
             || c.writer_fence.as_ref() != cap.writer_fence()
+            || !c.physical.same_enforcement(cap.physical())
             || c.guards != p.guards()
             || c.prior.ordinal() != p.prior().ordinal()
             || c.prior.root() != p.prior().root()

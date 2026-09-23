@@ -19,11 +19,8 @@ use std::future::Future;
 use tokio::time::Instant;
 #[derive(Clone, Debug)]
 pub(crate) enum SourceRequest {
-    Exact(wire::Proof),
-    Enrollment {
-        journal: JournalIdentity,
-        registration: Id,
-    },
+    Exact(Box<wire::Proof>),
+    Enrollment { journal: JournalIdentity },
 }
 pub(crate) trait AdjudicationHost<T: AdjudicationTx>: AdjudicationAuthority {
     /// Complete currently known host/legacy authority and original base locks.
@@ -150,7 +147,7 @@ fn head(
 enum Attempt {
     Restart(Vec<HeadKey>, Vec<Guard>),
     Reply(wire::CommandResult),
-    Plan(Box<ValidatedAdjudicationPlan>, CommitCapability),
+    Plan(Box<ValidatedAdjudicationPlan>, Box<CommitCapability>),
 }
 #[allow(clippy::too_many_arguments)]
 async fn attempt<T: AdjudicationTx, H: AdjudicationHost<T>>(
@@ -227,7 +224,9 @@ async fn attempt<T: AdjudicationTx, H: AdjudicationHost<T>>(
     }
     let cap = tx.commit_capability().await.map_err(store_error)?;
     for proof in command_sources(command)? {
-        let source = host.source(&SourceRequest::Exact(proof.clone())).await?;
+        let source = host
+            .source(&SourceRequest::Exact(Box::new(proof.clone())))
+            .await?;
         required(source.proof() == &proof)?;
         if inputs.sources.iter().all(|s| s.proof() != &proof) {
             inputs.sources.push(source);
@@ -272,7 +271,6 @@ async fn attempt<T: AdjudicationTx, H: AdjudicationHost<T>>(
                 let source = host
                     .source(&SourceRequest::Enrollment {
                         journal: journal.clone(),
-                        registration: registration.clone(),
                     })
                     .await?;
                 required(
@@ -291,9 +289,23 @@ async fn attempt<T: AdjudicationTx, H: AdjudicationHost<T>>(
                 high,
             } => {
                 required(scan.is_none())?;
-                scan = Some(seal::scan(tx, &cap, key, guards, round, gateway, cutoff, high).await?);
+                scan = Some(
+                    seal::scan(
+                        tx,
+                        &cap,
+                        key,
+                        guards,
+                        seal::Selection {
+                            round,
+                            gateway,
+                            cutoff,
+                            high,
+                        },
+                    )
+                    .await?,
+                );
             }
-            Prepared::Plan(plan) => return Ok(Attempt::Plan(plan, cap)),
+            Prepared::Plan(plan) => return Ok(Attempt::Plan(plan, Box::new(cap))),
         }
     }
 }

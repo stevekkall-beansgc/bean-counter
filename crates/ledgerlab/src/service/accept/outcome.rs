@@ -1385,7 +1385,6 @@ pub(crate) fn prepare_original_base<A: OutcomeAuthority>(
         observed: snapshot.heads.clone(),
         records: fresh.rows.iter().map(bytes).collect::<Result<_>>()?,
         writes,
-        ingress: ingress(c, &event)?,
         ingress_hash: ingress_hash(c, &event, &command)?,
         receipt: bytes(&base.acceptance)?,
     })

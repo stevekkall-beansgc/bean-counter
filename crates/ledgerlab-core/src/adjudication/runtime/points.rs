@@ -191,7 +191,7 @@ pub struct AllocationState {
 #[serde(tag = "kind", content = "body", deny_unknown_fields)]
 pub enum State {
     Preparation(w::PrepareEnroll),
-    RoundPreparation(w::PrepareRound),
+    RoundPreparation(Box<w::PrepareRound>),
     Enrollment(Box<EnrollmentState>),
     Gateway(Box<GatewayState>),
     Grant(Box<GrantState>),

@@ -16,101 +16,6 @@ pub(super) async fn reassert(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::{
-        adjudication::ObjectPageRequest,
-        sqlite::{tests::installation, SqliteStore},
-    };
-    use r3::types::Id;
-
-    #[tokio::test]
-    async fn r3_copied_facts_keep_distinct_source_origins_and_bounded_pages() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::create(dir.path(), installation())
-            .await
-            .unwrap();
-        let j = JournalIdentity {
-            store: Id::parse("store-demo-slice").unwrap(),
-            scope: wire::Scope(Id::parse("tenant").unwrap(), Id::parse("env").unwrap()),
-            registration: Id::parse("reg").unwrap(),
-            host: Id::parse("center").unwrap(),
-        };
-        let key = journal_key(&j).unwrap();
-        let n = 1u128.to_be_bytes();
-        let mut c = store.inner.writer.acquire().await.unwrap();
-        sqlx::query("INSERT INTO r3_journals VALUES (?,?,?,?,?)")
-            .bind(&key)
-            .bind(b"{}".as_slice())
-            .bind(n.as_slice())
-            .bind("a".repeat(64))
-            .bind("b".repeat(64))
-            .execute(&mut *c)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO r3_segments VALUES (?,?,?,?,?,?)")
-            .bind(&key)
-            .bind(n.as_slice())
-            .bind("a".repeat(64))
-            .bind("b".repeat(64))
-            .bind(2i64)
-            .bind(1i64)
-            .execute(&mut *c)
-            .await
-            .unwrap();
-        let first = wire::RetainedObject {
-            origin: wire::ObjectOrigin {
-                store: j.store.clone(),
-                scope: j.scope.clone(),
-                registration: j.registration.clone(),
-                host: Id::parse("gateway-one").unwrap(),
-                ordinal: Count::new(7).unwrap(),
-            },
-            kind: wire::FactKind::Receipt,
-            full_key: wire::RetainedObjectFullKey::V2(Id::parse("same-id").unwrap()),
-            body: "e30=".into(),
-            body_hash: r3::raw_sha256(b"{}"),
-            bytes: Count::new(2).unwrap(),
-        };
-        let mut second = first.clone();
-        second.origin.host = Id::parse("gateway-two").unwrap();
-        object(&mut c, &key, Count::new(1).unwrap(), &first)
-            .await
-            .unwrap();
-        object(&mut c, &key, Count::new(1).unwrap(), &second)
-            .await
-            .unwrap();
-        assert!(object(&mut c, &key, Count::new(1).unwrap(), &first)
-            .await
-            .is_err());
-        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM r3_objects")
-            .fetch_one(&mut *c)
-            .await
-            .unwrap();
-        assert_eq!(rows, 2);
-        let q = ObjectPageRequest {
-            origin: second.origin.clone(),
-            kind: second.kind.clone(),
-            key: r3::canonical_bytes(&second.full_key, 4096).unwrap(),
-            hash: second.body_hash.clone(),
-            offset: Count::new(1).unwrap(),
-            max_bytes: 4096,
-        };
-        assert_eq!(object_page(&mut c, &j, &q).await.unwrap(), b"}");
-        let mut bad = q.clone();
-        bad.origin.ordinal = Count::new(1).unwrap();
-        assert!(object_page(&mut c, &j, &bad).await.is_err());
-        drop(c);
-        store.close().await;
-        let reopened = SqliteStore::open(dir.path()).await.unwrap();
-        let mut c = reopened.inner.readers.acquire().await.unwrap();
-        assert_eq!(object_page(&mut c, &j, &q).await.unwrap(), b"}");
-        drop(c);
-        reopened.close().await;
-    }
-}
-
 pub(super) async fn object(
     c: &mut SqliteConnection,
     journal: &[u8],
@@ -361,4 +266,99 @@ pub(super) async fn plan(
         .execute(c)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{
+        adjudication::ObjectPageRequest,
+        sqlite::{tests::installation, SqliteStore},
+    };
+    use r3::types::Id;
+
+    #[tokio::test]
+    async fn r3_copied_facts_keep_distinct_source_origins_and_bounded_pages() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::create(dir.path(), installation())
+            .await
+            .unwrap();
+        let j = JournalIdentity {
+            store: Id::parse("store-demo-slice").unwrap(),
+            scope: wire::Scope(Id::parse("tenant").unwrap(), Id::parse("env").unwrap()),
+            registration: Id::parse("reg").unwrap(),
+            host: Id::parse("center").unwrap(),
+        };
+        let key = journal_key(&j).unwrap();
+        let n = 1u128.to_be_bytes();
+        let mut c = store.inner.writer.acquire().await.unwrap();
+        sqlx::query("INSERT INTO r3_journals VALUES (?,?,?,?,?)")
+            .bind(&key)
+            .bind(b"{}".as_slice())
+            .bind(n.as_slice())
+            .bind("a".repeat(64))
+            .bind("b".repeat(64))
+            .execute(&mut *c)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO r3_segments VALUES (?,?,?,?,?,?)")
+            .bind(&key)
+            .bind(n.as_slice())
+            .bind("a".repeat(64))
+            .bind("b".repeat(64))
+            .bind(2i64)
+            .bind(1i64)
+            .execute(&mut *c)
+            .await
+            .unwrap();
+        let first = wire::RetainedObject {
+            origin: wire::ObjectOrigin {
+                store: j.store.clone(),
+                scope: j.scope.clone(),
+                registration: j.registration.clone(),
+                host: Id::parse("gateway-one").unwrap(),
+                ordinal: Count::new(7).unwrap(),
+            },
+            kind: wire::FactKind::Receipt,
+            full_key: wire::RetainedObjectFullKey::V2(Id::parse("same-id").unwrap()),
+            body: "e30=".into(),
+            body_hash: r3::raw_sha256(b"{}"),
+            bytes: Count::new(2).unwrap(),
+        };
+        let mut second = first.clone();
+        second.origin.host = Id::parse("gateway-two").unwrap();
+        object(&mut c, &key, Count::new(1).unwrap(), &first)
+            .await
+            .unwrap();
+        object(&mut c, &key, Count::new(1).unwrap(), &second)
+            .await
+            .unwrap();
+        assert!(object(&mut c, &key, Count::new(1).unwrap(), &first)
+            .await
+            .is_err());
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM r3_objects")
+            .fetch_one(&mut *c)
+            .await
+            .unwrap();
+        assert_eq!(rows, 2);
+        let q = ObjectPageRequest {
+            origin: second.origin.clone(),
+            kind: second.kind.clone(),
+            key: r3::canonical_bytes(&second.full_key, 4096).unwrap(),
+            hash: second.body_hash.clone(),
+            offset: Count::new(1).unwrap(),
+            max_bytes: 4096,
+        };
+        assert_eq!(object_page(&mut c, &j, &q).await.unwrap(), b"}");
+        let mut bad = q.clone();
+        bad.origin.ordinal = Count::new(1).unwrap();
+        assert!(object_page(&mut c, &j, &bad).await.is_err());
+        drop(c);
+        store.close().await;
+        let reopened = SqliteStore::open(dir.path()).await.unwrap();
+        let mut c = reopened.inner.readers.acquire().await.unwrap();
+        assert_eq!(object_page(&mut c, &j, &q).await.unwrap(), b"}");
+        drop(c);
+        reopened.close().await;
+    }
 }

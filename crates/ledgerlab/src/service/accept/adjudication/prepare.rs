@@ -156,16 +156,6 @@ pub(super) fn parsed_state(raw: &[u8]) -> Result<p::State> {
     })
 }
 
-pub(crate) fn prepare_locked<A: AdjudicationAuthority>(
-    command: &ParsedCommand,
-    inputs: &LockedInputs,
-    capability: &CommitCapability,
-    authority: &A,
-    base: Option<&FreshBaseAcceptance>,
-    guards: &[Guard],
-) -> Result<Prepared> {
-    prepare_with_seal(command, inputs, capability, authority, base, guards, None)
-}
 pub(super) fn prepare_with_seal<A: AdjudicationAuthority>(
     command: &ParsedCommand,
     inputs: &LockedInputs,
@@ -564,7 +554,7 @@ pub(super) fn prepare_with_seal<A: AdjudicationAuthority>(
                 + r3::canonical_bytes(&segment.result, r3::SEGMENT_BYTES)?.len()
                 + trusted
                 <= template.new_trusted_bytes as usize
-            && segment.objects.len() + 1 <= template.records as usize,
+            && segment.objects.len() < template.records as usize,
         "PAID_ENVELOPE",
     )?;
     require(kind == "ENROLL" || base.is_none(), "UNEXPECTED_BASE")?;

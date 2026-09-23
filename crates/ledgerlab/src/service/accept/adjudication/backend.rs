@@ -121,6 +121,15 @@ impl PhysicalEnvelope {
             enforcement_observation,
         })
     }
+    pub(crate) fn same_enforcement(&self, other: &Self) -> bool {
+        self.maximum_retained_bytes() == other.maximum_retained_bytes()
+            && self.maximum_index_pages() == other.maximum_index_pages()
+            && self.maximum_wal_bytes() == other.maximum_wal_bytes()
+            && self.maximum_staging_bytes() == other.maximum_staging_bytes()
+            && self.maximum_reader_retention_bytes() == other.maximum_reader_retention_bytes()
+            && self.protected_workspace_bytes() == other.protected_workspace_bytes()
+            && self.enforcement_observation() == other.enforcement_observation()
+    }
     pub(crate) fn maximum_retained_bytes(&self) -> Count {
         self.maximum_retained_bytes
     }

@@ -8,7 +8,6 @@ pub(crate) struct ValidatedOriginalBasePlan {
     pub(in crate::service::accept) observed: Vec<ObservedOutcomeHead>,
     pub(in crate::service::accept) records: Vec<Vec<u8>>,
     pub(in crate::service::accept) writes: Vec<OutcomeHeadWrite>,
-    pub(in crate::service::accept) ingress: Vec<u8>,
     pub(in crate::service::accept) ingress_hash: String,
     pub(in crate::service::accept) receipt: Vec<u8>,
 }
@@ -27,9 +26,6 @@ impl ValidatedOriginalBasePlan {
     }
     pub(crate) fn delivery_key(&self) -> &ScopedDelivery {
         &self.resolve.delivery
-    }
-    pub(crate) fn ingress(&self) -> &[u8] {
-        &self.ingress
     }
     pub(crate) fn ingress_hash(&self) -> &str {
         &self.ingress_hash

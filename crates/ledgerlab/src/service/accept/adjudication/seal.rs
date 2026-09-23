@@ -82,16 +82,25 @@ async fn point<T: AdjudicationTx>(
     }
     core(super::prepare::parsed_state(raw))
 }
+pub(super) struct Selection {
+    pub round: Count,
+    pub gateway: Id,
+    pub cutoff: Count,
+    pub high: Count,
+}
 pub(super) async fn scan<T: AdjudicationTx>(
     tx: &mut T,
     cap: &CommitCapability,
     key: &wire::Delivery,
     guards: &[Guard],
-    round: Count,
-    gateway: Id,
-    cutoff: Count,
-    high: Count,
+    selection: Selection,
 ) -> Result<VerifiedSealScan, ServiceError> {
+    let Selection {
+        round,
+        gateway,
+        cutoff,
+        high,
+    } = selection;
     if gateway != cap.journal().host {
         return Err(ServiceError::IntegrityFailure);
     }
