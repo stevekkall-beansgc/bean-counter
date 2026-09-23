@@ -767,3 +767,6 @@ mod scale_tests;
 
 #[path = "race_tests.rs"]
 mod race_tests;
+
+#[path = "protected_tests.rs"]
+mod protected_tests;
