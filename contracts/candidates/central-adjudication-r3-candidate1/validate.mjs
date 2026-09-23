@@ -334,7 +334,7 @@ function actualIndex(s,c) {
   const p=c.payload,kind=c.kind;
   let extra;
   if(kind==='PREPARE_ENROLL') extra=37;
-  else if(kind==='PREPARE_ROUND') extra=5;
+  else if(kind==='PREPARE_ROUND') extra=3;
   else if(kind==='ENROLL') extra=s.originalObjects.length+p.preparations.length+p.families.length+2*p.gateways.length+p.suppliers.length+p.pools.length+32+2;
   else if(['LOCAL_GRANT','REGISTER_GRANT'].includes(kind)) extra=2;
   else if(kind==='ISSUE') extra=4;
@@ -355,7 +355,7 @@ function actualIndex(s,c) {
   else if(kind==='CORRECT') extra=3+s.currentEffects.filter(e=>e.kind==='ACTION').length;
   else denial('INDEX_KIND');
   const introductions=s.pendingIntroductions??0;
-  if(kind==='ENROLL' || kind==='PREPARE_ENROLL' || kind==='PREPARE_ROUND') return BigInt(4+extra+(s.pendingAuthorityIntroductions??0));
+  if(kind==='ENROLL' || kind==='PREPARE_ENROLL') return BigInt(4+extra+(s.pendingAuthorityIntroductions??0));
   return BigInt(4+extra+introductions);
 }
 function spend(s,host,owner,kind,c) {

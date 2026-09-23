@@ -426,6 +426,42 @@ test('alternating gateway rounds retain independent installed predecessors and i
   assert.equal(p.summary.cases,4);
 });
 
+test('PREPARE_ROUND actual index count follows retained objects and exact retry',()=>{
+  const retained=vector('abort-before_begin'),before=replay(prefix(retained,5)),after=replay(prefix(retained,6));
+  assert.deepEqual(before.snapshot.counters.g0.index_cardinality,{q:'50',R:'769'});
+  assert.deepEqual(after.snapshot.counters.g0.index_cardinality,{q:'58',R:'792'});
+  assert.equal(replay(retained).snapshot.counters.g0.index_cardinality.q,'99');
+
+  const first=vector('terminal-race-abort'),firstBefore=replay(prefix(first,2)),firstAfter=replay(prefix(first,3));
+  assert.deepEqual(firstBefore.snapshot.counters.g0.index_cardinality,{q:'42',R:'736'});
+  assert.deepEqual(firstAfter.snapshot.counters.g0.index_cardinality,{q:'51',R:'759'});
+
+  const retry=structuredClone(prefix(retained,6)),command=structuredClone(retained.commands[5]);
+  command.authority.permission='read';
+  retry.initial.authority_observations.push(digest('authority',command.authority));
+  retry.initial.authority_observations.sort();
+  retry.commands.push(command);
+  const repeated=replay(retry);
+  assert.equal(repeated.summary.duplicates,after.summary.duplicates+1);
+  assert.equal(repeated.summary.segments,after.summary.segments);
+  assert.equal(canonical(repeated.snapshot),canonical(after.snapshot));
+
+  const newAuthority=prefix(vector('terminal-race-abort'),3),round=newAuthority.commands[2];
+  const priorObservation=digest('authority',round.authority);
+  const source=newAuthority.initial.authority_sources.find(x=>x.body_hash===round.authority.document);
+  const body=strictParse(Buffer.from(source.body,'base64'));
+  body.id='round-command-authority';
+  const bytes=Buffer.from(canonical(body)),hash=createHash('sha256').update(bytes).digest('hex');
+  newAuthority.initial.authority_sources.push({body:bytes.toString('base64'),body_hash:hash,bytes:String(bytes.length)});
+  newAuthority.initial.authority_sources.sort((a,b)=>canonical(a)<canonical(b)?-1:canonical(a)>canonical(b)?1:0);
+  newAuthority.initial.authority_documents.push(hash);newAuthority.initial.authority_documents.sort();
+  round.authority.document=hash;
+  replaceHash(newAuthority.initial.authority_observations,priorObservation,digest('authority',round.authority));
+  const withAuthority=replay(newAuthority);
+  assert.deepEqual(withAuthority.snapshot.counters.g0.index_cardinality,{q:'52',R:'759'});
+  assert.equal(Object.keys(withAuthority.snapshot.authority_retained.g0).length,Object.keys(firstAfter.snapshot.authority_retained.g0).length+1);
+});
+
 test('historical supplier releases follow only the last explicit family close',()=>{
   const checkpoints=file('./regression-checkpoints.json').close_prefixes;
   assert.equal(checkpoints[0].suppliers[0].held,'170');
