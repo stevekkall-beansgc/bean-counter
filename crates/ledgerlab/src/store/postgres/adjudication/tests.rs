@@ -67,6 +67,9 @@ struct Fixture {
 }
 impl Fixture {
     async fn new() -> Self {
+        Self::new_scope("demo").await
+    }
+    async fn new_scope(tenant: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let name = format!(
             "ledgerlab_r3_native_{}_{}",
@@ -83,7 +86,7 @@ impl Fixture {
         let mut owner = config(&name, true).connect().await.unwrap();
         let mut installation = crate::store::sqlite::tests::installation();
         installation.logical_store_id = "center".into();
-        installation.scope.tenant = "demo".into();
+        installation.scope.tenant = tenant.into();
         installation.scope.environment = "sandbox".into();
         super::super::migrate::create(&mut owner.client, installation, "ledgerlab_phase1_runtime")
             .await
@@ -499,3 +502,6 @@ mod recovery_tests;
 
 #[path = "physical.rs"]
 mod physical;
+
+#[path = "runtime_tests.rs"]
+mod runtime_tests;

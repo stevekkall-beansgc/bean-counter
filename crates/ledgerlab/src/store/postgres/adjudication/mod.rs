@@ -101,13 +101,6 @@ pub(super) enum Operation {
     Lookup(JournalIdentity, wire::Delivery),
     Resolve(ResolveRequest),
     Source(JournalIdentity, Count, wire::FactKind, wire::ProofFullKey),
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "Tests exercise primitives, never forge a validated plan"
-        )
-    )]
     Append(Box<ValidatedAdjudicationPlan>),
     #[cfg(test)]
     Primitive(Box<tests::Primitive>),
