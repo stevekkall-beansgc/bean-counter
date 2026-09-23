@@ -496,3 +496,6 @@ async fn native_r3_cancel_contended_lock_joins_then_observes_backend_exit() {
 
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
+
+#[path = "physical.rs"]
+mod physical;
