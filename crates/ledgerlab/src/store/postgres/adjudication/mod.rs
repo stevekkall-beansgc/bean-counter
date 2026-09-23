@@ -4,6 +4,7 @@
 mod locks;
 mod persist;
 mod read;
+pub(super) mod recovery;
 mod resolve;
 #[cfg(test)]
 mod tests;

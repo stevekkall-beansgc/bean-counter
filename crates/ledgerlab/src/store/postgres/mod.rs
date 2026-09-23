@@ -128,6 +128,31 @@ impl PostgresStore {
             version,
         })
     }
+    /// Private storage/recovery route; deliberately does not mint a physical
+    /// capability or implement the R3 admission trait.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Native PG admission still requires physical backing"
+        )
+    )]
+    pub(super) async fn begin_native_storage(
+        &self,
+        journal: crate::store::adjudication::JournalIdentity,
+        command: &ledgerlab_core::adjudication::ParsedCommand,
+        deadline: Instant,
+    ) -> Result<PostgresTx, StoreError> {
+        if self.inner.closed.load(Ordering::Acquire) {
+            return Err(StoreError::WritesDisabled);
+        }
+        let work = adjudication::recovery::Work::new(journal, command)?;
+        let permit = timeout_at(deadline, self.inner.slots.clone().acquire_owned())
+            .await
+            .map_err(|_| StoreError::Deadline)?
+            .map_err(|_| StoreError::WritesDisabled)?;
+        tx::start_work(self.inner.clone(), permit, deadline, Some(work)).await
+    }
     #[cfg(test)]
     pub(crate) fn test_pid(&self) -> i32 {
         self.inner.last_pid.load(Ordering::Acquire)

@@ -452,6 +452,7 @@ async fn native_r3_cancel_contended_lock_joins_then_observes_backend_exit() {
         .await
         .unwrap();
     let pid = second.pid;
+    let admission = second.admission_pid.clone();
     let waiting = tokio::spawn(async move {
         second
             .native_adjudication(Operation::Locks(j.clone(), guards(&j)))
@@ -462,7 +463,10 @@ async fn native_r3_cancel_contended_lock_joins_then_observes_backend_exit() {
             let blockers: i32 = f
                 .owner
                 .client
-                .query_one("SELECT cardinality(pg_blocking_pids($1))", &[&pid])
+                .query_one(
+                    "SELECT cardinality(pg_blocking_pids($1)) + cardinality(pg_blocking_pids($2))",
+                    &[&pid, &admission.load(Ordering::Acquire)],
+                )
                 .await
                 .unwrap()
                 .get(0);
@@ -489,3 +493,6 @@ async fn native_r3_cancel_contended_lock_joins_then_observes_backend_exit() {
     assert!(inventory(&f).await.iter().all(Vec::is_empty));
     f.finish().await;
 }
+
+#[path = "recovery_tests.rs"]
+mod recovery_tests;

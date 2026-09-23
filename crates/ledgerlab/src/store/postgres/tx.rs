@@ -7,8 +7,12 @@ use crate::store::{
     ports::AcceptanceTx,
     records::*,
 };
+use adjudication::recovery::{Disposition, Gate, Work};
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicI32, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use tokio::{
@@ -69,6 +73,8 @@ pub(crate) struct PostgresTx {
     // Holding the owner keeps the task registry and bounded connection lease alive.
     _owner: Arc<Inner>,
     #[cfg(test)]
+    pub(crate) admission_pid: Arc<AtomicI32>,
+    #[cfg(test)]
     pub(crate) pid: i32,
 }
 pub(super) async fn start(
@@ -76,6 +82,16 @@ pub(super) async fn start(
     permit: OwnedSemaphorePermit,
     deadline: Instant,
 ) -> Result<PostgresTx, StoreError> {
+    start_work(owner, permit, deadline, None).await
+}
+pub(super) async fn start_work(
+    owner: Arc<Inner>,
+    permit: OwnedSemaphorePermit,
+    deadline: Instant,
+    work: Option<Work>,
+) -> Result<PostgresTx, StoreError> {
+    let admission_pid = Arc::new(AtomicI32::new(0));
+    let control_pid = admission_pid.clone();
     let (sender, receiver) = mpsc::unbounded_channel();
     let (ready, started) = oneshot::channel();
     // Register before even opening a socket. Close and registration share this
@@ -101,6 +117,7 @@ pub(super) async fn start(
                     return;
                 }
             };
+            let mut gate = None;
             let result = async {
                 super::verify_server(&session.client).await?;
                 let pid: i32 = session
@@ -108,6 +125,11 @@ pub(super) async fn start(
                     .query_one("SELECT pg_backend_pid()", &[])
                     .await?
                     .try_get(0)?;
+                if let Some(work) = work {
+                    let mut owned = Gate::acquire(&config, deadline, &control_pid).await?;
+                    owned.arm(&session.client, work).await?;
+                    gate = Some(owned);
+                }
                 let tx = session
                     .client
                     .build_transaction()
@@ -116,13 +138,32 @@ pub(super) async fn start(
                     .await?;
                 Ok::<_, StoreError>((tx, pid))
             };
+            let mut pending = None;
             match timeout_at(deadline, result).await {
                 Ok(Ok((tx, pid))) => {
                     if ready.send(Ok(pid)).is_ok() {
                         #[cfg(test)]
-                        super::trace::scope(trace_label, drive(tx, receiver, deadline, pid)).await;
+                        {
+                            pending = super::trace::scope(
+                                trace_label,
+                                drive(
+                                    tx,
+                                    receiver,
+                                    deadline,
+                                    &config,
+                                    &mut gate,
+                                    &control_pid,
+                                    pid,
+                                ),
+                            )
+                            .await;
+                        }
                         #[cfg(not(test))]
-                        drive(tx, receiver, deadline).await;
+                        {
+                            pending =
+                                drive(tx, receiver, deadline, &config, &mut gate, &control_pid)
+                                    .await;
+                        }
                     } else {
                         let _ = timeout_at(Instant::now() + Duration::from_secs(5), tx.rollback())
                             .await;
@@ -136,6 +177,21 @@ pub(super) async fn start(
                 }
             }
             session.discard().await;
+            let claimed = gate.as_ref().is_some_and(|g| g.work.is_some());
+            let resolution = match gate {
+                Some(g) => g.finish().await,
+                None => Ok(None),
+            };
+            if let Some((reply, mut outcome)) = pending {
+                if outcome.is_ok()
+                    && (resolution.is_err()
+                        || (claimed
+                            && !matches!(&resolution,Ok(Some(r)) if r.disposition==Disposition::Saved)))
+                {
+                    outcome = Err(CommitError::OutcomeUnknown);
+                }
+                let _ = reply.send(outcome);
+            }
         });
         tasks.retain(|t| !t.is_finished());
         tasks.push(handle);
@@ -160,6 +216,8 @@ pub(super) async fn start(
         sender,
         failed: false,
         _owner: owner,
+        #[cfg(test)]
+        admission_pid,
         #[cfg(test)]
         pid,
     })
@@ -191,12 +249,30 @@ async fn clamp(tx: &Transaction<'_>, deadline: Instant) -> Result<(), StoreError
     tx.query_one("SELECT set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true),set_config('idle_in_transaction_session_timeout',$3,true)",&[&remaining.min(2000).to_string(),&remaining.min(500).to_string(),&remaining.min(5000).to_string()]).await?;
     Ok(())
 }
+type CommitDelivery = (
+    oneshot::Sender<Result<(), CommitError>>,
+    Result<(), CommitError>,
+);
+async fn ensure_gate(
+    gate: &mut Option<Gate>,
+    config: &super::PostgresConfig,
+    deadline: Instant,
+    pid: &Arc<AtomicI32>,
+) -> Result<(), StoreError> {
+    if gate.is_none() {
+        *gate = Some(Gate::acquire(config, deadline, pid).await?);
+    }
+    Ok(())
+}
 async fn drive(
     tx: Transaction<'_>,
     mut commands: mpsc::UnboundedReceiver<Command>,
     deadline: Instant,
+    config: &super::PostgresConfig,
+    gate: &mut Option<Gate>,
+    admission_pid: &Arc<AtomicI32>,
     #[cfg(test)] pid: i32,
-) {
+) -> Option<CommitDelivery> {
     let mut failed = false;
     let mut held = outcomes::Locked::default();
     let mut steps = outcomes::Steps::default();
@@ -246,6 +322,20 @@ async fn drive(
                     deadline.min(Instant::now() + Duration::from_secs(2)),
                     async {
                         clamp(&tx, deadline).await?;
+                        if matches!(&op, adjudication::Operation::Locks(..)) {
+                            ensure_gate(gate, config, deadline, admission_pid).await?;
+                        }
+                        if let adjudication::Operation::Append(p) = &op {
+                            if !gate
+                                .as_ref()
+                                .and_then(|g| g.work.as_ref())
+                                .is_some_and(|w| w.matches(p))
+                            {
+                                return Err(StoreError::Integrity(
+                                    "native append requires durable work identity",
+                                ));
+                            }
+                        }
                         adjudication::operation(&tx, &mut native, &mut held, &mut steps, op).await
                     },
                 )
@@ -272,6 +362,9 @@ async fn drive(
                                 OutcomeValue::Unit
                             }
                             OutcomeOp::Locks(scopes) => {
+                                if scopes.iter().any(|l| l.mode == OutcomeLockMode::Write) {
+                                    ensure_gate(gate, config, deadline, admission_pid).await?;
+                                }
                                 outcomes::lock(&tx, &mut held, &scopes).await?;
                                 OutcomeValue::Unit
                             }
@@ -282,6 +375,8 @@ async fn drive(
                                 outcomes::resolve(&tx, &mut held, &q).await?,
                             ),
                             OutcomeOp::Append(plan) => {
+                                ensure_gate(gate, config, deadline, admission_pid).await?;
+
                                 outcomes::append(&tx, &held, &plan, &mut steps).await?;
                                 OutcomeValue::Unit
                             }
@@ -339,6 +434,7 @@ async fn drive(
                     deadline.min(Instant::now() + Duration::from_secs(2)),
                     async {
                         clamp(&tx, deadline).await?;
+                        ensure_gate(gate, config, deadline, admission_pid).await?;
                         write::operation(&tx, &op).await
                     },
                 )
@@ -370,7 +466,7 @@ async fn drive(
                         .as_millis()
                 ));
                 let _ = reply.send(result);
-                return;
+                return None;
             }
             Command::Commit(reply) => {
                 let drain = Instant::now() + Duration::from_secs(5);
@@ -399,8 +495,7 @@ async fn drive(
                         .saturating_duration_since(Instant::now())
                         .as_millis()
                 ));
-                let _ = reply.send(result);
-                return;
+                return Some((reply, result));
             }
         }
     }
@@ -413,6 +508,7 @@ async fn drive(
     ));
     #[cfg(not(test))]
     let _ = rollback;
+    None
 }
 impl PostgresTx {
     /// Native storage slice, private to the backend. This is not a physical

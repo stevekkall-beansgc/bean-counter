@@ -294,11 +294,18 @@ async fn postgres_outcome_each_record_statement_boundary_rolls_back() {
     f.finish().await;
 }
 
-async fn wait_blocked(c: &tokio_postgres::Client, pid: i32) {
+async fn wait_blocked(
+    c: &tokio_postgres::Client,
+    pid: i32,
+    admission: &std::sync::Arc<std::sync::atomic::AtomicI32>,
+) {
     let deadline = Instant::now() + Duration::from_secs(1);
     loop {
         let n: i32 = c
-            .query_one("SELECT cardinality(pg_blocking_pids($1))", &[&pid])
+            .query_one(
+                "SELECT cardinality(pg_blocking_pids($1)) + cardinality(pg_blocking_pids($2))",
+                &[&pid, &admission.load(std::sync::atomic::Ordering::Acquire)],
+            )
             .await
             .unwrap()
             .get(0);
@@ -357,12 +364,13 @@ async fn postgres_outcome_ordered_real_locks_cancel_and_serializable_restart() {
         first.lock_scopes(std::slice::from_ref(&l)).await.unwrap();
         let mut second = f.store.begin_outcome(deadline).await.unwrap();
         let pid = second.pid;
+        let admission = second.admission_pid.clone();
         let waiter = tokio::spawn(async move {
             let result = second.lock_scopes(&[l]).await;
             second.rollback().await.unwrap();
             result
         });
-        wait_blocked(&f.owner.client, pid).await;
+        wait_blocked(&f.owner.client, pid, &admission).await;
         first.commit().await.unwrap();
         let error = waiter
             .await
@@ -376,8 +384,9 @@ async fn postgres_outcome_ordered_real_locks_cancel_and_serializable_restart() {
     first.lock_scopes(std::slice::from_ref(&l)).await.unwrap();
     let mut second = f.store.begin_outcome(deadline).await.unwrap();
     let pid = second.pid;
+    let admission = second.admission_pid.clone();
     let waiter = tokio::spawn(async move { second.lock_scopes(&[l]).await });
-    wait_blocked(&f.owner.client, pid).await;
+    wait_blocked(&f.owner.client, pid, &admission).await;
     waiter.abort();
     let _ = waiter.await;
     first.rollback().await.unwrap();
@@ -562,12 +571,13 @@ async fn postgres_outcome_shared_read_locks_and_unlocked_discovery() {
     b.rollback().await.unwrap();
     let mut writer = f.store.begin_outcome(deadline).await.unwrap();
     let pid = writer.pid;
+    let admission = writer.admission_pid.clone();
     let w = stronger.locks;
     let task = tokio::spawn(async move {
         writer.lock_scopes(&w).await.unwrap();
         writer.rollback().await.unwrap();
     });
-    wait_blocked(&f.owner.client, pid).await;
+    wait_blocked(&f.owner.client, pid, &admission).await;
     a.rollback().await.unwrap();
     task.await.unwrap();
     let n:i64=f.owner.client.query_one("SELECT (SELECT count(*) FROM ledgerlab.outcome_heads)+(SELECT count(*) FROM ledgerlab.outcome_records)+(SELECT count(*) FROM ledgerlab.outcome_deliveries)",&[]).await.unwrap().get(0);
