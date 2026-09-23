@@ -196,6 +196,9 @@ pub enum State {
     Supplier(w::Supplier),
     Delivery(Box<super::DeliveryState>),
     Authority(Box<AuthorityState>),
+    /// Trusted host administrative current authorization, provisioned separately
+    /// from first immutable journal introduction. The full source body is kept.
+    AuthorityCurrent(w::AuthoritySource),
     Certificate(Box<w::Certificate>),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
