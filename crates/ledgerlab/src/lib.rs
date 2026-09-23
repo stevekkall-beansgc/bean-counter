@@ -80,6 +80,8 @@ pub enum PreviewResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceError {
     Retryable,
+    #[doc(hidden)]
+    ReadBudgetExhausted,
     OutcomeUnknown {
         scope: [String; 2],
         source: String,
@@ -112,6 +114,31 @@ enum Backend {
 }
 pub use store::postgres::{PostgresConfig, PostgresTrust};
 impl Ledger {
+    /// Reopen a local host using its separately retained commit anchor.
+    pub async fn open_sqlite_fenced(path: &Path, anchor: &Path) -> Result<Self, ServiceError> {
+        Ok(Self {
+            store: Backend::Sqlite(
+                store::sqlite::SqliteStore::open_fenced(path, anchor)
+                    .await
+                    .map_err(service::store_error)?,
+            ),
+        })
+    }
+    /// Prepare a nonposting comparison on this live central host. Preparation
+    /// has its own explicit work allowance; advance responses meter each call.
+    /// The borrowed session cannot acquire or outlive a separate writer owner.
+    pub async fn start_comparison(
+        &self,
+        request: &ledgerlab_core::adjudication::commands::ComparisonRequest,
+        preparation_budget: &ledgerlab_core::adjudication::commands::ReadBudget,
+    ) -> Result<SqliteComparison<'_>, ServiceError> {
+        match &self.store {
+            Backend::Sqlite(store) => {
+                SqliteComparison::from_store(store, request, preparation_budget).await
+            }
+            Backend::Postgres(_) => Err(ServiceError::Unavailable),
+        }
+    }
     /// Open a previously initialized durable directory. Does not create or reseed it.
     pub async fn open_sqlite(path: &Path) -> Result<Self, ServiceError> {
         Ok(Self {

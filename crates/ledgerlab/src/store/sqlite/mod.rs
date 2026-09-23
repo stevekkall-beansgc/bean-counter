@@ -38,6 +38,7 @@ struct Inner {
     writer: SqlitePool,
     readers: SqlitePool,
     queue: Arc<Semaphore>,
+    comparison_queue: Arc<Semaphore>,
     disabled: AtomicBool,
     commit_task: Mutex<Option<JoinHandle<()>>>,
     _owner: Arc<owner::Owner>,
@@ -55,6 +56,15 @@ pub(crate) struct SqliteStore {
     pub diagnostics: Diagnostics,
 }
 impl SqliteStore {
+    /// One separately accounted optional CPU/session workspace. It never owns
+    /// the mandatory lane or a SQL snapshot while the client is idle.
+    pub(crate) fn reserve_comparison(
+        &self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, StoreError> {
+        Arc::clone(&self.inner.comparison_queue)
+            .try_acquire_owned()
+            .map_err(|_| StoreError::Overloaded)
+    }
     fn require_published(&self) -> Result<(), StoreError> {
         if let Some(fence) = &self.inner._owner.fence {
             if self.inner.disabled.load(Ordering::Acquire) || !fence.is_stable() {
@@ -155,6 +165,7 @@ impl SqliteStore {
                 writer,
                 readers,
                 queue: Arc::new(Semaphore::new(65)),
+                comparison_queue: Arc::new(Semaphore::new(1)),
                 disabled: AtomicBool::new(false),
                 commit_task: Mutex::new(None),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),

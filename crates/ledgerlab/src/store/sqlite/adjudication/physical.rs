@@ -6,6 +6,33 @@ use r3::runtime::accounting::{Template, Worksheet};
 pub(super) const TRANSIENT_PAGES: u128 = 24576;
 pub(super) const FIXED_PAGES: u128 = 256;
 pub(super) const READER_WORKSPACE_BYTES: u128 = 16 * 1024 * 1024;
+// Pinned-toolchain allocation envelope; see docs/phase4/COMPARISON-WORKSPACE.md.
+// This optional session reservation is separate from mandatory and SQL reader work.
+const fn dom(bytes: u128) -> u128 {
+    256 * bytes + 65_536
+}
+const OBJECT: u128 = 262_144;
+const SEGMENT: u128 = 3_411_620;
+const BASE: u128 = 1_048_576;
+const AUTHORITY_ENCODED: u128 = 83 * 21_979;
+const COMMON: u128 = 5 * SEGMENT
+    + 8 * OBJECT
+    + 4 * dom(OBJECT)
+    + 3 * dom(OBJECT)
+    + 2 * dom(AUTHORITY_ENCODED)
+    + dom(524_288);
+const REPLAY: u128 = 192 * OBJECT;
+const COMPARISON_PEAK: u128 = COMMON
+    + dom(SEGMENT)
+    + 2 * BASE
+    + 4 * dom(BASE)
+    + 12 * dom(OBJECT)
+    + 2 * dom(REPLAY)
+    + 4 * REPLAY;
+pub(super) const COMPARISON_WORKSPACE_BYTES: u128 = COMPARISON_PEAK.div_ceil(1_048_576) * 1_048_576;
+const _: () = assert!(COMPARISON_WORKSPACE_BYTES == 30_284_972_032);
+const _: () = assert!(std::mem::size_of::<serde_json::Value>() <= 32);
+const _: () = assert!(std::mem::size_of::<String>() <= 24);
 
 pub(super) fn backing_needed(pages: u32, workspace: Count) -> Result<u128, StoreError> {
     let frames = u128::from(pages) + 2 + 65536u128.div_ceil(4120);
@@ -17,7 +44,7 @@ pub(super) fn backing_needed(pages: u32, workspace: Count) -> Result<u128, Store
             u128::from(pages) * 4096 + wal + shm,
             mul(2, workspace.value())?,
         )?,
-        16384 + READER_WORKSPACE_BYTES,
+        16384 + READER_WORKSPACE_BYTES + COMPARISON_WORKSPACE_BYTES,
     )
 }
 

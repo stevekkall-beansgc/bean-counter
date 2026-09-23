@@ -13,8 +13,10 @@ use ledgerlab_core::adjudication::{
     Validate,
 };
 use serde_json::{json, Value};
-use std::{collections::BTreeSet, path::Path, time::Duration};
+use std::{collections::BTreeSet, time::Duration};
 use tokio::time::Instant;
+// Maximum admitted segment in the frozen R3 worksheet, enforced before growth.
+const ADMITTED_SEGMENT_BYTES: usize = 3_411_620;
 type Result<T> = std::result::Result<T, ServiceError>;
 fn core<T>(r: ledgerlab_core::Result<T>) -> Result<T> {
     r.map_err(|e| ServiceError::Rejection(e.code.into()))
@@ -26,12 +28,20 @@ fn require(ok: bool) -> Result<()> {
         Err(ServiceError::IntegrityFailure)
     }
 }
-fn add(a: &wire::ReadBudget, b: &wire::ReadBudget) -> Result<wire::ReadBudget> {
-    Ok(wire::ReadBudget {
-        bytes: core(a.bytes.checked_add(b.bytes))?,
-        pages: core(a.pages.checked_add(b.pages))?,
-        segments: core(a.segments.checked_add(b.segments))?,
-    })
+fn zero() -> wire::ReadBudget {
+    wire::ReadBudget {
+        bytes: Count::ZERO,
+        pages: Count::ZERO,
+        segments: Count::ZERO,
+    }
+}
+fn bounded(b: &wire::ReadBudget) -> wire::ReadBudget {
+    let max = maximum_budget();
+    wire::ReadBudget {
+        bytes: b.bytes.min(max.bytes),
+        pages: b.pages.min(max.pages),
+        segments: b.segments.min(max.segments),
+    }
 }
 fn journal(e: &wire::ExpectedPrefix) -> JournalIdentity {
     JournalIdentity {
@@ -58,16 +68,19 @@ fn maximum_budget() -> wire::ReadBudget {
 
 /// Nonposting report continuation. It cannot be serialized, cloned or supplied
 /// as an acceptance plan. Dropping it leaves no authoritative comparison state.
-pub struct SqliteComparison {
-    store: SqliteStore,
+pub struct SqliteComparison<'a> {
+    store: &'a SqliteStore,
     expected: wire::ExpectedPrefix,
     policy: wire::ComparisonPolicy,
     coverage: Vec<wire::Coverage>,
     progress: Progress,
-    measured: wire::ReadBudget,
+    initialization: wire::ReadBudget,
+    partial: Partial,
     cursor: Option<wire::ReadCursor>,
     session: Digest,
     finished: bool,
+    // Last field: buffers/progress are dropped before releasing admission.
+    _workspace: tokio::sync::OwnedSemaphorePermit,
 }
 #[derive(Clone)]
 struct Progress {
@@ -84,34 +97,33 @@ struct Progress {
     failure: Option<(wire::Case, String)>,
     unsupported: Option<String>,
 }
-impl SqliteComparison {
-    /// Local filesystem access is the trusted read authority. The expected prefix
-    /// is independently matched against retained central membership before use.
-    pub async fn open(
-        database: &Path,
-        anchor: &Path,
-        request: &wire::ComparisonRequest,
-    ) -> Result<Self> {
-        core(request.validate())?;
-        require(request.cursor.is_none() && request.expected.host == request.expected.store)?;
-        let store = SqliteStore::open_fenced(database, anchor)
-            .await
-            .map_err(store_error)?;
-        Self::from_store(store, request).await
+#[derive(Clone, Default)]
+struct Partial {
+    hash: Option<Digest>,
+    total: Option<usize>,
+    bytes: Vec<u8>,
+}
+impl<'a> SqliteComparison<'a> {
+    /// Work charged during explicit trusted session preparation. Report responses
+    /// separately meter each advance; preparation is never hidden in a tiny call.
+    pub fn preparation_measured(&self) -> &wire::ReadBudget {
+        &self.initialization
     }
     pub(crate) async fn from_store(
-        store: SqliteStore,
+        store: &'a SqliteStore,
         request: &wire::ComparisonRequest,
+        preparation_budget: &wire::ReadBudget,
     ) -> Result<Self> {
         core(request.validate())?;
         require(request.cursor.is_none() && request.expected.host == request.expected.store)?;
+        let workspace = store.reserve_comparison().map_err(store_error)?;
         let mut read = store
             .begin_adjudication_read(
                 &SnapshotSelection {
                     journal: journal(&request.expected),
                     historical: Some(request.expected.clone()),
                 },
-                &maximum_budget(),
+                &bounded(preparation_budget),
                 Instant::now() + Duration::from_secs(5),
             )
             .await
@@ -143,6 +155,7 @@ impl SqliteComparison {
         ))?;
         Ok(Self {
             store,
+            _workspace: workspace,
             expected: request.expected.clone(),
             policy: request.policy.clone(),
             coverage: request.coverage.clone(),
@@ -160,7 +173,8 @@ impl SqliteComparison {
                 failure: None,
                 unsupported: None,
             },
-            measured: initialized,
+            initialization: initialized,
+            partial: Partial::default(),
             cursor: None,
             session,
             finished: false,
@@ -180,6 +194,15 @@ impl SqliteComparison {
                 && request.coverage == self.coverage
                 && request.cursor == self.cursor,
         )?;
+        let budget = bounded(&request.budget);
+        // Snapshot membership/enrollment is immutable at this selected prefix.
+        // A call too small to pay the known initialization performs no I/O.
+        if budget.bytes < self.initialization.bytes
+            || budget.pages < self.initialization.pages
+            || budget.segments == Count::ZERO
+        {
+            return self.incomplete(zero());
+        }
         let mut read = self
             .store
             .begin_adjudication_read(
@@ -187,27 +210,91 @@ impl SqliteComparison {
                     journal: journal(&self.expected),
                     historical: Some(self.expected.clone()),
                 },
-                &request.budget,
+                &budget,
                 Instant::now() + Duration::from_secs(5),
             )
             .await
             .map_err(store_error)?;
         let mut progress = self.progress.clone();
-        let result = Self::read_step(
-            &mut progress,
-            &self.expected,
-            &self.policy,
-            &self.coverage,
-            &mut read,
-        )
+        let mut partial = self.partial.clone();
+        let result = async {
+            if partial.hash.is_none() {
+                partial.hash = Some(
+                    read.segment_hash(progress.next)
+                        .await
+                        .map_err(store_error)?,
+                );
+            }
+            let hash = partial
+                .hash
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            while partial.total != Some(partial.bytes.len()) {
+                let used = read.measured().await.map_err(store_error)?;
+                let left = budget.bytes.value().saturating_sub(used.bytes.value());
+                if left <= 64 || budget.pages.value().saturating_sub(used.pages.value()) < 3 {
+                    return Err(ServiceError::ReadBudgetExhausted);
+                }
+                let offset = partial.bytes.len() % 4096;
+                let max = (4096 - offset).min((left - 64) as usize);
+                let page = read
+                    .segment_page(&IndexedPageRequest {
+                        address: r3::reads::PageAddress {
+                            segment: hash.clone(),
+                            page: core(Count::new((partial.bytes.len() / 4096) as u128))?,
+                        },
+                        offset: offset as u16,
+                        max_bytes: max as u16,
+                    })
+                    .await
+                    .map_err(store_error)?;
+                core(page.validate())?;
+                require(
+                    page.total_bytes.value() <= ADMITTED_SEGMENT_BYTES as u128
+                        && !page.bytes.is_empty()
+                        && partial.bytes.len() + page.bytes.len()
+                            <= page.total_bytes.value() as usize,
+                )?;
+                require(
+                    partial
+                        .total
+                        .is_none_or(|n| n == page.total_bytes.value() as usize),
+                )?;
+                partial.total = Some(page.total_bytes.value() as usize);
+                partial.bytes.extend(page.bytes);
+            }
+            let segment: wire::Segment = core(r3::parse_exact(&partial.bytes, r3::SEGMENT_BYTES))?;
+            core(segment.validate())?;
+            require(core(rt::hash("segment", &segment))? == *hash)?;
+            Self::read_step(
+                &mut progress,
+                &self.expected,
+                &self.policy,
+                &self.coverage,
+                &mut read,
+                segment,
+                hash.clone(),
+            )
+            .await
+        }
         .await;
-        let charged = read.measured().await;
-        let cleanup = read.finish().await;
-        result?;
-        self.measured = add(&self.measured, &charged.map_err(store_error)?)?;
-        cleanup.map_err(store_error)?;
-        self.progress = progress;
+        let charged = read.measured().await.map_err(store_error);
+        let cleanup = read.finish().await.map_err(store_error);
+        let measured = charged?;
+        cleanup?;
+        match result {
+            Ok(()) => {
+                self.progress = progress;
+                self.partial = Partial::default();
+            }
+            Err(ServiceError::ReadBudgetExhausted) => {
+                self.partial = partial;
+                return self.incomplete(measured);
+            }
+            Err(e) => return Err(e),
+        }
         if self.progress.next > self.expected.ordinal {
+            self.finished = true; // Terminal integrity/coverage errors also close this session.
             require(
                 self.progress.previous == self.expected.segment
                     && self.progress.root == self.expected.root
@@ -219,13 +306,13 @@ impl SqliteComparison {
                 return Ok(wire::ComparisonResponse::PolicyFailure {
                     at_case: at_case.clone(),
                     reason: reason.clone(),
-                    measured: self.measured.clone(),
+                    measured: measured.clone(),
                 });
             }
             if let Some(reason) = &self.progress.unsupported {
                 return Ok(wire::ComparisonResponse::Unsupported {
                     reason: reason.clone(),
-                    measured: self.measured.clone(),
+                    measured: measured.clone(),
                 });
             }
             return Ok(wire::ComparisonResponse::Comparable {
@@ -243,22 +330,31 @@ impl SqliteComparison {
                         .map_err(|_| ServiceError::IntegrityFailure)?,
                 ))?,
                 coverage: self.coverage.clone(),
-                measured: self.measured.clone(),
+                measured: measured.clone(),
             });
         }
+        self.incomplete(measured)
+    }
+    fn incomplete(&mut self, measured: wire::ReadBudget) -> Result<wire::ComparisonResponse> {
         let continuation = core(rt::hash(
             "replay",
-            &json!([self.session, self.progress.next, self.progress.root]),
+            &json!([
+                self.session,
+                self.progress.next,
+                self.progress.root,
+                self.partial.bytes.len(),
+                r3::raw_sha256(&self.partial.bytes)
+            ]),
         ))?;
         let cursor = wire::ReadCursor {
             expected: self.expected.clone(),
-            ordinal: self.progress.next,
-            byte_offset: Count::ZERO,
+            ordinal: core(self.progress.next.checked_sub(Count::new(1).expect("one")))?,
+            byte_offset: core(Count::new(self.partial.bytes.len() as u128))?,
             verified_root: self.progress.root.clone(),
             continuation,
         };
         self.cursor = Some(cursor.clone());
-        Ok(wire::ComparisonResponse::Incomplete {expected:self.expected.clone(),reason:"BOUNDED_STEP; nonposting central prefix; offline work outside stated cutoffs remains unknown".into(),cursor:Box::new(cursor),measured:self.measured.clone()})
+        Ok(wire::ComparisonResponse::Incomplete {expected:self.expected.clone(),reason:"BOUNDED_STEP; nonposting central prefix; offline work outside stated cutoffs remains unknown".into(),cursor:Box::new(cursor),measured})
     }
     async fn read_step<T: AdjudicationReadTx>(
         progress: &mut Progress,
@@ -266,12 +362,9 @@ impl SqliteComparison {
         policy: &wire::ComparisonPolicy,
         coverage: &[wire::Coverage],
         read: &mut T,
+        segment: wire::Segment,
+        hash: Digest,
     ) -> Result<()> {
-        let hash = read
-            .segment_hash(progress.next)
-            .await
-            .map_err(store_error)?;
-        let segment = load_segment(read, &hash).await?;
         require(
             segment.host == expected.host
                 && segment.ordinal == progress.next
@@ -604,6 +697,10 @@ impl SqliteComparison {
         Ok(())
     }
     #[cfg(test)]
+    pub(crate) fn test_partial_total(&self) -> usize {
+        self.partial.total.expect("page metadata")
+    }
+    #[cfg(test)]
     pub(crate) fn test_progress(&self) -> (u128, i128, i128, i128) {
         (
             self.progress.next.value() - 1,
@@ -612,9 +709,6 @@ impl SqliteComparison {
             self.progress.supplier,
         )
     }
-    pub async fn close(self) {
-        self.store.close().await;
-    }
 }
 fn coverage_gateway(c: &wire::Coverage) -> &Id {
     match c {
@@ -622,34 +716,6 @@ fn coverage_gateway(c: &wire::Coverage) -> &Id {
         | wire::Coverage::Unreconciled { gateway, .. }
         | wire::Coverage::UnknownGatewayCoverage { gateway } => gateway,
     }
-}
-async fn load_segment<T: AdjudicationReadTx>(read: &mut T, hash: &Digest) -> Result<wire::Segment> {
-    let mut bytes = Vec::new();
-    loop {
-        let page = read
-            .segment_page(&IndexedPageRequest {
-                address: r3::reads::PageAddress {
-                    segment: hash.clone(),
-                    page: core(Count::new((bytes.len() / 4096) as u128))?,
-                },
-                offset: 0,
-                max_bytes: 4096,
-            })
-            .await
-            .map_err(store_error)?;
-        core(page.validate())?;
-        require(
-            page.total_bytes.value() <= r3::SEGMENT_BYTES as u128
-                && bytes.len() + page.bytes.len() <= page.total_bytes.value() as usize,
-        )?;
-        bytes.extend(page.bytes);
-        if bytes.len() as u128 == page.total_bytes.value() {
-            break;
-        }
-    }
-    let segment: wire::Segment = core(r3::parse_exact(&bytes, r3::SEGMENT_BYTES))?;
-    require(core(rt::hash("segment", &segment))? == *hash)?;
-    Ok(segment)
 }
 async fn verify_object<T: AdjudicationReadTx>(
     read: &mut T,
@@ -738,6 +804,17 @@ fn verify_base(
                     && o.origin.ordinal == ordinal
             }),
     )?;
+    let base_objects: Vec<_> = objects
+        .iter()
+        .filter(|o| o.kind == wire::FactKind::OriginalBase)
+        .collect();
+    require(!base_objects.is_empty() && base_objects.len() <= 128)?;
+    let total = base_objects.iter().try_fold(0u128, |sum, o| {
+        require(o.bytes.value() <= r3::COMMAND_BYTES as u128)?;
+        sum.checked_add(o.bytes.value())
+            .ok_or(ServiceError::IntegrityFailure)
+    })?;
+    require(total <= 1_048_576)?;
     let raw: Vec<_> = objects
         .iter()
         .filter(|o| o.kind == wire::FactKind::OriginalBase)
@@ -747,7 +824,23 @@ fn verify_base(
         .collect::<Result<_>>()?;
     require(!raw.is_empty() && raw.len() <= 128)?;
     let records = b::Records::new(&raw, json!(terms.scope))?;
-    let base = b::decode_base(&records, &b::reference(records.one("base-acceptance")?))?;
+    let acceptance = records.one("base-acceptance")?;
+    let members = acceptance["body"]["members"]
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    require(members.len() + 1 == raw.len() && members.len() <= 128)?;
+    let mut ids = BTreeSet::new();
+    for member in members {
+        require(
+            ids.insert(
+                member["id"]
+                    .as_str()
+                    .ok_or(ServiceError::IntegrityFailure)?,
+            ),
+        )?;
+        records.deref(member)?;
+    }
+    let base = b::decode_base(&records, &b::reference(acceptance))?;
     require(base.acceptance["body"]["target"] == terms.target.as_str())?;
     require(
         r3::raw_sha256(&core(r3::canonical_bytes(

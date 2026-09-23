@@ -9,6 +9,8 @@ pub(crate) enum StoreError {
     Migration(sqlx::migrate::MigrateError),
     Owned,
     Overloaded,
+    /// Explicit read work quota exhausted; distinct from admission contention.
+    ReadBudgetExhausted,
     Deadline,
     InvalidStore(&'static str),
     Integrity(&'static str),

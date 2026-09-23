@@ -174,19 +174,22 @@ impl Session {
         self.connection.as_mut().expect("live snapshot")
     }
     fn charge(&mut self, bytes: u128, pages: u128) -> Result<()> {
-        self.budget.bytes = self
+        let bytes = self
             .budget
             .bytes
             .checked_sub(Count::new(bytes).map_err(core)?)
-            .map_err(|_| StoreError::Overloaded)?;
-        self.budget.pages = self
+            .map_err(|_| StoreError::ReadBudgetExhausted)?;
+        let pages = self
             .budget
             .pages
             .checked_sub(Count::new(pages).map_err(core)?)
-            .map_err(|_| StoreError::Overloaded)?;
+            .map_err(|_| StoreError::ReadBudgetExhausted)?;
+        self.budget.bytes = bytes;
+        self.budget.pages = pages;
         Ok(())
     }
     async fn state(&mut self, kind: HeadKind, key: &[u8], at: Count) -> Result<Option<State>> {
+        self.charge(64, 1)?;
         let journal = journal_key(&self.journal)?;
         let meta:Option<(Vec<u8>,i64)>=sqlx::query_as("SELECT ordinal,length(value) FROM r3_head_versions WHERE journal=? AND kind=? AND full_key=? AND ordinal<=? ORDER BY ordinal DESC LIMIT 1")
             .bind(&journal).bind(head_tag(kind)).bind(key).bind(at.value().to_be_bytes().as_slice()).fetch_optional(self.tx()).await?;
@@ -207,6 +210,12 @@ impl Session {
         Ok(Some(serde_json::from_value(parsed).map_err(|_| invalid())?))
     }
     async fn segment(&mut self, q: &IndexedPageRequest) -> Result<PageFragment> {
+        // The bounded ordinal metadata and fragment are charged before either SELECT.
+        let complete_before = self.seen.contains(q.address.segment.as_str());
+        if !complete_before && self.budget.segments == Count::ZERO {
+            return Err(StoreError::ReadBudgetExhausted);
+        }
+        self.charge(u128::from(q.max_bytes) + 64, 3)?;
         let journal = journal_key(&self.journal)?;
         let n: Vec<u8> =
             sqlx::query_scalar("SELECT ordinal FROM r3_segments WHERE journal=? AND segment=?")
@@ -217,17 +226,8 @@ impl Session {
         if ordinal(n)? > self.at {
             return Err(invalid());
         }
-        if !self.seen.contains(q.address.segment.as_str()) {
-            self.budget.segments = self
-                .budget
-                .segments
-                .checked_sub(Count::new(1).map_err(core)?)
-                .map_err(|_| StoreError::Overloaded)?;
-            self.seen.insert(q.address.segment.as_str().into());
-        }
-        self.charge(q.max_bytes.into(), 1)?;
         let j = self.journal.clone();
-        segment_page(
+        let page = segment_page(
             self.tx(),
             &j,
             &q.address.segment,
@@ -235,9 +235,20 @@ impl Session {
             q.offset,
             q.max_bytes,
         )
-        .await
+        .await?;
+        let end = q.address.page.value() * 4096 + u128::from(q.offset) + page.bytes.len() as u128;
+        if end == page.total_bytes.value() && !complete_before {
+            self.budget.segments = self
+                .budget
+                .segments
+                .checked_sub(Count::new(1).map_err(core)?)
+                .map_err(|_| StoreError::ReadBudgetExhausted)?;
+            self.seen.insert(q.address.segment.as_str().into());
+        }
+        Ok(page)
     }
     async fn object(&mut self, q: &ObjectPageRequest) -> Result<Vec<u8>> {
+        self.charge(u128::from(q.max_bytes) + 64, 3)?;
         let journal = journal_key(&self.journal)?;
         let kind = serde_json::to_value(&q.kind).map_err(|_| invalid())?;
         let origin = r3::canonical_bytes(&q.origin, 2048).map_err(core)?;
@@ -246,11 +257,11 @@ impl Session {
         if ordinal(n)? > self.at {
             return Err(invalid());
         }
-        self.charge(q.max_bytes.into(), 1)?;
         let j = self.journal.clone();
         object_page(self.tx(), &j, q).await
     }
     async fn certificate(&mut self, family: &wire::Family) -> Result<Option<wire::Certificate>> {
+        self.charge(64, 2)?;
         let key = r3::runtime::points::Point::family(family)
             .map_err(core)?
             .key;
@@ -456,6 +467,7 @@ async fn start(
 }
 async fn initialize(session: &mut Session, selection: &SnapshotSelection) -> Result<TrustedPrefix> {
     let deadline = session.deadline;
+    session.charge(16 * 1024, 5)?;
     session
         .tx()
         .lock_handle()
@@ -463,7 +475,7 @@ async fn initialize(session: &mut Session, selection: &SnapshotSelection) -> Res
         .set_progress_handler(1000, move || Instant::now() < deadline);
     sqlx::query("BEGIN").execute(session.tx()).await?;
     let (bytes, pages): (Vec<u8>, i64) =
-        sqlx::query_as("SELECT profile,maximum_pages FROM r3_storage_profile WHERE singleton=1")
+        sqlx::query_as("SELECT profile,maximum_pages FROM r3_storage_profile WHERE singleton=1 AND length(profile) BETWEEN 2 AND 8192")
             .fetch_one(session.tx())
             .await?;
     let profile = ledgerlab_core::canonical::parse_bounded(&bytes, 8192).map_err(core)?;
@@ -477,6 +489,13 @@ async fn initialize(session: &mut Session, selection: &SnapshotSelection) -> Res
     )? > backing.value()
     {
         return Err(StoreError::Overloaded);
+    }
+    let sizes:(i64,i64,i64)=sqlx::query_as("SELECT length(CAST(tenant AS BLOB)),length(CAST(environment AS BLOB)),length(CAST(logical_store_id AS BLOB)) FROM installation WHERE singleton=1").fetch_one(session.tx()).await?;
+    if [sizes.0, sizes.1, sizes.2]
+        .into_iter()
+        .any(|n| !(1..=1024).contains(&n))
+    {
+        return Err(invalid());
     }
     let install = super::super::read::installation(session.tx()).await?;
     let j = &selection.journal;
@@ -574,33 +593,45 @@ fn spawn(
             let stop = match request {
                 Request::Authority(hash, at, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.authority(&hash,at))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
-                    let stop = result.is_err();
+                    let stop = result
+                        .as_ref()
+                        .is_err_and(|e| !matches!(e, StoreError::ReadBudgetExhausted));
                     reply.send(result).is_err() || stop
                 }
                 Request::SegmentHash(n, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.segment_hash(n))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
-                    let stop = result.is_err();
+                    let stop = result
+                        .as_ref()
+                        .is_err_and(|e| !matches!(e, StoreError::ReadBudgetExhausted));
                     reply.send(result).is_err() || stop
                 }
                 Request::State(key, at, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.historical_state(&key,at))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
-                    let stop = result.is_err();
+                    let stop = result
+                        .as_ref()
+                        .is_err_and(|e| !matches!(e, StoreError::ReadBudgetExhausted));
                     reply.send(result).is_err() || stop
                 }
                 Request::Measured(reply) => reply.send(session.measured()).is_err(),
                 Request::Gateway(key, delivery, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.gateway(&key,delivery.as_ref()))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
-                    let stop = result.is_err();
+                    let stop = result
+                        .as_ref()
+                        .is_err_and(|e| !matches!(e, StoreError::ReadBudgetExhausted));
                     reply.send(result).is_err() || stop
                 }
                 Request::Segment(q, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.segment(&q))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
-                    let stop = result.is_err();
+                    let stop = result
+                        .as_ref()
+                        .is_err_and(|e| !matches!(e, StoreError::ReadBudgetExhausted));
                     reply.send(result).is_err() || stop
                 }
                 Request::Object(q, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.object(&q))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
-                    let stop = result.is_err();
+                    let stop = result
+                        .as_ref()
+                        .is_err_and(|e| !matches!(e, StoreError::ReadBudgetExhausted));
                     reply.send(result).is_err() || stop
                 }
                 Request::Certificate(f, at, mut reply) => {
@@ -609,7 +640,9 @@ fn spawn(
                     } else {
                         tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.certificate(&f))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)}
                     };
-                    let stop = result.is_err();
+                    let stop = result
+                        .as_ref()
+                        .is_err_and(|e| !matches!(e, StoreError::ReadBudgetExhausted));
                     reply.send(result).is_err() || stop
                 }
                 Request::Finish(reply) => {
