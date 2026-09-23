@@ -1,7 +1,11 @@
 //! Bounded R3 persistence primitives. Economic/authority validation stays in the coordinator.
 mod persist;
+mod physical;
+mod provision;
+mod resolve;
+pub(super) mod tx;
 use crate::{
-    service::accept::adjudication::TrustedJournalHead,
+    service::accept::adjudication::{TrustedJournalHead, VerifiedSource},
     store::{
         adjudication::{HeadKey, HeadKind, JournalIdentity, ObservedHead, SavedOutcome},
         errors::StoreError,
@@ -14,6 +18,105 @@ use ledgerlab_core::adjudication::{
 };
 use serde_json::json;
 use sqlx::{Row, SqliteConnection};
+
+impl super::SqliteStore {
+    pub(crate) async fn adjudication_exact_source(
+        &self,
+        proof: &wire::Proof,
+    ) -> Result<VerifiedSource, StoreError> {
+        let j = JournalIdentity {
+            store: proof.store.clone(),
+            scope: proof.scope.clone(),
+            registration: proof.registration.clone(),
+            host: proof.host.clone(),
+        };
+        let actual = self
+            .adjudication_source(&j, proof.ordinal, &proof.fact_kind, &proof.full_key)
+            .await?;
+        if actual.proof() != proof {
+            return Err(invalid());
+        }
+        Ok(actual)
+    }
+    /// Trusted host integration selects this store; no remote-supplied database
+    /// name, hash list or segment body can construct a primary source witness.
+    pub(crate) async fn adjudication_source(
+        &self,
+        journal: &JournalIdentity,
+        at: Count,
+        kind: &wire::FactKind,
+        key: &wire::ProofFullKey,
+    ) -> Result<VerifiedSource, StoreError> {
+        use std::{sync::atomic::Ordering, time::Duration};
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let _lane = if self.inner.adjudication_enabled.load(Ordering::Acquire) {
+                Some(self.inner.adjudication_gate.read().await)
+            } else {
+                None
+            };
+            let mut tx = self.inner.readers.begin().await?;
+            let installation = super::read::installation(&mut tx).await?;
+            if installation.logical_store_id != journal.store.as_str() {
+                return Err(invalid());
+            }
+            let proof = primary_proof(&mut tx, journal, at, kind, key).await?;
+            let verified = source(&mut tx, &proof).await?;
+            tx.rollback().await?;
+            Ok(verified)
+        })
+        .await
+        .map_err(|_| StoreError::Deadline)?
+    }
+}
+
+async fn primary_proof(
+    c: &mut SqliteConnection,
+    j: &JournalIdentity,
+    at: Count,
+    kind: &wire::FactKind,
+    key: &wire::ProofFullKey,
+) -> Result<wire::Proof, StoreError> {
+    let journal = journal_key(j)?;
+    let origin = wire::ObjectOrigin {
+        store: j.store.clone(),
+        scope: j.scope.clone(),
+        registration: j.registration.clone(),
+        host: j.host.clone(),
+        ordinal: at,
+    };
+    let origin = r3::canonical_bytes(&origin, 2048).map_err(core)?;
+    let kv = serde_json::to_value(kind).map_err(|_| invalid())?;
+    let key_bytes = r3::canonical_bytes(key, 4096).map_err(core)?;
+    let rows=sqlx::query("SELECT o.body_hash,o.byte_length,s.segment,s.replay_root FROM r3_objects o JOIN r3_segments s ON s.journal=o.journal AND s.ordinal=o.ordinal WHERE o.journal=? AND o.origin=? AND o.kind=? AND o.full_key=? AND o.ordinal=? LIMIT 2")
+        .bind(&journal).bind(origin).bind(kv.as_str().ok_or_else(invalid)?).bind(key_bytes).bind(at.value().to_be_bytes().as_slice()).fetch_all(c).await?;
+    if rows.len() != 1 {
+        return Err(invalid());
+    }
+    let row = &rows[0];
+    let segment = Digest::parse(&row.try_get::<String, _>(2)?).map_err(core)?;
+    let root = Digest::parse(&row.try_get::<String, _>(3)?).map_err(core)?;
+    let observation = r3::raw_sha256(
+        &r3::canonical_bytes(
+            &json!(["sqlite-primary-journal/1", journal, at, segment, root]),
+            r3::COMMAND_BYTES,
+        )
+        .map_err(core)?,
+    );
+    Ok(wire::Proof {
+        store: j.store.clone(),
+        scope: j.scope.clone(),
+        registration: j.registration.clone(),
+        host: j.host.clone(),
+        ordinal: at,
+        segment,
+        root,
+        fact_kind: kind.clone(),
+        full_key: key.clone(),
+        body_hash: Digest::parse(&row.try_get::<String, _>(0)?).map_err(core)?,
+        bytes: Count::new(row.try_get::<i64, _>(1)? as u128).map_err(core)?,
+        trusted_observation_ref: observation,
+    })
+}
 
 fn invalid() -> StoreError {
     StoreError::Integrity("R3 retained storage binding")
@@ -68,16 +171,26 @@ pub(super) async fn head(
     j: &JournalIdentity,
 ) -> Result<TrustedJournalHead, StoreError> {
     let key = journal_key(j)?;
-    let row = sqlx::query("SELECT ordinal,segment,replay_root FROM r3_journals WHERE journal=?")
-        .bind(&key)
-        .fetch_optional(c)
-        .await?;
+    let row =
+        sqlx::query("SELECT ordinal,segment,replay_root,identity FROM r3_journals WHERE journal=?")
+            .bind(&key)
+            .fetch_optional(c)
+            .await?;
     let (n, segment, root) = match row {
-        Some(row) => (
-            ordinal(row.try_get(0)?)?,
-            Digest::parse(&row.try_get::<String, _>(1)?).map_err(core)?,
-            Digest::parse(&row.try_get::<String, _>(2)?).map_err(core)?,
-        ),
+        Some(row) => {
+            let identity: Vec<u8> = row.try_get(3)?;
+            if identity
+                != r3::canonical_bytes(&json!([j.store, j.scope, j.registration, j.host]), 4096)
+                    .map_err(core)?
+            {
+                return Err(invalid());
+            }
+            (
+                ordinal(row.try_get(0)?)?,
+                Digest::parse(&row.try_get::<String, _>(1)?).map_err(core)?,
+                Digest::parse(&row.try_get::<String, _>(2)?).map_err(core)?,
+            )
+        }
         None => (
             Count::ZERO,
             Digest::parse(&"0".repeat(64)).map_err(core)?,
@@ -93,9 +206,91 @@ pub(super) async fn head(
     );
     TrustedJournalHead::from_backend(j.clone(), n, segment, root, observation).map_err(core)
 }
+
+/// Materialize one bounded immutable source segment under an actual primary
+/// snapshot. The host supplies this store handle; a submitted path is never used.
+pub(super) async fn source(
+    c: &mut SqliteConnection,
+    proof: &wire::Proof,
+) -> Result<VerifiedSource, StoreError> {
+    let j = JournalIdentity {
+        store: proof.store.clone(),
+        scope: proof.scope.clone(),
+        registration: proof.registration.clone(),
+        host: proof.host.clone(),
+    };
+    let current = head(c, &j).await?;
+    if current.ordinal() < proof.ordinal {
+        return Err(invalid());
+    }
+    if proof.fact_kind == wire::FactKind::EnrollPreparation
+        && (current.ordinal() != proof.ordinal
+            || *current.segment() != proof.segment
+            || *current.root() != proof.root)
+    {
+        return Err(invalid());
+    }
+    let journal = journal_key(&j)?;
+    let row=sqlx::query("SELECT segment,replay_root,byte_length,page_count FROM r3_segments WHERE journal=? AND ordinal=?")
+        .bind(&journal).bind(proof.ordinal.value().to_be_bytes().as_slice()).fetch_one(&mut *c).await?;
+    let segment = Digest::parse(&row.try_get::<String, _>(0)?).map_err(core)?;
+    let root = Digest::parse(&row.try_get::<String, _>(1)?).map_err(core)?;
+    let length: i64 = row.try_get(2)?;
+    let pages: i64 = row.try_get(3)?;
+    if !(2..=r3::SEGMENT_BYTES as i64).contains(&length)
+        || pages != (length as usize).div_ceil(r3::PAGE_BYTES) as i64
+    {
+        return Err(invalid());
+    }
+    let observation = r3::raw_sha256(
+        &r3::canonical_bytes(
+            &json!([
+                "sqlite-primary-journal/1",
+                journal,
+                proof.ordinal,
+                segment,
+                root
+            ]),
+            r3::COMMAND_BYTES,
+        )
+        .map_err(core)?,
+    );
+    let prefix = TrustedJournalHead::from_backend(
+        j.clone(),
+        proof.ordinal,
+        segment.clone(),
+        root,
+        observation,
+    )
+    .map_err(core)?;
+    let mut bytes = Vec::with_capacity(length as usize);
+    for page in 0..pages {
+        let fragment = segment_page(
+            c,
+            &j,
+            &segment,
+            Count::new(page as u128).map_err(core)?,
+            0,
+            r3::PAGE_BYTES as u16,
+        )
+        .await?;
+        bytes.extend(fragment.bytes);
+    }
+    if bytes.len() != length as usize {
+        return Err(invalid());
+    }
+    VerifiedSource::from_backend(prefix, proof.clone(), &bytes).map_err(core)
+}
 pub(super) async fn point(
     c: &mut SqliteConnection,
     key: &HeadKey,
+) -> Result<ObservedHead, StoreError> {
+    point_limited(c, key, r3::SEGMENT_BYTES).await
+}
+async fn point_limited(
+    c: &mut SqliteConnection,
+    key: &HeadKey,
+    maximum: usize,
 ) -> Result<ObservedHead, StoreError> {
     if key.full_key.is_empty() || key.full_key.len() > r3::MAX_KEY_BYTES {
         return Err(invalid());
@@ -121,6 +316,9 @@ pub(super) async fn point(
             let length: i64 = row.try_get(1)?;
             if !(2..=r3::SEGMENT_BYTES as i64).contains(&length) {
                 return Err(invalid());
+            }
+            if length as usize > maximum {
+                return Err(StoreError::Overloaded);
             }
             let value: Vec<u8> = sqlx::query_scalar(
                 "SELECT value FROM r3_heads WHERE journal=? AND kind=? AND full_key=?",

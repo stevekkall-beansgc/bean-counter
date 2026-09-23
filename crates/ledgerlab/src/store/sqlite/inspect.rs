@@ -11,9 +11,43 @@ pub(crate) struct StoredEvent {
 }
 impl SqliteStore {
     pub(crate) async fn local_installation(&self) -> Result<Installation, StoreError> {
-        read::installation(&mut *self.inner.readers.acquire().await?).await
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            let _lane = if self
+                .inner
+                .adjudication_enabled
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                Some(self.inner.adjudication_gate.read().await)
+            } else {
+                None
+            };
+            read::installation(&mut *self.inner.readers.acquire().await?).await
+        })
+        .await
+        .map_err(|_| StoreError::Deadline)?
     }
     pub(crate) async fn inspect(
+        &self,
+        s: &Scope,
+        source: &str,
+        target: &ExplainTarget,
+    ) -> Result<Vec<StoredEvent>, StoreError> {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            let _lane = if self
+                .inner
+                .adjudication_enabled
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                Some(self.inner.adjudication_gate.read().await)
+            } else {
+                None
+            };
+            self.inspect_unleased(s, source, target).await
+        })
+        .await
+        .map_err(|_| StoreError::Deadline)?
+    }
+    async fn inspect_unleased(
         &self,
         s: &Scope,
         source: &str,

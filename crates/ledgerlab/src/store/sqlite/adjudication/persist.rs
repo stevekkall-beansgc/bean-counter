@@ -177,14 +177,19 @@ pub(super) async fn plan(
         let identity =
             r3::canonical_bytes(&json!([j.store, j.scope, j.registration, j.host]), 4096)
                 .map_err(core)?;
-        sqlx::query("INSERT INTO r3_journals VALUES (?,?,?,?,?)")
+        let changed=sqlx::query("INSERT INTO r3_journals VALUES (?,?,?,?,?) ON CONFLICT(journal) DO UPDATE SET ordinal=excluded.ordinal,segment=excluded.segment,replay_root=excluded.replay_root WHERE r3_journals.identity=excluded.identity AND r3_journals.ordinal=zeroblob(16) AND r3_journals.segment=? AND r3_journals.replay_root=?")
             .bind(&journal)
             .bind(identity)
             .bind(n.as_slice())
             .bind(segment.as_str())
             .bind(s.result.root.as_str())
+            .bind("0".repeat(64))
+            .bind("0".repeat(64))
             .execute(&mut *c)
             .await?;
+        if changed.rows_affected() != 1 {
+            return Err(invalid());
+        }
     } else {
         let updated=sqlx::query("UPDATE r3_journals SET ordinal=?,segment=?,replay_root=? WHERE journal=? AND ordinal=? AND segment=? AND replay_root=?")
             .bind(n.as_slice()).bind(segment.as_str()).bind(s.result.root.as_str()).bind(&journal).bind(prior.ordinal().value().to_be_bytes().as_slice()).bind(prior.segment().as_str()).bind(prior.root().as_str()).execute(&mut *c).await?;

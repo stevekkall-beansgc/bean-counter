@@ -6,6 +6,150 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 #[tokio::test]
+async fn r3_explicit_provisioning_binds_real_lane_quota_and_storage_incarnation() {
+    use crate::store::{
+        adjudication::*,
+        outcomes::{OutcomeLock, OutcomeLockClass, OutcomeLockMode},
+    };
+    use ledgerlab_core::adjudication::{
+        self as r3, commands as w,
+        runtime::accounting::Worksheet,
+        types::{Count, Id},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::create(dir.path(), tests::installation())
+        .await
+        .unwrap();
+    let install = tests::installation();
+    let journal = JournalIdentity {
+        store: Id::parse(&install.logical_store_id).unwrap(),
+        scope: w::Scope(
+            Id::parse(&install.scope.tenant).unwrap(),
+            Id::parse(&install.scope.environment).unwrap(),
+        ),
+        registration: Id::parse("registration").unwrap(),
+        host: Id::parse("gateway-one").unwrap(),
+    };
+    let ws = Worksheet::frozen().unwrap();
+    let mut logical = w::Resource::zero();
+    for _ in 0..32 {
+        for kind in ws.bundle("finish_gateway").unwrap() {
+            logical = logical
+                .checked_add(&ws.template(kind).unwrap().resources().unwrap())
+                .unwrap();
+        }
+    }
+    let maximum = ws.template("PREPARE_ENROLL").unwrap().resources().unwrap();
+    logical = logical.checked_add(&maximum).unwrap();
+    let backing = Count::new(1u128 << 40).unwrap();
+    let configured = store
+        .provision_adjudication(journal.clone(), logical.clone(), 65536, backing)
+        .await
+        .unwrap();
+    let work = WorkRequest {
+        journal: journal.clone(),
+        owner: Id::parse("work-owner").unwrap(),
+        transition: r3::raw_sha256(b"transition"),
+        mandatory: false,
+        maximum,
+    };
+    let mut tx = configured
+        .begin_adjudication(&work, Instant::now() + Duration::from_secs(5))
+        .await
+        .unwrap();
+    let guards = vec![Guard::Legacy(OutcomeLock {
+        class: OutcomeLockClass::Admission,
+        key: r3::canonical_bytes(&serde_json::json!([journal.scope]), 4096).unwrap(),
+        mode: OutcomeLockMode::Write,
+    })];
+    tx.lock_adjudication(&guards).await.unwrap();
+    let cap = tx.commit_capability().await.unwrap();
+    assert_eq!(cap.recovered_through().ordinal(), Count::ZERO);
+    assert_eq!(cap.epoch().value(), 1);
+    let pages: i64 = sqlx::query_scalar("PRAGMA max_page_count")
+        .fetch_one(tx.conn())
+        .await
+        .unwrap();
+    assert_eq!(
+        cap.physical().maximum_retained_bytes().value(),
+        pages as u128 * 4096
+    );
+    tx.rollback().await.unwrap();
+    drop(configured);
+    store.close().await;
+    let reopened = SqliteStore::open(dir.path()).await.unwrap();
+    let configured = reopened
+        .provision_adjudication(journal.clone(), logical.clone(), 65536, backing)
+        .await
+        .unwrap();
+    drop(configured);
+    reopened.close().await;
+    let copy = tempfile::tempdir().unwrap();
+    std::fs::copy(dir.path().join("local.db"), copy.path().join("local.db")).unwrap();
+    let copied = SqliteStore::open(copy.path()).await.unwrap();
+    assert!(copied
+        .provision_adjudication(journal, logical, 65536, backing)
+        .await
+        .is_err());
+    copied.close().await;
+}
+
+#[tokio::test]
+async fn r3_writer_lane_is_shared_and_requires_completed_checkpoint() {
+    use crate::store::{comparison::ComparisonReadStore, errors::StoreError};
+    use std::sync::atomic::Ordering;
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::create(dir.path(), tests::installation())
+        .await
+        .unwrap();
+    let contender = store.test_contender().await.unwrap();
+    store
+        .inner
+        .adjudication_enabled
+        .store(true, Ordering::Release);
+    assert!(store
+        .begin_read(Instant::now() + Duration::from_secs(1))
+        .await
+        .is_err());
+    let tx = store
+        .begin(Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    assert!(matches!(
+        contender
+            .begin(Instant::now() + Duration::from_millis(20))
+            .await,
+        Err(StoreError::Deadline)
+    ));
+    tx.rollback().await.unwrap();
+    // A deliberately unadmitted raw reader is a positive checkpoint-blocking
+    // control. Production profile reads all participate in the shared gate.
+    let mut pinned = store.inner.readers.begin().await.unwrap();
+    let _: i64 = sqlx::query_scalar("SELECT count(*) FROM installation")
+        .fetch_one(&mut *pinned)
+        .await
+        .unwrap();
+    let mut raw = store.inner.writer.acquire().await.unwrap();
+    sqlx::query("UPDATE installation SET generation=generation+1")
+        .execute(&mut *raw)
+        .await
+        .unwrap();
+    drop(raw);
+    assert!(matches!(
+        store.begin(Instant::now() + Duration::from_secs(2)).await,
+        Err(StoreError::Overloaded)
+    ));
+    pinned.rollback().await.unwrap();
+    let tx = contender
+        .begin(Instant::now() + Duration::from_secs(2))
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    contender.close().await;
+    store.close().await;
+}
+
+#[tokio::test]
 async fn r3_namespace_is_permanent_and_protects_both_legacy_writers() {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::create(dir.path(), tests::installation())

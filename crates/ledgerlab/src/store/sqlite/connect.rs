@@ -60,6 +60,19 @@ pub(super) async fn pool(owner: Arc<Owner>, reader: bool) -> Result<SqlitePool, 
                 verify(conn, reader)
                     .await
                     .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                let pages = owner
+                    .adjudication_max_pages
+                    .load(std::sync::atomic::Ordering::Acquire);
+                if !reader && pages > 0 {
+                    let actual: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                        "PRAGMA max_page_count={pages}"
+                    )))
+                    .fetch_one(&mut *conn)
+                    .await?;
+                    if actual != i64::from(pages) {
+                        return Err(sqlx::Error::Protocol("R3 page quota mismatch".into()));
+                    }
+                }
                 #[cfg(test)]
                 if !reader {
                     static NEXT: std::sync::atomic::AtomicU64 =

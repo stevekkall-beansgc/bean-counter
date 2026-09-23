@@ -2,6 +2,10 @@ use crate::store::errors::StoreError;
 use std::{
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, AtomicU32},
+        Arc,
+    },
 };
 
 /// Never unlink this lock file. The OS lock, not its contents or PID, is authority.
@@ -9,6 +13,9 @@ pub(super) struct Owner {
     lock: File,
     pub directory: PathBuf,
     pub database: PathBuf,
+    pub adjudication_enabled: Arc<AtomicBool>,
+    pub adjudication_gate: Arc<tokio::sync::RwLock<()>>,
+    pub adjudication_max_pages: AtomicU32,
 }
 impl Owner {
     pub fn acquire(path: &Path) -> Result<Self, StoreError> {
@@ -60,6 +67,9 @@ impl Owner {
             lock,
             directory,
             database,
+            adjudication_enabled: Arc::new(AtomicBool::new(false)),
+            adjudication_gate: Arc::new(tokio::sync::RwLock::new(())),
+            adjudication_max_pages: AtomicU32::new(0),
         })
     }
     pub fn verify_path(&self) -> Result<(), StoreError> {

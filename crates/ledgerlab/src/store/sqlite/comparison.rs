@@ -108,6 +108,16 @@ pub(crate) struct SqliteComparisonRead {
 impl ComparisonReadStore for SqliteStore {
     type Read = SqliteComparisonRead;
     async fn begin_read(&self, deadline: Instant) -> Result<Self::Read> {
+        // This legacy API exposes a caller-held MVCC transaction. Its lifetime
+        // cannot be capped while the caller is idle. R3 uses immutable-prefix
+        // bounded page sessions instead, so this capability is not admitted.
+        if self
+            .inner
+            .adjudication_enabled
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(ReadError::Unavailable);
+        }
         let deadline = deadline.min(Instant::now() + Duration::from_secs(5));
         timeout_at(deadline, async {
             let mut connection = self.inner.readers.acquire().await.map_err(db)?;

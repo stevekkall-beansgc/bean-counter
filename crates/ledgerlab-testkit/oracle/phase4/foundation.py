@@ -6,6 +6,13 @@ uses an implementation evaluator to manufacture expected economics.
 import json
 from observer import COMMON, PG_ONLY
 
+R3_SQLITE = {
+    'r3_journals', 'r3_segments', 'r3_segment_pages', 'r3_objects',
+    'r3_object_pages', 'r3_heads', 'r3_head_versions', 'r3_commands',
+    'r3_namespaces', 'r3_deliveries', 'r3_index_pages', 'r3_index_roots',
+    'r3_held_intentions', 'r3_storage_profile',
+}
+
 
 def stable(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(',', ':'), allow_nan=False)
@@ -25,11 +32,12 @@ def inventory(snapshot, backend):
         assert all(type(row) is list and len(row) == 3 for row in snapshot)
         assert len({row[0] for row in snapshot}) == len(snapshot), 'duplicate table'
         tables = {name: {'columns': columns, 'rows': rows} for name, columns, rows in snapshot}
-        assert set(tables) in (COMMON | {'sqlite_schema','user_version'}, COMMON | {'sqlite_schema','user_version','_sqlx_migrations'})
         assert tables['sqlite_schema']['rows'], 'schema inventory missing'
         assert tables['user_version']['columns'] == ['value']
         version = tables['user_version']['rows']
         assert len(version) == 1 and re.fullmatch(r'0|[1-9][0-9]*',version[0])
+        application = COMMON | (R3_SQLITE if version == ['5'] else set())
+        assert set(tables) in (application | {'sqlite_schema','user_version'}, application | {'sqlite_schema','user_version','_sqlx_migrations'})
     else:
         assert type(snapshot) is dict and set(snapshot) == COMMON | PG_ONLY
         tables = snapshot

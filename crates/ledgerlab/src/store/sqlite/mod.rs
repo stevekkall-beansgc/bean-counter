@@ -26,7 +26,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::Semaphore,
+    sync::{RwLock, Semaphore},
     task::JoinHandle,
     time::{timeout_at, Instant},
 };
@@ -39,6 +39,8 @@ struct Inner {
     disabled: AtomicBool,
     commit_task: Mutex<Option<JoinHandle<()>>>,
     _owner: Arc<owner::Owner>,
+    adjudication_enabled: Arc<AtomicBool>,
+    adjudication_gate: Arc<RwLock<()>>,
 }
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
@@ -78,6 +80,17 @@ impl SqliteStore {
         migrate::verify(&mut conn).await?;
         connect::integrity(&mut conn).await?;
         read::installation(&mut conn).await?;
+        let r3_pages: Option<i64> =
+            sqlx::query_scalar("SELECT maximum_pages FROM r3_storage_profile WHERE singleton=1")
+                .fetch_optional(&mut conn)
+                .await?;
+        if let Some(pages) = r3_pages {
+            owner.adjudication_max_pages.store(
+                u32::try_from(pages).map_err(|_| StoreError::InvalidStore("R3 page quota"))?,
+                Ordering::Release,
+            );
+            owner.adjudication_enabled.store(true, Ordering::Release);
+        }
         conn.close().await?;
         let writer = connect::pool(Arc::clone(&owner), false).await?;
         let readers = connect::pool(Arc::clone(&owner), true).await?;
@@ -88,6 +101,8 @@ impl SqliteStore {
                 queue: Arc::new(Semaphore::new(65)),
                 disabled: AtomicBool::new(false),
                 commit_task: Mutex::new(None),
+                adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
+                adjudication_gate: Arc::clone(&owner.adjudication_gate),
                 _owner: owner,
             }),
             diagnostics,
@@ -154,6 +169,11 @@ impl SqliteStore {
         external: &str,
     ) -> Result<Option<StoredIdentity>, StoreError> {
         timeout_at(Instant::now() + Duration::from_secs(2), async {
+            let _lane = if self.inner.adjudication_enabled.load(Ordering::Acquire) {
+                Some(self.inner.adjudication_gate.read().await)
+            } else {
+                None
+            };
             let mut c = self.inner.readers.acquire().await?;
             read::identity(&mut c, s, source, external).await
         })
@@ -171,6 +191,29 @@ impl AcceptanceStore for SqliteStore {
             .try_acquire_owned()
             .map_err(|_| StoreError::Overloaded)?;
         let wait = deadline.min(Instant::now() + Duration::from_millis(500));
+        let physical_lane = if self.inner.adjudication_enabled.load(Ordering::Acquire) {
+            let lane = timeout_at(
+                wait,
+                Arc::clone(&self.inner.adjudication_gate).write_owned(),
+            )
+            .await
+            .map_err(|_| StoreError::Deadline)?;
+            // The gate excludes every admitted profile reader/writer. SQLx first
+            // drains a cancelled prior transaction before this acquisition.
+            let mut connection = timeout_at(wait, self.inner.writer.acquire())
+                .await
+                .map_err(|_| StoreError::Deadline)??;
+            let (busy, log, checkpointed): (i64, i64, i64) =
+                sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
+                    .fetch_one(&mut *connection)
+                    .await?;
+            if busy != 0 || log != 0 || checkpointed != 0 {
+                return Err(StoreError::Overloaded);
+            }
+            Some(lane)
+        } else {
+            None
+        };
         let transaction = timeout_at(wait, self.inner.writer.begin_with("BEGIN IMMEDIATE"))
             .await
             .map_err(|_| StoreError::Deadline)??;
@@ -185,6 +228,8 @@ impl AcceptanceStore for SqliteStore {
             deadline,
             failed: false,
             outcome_locks: Vec::new(),
+            physical_lane,
+            adjudication: None,
             #[cfg(test)]
             outcome_fault: None,
         })

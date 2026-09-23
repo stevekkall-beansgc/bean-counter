@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{oneshot, OwnedSemaphorePermit},
+    sync::{oneshot, OwnedRwLockWriteGuard, OwnedSemaphorePermit},
     time::{timeout_at, Instant},
 };
 
@@ -50,6 +50,8 @@ pub(crate) struct SqliteTx {
     pub(super) deadline: Instant,
     pub(super) failed: bool,
     pub(super) outcome_locks: Vec<crate::store::outcomes::OutcomeLock>,
+    pub(super) physical_lane: Option<OwnedRwLockWriteGuard<()>>,
+    pub(super) adjudication: Option<super::adjudication::tx::Context>,
     #[cfg(test)]
     pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
@@ -177,11 +179,13 @@ impl AcceptanceTx for SqliteTx {
         let tx = self.transaction.take().expect("live transaction");
         let store = Arc::clone(&self.store);
         let slot = self.slot.take();
+        let physical_lane = self.physical_lane.take();
         let (send, receive) = oneshot::channel();
         // No await between spawn and registration: caller cancellation cannot orphan
         // the task. The task retains the writer permit and ownership until cleanup.
         let handle = tokio::spawn(async move {
             let _slot = slot;
+            let _physical_lane = physical_lane;
             let drain_deadline = Instant::now() + Duration::from_secs(5);
             let result = match timeout_at(drain_deadline, tx.commit()).await {
                 Ok(Ok(())) => Ok(()),

@@ -7,6 +7,14 @@ CREATE TABLE r3_journals (
  segment TEXT NOT NULL CHECK(length(segment)=64),
  replay_root TEXT NOT NULL CHECK(length(replay_root)=64)
 ) STRICT;
+CREATE TABLE r3_storage_profile (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ journal BLOB NOT NULL UNIQUE REFERENCES r3_journals(journal) DEFERRABLE INITIALLY DEFERRED,
+ profile BLOB NOT NULL CHECK(length(profile) BETWEEN 2 AND 8192),
+ maximum_pages INTEGER NOT NULL CHECK(maximum_pages BETWEEN 1 AND 4294967294),
+ legacy_allowance INTEGER NOT NULL CHECK(legacy_allowance>=0),
+ legacy_used BLOB NOT NULL CHECK(length(legacy_used)=16)
+) STRICT;
 CREATE TABLE r3_segments (
  journal BLOB NOT NULL REFERENCES r3_journals(journal) DEFERRABLE INITIALLY DEFERRED,
  ordinal BLOB NOT NULL CHECK(length(ordinal)=16 AND ordinal<=x'0000000c9f2c9cd04674edea3fffffff'),
@@ -110,6 +118,8 @@ CREATE TRIGGER r3_delivery_prior_occupancy BEFORE INSERT ON r3_deliveries BEGIN
  THEN RAISE(ABORT,'prior delivery identity occupied') END;
 END;
 CREATE TRIGGER r3_head_identity BEFORE UPDATE OF journal,kind,full_key ON r3_heads BEGIN SELECT RAISE(ABORT,'immutable R3 head identity'); END;
+CREATE TRIGGER r3_profile_identity BEFORE UPDATE OF singleton,journal,profile,maximum_pages,legacy_allowance ON r3_storage_profile BEGIN SELECT RAISE(ABORT,'immutable R3 storage allocation'); END;
+CREATE TRIGGER r3_profile_delete BEFORE DELETE ON r3_storage_profile BEGIN SELECT RAISE(ABORT,'permanent R3 storage allocation'); END;
 CREATE TRIGGER r3_journal_identity BEFORE UPDATE OF journal,identity ON r3_journals BEGIN SELECT RAISE(ABORT,'immutable R3 journal identity'); END;
 CREATE TRIGGER r3_segments_immutable_update BEFORE UPDATE ON r3_segments BEGIN SELECT RAISE(ABORT,'immutable R3 storage'); END;
 CREATE TRIGGER r3_segments_immutable_delete BEFORE DELETE ON r3_segments BEGIN SELECT RAISE(ABORT,'immutable R3 storage'); END;
