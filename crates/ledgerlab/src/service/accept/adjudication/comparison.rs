@@ -61,7 +61,7 @@ fn head(j: &JournalIdentity, point: &p::Point) -> HeadKey {
 fn maximum_budget() -> wire::ReadBudget {
     wire::ReadBudget {
         bytes: Count::new(16 * 1024 * 1024).expect("limit"),
-        pages: Count::new(4096).expect("limit"),
+        pages: Count::new(1 << 24).expect("limit"),
         segments: Count::new(4096).expect("limit"),
     }
 }

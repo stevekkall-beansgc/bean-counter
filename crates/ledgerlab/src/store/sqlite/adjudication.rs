@@ -199,7 +199,7 @@ pub(super) async fn head(
 ) -> Result<TrustedJournalHead, StoreError> {
     let key = journal_key(j)?;
     let row =
-        sqlx::query("SELECT ordinal,segment,replay_root,identity FROM r3_journals WHERE journal=?")
+        sqlx::query("SELECT ordinal,segment,replay_root,identity FROM r3_journals INDEXED BY sqlite_autoindex_r3_journals_1 WHERE journal=?")
             .bind(&key)
             .fetch_optional(c)
             .await?;
@@ -258,7 +258,7 @@ pub(super) async fn source(
         return Err(invalid());
     }
     let journal = journal_key(&j)?;
-    let row=sqlx::query("SELECT segment,replay_root,byte_length,page_count FROM r3_segments WHERE journal=? AND ordinal=?")
+    let row=sqlx::query("SELECT segment,replay_root,byte_length,page_count FROM r3_segments INDEXED BY sqlite_autoindex_r3_segments_1 WHERE journal=? AND ordinal=?")
         .bind(&journal).bind(proof.ordinal.value().to_be_bytes().as_slice()).fetch_one(&mut *c).await?;
     let segment = Digest::parse(&row.try_get::<String, _>(0)?).map_err(core)?;
     let root = Digest::parse(&row.try_get::<String, _>(1)?).map_err(core)?;
@@ -325,7 +325,7 @@ async fn point_limited(
     // Size is checked before body materialization; one bounded point row only.
     let journal = journal_key(&key.journal)?;
     let row = sqlx::query(
-        "SELECT revision,length(value) FROM r3_heads WHERE journal=? AND kind=? AND full_key=?",
+        "SELECT revision,length(value) FROM r3_heads INDEXED BY sqlite_autoindex_r3_heads_1 WHERE journal=? AND kind=? AND full_key=?",
     )
     .bind(&journal)
     .bind(head_tag(key.kind))
@@ -348,7 +348,7 @@ async fn point_limited(
                 return Err(StoreError::Overloaded);
             }
             let value: Vec<u8> = sqlx::query_scalar(
-                "SELECT value FROM r3_heads WHERE journal=? AND kind=? AND full_key=?",
+                "SELECT value FROM r3_heads INDEXED BY sqlite_autoindex_r3_heads_1 WHERE journal=? AND kind=? AND full_key=?",
             )
             .bind(&journal)
             .bind(head_tag(key.kind))
@@ -373,7 +373,7 @@ pub(super) async fn saved(
 ) -> Result<Option<SavedOutcome>, StoreError> {
     let journal = journal_key(j)?;
     let delivery = r3::canonical_bytes(key, r3::COMMAND_BYTES).map_err(core)?;
-    let metadata=sqlx::query("SELECT length(command),length(result),length(receipt) FROM r3_commands WHERE journal=? AND delivery=?").bind(&journal).bind(&delivery).fetch_optional(&mut *c).await?;
+    let metadata=sqlx::query("SELECT length(command),length(result),length(receipt) FROM r3_commands INDEXED BY sqlite_autoindex_r3_commands_1 WHERE journal=? AND delivery=?").bind(&journal).bind(&delivery).fetch_optional(&mut *c).await?;
     let Some(metadata) = metadata else {
         return Ok(None);
     };
@@ -386,7 +386,7 @@ pub(super) async fn saved(
     {
         return Err(invalid());
     }
-    let row=sqlx::query("SELECT c.command,c.result,c.receipt,c.ordinal,s.segment,s.replay_root FROM r3_commands c JOIN r3_segments s ON s.journal=c.journal AND s.ordinal=c.ordinal WHERE c.journal=? AND c.delivery=?").bind(&journal).bind(&delivery).fetch_one(c).await?;
+    let row=sqlx::query("SELECT c.command,c.result,c.receipt,c.ordinal,s.segment,s.replay_root FROM r3_commands c INDEXED BY sqlite_autoindex_r3_commands_1 JOIN r3_segments s INDEXED BY sqlite_autoindex_r3_segments_1 ON s.journal=c.journal AND s.ordinal=c.ordinal WHERE c.journal=? AND c.delivery=?").bind(&journal).bind(&delivery).fetch_one(c).await?;
     let command: Vec<u8> = row.try_get(0)?;
     let result: Vec<u8> = row.try_get(1)?;
     let receipt: Option<Vec<u8>> = row.try_get(2)?;
@@ -429,7 +429,7 @@ pub(super) async fn segment_page(
     }
     let journal = journal_key(j)?;
     let metadata = sqlx::query(
-        "SELECT ordinal,byte_length,page_count FROM r3_segments WHERE journal=? AND segment=?",
+        "SELECT ordinal,byte_length,page_count FROM r3_segments INDEXED BY sqlite_autoindex_r3_segments_2 WHERE journal=? AND segment=?",
     )
     .bind(&journal)
     .bind(segment.as_str())
@@ -442,7 +442,7 @@ pub(super) async fn segment_page(
         return Err(invalid());
     }
     let bytes: Vec<u8> = sqlx::query_scalar(
-        "SELECT substr(bytes,?,?) FROM r3_segment_pages WHERE journal=? AND ordinal=? AND page=?",
+        "SELECT substr(bytes,?,?) FROM r3_segment_pages INDEXED BY sqlite_autoindex_r3_segment_pages_1 WHERE journal=? AND ordinal=? AND page=?",
     )
     .bind(i64::from(offset) + 1)
     .bind(i64::from(max_bytes))
@@ -476,7 +476,7 @@ pub(super) async fn object_page(
     let origin = r3::canonical_bytes(&q.origin, 2048).map_err(core)?;
     let kind = serde_json::to_value(&q.kind).map_err(|_| invalid())?;
     let kind = kind.as_str().ok_or_else(invalid)?;
-    let length: i64 = sqlx::query_scalar("SELECT byte_length FROM r3_objects WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=?")
+    let length: i64 = sqlx::query_scalar("SELECT byte_length FROM r3_objects INDEXED BY sqlite_autoindex_r3_objects_1 WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=?")
         .bind(&journal).bind(&origin).bind(kind).bind(&q.key).bind(q.hash.as_str()).fetch_one(&mut *c).await?;
     if !(2..=262144).contains(&length) || q.offset.value() >= length as u128 {
         return Err(invalid());
@@ -487,7 +487,7 @@ pub(super) async fn object_page(
     let take = usize::from(q.max_bytes)
         .min(r3::PAGE_BYTES - within)
         .min(length as usize - offset);
-    let bytes: Vec<u8> = sqlx::query_scalar("SELECT substr(bytes,?,?) FROM r3_object_pages WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=? AND page=?")
+    let bytes: Vec<u8> = sqlx::query_scalar("SELECT substr(bytes,?,?) FROM r3_object_pages INDEXED BY sqlite_autoindex_r3_object_pages_1 WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=? AND page=?")
         .bind(within as i64+1).bind(take as i64).bind(&journal).bind(&origin).bind(kind).bind(&q.key).bind(q.hash.as_str()).bind(page as i64).fetch_one(c).await?;
     if bytes.len() != take {
         return Err(invalid());
@@ -620,3 +620,7 @@ impl super::SqliteStore {
         pause
     }
 }
+
+#[cfg(test)]
+#[path = "adjudication/native_read_tests.rs"]
+mod native_read_tests;

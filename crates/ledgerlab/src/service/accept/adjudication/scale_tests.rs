@@ -294,7 +294,7 @@ async fn historical_read(h: &Harness, family: &Value, n: usize) {
     let store = &h.host.0.stores["center"];
     let budget = wire::ReadBudget {
         bytes: Count::new(16 * 1024 * 1024).unwrap(),
-        pages: Count::new(4096).unwrap(),
+        pages: Count::new(1 << 24).unwrap(),
         segments: Count::new(4096).unwrap(),
     };
     let mut read = store
@@ -401,7 +401,7 @@ async fn compare_large(h: &Harness) -> Vec<(String, Vec<String>, Vec<String>)> {
     let store = &h.host.0.stores["center"];
     let budget = wire::ReadBudget {
         bytes: Count::new(16 * 1024 * 1024).unwrap(),
-        pages: Count::new(4096).unwrap(),
+        pages: Count::new(1 << 24).unwrap(),
         segments: Count::new(1).unwrap(),
     };
     let read = store

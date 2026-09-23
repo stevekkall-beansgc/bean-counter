@@ -10,7 +10,7 @@ use r3::reads::PageAddress;
 fn budget() -> wire::ReadBudget {
     wire::ReadBudget {
         bytes: Count::new(16 * 1024 * 1024).unwrap(),
-        pages: Count::new(4096).unwrap(),
+        pages: Count::new(1 << 24).unwrap(),
         segments: Count::new(4096).unwrap(),
     }
 }

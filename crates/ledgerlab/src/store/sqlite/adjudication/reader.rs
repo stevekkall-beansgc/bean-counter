@@ -14,7 +14,10 @@ use tokio::{
 };
 type Result<T> = std::result::Result<T, StoreError>;
 const BYTES: u128 = physical::READER_WORKSPACE_BYTES;
-const PAGES: u128 = 4096;
+const PAGES: u128 = 1 << 24;
+const SEGMENTS: u128 = 4096;
+// Native B-tree/overflow visits, not logical SQL probes. See SQLITE-NATIVE-READS.md.
+const QUERY_PAGES: u128 = 2048;
 enum Request {
     Authority(
         Digest,
@@ -60,9 +63,9 @@ impl Session {
         if at > self.at {
             return Err(invalid());
         }
-        self.charge(8192, 2)?;
+        self.charge(8192, QUERY_PAGES)?;
         let journal = journal_key(&self.journal)?;
-        let raw:Vec<u8>=sqlx::query_scalar("SELECT metadata FROM r3_objects WHERE journal=? AND kind='AUTHORITY' AND body_hash=? AND ordinal<=? ORDER BY ordinal LIMIT 1")
+        let raw:Vec<u8>=sqlx::query_scalar("SELECT metadata FROM r3_objects INDEXED BY r3_authority_hash WHERE journal=? AND kind='AUTHORITY' AND body_hash=? AND ordinal<=? ORDER BY ordinal LIMIT 1")
             .bind(journal).bind(hash.as_str()).bind(at.value().to_be_bytes().as_slice()).fetch_one(self.tx()).await?;
         let meta = ledgerlab_core::canonical::parse_bounded(&raw, 8192).map_err(core)?;
         let origin: wire::ObjectOrigin =
@@ -99,10 +102,10 @@ impl Session {
         if n == Count::ZERO || n > self.at {
             return Err(invalid());
         }
-        self.charge(64, 1)?;
+        self.charge(64, QUERY_PAGES)?;
         let key = journal_key(&self.journal)?;
         let hash: String =
-            sqlx::query_scalar("SELECT segment FROM r3_segments WHERE journal=? AND ordinal=?")
+            sqlx::query_scalar("SELECT segment FROM r3_segments INDEXED BY sqlite_autoindex_r3_segments_1 WHERE journal=? AND ordinal=?")
                 .bind(key)
                 .bind(n.value().to_be_bytes().as_slice())
                 .fetch_one(self.tx())
@@ -117,7 +120,7 @@ impl Session {
         {
             return Err(invalid());
         }
-        self.charge(64, 1)?;
+        self.charge(64, 0)?;
         self.state(key.kind, &key.full_key, at).await
     }
     fn measured(&self) -> Result<wire::ReadBudget> {
@@ -150,17 +153,18 @@ impl Session {
         {
             return Err(invalid());
         }
-        self.charge(r3::COMMAND_BYTES as u128, 64)?;
+        self.charge(r3::COMMAND_BYTES as u128, 2 * QUERY_PAGES)?;
         let current = point_limited(self.tx(), key, r3::COMMAND_BYTES).await?;
         let saved = if let Some(delivery) = delivery {
             let j = self.journal.clone();
-            let size:Option<i64>=sqlx::query_scalar("SELECT length(command)+length(result)+coalesce(length(receipt),0) FROM r3_commands WHERE journal=? AND delivery=?")
+            self.charge(0, QUERY_PAGES)?;
+            let size:Option<i64>=sqlx::query_scalar("SELECT length(command)+length(result)+coalesce(length(receipt),0) FROM r3_commands INDEXED BY sqlite_autoindex_r3_commands_1 WHERE journal=? AND delivery=?")
                 .bind(journal_key(&j)?).bind(r3::canonical_bytes(delivery,4096).map_err(core)?).fetch_optional(self.tx()).await?;
             if let Some(size) = size {
                 if !(2..=2 * r3::COMMAND_BYTES as i64).contains(&size) {
                     return Err(StoreError::Overloaded);
                 }
-                self.charge(size as u128, (size as u128).div_ceil(4096))?;
+                self.charge(size as u128, 3 * QUERY_PAGES)?;
                 saved(self.tx(), &j, delivery).await?
             } else {
                 None
@@ -189,9 +193,9 @@ impl Session {
         Ok(())
     }
     async fn state(&mut self, kind: HeadKind, key: &[u8], at: Count) -> Result<Option<State>> {
-        self.charge(64, 1)?;
+        self.charge(64, QUERY_PAGES)?;
         let journal = journal_key(&self.journal)?;
-        let meta:Option<(Vec<u8>,i64)>=sqlx::query_as("SELECT ordinal,length(value) FROM r3_head_versions WHERE journal=? AND kind=? AND full_key=? AND ordinal<=? ORDER BY ordinal DESC LIMIT 1")
+        let meta:Option<(Vec<u8>,i64)>=sqlx::query_as("SELECT ordinal,length(value) FROM r3_head_versions INDEXED BY sqlite_autoindex_r3_head_versions_1 WHERE journal=? AND kind=? AND full_key=? AND ordinal<=? ORDER BY ordinal DESC LIMIT 1")
             .bind(&journal).bind(head_tag(kind)).bind(key).bind(at.value().to_be_bytes().as_slice()).fetch_optional(self.tx()).await?;
         let Some((ordinal, length)) = meta else {
             return Ok(None);
@@ -199,8 +203,8 @@ impl Session {
         if !(2..=r3::COMMAND_BYTES as i64).contains(&length) {
             return Err(invalid());
         }
-        self.charge(length as u128, (length as u128).div_ceil(4096))?;
-        let value:Vec<u8>=sqlx::query_scalar("SELECT value FROM r3_head_versions WHERE journal=? AND kind=? AND full_key=? AND ordinal=?")
+        self.charge(length as u128, QUERY_PAGES)?;
+        let value:Vec<u8>=sqlx::query_scalar("SELECT value FROM r3_head_versions INDEXED BY sqlite_autoindex_r3_head_versions_1 WHERE journal=? AND kind=? AND full_key=? AND ordinal=?")
             .bind(journal).bind(head_tag(kind)).bind(key).bind(ordinal).fetch_one(self.tx()).await?;
         let parsed =
             ledgerlab_core::canonical::parse_bounded(&value, r3::COMMAND_BYTES).map_err(core)?;
@@ -215,10 +219,10 @@ impl Session {
         if !complete_before && self.budget.segments == Count::ZERO {
             return Err(StoreError::ReadBudgetExhausted);
         }
-        self.charge(u128::from(q.max_bytes) + 64, 3)?;
+        self.charge(u128::from(q.max_bytes) + 64, 3 * QUERY_PAGES)?;
         let journal = journal_key(&self.journal)?;
         let n: Vec<u8> =
-            sqlx::query_scalar("SELECT ordinal FROM r3_segments WHERE journal=? AND segment=?")
+            sqlx::query_scalar("SELECT ordinal FROM r3_segments INDEXED BY sqlite_autoindex_r3_segments_2 WHERE journal=? AND segment=?")
                 .bind(journal)
                 .bind(q.address.segment.as_str())
                 .fetch_one(self.tx())
@@ -248,11 +252,11 @@ impl Session {
         Ok(page)
     }
     async fn object(&mut self, q: &ObjectPageRequest) -> Result<Vec<u8>> {
-        self.charge(u128::from(q.max_bytes) + 64, 3)?;
+        self.charge(u128::from(q.max_bytes) + 64, 3 * QUERY_PAGES)?;
         let journal = journal_key(&self.journal)?;
         let kind = serde_json::to_value(&q.kind).map_err(|_| invalid())?;
         let origin = r3::canonical_bytes(&q.origin, 2048).map_err(core)?;
-        let n:Vec<u8>=sqlx::query_scalar("SELECT ordinal FROM r3_objects WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=?")
+        let n:Vec<u8>=sqlx::query_scalar("SELECT ordinal FROM r3_objects INDEXED BY sqlite_autoindex_r3_objects_1 WHERE journal=? AND origin=? AND kind=? AND full_key=? AND body_hash=?")
             .bind(journal).bind(origin).bind(kind.as_str().ok_or_else(invalid)?).bind(&q.key).bind(q.hash.as_str()).fetch_one(self.tx()).await?;
         if ordinal(n)? > self.at {
             return Err(invalid());
@@ -261,7 +265,7 @@ impl Session {
         object_page(self.tx(), &j, q).await
     }
     async fn certificate(&mut self, family: &wire::Family) -> Result<Option<wire::Certificate>> {
-        self.charge(64, 2)?;
+        self.charge(64, 2 * QUERY_PAGES)?;
         let key = r3::runtime::points::Point::family(family)
             .map_err(core)?
             .key;
@@ -274,12 +278,12 @@ impl Session {
         let journal = journal_key(&self.journal)?;
         // The partial index names the first retained unavailable family version.
         // This does not scan historical rounds or rewrite any case.
-        let n:Vec<u8>=sqlx::query_scalar("SELECT ordinal FROM r3_head_versions WHERE journal=? AND kind=9 AND full_key=? AND ordinal<=? AND json_extract(CAST(value AS TEXT),'$.body.first_closure') IS NOT NULL ORDER BY ordinal LIMIT 1")
+        let n:Vec<u8>=sqlx::query_scalar("SELECT ordinal FROM r3_head_versions INDEXED BY r3_family_first_closure WHERE journal=? AND kind=9 AND full_key=? AND ordinal<=? AND json_extract(CAST(value AS TEXT),'$.body.first_closure') IS NOT NULL ORDER BY ordinal LIMIT 1")
             .bind(&journal).bind(key).bind(self.at.value().to_be_bytes().as_slice()).fetch_one(self.tx()).await?;
         // The ordinal index selects one bounded CLOSE command, then its retained
         // certificate head. Never materialize its potentially 8 MiB segment.
         let length: i64 = sqlx::query_scalar(
-            "SELECT length(command) FROM r3_commands WHERE journal=? AND ordinal=?",
+            "SELECT length(command) FROM r3_commands INDEXED BY r3_command_ordinal WHERE journal=? AND ordinal=?",
         )
         .bind(&journal)
         .bind(&n)
@@ -288,9 +292,9 @@ impl Session {
         if !(2..=r3::COMMAND_BYTES as i64).contains(&length) {
             return Err(invalid());
         }
-        self.charge(length as u128, (length as u128).div_ceil(4096))?;
+        self.charge(length as u128, QUERY_PAGES)?;
         let bytes: Vec<u8> =
-            sqlx::query_scalar("SELECT command FROM r3_commands WHERE journal=? AND ordinal=?")
+            sqlx::query_scalar("SELECT command FROM r3_commands INDEXED BY r3_command_ordinal WHERE journal=? AND ordinal=?")
                 .bind(journal)
                 .bind(&n)
                 .fetch_one(self.tx())
@@ -385,7 +389,7 @@ impl super::super::SqliteStore {
         budget.validate().map_err(core)?;
         if budget.bytes.value() > BYTES
             || budget.pages.value() > PAGES
-            || budget.segments.value() > PAGES
+            || budget.segments.value() > SEGMENTS
         {
             return Err(StoreError::Overloaded);
         }
@@ -467,7 +471,7 @@ async fn start(
 }
 async fn initialize(session: &mut Session, selection: &SnapshotSelection) -> Result<TrustedPrefix> {
     let deadline = session.deadline;
-    session.charge(16 * 1024, 5)?;
+    session.charge(16 * 1024, 4 * QUERY_PAGES)?;
     session
         .tx()
         .lock_handle()
@@ -490,7 +494,7 @@ async fn initialize(session: &mut Session, selection: &SnapshotSelection) -> Res
     {
         return Err(StoreError::Overloaded);
     }
-    let sizes:(i64,i64,i64)=sqlx::query_as("SELECT length(CAST(tenant AS BLOB)),length(CAST(environment AS BLOB)),length(CAST(logical_store_id AS BLOB)) FROM installation WHERE singleton=1").fetch_one(session.tx()).await?;
+    let sizes:(i64,i64,i64)=sqlx::query_as("SELECT octet_length(tenant),octet_length(environment),octet_length(logical_store_id) FROM installation WHERE singleton=1").fetch_one(session.tx()).await?;
     if [sizes.0, sizes.1, sizes.2]
         .into_iter()
         .any(|n| !(1..=1024).contains(&n))
@@ -507,11 +511,12 @@ async fn initialize(session: &mut Session, selection: &SnapshotSelection) -> Res
     }
     let current = head(session.tx(), j).await?;
     let selected = if let Some(expected) = &selection.historical {
+        session.charge(0, QUERY_PAGES)?;
         if expected.ordinal > current.ordinal() || expected.ordinal == Count::ZERO {
             return Err(invalid());
         }
         let (segment, root): (String, String) = sqlx::query_as(
-            "SELECT segment,replay_root FROM r3_segments WHERE journal=? AND ordinal=?",
+            "SELECT segment,replay_root FROM r3_segments INDEXED BY sqlite_autoindex_r3_segments_1 WHERE journal=? AND ordinal=?",
         )
         .bind(journal_key(j)?)
         .bind(expected.ordinal.value().to_be_bytes().as_slice())
@@ -687,7 +692,7 @@ impl super::super::SqliteStore {
                 &wire::ReadBudget {
                     bytes: Count::new(BYTES).map_err(core)?,
                     pages: Count::new(PAGES).map_err(core)?,
-                    segments: Count::new(PAGES).map_err(core)?,
+                    segments: Count::new(SEGMENTS).map_err(core)?,
                 },
                 deadline,
                 true,
@@ -799,8 +804,8 @@ impl super::super::SqliteStore {
     pub(crate) async fn test_reader_indices(&self) {
         let mut c = self.inner.readers.acquire().await.unwrap();
         for (sql,index) in [
-            ("EXPLAIN QUERY PLAN SELECT command FROM r3_commands WHERE journal=? AND ordinal=?", "r3_command_ordinal"),
-            ("EXPLAIN QUERY PLAN SELECT ordinal FROM r3_head_versions WHERE journal=? AND kind=9 AND full_key=? AND ordinal<=? AND json_extract(CAST(value AS TEXT),'$.body.first_closure') IS NOT NULL ORDER BY ordinal LIMIT 1", "r3_family_first_closure"),
+            ("EXPLAIN QUERY PLAN SELECT command FROM r3_commands INDEXED BY r3_command_ordinal WHERE journal=? AND ordinal=?", "r3_command_ordinal"),
+            ("EXPLAIN QUERY PLAN SELECT ordinal FROM r3_head_versions INDEXED BY r3_family_first_closure WHERE journal=? AND kind=9 AND full_key=? AND ordinal<=? AND json_extract(CAST(value AS TEXT),'$.body.first_closure') IS NOT NULL ORDER BY ordinal LIMIT 1", "r3_family_first_closure"),
         ] {
             let mut q=sqlx::query(sql).bind(Vec::<u8>::new()).bind(Vec::<u8>::new());
             if index=="r3_family_first_closure" {q=q.bind(0u128.to_be_bytes().as_slice());}

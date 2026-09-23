@@ -228,3 +228,79 @@ async fn sqlite_schema_upgrade_populated_1_through_4_rollback_reopen_retry() {
         conn.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn sqlite_r3_reader_bound_upgrade_validates_old_keys_and_guards_new_keys() {
+    for malformed in [false, true] {
+        let (dir, mut conn) = legacy(5).await;
+        let kind = if malformed {
+            "unbounded-kind".repeat(100)
+        } else {
+            "AUTHORITY".into()
+        };
+        let zero = 0u128.to_be_bytes();
+        let hash = "a".repeat(64);
+        sqlx::query("INSERT INTO r3_journals VALUES(x'01',x'7b7d',?,?,?)")
+            .bind(zero.as_slice())
+            .bind(&hash)
+            .bind(&hash)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO r3_segments VALUES(x'01',?,?,?,2,1)")
+            .bind(zero.as_slice())
+            .bind(&hash)
+            .bind(&hash)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO r3_objects VALUES(x'01',?,?,x'7b7d',x'01',?,2,x'7b7d')")
+            .bind(zero.as_slice())
+            .bind(&kind)
+            .bind(&hash)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO r3_object_pages VALUES(x'01',x'7b7d',?,x'01',?,0,x'7b7d')")
+            .bind(&kind)
+            .bind(&hash)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlite::connect::integrity(&mut conn).await.unwrap();
+        let before = dump(&mut conn).await;
+        let result = upgrade_sqlite(dir.path(), "store-demo-slice").await;
+        assert_eq!(
+            result,
+            if malformed {
+                Err(UpgradeError::Refused)
+            } else {
+                Ok(UpgradeResult::Upgraded)
+            }
+        );
+        assert_eq!(
+            version(&mut conn).await.unwrap(),
+            if malformed { 5 } else { 6 }
+        );
+        assert_eq!(
+            dump(&mut conn).await,
+            before,
+            "additive key guards never rewrite retained rows"
+        );
+        if !malformed {
+            for sql in [
+                "INSERT INTO r3_objects SELECT journal,ordinal,'unknown-kind',origin,full_key,body_hash,byte_length,metadata FROM r3_objects",
+                "INSERT INTO r3_object_pages SELECT journal,origin,'unknown-kind',full_key,body_hash,page,bytes FROM r3_object_pages",
+            ] {
+                let error = sqlx::query(AssertSqlSafe(sql)).execute(&mut conn).await.unwrap_err();
+                assert!(error.to_string().contains("unbounded R3 fact kind"), "{error}");
+            }
+            assert_eq!(dump(&mut conn).await, before);
+            assert_eq!(
+                upgrade_sqlite(dir.path(), "store-demo-slice").await,
+                Ok(UpgradeResult::AlreadyCurrent)
+            );
+        }
+        conn.close().await.unwrap();
+    }
+}

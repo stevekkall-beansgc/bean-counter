@@ -69,7 +69,7 @@ pub(super) async fn check(store: &SqliteStore, witness: &[Value]) {
 
     let budget = wire::ReadBudget {
         bytes: Count::new(16 * 1024 * 1024).unwrap(),
-        pages: Count::new(4096).unwrap(),
+        pages: Count::new(1 << 24).unwrap(),
         segments: Count::new(4096).unwrap(),
     };
     let read = store
@@ -152,7 +152,7 @@ pub(super) async fn check(store: &SqliteStore, witness: &[Value]) {
             let initial = comparison.preparation_measured().clone();
             request.budget = wire::ReadBudget {
                 bytes: Count::new(initial.bytes.value() + 64 + 64 + 1).unwrap(),
-                pages: Count::new(initial.pages.value() + 4).unwrap(),
+                pages: Count::new(initial.pages.value() + 4 * 2048).unwrap(),
                 segments: Count::new(1).unwrap(),
             };
             let wire::ComparisonResponse::Incomplete {
@@ -178,7 +178,7 @@ pub(super) async fn check(store: &SqliteStore, witness: &[Value]) {
             request.budget = wire::ReadBudget {
                 bytes: Count::new(initial.bytes.value() + raw_size as u128 - 1 + 64 * pages)
                     .unwrap(),
-                pages: Count::new(initial.pages.value() + 3 * pages).unwrap(),
+                pages: Count::new(initial.pages.value() + 3 * 2048 * pages).unwrap(),
                 segments: Count::new(1).unwrap(),
             };
             let wire::ComparisonResponse::Incomplete {
