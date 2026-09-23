@@ -485,7 +485,8 @@ async fn r3_optional_legacy_quota_rejects_growth_and_freelist_reuse_atomically()
     for reuse in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let installation = tests::installation();
-        let store = SqliteStore::create(dir.path(), installation.clone())
+        let anchor = tempfile::tempdir().unwrap();
+        let store = SqliteStore::create_fenced(dir.path(), installation.clone(), anchor.path())
             .await
             .unwrap();
         if reuse {
@@ -594,4 +595,58 @@ async fn r3_optional_legacy_quota_rejects_growth_and_freelist_reuse_atomically()
         drop(configured);
         store.close().await;
     }
+}
+
+#[tokio::test]
+async fn r3_unfenced_store_cannot_mint_commit_capability() {
+    use crate::store::adjudication::*;
+    use ledgerlab_core::adjudication::{
+        self as r3, commands as w,
+        runtime::accounting::Worksheet,
+        types::{Count, Id},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let install = tests::installation();
+    let store = SqliteStore::create(dir.path(), install.clone())
+        .await
+        .unwrap();
+    let journal = JournalIdentity {
+        store: Id::parse(&install.logical_store_id).unwrap(),
+        scope: w::Scope(
+            Id::parse(&install.scope.tenant).unwrap(),
+            Id::parse(&install.scope.environment).unwrap(),
+        ),
+        registration: Id::parse("registration").unwrap(),
+        host: Id::parse("gateway").unwrap(),
+    };
+    let maximum = Worksheet::frozen()
+        .unwrap()
+        .template("PREPARE_ENROLL")
+        .unwrap()
+        .resources()
+        .unwrap();
+    let configured = store
+        .provision_adjudication(
+            journal.clone(),
+            maximum.clone(),
+            65536,
+            Count::new(1u128 << 40).unwrap(),
+        )
+        .await
+        .unwrap();
+    let work = WorkRequest {
+        journal,
+        owner: Id::parse("owner").unwrap(),
+        transition: r3::raw_sha256(b"test"),
+        mandatory: false,
+        maximum,
+    };
+    assert!(matches!(
+        configured
+            .begin_adjudication(&work, Instant::now() + Duration::from_secs(2))
+            .await,
+        Err(crate::store::errors::StoreError::InvalidStore(_))
+    ));
+    drop(configured);
+    store.close().await;
 }

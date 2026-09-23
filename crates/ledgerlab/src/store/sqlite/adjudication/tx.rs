@@ -43,6 +43,11 @@ impl AdjudicationStore for SqliteAdjudicationStore {
         work: &WorkRequest,
         deadline: Instant,
     ) -> Result<Self::Tx, StoreError> {
+        if self.store.inner._owner.fence.is_none() {
+            return Err(StoreError::InvalidStore(
+                "R3 commit capability requires the external publication fence",
+            ));
+        }
         provision::verify_incarnation(&self.store, &self.journal, &self.incarnation)?;
         if work.journal != self.journal
             || !work.maximum.fits(&self.logical)
