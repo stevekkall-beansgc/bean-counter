@@ -1,5 +1,6 @@
 //! One bounded acceptance coordinator over concrete durable stores.
 #![forbid(unsafe_code)]
+pub mod gateway;
 pub mod local;
 pub mod maintenance;
 pub mod outbox;

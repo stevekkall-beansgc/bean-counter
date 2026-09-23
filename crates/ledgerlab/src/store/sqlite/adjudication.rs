@@ -497,6 +497,12 @@ pub(super) async fn object_page(
 
 #[cfg(test)]
 impl super::SqliteStore {
+    pub(crate) async fn test_hold_optional_slots(&self) -> tokio::sync::OwnedSemaphorePermit {
+        std::sync::Arc::clone(&self.inner.queue)
+            .acquire_many_owned(65)
+            .await
+            .unwrap()
+    }
     pub(crate) fn test_publication_cut(&self, cut: u8) {
         assert!([0, 11, 12, 13].contains(&cut));
         self.inner

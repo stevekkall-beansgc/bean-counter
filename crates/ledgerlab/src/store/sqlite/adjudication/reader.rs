@@ -16,6 +16,11 @@ type Result<T> = std::result::Result<T, StoreError>;
 const BYTES: u128 = physical::READER_WORKSPACE_BYTES;
 const PAGES: u128 = 4096;
 enum Request {
+    Gateway(
+        HeadKey,
+        Option<wire::Delivery>,
+        oneshot::Sender<Result<(ObservedHead, Option<SavedOutcome>)>>,
+    ),
     Segment(IndexedPageRequest, oneshot::Sender<Result<PageFragment>>),
     Object(ObjectPageRequest, oneshot::Sender<Result<Vec<u8>>>),
     Certificate(
@@ -42,6 +47,37 @@ struct Session {
     deadline: Instant,
 }
 impl Session {
+    async fn gateway(
+        &mut self,
+        key: &HeadKey,
+        delivery: Option<&wire::Delivery>,
+    ) -> Result<(ObservedHead, Option<SavedOutcome>)> {
+        if key.journal != self.journal
+            || key.kind != HeadKind::Authority
+            || key.full_key.len() > r3::MAX_KEY_BYTES
+        {
+            return Err(invalid());
+        }
+        self.charge(r3::COMMAND_BYTES as u128, 64)?;
+        let current = point_limited(self.tx(), key, r3::COMMAND_BYTES).await?;
+        let saved = if let Some(delivery) = delivery {
+            let j = self.journal.clone();
+            let size:Option<i64>=sqlx::query_scalar("SELECT length(command)+length(result)+coalesce(length(receipt),0) FROM r3_commands WHERE journal=? AND delivery=?")
+                .bind(journal_key(&j)?).bind(r3::canonical_bytes(delivery,4096).map_err(core)?).fetch_optional(self.tx()).await?;
+            if let Some(size) = size {
+                if !(2..=2 * r3::COMMAND_BYTES as i64).contains(&size) {
+                    return Err(StoreError::Overloaded);
+                }
+                self.charge(size as u128, (size as u128).div_ceil(4096))?;
+                saved(self.tx(), &j, delivery).await?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Ok((current, saved))
+    }
     fn tx(&mut self) -> &mut SqliteConnection {
         self.connection.as_mut().expect("live snapshot")
     }
@@ -231,6 +267,18 @@ impl AdjudicationReadStore for super::super::SqliteStore {
         budget: &wire::ReadBudget,
         deadline: Instant,
     ) -> Result<Self::Read> {
+        self.begin_read_lane(selection, budget, deadline, false)
+            .await
+    }
+}
+impl super::super::SqliteStore {
+    async fn begin_read_lane(
+        &self,
+        selection: &SnapshotSelection,
+        budget: &wire::ReadBudget,
+        deadline: Instant,
+        mandatory: bool,
+    ) -> Result<SqliteAdjudicationRead> {
         budget.validate().map_err(core)?;
         if budget.bytes.value() > BYTES
             || budget.pages.value() > PAGES
@@ -238,7 +286,12 @@ impl AdjudicationReadStore for super::super::SqliteStore {
         {
             return Err(StoreError::Overloaded);
         }
-        let slot = Arc::clone(&self.inner.queue)
+        let queue = if mandatory {
+            &self.inner._owner.mandatory_queue
+        } else {
+            &self.inner.queue
+        };
+        let slot = Arc::clone(queue)
             .try_acquire_owned()
             .map_err(|_| StoreError::Overloaded)?;
         let deadline = deadline.min(Instant::now() + Duration::from_secs(5));
@@ -426,6 +479,11 @@ fn spawn(
             let request = tokio::select! {biased;_=tokio::time::sleep_until(deadline)=>None,r=receive.recv()=>r};
             let Some(request) = request else { break };
             let stop = match request {
+                Request::Gateway(key, delivery, mut reply) => {
+                    let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.gateway(&key,delivery.as_ref()))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
+                    let stop = result.is_err();
+                    reply.send(result).is_err() || stop
+                }
                 Request::Segment(q, mut reply) => {
                     let result = tokio::select! {biased;_=reply.closed()=>Err(StoreError::Deadline),r=timeout_at(deadline,session.segment(&q))=>r.map_err(|_|StoreError::Deadline).and_then(|r|r)};
                     let stop = result.is_err();
@@ -446,7 +504,10 @@ fn spawn(
                     reply.send(result).is_err() || stop
                 }
                 Request::Finish(reply) => {
-                    let _ = reply.send(session.cleanup().await);
+                    let result = session.cleanup().await;
+                    drop(session);
+                    drop(_lane);
+                    let _ = reply.send(result);
                     return;
                 }
             };
@@ -461,6 +522,45 @@ fn spawn(
         lease,
         send,
         deadline,
+    }
+}
+
+impl super::super::SqliteStore {
+    pub(crate) async fn adjudication_gateway_lookup(
+        &self,
+        journal: &JournalIdentity,
+        authority: &HeadKey,
+        delivery: Option<wire::Delivery>,
+        deadline: Instant,
+    ) -> Result<(ObservedHead, Option<SavedOutcome>, wire::ExpectedPrefix)> {
+        if authority.full_key.len() > r3::MAX_KEY_BYTES {
+            return Err(invalid());
+        }
+        let read = self
+            .begin_read_lane(
+                &SnapshotSelection {
+                    journal: journal.clone(),
+                    historical: None,
+                },
+                &wire::ReadBudget {
+                    bytes: Count::new(BYTES).map_err(core)?,
+                    pages: Count::new(PAGES).map_err(core)?,
+                    segments: Count::new(PAGES).map_err(core)?,
+                },
+                deadline,
+                true,
+            )
+            .await?;
+        let (send, receive) = oneshot::channel();
+        read.send
+            .try_send(Request::Gateway(authority.clone(), delivery, send))
+            .map_err(|_| StoreError::Overloaded)?;
+        let result = reply(read.deadline, receive).await;
+        let prefix = read.expected_prefix().expected().clone();
+        let cleanup = read.finish().await;
+        let (head, saved) = result?;
+        cleanup?;
+        Ok((head, saved, prefix))
     }
 }
 async fn reply<T>(deadline: Instant, receive: oneshot::Receiver<Result<T>>) -> Result<T> {

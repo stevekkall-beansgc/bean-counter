@@ -15,6 +15,7 @@ mod tx;
 mod write;
 
 use crate::store::{errors::StoreError, ports::AcceptanceStore, records::*};
+pub(crate) use adjudication::tx::SqliteAdjudicationStore;
 pub(crate) use connect::Diagnostics;
 use sqlx::{Connection, SqlitePool};
 use std::{

@@ -727,3 +727,6 @@ async fn actual_replacement_excludes_stale_epoch_and_retains_prepaid_token_finis
     assert_eq!(resource.q.writer_epoch.value(), 2);
     h.close().await;
 }
+
+#[path = "gateway_tests.rs"]
+mod gateway_tests;
