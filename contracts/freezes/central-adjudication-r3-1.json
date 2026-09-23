@@ -1,0 +1,419 @@
+{
+  "schema": "ledger-phase4-contract-freeze/1",
+  "status": "frozen-unreleased",
+  "profile": "central-adjudication-r3/1",
+  "reviewed_commit": "c8fbddc682e22e10c6122abbcf4c8212a1c407fa",
+  "reviewed_tree": "96c0dc5d60cc48c5a3e559e6d2d7e4692ecc01d2",
+  "owner_authorization": "docs/reviews/phase4/remaining-authorization.md",
+  "independent_review": "docs/reviews/phase4/c8fbddc-four-blocker-closure.md",
+  "normative_r3": "docs/phase4/EXTENSIBLE-HISTORY-DESIGN-R3.md",
+  "integration_base": "29cb6326331667cfe514ea7d48bedd427e18ff5f",
+  "separate_pg_reviewed_commit": "b0b3984ce879f653f8816fe5e8844cd7b076f78c",
+  "candidate_files": {
+    "contracts/candidates/central-adjudication-r3-candidate1/ARTIFACTS.json": {
+      "bytes": 14657,
+      "sha256": "301766b5f458ccaf175e90f9f962daa7fa6fa1cf144e19f1526003d9229f78be"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/COVERAGE.md": {
+      "bytes": 9658,
+      "sha256": "756f00ac20b3c40bd375545dbd67f62f96e43f52389dca942ece3595a014a21e"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/PROOF-WORKSHEET.md": {
+      "bytes": 7372,
+      "sha256": "ce1c238d91fd92d0f178f7a6966e2cbb8c70f3cc15683ba082749b2f469a9e48"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/PROTOCOL.md": {
+      "bytes": 55945,
+      "sha256": "3462df6e850ffd5ce5890d2fa1cd45dfe11873a41f1dbac14acec3083a668a41"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/README.md": {
+      "bytes": 3388,
+      "sha256": "682196c2ce8f8ce202903da8af6a15cc98f69d850e059e4a5cb7654fc22494bf"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/SOURCE-PROVENANCE.json": {
+      "bytes": 10111,
+      "sha256": "5f4ae941cef198a8035fac6516daccad0522715be781fe1484ee0d3f51f60fda"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/authority_checks.py": {
+      "bytes": 9861,
+      "sha256": "6a26646fe41ec98b5a8d12d5e0bea57c1d64381471aa752fa6e74769954fbfae"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/authority_fixtures.py": {
+      "bytes": 2235,
+      "sha256": "5cc0d6adeaac21429639b78753d5284ee45452f12d743917fd4262e89cfacd50"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/authority_sources.py": {
+      "bytes": 6238,
+      "sha256": "52aeb21a65f23f215b0ccb9fd950ab452fd7b6c566c6724911e46407b224b754"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/base_bridge.py": {
+      "bytes": 6315,
+      "sha256": "cff9a9efd8466b9f0e3077cf27feadf63c01e752aae57685d17056fcff6cc762"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/boundary-vectors.json": {
+      "bytes": 4015,
+      "sha256": "ee3eeaed607791b998ddf532243b5bae37a0e9a8296f3b1d1ddd5f6700569b2c"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/boundary_vectors.py": {
+      "bytes": 1877,
+      "sha256": "72373c5c350bf2f95c4f06eb72283c651c4f51c3067da96ef5481800433121c4"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/check.py": {
+      "bytes": 4204,
+      "sha256": "77a884211472b8e0013627bb5df503529570feabac8a30f447e448c498adf22b"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/customer-checkpoints.json": {
+      "bytes": 1622,
+      "sha256": "12cc2b5630184634f4bf2cbfdf3ad63e27ba3cd76e422778ebbb472ec760c25a"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/customer-close-1.json": {
+      "bytes": 15712,
+      "sha256": "e578fc5b95e9d2f66c2130cfebab123e4003ac7a39440f85edcf1dbf36f5fd25"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/customer-close-2.json": {
+      "bytes": 17828,
+      "sha256": "b6f4732729101a33b032cc3b38dcb49172d7adb49175da7cc271c3ae95f41258"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/customer-close-3.json": {
+      "bytes": 18223,
+      "sha256": "b33b7e0ec0f97e4ae5cc2a2908e6ebb8b5878df859f7d8250a245ed38c9d407d"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/customer-oracle.json": {
+      "bytes": 28898,
+      "sha256": "18e4f9439753fd8878c98b47469e9d6bcf60468cfb789385dc3a806fd3fcb42b"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/customer-trace.json": {
+      "bytes": 261997,
+      "sha256": "2cfc6e5580e7a391799f889195ab0c7e93006d11949d63417c6b69e46f6b7a9b"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/derive_resources.py": {
+      "bytes": 8357,
+      "sha256": "b02fff4eac263863038357ccea1f91d308862c3c7449595d5fb5d477d3d7abef"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/derive_schema.py": {
+      "bytes": 14895,
+      "sha256": "793729c8729d31d2da035248c39c980d748b2b1c957fb5f08e820b49f727206a"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/fixtures.py": {
+      "bytes": 14561,
+      "sha256": "8e43d9638566bf6aa924adc528a80a4a25d2e42245aba5197abf3c2531fb66b0"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/index-vectors.json": {
+      "bytes": 126336,
+      "sha256": "cf68d4a10003a6020c13285c119a6c32523f964b970348544930a9892d6235af"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/index_model.py": {
+      "bytes": 1565,
+      "sha256": "4944fcea27547382ab5aeefd611fce8875da78f5c8a748f291d6787092a0bccb"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/inventory.py": {
+      "bytes": 1016,
+      "sha256": "157710ab6a96498b80b14ed3bbebc31660c4baeb0fe000f3f2cff8f1367a2dc3"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/minimal-segment.json": {
+      "bytes": 67180,
+      "sha256": "4e678cfd79254d493d69c6f58d0cb79761f9d8bbba440bf6c03c09527a155525"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/minimal-trace.json": {
+      "bytes": 65075,
+      "sha256": "dd83bf3871f4c4adf98cf27eb854161a7e493dc2784d095067b367223b742138"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-expectations.json": {
+      "bytes": 640,
+      "sha256": "13b65de18537c1d07c02461b9042863501ecfcdda268821855dc3251112a7bb5"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/assent-roles.json": {
+      "bytes": 56491,
+      "sha256": "7e948d27d036ab95595cd5f8f9bd686e0b12a3e894e58a6ff3a096f2a95f0137"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/assent-target.json": {
+      "bytes": 56487,
+      "sha256": "5f7d62ccd0d0f8d394721c163ea3ddf0189bee3a955356be34545ac1eef50eae"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/assent-terms.json": {
+      "bytes": 56491,
+      "sha256": "3f39f443e7d85cf2c06c38d6049148652c3806e7f9bc6709c8a5d4a6c16f8e84"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-base64-padbits.json": {
+      "bytes": 56424,
+      "sha256": "ffe84ba5a0182f6d62a58df7d10328c42ba4243db6d5f752c7b7c7e154dc0bba"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-expired.json": {
+      "bytes": 56558,
+      "sha256": "ab47dcb4a0bee948a02c08ac8bcf32e1cf390558df4de97c0231ae1023e25514"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-identity-body-conflict.json": {
+      "bytes": 57056,
+      "sha256": "4dcd541edcf14e34d3a6092058736999219111ec0d94c37acb3897bd570151ad"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-missing-source.json": {
+      "bytes": 55839,
+      "sha256": "1006282aa56edae0a6c92f57c52b722066523933fb6898f1677d4afadcd029f9"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-permission.json": {
+      "bytes": 56458,
+      "sha256": "6bf7af2fca351ca04108869373029a65ac19026d37149a02805beece825802fd"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-principal.json": {
+      "bytes": 56558,
+      "sha256": "4c569b3b0bc36190d63daaf2a41c91b6f29f7c1a39fde7b7e6b97b078bdf79f3"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-revision.json": {
+      "bytes": 56558,
+      "sha256": "089a3a1e411a79551e0e8e6a4523c6e804935d4f1939282eba82348e2c13d3c1"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/authority-scope.json": {
+      "bytes": 56554,
+      "sha256": "33c86393d3a45a988ab274920b8bc1fa11dad5d2658369064b3ecaea692ae9f7"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/wrong-key.json": {
+      "bytes": 67359,
+      "sha256": "dacd07647e46993182e2e4273b84881c327fdbcff1f880dad8dc6f61b2bc8399"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/negative-vectors/wrong-source.json": {
+      "bytes": 67361,
+      "sha256": "8991992f421958b45ee045464ff494b43a9a39db9cc77809fe4d31449bc3208a"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/node-tests.mjs": {
+      "bytes": 26735,
+      "sha256": "4bf0cbb140c4d7e7f27ddfab42c270489981a5eb2901761b3ef41c71b96c2590"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/protocol/resources.json": {
+      "bytes": 36269,
+      "sha256": "de6ef1c1a65ae9328a7ec9b7ba4981d479de3ae5c226377763ee659eb57e4e67"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/protocol/schema.json": {
+      "bytes": 79733,
+      "sha256": "d4022405cb1fad25006dcf7d5510de96240f4502ad7ac0c957553304164ef107"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/read-vectors.json": {
+      "bytes": 35247,
+      "sha256": "c02b49b3ebd21ceff7407e6756a57928cb2629ca594fdbefc7657dbe566b17bf"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/read_vectors.py": {
+      "bytes": 3674,
+      "sha256": "7d3cc29f45abfb5c1dfe94bd3bed919e4518cbc7c478583daacfe770c01fdb1d"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/reads.py": {
+      "bytes": 7495,
+      "sha256": "c9399035643a94f0ebcc6a2e823de2a3eb5e9184967fde8e1353697a1d6e49cd"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/regression-checkpoints.json": {
+      "bytes": 1553,
+      "sha256": "bff9f3d955d63a5c3b8d849ea4c8aedf064acd3a2513cedd4ae8985bb8be6818"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/regression_checks.py": {
+      "bytes": 1694,
+      "sha256": "6513082ffc331244d8351c6c612f1746d0c936bfba5dbd587911a3e669584d7b"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/seal_reader.py": {
+      "bytes": 2158,
+      "sha256": "bd2a4b9c6e73b3154efd2f9f8aa356c5ed700f3faacd2052214c07d3f5d3b4a6"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/tests.py": {
+      "bytes": 33995,
+      "sha256": "b1d5ca676e4bf5d532fdcaacb876518dc768544039711eacd1acf1c90d159242"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/transition_matrix.py": {
+      "bytes": 1741,
+      "sha256": "34590a54c0591b2f79bc92cb80a617447c04e2f2f48742b939f696e41e490a42"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/validate.mjs": {
+      "bytes": 109737,
+      "sha256": "0ba43cb9307b99ca43bbb49cbc5d6ee24ac7d9b77cac25d8d4e2f962f596dde5"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/validate.py": {
+      "bytes": 53056,
+      "sha256": "53fecb8f9e89625789ee9036464f0df9c074fb33cb55ef46ff35861f060b1810"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/REG02-saved-close-unimported.json": {
+      "bytes": 83872,
+      "sha256": "3fc0fdfa10101039da21f55827911f4d31a6e4e15fb3154e129a0ebaf177cb87"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/REG06-release170.json": {
+      "bytes": 83268,
+      "sha256": "b4666b99320efc8e9aba77cd7e14e4007523cd1e4e04937dd591fa16d39dd74c"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/REG09-held200.json": {
+      "bytes": 71434,
+      "sha256": "7982cbca1a34f70ae585c22666d8610f88a62ef69e0cc9f1fd63989f39848d25"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/abort-before_begin.json": {
+      "bytes": 80826,
+      "sha256": "b259e8dbd4b5a6247236aa14fb0988ea3ebc975f2a69fc4585a49fe005e6166e"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/abort-partial.json": {
+      "bytes": 81846,
+      "sha256": "94407c4e082468c97b6cc3e2845d2d5258926648067d63a68341e24df20b043d"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/abort-ready.json": {
+      "bytes": 83914,
+      "sha256": "bd5b8ec186927324ea4f7de53c0973d4aa17ef78d3e4f07c5b4185d99ee6557d"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/abort-sealed.json": {
+      "bytes": 82359,
+      "sha256": "bf1f8e1ae6ae4b4a328e0b29ab7ffa15abd9d4d6ebe81cefaafbc199df878738"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/all-unused257.json": {
+      "bytes": 2267827,
+      "sha256": "4650bb5b13bc430910c98fbdb5b0f977ca6425cef5983608953d029a6f22b991"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/alternating-subset-rounds.json": {
+      "bytes": 83265,
+      "sha256": "1d5cb040253178c0e7ca1a700ef8ffdde9ece06c3e2689a77fd42109ae673ca3"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/authority-delegation.json": {
+      "bytes": 77434,
+      "sha256": "0febbe25b716860a916f1f4c4b467287cdd7c4520184db2ef819d59882479cfa"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/clock-floor.json": {
+      "bytes": 74902,
+      "sha256": "83c4d1e29bf6247dc119e09cf08cd1f760d096ba51aa96b29d2e3ee179e7ca13"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/delayed-seal-observation.json": {
+      "bytes": 73464,
+      "sha256": "e3700bb73e35963ecb7803a1ba7680f7a554fb34f5e791503aa72fdd5aa23636"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/grant-retirement.json": {
+      "bytes": 62777,
+      "sha256": "8bf40a2ae8b2575735b2fe11d2092460f24566a0f1126356b17d51ee81539fbb"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/gross249.json": {
+      "bytes": 87982,
+      "sha256": "8d79a14e6f1d65012685b2b4f40949146bb61a43b4feedefb123896fac6e7488"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/gross250.json": {
+      "bytes": 88000,
+      "sha256": "46da38cdfc2b563caea489ab0af9fefe9cbc7def0e022102dd1b93b5e5cc8bdc"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/gross251.json": {
+      "bytes": 88000,
+      "sha256": "5f2dee7970a9a4d35c376f281a5b21ca29a7315a2f0f7d78b893082b6de274fc"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/high-water.json": {
+      "bytes": 75018,
+      "sha256": "f5a4f7a37bdfa2d7fec45a3392b2e88274c343a219b508fd7ca972a6c0a61a12"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/independent-host-identity.json": {
+      "bytes": 93662,
+      "sha256": "947871c99a989e4ada39b1e110011844ec67d5ffd056c51c5d3cabc2b2c40d4a"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/max-topology.json": {
+      "bytes": 131739,
+      "sha256": "4125a197a2ec7f40b99a0667e1991f8355606dda39cce0b9dba2c006d93f7bb9"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/mixed257.json": {
+      "bytes": 2272909,
+      "sha256": "ac57b28d66661b19612afe7846c055098979056018d6ed15ae42c2dd8e334749"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/negative149.json": {
+      "bytes": 87113,
+      "sha256": "3dd5371a62fe21f88044d0f0a464eb6a9603079ad9cbdb648b042d45ef53c5fc"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/optional-round-exhaustion.json": {
+      "bytes": 75520,
+      "sha256": "e29cf01602bddf5bdb977bc1390231c6a8a86036d5d19776780a43b8e37b92c1"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/pending1025.json": {
+      "bytes": 11250376,
+      "sha256": "867bd7474999408e9e49fec83bfbf79d66bdaa666ef2fa3d3ba0845f326d27e3"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/pending255.json": {
+      "bytes": 2842704,
+      "sha256": "85612757df6e83605fe59e33e071deb8a7c4c28f776d8ef34e8e83d3c00f16fd"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/pending256.json": {
+      "bytes": 2853622,
+      "sha256": "d8e7e908c165b8d233d89f6daef52ddab716c3927bb3fd608e83d1d22682e639"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/pending257.json": {
+      "bytes": 2864540,
+      "sha256": "3720a4f96f6400fb07a93b28032f38d6d6e882a5dc9f490ede5fec4c8dfdd8b0"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/permuted-preparation-order.json": {
+      "bytes": 127608,
+      "sha256": "fdeba7c1eac973ed173052e848b357aea37026721e8f0f9f98ff80de7f40039f"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/positive99.json": {
+      "bytes": 87111,
+      "sha256": "ed776a67e48b11fd891e21c17e3111c338e4547c75b4d5cb34a0f3f4c8ea12bf"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/seal-scan.json": {
+      "bytes": 88803,
+      "sha256": "75708298a6850451da042f52023ddd73da0675ee47781aba0a5b0c7602561c65"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/shared200-minus-first.json": {
+      "bytes": 88011,
+      "sha256": "6700c448981ccc815b9d918d8e50b333e33b7b3b78f29a148cee940ce41bb091"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/shared200-plus-first.json": {
+      "bytes": 88011,
+      "sha256": "543415c5df6d620f4bd40bf48f2f2981d97b8b5ceea8218868c91017a08d9cf0"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/supplement-control.json": {
+      "bytes": 75633,
+      "sha256": "b8039838a111afaf57f32511e6e8f56cf869380d7546eadaf617caff167de30e"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/terminal-race-abort.json": {
+      "bytes": 65424,
+      "sha256": "4e9c0c3509176a2a63d420848a5716032f6a1f1652848e3c3d8a1e0a6b5a08e1"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/terminal-race-close.json": {
+      "bytes": 65428,
+      "sha256": "749183f727fd3d7378891abab80b5b9c65023d747c5eb3d79e73b6be9789daa6"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/uncovered-issuance.json": {
+      "bytes": 606327,
+      "sha256": "d8c6d353e6bd2835e37027f903d0a981bc1de86b7c75873bbe5fa0e7b378295a"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/unseen-abort-delayed-begin.json": {
+      "bytes": 70818,
+      "sha256": "633cdd69f91a9f8abcb477eef7b6036610f2b5a39d3811bf1a279bac4cacdaf1"
+    },
+    "contracts/candidates/central-adjudication-r3-candidate1/vectors/writer-epoch.json": {
+      "bytes": 75536,
+      "sha256": "5d5b21685c594e16ada489ce18a7b9e774b45530847fe3035d2a597b65b8e52a"
+    }
+  },
+  "controls": {
+    "PHASE4-CONTRACT-FREEZE.md": {
+      "bytes": 2024,
+      "sha256": "110392938437f80f1865e4cf837e49cf009292942d4768183d9a019cb0c8abdf"
+    },
+    "docs/phase4/EXTENSIBLE-HISTORY-DESIGN-R3.md": {
+      "bytes": 70711,
+      "sha256": "341043f03c7879c0d1ef02b76e054e5fd7ab287d745f48d434eb59162d148db6"
+    },
+    "docs/reviews/phase4/c8fbddc-four-blocker-closure.md": {
+      "bytes": 7118,
+      "sha256": "adde37e2da23c0838800109f84cd8275016a4b8ae0cb248e4a4c6328831886a2"
+    },
+    "docs/reviews/phase4/remaining-authorization.md": {
+      "bytes": 5150,
+      "sha256": "8ee561b13ddb935dbf30b369807783727b3f243a469b48b28685cda4bdc0e79d"
+    },
+    "scripts/check-phase4-contract.sh": {
+      "bytes": 130,
+      "sha256": "8b2bb56eff87eefdd991677da149eba30622d7cd740e1ed72c1d7bccc84172be"
+    },
+    "scripts/contract_checks/check_phase4_freeze.py": {
+      "bytes": 2422,
+      "sha256": "b5b2ea55047707c8ab89667ac14ea8347133ece5024b6a0b3685dfb9e56c59b9"
+    }
+  },
+  "preserved_registries": {
+    "contracts/freeze.json": {
+      "bytes": 24449,
+      "sha256": "e19f512e99e28e7ff74e5d20673ae4bde0bcd5721a103f00db34aa91f2300567"
+    },
+    "contracts/freezes/outcomes-2-candidate.4.json": {
+      "bytes": 13450,
+      "sha256": "ef8becc0681908eb1b9193c6184b9637eceabb861b5f640c80945e13fb7df0f8"
+    },
+    "contracts/freezes/reservation-settlement-1.json": {
+      "bytes": 6607,
+      "sha256": "aaa7171ff6aa677a2a13bad131f2e6e8521a6f2957a8d06fac5085986c8cc97f"
+    }
+  },
+  "claim": "Additive contract freeze only; actual Phase4 runtime/store/gateway conformance remains pending."
+}
