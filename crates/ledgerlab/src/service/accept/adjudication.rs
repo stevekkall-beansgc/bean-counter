@@ -346,3 +346,7 @@ impl FreshBaseAcceptance {
 
 mod backend;
 pub(crate) use backend::TrustedJournalHead;
+mod authority;
+mod prepare;
+pub(crate) use prepare::{prepare_locked, Prepared};
+mod base;

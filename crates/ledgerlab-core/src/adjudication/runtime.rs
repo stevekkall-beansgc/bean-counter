@@ -116,7 +116,7 @@ pub struct DeliveryState {
 }
 
 #[cfg(test)]
-mod tests {
+mod codec_tests {
     use super::*;
     #[test]
     fn exact_command_hash_and_binary_framing_match_frozen_values() {
@@ -145,3 +145,9 @@ mod tests {
         );
     }
 }
+pub mod accounting;
+pub mod points;
+pub mod transition;
+
+#[cfg(test)]
+mod tests;

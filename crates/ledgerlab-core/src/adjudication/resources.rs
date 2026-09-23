@@ -104,3 +104,72 @@ impl ResourceAccount {
         )
     }
 }
+
+impl Resource {
+    pub fn zero() -> Self {
+        Self::from_dimensions([Count::ZERO; 6])
+    }
+    pub fn from_dimensions(v: [Count; 6]) -> Self {
+        Self {
+            canonical_bytes: v[0],
+            trusted_bytes: v[1],
+            records: v[2],
+            index_pages: v[3],
+            index_values: v[4],
+            workspace_bytes: v[5],
+        }
+    }
+    pub fn checked_sub(&self, rhs: &Self) -> Result<Self> {
+        let a = self.dimensions();
+        let b = rhs.dimensions();
+        let mut c = [Count::ZERO; 6];
+        for i in 0..c.len() {
+            c[i] = a[i].checked_sub(b[i])?;
+        }
+        Ok(Self::from_dimensions(c))
+    }
+}
+
+impl Counters {
+    pub fn zero() -> Self {
+        Self::from_dimensions([Count::ZERO; 16])
+    }
+    pub fn from_dimensions(v: [Count; 16]) -> Self {
+        Self {
+            segment: v[0],
+            head_revision: v[1],
+            grant: v[2],
+            grant_registry: v[3],
+            allocation: v[4],
+            receipt: v[5],
+            control: v[6],
+            round: v[7],
+            import: v[8],
+            terminal: v[9],
+            allocation_prefix: v[10],
+            receipt_prefix: v[11],
+            index_cardinality: v[12],
+            writer_epoch: v[13],
+            economic_revision: v[14],
+            resource_revision: v[15],
+        }
+    }
+    pub fn checked_sub(&self, rhs: &Self) -> Result<Self> {
+        let a = self.dimensions();
+        let b = rhs.dimensions();
+        let mut c = [Count::ZERO; 16];
+        for i in 0..c.len() {
+            c[i] = a[i].checked_sub(b[i])?;
+        }
+        Ok(Self::from_dimensions(c))
+    }
+    pub fn checked_add(&self, rhs: &Self) -> Result<Self> {
+        let a = self.dimensions();
+        let b = rhs.dimensions();
+        let mut c = [Count::ZERO; 16];
+        for i in 0..16 {
+            c[i] = a[i].checked_add(b[i])?;
+        }
+        Ok(Self::from_dimensions(c))
+    }
+}
