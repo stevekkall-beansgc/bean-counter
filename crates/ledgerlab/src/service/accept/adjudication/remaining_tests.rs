@@ -764,3 +764,6 @@ async fn actual_replacement_excludes_stale_epoch_and_retains_prepaid_token_finis
 mod gateway_tests;
 #[path = "scale_tests.rs"]
 mod scale_tests;
+
+#[path = "race_tests.rs"]
+mod race_tests;
