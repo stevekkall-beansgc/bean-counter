@@ -112,7 +112,10 @@ async fn actual_prepare_enroll_saved_retry_and_reopen() {
     installation.scope.tenant = journal.scope.0.as_str().into();
     installation.scope.environment = journal.scope.1.as_str().into();
     let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::create(dir.path(), installation).await.unwrap();
+    let anchor = tempfile::tempdir().unwrap();
+    let store = SqliteStore::create_fenced(dir.path(), installation, anchor.path())
+        .await
+        .unwrap();
     let logical = gateway_budget();
     // Explicit finite synthetic host assignment; this test is not a physical G2 proof.
     let backing = Count::new(1u128 << 40).unwrap();
@@ -171,7 +174,9 @@ async fn actual_prepare_enroll_saved_retry_and_reopen() {
     }
     drop(configured);
     store.close().await;
-    let reopened = SqliteStore::open(dir.path()).await.unwrap();
+    let reopened = SqliteStore::open_fenced(dir.path(), anchor.path())
+        .await
+        .unwrap();
     let configured = reopened
         .provision_adjudication(journal.clone(), logical, 65536, backing)
         .await
@@ -415,6 +420,7 @@ async fn actual_flow(customer: bool) {
     let mut stores = BTreeMap::new();
     let mut heads = BTreeMap::new();
     let mut dirs = Vec::new();
+    let mut anchors = Vec::new();
     let sources: Vec<wire::AuthoritySource> =
         serde_json::from_value(input["initial"]["authority_sources"].clone()).unwrap();
     for host in ["center", "g0", "g1", "g2", "g3"] {
@@ -423,7 +429,10 @@ async fn actual_flow(customer: bool) {
         install.logical_store_id = "center".into();
         install.scope.tenant = "synthetic".into();
         install.scope.environment = "sandbox".into();
-        let store = SqliteStore::create(dir.path(), install).await.unwrap();
+        let anchor = tempfile::tempdir().unwrap();
+        let store = SqliteStore::create_fenced(dir.path(), install, anchor.path())
+            .await
+            .unwrap();
         drop(
             store
                 .provision_adjudication(
@@ -450,6 +459,7 @@ async fn actual_flow(customer: bool) {
         }
         stores.insert(host.into(), store);
         dirs.push(dir);
+        anchors.push(anchor);
     }
     let host = FlowHost {
         stores,
@@ -737,9 +747,17 @@ async fn actual_flow(customer: bool) {
     for store in std::mem::take(&mut host.stores).into_values() {
         store.close().await;
     }
-    for (name, dir) in ["center", "g0", "g1", "g2", "g3"].into_iter().zip(&dirs) {
-        host.stores
-            .insert(name.into(), SqliteStore::open(dir.path()).await.unwrap());
+    for ((name, dir), anchor) in ["center", "g0", "g1", "g2", "g3"]
+        .into_iter()
+        .zip(&dirs)
+        .zip(&anchors)
+    {
+        host.stores.insert(
+            name.into(),
+            SqliteStore::open_fenced(dir.path(), anchor.path())
+                .await
+                .unwrap(),
+        );
     }
     let configured = host.stores["center"]
         .provision_adjudication(
@@ -766,7 +784,7 @@ async fn actual_flow(customer: bool) {
         store.close().await;
     }
     if let Ok(path) = std::env::var("LEDGERLAB_R3_ACTUAL_TRACE") {
-        std::fs::write(path,serde_json::to_vec_pretty(&serde_json::json!({"format":"ledgerlab-actual-sqlite-first-path/1","steps":witness,"heads":roots,"ordinals":ordinals.iter().map(|(k,v)|(k.clone(),v.to_string())).collect::<BTreeMap<_,_>>(),"physical_g2":"PENDING","customer_story":if customer {"EXACT_95"} else {"FIRST_PATH_ONLY"},"oracle_checkpoints":customer_oracle.checkpoints})).unwrap()).unwrap();
+        std::fs::write(path,serde_json::to_vec_pretty(&serde_json::json!({"format":"ledgerlab-actual-sqlite-first-path/1","steps":witness,"heads":roots,"ordinals":ordinals.iter().map(|(k,v)|(k.clone(),v.to_string())).collect::<BTreeMap<_,_>>(),"physical_g2":"PENDING","durable_publication":"external per-store STABLE anchor outside database directory","customer_story":if customer {"EXACT_95"} else {"FIRST_PATH_ONLY"},"oracle_checkpoints":customer_oracle.checkpoints})).unwrap()).unwrap();
     }
 }
 
