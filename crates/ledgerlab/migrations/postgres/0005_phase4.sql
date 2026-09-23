@@ -127,6 +127,8 @@ CREATE TABLE r3_unresolved_work (
    AND octet_length(journal) BETWEEN 1 AND 1115
    AND octet_length(delivery) BETWEEN 2 AND 4096 AND command_hash ~ '^[0-9a-f]{64}$'))
 );
+-- Only the migration owner creates the permanent recovery slot.
+INSERT INTO r3_unresolved_work(singleton,generation,state) VALUES(1,decode(repeat('00',16),'hex'),'IDLE');
 CREATE TRIGGER r3_recovery_identity BEFORE UPDATE OF singleton ON r3_unresolved_work FOR EACH ROW EXECUTE FUNCTION ledgerlab.reject_mutation();
 CREATE TRIGGER r3_recovery_permanent BEFORE DELETE OR TRUNCATE ON r3_unresolved_work FOR EACH STATEMENT EXECUTE FUNCTION ledgerlab.reject_mutation();
 CREATE TRIGGER r3_segments_immutable BEFORE UPDATE OR DELETE OR TRUNCATE ON r3_segments FOR EACH STATEMENT EXECUTE FUNCTION ledgerlab.reject_mutation();

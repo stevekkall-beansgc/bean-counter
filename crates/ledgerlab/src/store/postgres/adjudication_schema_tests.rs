@@ -179,7 +179,10 @@ async fn postgres_r3_schema_maximum_keys_counters_and_immutable_projections() {
     .unwrap();
     refused(&tx,"INSERT INTO ledgerlab.acceptance_delivery_namespace VALUES('synthetic','sandbox','source',$1,'v1')",&[&external]).await;
     tx.rollback().await.unwrap();
-    owner.client.execute("INSERT INTO ledgerlab.r3_unresolved_work(singleton,generation,state) VALUES(1,$1,'IDLE')", &[&zero]).await.unwrap();
+    let idle = owner.client.query_one("SELECT generation,state,backend_pid IS NULL AND backend_start IS NULL AND journal IS NULL AND delivery IS NULL AND command_hash IS NULL FROM ledgerlab.r3_unresolved_work WHERE singleton=1", &[]).await.unwrap();
+    assert_eq!(idle.get::<_, Vec<u8>>(0), zero);
+    assert_eq!(idle.get::<_, String>(1), "IDLE");
+    assert!(idle.get::<_, bool>(2));
     owner.discard().await;
     let store = super::super::PostgresStore::open(config(&database, ROLE))
         .await
