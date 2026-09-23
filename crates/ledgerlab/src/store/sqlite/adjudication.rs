@@ -491,3 +491,13 @@ pub(super) async fn object_page(
     }
     Ok(bytes)
 }
+
+#[cfg(test)]
+impl super::SqliteStore {
+    /// One-shot fault after actual original base SQL, before any R3 projection.
+    pub(crate) fn test_fail_after_original_base(&self) {
+        self.inner
+            .fail_after_original_base
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+}

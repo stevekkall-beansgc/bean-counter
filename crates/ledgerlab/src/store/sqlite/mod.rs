@@ -41,6 +41,8 @@ struct Inner {
     _owner: Arc<owner::Owner>,
     adjudication_enabled: Arc<AtomicBool>,
     adjudication_gate: Arc<RwLock<()>>,
+    #[cfg(test)]
+    fail_after_original_base: AtomicBool,
 }
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
@@ -105,6 +107,8 @@ impl SqliteStore {
                 commit_task: Mutex::new(None),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),
+                #[cfg(test)]
+                fail_after_original_base: AtomicBool::new(false),
                 _owner: owner,
             }),
             diagnostics,

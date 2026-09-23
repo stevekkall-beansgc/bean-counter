@@ -277,6 +277,14 @@ impl AdjudicationTx for super::super::SqliteTx {
                 }
             }
             self.failed = true;
+            #[cfg(test)]
+            if self
+                .store
+                .fail_after_original_base
+                .swap(false, Ordering::AcqRel)
+            {
+                return Err(StoreError::Deadline);
+            }
             timeout_at(self.deadline, physical::charge_legacy(self.conn(), before))
                 .await
                 .map_err(|_| StoreError::Deadline)??;
