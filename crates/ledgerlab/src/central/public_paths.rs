@@ -332,6 +332,7 @@ async fn public_exact_customer_ninety_five_and_independent_economic_checkpoints(
     let mut actions = Vec::new();
     let mut checkpoints = 0;
     let mut pending = Vec::new();
+    let mut close_coverage = Vec::new();
     // Independent original oracle EXPECTATIONS.json SHA256 8d43d92d2f31be079527e93874bbcb5f8ce05945ba673fe0c47588a89ec4fd67.
     const THROUGH: [usize; 15] = [5, 11, 12, 18, 19, 25, 26, 32, 38, 44, 91, 92, 93, 94, 95];
     const RETAIL: [i128; 15] = [
@@ -342,6 +343,12 @@ async fn public_exact_customer_ninety_five_and_independent_economic_checkpoints(
     for n in 0..95 {
         let c = p.f.v["commands"][n].clone();
         let r = p.step(c).await;
+        if p.f.v["commands"][n]["kind"] == "CLOSE" {
+            close_coverage = serde_json::from_value(
+                serde_json::to_value(&r.effects[0]).unwrap()["body"]["cutoffs"].clone(),
+            )
+            .unwrap();
+        }
         for e in &r.effects {
             if let wire::Effect::Action { body } = e {
                 assert_eq!(
@@ -485,6 +492,7 @@ async fn public_exact_customer_ninety_five_and_independent_economic_checkpoints(
     assert_eq!(p.ordinals.values().sum::<u128>(), 95);
     assert_eq!(p.kinds.len(), 22);
     p.reopen().await;
+    public_comparisons(&mut p, close_coverage).await;
     p.f.host.close().await;
 }
 
@@ -770,4 +778,111 @@ async fn public_host_to_peer_closed_gateway_then_primary_import_and_finish() {
         wire::RetryResponseCentralAdmission::Unknown
     );
     gateway.close().await;
+}
+
+async fn public_comparisons(p: &mut Path, coverage: Vec<wire::Coverage>) {
+    use crate::store::adjudication::{
+        AdjudicationReadStore, AdjudicationReadTx, SnapshotSelection,
+    };
+    let config =
+        p.f.configs
+            .iter()
+            .find(|c| c.host.as_str() == "center")
+            .unwrap()
+            .clone();
+    let budget = wire::ReadBudget {
+        bytes: Count::new(16 * 1024 * 1024).unwrap(),
+        pages: Count::new(1 << 24).unwrap(),
+        segments: Count::new(1).unwrap(),
+    };
+    // This private SELECT observes the requested cutoff; all report operations
+    // below go through the exported Ledger API on an independently reopened owner.
+    let read = p.f.host.entries["center"]
+        .store
+        .begin_adjudication_read(
+            &SnapshotSelection {
+                journal: config.identity(),
+                historical: None,
+            },
+            &budget,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+    let expected = read.expected_prefix().expected().clone();
+    read.finish().await.unwrap();
+    assert_eq!(expected.root, p.roots["center"]);
+    assert_eq!(expected.ordinal.value(), 55);
+    assert_eq!(coverage.len(), 4);
+    let mut before = BTreeMap::new();
+    for (name, e) in &p.f.host.entries {
+        before.insert(name.clone(), e.store.test_full_inventory().await);
+    }
+    for e in std::mem::take(&mut p.f.host.entries).into_values() {
+        e.store.close().await;
+    }
+    for amount in [1200u128, 1500, 6000] {
+        let ledger = crate::Ledger::open_sqlite_fenced(&config.database, &config.anchor)
+            .await
+            .unwrap();
+        let mut request = wire::ComparisonRequest {
+            expected: expected.clone(),
+            policy: wire::ComparisonPolicy {
+                resolution_atoms: Count::new(amount).unwrap(),
+            },
+            budget: budget.clone(),
+            coverage: coverage.clone(),
+            cursor: None,
+        };
+        let mut comparison = ledger.start_comparison(&request, &budget).await.unwrap();
+        let mut calls = 0;
+        loop {
+            calls += 1;
+            assert!(calls <= 56, "public continuation must progress");
+            match comparison.advance(&request).await.unwrap() {
+                wire::ComparisonResponse::Incomplete { cursor, .. } => {
+                    request.cursor = Some(*cursor)
+                }
+                wire::ComparisonResponse::Comparable {
+                    expected: at,
+                    actual,
+                    alternative,
+                    difference,
+                    supplier_booked,
+                    coverage: reported,
+                    ..
+                } => {
+                    assert_ne!(amount, 6000);
+                    assert_eq!(at, expected);
+                    assert_eq!(actual.value(), 11450);
+                    assert_eq!(
+                        alternative.value(),
+                        if amount == 1200 { 11450 } else { 11750 }
+                    );
+                    assert_eq!(difference.value(), if amount == 1200 { 0 } else { 300 });
+                    assert_eq!(supplier_booked.value(), 3000);
+                    assert_eq!(reported, coverage);
+                    break;
+                }
+                wire::ComparisonResponse::PolicyFailure { reason, .. } => {
+                    assert_eq!(amount, 6000);
+                    assert_eq!(reason, "PREMIUM_CAP at central ordinal 5");
+                    break;
+                }
+                other => panic!("unexpected public comparison: {other:?}"),
+            }
+        }
+        assert_eq!(calls, 55);
+        eprintln!("public Ledger comparison policy{amount}:55segments/55calls, exact result, peers closed");
+        drop(comparison);
+        ledger.close().await;
+    }
+    p.reopen().await;
+    for (name, e) in &p.f.host.entries {
+        assert_eq!(
+            e.store.test_full_inventory().await,
+            before[name],
+            "public comparison/reopen mutation at {name}"
+        );
+    }
 }
