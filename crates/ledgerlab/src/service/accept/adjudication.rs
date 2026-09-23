@@ -365,3 +365,6 @@ mod sqlite_tests;
 
 mod original_base;
 pub(crate) use original_base::ValidatedOriginalBasePlan;
+
+#[cfg(test)]
+mod base_fixture;
