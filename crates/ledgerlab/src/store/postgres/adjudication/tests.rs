@@ -508,3 +508,6 @@ mod runtime_tests;
 
 #[path = "publication_process_tests.rs"]
 mod publication_process_tests;
+
+#[path = "publication_barrier_tests.rs"]
+mod publication_barrier_tests;
