@@ -397,8 +397,8 @@
       "sha256": "8b2bb56eff87eefdd991677da149eba30622d7cd740e1ed72c1d7bccc84172be"
     },
     "scripts/contract_checks/check_phase4_freeze.py": {
-      "bytes": 2422,
-      "sha256": "b5b2ea55047707c8ab89667ac14ea8347133ece5024b6a0b3685dfb9e56c59b9"
+      "bytes": 2732,
+      "sha256": "5ef4aa78e8e6caca79449c4dd0bc27a614ba0c1396f09154a004dc83622566a2"
     }
   },
   "preserved_registries": {
