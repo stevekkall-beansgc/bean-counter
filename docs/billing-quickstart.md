@@ -14,7 +14,7 @@ export PATH="$PWD/work/billing-install/bin:$PATH"
 ledger --help
 ```
 
-The first build may download locked dependencies. Add `--offline` only after populating the cache. This is a local source installation, not a published release. The installed `ledger` binary needs no Cargo, Python, Node, Docker, cloud account, model key or network service for billing. Preserve the source commit and binary SHA-256 with operational records. See [resources and costs](resources-and-costs.md).
+The first build may download locked dependencies. Add `--offline` only after populating the cache. This command installs from the checked-out source. Record its exact commit; [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) identify published versions. The installed `ledger` binary needs no Cargo, Python, Node, Docker, cloud account, model key or network service for billing. Preserve the source commit and binary SHA-256 with operational records. See [resources and costs](resources-and-costs.md).
 
 ## Set up explicit terms
 
