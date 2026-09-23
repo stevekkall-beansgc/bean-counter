@@ -328,13 +328,22 @@ impl AdjudicationAuthority for Host {
         let raw = r3::proofs::decode_base64(&source.body, 16384)
             .map_err(|_| ServiceError::IntegrityFailure)?;
         let b: Json = serde_json::from_slice(&raw).unwrap();
+        let value = runtime::command_value(c.command()).unwrap();
         let permission = if matches!(access, AuthorityAccess::ReadSavedResult) {
-            wire::AuthorityPermission::Read
-        } else if matches!(c.command(), wire::Command::Enroll { .. }) {
-            wire::AuthorityPermission::Enroll
+            "read"
         } else {
-            wire::AuthorityPermission::Capacity
+            match value["kind"].as_str().unwrap() {
+                "ENROLL" => "enroll",
+                "RECEIVE" | "SUPPLEMENT" => "submit",
+                "BEGIN" | "CLOSE" | "ABORT" => "close",
+                "CORRECT" => "correct",
+                "REPLACE_WRITER" => "replace",
+                "DECIDE" if value["payload"]["path"] == "ADJUSTMENT" => "adjust",
+                "DECIDE" => "decide",
+                _ => "capacity",
+            }
         };
+        let permission = serde_json::from_value(json!(permission)).unwrap();
         let mut exact = if matches!(c.command(), wire::Command::Enroll { .. }) {
             self.sources
                 .iter()
@@ -344,6 +353,22 @@ impl AdjudicationAuthority for Host {
         } else {
             vec![]
         };
+        if matches!(value["kind"].as_str(), Some("DECIDE" | "CORRECT")) {
+            for reference in [
+                &value["payload"]["assent"],
+                &value["payload"]["roles"]["payer_delegation"],
+            ] {
+                if let Some(hash) = reference.as_str() {
+                    exact.push(
+                        self.sources
+                            .iter()
+                            .find(|s| s.body_hash.as_str() == hash)
+                            .expect("configured exact authority source")
+                            .clone(),
+                    );
+                }
+            }
+        }
         exact.push(source.clone());
         AuthorityObservation::from_backend(
             serde_json::from_value(b["principal"].clone()).unwrap(),
@@ -373,37 +398,44 @@ impl AdjudicationHost<PgRuntimeTx> for Host {
         })
     }
     async fn source(&self, r: &SourceRequest) -> Result<VerifiedSource, ServiceError> {
-        let SourceRequest::Exact(p) = r else {
-            return Err(ServiceError::IntegrityFailure);
-        };
-        let j = JournalIdentity {
-            store: p.store.clone(),
-            scope: p.scope.clone(),
-            registration: p.registration.clone(),
-            host: p.host.clone(),
-        };
-        let f = self
-            .stores
-            .get(p.host.as_str())
-            .ok_or(ServiceError::IntegrityFailure)?;
-        let mut tx = begin(f, &j).await;
-        let result = tx
-            .native_adjudication(Operation::Source(
-                j,
+        let (j, n, kind, key, expected) = match r {
+            SourceRequest::Exact(p) => (
+                JournalIdentity {
+                    store: p.store.clone(),
+                    scope: p.scope.clone(),
+                    registration: p.registration.clone(),
+                    host: p.host.clone(),
+                },
                 p.ordinal,
                 p.fact_kind.clone(),
                 p.full_key.clone(),
-            ))
-            .await
-            .map_err(crate::service::store_error)?;
-        tx.rollback().await.map_err(crate::service::store_error)?;
-        let Value::Source(s) = result else {
-            return Err(ServiceError::IntegrityFailure);
+                Some(p.as_ref()),
+            ),
+            SourceRequest::Enrollment { journal: j } => {
+                let f = self
+                    .stores
+                    .get(j.host.as_str())
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                let key = r3::canonical_bytes(&json!(j.registration), 4096).unwrap();
+                // Actual indexed primary lookup, never a supplied ordinal/root.
+                let rows=f.owner.client.query("SELECT ordinal,full_key FROM ledgerlab.r3_objects WHERE journal=$1 AND kind='ENROLLMENT' AND key_hash=sha256($2) LIMIT 2",&[&journal_key(j).unwrap(),&key]).await.map_err(|_|ServiceError::IntegrityFailure)?;
+                if rows.len() != 1 || rows[0].get::<_, Vec<u8>>(1) != key {
+                    return Err(ServiceError::IntegrityFailure);
+                }
+                (
+                    j.clone(),
+                    ordinal(rows[0].get(0)).map_err(crate::service::store_error)?,
+                    wire::FactKind::Enrollment,
+                    serde_json::from_value(json!(j.registration)).unwrap(),
+                    None,
+                )
+            }
         };
-        if s.proof() != p.as_ref() {
+        let source = self.export(&j, n, kind, key).await?;
+        if expected.is_some_and(|p| source.proof() != p) {
             return Err(ServiceError::IntegrityFailure);
         }
-        Ok(*s)
+        Ok(source)
     }
     async fn fresh_base(
         &self,
@@ -412,6 +444,30 @@ impl AdjudicationHost<PgRuntimeTx> for Host {
         i: &LockedInputs,
     ) -> Result<FreshBaseAcceptance, ServiceError> {
         self.base.prepare(&mut tx.inner, t, i).await
+    }
+}
+impl Host {
+    async fn export(
+        &self,
+        j: &JournalIdentity,
+        n: Count,
+        kind: wire::FactKind,
+        key: wire::ProofFullKey,
+    ) -> Result<VerifiedSource, ServiceError> {
+        let f = self
+            .stores
+            .get(j.host.as_str())
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let mut tx = begin(f, j).await;
+        let value = tx
+            .native_adjudication(Operation::Source(j.clone(), n, kind, key))
+            .await
+            .map_err(crate::service::store_error)?;
+        tx.rollback().await.map_err(crate::service::store_error)?;
+        let Value::Source(s) = value else {
+            return Err(ServiceError::IntegrityFailure);
+        };
+        Ok(*s)
     }
 }
 async fn provision(
@@ -735,3 +791,6 @@ async fn native_runtime_prepare_and_atomic_original_enroll() {
         f.finish().await;
     }
 }
+
+#[path = "runtime_customer.rs"]
+mod runtime_customer;

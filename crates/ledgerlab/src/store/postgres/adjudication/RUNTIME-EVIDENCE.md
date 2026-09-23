@@ -51,9 +51,67 @@ claim that it incurs zero heap/WAL cost. Successful fixtures drop only their own
 fresh databases; failed-run evidence and any abandoned failure databases are
 preserved.
 
-The fixture provider is test-only and scoped to PREPARE_ENROLL/ENROLL/read retry.
-It is not a production authentication provider or all-29 command adapter. This
-wave does not claim PG full customer chronology, offline public gateway facade,
-protected FINISH, bounded comparison, durable external fencing, or physical
-allocation/retention/workspace enforcement. The preceding physical-premises
-worksheet remains an incomplete allocation proof. Those gates remain required.
+The initial enrollment checkpoint covers PREPARE_ENROLL/ENROLL/read retry; the
+customer successor below extends its provider and command surface. The provider
+remains test-only, not production authentication or an all-29 command adapter.
+Neither checkpoint proves a public PG gateway facade, protected physical FINISH,
+bounded comparison, durable external fencing, or physical allocation/retention/
+workspace enforcement. The preceding physical-premises worksheet remains an
+incomplete allocation proof. Those gates remain required.
+
+
+## Customer95 successor
+
+`runtime_customer.rs` extends the same explicitly assumed-capacity test harness
+through the exact accepted 95-command customer chronology. It preserves the
+frozen fixture bytes; only live proof references, grant head authentication and
+command authority-head bindings are hydrated from actual journals. Both exact
+source requests and first-use enrollment requests resolve through the configured
+host registry and native primary membership. No caller path selects a database.
+
+The 15 economic assertions are pinned from the independent pre-authoring
+CUSTOMER-STORY.md/EXPECTATIONS.json and reuse the already reviewed SQLite oracle
+checks with PG point-read plumbing. They do not derive expected totals from
+candidate output. Actual durable family, entitlement, case and directional pool
+heads are read at each prefix. Signed actions are accumulated and compared with
+10000,10000,11200,11200,11200,11200,11700,11700,11700,11700,11700,11800,11650,
+11650,11450. Supplier remains3000. DENY precedes the distinct qualified upsell;
+all five families close before adjustments and correction. The correction
+retains inverse−500/replacement+300, five consumed entitlements, original
+premium usage1700 and adjustment gross250. Virtual close leaves pending case
+head bytes/revisions unchanged while their effective status changes.
+
+Every command has an actual saved retry and unchanged retained-table inventory;
+each of five hosts is reopened and retried again. Overspending adjustment101 and
+stale correction revision2 refuse with exact error codes and unchanged retained
+inventory before the valid commands proceed. The test records all95 host roots
+and ordinals and all15 checkpoints; both majors must be compared in the external
+source-pinned handoff.
+
+This sequence covers22 of29 command kinds. It does not cover ABORT,
+EXTEND_RESOURCES, PREPARE_ROUND, REPLACE_WRITER, RETIRE_GRANT, RETURN_UNUSED or
+SUPPLEMENT. The prior enrollment-specific failure/authority tests remain. The
+physical envelope and incarnation remain test assumptions; this successor is
+not public PG integration, production admission, capacity enforcement, external
+writer fencing, bounded comparison, or a complete29-kind PG conformance claim.
+
+
+### Cross-backend provenance boundary
+
+The SQLite and PostgreSQL adapters intentionally retain different real trusted
+observation identifiers. PostgreSQL hashes the canonical array
+`["postgres-primary-journal/1", binary_journal_key, ordinal, segment, root]`;
+SQLite uses the corresponding `sqlite-primary-journal/1` domain. The first four
+PREPARE_ENROLL commands/results are identical. ENROLL is the first divergence:
+its four preparation `trusted_observation_ref` values differ, changing the
+payload's command digest and then downstream canonical roots/proof hashes.
+Original29 base bodies and their raw-SHA256 object keys are unchanged.
+
+The emitted witness includes each actual stored command (verified by bounded
+native command-row readback), its raw SHA256, committed result, host ordinal and
+root. The external comparison report substitutes only the four observation
+identifiers and derived command digest to demonstrate exact first-ENROLL input
+alignment. Later commands are compared with explicit derived-provenance fields
+listed, never silently normalized into a cross-backend byte-identity claim.
+The normative host-provenance contract permits these distinct trusted inputs;
+no production observation domain was changed to manufacture equal roots.
