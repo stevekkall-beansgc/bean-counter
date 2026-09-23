@@ -159,6 +159,9 @@ impl SqliteStore {
             );
             owner.adjudication_enabled.store(true, Ordering::Release);
         }
+        if owner.fence.is_some() {
+            connect::verify_r3(&mut conn, &owner).await?;
+        }
         conn.close().await?;
         let writer = connect::pool(Arc::clone(&owner), false).await?;
         let readers = connect::pool(Arc::clone(&owner), true).await?;

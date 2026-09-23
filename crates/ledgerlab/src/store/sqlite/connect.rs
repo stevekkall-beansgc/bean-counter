@@ -20,8 +20,8 @@ pub(crate) struct Diagnostics {
     pub compile_options: Vec<String>,
 }
 
-fn options(path: &Path, reader: bool) -> SqliteConnectOptions {
-    SqliteConnectOptions::new()
+fn options(path: &Path, reader: bool, r3: bool) -> SqliteConnectOptions {
+    let options = SqliteConnectOptions::new()
         .filename(path)
         .create_if_missing(false)
         .read_only(reader)
@@ -40,13 +40,30 @@ fn options(path: &Path, reader: bool) -> SqliteConnectOptions {
             } else {
                 "OFF"
             },
-        )
+        );
+    if r3 {
+        options
+            .statement_cache_capacity(16)
+            .pragma("cache_size", "-2048")
+            // SQLite 3.51.3 also parses this value as an 8-bit boolean.
+            // Multiples of 256 disable spilling; 513 keeps it enabled.
+            .pragma("cache_spill", "513")
+            .pragma("mmap_size", "0")
+            .pragma("temp_store", "MEMORY")
+            .pragma("threads", "0")
+            .pragma("automatic_index", "OFF")
+    } else {
+        options
+    }
 }
 pub(super) async fn initial(owner: &Owner) -> Result<SqliteConnection, StoreError> {
-    Ok(SqliteConnection::connect_with(&options(&owner.database, false)).await?)
+    Ok(
+        SqliteConnection::connect_with(&options(&owner.database, false, owner.fence.is_some()))
+            .await?,
+    )
 }
 pub(super) async fn pool(owner: Arc<Owner>, reader: bool) -> Result<SqlitePool, StoreError> {
-    let opts = options(&owner.database, reader);
+    let opts = options(&owner.database, reader, owner.fence.is_some());
     Ok(SqlitePoolOptions::new()
         .max_connections(if reader { 2 } else { 1 })
         .min_connections(0)
@@ -60,6 +77,11 @@ pub(super) async fn pool(owner: Arc<Owner>, reader: bool) -> Result<SqlitePool, 
                 verify(conn, reader)
                     .await
                     .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                if owner.fence.is_some() {
+                    verify_r3(conn, &owner)
+                        .await
+                        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+                }
                 let pages = owner
                     .adjudication_max_pages
                     .load(std::sync::atomic::Ordering::Acquire);
@@ -192,4 +214,91 @@ pub(super) async fn integrity(conn: &mut SqliteConnection) -> Result<(), StoreEr
         }
     }
     Ok(())
+}
+
+/// These settings constrain engine behavior; cache_size is a target, not a heap
+/// reservation. Memory temp storage includes subjournals and must remain charged
+/// to the separate physical workspace proof.
+pub(super) async fn verify_r3(
+    conn: &mut SqliteConnection,
+    owner: &Owner,
+) -> Result<(), StoreError> {
+    for (pragma, expected) in [
+        ("cache_size", -2048i64),
+        ("cache_spill", 513),
+        ("mmap_size", 0),
+        ("temp_store", 2),
+        ("threads", 0),
+        ("automatic_index", 0),
+        ("auto_vacuum", 0),
+        ("page_size", 4096),
+    ] {
+        let actual: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("PRAGMA {pragma}")))
+            .fetch_one(&mut *conn)
+            .await?;
+        if actual != expected {
+            #[cfg(test)]
+            eprintln!("R3 pragma {pragma}: expected {expected}, actual {actual}");
+            return Err(StoreError::InvalidStore("R3 engine setting mismatch"));
+        }
+    }
+    let memory_temp: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pragma_compile_options WHERE compile_options IN ('TEMP_STORE=1','TEMP_STORE=2','TEMP_STORE=3'))")
+        .fetch_one(&mut *conn).await?;
+    if !memory_temp {
+        return Err(StoreError::InvalidStore(
+            "R3 memory temp storage unavailable",
+        ));
+    }
+    owner.verify_path()?;
+    // Reserved bytes reduce usable cells/overflow payload. The pinned profile
+    // accepts only the ordinary 4096-byte, zero-reservation database format.
+    use std::io::Read;
+    let mut header = [0u8; 100];
+    std::fs::File::open(&owner.database)?.read_exact(&mut header)?;
+    if &header[..16] != b"SQLite format 3\0" || header[16..18] != [16, 0] || header[20] != 0 {
+        return Err(StoreError::InvalidStore("R3 usable-page layout mismatch"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod r3_tests {
+    use super::*;
+    use crate::store::sqlite::{tests::installation, SqliteStore};
+
+    #[tokio::test]
+    async fn r3_engine_settings_verified_on_writer_reader_and_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("journal");
+        let anchor = dir.path().join("anchor");
+        std::fs::create_dir(&db).unwrap();
+        std::fs::create_dir(&anchor).unwrap();
+        let store = SqliteStore::create_fenced(&db, installation(), &anchor)
+            .await
+            .unwrap();
+        for pool in [&store.inner.writer, &store.inner.readers] {
+            let mut c = pool.acquire().await.unwrap();
+            verify_r3(&mut c, &store.inner._owner).await.unwrap();
+            sqlx::query("PRAGMA cache_spill=512")
+                .execute(&mut *c)
+                .await
+                .unwrap();
+            let actual: i64 = sqlx::query_scalar("PRAGMA cache_spill")
+                .fetch_one(&mut *c)
+                .await
+                .unwrap();
+            assert_eq!(actual, 0, "pinned SQLite numeric boolean truncation");
+            assert!(verify_r3(&mut c, &store.inner._owner).await.is_err());
+            c.close().await.unwrap();
+            let mut fresh = pool.acquire().await.unwrap();
+            verify_r3(&mut fresh, &store.inner._owner).await.unwrap();
+        }
+        store.close().await;
+        let store = SqliteStore::open_fenced(&db, &anchor).await.unwrap();
+        for pool in [&store.inner.writer, &store.inner.readers] {
+            let mut c = pool.acquire().await.unwrap();
+            verify_r3(&mut c, &store.inner._owner).await.unwrap();
+        }
+        store.close().await;
+    }
 }
