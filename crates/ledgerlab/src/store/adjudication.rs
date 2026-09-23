@@ -184,9 +184,12 @@ pub(crate) enum Resolution {
     Complete(Box<LockedInputs>),
 }
 #[derive(Clone, Debug)]
-#[expect(
-    dead_code,
-    reason = "Typed seam review; production adapters/executor are the next assigned gate"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "PostgreSQL production admission remains physically gated"
+    )
 )]
 pub(crate) struct WorkRequest {
     pub journal: JournalIdentity,
