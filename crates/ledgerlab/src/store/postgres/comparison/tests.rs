@@ -958,3 +958,63 @@ async fn postgres_comparison_foundation_report_and_oracle() {
     f.unchanged(&before, "foundation").await;
     f.finish().await;
 }
+
+/// Exercise the actual owner-bound Phase3 reader hook. This is not the R3
+/// paged comparison adapter or its native-resource admission proof.
+#[tokio::test]
+#[ignore = "requires isolated PostgreSQL17/18 TLS and trusted test anchor"]
+async fn postgres_bound_comparison_owner_reads_without_publication() {
+    let mut f = Fixture::new(4).await;
+    f.writer.close().await;
+    f.owner.client.batch_execute("UPDATE ledgerlab.installation SET admission='frozen',dispatch_hold=1,dispatch_enabled=0 WHERE singleton=1").await.unwrap();
+    let identity = postgres::read::installation(&f.owner.client)
+        .await
+        .unwrap()
+        .logical_store_id;
+    let anchor = tempfile::tempdir().unwrap().keep();
+    let owner = postgres::bootstrap::bind(config(&f.name, "postgres"), &anchor, &identity)
+        .await
+        .unwrap();
+    let record = std::fs::read(anchor.join("state.json")).unwrap();
+    // A previously configured unbound reader cannot start after owner binding.
+    assert!(f
+        .reader
+        .begin_read(Instant::now() + Duration::from_secs(5))
+        .await
+        .is_err());
+    f.writer = PostgresStore::open_with_owner(config(&f.name, WRITER), Some(owner))
+        .await
+        .unwrap();
+    f.reader = PostgresComparisonStore::from_owner(&f.writer, "synthetic-store".into()).unwrap();
+    let before = f.inventory().await;
+    let auth = ReadAuthority::allowed();
+    let (a, b) = tokio::join!(
+        f.workspace(&auth, f.selection.clone()),
+        f.workspace(&auth, f.selection.clone())
+    );
+    let a = a.unwrap();
+    let b = b.unwrap();
+    assert_eq!(a.historical_receipts().len(), 4);
+    assert_eq!(a.fingerprint(), b.fingerprint());
+    f.unchanged(&before, "bound-owner-comparison").await;
+    assert_eq!(std::fs::read(anchor.join("state.json")).unwrap(), record);
+    let name = f.name.clone();
+    f.writer.close().await;
+    f.owner.discard().await;
+    drop(f.reader);
+    let reopened = PostgresStore::open_fenced(config(&name, WRITER), &anchor)
+        .await
+        .unwrap();
+    let reader = PostgresComparisonStore::from_owner(&reopened, "synthetic-store".into()).unwrap();
+    let operation = ComparisonOperation::begin(Cancellation::default()).unwrap();
+    let again = load_workspace(&reader, &auth, &f.who, f.selection, &operation)
+        .await
+        .unwrap();
+    assert_eq!(again.fingerprint(), a.fingerprint());
+    assert_eq!(std::fs::read(anchor.join("state.json")).unwrap(), record);
+    let inspection = config(&name, "postgres").connect().await.unwrap();
+    assert_eq!(inventory(&inspection).await, before);
+    inspection.discard().await;
+    reopened.close().await;
+    eprintln!("retained bound comparison database={name} anchor={}; actual owner-bound reader, two equal reports and reopen, zero publication/inventory change; Phase3 reader only", anchor.display());
+}
