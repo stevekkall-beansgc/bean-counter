@@ -141,7 +141,7 @@ async fn lookup(
         }))
     } else {
         // A legacy identity cannot be represented as a fabricated composite pair.
-        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM delivery_keys WHERE tenant=? AND environment=? AND source=? AND external_id=?)")
+        let occupied: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM delivery_keys WHERE tenant=?1 AND environment=?2 AND source=?3 AND external_id=?4) OR EXISTS(SELECT 1 FROM r3_deliveries WHERE tenant=?1 AND environment=?2 AND source=?3 AND external_id=?4)")
             .bind(&key.scope[0]).bind(&key.scope[1]).bind(&key.source).bind(&key.external_id).fetch_one(c).await?;
         if occupied {
             Err(StoreError::DeliveryConflict)
