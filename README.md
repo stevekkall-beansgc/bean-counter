@@ -21,9 +21,9 @@ cargo build --release --locked -p ledgerlab-cli
 
 Build with the pinned Rust 1.98.1 development compiler and native C/linker tools. Build dependencies need an initial download; an installed binary does not need Rust, Python or Node. No minimum supported Rust version or untested OS support is claimed.
 
-## Local finance CSV (unreleased Phase 5 candidate)
+## Local finance CSV
 
-[WORKFLOW.md](WORKFLOW.md) provides the installed synthetic billing-to-finance example, explicit account mapping, stable repeat export and reconciliation. See [CSV contract](docs/finance-csv.md). Phase 6 independent acceptance remains platform-blocked; this branch is not a new public release.
+[WORKFLOW.md](WORKFLOW.md) provides the installed synthetic billing-to-finance example, explicit account mapping, stable repeat export and reconciliation. See the [CSV contract](docs/finance-csv.md) and [owner end-to-end walkthrough](docs/finance-e2e.md). Independent acceptance remains platform-blocked.
 
 ## Validate locally
 
@@ -51,6 +51,8 @@ The Rust workspace uses pinned dependencies and builds offline once its dependen
 - [Validation evidence](docs/PHASE-0-VALIDATION.md)
 
 One coordinated release train: `ledgerlab-core` → `ledgerlab` → `ledgerlab-cli` (binary `ledger`). `ledgerlab-testkit` is unpublished and never a production dependency. [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog; source and native-archive publication do not publish Rust crates. See the [local release profile](release/local-sqlite.md). Project owner: BeanLabs.
+
+For the finance CSV workflow and expected $5.00 synthetic result, see [WORKFLOW.md](WORKFLOW.md) and the [owner end-to-end walkthrough](docs/finance-e2e.md).
 
 ## Historical development evidence
 

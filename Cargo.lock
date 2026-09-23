@@ -668,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ledgerlab-core",
  "ledgerlab-testkit",
@@ -686,7 +686,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ledgerlab",
  "serde_json",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "num-bigint",
  "num-integer",
@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab-testkit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ledgerlab",
  "ledgerlab-core",

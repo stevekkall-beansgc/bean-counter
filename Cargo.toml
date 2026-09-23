@@ -4,14 +4,14 @@ members = ["crates/ledgerlab-core", "crates/ledgerlab", "crates/ledgerlab-cli", 
 default-members = ["crates/ledgerlab-core", "crates/ledgerlab", "crates/ledgerlab-cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 # Local SQLite release version. No minimum supported Rust version is claimed.
 
 [workspace.dependencies]
-ledgerlab-core = { path = "crates/ledgerlab-core", version = "=0.1.0" }
-ledgerlab = { path = "crates/ledgerlab", version = "=0.1.0" }
+ledgerlab-core = { path = "crates/ledgerlab-core", version = "=0.2.0" }
+ledgerlab = { path = "crates/ledgerlab", version = "=0.2.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
