@@ -770,3 +770,6 @@ mod race_tests;
 
 #[path = "protected_tests.rs"]
 mod protected_tests;
+
+#[path = "owner_accounting_tests.rs"]
+mod owner_accounting_tests;

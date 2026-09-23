@@ -109,6 +109,7 @@ impl Harness {
         }
     }
     async fn assert_actual_accounts(&self) {
+        self.assert_all_owner_accounts().await;
         for host in ["center", "g0", "g1", "g2", "g3"] {
             let (_, State::Resource(a)) = self
                 .state(
