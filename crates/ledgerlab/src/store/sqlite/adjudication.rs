@@ -504,3 +504,73 @@ impl super::SqliteStore {
             .store(true, std::sync::atomic::Ordering::Release);
     }
 }
+
+#[cfg(test)]
+impl super::SqliteStore {
+    pub(crate) async fn test_adjudication_stats(
+        &self,
+        j: &JournalIdentity,
+    ) -> std::collections::BTreeMap<String, u128> {
+        let mut c = self.inner.readers.acquire().await.unwrap();
+        let mut out = std::collections::BTreeMap::new();
+        for table in [
+            "segments",
+            "objects",
+            "segment_pages",
+            "object_pages",
+            "heads",
+            "head_versions",
+        ] {
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM r3_{table} WHERE journal=?"
+            )))
+            .bind(journal_key(j).unwrap())
+            .fetch_one(&mut *c)
+            .await
+            .unwrap();
+            out.insert(table.into(), n as u128);
+        }
+        for table in ["heads", "head_versions"] {
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT count(*) FROM r3_{table} WHERE journal=? AND kind=?"
+            )))
+            .bind(journal_key(j).unwrap())
+            .bind(head_tag(HeadKind::Case))
+            .fetch_one(&mut *c)
+            .await
+            .unwrap();
+            out.insert(format!("case_{table}"), n as u128);
+        }
+        for pragma in [
+            "page_count",
+            "freelist_count",
+            "page_size",
+            "max_page_count",
+        ] {
+            let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("PRAGMA {pragma}")))
+                .fetch_one(&mut *c)
+                .await
+                .unwrap();
+            out.insert(
+                if pragma == "max_page_count" {
+                    "maximum_pages".into()
+                } else {
+                    pragma.into()
+                },
+                n as u128,
+            );
+        }
+        let wal = self.inner._owner.database.with_file_name("local.db-wal");
+        out.insert(
+            "wal_bytes".into(),
+            std::fs::metadata(wal)
+                .map(|m| u128::from(m.len()))
+                .unwrap_or(0),
+        );
+        out.insert(
+            "maximum_wal_bytes".into(),
+            32 + (out["maximum_pages"] + 2 + 65536u128.div_ceil(4120)) * 4120,
+        );
+        out
+    }
+}
