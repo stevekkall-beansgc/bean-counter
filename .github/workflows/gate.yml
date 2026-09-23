@@ -1,0 +1,21 @@
+name: gate
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compliance:
+    uses: stevekkall-beansgc/gate-kit/.github/workflows/compliance.yml@v0.4.18
+    with:
+      repo: bean-counter
+      full: true
+      runner: ubuntu-latest

@@ -14,6 +14,10 @@ use serde_json::{json, Value};
 use std::{fs, path::Path, time::Duration};
 use tokio::time::Instant;
 
+/// Version of the local billing facade and JSON contract family.
+/// Frozen economic record profiles have their own independent versions.
+pub const CONTRACT_VERSION: &str = "v0.1";
+
 pub struct BillingLedger {
     store: SqliteStore,
 }

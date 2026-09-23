@@ -1,5 +1,7 @@
 # Remaining gates
 
+**Current release amendment:** [Bean Counter local SQLite requirements](../CURRENT-REQUIREMENTS.md) supersede conflicting publication prerequisites below for the supported billing profile. The historical gates remain preserved; deferred resource guarantees and platforms are not passed.
+
 ## Before Phase 1 integration exits
 
 1. Resolve SQLx, bundled SQLite (minimum 3.51.3, actual version/source/options), Rustls and JCS versions/features on this machine, then pin the lockfile. No external Rust dependency is currently selected.

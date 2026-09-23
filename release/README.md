@@ -1,5 +1,7 @@
 # Release contract, not certification
 
+**Current scope amendment (2026-09-23):** [Bean Counter local SQLite requirements](../CURRENT-REQUIREMENTS.md) and [release profile](local-sqlite.md) govern the newly authorized publication. The historical full-platform contract below remains preserved; its old no-publication/CI exception no longer governs the current profile. Deferred guarantees and platforms have not passed.
+
 `targets.toml` freezes the exact design §21/24 matrix. No archive, image or platform has been certified. This Mac runs macOS 26 and supplies development evidence only. Ubuntu 22.04 sets the intended Linux build environment; inspect finished binaries for actual ABI requirements. No universal Linux/Alpine/kernel promise follows from a Rust target triple.
 
 One foreground process, stable operator credentials, explicit config/secrets, loopback default, one HTTP port, authenticated economic routes, trusted-proxy TLS boundary for non-loopback, bounded resources and 20-second drain with at least 30-second host grace. PostgreSQL runs with read-only root/config and no writable HOME/project. SQLite requires one owning process and the complete durable data directory, WAL/FULL/foreign keys and verified macOS fullfsync. Independent writers require PostgreSQL. One fenced dispatcher; imported/restored state holds dispatch until reconciliation. No company/model/telemetry service dependency.

@@ -1,5 +1,7 @@
 # Ledger Lab contributor contract
 
+The public project name is Bean Counter. Read [CURRENT-REQUIREMENTS.md](CURRENT-REQUIREMENTS.md) first for the authorized local SQLite release scope and deferred capabilities. Historical contracts and verdicts remain intact; preserve all existing economic, authority and persistence guards.
+
 Read `docs/implementation.md`, `contracts/README.md`, `docs/phase-gates.md`, detailed design §§1–11/26/27 in `docs/design/sources/`, and the canonical-record addendum before coding. Later normative addenda supersede source sketches only where stated.
 
 - Phase 0 contains a scaffold only. Begin a Phase 1 work item only when it is assigned, with allowed files, invariant, validation command and stop condition. No UI/payment/Phase 2 expansion in a driver task.
@@ -11,6 +13,13 @@ Read `docs/implementation.md`, `contracts/README.md`, `docs/phase-gates.md`, det
 - Validate with `sh scripts/check.sh`; record separately real-store/cancellation/TLS tests when implemented. Document tests are not product conformance.
 - Use isolated Git worktrees and `codex/` branches for parallel sessions. Shared manifests/lockfile/contracts belong to the integration owner. No publish, push, deployment, remote registration or paid infrastructure without the assigned scope.
 - Keep credentials, local toolchains, `.ledger`, databases and operational evidence out of commits.
+
+## Test commands
+
+- Current local SQLite unit/contract gate: `sh scripts/check-local-billing.sh`.
+- Current end-to-end gate: `sh scripts/check-local-billing-e2e.sh`.
+- Broader historical regression gate: `sh scripts/check.sh` (unchanged; does not by itself certify deferred capabilities).
+- Use the pinned compiler and locked dependencies. Resource guarantees, PostgreSQL product support and multi-host acceptance are deferred, not passed. Independent acceptance is platform-blocked; do not substitute a reviewer.
 
 ## OpenCode Union Alpha
 
