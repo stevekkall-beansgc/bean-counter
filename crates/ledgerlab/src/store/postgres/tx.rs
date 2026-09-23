@@ -1,6 +1,6 @@
 //! A registered bounded task owns the driver's borrowed Transaction. Its public
 //! private-port handle is owned, Send, poison-on-cancel, and never self-referential.
-use super::{outcomes, read, write, Inner};
+use super::{adjudication, outcomes, read, write, Inner};
 use crate::store::outcomes::*;
 use crate::store::{
     errors::{CommitError, StoreError},
@@ -53,6 +53,10 @@ enum OutcomeValue {
     Resolution(OutcomeResolution),
 }
 enum Command {
+    Native(
+        adjudication::Operation,
+        oneshot::Sender<Result<adjudication::Value, StoreError>>,
+    ),
     Outcome(OutcomeOp, oneshot::Sender<Result<OutcomeValue, StoreError>>),
     Read(Read, oneshot::Sender<Result<Value, StoreError>>),
     Write(WriteOp, oneshot::Sender<Result<(), StoreError>>),
@@ -196,6 +200,7 @@ async fn drive(
     let mut failed = false;
     let mut held = outcomes::Locked::default();
     let mut steps = outcomes::Steps::default();
+    let mut native = adjudication::Locked::default();
     loop {
         let command = match timeout_at(deadline, commands.recv()).await {
             Ok(Some(c)) => c,
@@ -213,6 +218,7 @@ async fn drive(
         };
         #[cfg(test)]
         let operation = match &command {
+            Command::Native(_, _) => "native-r3",
             Command::Outcome(OutcomeOp::Locks(_), _) => "locks",
             Command::Outcome(OutcomeOp::Resolve(_), _) => "resolve",
             Command::Outcome(OutcomeOp::Lookup(_), _) => "lookup",
@@ -231,6 +237,25 @@ async fn drive(
                 .as_millis()
         ));
         match command {
+            Command::Native(op, reply) => {
+                if failed {
+                    let _ = reply.send(Err(StoreError::Integrity("failed PG transaction")));
+                    continue;
+                }
+                let result = timeout_at(
+                    deadline.min(Instant::now() + Duration::from_secs(2)),
+                    async {
+                        clamp(&tx, deadline).await?;
+                        adjudication::operation(&tx, &mut native, &mut held, &mut steps, op).await
+                    },
+                )
+                .await
+                .unwrap_or(Err(StoreError::Deadline));
+                failed = result.is_err();
+                if reply.send(result).is_err() {
+                    break;
+                }
+            }
             Command::Outcome(op, reply) => {
                 if failed {
                     let _ = reply.send(Err(StoreError::Integrity("failed PG transaction")));
@@ -390,6 +415,31 @@ async fn drive(
     let _ = rollback;
 }
 impl PostgresTx {
+    /// Native storage slice, private to the backend. This is not a physical
+    /// admission route and cannot construct a CommitCapability.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Native R3 backend awaits enforced physical admission"
+        )
+    )]
+    pub(super) async fn native_adjudication(
+        &mut self,
+        op: adjudication::Operation,
+    ) -> Result<adjudication::Value, StoreError> {
+        if self.failed {
+            return Err(StoreError::Integrity("failed or cancelled PG handle"));
+        }
+        self.failed = true;
+        let (reply, receive) = oneshot::channel();
+        self.sender
+            .send(Command::Native(op, reply))
+            .map_err(|_| StoreError::WritesDisabled)?;
+        let result = receive.await.map_err(|_| StoreError::WritesDisabled)??;
+        self.failed = false;
+        Ok(result)
+    }
     async fn read(&mut self, request: Read) -> Result<Value, StoreError> {
         if self.failed {
             return Err(StoreError::Integrity("failed or cancelled PG handle"));

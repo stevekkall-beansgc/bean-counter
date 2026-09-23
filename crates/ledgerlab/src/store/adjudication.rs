@@ -29,10 +29,6 @@ pub(crate) enum GuardClass {
     SupplierPool,
     AdjustmentPool,
 }
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "Typed seam; production caller follows review")
-)]
 impl GuardClass {
     pub(crate) fn storage_tag(self) -> u16 {
         match self {

@@ -126,22 +126,42 @@ pub(super) async fn lock<C: GenericClient + Sync>(
         }
     }
     for l in scopes {
-        let s = lock_scope(l)?;
-        c.execute("INSERT INTO ledgerlab.outcome_scope_locks(tenant,environment,class,key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", &[&s[0],&s[1],&class(l),&l.key]).await?;
-        let sql = match l.mode {
+        lock_one(c, l).await?;
+    }
+    held.locks = scopes.to_vec();
+    Ok(())
+}
+
+// Used by the native R3 adapter to interleave unchanged legacy tags with R3
+// guards in the shared global acquisition order. Never upgrades existing locks.
+pub(super) async fn lock_one<C: GenericClient + Sync>(
+    c: &C,
+    l: &OutcomeLock,
+) -> Result<(), StoreError> {
+    let s = lock_scope(l)?;
+    c.execute("INSERT INTO ledgerlab.outcome_scope_locks(tenant,environment,class,key) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", &[&s[0],&s[1],&class(l),&l.key]).await?;
+    let sql = match l.mode {
             OutcomeLockMode::Read => "SELECT key FROM ledgerlab.outcome_scope_locks WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR SHARE",
             OutcomeLockMode::Write => "SELECT key FROM ledgerlab.outcome_scope_locks WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR UPDATE",
         };
-        c.query_one(sql, &[&s[0], &s[1], &class(l), &l.key]).await?;
-        if l.mode == OutcomeLockMode::Write {
-            // The guard row is immutable: waiting on it cannot invalidate an
-            // older SERIALIZABLE snapshot. Lock the existing mutable head too,
-            // so a concurrent revision raises 40001 here, before replay/planning.
-            // An absent head remains protected by the scope guard and append CAS.
-            c.query_opt("SELECT revision FROM ledgerlab.outcome_heads WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR UPDATE", &[&s[0],&s[1],&class(l),&l.key]).await?;
-        }
+    c.query_one(sql, &[&s[0], &s[1], &class(l), &l.key]).await?;
+    if l.mode == OutcomeLockMode::Write {
+        // The guard row is immutable: waiting on it cannot invalidate an
+        // older SERIALIZABLE snapshot. Lock the existing mutable head too,
+        // so a concurrent revision raises 40001 here, before replay/planning.
+        // An absent head remains protected by the scope guard and append CAS.
+        c.query_opt("SELECT revision FROM ledgerlab.outcome_heads WHERE tenant=$1 AND environment=$2 AND class=$3 AND key=$4 FOR UPDATE", &[&s[0],&s[1],&class(l),&l.key]).await?;
     }
-    held.locks = scopes.to_vec();
+    Ok(())
+}
+pub(super) fn native_empty(held: &Locked) -> bool {
+    held.locks.is_empty() && held.resolved.is_none()
+}
+pub(super) fn native_record(held: &mut Locked, locks: Vec<OutcomeLock>) -> Result<(), StoreError> {
+    if !native_empty(held) || !ordered(&locks) {
+        return Err(invalid());
+    }
+    held.locks = locks;
     Ok(())
 }
 async fn head<C: GenericClient + Sync>(
@@ -462,3 +482,63 @@ async fn insert_delivery<C: GenericClient + Sync>(
 #[cfg(test)]
 #[path = "outcome_tests.rs"]
 mod tests;
+
+/// Original-profile v2 acceptance in the caller's existing transaction. The
+/// coordinator validated exact records; no settlement receipt is manufactured.
+pub(super) async fn append_original<C: GenericClient + Sync>(
+    c: &C,
+    held: &Locked,
+    p: &crate::service::accept::outcome::ValidatedOriginalBasePlan,
+    journal: &[u8],
+    steps: &mut Steps,
+) -> Result<(), StoreError> {
+    let q = p.resolution();
+    let d = p.delivery_key();
+    if held.resolved.as_ref() != Some(q)
+        || q.family_key.is_some()
+        || d != &q.delivery
+        || p.observed_heads().len() != q.locks.len()
+        || p.records().len() > 128
+        || p.records().iter().map(Vec::len).sum::<usize>() > 1_048_576
+    {
+        return Err(invalid());
+    }
+    for (l, h) in q.locks.iter().zip(p.observed_heads()) {
+        if h.lock != *l || !has(&held.locks, l) || head(c, l).await? != *h {
+            return Err(StoreError::ExpectedCurrent);
+        }
+    }
+    if lookup(c,d).await?.is_some()||c.query_opt("SELECT 1 FROM ledgerlab.outcome_anchors WHERE tenant=$1 AND environment=$2 AND target=$3 AND invocation_id=$4 LIMIT 1",&[&d.scope[0],&d.scope[1],&q.target,&q.invocation_id]).await?.is_some()||c.query_opt("SELECT 1 FROM ledgerlab.r3_deliveries WHERE tenant=$1 AND environment=$2 AND source=$3 AND external_id=$4",&[&d.scope[0],&d.scope[1],&d.source,&d.external_id]).await?.is_some(){return Err(StoreError::DeliveryConflict);}
+    let receipt = envelope(p.receipt())?;
+    if receipt.kind != "base-acceptance" || receipt.scope != d.scope {
+        return Err(invalid());
+    }
+    for b in p.records() {
+        insert_record(c, q, b, steps).await?;
+    }
+    if record(c, &receipt).await?.as_deref() != Some(p.receipt()) {
+        return Err(invalid());
+    }
+    steps.run(c.execute("INSERT INTO ledgerlab.outcome_anchors(tenant,environment,target,invocation_id,kind,id,content_hash) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&d.scope[0],&d.scope[1],&q.target,&q.invocation_id,&receipt.kind,&receipt.id,&receipt.content_hash])).await?;
+    let mut keys = BTreeSet::new();
+    for w in p.head_writes() {
+        if w.lock.mode != OutcomeLockMode::Write
+            || !has(&held.locks, &w.lock)
+            || !q.locks.contains(&w.lock)
+            || !keys.insert((w.lock.class, w.lock.key.clone()))
+        {
+            return Err(invalid());
+        }
+        let old = p
+            .observed_heads()
+            .iter()
+            .find(|h| h.lock == w.lock)
+            .ok_or_else(invalid)?;
+        write_head(c, old, w, steps).await?;
+    }
+    let value = bytes(
+        &serde_json::json!({"kind":"OriginalBase","receipt":{"kind":receipt.kind,"id":parsed(&receipt.id)?,"content_hash":receipt.content_hash},"ingress_hash":p.ingress_hash()}),
+    )?;
+    steps.run(c.execute("INSERT INTO ledgerlab.r3_deliveries(tenant,environment,source,external_id,journal,value) VALUES($1,$2,$3,$4,$5,$6)",&[&d.scope[0],&d.scope[1],&d.source,&d.external_id,&journal,&value])).await?;
+    Ok(())
+}

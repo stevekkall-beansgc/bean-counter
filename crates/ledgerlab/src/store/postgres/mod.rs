@@ -1,5 +1,6 @@
 //! Concrete PostgreSQL adapter. A bounded lease owns a dedicated verified session;
 //! it is discarded after each transaction, so uncertain sessions cannot be reused.
+mod adjudication;
 pub(crate) mod comparison;
 #[path = "proof/connect.rs"]
 pub(crate) mod connect;
