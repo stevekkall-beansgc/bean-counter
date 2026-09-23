@@ -104,7 +104,7 @@ impl AdjudicationStore for PgRuntimeHarness<'_> {
             .store
             .begin_native_storage(w.journal.clone(), &self.command, d)
             .await
-            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?;
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR stage=begin {e:?}"))?;
         let transaction = r3::raw_sha256(
             format!(
                 "TEST-ONLY-live-PG-transaction:{}:{}",
@@ -129,7 +129,7 @@ impl AdjudicationTx for PgRuntimeTx {
         self.inner
             .native_adjudication(Operation::Locks(self.journal.clone(), g.to_vec()))
             .await
-            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?;
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR stage=locks {e:?}"))?;
         Ok(())
     }
     async fn lookup_adjudication(
@@ -141,7 +141,7 @@ impl AdjudicationTx for PgRuntimeTx {
             .inner
             .native_adjudication(Operation::Lookup(j.clone(), k.clone()))
             .await
-            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR stage=lookup {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -152,7 +152,7 @@ impl AdjudicationTx for PgRuntimeTx {
             .inner
             .native_adjudication(Operation::Resolve(q.clone()))
             .await
-            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR stage=resolve {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -163,7 +163,7 @@ impl AdjudicationTx for PgRuntimeTx {
             .inner
             .native_adjudication(Operation::Head(self.journal.clone()))
             .await
-            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR stage=head {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -206,7 +206,7 @@ impl AdjudicationTx for PgRuntimeTx {
             .inner
             .native_adjudication(Operation::Head(self.journal.clone()))
             .await
-            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?
+            .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR stage=append_prior {e:?}"))?
         else {
             return Err(invalid());
         };
@@ -223,7 +223,7 @@ impl AdjudicationTx for PgRuntimeTx {
             self.inner
                 .fail_outcome_at(at)
                 .await
-                .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR {e:?}"))?;
+                .inspect_err(|e| eprintln!("PG_RUNTIME_STORE_ERROR stage=append_fault {e:?}"))?;
         }
         let result = self
             .inner
@@ -581,6 +581,14 @@ async fn provision_original(f: &mut Fixture, b: &BaseFixture) {
     }
     tx.commit().await.unwrap();
 }
+// Keep each actual regression database after closing all application sessions.
+// Historical DROP timeouts remain recorded; cleanup is not semantic acceptance.
+async fn finish_retained(f: Fixture) {
+    f.store.close().await;
+    f.owner.discard().await;
+    eprintln!("PG_RUNTIME_RETAINED database={}", f.name);
+}
+
 async fn all_inventory(f: &Fixture) -> Vec<(String, String)> {
     let tables=f.owner.client.query("SELECT tablename FROM pg_tables WHERE schemaname='ledgerlab' AND tablename<>'r3_unresolved_work' ORDER BY tablename",&[]).await.unwrap();
     let mut out = vec![];
@@ -618,7 +626,15 @@ async fn execute_with_ceiling(
         assumed_ceiling,
         fault_count: h.fault_count.clone(),
     };
-    coordinator::run(&store, h, journal(owner), parsed, deadline()).await
+    let started = Instant::now();
+    let result = coordinator::run(&store, h, journal(owner), parsed, deadline()).await;
+    eprintln!(
+        "PG_RUNTIME_SERVICE_DONE host={owner} kind={} elapsed_ms={} error={:?}",
+        c["kind"],
+        started.elapsed().as_millis(),
+        result.as_ref().err()
+    );
+    result
 }
 #[tokio::test]
 #[ignore = "requires isolated PG17/18; physical envelope explicitly assumed, runtime/atomicity evidence only"]
@@ -812,7 +828,7 @@ async fn native_runtime_prepare_and_atomic_original_enroll() {
         json!({"journals":5,"runtime_commands":5,"saved_retries":6,"original_records":records.len(),"center_root":result.root,"physical_admission":"ASSUMED TEST ONLY / UNPROVED"})
     );
     for (_, f) in host.stores {
-        f.finish().await;
+        finish_retained(f).await;
     }
 }
 

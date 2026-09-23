@@ -280,7 +280,7 @@ impl Harness {
     }
     async fn close(self) {
         for (_, f) in self.host.stores {
-            f.finish().await;
+            finish_retained(f).await;
         }
     }
 }

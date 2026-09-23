@@ -215,6 +215,6 @@ async fn native_runtime_exact_customer_ninety_five_commands() {
         json!({"commands":95,"exact_retries":95,"reopened_host_retries":5,"covered_kinds":kinds,"absent_kinds":absent,"heads":roots,"ordinals":ordinals,"physical_admission":"ASSUMED TEST ONLY / UNPROVED"})
     );
     for (_, f) in host.stores {
-        f.finish().await;
+        finish_retained(f).await;
     }
 }

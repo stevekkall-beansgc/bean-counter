@@ -152,3 +152,18 @@ cleanup with statement timeout57014. The setup causes remain unlocalized; no
 production timeout was changed. Raw logs/source fingerprints and the separate
 cleanup observation are preserved in the external pg-remaining-diagnosis packet.
 Further PG runs paused for coordinator/independent acceptance reconciliation.
+
+
+## Integrated publication-driver regression preparation
+
+The earlier incomplete branch results above remain historical failures. The
+assembled driver changes its gate, stale-unbound check and transaction cleanup,
+so the existing customer/remaining-kind selections require a fresh serial run.
+Each store-error trace now names its exact stage and each command records elapsed
+time. These are test-only diagnostics. Successful fixtures now close application
+and owner sessions and retain their databases, like failed fixtures, instead of
+issuing DROP DATABASE. No statement deadline, assertion or product behavior was
+relaxed. This avoids mixing semantic assertions with destructive test cleanup;
+it does not explain or erase the historical DROP timeout or setup Retryable.
+No fresh pass is claimed by this preparation. Physical admission is still assumed
+only in the test harness, and these fixtures still use unbound native execution.
