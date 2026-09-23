@@ -214,6 +214,14 @@ async fn upgrade_client(
     }
     let from = version(&tx).await?;
     if from >= 6 {
+        // The advisory-lock SELECT can pin this SERIALIZABLE snapshot before
+        // bootstrap commits its binding. Lock the witness row so a later binding
+        // causes a serialization failure instead of accepting stale UNBOUND.
+        tx.query_one(
+            "SELECT singleton FROM ledgerlab.r3_commit_witness WHERE singleton=1 FOR UPDATE",
+            &[],
+        )
+        .await?;
         // This entry point has no external owner. A bound installation needs
         // separately coordinated anchored maintenance; never bypass its fence.
         super::require_unbound(&tx).await?;

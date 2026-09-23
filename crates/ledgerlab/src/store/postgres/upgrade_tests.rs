@@ -273,3 +273,128 @@ async fn postgres_schema_upgrade_populated_1_2_3_rollback_reopen_retry() {
         admin.discard().await;
     }
 }
+
+/// Reproduce a maintenance snapshot pinned before the trusted SQL binding.
+/// The controller follows bootstrap's lock/update order; this is not an anchor
+/// initialization test. No service timeout or runtime privilege is changed.
+#[tokio::test]
+#[ignore = "requires explicit isolated PostgreSQL 17/18 TLS test database"]
+async fn postgres_maintenance_stale_unbound_snapshot_refuses() {
+    let database = format!("ledgerlab_maintenance_binding_{}", std::process::id());
+    let admin = config("ledgerlab", "postgres").connect().await.unwrap();
+    admin
+        .client
+        .batch_execute(&format!("CREATE DATABASE {database}"))
+        .await
+        .unwrap();
+    admin.discard().await;
+    let mut controller = config(&database, "postgres").connect().await.unwrap();
+    let observer = config(&database, "postgres").connect().await.unwrap();
+    let mut install = tests::installation();
+    install.admission = "frozen".into();
+    create(&mut controller.client, install.clone(), ROLE)
+        .await
+        .unwrap();
+    assert_eq!(
+        upgrade(
+            config(&database, "postgres"),
+            &install.logical_store_id,
+            ROLE
+        )
+        .await,
+        Ok(UpgradeResult::AlreadyCurrent)
+    );
+    let mut maintenance = config(&database, "postgres").connect().await.unwrap();
+    let pid: i32 = maintenance
+        .client
+        .query_one("SELECT pg_backend_pid()", &[])
+        .await
+        .unwrap()
+        .get(0);
+    let binding = controller.client.transaction().await.unwrap();
+    binding
+        .query_one("SELECT pg_advisory_xact_lock(714215261)", &[])
+        .await
+        .unwrap();
+    binding
+        .query_one(
+            "SELECT singleton FROM ledgerlab.installation WHERE singleton=1 FOR UPDATE",
+            &[],
+        )
+        .await
+        .unwrap();
+    binding
+        .query_one(
+            "SELECT singleton FROM ledgerlab.dispatcher_head WHERE singleton=1 FOR UPDATE",
+            &[],
+        )
+        .await
+        .unwrap();
+    binding
+        .query_one(
+            "SELECT singleton FROM ledgerlab.r3_commit_witness WHERE singleton=1 FOR UPDATE",
+            &[],
+        )
+        .await
+        .unwrap();
+    let zero = "0".repeat(64);
+    let anchor = "a".repeat(64);
+    let witness = "b".repeat(64);
+    assert_eq!(binding.execute("UPDATE ledgerlab.r3_commit_witness SET anchor=$1,witness=$2 WHERE singleton=1 AND anchor=$3 AND witness=$3", &[&anchor,&witness,&zero]).await.unwrap(), 1);
+    let id = install.logical_store_id.clone();
+    let attempt = tokio::spawn(async move {
+        let result = upgrade_client(&mut maintenance.client, &id, ROLE, false).await;
+        maintenance.discard().await;
+        result
+    });
+    let wait_started = tokio::time::Instant::now();
+    loop {
+        let waiting: bool = observer.client.query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event_type='Lock' AND wait_event='advisory' AND backend_xmin IS NOT NULL)", &[&pid]
+        ).await.unwrap().get(0);
+        if waiting {
+            break;
+        }
+        assert!(
+            !attempt.is_finished(),
+            "maintenance must actually wait with a pinned snapshot"
+        );
+        assert!(
+            wait_started.elapsed() < std::time::Duration::from_millis(400),
+            "failed to observe existing 500ms lock window"
+        );
+        tokio::task::yield_now().await;
+    }
+    binding.commit().await.unwrap();
+    let bound_rows = dump(&observer.client).await;
+    assert_eq!(
+        attempt.await.unwrap(),
+        Err(UpgradeError::Refused),
+        "a stale UNBOUND snapshot must not authorize maintenance"
+    );
+    assert_eq!(dump(&observer.client).await, bound_rows);
+    assert_eq!(
+        upgrade(
+            config(&database, "postgres"),
+            &install.logical_store_id,
+            ROLE
+        )
+        .await,
+        Err(UpgradeError::Refused)
+    );
+    assert_eq!(dump(&observer.client).await, bound_rows);
+    assert_eq!(version(&observer.client).await.unwrap(), 6);
+    let row = observer
+        .client
+        .query_one(
+            "SELECT anchor,witness FROM ledgerlab.r3_commit_witness WHERE singleton=1",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), anchor);
+    assert_eq!(row.get::<_, String>(1), witness);
+    observer.discard().await;
+    controller.discard().await;
+    eprintln!("retained maintenance binding fixture database={database}; actual advisory wait and pinned snapshot observed; stale and fresh bound maintenance refuse; unbound current-schema positive passed");
+}
