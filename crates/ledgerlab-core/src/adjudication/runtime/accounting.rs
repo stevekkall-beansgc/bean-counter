@@ -77,6 +77,25 @@ impl Worksheet {
                 return Err(err("runtime acquisition envelope"));
             }
         }
+        // PREPARE_ROUND already prices its exact ENROLLMENT source object,
+        // but first local use also retains one independently addressable cached
+        // terms head. Reserve that head before promising the optional bundle.
+        let cache_bytes =
+            value.schema_maxima["enroll"] + 213 + crate::adjudication::MAX_KEY_BYTES as u64 + 72;
+        let cache_pages = cache_bytes.div_ceil(value.value_page_payload_bytes);
+        let t = value
+            .transitions
+            .get_mut("PREPARE_ROUND")
+            .ok_or_else(|| err("preparation template"))?;
+        t.records += 1;
+        t.index_path_pages += value.pages_per_index_update;
+        t.index_value_pages += cache_pages;
+        t.logical_workspace_bytes += cache_bytes
+            + value.pages_per_index_update * value.node_bytes
+            + cache_pages * value.value_page_bytes;
+        *t.counter_increments
+            .get_mut("index_cardinality")
+            .ok_or_else(|| err("index counter"))? += 1;
         // Runtime point records add one <=1713-byte admitted-role tuple per
         // case, <=54 bytes of monotone ordinary usage per family, and <256
         // bytes of usage counters per pool. One extra 4032-byte payload page
@@ -285,6 +304,35 @@ impl ResourceState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cancellable_preparation_first_terms_cache_is_paid_before_promise() {
+        let original:Worksheet=serde_json::from_str(include_str!("../../../../../contracts/candidates/central-adjudication-r3-candidate1/protocol/resources.json")).unwrap();
+        let actual = Worksheet::frozen().unwrap();
+        let before = original.template("PREPARE_ROUND").unwrap();
+        let after = actual.template("PREPARE_ROUND").unwrap();
+        let bytes =
+            original.schema_maxima["enroll"] + 213 + crate::adjudication::MAX_KEY_BYTES as u64 + 72;
+        let pages = bytes.div_ceil(original.value_page_payload_bytes);
+        assert_eq!(after.records - before.records, 1);
+        assert_eq!(
+            after.index_path_pages - before.index_path_pages,
+            original.pages_per_index_update
+        );
+        assert_eq!(after.index_value_pages - before.index_value_pages, pages);
+        assert_eq!(
+            after.counter_increments["index_cardinality"]
+                - before.counter_increments["index_cardinality"],
+            1
+        );
+        assert_eq!(
+            after.logical_workspace_bytes - before.logical_workspace_bytes,
+            bytes
+                + original.pages_per_index_update * original.node_bytes
+                + pages * original.value_page_bytes
+        );
+        assert_eq!(after.segment_bytes, before.segment_bytes);
+        assert_eq!(after.new_trusted_bytes, before.new_trusted_bytes);
+    }
     #[test]
     fn economic_point_growth_and_bounded_topology_reads_are_prepaid() {
         let original: Worksheet = serde_json::from_str(include_str!("../../../../../contracts/candidates/central-adjudication-r3-candidate1/protocol/resources.json")).unwrap();

@@ -384,6 +384,9 @@ pub(super) fn prepare_with_seal<A: AdjudicationAuthority>(
     let own_fact = matches!(
         kind,
         "PREPARE_ENROLL"
+            | "PREPARE_ROUND"
+            | "RETIRE_GRANT"
+            | "ABORT"
             | "ENROLL"
             | "LOCAL_GRANT"
             | "ISSUE"
@@ -421,6 +424,8 @@ pub(super) fn prepare_with_seal<A: AdjudicationAuthority>(
         prior_root: inputs.prefix.root(),
         next_ordinal: next,
         writer_epoch: capability.epoch(),
+        resource_ceiling: capability.resource_ceiling(),
+        writer_fence: capability.writer_fence(),
         observations: &observations,
         sources: &source_facts,
         introduced_objects: objects.len() + usize::from(own_fact),

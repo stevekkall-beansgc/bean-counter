@@ -87,6 +87,10 @@ pub struct Input<'a> {
     pub prior_root: &'a Digest,
     pub next_ordinal: Count,
     pub writer_epoch: Count,
+    /// Actual host-backed ceiling, independently admitted before this command.
+    pub resource_ceiling: &'a w::Resource,
+    /// Actual recovered primary/exclusion observation, never a caller hash.
+    pub writer_fence: Option<&'a Digest>,
     pub observations: &'a [Observation],
     pub sources: &'a [SourceFact],
     pub introduced_objects: usize,
@@ -819,6 +823,7 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                         revision: Count::ZERO,
                         signed: Atoms::new(0)?,
                         admitted_roles: None,
+                        supplements: vec![],
                     })),
                 )?;
                 v.put(
@@ -907,6 +912,7 @@ fn execute(v: &mut View<'_>) -> Result<Delta> {
                         revision: Count::ZERO,
                         signed: Atoms::new(0)?,
                         admitted_roles: None,
+                        supplements: vec![],
                     })),
                 )?;
                 v.put(
@@ -995,7 +1001,7 @@ fn charge(v: &mut View<'_>, d: &Delta, work: &Worksheet, kind: &str, base: usize
         actual.economic_revision = Count::ZERO;
     }
     let cached = usize::from(
-        matches!(kind, "SEAL_BEGIN" | "INSTALL")
+        matches!(kind, "SEAL_BEGIN" | "INSTALL" | "PREPARE_ROUND")
             && i.observations
                 .iter()
                 .any(|o| matches!(o.state, Some(State::Preparation(_))))

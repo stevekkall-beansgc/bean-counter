@@ -283,10 +283,23 @@ fn run_trace(trace: &Value, limit: usize, refusals: &[(usize, &str)]) {
         let h = id(host);
         let store = id(center);
         let reg = id(registration);
+        let ceiling = match &state
+            .get(&Point::id(PointKind::Resource, *b"RESOURCE", host).unwrap())
+            .unwrap()
+            .1
+        {
+            State::Resource(r) => r.provisioned.clone(),
+            _ => panic!("resource"),
+        };
+        let fence = trace["initial"]["writer_capabilities"][host]["fence"]
+            .as_str()
+            .map(|s| Digest::parse(s).unwrap());
         let delta = loop {
             assert!(observations.len() <= 256);
             let input = Input {
                 command: &command,
+                resource_ceiling: &ceiling,
+                writer_fence: fence.as_ref(),
                 store: &store,
                 registration: &reg,
                 host: &h,

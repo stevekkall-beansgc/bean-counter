@@ -1115,3 +1115,5 @@ async fn oracle_case<S: AdjudicationStore>(
 
 #[path = "reader_checks.rs"]
 mod reader_checks;
+#[path = "remaining_tests.rs"]
+mod remaining_tests;

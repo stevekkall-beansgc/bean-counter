@@ -115,6 +115,9 @@ pub struct CaseState {
     pub signed: crate::adjudication::types::Atoms,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admitted_roles: Option<w::Roles>,
+    /// Additional exact evidence; original signed submission and receipt stay immutable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supplements: Vec<w::Evidence>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CaseStatus {
@@ -188,6 +191,7 @@ pub struct AllocationState {
 #[serde(tag = "kind", content = "body", deny_unknown_fields)]
 pub enum State {
     Preparation(w::PrepareEnroll),
+    RoundPreparation(w::PrepareRound),
     Enrollment(Box<EnrollmentState>),
     Gateway(Box<GatewayState>),
     Grant(Box<GrantState>),
