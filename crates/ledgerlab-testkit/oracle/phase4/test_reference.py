@@ -240,8 +240,9 @@ class NoChange(unittest.TestCase):
 
     def test_matrix_matches_migration_table_inventory(self):
         import re
+        from foundation import R3_SQLITE
         root=HERE.parents[3]
-        for backend,expected in [('sqlite',COMMON),('postgres',COMMON|PG_ONLY)]:
+        for backend,expected in [('sqlite',COMMON|R3_SQLITE),('postgres',COMMON|PG_ONLY)]:
             text='\n'.join(p.read_text() for p in (root/'crates/ledgerlab/migrations'/backend).glob('*.sql'))
             actual=set(re.findall(r'CREATE TABLE (?:IF NOT EXISTS )?(?:ledgerlab\.)?(\w+)',text))
             self.assertEqual(actual,expected)
