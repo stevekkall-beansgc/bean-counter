@@ -111,17 +111,19 @@ impl Harness {
     async fn assert_actual_accounts(&self) {
         self.assert_all_owner_accounts().await;
         for host in ["center", "g0", "g1", "g2", "g3"] {
-            let (_, State::Resource(a)) = self
-                .state(
-                    host,
-                    HeadKind::Resource,
-                    rt::points::Point::id(rt::points::PointKind::Resource, *b"RESOURCE", host)
-                        .unwrap(),
-                    GuardClass::CapacityAllocation,
-                )
-                .await
-            else {
-                panic!("resource")
+            // Diagnostic read of the actual retained state. Do not quote an
+            // ENROLL-sized point operation against a minimal gateway profile.
+            let inventory = self.host.0.stores[host].test_full_inventory().await;
+            let journals = super::owner_accounting_tests::heads(&inventory);
+            let value = journals
+                .values()
+                .next()
+                .unwrap()
+                .iter()
+                .find(|v| v["kind"] == "Resource")
+                .unwrap();
+            let State::Resource(a) = serde_json::from_value(value.clone()).unwrap() else {
+                panic!("resource");
             };
             assert!(a.used.checked_add(&a.held).unwrap().fits(&a.provisioned));
             for (q, r) in a.q.dimensions().into_iter().zip(a.reserved.dimensions()) {
@@ -152,7 +154,8 @@ impl Harness {
             "ISSUE" => Some(("CLAIM", c["payload"]["token"]["id"].clone())),
             "RETURN_UNUSED" => Some(("RETURNED_UNUSED", c["payload"]["token"].clone())),
             "RECONCILE" => Some(("RECONCILIATION", c["payload"]["token"].clone())),
-            "ACTIVATE" => None,
+            "SEALED" => Some(("SEAL", c["payload"]["round"].clone())),
+            "ACTIVATE" | "SEAL_BEGIN" | "DRAIN" | "READY" | "ACK_INSTALL" => None,
             _ => panic!("observed transition"),
         };
         if let Some((kind, key)) = fact {

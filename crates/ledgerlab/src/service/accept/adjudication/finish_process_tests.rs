@@ -42,9 +42,10 @@ async fn protected_process_entry() {
     });
     let owner = v["owner"].as_str().unwrap();
     let configured = host.0.stores[owner]
-        .provision_adjudication(
+        .provision_adjudication_with_ceiling(
             journal(owner),
-            flow_budget(owner),
+            serde_json::from_value(v["budget"].clone()).unwrap(),
+            serde_json::from_value(v["ceiling"].clone()).unwrap(),
             65536,
             Count::new(1u128 << 40).unwrap(),
         )
@@ -86,7 +87,7 @@ impl Harness {
         let path = input.path().join("cut.json");
         std::fs::write(
             &path,
-            serde_json::to_vec(&json!({"owner":owner,"command":c,"cut":cut,"paths":paths}))
+            serde_json::to_vec(&json!({"owner":owner,"command":c,"cut":cut,"paths":paths,"budget":self.budgets[owner],"ceiling":self.ceilings[owner]}))
                 .unwrap(),
         )
         .unwrap();
@@ -124,9 +125,10 @@ impl Harness {
         assert_eq!(stats["segments"], before_count + u128::from(cut != 11));
         let recovered = self.host.0.stores[owner].test_full_inventory().await;
         let configured = self.host.0.stores[owner]
-            .provision_adjudication(
+            .provision_adjudication_with_ceiling(
                 journal(owner),
-                flow_budget(owner),
+                self.budgets[owner].clone(),
+                self.ceilings[owner].clone(),
                 65536,
                 Count::new(1u128 << 40).unwrap(),
             )
@@ -330,3 +332,6 @@ async fn actual_loaded_token_process_cuts_preserve_prepaid_finish() {
         }
     }
 }
+
+#[path = "quota_finish_tests.rs"]
+mod quota_finish_tests;
