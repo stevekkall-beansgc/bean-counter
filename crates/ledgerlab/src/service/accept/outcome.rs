@@ -1275,6 +1275,14 @@ pub(crate) fn prepare_original_base<A: OutcomeAuthority>(
     records.documents()?;
     let fresh = Records::new(seed, json!(scoped(c)))?;
     let base = b::decode_base(&fresh, &reference(fresh.one("base-acceptance")?))?;
+    check(
+        base.evaluation.event().dto().invocation_id.as_deref() == Some(c.invocation_id.as_str())
+            && base
+                .evaluation
+                .invocations()
+                .iter()
+                .any(|invocation| invocation.id == c.invocation_id),
+    )?;
     check(base.snapshot["body"]["target"] == c.target)?;
     let (event, command, key) = operation(c)?;
     let proof = authority.verify(c, snapshot, true)?;

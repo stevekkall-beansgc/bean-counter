@@ -247,3 +247,53 @@ impl BaseFixture {
         tx.rollback().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn original_base_refuses_coherent_wrong_invocation_under_actual_locks() {
+    use crate::store::{ports::AcceptanceTx, sqlite::SqliteStore};
+    let input:Value=serde_json::from_str(include_str!("../../../../../../contracts/candidates/central-adjudication-r3-candidate1/customer-trace.json")).unwrap();
+    let mut base = BaseFixture::new(&input);
+    let original_bytes = base.objects.clone();
+    // The proposed documents still evaluate invocation-supplier. The caller,
+    // selected current proof and acquired absent lock set all name another ID.
+    base.command.invocation_id = "unrelated-invocation".into();
+    base.proof.invocation_id = base.command.invocation_id.clone();
+    base.resolve.invocation_id = base.command.invocation_id.clone();
+    base.resolve.locks = outcome::fresh_base_locks(&base.command).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut installation = crate::store::sqlite::tests::installation();
+    installation.scope.tenant = "synthetic".into();
+    installation.scope.environment = "sandbox".into();
+    let store = SqliteStore::create(dir.path(), installation).await.unwrap();
+    store
+        .test_provision_outcome_evidence(&base.evidence, &base.heads)
+        .await
+        .unwrap();
+    let mut tx = store
+        .begin_outcome(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    tx.lock_scopes(&base.resolve.locks).await.unwrap();
+    let OutcomeResolution::Complete(snapshot) = tx.resolve_outcome(&base.resolve).await.unwrap()
+    else {
+        panic!("complete actual snapshot")
+    };
+    let proof = outcome::OutcomeAuthority::verify(&base, &base.command, &snapshot, true).unwrap();
+    assert_eq!(proof.invocation_id, "unrelated-invocation");
+    assert!(snapshot
+        .heads
+        .iter()
+        .any(|h| h.lock.class == OutcomeLockClass::InvocationConsumption
+            && h.revision.is_none()
+            && h.lock.key
+                == b::bytes(&json!([["synthetic", "sandbox"], "unrelated-invocation"])).unwrap()));
+    assert!(matches!(
+        outcome::prepare_original_base(&base.command, &base, &snapshot, None),
+        Err(ServiceError::IntegrityFailure)
+    ));
+    assert_eq!(base.objects, original_bytes);
+    assert!(snapshot.anchors.is_empty());
+    tx.rollback().await.unwrap();
+    base.assert_atomic_state(&store, false).await;
+    store.close().await;
+}
