@@ -33,7 +33,9 @@ def main():
     commit = run("git", "rev-parse", "HEAD", cwd=repo)
     tree = run("git", "rev-parse", "HEAD^{tree}", cwd=repo)
     created = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    metadata = json.loads(run("cargo", "metadata", "--locked", "--offline", "--format-version", "1", cwd=repo))
+    # Metadata covers every locked target, including crates not needed by this
+    # native build. A fresh CI runner may need to download those locked crates.
+    metadata = json.loads(run("cargo", "metadata", "--locked", "--format-version", "1", cwd=repo))
     packages = {(p["name"], p["version"]): p for p in metadata["packages"]}
     locked = tomllib.loads((repo / "Cargo.lock").read_text())["package"]
     licenses = package / "licenses"
