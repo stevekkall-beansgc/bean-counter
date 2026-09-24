@@ -61,6 +61,6 @@ cp "$repo/WORKFLOW.md" "$tmp/$package/"
     otool -L "$tmp/$package/ledger" 2>&1 || true
 } > "$tmp/$package/BUILD-INFO.txt"
 python3 "$repo/scripts/release-inventory.py" "$repo" "$tmp/$package" aarch64-apple-darwin
-tar -czf "$artifact_dir/$package.tar.gz" -C "$tmp" "$package"
+COPYFILE_DISABLE=1 tar -czf "$artifact_dir/$package.tar.gz" -C "$tmp" "$package"
 (cd "$artifact_dir" && shasum -a 256 "$package.tar.gz" > SHA256SUMS)
 printf '%s\n' "$artifact_dir/$package.tar.gz"
