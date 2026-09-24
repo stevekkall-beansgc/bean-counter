@@ -6,7 +6,7 @@ The reduced local SQLite Phase 4 is complete. Its author checks and owner accept
 
 ## Install
 
-The tested native environment is macOS 26.6.2 on Apple silicon. Use the repository's pinned Rust 1.98.1 development toolchain and native C/linker tools. From the checked-out source:
+The tested native environments are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39. The [v0.3.0 native package guide](../examples/integration/README.md) covers downloaded installs. For a source install, use the repository's pinned Rust 1.98.1 development toolchain and native C/linker tools:
 
 ```sh
 cargo install --path crates/ledgerlab-cli --locked --root ./work/billing-install
@@ -16,7 +16,7 @@ ledger --help
 
 The first build may download locked dependencies. Add `--offline` only after populating the cache. This command installs from the checked-out source. Record its exact commit; [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) identify published versions. The installed `ledger` binary needs no Cargo, Python, Node, Docker, cloud account, model key or network service for billing. Preserve the source commit and binary SHA-256 with operational records. See [resources and costs](resources-and-costs.md).
 
-For the pinned v0.2.1 macOS archive, artifact checksum verification, guided setup and machine-readable product examples, see [local product integration](../examples/integration/README.md). The released archive is unsigned and tested on macOS 26.6.2 with Apple silicon. This Stage 2 source candidate also exercises native Linux x86-64 guided setup, but Linux support remains unclaimed until the packaged install and full-path checks pass on Ubuntu 24.04 CI. Windows is deferred.
+For v0.3.0 Mac and Linux archive checks, guided setup and machine-readable product examples, see [local product integration](../examples/integration/README.md). The packages are unsigned. Other OS versions and Linux distributions remain unverified; Windows is deferred.
 
 ## Set up explicit terms
 
@@ -31,7 +31,7 @@ ledger billing init ./billing --setup examples/billing/setup.json
 ledger billing --directory ./billing accept examples/billing/event.json --json
 ```
 
-For an interactive setup with no hand-authored JSON, use `ledger billing setup ./billing`. It asks for the actual parties, agreement, exact price, fixed outcome codes, UTC reporting/correction windows, retained assent evidence, and truthful authority/finality attestations. Read and submit permissions are required; correction permission is optional and separately confirmed. It displays the validated terms and entered assertions for review, then requires `CREATE`; `cancel`, invalid terms, or an existing destination do not initialize a store. The generated configuration is retained as `./billing/setup.json` with private file permissions for repeat use. The program does not obtain assent or verify authority. `ledger billing setup DIR --setup FILE` remains available when terms were prepared separately. For scripts, agents and products, use `billing init DIR --setup FILE --json`; this remains noninteractive. The native binary requires macOS on Apple silicon. Setup was exercised on macOS 26.6.2; other macOS versions are untested. The published artifact declares a macOS 11.0 minimum, which is a loader/build declaration and does not certify runtime behavior on every later version.
+For an interactive setup with no hand-authored JSON, use `ledger billing setup ./billing`. It asks for the actual parties, agreement, exact price, fixed outcome codes, UTC reporting/correction windows, retained assent evidence, and truthful authority/finality attestations. Read and submit permissions are required; correction permission is optional and separately confirmed. It displays the validated terms and entered assertions for review, then requires `CREATE`; `cancel`, invalid terms, or an existing destination do not initialize a store. The generated configuration is retained as `./billing/setup.json` with private file permissions for repeat use. The program does not obtain assent or verify authority. `ledger billing setup DIR --setup FILE` remains available when terms were prepared separately. For scripts, agents and products, use `billing init DIR --setup FILE --json`; this remains noninteractive. The native packages target Apple-silicon macOS and Linux x86-64. Setup was exercised on macOS 26.6.2 and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions are untested. The macOS artifact’s declared deployment minimum is a loader/build declaration, not a certification of every later version.
 
 Initialization books nothing. Successful acceptance returns a `base-acceptance` receipt whose `body.target` is the target ID. With the unchanged example, the customer owes 250 atoms = USD 2.50. Copy the target ID into `TARGET`:
 
@@ -72,7 +72,7 @@ ledger billing --directory ./billing permissions examples/billing/revoke.json --
 
 The sample change expects revision `1`, retains only `read` and includes a reason. New submissions and corrections then refuse. Read-authorized duplicate retries still return original receipts. Removing `read` blocks reports and duplicate resolution. To restore, supply the current `expected_revision`, a reason, and a subset of the original rights. Controls are checked and recorded inside the same immediate transaction as relevant reads/writes. Accepted evidence records the permission revision used. The `permissions` status command is an administrator control, not an event read authorization bypass for remote users; there are no remote users in this profile.
 
-Terms and the permission ceiling cannot be edited in place. A new agreement needs a separate installation with new identifiers; explicitly reconcile its separate statements. No migration/import between billing installations or repricing of already booked work is provided. Schema 8 is required by this candidate; it refuses older billing snapshots instead of silently migrating them. Preserve an older binary with its older snapshot.
+Terms and the permission ceiling cannot be edited in place. A new agreement needs a separate installation with new identifiers; explicitly reconcile its separate statements. No migration/import between billing installations or repricing of already booked work is provided. Schema 8 is required by this release; it refuses older billing snapshots instead of silently migrating them. Preserve an older binary with its older snapshot.
 
 ## Bounds and failures
 

@@ -1,15 +1,16 @@
-name: setup-linux-candidate
+name: setup-native-linux
 
 on:
   push:
     branches:
-      - codex/stage2-setup-linux
+      - codex/setup-v030-release
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: setup-linux-candidate-${{ github.ref }}
+  group: setup-native-linux-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,6 +42,7 @@ jobs:
           mkdir -p "$PWD/work/setup-linux"
           sh scripts/package-linux-x86_64.sh "$artifact_dir"
           sha256sum "$artifact_dir"/*
+          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.3.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
       - name: Install and exercise packaged product
         shell: bash
         run: |
@@ -54,3 +56,10 @@ jobs:
           ldd "$install_dir/ledger"
           python3 scripts/check-guided-billing-setup.py "$install_dir/ledger"
           sh "$install_dir/examples/integration/run-synthetic.sh" "$install_dir/ledger" "$PWD/work/setup-linux/store" "$PWD/work/setup-linux/results"
+      - name: Retain tested Linux release package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, resolved from official action tag
+        with:
+          name: bean-counter-v0.3.0-linux-x86_64
+          path: work/setup-linux/artifacts/
+          if-no-files-found: error
+          retention-days: 7

@@ -1,20 +1,20 @@
 # Run the local finance CSV end to end
 
-This walkthrough uses **synthetic** customer and agreement data. It runs on the tested Apple-silicon macOS environment. Download `bean-counter-v0.2.1-aarch64-apple-darwin.tar.gz` and `SHA256SUMS` from the [v0.2.1 release](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.2.1). In the download directory, verify the archive before extracting it:
+This walkthrough uses **synthetic** customer and agreement data. It runs on the tested Apple-silicon macOS environment; the separate Linux x86-64 package includes the same helper and fixtures. Download `bean-counter-v0.3.0-aarch64-apple-darwin.tar.gz` and `SHA256SUMS` from the [v0.3.0 release](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.3.0). In the download directory, verify the archive before extracting it:
 
 ```sh
 set -e
 python3 - <<'PY'
 import hashlib
 from pathlib import Path
-name = 'bean-counter-v0.2.1-aarch64-apple-darwin.tar.gz'
+name = 'bean-counter-v0.3.0-aarch64-apple-darwin.tar.gz'
 entries = dict(line.split(maxsplit=1) for line in Path('SHA256SUMS').read_text().splitlines())
 actual = hashlib.sha256(Path(name).read_bytes()).hexdigest()
 assert entries[actual].lstrip('*') == name, 'archive checksum does not match SHA256SUMS'
 print('Archive SHA-256 verified:', actual)
 PY
-tar -xzf bean-counter-v0.2.1-aarch64-apple-darwin.tar.gz
-cd bean-counter-v0.2.1-aarch64-apple-darwin
+tar -xzf bean-counter-v0.3.0-aarch64-apple-darwin.tar.gz
+cd bean-counter-v0.3.0-aarch64-apple-darwin
 ./ledger billing --help
 ```
 
@@ -70,4 +70,4 @@ print('Quiescent verification copy reopens with the exact statement')
 PY
 ```
 
-Read [quiescent backup and recovery](billing-recovery.md) before using a copy as an active installation; do not run two copies as writers. Inspect `WORKFLOW.md` and `docs/finance-csv.md` for editable inputs, mapping, export IDs and file-failure retries. Outputs, customer installations and backups are private operator data. Local file creation is not accounting-system delivery or payment. Independent acceptance remains platform-blocked; this walkthrough is for the owner's planned test and does not pre-report its result.
+Read [quiescent backup and recovery](billing-recovery.md) before using a copy as an active installation; do not run two copies as writers. Inspect `WORKFLOW.md` and `docs/finance-csv.md` for editable inputs, mapping, export IDs and file-failure retries. Outputs, customer installations and backups are private operator data. Local file creation is not accounting-system delivery or payment. The owner accepted the amended local Phase 6 and waived separate independent review; this synthetic walkthrough is author/product evidence, not an independent PASS.

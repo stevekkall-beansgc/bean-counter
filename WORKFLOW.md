@@ -2,7 +2,7 @@
 
 This is the amended Phase 5 workflow, based on the released local SQLite product. No customer data, vendor accounting integration, downstream delivery or payment is involved. Editable inputs are in `examples/finance/`; all assent/evidence there is illustrative. The example account labels are supplied mappings, not accounting or tax rules.
 
-On the tested Apple-silicon macOS environment, download the `v0.2.1` native archive and `SHA256SUMS` from the [Bean Counter release](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.2.1). Verify the archive's SHA-256 against that file, extract it, and run the included `ledger` with the included `scripts/demo-finance.py` and `examples/finance/` in a **new** output directory. The [owner walkthrough](docs/finance-e2e.md) gives exact commands and an optional whole-installation backup check.
+On the tested Apple-silicon macOS environment, download the `v0.3.0` native archive and `SHA256SUMS` from the [Bean Counter release](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.3.0). Verify the archive's SHA-256 against that file, extract it, and run the included `ledger` with the included `scripts/demo-finance.py` and `examples/finance/` in a **new** output directory. The [owner walkthrough](docs/finance-e2e.md) gives exact commands and an optional whole-installation backup check.
 
 For a source checkout, build/install with the pinned toolchain, then run the demonstration in a **new** output directory:
 

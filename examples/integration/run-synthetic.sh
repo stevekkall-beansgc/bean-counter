@@ -15,8 +15,8 @@ if [ -e "$installation" ] || [ -L "$installation" ] || [ -e "$results" ] || [ -L
 fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required to read/write JSON in this example" >&2; exit 2; }
 case "$($ledger --version)" in
-    "ledger 0.2.1 (local development)") ;;
-    *) echo "expected a version 0.2.1 candidate or released ledger binary" >&2; exit 2 ;;
+    "ledger 0.3.0 (local development)") ;;
+    *) echo "expected a version 0.3.0 ledger binary" >&2; exit 2 ;;
 esac
 umask 077
 mkdir -m 700 "$results"
