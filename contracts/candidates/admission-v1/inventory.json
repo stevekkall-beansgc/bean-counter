@@ -55,8 +55,8 @@
       "sha256": "383cf2ebe9a45590e93039490d8d8cf1b300a06bcf326a899259cd4d0d604576"
     },
     "crates/ledgerlab-cli/src/zen_candidate.rs": {
-      "bytes": 4009,
-      "sha256": "52e41357e9788d26ebaa3b170e290671635e422f29704812bd382194a9b2f36c"
+      "bytes": 4472,
+      "sha256": "566e860abe8248a34ce0a42453ccfc6cc9990d38ce3f0d44d80444bb6dff5c7d"
     },
     "crates/ledgerlab-core/Cargo.toml": {
       "bytes": 515,
@@ -67,8 +67,8 @@
       "sha256": "1ebb126f96ceda9916333453faa24fb83bb1d15d9ef955239b369cbd2e5c5fa8"
     },
     "crates/ledgerlab-core/src/zen_candidate.rs": {
-      "bytes": 9976,
-      "sha256": "30042b95c43be3b72f1f1407a6a602714022338e21c355b301b61960fc81b599"
+      "bytes": 11632,
+      "sha256": "7300bee8cbe471eecdfefeb3bbf3ef1f8c0dd1ca2977c54b627b229f4839930a"
     },
     "crates/ledgerlab/Cargo.toml": {
       "bytes": 1275,
@@ -76,19 +76,19 @@
     },
     "crates/ledgerlab/src/lib.rs": {
       "bytes": 6410,
-      "sha256": "3f7db40dcf236cf16b171d413f5eaae893af7e8c853988f7456753f8c84c1d73"
+      "sha256": "72a6f8f59fbacc43e9bdfd6dc4c0e3d342fb2c8e3cd7482adb095e2b18de7f2e"
     },
     "crates/ledgerlab/src/store/sqlite/mod.rs": {
       "bytes": 13359,
       "sha256": "651366bdaab31e2bf95fd620ac967b1330c6dde185e92a0bee6996ddf7181d20"
     },
     "crates/ledgerlab/src/store/sqlite/zen_candidate.rs": {
-      "bytes": 3894,
-      "sha256": "a78591d7284314dc5753522924e68ee76eb87f006a939223ae56adb162bf736e"
+      "bytes": 4479,
+      "sha256": "40b4c2072213dcc5085d5ec9140573ffadb59ef9745827100788c9c4781c0504"
     },
     "crates/ledgerlab/src/zen_candidate.rs": {
-      "bytes": 7132,
-      "sha256": "63cfc64c1192632d139ac36902bcec67bf8c7387b1f249e716a5d86ba92b9397"
+      "bytes": 7874,
+      "sha256": "e8a722526a17fddf2c28958ac412e179000bf3eff9c76794f93691e832a7c8b4"
     },
     "examples/zen-charge-pilot/README.md": {
       "bytes": 8823,

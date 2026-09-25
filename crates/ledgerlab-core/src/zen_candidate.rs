@@ -1,5 +1,8 @@
 //! Unreviewed admission/1-candidate.1 semantics. Never interpreted as frozen billing records.
-use crate::{canonical::{self, CanonicalBytes}, Error, Result};
+use crate::{
+    canonical::{self, CanonicalBytes},
+    Error, Result,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -8,10 +11,15 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const PROFILE: &str = "admission/1-candidate.1";
 pub const RULE: &str = "five-products-exact/v1";
 pub const PRODUCTS: [&str; 5] = ["Amber", "Birch", "Cedar", "Delta", "Elm"];
-pub const INPUT: &str = "Products: Elm, Cedar, Amber, Delta, Birch. Return their names as a sorted JSON array.";
+pub const INPUT: &str =
+    "Products: Elm, Cedar, Amber, Delta, Birch. Return their names as a sorted JSON array.";
 
 fn need(ok: bool, code: &'static str) -> Result<()> {
-    if ok { Ok(()) } else { Err(Error::new(code, "candidate pilot refused")) }
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::new(code, "candidate pilot refused"))
+    }
 }
 pub fn bytes(value: &impl Serialize) -> Result<Vec<u8>> {
     Ok(CanonicalBytes::from_value(value)?.into_vec())
@@ -36,11 +44,18 @@ pub fn parse<T: serde::de::DeserializeOwned>(raw: &[u8]) -> Result<T> {
     serde_json::from_value(v).map_err(|_| Error::new("SHAPE", "closed candidate input required"))
 }
 fn label(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 96 && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"._/-:".contains(&c))
+    !s.is_empty()
+        && s.len() <= 96
+        && s.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"._/-:".contains(&c))
 }
 fn number(s: &str) -> Result<u64> {
-    need(!s.is_empty() && (s == "0" || !s.starts_with('0')) && s.bytes().all(|c| c.is_ascii_digit()), "NUMBER")?;
-    s.parse().map_err(|_| Error::new("NUMBER", "unsigned integer overflow"))
+    need(
+        !s.is_empty() && (s == "0" || !s.starts_with('0')) && s.bytes().all(|c| c.is_ascii_digit()),
+        "NUMBER",
+    )?;
+    s.parse()
+        .map_err(|_| Error::new("NUMBER", "unsigned integer overflow"))
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -115,56 +130,135 @@ pub struct Decision {
 }
 impl State {
     pub fn new(setup: Setup) -> Result<Self> {
-        need(setup.schema == PROFILE && setup.synthetic && setup.customer == "synthetic-customer"
-            && label(&setup.agreement) && label(&setup.terms_version)
-            && setup.acceptance_rule == RULE, "SETUP")?;
-        need(number(&setup.admission_atoms)? > 0 && number(&setup.admission_atoms)? <= 10000
-            && number(&setup.outcome_atoms)? > 0 && number(&setup.outcome_atoms)? <= 10000, "PRICE")?;
+        need(
+            setup.schema == PROFILE
+                && setup.synthetic
+                && setup.customer == "synthetic-customer"
+                && label(&setup.agreement)
+                && label(&setup.terms_version)
+                && setup.acceptance_rule == RULE,
+            "SETUP",
+        )?;
+        need(
+            number(&setup.admission_atoms)? > 0
+                && number(&setup.admission_atoms)? <= 10000
+                && number(&setup.outcome_atoms)? > 0
+                && number(&setup.outcome_atoms)? <= 10000,
+            "PRICE",
+        )?;
         let start = number(&setup.authorized_at_us)?;
-        need(start < number(&setup.admit_before_us)? && number(&setup.admit_before_us)? < number(&setup.outcome_before_us)?
-            && number(&setup.outcome_before_us)? <= i64::MAX as u64, "WINDOW")?;
-        need(!setup.authorizations.is_empty() && setup.authorizations.len() <= 8, "AUTHORIZATIONS")?;
+        need(
+            start < number(&setup.admit_before_us)?
+                && number(&setup.admit_before_us)? < number(&setup.outcome_before_us)?
+                && number(&setup.outcome_before_us)? <= i64::MAX as u64,
+            "WINDOW",
+        )?;
+        need(
+            !setup.authorizations.is_empty() && setup.authorizations.len() <= 8,
+            "AUTHORIZATIONS",
+        )?;
         let terms_hash = digest("terms", &setup)?;
         let mut orders = BTreeMap::new();
         let mut authorities = BTreeSet::new();
         for a in &setup.authorizations {
-            need(label(&a.order_id) && label(&a.authorization_id) && a.deliverable_version == RULE
-                && authorities.insert(a.authorization_id.clone()), "AUTHORIZATION")?;
-            let target = digest("target", &json!([terms_hash, a.authorization_id, a.order_id]))?;
-            let binding = Binding { order_id: a.order_id.clone(), authorization_id: a.authorization_id.clone(),
-                customer: setup.customer.clone(), agreement: setup.agreement.clone(), terms_hash: terms_hash.clone(),
-                admission_atoms: setup.admission_atoms.clone(), outcome_atoms: setup.outcome_atoms.clone(),
-                deliverable_version: a.deliverable_version.clone(), target };
-            need(orders.insert(a.order_id.clone(), Order { binding, phase: "authorized", receipts: BTreeMap::new() }).is_none(), "AUTHORIZATION")?;
+            need(
+                label(&a.order_id)
+                    && label(&a.authorization_id)
+                    && a.deliverable_version == RULE
+                    && authorities.insert(a.authorization_id.clone()),
+                "AUTHORIZATION",
+            )?;
+            let target = digest(
+                "target",
+                &json!([terms_hash, a.authorization_id, a.order_id]),
+            )?;
+            let binding = Binding {
+                order_id: a.order_id.clone(),
+                authorization_id: a.authorization_id.clone(),
+                customer: setup.customer.clone(),
+                agreement: setup.agreement.clone(),
+                terms_hash: terms_hash.clone(),
+                admission_atoms: setup.admission_atoms.clone(),
+                outcome_atoms: setup.outcome_atoms.clone(),
+                deliverable_version: a.deliverable_version.clone(),
+                target,
+            };
+            need(
+                orders
+                    .insert(
+                        a.order_id.clone(),
+                        Order {
+                            binding,
+                            phase: "authorized",
+                            receipts: BTreeMap::new(),
+                        },
+                    )
+                    .is_none(),
+                "AUTHORIZATION",
+            )?;
         }
-        Ok(Self { setup, orders, slot: None, clock_floor: start })
+        Ok(Self {
+            setup,
+            orders,
+            slot: None,
+            clock_floor: start,
+        })
     }
     pub fn apply(&mut self, cmd: &Command, at: u64) -> Result<Decision> {
         need(cmd.schema == PROFILE, "PROFILE")?;
-        need(matches!(cmd.operation.as_str(), "reserve" | "admit" | "outcome" | "fail"), "OPERATION")?;
-        for s in [&cmd.evidence.delivery_id, &cmd.evidence.attempt_id, &cmd.evidence.session_id, &cmd.evidence.model, &cmd.evidence.outcome_id] {
+        need(
+            matches!(
+                cmd.operation.as_str(),
+                "reserve" | "admit" | "outcome" | "fail"
+            ),
+            "OPERATION",
+        )?;
+        for s in [
+            &cmd.evidence.delivery_id,
+            &cmd.evidence.attempt_id,
+            &cmd.evidence.session_id,
+            &cmd.evidence.model,
+            &cmd.evidence.outcome_id,
+        ] {
             need(label(s), "EVIDENCE")?;
         }
-        let order = self.orders.get_mut(&cmd.binding.order_id).ok_or_else(|| Error::new("UNAUTHORIZED_ORDER", "no accepted authorization"))?;
+        let order = self
+            .orders
+            .get_mut(&cmd.binding.order_id)
+            .ok_or_else(|| Error::new("UNAUTHORIZED_ORDER", "no accepted authorization"))?;
         need(order.binding == cmd.binding, "BINDING_CONFLICT")?;
         if cmd.operation == "outcome" {
-            need(cmd.artifact.as_ref().is_some_and(|a| a.iter().map(String::as_str).eq(PRODUCTS)), "ARTIFACT")?;
+            need(
+                cmd.artifact
+                    .as_ref()
+                    .is_some_and(|a| a.iter().map(String::as_str).eq(PRODUCTS)),
+                "ARTIFACT",
+            )?;
         } else {
             need(cmd.artifact.is_none(), "ARTIFACT")?;
         }
         // Economic identity precedes deadlines and phase changes. Subordinate IDs are inert.
         if let Some(receipt) = order.receipts.get(&cmd.operation) {
-            return Ok(Decision { response: json!({"candidate":true,"status":"duplicate","receipt":receipt}), changed: false });
+            return Ok(Decision {
+                response: json!({"candidate":true,"status":"duplicate","receipt":receipt}),
+                changed: false,
+            });
         }
         need(at >= self.clock_floor && at <= i64::MAX as u64, "CLOCK")?;
         let atoms = match cmd.operation.as_str() {
             "reserve" => {
-                need(order.phase == "authorized" && self.slot.is_none(), "SLOT_UNAVAILABLE")?;
+                need(
+                    order.phase == "authorized" && self.slot.is_none(),
+                    "SLOT_UNAVAILABLE",
+                )?;
                 need(at < number(&self.setup.admit_before_us)?, "WINDOW")?;
                 0
             }
             "admit" => {
-                need(order.phase == "reserved" && self.slot.as_ref() == Some(&cmd.binding.order_id), "NOT_RESERVED")?;
+                need(
+                    order.phase == "reserved" && self.slot.as_ref() == Some(&cmd.binding.order_id),
+                    "NOT_RESERVED",
+                )?;
                 need(at < number(&self.setup.admit_before_us)?, "WINDOW")?;
                 number(&self.setup.admission_atoms)?
             }
@@ -181,18 +275,34 @@ impl State {
         };
         let mut body = json!({"schema":PROFILE,"binding":order.binding,"kind":cmd.operation,
             "currency":"USD","scale":2,"atoms":atoms.to_string(),"accepted_at_us":at.to_string()});
-        if cmd.operation == "admit" { body["reservation_receipt"] = order.receipts["reserve"]["id"].clone(); }
+        if cmd.operation == "admit" {
+            body["reservation_receipt"] = order.receipts["reserve"]["id"].clone();
+        }
         if cmd.operation == "outcome" {
             body["admission_receipt"] = order.receipts["admit"]["id"].clone();
             body["artifact_hash"] = json!(digest("artifact", &cmd.artifact)?);
             body["acceptance_rule"] = json!(RULE);
         }
         let receipt = json!({"id":digest("receipt", &body)?,"body":body});
-        order.phase = match cmd.operation.as_str() { "reserve" => "reserved", "admit" => "admitted", "outcome" => "completed", _ => "failed" };
-        self.slot = if matches!(order.phase, "reserved" | "admitted") { Some(cmd.binding.order_id.clone()) } else { None };
+        order.phase = match cmd.operation.as_str() {
+            "reserve" => "reserved",
+            "admit" => "admitted",
+            "outcome" => "completed",
+            _ => "failed",
+        };
+        self.slot = if matches!(order.phase, "reserved" | "admitted") {
+            Some(cmd.binding.order_id.clone())
+        } else {
+            None
+        };
         self.clock_floor = at;
-        order.receipts.insert(cmd.operation.clone(), receipt.clone());
-        Ok(Decision { response: json!({"candidate":true,"status":"accepted","receipt":receipt}), changed: true })
+        order
+            .receipts
+            .insert(cmd.operation.clone(), receipt.clone());
+        Ok(Decision {
+            response: json!({"candidate":true,"status":"accepted","receipt":receipt}),
+            changed: true,
+        })
     }
     pub fn statement(&self) -> Result<Value> {
         let mut net = 0u64;
@@ -200,13 +310,19 @@ impl State {
         for order in self.orders.values() {
             let mut subtotal = 0u64;
             for receipt in order.receipts.values() {
-                subtotal += number(receipt["body"]["atoms"].as_str().ok_or_else(|| Error::new("INTEGRITY", "atoms"))?)?;
+                subtotal += number(
+                    receipt["body"]["atoms"]
+                        .as_str()
+                        .ok_or_else(|| Error::new("INTEGRITY", "atoms"))?,
+                )?;
             }
             net += subtotal;
             orders.push(json!({"binding":order.binding,"phase":order.phase,"net_atoms":subtotal.to_string(),"receipts":order.receipts}));
         }
-        Ok(json!({"schema":PROFILE,"candidate":true,"status":"ok","complete":true,"payment_collected":false,
+        Ok(
+            json!({"schema":PROFILE,"candidate":true,"status":"ok","complete":true,"payment_collected":false,
             "provider_cost_accounted":false,"currency":"USD","scale":2,"net_atoms":net.to_string(),
-            "slot_owner":self.slot,"orders":orders,"deliverable_input":INPUT}))
+            "slot_owner":self.slot,"orders":orders,"deliverable_input":INPUT}),
+        )
     }
 }
