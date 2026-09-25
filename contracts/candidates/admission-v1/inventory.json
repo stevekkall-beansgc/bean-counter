@@ -1,0 +1,143 @@
+{
+  "schema": "admission-candidate-inventory/1",
+  "profile": "admission/1-candidate.1",
+  "status": "candidate-review-pending",
+  "reviewed_freeze": false,
+  "independent_byte_math_verification": "pending",
+  "base_commit": "87892ac011902b286776e26925d8a3fb2c2aaa88",
+  "e2e": {
+    "command": "CARGO_HOME=/private/tmp/bean-counter-cargo RUSTUP_HOME=/private/tmp/bean-counter-rustup PATH=/private/tmp/bean-counter-cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin sh scripts/check-zen-charge-pilot-e2e.sh",
+    "exit_code": 0,
+    "status": "passed",
+    "cli_process_checks": 270,
+    "result": "contracts/candidates/admission-v1/E2E-RESULT.json",
+    "scope": "author-run process E2E; not independent review or freeze"
+  },
+  "files": {
+    "contracts/candidates/admission-v1/AMENDMENT.md": {
+      "bytes": 14078,
+      "sha256": "f0d9ffca1a3fa4dea831d948b696d03f8d6a0257baaaed2960f4bc8d91459f25"
+    },
+    "contracts/candidates/admission-v1/E2E-RESULT.json": {
+      "bytes": 1565,
+      "sha256": "2b1d8fbe305716ac708437df3d9d19a35f13133a051835b0e15d805db84b54ed"
+    },
+    "contracts/candidates/admission-v1/REVIEW-STATUS.md": {
+      "bytes": 8571,
+      "sha256": "a12901c2eb3deb9962bdaa053e23849b9d5332b29b9ea228577e64a678b9e72b"
+    },
+    "contracts/candidates/admission-v1/bindings.json": {
+      "bytes": 905,
+      "sha256": "8c3c4c7a9a27d687c3500f4fd94e26c140779b344caf26e1a8f4c9f24359e6e1"
+    },
+    "contracts/candidates/admission-v1/expected.json": {
+      "bytes": 3112,
+      "sha256": "20991b7c868b762cb434c137498925a812188938848f9663b076ac612a954dc9"
+    },
+    "contracts/candidates/admission-v1/input.schema.json": {
+      "bytes": 6466,
+      "sha256": "ed4065c686fb86a71e7f3755cb2cfd6d26081f8bd50939ed81e014b657fd6559"
+    },
+    "contracts/candidates/admission-v1/outcome.json": {
+      "bytes": 800,
+      "sha256": "20e5ead31982330d2e017bccbfec5c0a218f4df58254aca59894cfb1175ef6e1"
+    },
+    "contracts/candidates/admission-v1/setup.json": {
+      "bytes": 702,
+      "sha256": "44fcc38b4bf36ba58641e5a491b874345e668fc66be4f31585c710ad8898445f"
+    },
+    "crates/ledgerlab-cli/Cargo.toml": {
+      "bytes": 676,
+      "sha256": "db6e589999a1efa9c9f4875b39fd7740971620244de2804b67e88e31e15c0789"
+    },
+    "crates/ledgerlab-cli/src/main.rs": {
+      "bytes": 11415,
+      "sha256": "383cf2ebe9a45590e93039490d8d8cf1b300a06bcf326a899259cd4d0d604576"
+    },
+    "crates/ledgerlab-cli/src/zen_candidate.rs": {
+      "bytes": 1196,
+      "sha256": "4c9bae47962230680a9dcce9c8b7f7eb69f0242757ebd464c4990ae0f7aab12b"
+    },
+    "crates/ledgerlab-core/Cargo.toml": {
+      "bytes": 515,
+      "sha256": "09e2b0cbfc7743934b3e5bfca53d91c54d9c7115b0d5df4b582dbd1a883ad9d6"
+    },
+    "crates/ledgerlab-core/src/lib.rs": {
+      "bytes": 959,
+      "sha256": "1ebb126f96ceda9916333453faa24fb83bb1d15d9ef955239b369cbd2e5c5fa8"
+    },
+    "crates/ledgerlab-core/src/zen_candidate.rs": {
+      "bytes": 9976,
+      "sha256": "30042b95c43be3b72f1f1407a6a602714022338e21c355b301b61960fc81b599"
+    },
+    "crates/ledgerlab/Cargo.toml": {
+      "bytes": 1275,
+      "sha256": "9f9faaa818f24228c59567d5e94dd5c646245ef77e925fe518eeba4c78970eda"
+    },
+    "crates/ledgerlab/src/lib.rs": {
+      "bytes": 6410,
+      "sha256": "3f7db40dcf236cf16b171d413f5eaae893af7e8c853988f7456753f8c84c1d73"
+    },
+    "crates/ledgerlab/src/store/sqlite/mod.rs": {
+      "bytes": 13359,
+      "sha256": "651366bdaab31e2bf95fd620ac967b1330c6dde185e92a0bee6996ddf7181d20"
+    },
+    "crates/ledgerlab/src/store/sqlite/zen_candidate.rs": {
+      "bytes": 3894,
+      "sha256": "a78591d7284314dc5753522924e68ee76eb87f006a939223ae56adb162bf736e"
+    },
+    "crates/ledgerlab/src/zen_candidate.rs": {
+      "bytes": 5655,
+      "sha256": "f4e7fdf79f94f7f04605d121700705dfbe981ab661f38f5458612fbcc3eacb91"
+    },
+    "examples/zen-charge-pilot/README.md": {
+      "bytes": 5667,
+      "sha256": "2ae6c9fe2ab74374a557b85029e3fe67de79a984e52330db5dc3ce5654671d53"
+    },
+    "examples/zen-charge-pilot/fixture_worker.py": {
+      "bytes": 425,
+      "sha256": "af151b766bc7907f6f20b4e4e50f38e003f9acbb0395904e5720c4ec24f73d3e"
+    },
+    "examples/zen-charge-pilot/run.py": {
+      "bytes": 2567,
+      "sha256": "23c39273315ded571af6f21e7e79f34fba28c22e4b11a9293164f6b81bc861e5"
+    },
+    "scripts/check-zen-charge-pilot-e2e.sh": {
+      "bytes": 1358,
+      "sha256": "30e1ebf9b798e1d1dc03af5b8d8714aa66fda714fcc301effbfe8b39619b07c2"
+    },
+    "scripts/e2e/zen_charge_pilot.py": {
+      "bytes": 28656,
+      "sha256": "7da7372787573ea0cfb8e926dff69abfe2b2636311837e21adaee84d64155a06"
+    }
+  },
+  "reviewer_followup": {
+    "status": "author-e2e-passed-review-pending",
+    "clock_hook": "zen-charge-e2e-hooks only; absent from default and ordinary candidate builds",
+    "builds": [
+      "default",
+      "zen-charge-candidate",
+      "zen-charge-e2e-hooks"
+    ],
+    "expected_fixture": "expected.json unchanged; complete CLI receipts and persisted response bytes compared",
+    "added_cases": [
+      "cross-order reservation race",
+      "outcome versus failure race",
+      "concurrent renamed-evidence retries",
+      "exact timestamp boundaries",
+      "outcome expiry and late/backward receipt replay",
+      "backward-clock new-decision rejection",
+      "malformed/duplicate-key/null/invalid-UTF8 input",
+      "duplicate authorizations",
+      "price limits",
+      "corrupted journal replay",
+      "feature-off runtime compatibility"
+    ],
+    "remaining_evidence_gaps": [
+      "independent byte/math/manifest review pending",
+      "no forced SQL critical-section overlap",
+      "no actual uncertain COMMIT or power-loss injection",
+      "no live Zen integration"
+    ]
+  }
+}

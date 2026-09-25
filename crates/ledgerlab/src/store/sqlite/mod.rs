@@ -15,6 +15,8 @@ mod read;
 pub(crate) mod tests;
 mod tx;
 mod write;
+#[cfg(feature = "zen-charge-candidate")]
+pub(crate) mod zen_candidate;
 
 use crate::store::{errors::StoreError, ports::AcceptanceStore, records::*};
 pub(crate) use adjudication::tx::SqliteAdjudicationStore;

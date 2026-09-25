@@ -7,6 +7,8 @@ pub mod gateway;
 pub mod local;
 pub mod maintenance;
 pub mod outbox;
+#[cfg(feature = "zen-charge-candidate")]
+pub mod zen_candidate;
 mod service;
 mod store;
 

@@ -1,0 +1,44 @@
+{
+  "schema": "admission-candidate-e2e-result/1",
+  "status": "passed",
+  "evidence_kind": "author-run process E2E; independent review pending",
+  "command": "CARGO_HOME=/private/tmp/bean-counter-cargo RUSTUP_HOME=/private/tmp/bean-counter-rustup PATH=/private/tmp/bean-counter-cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin sh scripts/check-zen-charge-pilot-e2e.sh",
+  "exit_code": 0,
+  "rust_toolchain": "1.98.1",
+  "builds": [
+    "default",
+    "zen-charge-candidate",
+    "zen-charge-e2e-hooks"
+  ],
+  "summary": {
+    "status": "passed",
+    "candidate": true,
+    "cli_process_checks": 270,
+    "live_zen": false,
+    "power_loss_tested": false,
+    "reviewed_freeze": false,
+    "clock_hooks": "separate-e2e-build",
+    "fixed_receipt_fixture_compared": true,
+    "feature_off_runtime_checked": true
+  },
+  "unit_tests_run": false,
+  "dependency_versions_changed": false,
+  "compile_fix": "Use canonical::hex(&h.finalize()) instead of LowerHex on sha2 0.11 Array.",
+  "binaries": {
+    "default": {
+      "path": "work/zen-charge-default-target/debug/ledger",
+      "bytes": 39003416,
+      "sha256": "aca0eb38b07907332fc14d8372bdfd5c5594350d0c1be6bb8ffb27b22b4bcce3"
+    },
+    "candidate": {
+      "path": "work/zen-charge-pilot-target/debug/ledger",
+      "bytes": 39545256,
+      "sha256": "f6fdd55cc12e5c0d48cda9e86917444b20c0cce59e604cbb9027421fef4c9e24"
+    },
+    "e2e-hooks": {
+      "path": "work/zen-charge-e2e-target/debug/ledger",
+      "bytes": 39546568,
+      "sha256": "fb846d5fbdd5f1ac7ec27f76cb9a90892779d8d4a2f2fd687620cf2216d1dc2c"
+    }
+  }
+}

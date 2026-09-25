@@ -1,0 +1,79 @@
+{
+  "status": "author-generated-unreviewed",
+  "receipts": {
+    "reserve": {
+      "id": "sha256:f76cae6330497c0039954963a9aa3e331da361d9e4401e1a13ccc94fdf32149b",
+      "body": {
+        "schema": "admission/1-candidate.1",
+        "binding": {
+          "authorization_id": "accepted-purchase-1",
+          "order_id": "order-1",
+          "deliverable_version": "five-products-exact/v1",
+          "customer": "synthetic-customer",
+          "agreement": "synthetic-zen-pilot",
+          "terms_hash": "sha256:c6517b82f3953fdfc71deba1cae4c301c73faff91aeab4e4518808a411f85577",
+          "admission_atoms": "1",
+          "outcome_atoms": "499",
+          "target": "sha256:498d9158d49a9132f673d4b4ca46330774c9790e38b041ac992091d2daec7699"
+        },
+        "kind": "reserve",
+        "currency": "USD",
+        "scale": 2,
+        "atoms": "0",
+        "accepted_at_us": "1800000000000000"
+      }
+    },
+    "admit": {
+      "id": "sha256:c39b1d90b01d93f503bec084442e1c8f3df875c345a6f0c556c377648ba87200",
+      "body": {
+        "schema": "admission/1-candidate.1",
+        "binding": {
+          "authorization_id": "accepted-purchase-1",
+          "order_id": "order-1",
+          "deliverable_version": "five-products-exact/v1",
+          "customer": "synthetic-customer",
+          "agreement": "synthetic-zen-pilot",
+          "terms_hash": "sha256:c6517b82f3953fdfc71deba1cae4c301c73faff91aeab4e4518808a411f85577",
+          "admission_atoms": "1",
+          "outcome_atoms": "499",
+          "target": "sha256:498d9158d49a9132f673d4b4ca46330774c9790e38b041ac992091d2daec7699"
+        },
+        "kind": "admit",
+        "currency": "USD",
+        "scale": 2,
+        "atoms": "1",
+        "accepted_at_us": "1800000000000001",
+        "reservation_receipt": "sha256:f76cae6330497c0039954963a9aa3e331da361d9e4401e1a13ccc94fdf32149b"
+      }
+    },
+    "outcome": {
+      "id": "sha256:58c363da857f8ec056bb25e6facefcafc5090c3b24e89a929df8fea193e47468",
+      "body": {
+        "schema": "admission/1-candidate.1",
+        "binding": {
+          "authorization_id": "accepted-purchase-1",
+          "order_id": "order-1",
+          "deliverable_version": "five-products-exact/v1",
+          "customer": "synthetic-customer",
+          "agreement": "synthetic-zen-pilot",
+          "terms_hash": "sha256:c6517b82f3953fdfc71deba1cae4c301c73faff91aeab4e4518808a411f85577",
+          "admission_atoms": "1",
+          "outcome_atoms": "499",
+          "target": "sha256:498d9158d49a9132f673d4b4ca46330774c9790e38b041ac992091d2daec7699"
+        },
+        "kind": "outcome",
+        "currency": "USD",
+        "scale": 2,
+        "atoms": "499",
+        "accepted_at_us": "1800000000000002",
+        "admission_receipt": "sha256:c39b1d90b01d93f503bec084442e1c8f3df875c345a6f0c556c377648ba87200",
+        "artifact_hash": "sha256:e52768e31e02ad8e9222562dddd3586cc9d7b5c5382cfa16edb1681397f57aa5",
+        "acceptance_rule": "five-products-exact/v1"
+      }
+    }
+  },
+  "admitted_failed_atoms": "1",
+  "completed_atoms": "500",
+  "two_completed_orders_atoms": "1000",
+  "pre_admission_refused_atoms": "0"
+}

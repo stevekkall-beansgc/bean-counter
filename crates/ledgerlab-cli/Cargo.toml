@@ -20,6 +20,8 @@ sqlx = { version = "=0.9.0", default-features = false, features = ["sqlite", "ru
 [features]
 default = []
 http = []
+zen-charge-candidate = ["ledgerlab/zen-charge-candidate"]
+zen-charge-e2e-hooks = ["zen-charge-candidate", "ledgerlab/zen-charge-e2e-hooks"]
 
 [[bin]]
 name = "ledger"

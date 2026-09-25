@@ -7,6 +7,7 @@ description = "Pure deterministic Ledger Lab validation, canonical records, and 
 
 [features]
 test-failpoints = []
+zen-charge-candidate = []
 
 [dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }

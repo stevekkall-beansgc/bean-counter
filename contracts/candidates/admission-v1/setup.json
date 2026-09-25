@@ -1,0 +1,25 @@
+{
+  "schema": "admission/1-candidate.1",
+  "synthetic": true,
+  "customer": "synthetic-customer",
+  "agreement": "synthetic-zen-pilot",
+  "terms_version": "1",
+  "admission_atoms": "1",
+  "outcome_atoms": "499",
+  "authorized_at_us": "1700000000000000",
+  "admit_before_us": "4000000000000000",
+  "outcome_before_us": "4000003600000000",
+  "acceptance_rule": "five-products-exact/v1",
+  "authorizations": [
+    {
+      "authorization_id": "accepted-purchase-1",
+      "order_id": "order-1",
+      "deliverable_version": "five-products-exact/v1"
+    },
+    {
+      "authorization_id": "accepted-purchase-2",
+      "order_id": "order-2",
+      "deliverable_version": "five-products-exact/v1"
+    }
+  ]
+}

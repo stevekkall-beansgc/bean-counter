@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ledgerlab:candidate:admission:1-candidate.1:input",
+  "title": "UNREVIEWED synthetic admission candidate inputs",
+  "description": "Structural only; AMENDMENT.md defines strict lexical, authority, money, artifact, time and lifecycle checks. Not a frozen contract.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/setup"
+    },
+    {
+      "$ref": "#/$defs/command"
+    }
+  ],
+  "$defs": {
+    "setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "synthetic",
+        "customer",
+        "agreement",
+        "terms_version",
+        "admission_atoms",
+        "outcome_atoms",
+        "authorized_at_us",
+        "admit_before_us",
+        "outcome_before_us",
+        "acceptance_rule",
+        "authorizations"
+      ],
+      "properties": {
+        "schema": {
+          "const": "admission/1-candidate.1"
+        },
+        "synthetic": {
+          "const": true
+        },
+        "customer": {
+          "const": "synthetic-customer"
+        },
+        "agreement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[A-Za-z0-9._/:-]+$"
+        },
+        "terms_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 96,
+          "pattern": "^[A-Za-z0-9._/:-]+$"
+        },
+        "admission_atoms": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "outcome_atoms": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "authorized_at_us": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "admit_before_us": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "outcome_before_us": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "acceptance_rule": {
+          "const": "five-products-exact/v1"
+        },
+        "authorizations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "authorization_id",
+              "order_id",
+              "deliverable_version"
+            ],
+            "properties": {
+              "authorization_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^[A-Za-z0-9._/:-]+$"
+              },
+              "order_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^[A-Za-z0-9._/:-]+$"
+              },
+              "deliverable_version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^[A-Za-z0-9._/:-]+$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "operation",
+        "binding",
+        "evidence"
+      ],
+      "properties": {
+        "schema": {
+          "const": "admission/1-candidate.1"
+        },
+        "operation": {
+          "enum": [
+            "reserve",
+            "admit",
+            "outcome",
+            "fail"
+          ]
+        },
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "order_id",
+            "authorization_id",
+            "customer",
+            "agreement",
+            "terms_hash",
+            "admission_atoms",
+            "outcome_atoms",
+            "deliverable_version",
+            "target"
+          ],
+          "properties": {
+            "order_id": {
+              "type": "string"
+            },
+            "authorization_id": {
+              "type": "string"
+            },
+            "customer": {
+              "type": "string"
+            },
+            "agreement": {
+              "type": "string"
+            },
+            "terms_hash": {
+              "type": "string"
+            },
+            "admission_atoms": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$"
+            },
+            "outcome_atoms": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]*)$"
+            },
+            "deliverable_version": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "delivery_id",
+            "attempt_id",
+            "session_id",
+            "model",
+            "outcome_id"
+          ],
+          "properties": {
+            "delivery_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[A-Za-z0-9._/:-]+$"
+            },
+            "attempt_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[A-Za-z0-9._/:-]+$"
+            },
+            "session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[A-Za-z0-9._/:-]+$"
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[A-Za-z0-9._/:-]+$"
+            },
+            "outcome_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[A-Za-z0-9._/:-]+$"
+            }
+          }
+        },
+        "artifact": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "outcome"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "artifact"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "artifact"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

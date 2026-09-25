@@ -2,6 +2,8 @@
 #![forbid(unsafe_code)]
 mod billing;
 mod output;
+#[cfg(feature = "zen-charge-candidate")]
+mod zen_candidate;
 use ledgerlab::local::{self, ExplainTarget, LocalError, LocalLedger};
 use serde_json::{json, Value};
 use std::{
@@ -80,6 +82,10 @@ fn error(code: &str, message: &str, exit: u8) -> (Value, u8) {
     )
 }
 async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
+    #[cfg(feature = "zen-charge-candidate")]
+    if a.command == "zen-charge-candidate" {
+        return zen_candidate::run(a).await;
+    }
     if a.command == "billing" {
         return billing::run(a).await;
     }

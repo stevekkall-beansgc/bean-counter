@@ -1,0 +1,29 @@
+{
+  "schema": "admission/1-candidate.1",
+  "operation": "outcome",
+  "binding": {
+    "authorization_id": "accepted-purchase-1",
+    "order_id": "order-1",
+    "deliverable_version": "five-products-exact/v1",
+    "customer": "synthetic-customer",
+    "agreement": "synthetic-zen-pilot",
+    "terms_hash": "sha256:c6517b82f3953fdfc71deba1cae4c301c73faff91aeab4e4518808a411f85577",
+    "admission_atoms": "1",
+    "outcome_atoms": "499",
+    "target": "sha256:498d9158d49a9132f673d4b4ca46330774c9790e38b041ac992091d2daec7699"
+  },
+  "evidence": {
+    "delivery_id": "delivery-1",
+    "attempt_id": "attempt-1",
+    "session_id": "session-1",
+    "model": "synthetic/fixture-worker",
+    "outcome_id": "outcome-1"
+  },
+  "artifact": [
+    "Amber",
+    "Birch",
+    "Cedar",
+    "Delta",
+    "Elm"
+  ]
+}

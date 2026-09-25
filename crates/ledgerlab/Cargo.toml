@@ -8,6 +8,11 @@ description = "Shared acceptance facade and concrete stores; bounded Phase 1 sli
 [lints]
 workspace = true
 
+[features]
+zen-charge-candidate = ["ledgerlab-core/zen-charge-candidate"]
+# Private process-E2E build only; never enabled by zen-charge-candidate.
+zen-charge-e2e-hooks = ["zen-charge-candidate"]
+
 [dependencies]
 ledgerlab-core.workspace = true
 sqlx = { version = "=0.9.0", default-features = false, features = ["sqlite", "runtime-tokio", "migrate"] }

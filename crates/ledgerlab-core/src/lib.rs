@@ -7,6 +7,8 @@ pub mod domain;
 pub mod money;
 pub mod policy;
 pub mod wire;
+#[cfg(feature = "zen-charge-candidate")]
+pub mod zen_candidate;
 
 /// Version of the frozen contract family, independent of crate releases.
 pub const CONTRACT_VERSION: &str = "ledgerlab-contracts/1";
