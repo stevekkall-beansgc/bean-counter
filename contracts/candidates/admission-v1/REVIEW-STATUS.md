@@ -141,12 +141,12 @@ smoke, not a full legacy regression suite. Actual uncertain-COMMIT/power-loss
 behavior and coherently rewritten administrator-owned histories remain outside
 the evidence. Private hooks must never enter a released candidate artifact.
 
-Candidate commits `fd419fb` and `db09d7e` are on the local feature branch. The current hardening diff is not yet committed; no pushes, releases or deployments were performed. Build caches/toolchain state use the user-authorized `/private/tmp` locations. The candidate is not frozen.
+Candidate source commits `fd419fb`, `db09d7e` and `265d9f4` are on the local feature branch. The hardening diff has been committed and its targeted code paths received independent follow-up review. The provider-preflight record is a separate handoff update. No pushes, tags, releases or deployments were performed. Build caches/toolchain state use the user-authorized `/private/tmp` locations. Broader independent byte/math/manifest review and candidate freeze remain pending.
 
 
 ## Post-review hardening in current follow-up
 
-The independent review and its follow-up identified issues around cancellation, input bounds, live-binary provenance, and provider timeout cleanup. The current author-run changes address these issues where supported, with runtime-shutdown limitations stated explicitly; a final independent review of these exact bytes remains pending:
+The independent review and its follow-up identified issues around cancellation, input bounds, live-binary provenance, and provider timeout cleanup. A targeted independent follow-up confirmed the code changes address those findings within the stated runtime scope. Broader independent byte/math/manifest review and candidate freeze remain pending:
 
 - Public `init` and `execute` parse bounded DTOs before spawning detached Tokio
   tasks, preventing an oversized caller buffer from being copied. Cancelling the
@@ -165,7 +165,8 @@ The independent review and its follow-up identified issues around cancellation, 
   transition, retaining admission charge A while releasing the logical slot and
   booking no outcome charge.
 
-The provider-backed E2E run at `db09d7e` remained unverified because catalog
-refresh was blocked by the network/DNS environment before any model request. The
-updated manifest gate must be rerun from a clean committed candidate; no provider
-request has validated the current hardening diff.
+The provider-backed E2E was rerun at `265d9f4` using the updated clean-source
+manifest gate. The ordinary candidate build and manifest validation succeeded,
+then OpenCode catalog refresh failed for provider `opencode` before any model
+request. Live provider behavior remains unverified; the failure is a current
+environment/preflight blocker, not a candidate pass.

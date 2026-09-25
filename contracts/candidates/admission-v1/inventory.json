@@ -23,8 +23,8 @@
       "sha256": "4c5cd2746507a406eea0564a941d7a0ab4086ac947af349635c465bfa38763d3"
     },
     "contracts/candidates/admission-v1/REVIEW-STATUS.md": {
-      "bytes": 11313,
-      "sha256": "f84edb5d3f57504ec5b86b9843a60f5611455f6e25aa07c1a100387a1ce8437d"
+      "bytes": 11594,
+      "sha256": "c0821472b5c7b2cf43697abc1a9c35f22cfd65b5a7c939a35934099c3b4291b2"
     },
     "contracts/candidates/admission-v1/bindings.json": {
       "bytes": 905,
