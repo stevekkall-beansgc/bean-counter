@@ -23,8 +23,8 @@
       "sha256": "4c5cd2746507a406eea0564a941d7a0ab4086ac947af349635c465bfa38763d3"
     },
     "contracts/candidates/admission-v1/REVIEW-STATUS.md": {
-      "bytes": 11594,
-      "sha256": "c0821472b5c7b2cf43697abc1a9c35f22cfd65b5a7c939a35934099c3b4291b2"
+      "bytes": 13011,
+      "sha256": "62c436f2954582aadca664517b7db3868faae448f3d5c0c23f8e22ac6bfdef19"
     },
     "contracts/candidates/admission-v1/bindings.json": {
       "bytes": 905,
@@ -91,8 +91,8 @@
       "sha256": "63cfc64c1192632d139ac36902bcec67bf8c7387b1f249e716a5d86ba92b9397"
     },
     "examples/zen-charge-pilot/README.md": {
-      "bytes": 8092,
-      "sha256": "b1615c98de1e2dad6ba91fe8f8cee6e8c138fbc723ef3173e26c87dbc1bc7cc1"
+      "bytes": 8823,
+      "sha256": "072cdcfe530028b3a9ddef46218aecf02ffc2d390bcdeb4058f5aa5894fc3ae9"
     },
     "examples/zen-charge-pilot/fixture_worker.py": {
       "bytes": 425,
@@ -111,12 +111,12 @@
       "sha256": "6143959b783b5e066dc941718abed07d5de146b1fd39c4f454d8493c3b3ab576"
     },
     "scripts/check-opencode-zen-charge-e2e.sh": {
-      "bytes": 2266,
-      "sha256": "c3f53ee67a38438dc710dbcae6b6fecea78ede93437740a7283fb75e9dda202b"
+      "bytes": 2274,
+      "sha256": "b893d62d4f782675ae996f3496543a3bbb8cbd2e42c7c44bbcc4eb69663622f9"
     },
     "scripts/e2e/opencode_zen_charge.py": {
-      "bytes": 26589,
-      "sha256": "f637857d177aaa8e3b03167e47e2de6a68efea9e0d8017929034975d0f7bbc02"
+      "bytes": 28927,
+      "sha256": "40f22560b7d5201a4d4006d17974b6995bb746e6d04f74e3622d8d0f79ec59fe"
     }
   },
   "reviewer_followup": {

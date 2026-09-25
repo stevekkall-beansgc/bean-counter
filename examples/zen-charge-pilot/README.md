@@ -90,13 +90,24 @@ model requests. It uses a temporary empty Git workspace for each OpenCode
 run, `--pure`, a text-only agent with every tool denied, closed stdin, and no
 sharing. The only user prompt is the public five-product fixture. The gate
 requires both exact model IDs to be active with zero catalog cost; it fails
-closed if a route is unavailable or its catalog changes. It accepts only the
+closed if a route is unavailable or its catalog changes. Both the event stream
+and sanitized export must contain numeric zero-cost evidence. Missing, malformed,
+nonzero, or conflicting cost observations refuse; one source cannot override
+the other. It accepts only the
 exact sorted JSON artifact, then verifies the 1-atom admission and 499-atom
 outcome receipts, exact replay, replay with renamed subordinate IDs, rejection
 of a mutated order ID, and the final 1,000-atom statement. It stores sanitized
 model metadata, a hash of each sanitized OpenCode export, requests, receipts,
 and the final statement under a unique ignored `work/opencode-provider-charge-e2e/`
 run directory. Raw model event output and provider error text are not saved.
+
+Before reserving a slot, the gate saves the original failure request. Model
+timeouts and process errors trigger that operation, retaining admission A and
+releasing the logical slot without charging B. If cleanup fails or its result is
+unknown, the gate reports the exact retained store, statement command, and
+original failure retry command; it also saves a recovery record when storage is
+available. Reconcile that store instead of initializing a replacement. This
+cleanup concerns the host's logical slot, not remote provider capacity.
 
 The admission receipt represents a **logical host slot**; it does not reserve
 actual Zen or local hardware capacity. Catalog and run cost are the values

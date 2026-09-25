@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -44,6 +45,11 @@ def write_json(path, value):
         json.dump(value, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         stream.flush()
         os.fsync(stream.fileno())
+    directory_fd = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def parse_json_output(stdout, label):
@@ -101,10 +107,10 @@ def preflight_model(model):
     if record.get("status") != "active":
         raise E2EFailure(f"OpenCode model is not active: {model}")
     cost = record.get("cost")
-    if not isinstance(cost, dict) or any(cost.get(key) != 0 for key in ("input", "output")):
+    if not isinstance(cost, dict) or any(not is_zero_cost(cost.get(key)) for key in ("input", "output")):
         raise E2EFailure(f"OpenCode catalog does not report zero input/output cost for {model}")
     cache = cost.get("cache", {})
-    if not isinstance(cache, dict) or any(cache.get(key) != 0 for key in ("read", "write")):
+    if not isinstance(cache, dict) or any(not is_zero_cost(cache.get(key)) for key in ("read", "write")):
         raise E2EFailure(f"OpenCode catalog does not report zero cache cost for {model}")
     return record
 
@@ -117,6 +123,24 @@ def walk(value):
     elif isinstance(value, list):
         for nested in value:
             yield from walk(nested)
+
+
+def is_zero_cost(value):
+    # Equality to zero also excludes NaN/infinity; bool must not masquerade as 0.
+    return type(value) in (int, float) and value == 0
+
+
+def required_zero_cost(records, source):
+    present = False
+    for record in walk(records):
+        if "cost" in record:
+            present = True
+            if not is_zero_cost(record["cost"]):
+                raise E2EFailure(f"{source} contains malformed or nonzero cost evidence")
+    if not present:
+        raise E2EFailure(f"{source} is missing required cost evidence")
+    # Validate every observation, never sum away conflicting positive/negative costs.
+    return 0
 
 
 def read_events(stdout):
@@ -165,7 +189,6 @@ def session_metadata(events):
     session_ids = []
     model_pairs = []
     terminal_reasons = []
-    costs = []
     token_rows = []
     tool_events = []
     for event in walk(events):
@@ -186,9 +209,6 @@ def session_metadata(events):
                 reason = event["part"].get("reason")
             if isinstance(reason, str):
                 terminal_reasons.append(reason)
-        cost = event.get("cost")
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            costs.append(cost)
         tokens = event.get("tokens")
         if isinstance(tokens, dict):
             token_rows.append(tokens)
@@ -198,7 +218,7 @@ def session_metadata(events):
         "session_id": session_ids[-1] if session_ids else None,
         "model_pairs": model_pairs,
         "terminal": terminal_reasons[-1] if terminal_reasons else None,
-        "reported_cost": sum(costs) if costs else None,
+        "reported_cost": required_zero_cost(events, "OpenCode event stream"),
         "token_rows": token_rows,
     }
 
@@ -220,7 +240,6 @@ def export_session(session_id, workspace):
         raise E2EFailure("OpenCode sanitized session export was not JSON") from error
     pairs = []
     tokens = []
-    costs = []
     for item in walk(exported):
         provider = item.get("providerID", item.get("providerId"))
         model = item.get("modelID", item.get("modelId"))
@@ -228,9 +247,8 @@ def export_session(session_id, workspace):
             pairs.append((provider, model))
         if isinstance(item.get("tokens"), dict):
             tokens.append(item["tokens"])
-        if isinstance(item.get("cost"), (int, float)) and not isinstance(item.get("cost"), bool):
-            costs.append(item["cost"])
-    return digest, {"model_pairs": pairs, "token_rows": tokens, "reported_cost": sum(costs) if costs else None}
+    return digest, {"model_pairs": pairs, "token_rows": tokens,
+                    "reported_cost": required_zero_cost(exported, "OpenCode sanitized export")}
 
 
 def prepare_workspace(path):
@@ -315,12 +333,10 @@ def run_model(model, prompt, run_id, run_dir, catalog):
         raise E2EFailure(f"{model} invocation did not finish normally")
     reported_cost = metadata["reported_cost"]
     token_rows = metadata["token_rows"]
-    if export_metadata:
-        if reported_cost is None:
-            reported_cost = export_metadata["reported_cost"]
-        token_rows.extend(export_metadata["token_rows"])
-    if reported_cost is None or reported_cost != 0:
-        raise E2EFailure(f"{model} did not report zero cost for this run")
+    export_cost = export_metadata["reported_cost"]
+    if not is_zero_cost(reported_cost) or not is_zero_cost(export_cost) or reported_cost != export_cost:
+        raise E2EFailure(f"{model} cost evidence must agree at zero in events and sanitized export")
+    token_rows.extend(export_metadata["token_rows"])
     token_totals = token_rows[-1] if token_rows else None
     evidence = {
         "schema": "opencode-provider-charge-e2e-evidence/1",
@@ -332,6 +348,7 @@ def run_model(model, prompt, run_id, run_dir, catalog):
         "catalog_status": catalog["status"],
         "catalog_cost": catalog["cost"],
         "reported_cost": reported_cost,
+        "reported_cost_sources": {"events": reported_cost, "sanitized_export": export_cost},
         "token_metadata_present": bool(token_rows),
         "token_usage": token_totals,
         "terminal": terminal,
@@ -378,6 +395,9 @@ def run_order(binary, store, run_dir, initial, order_index, model, catalog, prom
         "model": model,
         "outcome_id": f"outcome-{seed}",
     }
+    # Retain the original recovery operation before acquiring or charging anything.
+    fail_path = run_dir / f"{order_slug}-fail.json"
+    write_json(fail_path, command(binding, "fail", evidence))
     reserve = submit(binary, store, run_dir, f"{order_slug}-reserve",
                      command(binding, "reserve", evidence))
     reserve_receipt = checked_receipt(reserve, "reserve", 0)
@@ -389,14 +409,34 @@ def run_order(binary, store, run_dir, initial, order_index, model, catalog, prom
 
     try:
         model_evidence = run_model(model, prompt, run_id, run_dir, catalog)
-    except (E2EFailure, subprocess.TimeoutExpired) as error:
-        fail = submit(binary, store, run_dir, f"{order_slug}-fail",
-                      command(binding, "fail", evidence))
-        if fail.get("status") not in {"accepted", "duplicate"}:
-            raise E2EFailure(f"{model} failed and the candidate could not release its reserved slot")
-        if isinstance(error, subprocess.TimeoutExpired):
-            raise E2EFailure(f"{model} execution timed out; the admission charge is retained and no outcome charge was booked") from error
-        raise
+    except (E2EFailure, subprocess.SubprocessError, OSError) as error:
+        # subprocess.run kills and waits for a timed-out child before raising.
+        # This releases only the logical slot; it makes no remote-capacity claim.
+        reason = str(error) if isinstance(error, E2EFailure) else f"{model} process failed ({type(error).__name__})"
+        recovery = [str(binary), "zen-charge-candidate", "submit", str(store), str(fail_path), "--json"]
+        statement = [str(binary), "zen-charge-candidate", "statement", str(store), "--json"]
+        try:
+            fail = candidate_call(binary, "submit", store, fail_path)
+            if fail.get("status") not in {"accepted", "duplicate"}:
+                raise E2EFailure("candidate did not acknowledge slot release")
+            receipt = checked_receipt(fail, "fail", 0)
+            if receipt["body"].get("binding") != binding:
+                raise E2EFailure("candidate failure receipt had the wrong binding")
+            write_json(run_dir / f"{order_slug}-fail-response.json", fail)
+        except (E2EFailure, subprocess.SubprocessError, OSError) as cleanup_error:
+            unresolved = {"status": "unresolved", "reason": reason, "store": str(store),
+                          "failure_request": str(fail_path), "recovery_command": recovery,
+                          "statement_command": statement}
+            try:
+                write_json(run_dir / f"{order_slug}-recovery.json", unresolved)
+            except OSError:
+                pass  # Even if storage is unavailable, stderr retains exact recovery instructions.
+            raise E2EFailure(
+                f"{reason}; slot release is unresolved. Store: {store}. "
+                f"Inspect: {shlex.join(statement)} . Retry the original failure operation: {shlex.join(recovery)}"
+            ) from cleanup_error
+        raise E2EFailure(f"{reason}; logical slot released, admission charge retained, "
+                         f"no outcome charge booked. Store: {store}") from error
 
     artifact = model_evidence["artifact"]
     outcome_command = command(binding, "outcome", evidence, artifact)

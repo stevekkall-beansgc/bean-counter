@@ -170,3 +170,25 @@ manifest gate. The ordinary candidate build and manifest validation succeeded,
 then OpenCode catalog refresh failed for provider `opencode` before any model
 request. Live provider behavior remains unverified; the failure is a current
 environment/preflight blocker, not a candidate pass.
+
+## Additional author fixes for the three diff comments
+
+- Require zero-cost evidence independently from the OpenCode event stream and
+  sanitized export. Every reported cost must be a numeric zero; missing evidence,
+  booleans, strings, nulls, nonfinite values and nonzero observations refuse.
+  Costs are not summed, so positive/negative observations cannot cancel. Saved
+  model evidence identifies both cost sources. Catalog costs use the same strict
+  numeric-zero check.
+- Retain the existing fresh-build requirement and source/build manifest checks;
+  no modification-time or cached-binary fallback is available.
+- Save and sync the failure request before reservation. Model process errors and
+  timeouts attempt that original operation; failure acknowledgment is checked.
+  If cleanup is unavailable or uncertain, report the exact store and statement/
+  failure-retry commands, saving a recovery record when possible. Do not infer
+  rollback or initialize another store. File creation also syncs the containing
+  directory so the recovery request is retained before subsequent ledger work.
+
+These follow-up edits receive static syntax, diff and inventory checks only.
+The user's no-tests restriction remains in force; no build, test suite, candidate
+CLI, or live provider call was run for these edits. Earlier E2E results do not
+validate these new branches. The candidate remains unfrozen and pending review.

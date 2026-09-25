@@ -10,7 +10,7 @@ fi
 
 build_target="$PWD/work/opencode-zen-charge-target"
 if ! command -v rustc >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1; then
-  echo 'BLOCKED: pinned Rust 1.98.1 and a fresh ordinary candidate CLI are unavailable. E2E not run.' >&2
+  echo 'BLOCKED: pinned Rust 1.98.1 and cargo are required to build the ordinary candidate CLI. E2E not run.' >&2
   exit 77
 fi
 case "$(rustc --version)" in
