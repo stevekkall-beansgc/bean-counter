@@ -1,8 +1,16 @@
 //! Explicitly opt-in synthetic candidate coordinator. Separate store and record family.
+//!
+//! `init` and `execute` parse bounded input before spawning task-owned database
+//! work. Dropping the caller's future does not cancel a spawned mutation while
+//! its Tokio runtime remains live and driven. Runtime shutdown can abort active
+//! work; callers must await the result, or use statement/replay reconciliation
+//! when the result is unknown.
 use crate::{local, store::sqlite::zen_candidate::CandidateStore};
 use ledgerlab_core::zen_candidate::{self as core, Command, Setup, State};
 use serde_json::{json, Value};
 use std::{fs, path::Path, time::{SystemTime, UNIX_EPOCH}};
+#[cfg(feature = "zen-charge-e2e-hooks")]
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct CandidateError { pub code: &'static str, pub exit: u8 }
@@ -17,6 +25,13 @@ const MARKER: &[u8] = b"synthetic-only admission/1-candidate.1\n";
 
 pub async fn init(path: &Path, raw: &[u8]) -> Result<Value> {
     let setup: Setup = core::parse(raw).map_err(semantic)?;
+    let path = path.to_path_buf();
+    tokio::spawn(async move { init_owned(&path, setup).await })
+        .await
+        .map_err(|_| unknown(()))?
+}
+
+async fn init_owned(path: &Path, setup: Setup) -> Result<Value> {
     let state = State::new(setup.clone()).map_err(semantic)?;
     // Never reuse an installation; failure leaves its incomplete directory visible.
     local::private_dir(path).map_err(unavailable)?;
@@ -36,6 +51,13 @@ pub async fn init(path: &Path, raw: &[u8]) -> Result<Value> {
 
 pub async fn execute(path: &Path, raw: Option<&[u8]>) -> Result<Value> {
     let command: Option<Command> = raw.map(core::parse).transpose().map_err(semantic)?;
+    let path = path.to_path_buf();
+    tokio::spawn(async move { execute_owned(&path, command).await })
+        .await
+        .map_err(|_| unknown(()))?
+}
+
+async fn execute_owned(path: &Path, command: Option<Command>) -> Result<Value> {
     local::private_existing(path, true).map_err(unavailable)?;
     local::private_existing(&path.join("candidate.marker"), false).map_err(integrity)?;
     if fs::read(path.join("candidate.marker")).map_err(integrity)? != MARKER { return Err(integrity(())); }
@@ -44,6 +66,10 @@ pub async fn execute(path: &Path, raw: Option<&[u8]>) -> Result<Value> {
     // On errors, explicit rollback where possible, then discard the connection.
     if result.is_err() { let _ = store.end(false).await; }
     store.close().await;
+    #[cfg(feature = "zen-charge-e2e-hooks")]
+    if let Ok(directory) = std::env::var("LEDGER_ZEN_E2E_PAUSE_DIR") {
+        let _ = fs::write(Path::new(&directory).join("done"), b"done");
+    }
     result
 }
 async fn transact(store: &mut CandidateStore, command: Option<&Command>) -> Result<Value> {
@@ -72,6 +98,14 @@ async fn transact(store: &mut CandidateStore, command: Option<&Command>) -> Resu
         if rows.len() >= 32 { return Err(CandidateError { code: "HISTORY_LIMIT", exit: 3 }); }
         store.append(rows.len() as i64 + 1, &core::bytes(command).map_err(semantic)?, at,
             &core::bytes(&decision.response).map_err(semantic)?).await.map_err(unavailable)?;
+        #[cfg(feature = "zen-charge-e2e-hooks")]
+        if let Ok(directory) = std::env::var("LEDGER_ZEN_E2E_PAUSE_DIR") {
+            let directory = Path::new(&directory);
+            fs::write(directory.join("ready"), b"ready").map_err(unavailable)?;
+            while !directory.join("release").exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
         crash("before_commit", 91);
         store.end(true).await.map_err(unknown)?;
         crash("after_commit", 92);

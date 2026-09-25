@@ -45,6 +45,7 @@ def main():
             env = dict(os.environ)
             env.pop("LEDGER_ZEN_CANDIDATE_CRASH", None)
             env.pop("LEDGER_ZEN_E2E_TIME_US", None)
+            env.pop("LEDGER_ZEN_E2E_PAUSE_DIR", None)
             if crash:
                 env["LEDGER_ZEN_CANDIDATE_CRASH"] = crash
             if at is not None:
@@ -183,6 +184,49 @@ def main():
                         executable=candidate_binary, at=1, crash="before_commit")
         end_us = time.time_ns() // 1000
         assert start_us <= int(response["receipt"]["body"]["accepted_at_us"]) <= end_us
+
+        # Cancel the public API waiter while its detached SQLite worker is
+        # paused with an uncommitted append. A second process must remain locked;
+        # after release, replay must recover the one committed receipt.
+        cancel_store, cancel_initial = fresh("caller-cancelled-api")
+        bounded_api = call("e2e-bounded-api-input", cancel_store)
+        assert bounded_api["status"] == "oversized-api-input-rejected", bounded_api
+        cancel_command = command(cancel_initial["orders"][0]["binding"], "reserve")
+        cancel_request = root / "caller-cancelled-reserve.json"
+        cancel_request.write_text(json.dumps(cancel_command))
+        pause_dir = root / "caller-cancelled-pause"
+        pause_dir.mkdir()
+        cancel_env = environment()
+        cancel_env["LEDGER_ZEN_E2E_PAUSE_DIR"] = str(pause_dir)
+        cancel_process = subprocess.Popen(
+            [str(binary), "zen-charge-candidate", "e2e-cancel-submit", str(cancel_store),
+             str(cancel_request), "--json"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=cancel_env)
+        count += 1
+        try:
+            deadline = time.monotonic() + 20
+            while not (pause_dir / "cancelled").exists():
+                assert cancel_process.poll() is None, "cancellation probe exited before reaching its barrier"
+                assert time.monotonic() < deadline, "cancellation probe barrier timed out"
+                time.sleep(0.005)
+            assert (pause_dir / "ready").exists()
+            busy = call("statement", cancel_store, expected=7)
+            assert busy["code"] == "UNAVAILABLE", busy
+            (pause_dir / "release").touch()
+            stdout, stderr = cancel_process.communicate(timeout=20)
+            assert cancel_process.returncode == 0, (cancel_process.returncode, stdout, stderr)
+            assert json.loads(stdout)["status"] == "caller-cancelled", stdout
+        finally:
+            (pause_dir / "release").touch()
+            if cancel_process.poll() is None:
+                cancel_process.kill()
+                cancel_process.communicate()
+        after_cancel = statement(cancel_store, 0)
+        assert after_cancel["slot_owner"] == cancel_initial["orders"][0]["binding"]["order_id"]
+        saved_reservation = after_cancel["orders"][0]["receipts"]["reserve"]
+        recovered = call("submit", cancel_store, cancel_command)
+        assert recovered["status"] == "duplicate" and recovered["receipt"] == saved_reservation
+        assert statement(cancel_store, 0) == after_cancel
 
         # Compare complete implementation receipts to checked-in fixed expected values.
         # No production imports, regenerated goldens or runtime-derived expected IDs.

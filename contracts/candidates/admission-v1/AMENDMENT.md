@@ -220,6 +220,6 @@ Remaining implementation limits: no live Zen/provider check, automatic job
 restart, expiry/reaper, refund/correction, authorization revocation, physical
 resource proof, crash-during-COMMIT/power-loss injection, or cross-store exactly-once
 guarantee. The author compiled all three build variants and passed the dedicated
-process E2E gate (270 counted CLI checks) using the user-provided pinned Rust
+process E2E gate (278 counted CLI checks) using the user-provided pinned Rust
 1.98.1 toolchain/cache. See `REVIEW-STATUS.md` and `E2E-RESULT.json`. This does not
 replace separate review or establish a reviewed freeze.

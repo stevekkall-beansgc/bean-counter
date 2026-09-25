@@ -9,34 +9,41 @@ if ! command -v opencode >/dev/null 2>&1; then
 fi
 
 build_target="$PWD/work/opencode-zen-charge-target"
-candidate_binary="$PWD/work/zen-charge-pilot-target/debug/ledger"
-if command -v rustc >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
-  case "$(rustc --version)" in
-    'rustc 1.98.1 '*) ;;
-    *) echo 'BLOCKED: pinned Rust 1.98.1 required. E2E not run.' >&2; exit 77 ;;
-  esac
-  CARGO_TARGET_DIR="$build_target" cargo build -p ledgerlab-cli --bin ledger \
-    --no-default-features --features zen-charge-candidate --locked --offline
-  candidate_binary="$build_target/debug/ledger"
-elif [ -x "$candidate_binary" ]; then
-  for input in Cargo.lock Cargo.toml crates/ledgerlab-cli/Cargo.toml \
-    crates/ledgerlab-core/Cargo.toml crates/ledgerlab/Cargo.toml .cargo/config.toml; do
-    if [ -f "$input" ] && [ "$input" -nt "$candidate_binary" ]; then
-      echo "BLOCKED: $input is newer than the prebuilt candidate CLI; use pinned Rust 1.98.1 to rebuild." >&2
-      exit 77
-    fi
-  done
-  newer_source="$(find crates/ledgerlab-cli crates/ledgerlab-core crates/ledgerlab \
-    -type f \( -name '*.rs' -o -name Cargo.toml \) -newer "$candidate_binary" -print -quit)"
-  if [ -n "$newer_source" ]; then
-    echo "BLOCKED: $newer_source is newer than the prebuilt candidate CLI; use pinned Rust 1.98.1 to rebuild." >&2
-    exit 77
-  fi
-  echo 'Using the fresh ordinary candidate CLI; the pinned compiler is unavailable.' >&2
-else
+if ! command -v rustc >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1; then
   echo 'BLOCKED: pinned Rust 1.98.1 and a fresh ordinary candidate CLI are unavailable. E2E not run.' >&2
   exit 77
 fi
+case "$(rustc --version)" in
+  'rustc 1.98.1 '*) ;;
+  *) echo 'BLOCKED: pinned Rust 1.98.1 required. E2E not run.' >&2; exit 77 ;;
+esac
+CARGO_TARGET_DIR="$build_target" cargo build -p ledgerlab-cli --bin ledger \
+  --no-default-features --features zen-charge-candidate --locked --offline
+candidate_binary="$build_target/debug/ledger"
+build_manifest="$PWD/work/opencode-zen-charge-build.json"
+PYTHONDONTWRITEBYTECODE=1 python3 - "$candidate_binary" "$build_manifest" <<'PY'
+import hashlib, json, subprocess, sys
+from pathlib import Path
+binary, manifest = map(Path, sys.argv[1:])
+root = Path.cwd()
+status = subprocess.run(["git", "status", "--porcelain"], cwd=root,
+                        capture_output=True, text=True, check=True).stdout
+if status:
+    raise SystemExit("BLOCKED: provider E2E requires a clean source worktree")
+data = binary.read_bytes()
+result = {
+    "source_commit": subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                                    capture_output=True, text=True, check=True).stdout.strip(),
+    "source_tree": subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=root,
+                                  capture_output=True, text=True, check=True).stdout.strip(),
+    "rustc_version": subprocess.run(["rustc", "--version"], capture_output=True,
+                                    text=True, check=True).stdout.strip(),
+    "feature_profile": "--no-default-features --features zen-charge-candidate",
+    "candidate_binary_sha256": hashlib.sha256(data).hexdigest(),
+    "candidate_binary_bytes": len(data),
+}
+manifest.write_text(json.dumps(result, indent=2) + "\n")
+PY
 
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/e2e/opencode_zen_charge.py \
-  --ledger "$candidate_binary"
+  --ledger "$candidate_binary" --build-manifest "$build_manifest"

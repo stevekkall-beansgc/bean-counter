@@ -206,8 +206,11 @@ def session_metadata(events):
 def export_session(session_id, workspace):
     if not session_id:
         raise E2EFailure("OpenCode event stream did not include the session ID needed for sanitized export")
-    completed = subprocess.run(["opencode", "export", session_id, "--sanitize"], cwd=workspace,
-                               capture_output=True, timeout=60)
+    try:
+        completed = subprocess.run(["opencode", "export", session_id, "--sanitize"], cwd=workspace,
+                                   capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired as error:
+        raise E2EFailure("OpenCode sanitized export timed out; the order will be failed") from error
     if completed.returncode != 0:
         raise E2EFailure("OpenCode could not export the completed session in sanitized form")
     digest = hashlib.sha256(completed.stdout).hexdigest()
@@ -263,8 +266,21 @@ def run_model(model, prompt, run_id, run_dir, catalog):
     argv = ["opencode", "run", "--pure", "--model", model, "--agent", "bean-counter-e2e",
             "--format", "json", "--title", f"bean-counter-e2e-{run_id}-{slug}", "--dir", str(workspace), prompt]
     started_at = utc_now()
-    completed = subprocess.run(argv, cwd=workspace, env=env, stdin=subprocess.DEVNULL,
-                               capture_output=True, text=True, timeout=300)
+    try:
+        completed = subprocess.run(argv, cwd=workspace, env=env, stdin=subprocess.DEVNULL,
+                                   capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired as error:
+        write_json(run_dir / f"opencode-process-{slug}.json", {
+            "exit_code": None,
+            "timed_out": True,
+            "started_at_utc": started_at,
+            "finished_at_utc": utc_now(),
+            "timeout_seconds": 300,
+            "tools_disabled_by_agent": True,
+            "pure_mode": True,
+            "sharing_requested": False,
+        })
+        raise E2EFailure(f"OpenCode invocation timed out for {model}; raw provider output was not saved") from error
     finished_at = utc_now()
     process = {
         "exit_code": completed.returncode,
@@ -373,11 +389,13 @@ def run_order(binary, store, run_dir, initial, order_index, model, catalog, prom
 
     try:
         model_evidence = run_model(model, prompt, run_id, run_dir, catalog)
-    except E2EFailure:
+    except (E2EFailure, subprocess.TimeoutExpired) as error:
         fail = submit(binary, store, run_dir, f"{order_slug}-fail",
                       command(binding, "fail", evidence))
         if fail.get("status") not in {"accepted", "duplicate"}:
             raise E2EFailure(f"{model} failed and the candidate could not release its reserved slot")
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise E2EFailure(f"{model} execution timed out; the admission charge is retained and no outcome charge was booked") from error
         raise
 
     artifact = model_evidence["artifact"]
@@ -431,12 +449,41 @@ def run_order(binary, store, run_dir, initial, order_index, model, catalog, prom
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ledger", type=Path, required=True)
+    parser.add_argument("--build-manifest", type=Path, required=True,
+                        help="manifest emitted by check-opencode-zen-charge-e2e.sh")
     parser.add_argument("--zen-model", default=DEFAULT_ZEN_MODEL)
     parser.add_argument("--local-model", default=DEFAULT_LOCAL_MODEL)
     args = parser.parse_args()
     binary = args.ledger.resolve()
     if not binary.is_file():
         raise E2EFailure(f"candidate CLI binary does not exist: {binary}")
+    source_commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                                  capture_output=True, text=True, timeout=20, check=True).stdout.strip()
+    source_tree = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT,
+                                 capture_output=True, text=True, timeout=20, check=True).stdout.strip()
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                            capture_output=True, text=True, timeout=20, check=True).stdout
+    if status:
+        raise E2EFailure("source worktree must be clean before provider E2E so binary provenance is exact")
+    binary_sha256 = hashlib.sha256(binary.read_bytes()).hexdigest()
+    rustc_version = subprocess.run(["rustc", "--version"], capture_output=True,
+                                   text=True, timeout=20, check=True).stdout.strip()
+    manifest_path = args.build_manifest.resolve()
+    try:
+        build_manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise E2EFailure("provider E2E build manifest is missing or invalid") from error
+    expected_manifest = {
+        "source_commit": source_commit,
+        "source_tree": source_tree,
+        "rustc_version": rustc_version,
+        "feature_profile": "--no-default-features --features zen-charge-candidate",
+        "candidate_binary_sha256": binary_sha256,
+        "candidate_binary_bytes": binary.stat().st_size,
+    }
+    if build_manifest != expected_manifest:
+        raise E2EFailure("provider E2E binary does not match the clean-source build manifest")
+    build_manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     work_root = ROOT / "work/opencode-provider-charge-e2e"
     work_root.mkdir(parents=True, exist_ok=True)
@@ -488,6 +535,15 @@ def main():
         "finished_at_utc": utc_now(),
         "opencode_version": subprocess.run(["opencode", "--version"], capture_output=True,
                                             text=True, timeout=20, check=True).stdout.strip(),
+        "source": {
+            "commit": source_commit,
+            "tree": source_tree,
+            "worktree_clean": True,
+            "rustc_version": rustc_version,
+            "feature_profile": "--no-default-features --features zen-charge-candidate",
+            "candidate_binary_sha256": binary_sha256,
+            "build_manifest_sha256": build_manifest_sha256,
+        },
         "provider_runs": providers,
         "model_requests": len(providers),
         "completed_orders": len(providers),

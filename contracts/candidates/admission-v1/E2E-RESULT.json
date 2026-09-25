@@ -13,7 +13,7 @@
   "summary": {
     "status": "passed",
     "candidate": true,
-    "cli_process_checks": 270,
+    "cli_process_checks": 278,
     "live_zen": false,
     "power_loss_tested": false,
     "reviewed_freeze": false,
@@ -32,13 +32,13 @@
     },
     "candidate": {
       "path": "work/zen-charge-pilot-target/debug/ledger",
-      "bytes": 39545256,
-      "sha256": "f6fdd55cc12e5c0d48cda9e86917444b20c0cce59e604cbb9027421fef4c9e24"
+      "bytes": 39822488,
+      "sha256": "bcb88c2e03e5547084fe65d80da84596b11b96986840651a538b1b0abe094d01"
     },
     "e2e-hooks": {
       "path": "work/zen-charge-e2e-target/debug/ledger",
-      "bytes": 39546568,
-      "sha256": "fb846d5fbdd5f1ac7ec27f76cb9a90892779d8d4a2f2fd687620cf2216d1dc2c"
+      "bytes": 39970392,
+      "sha256": "e0483a9b986e88c90c7dc4a1e28c8f4c6fcf89167f719527945da87ceb08980b"
     }
   }
 }

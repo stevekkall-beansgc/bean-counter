@@ -9,22 +9,22 @@
     "command": "CARGO_HOME=/private/tmp/bean-counter-cargo RUSTUP_HOME=/private/tmp/bean-counter-rustup PATH=/private/tmp/bean-counter-cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin sh scripts/check-zen-charge-pilot-e2e.sh",
     "exit_code": 0,
     "status": "passed",
-    "cli_process_checks": 270,
+    "cli_process_checks": 278,
     "result": "contracts/candidates/admission-v1/E2E-RESULT.json",
     "scope": "author-run process E2E; not independent review or freeze"
   },
   "files": {
     "contracts/candidates/admission-v1/AMENDMENT.md": {
       "bytes": 14078,
-      "sha256": "f0d9ffca1a3fa4dea831d948b696d03f8d6a0257baaaed2960f4bc8d91459f25"
+      "sha256": "6c9c4d42675c1624339790fe997d0c1e2dfec4ca92009944dfa341aa102abfb7"
     },
     "contracts/candidates/admission-v1/E2E-RESULT.json": {
       "bytes": 1565,
-      "sha256": "2b1d8fbe305716ac708437df3d9d19a35f13133a051835b0e15d805db84b54ed"
+      "sha256": "4c5cd2746507a406eea0564a941d7a0ab4086ac947af349635c465bfa38763d3"
     },
     "contracts/candidates/admission-v1/REVIEW-STATUS.md": {
-      "bytes": 8571,
-      "sha256": "a12901c2eb3deb9962bdaa053e23849b9d5332b29b9ea228577e64a678b9e72b"
+      "bytes": 11313,
+      "sha256": "f84edb5d3f57504ec5b86b9843a60f5611455f6e25aa07c1a100387a1ce8437d"
     },
     "contracts/candidates/admission-v1/bindings.json": {
       "bytes": 905,
@@ -55,8 +55,8 @@
       "sha256": "383cf2ebe9a45590e93039490d8d8cf1b300a06bcf326a899259cd4d0d604576"
     },
     "crates/ledgerlab-cli/src/zen_candidate.rs": {
-      "bytes": 1196,
-      "sha256": "4c9bae47962230680a9dcce9c8b7f7eb69f0242757ebd464c4990ae0f7aab12b"
+      "bytes": 4009,
+      "sha256": "52e41357e9788d26ebaa3b170e290671635e422f29704812bd382194a9b2f36c"
     },
     "crates/ledgerlab-core/Cargo.toml": {
       "bytes": 515,
@@ -87,12 +87,12 @@
       "sha256": "a78591d7284314dc5753522924e68ee76eb87f006a939223ae56adb162bf736e"
     },
     "crates/ledgerlab/src/zen_candidate.rs": {
-      "bytes": 5655,
-      "sha256": "f4e7fdf79f94f7f04605d121700705dfbe981ab661f38f5458612fbcc3eacb91"
+      "bytes": 7132,
+      "sha256": "63cfc64c1192632d139ac36902bcec67bf8c7387b1f249e716a5d86ba92b9397"
     },
     "examples/zen-charge-pilot/README.md": {
-      "bytes": 7600,
-      "sha256": "687df71f2bdd65648f339d9558183be7f2567839c69f8af8d14ee2f0c58946c0"
+      "bytes": 8092,
+      "sha256": "b1615c98de1e2dad6ba91fe8f8cee6e8c138fbc723ef3173e26c87dbc1bc7cc1"
     },
     "examples/zen-charge-pilot/fixture_worker.py": {
       "bytes": 425,
@@ -107,16 +107,16 @@
       "sha256": "30e1ebf9b798e1d1dc03af5b8d8714aa66fda714fcc301effbfe8b39619b07c2"
     },
     "scripts/e2e/zen_charge_pilot.py": {
-      "bytes": 28656,
-      "sha256": "7da7372787573ea0cfb8e926dff69abfe2b2636311837e21adaee84d64155a06"
+      "bytes": 31266,
+      "sha256": "6143959b783b5e066dc941718abed07d5de146b1fd39c4f454d8493c3b3ab576"
     },
     "scripts/check-opencode-zen-charge-e2e.sh": {
-      "bytes": 1864,
-      "sha256": "dc627c51d7ad9ec2b4525fa4bd1eeba5b7a156cb063920ec2812b0238cc51369"
+      "bytes": 2266,
+      "sha256": "c3f53ee67a38438dc710dbcae6b6fecea78ede93437740a7283fb75e9dda202b"
     },
     "scripts/e2e/opencode_zen_charge.py": {
-      "bytes": 23390,
-      "sha256": "ffc5e4f435f037d93ad9c6af035a275f5af8a5b0e9321492cc8130629cb02d5d"
+      "bytes": 26589,
+      "sha256": "f637857d177aaa8e3b03167e47e2de6a68efea9e0d8017929034975d0f7bbc02"
     }
   },
   "reviewer_followup": {

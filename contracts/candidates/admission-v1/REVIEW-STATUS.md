@@ -19,7 +19,8 @@ Base: `87892ac011902b286776e26925d8a3fb2c2aaa88`
   slot, sequential reservation/admission/outcome transitions, and terminal failure.
 - Synthetic process worker and host demo; no live OpenCode/Zen or Agency changes.
 - Independent E2E process driver with real CLI processes, SQLite reopen, an
-  actual worker child process, concurrent submitters and abrupt process exits.
+  actual worker child process, concurrent submitters, abrupt process exits, and a
+  caller-cancellation case that proves the detached SQLite worker retains the owner lock until commit while the Tokio runtime remains live and driven.
 - Reviewer follow-up: separate `zen-charge-e2e-hooks` feature for private clock
   and crash injection; neither hook is compiled into the default or ordinary
   candidate runtime. Three independently built artifacts exercise that boundary.
@@ -46,6 +47,9 @@ Base: `87892ac011902b286776e26925d8a3fb2c2aaa88`
   synthetic demonstration and explicit limitations.
 - `scripts/check-zen-charge-pilot-e2e.sh`, `scripts/e2e/zen_charge_pilot.py`:
   dedicated build-and-process-E2E entrypoint and scenarios.
+- `scripts/check-opencode-zen-charge-e2e.sh`, `scripts/e2e/opencode_zen_charge.py`:
+  provider-backed E2E gate, clean-source build manifest, timeout cleanup, and
+  sanitized evidence export.
 
 ## Exact validation result
 
@@ -58,11 +62,11 @@ CARGO_HOME=/private/tmp/bean-counter-cargo RUSTUP_HOME=/private/tmp/bean-counter
 Exit **0**, pinned Rust **1.98.1** with the user-provided locked dependency cache:
 
 ```text
-{"status": "passed", "candidate": true, "cli_process_checks": 270, "live_zen": false, "power_loss_tested": false, "reviewed_freeze": false, "clock_hooks": "separate-e2e-build", "fixed_receipt_fixture_compared": true, "feature_off_runtime_checked": true}
+{"status": "passed", "candidate": true, "cli_process_checks": 278, "live_zen": false, "power_loss_tested": false, "reviewed_freeze": false, "clock_hooks": "separate-e2e-build", "fixed_receipt_fixture_compared": true, "feature_off_runtime_checked": true}
 ```
 
 All three builds and the complete dedicated process E2E driver passed. Its
-counter reports 270 CLI process checks, not 270 distinct scenarios; helper and
+counter reports 278 CLI process checks, not 278 distinct scenarios; helper and
 worker processes are additional. No unit tests or broad test suites ran, and
 no dependency or toolchain installation was attempted. The prior exit-77
 toolchain blocker was resolved by the user's isolated `/private/tmp` toolchain.
@@ -111,8 +115,7 @@ expired admission window. Reviewer-requested additions:
   build must ignore private clock/crash environment variables and reject a
   caller-supplied time field.
 
-All listed scenarios completed in the passing author-run E2E gate. This is
-bounded local synthetic evidence, not a general robustness or freeze claim.
+The listed scenarios completed in the passing author-run E2E gate. The follow-up E2E also rejects oversized input through both public APIs before task creation, cancels the public API waiter while its detached worker has an uncommitted append, confirms a competing process receives `UNAVAILABLE`, then verifies commit recovery returns the original reservation receipt without a second obligation. Caller cancellation is covered only while the Tokio runtime remains live and driven; runtime shutdown can abort outstanding tasks and leaves the result to statement/replay reconciliation. This is bounded local synthetic evidence, not a general robustness or freeze claim.
 
 ## Separate-review decisions and limits
 
@@ -138,6 +141,31 @@ smoke, not a full legacy regression suite. Actual uncertain-COMMIT/power-loss
 behavior and coherently rewritten administrator-owned histories remain outside
 the evidence. Private hooks must never enter a released candidate artifact.
 
-Source changes are confined to this worktree; build caches/toolchain state use
-the user-authorized `/private/tmp` locations. No commits, pushes, releases or
-deployments were performed. The candidate is not frozen.
+Candidate commits `fd419fb` and `db09d7e` are on the local feature branch. The current hardening diff is not yet committed; no pushes, releases or deployments were performed. Build caches/toolchain state use the user-authorized `/private/tmp` locations. The candidate is not frozen.
+
+
+## Post-review hardening in current follow-up
+
+The independent review and its follow-up identified issues around cancellation, input bounds, live-binary provenance, and provider timeout cleanup. The current author-run changes address these issues where supported, with runtime-shutdown limitations stated explicitly; a final independent review of these exact bytes remains pending:
+
+- Public `init` and `execute` parse bounded DTOs before spawning detached Tokio
+  tasks, preventing an oversized caller buffer from being copied. Cancelling the
+  waiter does not drop the store/owner while queued work drains, provided the
+  runtime remains live and driven. The process E2E exercises the size bound,
+  cancellation during an open transaction, lock retention, and replay behavior.
+  Runtime shutdown remains outside the guarantee; callers must await completion
+  or reconcile an unknown result from the journal.
+- The provider-backed E2E no longer accepts a cached binary based on mtimes; it
+  requires a fresh ordinary candidate build with pinned Rust. The shell gate emits
+  a manifest containing source commit/tree, feature profile, compiler version,
+  and binary SHA-256; the Python driver requires and validates that manifest
+  before claiming build provenance. Direct Python execution without matching
+  gate evidence is refused.
+- Model invocation and export timeouts now flow through the known-failure
+  transition, retaining admission charge A while releasing the logical slot and
+  booking no outcome charge.
+
+The provider-backed E2E run at `db09d7e` remained unverified because catalog
+refresh was blocked by the network/DNS environment before any model request. The
+updated manifest gate must be rerun from a clean committed candidate; no provider
+request has validated the current hardening diff.

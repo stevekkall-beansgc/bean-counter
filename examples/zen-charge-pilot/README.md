@@ -59,10 +59,15 @@ concurrent retries with renamed evidence; exact window/clock boundaries and late
 receipt lookup; malformed/duplicate-key/null input; duplicate authorizations;
 price bounds; corrupted journal replay; complete fixed receipt and canonical
 response-byte comparison against the saved expected fixture; default-feature
-billing smoke and normal-candidate hook isolation.
-The dedicated gate passed with 270 counted CLI process checks using the pinned
+billing smoke and normal-candidate hook isolation; oversized input rejection
+through both public APIs; and caller cancellation during an uncommitted
+transaction with owner-lock retention and receipt recovery. The cancellation
+guarantee assumes the Tokio runtime remains live and driven; runtime shutdown
+leaves the operation result unknown until replay/reconciliation.
+The dedicated gate passed with 278 counted CLI process checks using the pinned
 Rust 1.98.1 toolchain; see the candidate `REVIEW-STATUS.md` and `E2E-RESULT.json`
-for the exact command and scope. Independent review is still pending.
+for the exact command and scope. The hardening path has had a separate static
+review; full candidate review and freeze remain pending.
 The worker/SQLite/CLI are separate real processes;
 there is no live Zen call or simulated assertion that one occurred.
 
@@ -76,9 +81,11 @@ candidate store:
 sh scripts/check-opencode-zen-charge-e2e.sh
 ```
 
-This gate builds the ordinary `zen-charge-candidate` CLI when the pinned Rust
-toolchain is available. If not, it uses the existing candidate binary only
-when no Rust source or manifest is newer than that binary. It makes two real
+This gate requires the pinned Rust toolchain and builds the ordinary
+`zen-charge-candidate` CLI; it does not use a cached-binary fallback. The shell
+gate emits a source/build manifest and the Python driver validates the binary
+digest, source commit/tree, compiler, and feature profile before recording
+provider evidence. It makes two real
 model requests. It uses a temporary empty Git workspace for each OpenCode
 run, `--pure`, a text-only agent with every tool denied, closed stdin, and no
 sharing. The only user prompt is the public five-product fixture. The gate
