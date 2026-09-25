@@ -91,8 +91,8 @@
       "sha256": "f4e7fdf79f94f7f04605d121700705dfbe981ab661f38f5458612fbcc3eacb91"
     },
     "examples/zen-charge-pilot/README.md": {
-      "bytes": 5667,
-      "sha256": "2ae6c9fe2ab74374a557b85029e3fe67de79a984e52330db5dc3ce5654671d53"
+      "bytes": 7600,
+      "sha256": "687df71f2bdd65648f339d9558183be7f2567839c69f8af8d14ee2f0c58946c0"
     },
     "examples/zen-charge-pilot/fixture_worker.py": {
       "bytes": 425,
@@ -109,6 +109,14 @@
     "scripts/e2e/zen_charge_pilot.py": {
       "bytes": 28656,
       "sha256": "7da7372787573ea0cfb8e926dff69abfe2b2636311837e21adaee84d64155a06"
+    },
+    "scripts/check-opencode-zen-charge-e2e.sh": {
+      "bytes": 1864,
+      "sha256": "dc627c51d7ad9ec2b4525fa4bd1eeba5b7a156cb063920ec2812b0238cc51369"
+    },
+    "scripts/e2e/opencode_zen_charge.py": {
+      "bytes": 23390,
+      "sha256": "ffc5e4f435f037d93ad9c6af035a275f5af8a5b0e9321492cc8130629cb02d5d"
     }
   },
   "reviewer_followup": {
