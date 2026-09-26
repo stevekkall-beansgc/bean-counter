@@ -1,6 +1,6 @@
 # Billing product roadmap
 
-**Status (2026-09-26): M0 and M1 are complete. M2 policy is approved and implementation is in progress.** The accepted scope and M2 rules below are the product decision record for the provider-free OSS 1.0 billing journey. This roadmap is specific to the ordinary local billing profile; the historical product roadmap at the repository root retains its separate scope and status.
+**Status (2026-09-26): M0, M1, and M2 are complete for the documented source-built local profile. M3 is next and has not started.** The accepted scope and M2 rules below are the product decision record for the provider-free OSS 1.0 billing journey. This roadmap is specific to the ordinary local billing profile; the historical product roadmap at the repository root retains its separate scope and status.
 
 ## Product goal and boundary
 
@@ -14,7 +14,7 @@ OSS 1.0 targets a practical billing lifecycle: fixed and quantity-based work, ex
 | --- | --- | --- |
 | **M0 — Completion contract** | **Complete** | The owner-approved boundary, observable 1.0 journeys, M2 rules and later M4/M5 policy gates are recorded in this roadmap. |
 | **M1 — Interface compatibility and recovery** | **Complete for the documented local profile** | Current CLI/JSON families, caller-owned retry behavior and compatibility policy are documented. Source-built v0.3.0→v0.4.0 evidence covers ordinary SQLite schema 8 only. See [M1 qualification](m1-current-format-qualification.md). |
-| **M2 — Customers and agreements** | **In progress** | Isolate multiple customers, require explicit customer scope, apply immutable effective-dated terms, and preserve customer-scoped retry identity and accepted history. Qualify the exact schema-8 to schema-9 transition before schema-9 writes are released. |
+| **M2 — Customers and agreements** | **Complete for the qualified source-built profile** | Isolate customers, require explicit customer scope, apply immutable effective-dated terms, and preserve customer-scoped retry identity and accepted history. The exact source-built v0.4.3 schema-8 to schema-9 transition is qualified. See [M2 migration qualification](m2-migration-qualification.md). |
 | **M3 — Continuous history and concurrency** | Not started | Measure a single-host workload beyond the current 1,000-decision ceiling; prove oldest-identity retry, concurrent duplicate/conflict behavior and complete snapshots. Report the tested workload, not a general capacity guarantee. |
 | **M4 — Usage and outcomes** | Not started | Add quantity billing and a runnable workflow example linking work identity, usage, agreed charge, supplied outcome and correction. Define units, rounding, authority and unresolved-outcome behavior before implementation. |
 | **M5 — Billing lifecycle** | Not started | Deliver bounded journeys for period assignment and close, recurrence, renewal/cancellation, late facts, corrections and immutable statements after their rules are approved. |
@@ -33,9 +33,9 @@ OSS 1.0 targets a practical billing lifecycle: fixed and quantity-based work, ex
 
 ## Storage-format activation gate
 
-The demonstrated M1 path is local SQLite schema 8. Before a future production format accepts writes, its release must name supported source versions, refuse unsupported stores before mutation and qualify an exact transition. The transition may be an in-place migration or a verified fresh-store transfer, but it must preserve accepted records and identities and prove its backup and recovery boundary. Selecting the mechanism is an engineering decision; passing the exact qualification is required before writes.
+M2 qualifies the exact source-built v0.4.3 ordinary local SQLite schema-8 to schema-9 path, including unsupported older-writer refusal, retained-row and retry reconciliation, rollback behavior, and whole-installation backup recovery. This qualification is the activation gate for that named source-built path only; it does not cover native packages, another source version, another host, or every historical store. See [M2 migration qualification](m2-migration-qualification.md).
 
-The unchanged-format M1 result is not evidence for a new schema, an older-binary refusal case, a native package, another host or every historical store. See the [compatibility policy](compatibility.md) and [qualification evidence](m1-current-format-qualification.md).
+The unchanged-format M1 result alone is not evidence for a new schema; the separate M2 evidence covers only its named source-built transition. Neither qualifies native packages, another host, or every historical store. See the [compatibility policy](compatibility.md), [M1 qualification](m1-current-format-qualification.md), and [M2 qualification](m2-migration-qualification.md).
 
 ## Later policy gates
 
