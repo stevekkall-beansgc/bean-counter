@@ -1,6 +1,6 @@
 # M1 current-format qualification
 
-**Result:** M1 is complete for the documented local billing profile. Evidence covers source-built v0.3.0→v0.4.0 ordinary local SQLite schema 8, with no production-format migration. v0.4.1 and v0.4.2 changed documentation and branding only; neither changed billing implementation, storage schema or native binaries. This qualification does not establish native-package conformance or a future-format transition.
+**Result:** M1 is complete for the documented local billing profile. Evidence covers source-built v0.3.0→v0.4.0 ordinary local SQLite schema 8, with no production-format migration. v0.4.1 added caller documentation and runnable synthetic Python/Node examples; v0.4.2 updated compatibility and billing-contract documentation and rebranded the README. Neither changed billing implementation, production storage schema or native binaries. This qualification does not establish native-package conformance or a future-format transition.
 
 ## Compatibility policy
 
@@ -10,7 +10,7 @@ The owner-approved policy is published in [compatibility.md](compatibility.md). 
 
 - v0.3.0 source: `87892ac011902b286776e26925d8a3fb2c2aaa88`.
 - v0.4.0 source: `67bc9ff5aca6537c1e8498ee8a9050bae9649e45`.
-- Both binaries were source-built in detached isolated worktrees with Rust 1.98.1, locked dependencies and offline Cargo mode.
+- Qualification host: macOS 26.6.2 on Apple Silicon (`aarch64-apple-darwin`). Both binaries were source-built in detached isolated worktrees with Rust 1.98.1, locked dependencies and offline Cargo mode.
 - Ordinary billing reported SQLite `PRAGMA user_version = 8` before and after reopen.
 
 ## Evidence
