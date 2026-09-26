@@ -1,5 +1,7 @@
 # Local product integration — Bean Counter v0.3.0
 
+For caller-owned request persistence, original receipt verification and recovery after an unknown commit result, see the [billing CLI integration contract](../../docs/billing-cli-contract.md) and its [Python](billing_outbox.py) or [Node.js](billing_outbox.mjs) synthetic example. These examples accept an already initialized installation and an existing strict event JSON file; they do not perform setup.
+
 The v0.3.0 release provides a language-neutral `ledger` CLI with a guided terminal setup command and a strict JSON interface for unattended products. Its native packages are unsigned. The tested hosts are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64 with glibc 2.39. Other OS versions and Linux distributions remain unverified; Windows is deferred. The archive's deployment minimum or target triple is not a broader compatibility guarantee.
 
 ## Install a release package

@@ -16,6 +16,8 @@ ledger --help
 
 The first build may download locked dependencies. Add `--offline` only after populating the cache. This command installs from the checked-out source. Record its exact commit; [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) identify published versions. The installed `ledger` binary needs no Cargo, Python, Node, Docker, cloud account, model key or network service for billing. Preserve the source commit and binary SHA-256 with operational records. See [resources and costs](resources-and-costs.md).
 
+For machine callers, use the [billing CLI integration contract](billing-cli-contract.md) and its durable Python or Node.js outbox examples.
+
 For v0.3.0 Mac and Linux archive checks, guided setup and machine-readable product examples, see [local product integration](../examples/integration/README.md). The packages are unsigned. Other OS versions and Linux distributions remain unverified; Windows is deferred.
 
 ## Set up explicit terms
