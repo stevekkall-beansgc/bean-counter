@@ -1,5 +1,7 @@
 {
-  "schema": "ledger-billing-correction/1",
+  "schema": "ledger-billing-correction/2",
+  "customer": "customer-1",
+  "source": "urn:example:work",
   "id": "reversal-1",
   "target": "REPLACE_WITH_ACCEPTED_TARGET_ID",
   "family": "quality",

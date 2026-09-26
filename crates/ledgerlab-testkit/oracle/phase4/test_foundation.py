@@ -30,11 +30,12 @@ class FoundationInventory(unittest.TestCase):
 
     def test_current_additive_schema_inventory_is_complete(self):
         for backend in ('sqlite', 'postgres17', 'postgres18'):
-            for version in ((5,6,7,8) if backend == 'sqlite' else (5,6)):
+            for version in ((5,6,7,8,9) if backend == 'sqlite' else (5,6)):
                 evidence = seed(backend)
                 added = set(R3_SQLITE) if backend == 'sqlite' else R3_POSTGRES_V6 if version == 6 else R3_POSTGRES
                 if backend == 'sqlite' and version >= 7: added |= {'billing_setup','billing_entries'}
                 if backend == 'sqlite' and version >= 8: added |= {'billing_aliases','billing_permissions'}
+                if backend == 'sqlite' and version >= 9: added |= {'billing_customers','billing_agreements','billing_m2_changes','billing_m2_permissions','billing_m2_entries','billing_m2_aliases'}
                 for stage in ('B0','B1','B2'):
                     if backend == 'sqlite':
                         evidence[stage].extend([[name,['value'],["X'00'"]] for name in sorted(added)])
@@ -59,8 +60,8 @@ class FoundationInventory(unittest.TestCase):
                 unknown = copy.deepcopy(evidence)
                 for stage in ('B0','B1','B2'):
                     if backend == 'sqlite':
-                        next(row for row in unknown[stage] if row[0]=='user_version')[2] = ['9']
-                        unknown['metadata'][stage]['user_version'] = ['9']
+                        next(row for row in unknown[stage] if row[0]=='user_version')[2] = ['10']
+                        unknown['metadata'][stage]['user_version'] = ['10']
                     else: unknown[stage]['migration_history']['rows'].append(json.dumps({'version':7,'checksum':'synthetic'}))
                 with self.assertRaises(AssertionError): no_change(unknown)
 

@@ -1,5 +1,8 @@
 {
-  "schema": "ledger-billing-permissions/1",
+  "schema": "ledger-billing-permissions/2",
+  "customer": "customer-1",
+  "source": "urn:example:work",
+  "change_id": "revoke-submit",
   "expected_revision": "1",
   "permissions": [
     "read"

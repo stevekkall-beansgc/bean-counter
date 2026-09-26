@@ -49,7 +49,7 @@ and correction economic references, and no closure economic reference.
 The `--evidence` object contains `report`, `backend`, `B0`, `B1`, `B2`,
 `attempted_writes`, `external_calls`, and `metadata` keyed by B0/B1/B2. Every
 inventory preserves actual full column lists and opaque DB-produced row strings.
-SQLite uses `[table,columns,rows]` entries for 33 application tables plus
+SQLite uses `[table,columns,rows]` entries for 39 application tables plus
 `sqlite_schema`, `user_version` (columns `["value"]`, one decimal string row),
 and optional `_sqlx_migrations`. PostgreSQL uses all 37 tables mapped to
 `{columns,rows}`. Metadata contains nonempty schema/index/constraint information

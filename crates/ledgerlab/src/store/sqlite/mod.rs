@@ -1,7 +1,10 @@
 //! Concrete SQLite persistence. `README.md` describes the coordinator integration seam.
 mod adjudication;
 mod billing;
-pub(crate) use billing::{BillingAlias, BillingEntry, BillingSnapshot};
+pub(crate) use billing::{
+    BillingAgreement, BillingAlias, BillingCustomer, BillingEntry, BillingM2Initialization,
+    BillingSnapshot,
+};
 mod comparison;
 mod connect;
 mod fence;

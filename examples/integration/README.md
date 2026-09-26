@@ -1,8 +1,10 @@
-# Local product integration — Bean Counter v0.3.0
+# Local product integration — Bean Counter M2 source contract
 
-For caller-owned request persistence, original receipt verification and recovery after an unknown commit result, see the [billing CLI integration contract](../../docs/billing-cli-contract.md) and its [Python](billing_outbox.py) or [Node.js](billing_outbox.mjs) synthetic example. These examples accept an already initialized installation and an existing strict event JSON file; they do not perform setup.
+For the M2 command and data contract, see [Billing M2 CLI contract](../../docs/billing-m2-cli-contract.md). For caller-owned request persistence, original receipt verification and recovery after an unknown commit result, use the [Python](billing_outbox.py) or [Node.js](billing_outbox.mjs) synthetic example. Both take an explicit customer and source, and require an already initialized installation plus a strict event JSON file.
 
-The v0.3.0 release provides a language-neutral `ledger` CLI with a guided terminal setup command and a strict JSON interface for unattended products. Its native packages are unsigned. The tested hosts are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64 with glibc 2.39. Other OS versions and Linux distributions remain unverified; Windows is deferred. The archive's deployment minimum or target triple is not a broader compatibility guarantee.
+M2 is being prepared as the next 0.x minor interface. Its implementation and schema-9 migration are not yet release-qualified. The v0.3.0 native packages below document the older single-customer interface; they do not accept the M2 commands or request formats. Use the matching M2 source build for the current helper scripts.
+
+The historical v0.3.0 release provides a language-neutral `ledger` CLI with a guided terminal setup command and a strict JSON interface for unattended products. Its native packages are unsigned. The tested hosts are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64 with glibc 2.39. Other OS versions and Linux distributions remain unverified; Windows is deferred. The archive's deployment minimum or target triple is not a broader compatibility guarantee.
 
 ## Install a release package
 
@@ -32,15 +34,16 @@ For a product or agent with a prepared setup file, use the noninteractive interf
 "$LEDGER" billing init "$BILLING_DIR" --setup "$SETUP_JSON" --json
 ```
 
-Send strict JSON by regular file or stdin (`accept -`, `outcome -`, `correct -`), request `--json`, and parse returned JSON in the product's own language. Keep event `id` and `operation_id` stable and retain the receipt target. Preserve exit codes and reconcile an unknown commit result by reopening the same installation and retrying the identical input and IDs.
+For M2, send strict JSON by regular file or stdin (`accept --customer C --source S -`, `outcome --customer C --source S -`, `correct --customer C --source S -`), request `--json`, and parse returned JSON in the product's own language. Keep event `id` and `operation_id` stable, pass explicit customer/source scope, and retain the receipt target. Preserve exit codes and reconcile an unknown result by reopening the same installation and retrying the identical input and IDs.
 
 ## Synthetic product journey
 
-The bundled setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Run the installed helper with fresh private paths:
+The bundled setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Build the matching M2 source and run its helper with fresh private paths:
 
 ```sh
-sh "$HOME/bean-counter-v0.3.0/examples/integration/run-synthetic.sh" \
-  "$HOME/bean-counter-v0.3.0/ledger" \
+cargo build --locked --bin ledger
+sh examples/integration/run-synthetic.sh \
+  target/debug/ledger \
   "$HOME/bean-counter-demo-store" \
   "$HOME/bean-counter-demo-results"
 ```

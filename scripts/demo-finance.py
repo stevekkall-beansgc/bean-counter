@@ -29,20 +29,40 @@ def main():
     def save(name, data):
         (root / name).write_text(json.dumps(data, indent=2) + '\n')
 
+    def scope_args(words, setup):
+        words = list(words)
+        command_index = words.index('--directory') + 2 if '--directory' in words else 0
+        if command_index >= len(words):
+            return words
+        command = words[command_index]
+        if command in ('accept', 'outcome', 'correct', 'agreement', 'permissions'):
+            if '--customer' not in words:
+                words[command_index + 1:command_index + 1] = [
+                    '--customer', setup['customer'], '--source', setup['source']]
+        elif command == 'explain' and '--customer' not in words:
+            words[command_index + 1:command_index + 1] = ['--customer', setup['customer']]
+        return words
+
     def run(*words, expected=0):
-        result = subprocess.run([str(binary), 'billing', *words, '--json'], cwd=root,
+        setup_path = root / 'setup.json'
+        setup = json.loads(setup_path.read_text()) if setup_path.exists() else inputs['setup']
+        scoped = scope_args(words, setup)
+        result = subprocess.run([str(binary), 'billing', *scoped, '--json'], cwd=root,
                                 text=True, capture_output=True)
         assert result.returncode == expected, (words, result.returncode, result.stdout, result.stderr)
         value = json.loads(result.stdout)
-        commands.append({'args': list(words), 'exit': result.returncode, 'result': value})
+        commands.append({'args': scoped, 'exit': result.returncode, 'result': value})
         return value
 
     def run_in(directory, *words, expected=0):
-        result = subprocess.run([str(binary), 'billing', *words, '--json'], cwd=directory,
+        setup_path = directory / 'setup.json'
+        setup = json.loads(setup_path.read_text()) if setup_path.exists() else inputs['setup']
+        scoped = scope_args(words, setup)
+        result = subprocess.run([str(binary), 'billing', *scoped, '--json'], cwd=directory,
                                 text=True, capture_output=True)
         assert result.returncode == expected, (words, result.returncode, result.stdout, result.stderr)
         value = json.loads(result.stdout)
-        commands.append({'cwd': str(directory.relative_to(root)), 'args': list(words),
+        commands.append({'cwd': str(directory.relative_to(root)), 'args': scoped,
                          'exit': result.returncode, 'result': value})
         return value
 
@@ -90,7 +110,9 @@ def main():
         outcomes = {
             'success': {'id': 'outcome-success', 'code': 'success'},
             'unsuccessful': {'id': 'outcome-unsuccessful', 'code': 'unsuccessful-by-cutoff'}}
-        corrections = {'schema': 'ledger-billing-correction/1', 'id': 'correction-success',
+        corrections = {'schema': 'ledger-billing-correction/2',
+                       'customer': setup['customer'], 'source': setup['source'],
+                       'id': 'correction-success',
                        'family': 'delivery', 'occurred_at': '2026-09-23T14:00:00.000000Z',
                        'evidence': 'Synthetic only: corrected outcome evidence.',
                        'expected_revision': '1', 'replacement':
@@ -108,7 +130,8 @@ def main():
             target = accepted['receipt']['body']['target']
             if case != 'no-outcome':
                 name = 'success' if case in ('success', 'success-corrected') else 'unsuccessful'
-                data = dict(outcomes[name], schema='ledger-billing-outcome/1', target=target,
+                data = dict(outcomes[name], schema='ledger-billing-outcome/2',
+                            customer=case_setup['customer'], source=case_setup['source'], target=target,
                             family='delivery', occurred_at='2026-09-23T13:00:00.000000Z',
                             evidence='Synthetic only: operator attestation for this example.')
                 outcome_file = case_dir / 'outcome.json'
@@ -259,7 +282,11 @@ def main():
         incremental = export('incremental.csv', current['snapshot_hash'])
         assert incremental['export_id'] != first_export['export_id']
         assert ingest(list(csv.DictReader((root / 'incremental.csv').open(newline='')))) == (1, 6)
-        save('revoke.json', {'schema': 'ledger-billing-permissions/1', 'expected_revision': '1', 'permissions': [], 'reason': 'Synthetic access refusal check'})
+        save('revoke.json', {'schema': 'ledger-billing-permissions/2',
+                             'customer': inputs['setup']['customer'],
+                             'source': inputs['setup']['source'], 'change_id': 'revoke-all',
+                             'expected_revision': '1', 'permissions': [],
+                             'reason': 'Synthetic access refusal check'})
         billing('permissions', 'revoke.json')
         assert export('denied.csv', current['snapshot_hash'], expected=6)['complete'] is False
         assert not (root / 'denied.csv').exists()

@@ -24,8 +24,8 @@ if [ "$host_version" != "26.6.2" ]; then
     echo "warning: macOS $host_version is untested; the binary declares minos 11.0, which does not certify behavior on this version" >&2
 fi
 case "$("$ledger" --version)" in
-    "ledger 0.2.1 (local development)") ;;
-    *) echo "expected the pinned v0.2.1 ledger binary" >&2; exit 2 ;;
+    "ledger 0.3.0 (local development)") ;;
+    *) echo "expected the matching 0.3.0 M2 source build" >&2; exit 2 ;;
 esac
 if [ -e "$installation" ] || [ -L "$installation" ]; then
     echo "refusing existing installation path: $installation" >&2
@@ -52,21 +52,21 @@ run_json() {
     fi
 }
 
-# This v0.2.1 binary predates the candidate-only guided command. The explicit
+# The explicit
 # setup JSON is synthetic; real operators must supply their own terms and evidence.
 cp "$examples/setup-synthetic.json" "$results/setup-synthetic.json"
 run_json "$results/setup-result.json" "$ledger" billing init "$installation" --setup "$examples/setup-synthetic.json"
 
-run_json "$results/accept-success.json" "$ledger" billing --directory "$installation" accept "$examples/work-success.json"
+run_json "$results/accept-success.json" "$ledger" billing --directory "$installation" accept --customer synthetic-customer --source urn:example:product "$examples/work-success.json"
 success_target=$(plutil -extract receipt.body.target raw -o - "$results/accept-success.json")
-run_json "$results/retry-success.json" "$ledger" billing --directory "$installation" accept "$examples/work-success.json"
+run_json "$results/retry-success.json" "$ledger" billing --directory "$installation" accept --customer synthetic-customer --source urn:example:product "$examples/work-success.json"
 plutil -replace target -string "$success_target" -o "$results/outcome-success.json" "$examples/outcome-success-template.json"
-run_json "$results/outcome-success-result.json" "$ledger" billing --directory "$installation" outcome "$results/outcome-success.json"
+run_json "$results/outcome-success-result.json" "$ledger" billing --directory "$installation" outcome --customer synthetic-customer --source urn:example:product "$results/outcome-success.json"
 
-run_json "$results/accept-unsuccessful.json" "$ledger" billing --directory "$installation" accept "$examples/work-unsuccessful.json"
+run_json "$results/accept-unsuccessful.json" "$ledger" billing --directory "$installation" accept --customer synthetic-customer --source urn:example:product "$examples/work-unsuccessful.json"
 unsuccessful_target=$(plutil -extract receipt.body.target raw -o - "$results/accept-unsuccessful.json")
 plutil -replace target -string "$unsuccessful_target" -o "$results/outcome-unsuccessful.json" "$examples/outcome-unsuccessful-template.json"
-run_json "$results/outcome-unsuccessful-result.json" "$ledger" billing --directory "$installation" outcome "$results/outcome-unsuccessful.json"
+run_json "$results/outcome-unsuccessful-result.json" "$ledger" billing --directory "$installation" outcome --customer synthetic-customer --source urn:example:product "$results/outcome-unsuccessful.json"
 
 run_json "$results/statement.json" "$ledger" billing --directory "$installation" statement --customer synthetic-customer
 net=$(plutil -extract net_atoms raw -o - "$results/statement.json")

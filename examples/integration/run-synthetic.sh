@@ -16,7 +16,7 @@ fi
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required to read/write JSON in this example" >&2; exit 2; }
 case "$($ledger --version)" in
     "ledger 0.3.0 (local development)") ;;
-    *) echo "expected a version 0.3.0 ledger binary" >&2; exit 2 ;;
+    *) echo "expected the matching 0.3.0 M2 source build" >&2; exit 2 ;;
 esac
 umask 077
 mkdir -m 700 "$results"
@@ -43,23 +43,24 @@ set_target() {
 # Synthetic fixtures are conspicuously labeled; they are never real agreement terms.
 cp "$examples/setup-synthetic.json" "$results/setup-synthetic.json"
 run_json "$results/setup-result.json" "$ledger" billing init "$installation" --setup "$results/setup-synthetic.json"
-run_json "$results/accept-success.json" "$ledger" billing --directory "$installation" accept "$examples/work-success.json"
+run_json "$results/accept-success.json" "$ledger" billing --directory "$installation" accept --customer synthetic-customer --source urn:example:product "$examples/work-success.json"
 success_target=$(json_value "$results/accept-success.json" receipt.body.target)
-run_json "$results/retry-success.json" "$ledger" billing --directory "$installation" accept "$examples/work-success.json"
+run_json "$results/retry-success.json" "$ledger" billing --directory "$installation" accept --customer synthetic-customer --source urn:example:product "$examples/work-success.json"
 set_target "$examples/outcome-success-template.json" "$success_target" "$results/outcome-success.json"
-run_json "$results/outcome-success-result.json" "$ledger" billing --directory "$installation" outcome "$results/outcome-success.json"
-run_json "$results/retry-outcome-success.json" "$ledger" billing --directory "$installation" outcome "$results/outcome-success.json"
+run_json "$results/outcome-success-result.json" "$ledger" billing --directory "$installation" outcome --customer synthetic-customer --source urn:example:product "$results/outcome-success.json"
+run_json "$results/retry-outcome-success.json" "$ledger" billing --directory "$installation" outcome --customer synthetic-customer --source urn:example:product "$results/outcome-success.json"
 
-run_json "$results/accept-unsuccessful.json" "$ledger" billing --directory "$installation" accept "$examples/work-unsuccessful.json"
+run_json "$results/accept-unsuccessful.json" "$ledger" billing --directory "$installation" accept --customer synthetic-customer --source urn:example:product "$examples/work-unsuccessful.json"
 unsuccessful_target=$(json_value "$results/accept-unsuccessful.json" receipt.body.target)
-run_json "$results/retry-unsuccessful.json" "$ledger" billing --directory "$installation" accept "$examples/work-unsuccessful.json"
+run_json "$results/retry-unsuccessful.json" "$ledger" billing --directory "$installation" accept --customer synthetic-customer --source urn:example:product "$examples/work-unsuccessful.json"
 set_target "$examples/outcome-unsuccessful-template.json" "$unsuccessful_target" "$results/outcome-unsuccessful.json"
-run_json "$results/outcome-unsuccessful-result.json" "$ledger" billing --directory "$installation" outcome "$results/outcome-unsuccessful.json"
+run_json "$results/outcome-unsuccessful-result.json" "$ledger" billing --directory "$installation" outcome --customer synthetic-customer --source urn:example:product "$results/outcome-unsuccessful.json"
 
 python3 - "$success_target" "$results/correction.json" <<'PY'
 import json, sys
 value = {
-    "schema": "ledger-billing-correction/1", "id": "product-correction-1",
+    "schema": "ledger-billing-correction/2", "customer": "synthetic-customer",
+    "source": "urn:example:product", "id": "product-correction-1",
     "target": sys.argv[1], "family": "delivery",
     "occurred_at": "2026-09-23T13:00:00.000000Z",
     "evidence": "SYNTHETIC ONLY: correction replaces the success outcome for portability testing.",
@@ -68,8 +69,8 @@ value = {
 with open(sys.argv[2], "w") as f:
     json.dump(value, f, separators=(",", ":")); f.write("\n")
 PY
-run_json "$results/correction-result.json" "$ledger" billing --directory "$installation" correct "$results/correction.json"
-run_json "$results/retry-correction.json" "$ledger" billing --directory "$installation" correct "$results/correction.json"
+run_json "$results/correction-result.json" "$ledger" billing --directory "$installation" correct --customer synthetic-customer --source urn:example:product "$results/correction.json"
+run_json "$results/retry-correction.json" "$ledger" billing --directory "$installation" correct --customer synthetic-customer --source urn:example:product "$results/correction.json"
 
 run_json "$results/statement.json" "$ledger" billing --directory "$installation" statement --customer synthetic-customer
 net=$(json_value "$results/statement.json" net_atoms)
@@ -79,7 +80,7 @@ if [ "$net" != "0" ] || [ "$complete" != "true" ]; then
     cat "$results/statement.json" >&2
     exit 1
 fi
-run_json "$results/permissions.json" "$ledger" billing --directory "$installation" permissions
+run_json "$results/permissions.json" "$ledger" billing --directory "$installation" permissions --customer synthetic-customer --source urn:example:product
 
 # All CLI processes have exited. This is the documented administrator-enforced
 # quiescent copy/reopen flow; it does not certify online or network backups.
@@ -88,7 +89,7 @@ cp -Rp "$installation" "$backup"
 run_json "$results/backup-statement.json" "$ledger" billing --directory "$backup" statement --customer synthetic-customer
 backup_net=$(json_value "$results/backup-statement.json" net_atoms)
 if [ "$backup_net" != "$net" ]; then echo "quiescent backup statement differs from source" >&2; exit 1; fi
-run_json "$results/backup-retry.json" "$ledger" billing --directory "$backup" accept "$examples/work-success.json"
+run_json "$results/backup-retry.json" "$ledger" billing --directory "$backup" accept --customer synthetic-customer --source urn:example:product "$examples/work-success.json"
 run_json "$results/backup-statement-after-retry.json" "$ledger" billing --directory "$backup" statement --customer synthetic-customer
 python3 - "$results" <<'PY'
 import json, os, sys

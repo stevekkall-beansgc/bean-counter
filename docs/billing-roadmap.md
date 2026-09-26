@@ -1,6 +1,6 @@
 # Billing product roadmap
 
-**Status (2026-09-26): M0 and M1 are complete. M2 policy is approved; M2 implementation has not started.** The accepted scope and M2 rules below are the product decision record for the provider-free OSS 1.0 billing journey. This roadmap is specific to the ordinary local billing profile; the historical product roadmap at the repository root retains its separate scope and status.
+**Status (2026-09-26): M0 and M1 are complete. M2 policy is approved and implementation is in progress.** The accepted scope and M2 rules below are the product decision record for the provider-free OSS 1.0 billing journey. This roadmap is specific to the ordinary local billing profile; the historical product roadmap at the repository root retains its separate scope and status.
 
 ## Product goal and boundary
 
@@ -14,7 +14,7 @@ OSS 1.0 targets a practical billing lifecycle: fixed and quantity-based work, ex
 | --- | --- | --- |
 | **M0 — Completion contract** | **Complete** | The owner-approved boundary, observable 1.0 journeys, M2 rules and later M4/M5 policy gates are recorded in this roadmap. |
 | **M1 — Interface compatibility and recovery** | **Complete for the documented local profile** | Current CLI/JSON families, caller-owned retry behavior and compatibility policy are documented. Source-built v0.3.0→v0.4.0 evidence covers ordinary SQLite schema 8 only. See [M1 qualification](m1-current-format-qualification.md). |
-| **M2 — Customers and agreements** | **Policy approved; implementation not started** | Isolate multiple customers, require explicit customer scope, apply immutable effective-dated terms, and preserve customer-scoped retry identity and accepted history. |
+| **M2 — Customers and agreements** | **In progress** | Isolate multiple customers, require explicit customer scope, apply immutable effective-dated terms, and preserve customer-scoped retry identity and accepted history. Qualify the exact schema-8 to schema-9 transition before schema-9 writes are released. |
 | **M3 — Continuous history and concurrency** | Not started | Measure a single-host workload beyond the current 1,000-decision ceiling; prove oldest-identity retry, concurrent duplicate/conflict behavior and complete snapshots. Report the tested workload, not a general capacity guarantee. |
 | **M4 — Usage and outcomes** | Not started | Add quantity billing and a runnable workflow example linking work identity, usage, agreed charge, supplied outcome and correction. Define units, rounding, authority and unresolved-outcome behavior before implementation. |
 | **M5 — Billing lifecycle** | Not started | Deliver bounded journeys for period assignment and close, recurrence, renewal/cancellation, late facts, corrections and immutable statements after their rules are approved. |

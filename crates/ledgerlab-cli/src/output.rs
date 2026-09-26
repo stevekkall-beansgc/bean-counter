@@ -17,7 +17,7 @@ fn conflict(k: ConflictKind) -> &'static str {
 fn rejection(code: &str) -> u8 {
     if matches!(
         code,
-        "SOURCE_UNAUTHORIZED" | "BILLING_UNAUTHORIZED" | "BILLING_SCOPE"
+        "SOURCE_UNAUTHORIZED" | "BILLING_UNAUTHORIZED" | "BILLING_NOT_FOUND" | "BILLING_SCOPE"
     ) {
         6
     } else if matches!(code, "IDENTITY_CONFLICT" | "SEMANTIC_CONFLICT") {
@@ -112,7 +112,15 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
             if code == "BILLING_CONTROL_OUTCOME_UNKNOWN" =>
         {
             (
-                json!({"status":"outcome_unknown","code":code,"message":"Permission update may have committed. Inspect permissions before retrying; do not assume rollback."}),
+                json!({"status":"outcome_unknown","code":code,"message":"Control change may have committed. Retry the identical request with the same change_id; for permission controls, inspect permissions before retrying."}),
+                8,
+            )
+        }
+        LocalError::Service(ServiceError::Rejection(code))
+            if code == "BILLING_UPGRADE_OUTCOME_UNKNOWN" =>
+        {
+            (
+                json!({"status":"outcome_unknown","code":code,"message":"Upgrade may have committed. Reopen the installation; schema 9 means it is current, while schema 8 can be retried with the same upgrade command."}),
                 8,
             )
         }

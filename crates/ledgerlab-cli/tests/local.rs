@@ -514,7 +514,7 @@ fn migrated_cli_ledger_coexists_with_fake_outbox_and_preserves_receipts() {
             .unwrap()
             .1
             .len(),
-        8
+        9
     );
     assert_eq!(
         before

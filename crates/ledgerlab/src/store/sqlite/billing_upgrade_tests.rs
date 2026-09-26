@@ -21,7 +21,7 @@ async fn legacy() -> (tempfile::TempDir, SqliteConnection, BillingUpgradeSeed) {
     ))
     .unwrap();
     let setup_bytes = CanonicalBytes::from_value(&value).unwrap().into_vec();
-    let seed = BillingUpgradeSeed {
+    let mut seed = BillingUpgradeSeed {
         store_id: value["store_id"].as_str().unwrap().into(),
         tenant: value["scope"][0].as_str().unwrap().into(),
         environment: value["scope"][1].as_str().unwrap().into(),
@@ -35,6 +35,7 @@ async fn legacy() -> (tempfile::TempDir, SqliteConnection, BillingUpgradeSeed) {
             .unwrap()
             .micros(),
         setup_bytes,
+        snapshot_digest: [0; 32],
     };
     super::super::write::operation(
         &mut conn,
@@ -75,7 +76,48 @@ async fn legacy() -> (tempfile::TempDir, SqliteConnection, BillingUpgradeSeed) {
         .execute(&mut conn)
         .await
         .unwrap();
+    seed.snapshot_digest = preflight_billing(dir.path()).await.unwrap().digest;
     (dir, conn, seed)
+}
+
+#[tokio::test]
+async fn billing_preflight_returns_original_history_and_requires_exact_migrated_snapshot() {
+    let (dir, mut conn, seed) = legacy().await;
+    let preflight = preflight_billing(dir.path()).await.unwrap();
+    assert_eq!(preflight.digest, seed.snapshot_digest);
+    assert_eq!(preflight.snapshot.setup, seed.setup_bytes);
+    assert_eq!(preflight.snapshot.entries.len(), 1);
+    assert_eq!(preflight.snapshot.entries[0].ordinal, 1);
+    assert_eq!(
+        preflight.snapshot.entries[0].ingress.as_slice(),
+        b"\x03\x04"
+    );
+    assert_eq!(preflight.snapshot.aliases.len(), 1);
+    assert_eq!(
+        preflight.snapshot.aliases[0].ingress.as_slice(),
+        b"\x09\x0a"
+    );
+    assert_eq!(preflight.snapshot.permissions, vec![b"\x0b\x0c".to_vec()]);
+    sqlx::query("INSERT INTO billing_entries VALUES(2,?,'later',x'11',x'12',x'13',x'14')")
+        .bind(&seed.source)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    assert_ne!(
+        preflight_billing(dir.path()).await.unwrap().digest,
+        seed.snapshot_digest
+    );
+    assert_eq!(
+        upgrade_billing(dir.path(), &seed).await,
+        Err(UpgradeError::Refused)
+    );
+    assert_eq!(version(&mut conn).await.unwrap(), 8);
+    let preserved: Vec<u8> =
+        sqlx::query_scalar("SELECT ingress FROM billing_entries WHERE ordinal=2")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+    assert_eq!(preserved.as_slice(), b"\x12");
 }
 
 async fn old_rows(conn: &mut SqliteConnection) -> Vec<Vec<String>> {
@@ -89,6 +131,155 @@ async fn old_rows(conn: &mut SqliteConnection) -> Vec<Vec<String>> {
         rows.push(sqlx::query_scalar(sqlx::AssertSqlSafe(sql)).fetch_all(&mut *conn).await.unwrap());
     }
     rows
+}
+
+#[tokio::test]
+async fn billing_coordinator_upgrades_valid_m1_history_and_retries_exact_originals() {
+    use crate::{billing::BillingLedger, service::billing as service};
+
+    const SETUP: &[u8] = include_bytes!("../../../../../examples/billing/setup.json");
+    const EVENT: &[u8] = include_bytes!("../../../../../examples/billing/event.json");
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().canonicalize().unwrap().join("billing");
+    let data = path.join(".ledger");
+    crate::local::private_dir(&path).unwrap();
+    crate::local::private_dir(&data).unwrap();
+
+    let setup = ledgerlab_core::canonical::parse(SETUP).unwrap();
+    let setup_bytes = CanonicalBytes::from_value(&setup).unwrap().into_vec();
+    let config = serde_json::to_vec(&serde_json::json!({
+        "schema": "ledger-billing-installation/1",
+        "scope": setup["scope"],
+        "store_id": setup["store_id"],
+    }))
+    .unwrap();
+    crate::local::write_new(&path.join("billing.json"), &config).unwrap();
+
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(data.join("local.db"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+    Migrator::with_migrations(migrator().iter().take(8).cloned().collect())
+        .run(&mut conn)
+        .await
+        .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            data.join("local.db"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+    }
+    super::super::write::operation(
+        &mut conn,
+        &crate::store::records::WriteOp::SeedInstallation(crate::store::records::Installation {
+            scope: crate::store::records::Scope {
+                tenant: setup["scope"][0].as_str().unwrap().into(),
+                environment: setup["scope"][1].as_str().unwrap().into(),
+            },
+            logical_store_id: setup["store_id"].as_str().unwrap().into(),
+            mode: "real".into(),
+            admission: "open".into(),
+            dispatch_hold: true,
+            dispatch_enabled: false,
+            generation: 0,
+        }),
+    )
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO billing_setup VALUES(1,?)")
+        .bind(&setup_bytes)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+    // Construct the M1 entry through the billing coordinator, then store its
+    // validated fields in the original schema-8 table.
+    let accepted_at = Timestamp::parse("2026-09-02T00:00:00.000000Z").unwrap();
+    let mut initial = preflight_billing(&data).await.unwrap().snapshot;
+    service::validate_legacy_upgrade(&mut initial, &accepted_at).unwrap();
+    let customer = setup["customer"].as_str().unwrap();
+    let source = setup["source"].as_str().unwrap();
+    let (accepted, plan) =
+        service::prepare(&initial, customer, source, EVENT, &accepted_at).unwrap();
+    let plan = plan.unwrap();
+    assert_eq!(accepted["status"], "accepted");
+    assert_eq!(plan.expected_count(), 0);
+    sqlx::query("INSERT INTO billing_entries(ordinal,source,external_id,semantic_key,ingress,facts,bundle) VALUES(1,?,?,?,?,?,?)")
+        .bind(plan.source())
+        .bind(plan.external_id())
+        .bind(plan.semantic_key())
+        .bind(plan.ingress())
+        .bind(plan.facts())
+        .bind(plan.bundle())
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+    let permission = ledgerlab_core::canonical::parse(
+        br#"{"schema":"ledger-billing-permissions/1","expected_revision":"1","permissions":["read"],"reason":"retain read and revoke submit"}"#,
+    )
+    .unwrap();
+    let permission_bytes = CanonicalBytes::from_value(&permission).unwrap().into_vec();
+    sqlx::query("INSERT INTO billing_permissions(revision,canonical_bytes) VALUES(2,?)")
+        .bind(&permission_bytes)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+
+    let mut before = preflight_billing(&data).await.unwrap().snapshot;
+    service::validate_legacy_upgrade(
+        &mut before,
+        &Timestamp::parse("2026-09-26T00:00:00.000000Z").unwrap(),
+    )
+    .unwrap();
+    let original_statement = service::statement(&before, customer, None).unwrap();
+    let original_receipt = accepted["receipt"].clone();
+    assert_eq!(
+        original_statement["entries"][0]["receipt"],
+        original_receipt
+    );
+    assert_eq!(version(&mut conn).await.unwrap(), 8);
+    let original_rows = old_rows(&mut conn).await;
+    conn.close().await.unwrap();
+
+    assert_eq!(
+        BillingLedger::upgrade(&path).await.unwrap(),
+        serde_json::json!({"status":"upgraded","from_schema":8,"to_schema":9})
+    );
+    let ledger = BillingLedger::open(&path).await.unwrap();
+    assert_eq!(
+        ledger.statement(customer, None).await.unwrap(),
+        original_statement
+    );
+    let retry = ledger.accept(customer, source, EVENT).await.unwrap();
+    assert_eq!(retry["status"], "duplicate");
+    assert_eq!(retry["receipt"], original_receipt);
+    let permission_retry = ledger
+        .permissions(customer, source, &permission_bytes)
+        .await
+        .unwrap();
+    assert_eq!(permission_retry["status"], "permissions_updated");
+    assert_eq!(permission_retry["revision"], "2");
+    assert_eq!(
+        ledger.statement(customer, None).await.unwrap(),
+        original_statement
+    );
+    ledger.close().await;
+
+    let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+    assert_eq!(version(&mut conn).await.unwrap(), 9);
+    assert_eq!(old_rows(&mut conn).await, original_rows);
+    let counts: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM billing_entries),(SELECT count(*) FROM billing_m2_entries),(SELECT count(*) FROM billing_m2_aliases),(SELECT count(*) FROM billing_permissions),(SELECT count(*) FROM billing_m2_permissions),(SELECT count(*) FROM billing_m2_changes)",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(counts, (1, 0, 0, 1, 0, 0));
 }
 
 #[tokio::test]

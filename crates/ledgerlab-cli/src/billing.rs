@@ -1,7 +1,7 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
 use std::io::{self, IsTerminal, Write};
-pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] accept FILE|-\n  billing [--directory DIR] outcome FILE|-\n  billing [--directory DIR] correct FILE|-\n  billing [--directory DIR] permissions [FILE|-]\n  billing [--directory DIR] explain TARGET_ID\n  billing [--directory DIR] statement --customer CUSTOMER\n  billing [--directory DIR] export-csv --customer CUSTOMER --snapshot HASH --mapping FILE --output FILE\nBilling output is JSON (pretty-printed unless --json). No payment or tax invoice.\n";
+pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit schema-8 to schema-9 upgrade\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nCustomer/source are explicit on every write. Billing output is JSON; no payment or tax invoice.\n";
 pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     if a.config != Path::new("ledger.json") {
         return Ok(error(
@@ -143,20 +143,40 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             0,
         ));
     }
-    let input = if let ["accept" | "outcome" | "correct" | "permissions", file] = args.as_slice() {
-        Some(if *file == "-" {
-            local::read_bounded(std::io::stdin().lock(), local::EVENT_LIMIT)?
+    if let ["upgrade"] = args.as_slice() {
+        return BillingLedger::upgrade(&directory)
+            .await
+            .map(|value| (value, 0));
+    }
+    let input_file = match args.as_slice() {
+        ["accept" | "outcome" | "correct", "--customer", _, "--source", _, file]
+        | ["agreement", "--customer", _, "--source", _, file]
+        | ["permissions", "--customer", _, "--source", _, file] => Some(*file),
+        _ => None,
+    };
+    let input = if let Some(file) = input_file {
+        let limit = local::EVENT_LIMIT;
+        Some(if file == "-" {
+            local::read_bounded(std::io::stdin().lock(), limit)?
         } else {
-            local::read_file(Path::new(file), local::EVENT_LIMIT)?
+            local::read_file(Path::new(file), limit)?
         })
     } else {
         None
     };
     if !matches!(
         args.as_slice(),
-        ["accept" | "outcome" | "correct" | "permissions", _]
-            | ["explain", _]
-            | ["permissions"]
+        [
+            "accept" | "outcome" | "correct",
+            "--customer",
+            _,
+            "--source",
+            _,
+            _
+        ] | ["agreement", "--customer", _, "--source", _, _]
+            | ["permissions", "--customer", _, "--source", _]
+            | ["permissions", "--customer", _, "--source", _, _]
+            | ["explain", "--customer", _, _]
             | ["statement", "--customer", _]
             | [
                 "export-csv",
@@ -196,12 +216,35 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         });
     }
     let result = match args.as_slice() {
-        ["permissions"] => ledger.permission_status().await,
-        ["permissions", _] => ledger.permissions(input.as_ref().unwrap()).await,
-        ["accept", _] => ledger.accept(input.as_ref().unwrap()).await,
-        ["outcome", _] => ledger.outcome(input.as_ref().unwrap()).await,
-        ["correct", _] => ledger.correct(input.as_ref().unwrap()).await,
-        ["explain", id] => ledger.explain(id).await,
+        ["permissions", "--customer", customer, "--source", source] => {
+            ledger.permission_status(customer, source).await
+        }
+        ["permissions", "--customer", customer, "--source", source, _] => {
+            ledger
+                .permissions(customer, source, input.as_ref().unwrap())
+                .await
+        }
+        ["agreement", "--customer", customer, "--source", source, _] => {
+            ledger
+                .agreement_control(customer, source, input.as_ref().unwrap())
+                .await
+        }
+        ["accept", "--customer", customer, "--source", source, _] => {
+            ledger
+                .accept(customer, source, input.as_ref().unwrap())
+                .await
+        }
+        ["outcome", "--customer", customer, "--source", source, _] => {
+            ledger
+                .outcome(customer, source, input.as_ref().unwrap())
+                .await
+        }
+        ["correct", "--customer", customer, "--source", source, _] => {
+            ledger
+                .correct(customer, source, input.as_ref().unwrap())
+                .await
+        }
+        ["explain", "--customer", customer, id] => ledger.explain(customer, id).await,
         ["statement", "--customer", customer] => ledger.statement(customer, None).await,
         _ => unreachable!(),
     };

@@ -108,6 +108,15 @@ impl BillingLedger {
             let raw=ledgerlab_core::canonical::outcome::bytes(&json!(setup)).map_err(|_|ServiceError::IntegrityFailure)?;
             let mut tx=store.begin(Instant::now()+Duration::from_secs(5)).await.map_err(store_error)?;
             tx.billing_setup(&raw).await.map_err(store_error)?;
+            tx.billing_m2_initialize(crate::store::sqlite::BillingM2Initialization {
+                customer: &setup.customer,
+                tenant: setup.scope.tenant(),
+                environment: setup.scope.environment(),
+                source: &setup.source,
+                agreement_id: &setup.agreement,
+                accepted_at_us: setup.accepted_at.micros(),
+                setup: &raw,
+            }).await.map_err(store_error)?;
             // Initialization has no economic delivery to resolve. A failed init
             // is left visible and never silently replaced or opened as ready.
             tx.commit().await.map_err(|_|ServiceError::Unavailable)?;
@@ -141,6 +150,7 @@ impl BillingLedger {
                 .map_err(store_error)?;
             let installation = tx.load_installation().await.map_err(store_error)?;
             let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+            service::validate_snapshot(&snapshot)?;
             let setup = service::Setup::parse(&snapshot.setup)?;
             service::require(
                 config["scope"] == json!(setup.scope)
@@ -164,71 +174,210 @@ impl BillingLedger {
         }
         Ok(Self { store })
     }
-    pub async fn permission_status(&self) -> local::Result<Value> {
-        let mut tx = self
-            .store
-            .begin(Instant::now() + Duration::from_secs(5))
+
+    /// Explicitly upgrade a schema-8 billing installation after validating its
+    /// complete retained history against the exact snapshot to be migrated.
+    pub async fn upgrade(path: &Path) -> local::Result<Value> {
+        let path = local::normalize_path(path)?;
+        local::private_existing(&path, true)?;
+        let raw_config = local::read_file(&path.join("billing.json"), local::CONFIG_LIMIT)?;
+        let config = ledgerlab_core::canonical::parse(&raw_config)
+            .map_err(|_| LocalError::Config("invalid billing.json"))?;
+        if config.as_object().is_none_or(|object| object.len() != 3)
+            || config["schema"] != "ledger-billing-installation/1"
+        {
+            return Err(LocalError::Config("invalid billing installation"));
+        }
+        let data = path.join(".ledger");
+        local::private_existing(&data, true)?;
+        local::private_existing(&data.join("local.db"), false)?;
+
+        // A fully validated schema-9 open reconciles a previous unknown result.
+        if let Ok(ledger) = Self::open(&path).await {
+            ledger.close().await;
+            return Ok(json!({"status":"already_current","from_schema":9,"to_schema":9}));
+        }
+
+        let preflight = crate::store::sqlite::migrate::preflight_billing(&data)
             .await
-            .map_err(store_error)?;
-        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
-        let setup = service::permissions::effective(&snapshot)?;
-        tx.rollback().await.map_err(store_error)?;
-        Ok(
-            json!({"status":"ok","revision":setup.grant_revision.to_string(),"permissions":setup.permissions,"changes":snapshot.permissions.iter().map(|r|serde_json::from_slice::<Value>(r).expect("validated permission")).collect::<Vec<_>>()}),
-        )
-    }
-    /// Local filesystem administrator control, even when all event rights are revoked.
-    pub async fn permissions(&self, raw: &[u8]) -> local::Result<Value> {
-        let mut tx = self
-            .store
-            .begin(Instant::now() + Duration::from_secs(5))
+            .map_err(|error| match error {
+                crate::maintenance::UpgradeError::Refused => {
+                    service::reject("BILLING_UPGRADE_REFUSED")
+                }
+                crate::maintenance::UpgradeError::OutcomeUnknown => ServiceError::Unavailable,
+            })?;
+        let crate::store::sqlite::migrate::BillingUpgradePreflight {
+            mut snapshot,
+            digest,
+        } = preflight;
+        let migration_at = local::now()?;
+        let setup = service::validate_legacy_upgrade(&mut snapshot, &migration_at)?;
+        service::require(
+            config["scope"] == json!(setup.scope) && config["store_id"] == setup.store_id,
+            "BILLING_INSTALLATION",
+        )?;
+        let seed = crate::store::sqlite::migrate::BillingUpgradeSeed {
+            store_id: setup.store_id.clone(),
+            tenant: setup.scope.tenant().to_owned(),
+            environment: setup.scope.environment().to_owned(),
+            customer: setup.customer.clone(),
+            source: setup.source.clone(),
+            agreement_id: setup.agreement.clone(),
+            effective_at_us: setup.accepted_at.micros(),
+            recorded_at_us: migration_at.micros(),
+            setup_bytes: snapshot.setup,
+            snapshot_digest: digest,
+        };
+        let result = crate::store::sqlite::migrate::upgrade_billing(&data, &seed)
             .await
-            .map_err(store_error)?;
-        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
-        let (result, plan) = service::permissions::prepare(&snapshot, raw)?;
-        tx.billing_permissions(&plan).await.map_err(store_error)?;
-        match tx.commit().await {
-            Ok(()) => Ok(result),
-            Err(CommitError::RolledBack(e)) => Err(store_error(e).into()),
-            Err(CommitError::OutcomeUnknown) => {
-                Err(service::reject("BILLING_CONTROL_OUTCOME_UNKNOWN").into())
+            .map_err(|error| match error {
+                crate::maintenance::UpgradeError::Refused => {
+                    service::reject("BILLING_UPGRADE_REFUSED")
+                }
+                crate::maintenance::UpgradeError::OutcomeUnknown => {
+                    service::reject("BILLING_UPGRADE_OUTCOME_UNKNOWN")
+                }
+            })?;
+        match result {
+            crate::maintenance::UpgradeResult::Upgraded => {
+                Ok(json!({"status":"upgraded","from_schema":8,"to_schema":9}))
+            }
+            crate::maintenance::UpgradeResult::AlreadyCurrent => {
+                Ok(json!({"status":"already_current","from_schema":9,"to_schema":9}))
             }
         }
     }
-    pub async fn accept(&self, raw: &[u8]) -> local::Result<Value> {
-        self.submit(raw, None).await
-    }
-    pub async fn outcome(&self, raw: &[u8]) -> local::Result<Value> {
-        self.submit(raw, Some(false)).await
-    }
-    pub async fn correct(&self, raw: &[u8]) -> local::Result<Value> {
-        self.submit(raw, Some(true)).await
-    }
-    async fn submit(&self, raw: &[u8], correction: Option<bool>) -> local::Result<Value> {
-        let at = local::now()?;
+    pub async fn permission_status(&self, customer: &str, source: &str) -> local::Result<Value> {
         let mut tx = self
             .store
             .begin(Instant::now() + Duration::from_secs(5))
             .await
             .map_err(store_error)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
-        let (result, plan) = if let Some(correction) = correction {
-            service::adjustment::prepare(&snapshot, raw, &at, correction)?
+        let setup = service::permissions::effective_for(&snapshot, customer, source)?;
+        let initial = service::Setup::parse(&snapshot.setup)?;
+        let mut changes = Vec::new();
+        if customer == initial.customer && source == initial.source {
+            changes.extend(
+                snapshot
+                    .permissions
+                    .iter()
+                    .map(|row| serde_json::from_slice::<Value>(row).expect("validated permission")),
+            );
+        }
+        changes.extend(
+            snapshot
+                .scoped_permissions
+                .iter()
+                .filter(|row| row.customer == customer && row.source == source)
+                .map(|row| {
+                    serde_json::from_slice::<Value>(&row.canonical_bytes)
+                        .expect("validated scoped permission")
+                }),
+        );
+        tx.rollback().await.map_err(store_error)?;
+        Ok(
+            json!({"schema":"ledger-billing-permission-status/2","status":"ok","customer":customer,"source":source,"revision":setup.grant_revision.to_string(),"permissions":setup.permissions,"changes":changes}),
+        )
+    }
+    /// Local filesystem administrator control, even when all event rights are revoked.
+    pub async fn permissions(
+        &self,
+        customer: &str,
+        source: &str,
+        raw: &[u8],
+    ) -> local::Result<Value> {
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let at = local::now()?;
+        let (result, plan) =
+            service::permissions::prepare_scoped(&snapshot, customer, source, raw, &at)?;
+        if let Some(plan) = plan {
+            tx.billing_m2_permissions(&plan)
+                .await
+                .map_err(store_error)?;
+            match tx.commit().await {
+                Ok(()) => Ok(result),
+                Err(CommitError::RolledBack(e)) => Err(store_error(e).into()),
+                Err(CommitError::OutcomeUnknown) => {
+                    Err(service::reject("BILLING_CONTROL_OUTCOME_UNKNOWN").into())
+                }
+            }
         } else {
-            service::prepare(&snapshot, raw, &at)?
+            tx.rollback().await.map_err(store_error)?;
+            Ok(result)
+        }
+    }
+    /// Agreement registration, amendment, end, and restart are local admin controls.
+    pub async fn agreement_control(
+        &self,
+        customer: &str,
+        source: &str,
+        raw: &[u8],
+    ) -> local::Result<Value> {
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let at = local::now()?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let (result, plan) = service::control::prepare(&snapshot, raw, &at, customer, source)?;
+        if let Some(plan) = plan {
+            tx.billing_m2_agreement(&plan).await.map_err(store_error)?;
+            match tx.commit().await {
+                Ok(()) => Ok(result),
+                Err(CommitError::RolledBack(e)) => Err(store_error(e).into()),
+                Err(CommitError::OutcomeUnknown) => {
+                    Err(service::reject("BILLING_CONTROL_OUTCOME_UNKNOWN").into())
+                }
+            }
+        } else {
+            tx.rollback().await.map_err(store_error)?;
+            Ok(result)
+        }
+    }
+    pub async fn accept(&self, customer: &str, source: &str, raw: &[u8]) -> local::Result<Value> {
+        self.submit(customer, source, raw, None).await
+    }
+    pub async fn outcome(&self, customer: &str, source: &str, raw: &[u8]) -> local::Result<Value> {
+        self.submit(customer, source, raw, Some(false)).await
+    }
+    pub async fn correct(&self, customer: &str, source: &str, raw: &[u8]) -> local::Result<Value> {
+        self.submit(customer, source, raw, Some(true)).await
+    }
+    async fn submit(
+        &self,
+        customer: &str,
+        source: &str,
+        raw: &[u8],
+        correction: Option<bool>,
+    ) -> local::Result<Value> {
+        let mut tx = self
+            .store
+            .begin(Instant::now() + Duration::from_secs(5))
+            .await
+            .map_err(store_error)?;
+        let at = local::now()?;
+        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        let (result, plan) = if let Some(correction) = correction {
+            service::adjustment::prepare(&snapshot, customer, source, raw, &at, correction)?
+        } else {
+            service::prepare(&snapshot, customer, source, raw, &at)?
         };
         if let Some(plan) = plan {
-            tx.append_billing(&plan).await.map_err(store_error)?;
+            tx.append_billing_m2(&plan).await.map_err(store_error)?;
             match tx.commit().await {
                 Ok(()) => (),
                 Err(CommitError::RolledBack(e)) => return Err(store_error(e).into()),
                 Err(CommitError::OutcomeUnknown) => {
-                    let setup = service::Setup::parse(&snapshot.setup)?;
+                    let scope = service::control::customer_scope(&snapshot, customer)?;
                     return Err(ServiceError::OutcomeUnknown {
-                        scope: [
-                            setup.scope.tenant().into(),
-                            setup.scope.environment().into(),
-                        ],
+                        scope: [scope.tenant().into(), scope.environment().into()],
                         source: plan.source().into(),
                         external_id: plan.external_id().into(),
                     }
@@ -251,15 +400,14 @@ impl BillingLedger {
         tx.rollback().await.map_err(store_error)?;
         Ok(result)
     }
-    pub async fn explain(&self, target: &str) -> local::Result<Value> {
+    pub async fn explain(&self, customer: &str, target: &str) -> local::Result<Value> {
         let mut tx = self
             .store
             .begin(Instant::now() + Duration::from_secs(5))
             .await
             .map_err(store_error)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
-        let setup = service::Setup::parse(&snapshot.setup)?;
-        let result = service::statement(&snapshot, &setup.customer, Some(target))?;
+        let result = service::statement(&snapshot, customer, Some(target))?;
         tx.rollback().await.map_err(store_error)?;
         Ok(result)
     }

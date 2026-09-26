@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic caller outbox for one ordinary billing accept request.
 
-Usage: python3 billing_outbox.py LEDGER BILLING_DIR EVENT_JSON OUTBOX_DIR
+Usage: python3 billing_outbox.py LEDGER BILLING_DIR CUSTOMER SOURCE EVENT_JSON OUTBOX_DIR
 The outbox and installation require a private, durable local filesystem.
 Run one caller process per outbox; do not use real customer data here.
 """
@@ -75,14 +75,14 @@ def run_json(argv):
     return result.returncode, value
 
 
-def verified_receipt(ledger, installation, operation_id, receipt):
+def verified_receipt(ledger, installation, customer, operation_id, receipt):
     if not isinstance(receipt, dict) or receipt.get("kind") != "base-acceptance":
         stop("missing base-acceptance receipt")
     target = receipt.get("body", {}).get("target")
     if not isinstance(target, str) or not target or not isinstance(receipt.get("id"), str):
         stop("receipt ID or target is missing")
-    code, history = run_json([ledger, "billing", "--directory", installation, "explain", target, "--json"])
-    if code != 0 or history.get("schema") != "ledger-billing-statement/1" or history.get("complete") is not True:
+    code, history = run_json([ledger, "billing", "--directory", installation, "explain", "--customer", customer, target, "--json"])
+    if code != 0 or history.get("schema") != "ledger-billing-statement/2" or history.get("complete") is not True:
         stop("complete target explanation unavailable; request remains unacknowledged")
     matches = [entry for entry in history.get("entries", [])
                if entry.get("target") == target and entry.get("receipt") == receipt
@@ -96,16 +96,16 @@ def verified_receipt(ledger, installation, operation_id, receipt):
 
 
 def main():
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 7:
         stop(__doc__)
-    ledger, installation, event_file, outbox_name = sys.argv[1:]
+    ledger, installation, customer, source, event_file, outbox_name = sys.argv[1:]
     installation = str(Path(installation).resolve(strict=True))
-    source = Path(event_file).read_bytes()
+    event_bytes = Path(event_file).read_bytes()
     try:
-        event = json.loads(source)
+        event = json.loads(event_bytes)
     except (ValueError, UnicodeDecodeError):
         stop("event must be strict JSON")
-    if not isinstance(event, dict) or event.get("schema") != "ledger-event/1" or any(
+    if not isinstance(event, dict) or event.get("schema") != "ledger-event/1" or event.get("customer") != customer or any(
         not isinstance(event.get(key), str) or not event[key] for key in ("id", "operation_id")
     ):
         stop("event must contain stable id and operation_id")
@@ -120,10 +120,10 @@ def main():
         stop("outbox must have no group or other permission bits")
     sync_dir(outbox.parent)
     marker = outbox / "installation.path"
-    installed = (installation + "\n").encode("utf-8")
+    installed = (installation + "\n" + customer + "\n" + source + "\n").encode("utf-8")
     if marker.exists():
         if marker.read_bytes() != installed:
-            stop("outbox belongs to another canonical installation path")
+            stop("outbox belongs to another canonical installation or customer/source scope")
     else:
         save_new(marker, installed)
     sync_file(marker)
@@ -131,24 +131,24 @@ def main():
     request = outbox / "request.json"
     if request.exists():
         saved = request.read_bytes()
-        if saved != source:
+        if saved != event_bytes:
             stop("event bytes differ from the pending request; retain the original IDs and bytes")
         saved_event = json.loads(saved)
         if (saved_event["id"], saved_event["operation_id"]) != (event["id"], event["operation_id"]):
             stop("saved request IDs differ")
     else:
-        save_new(request, source)
+        save_new(request, event_bytes)
     sync_file(request)
     sync_dir(outbox)
 
-    code, response = run_json([ledger, "billing", "--directory", installation, "accept", str(request), "--json"])
+    code, response = run_json([ledger, "billing", "--directory", installation, "accept", "--customer", customer, "--source", source, str(request), "--json"])
     if code == 8:
         print("Outcome unknown. Keep request.json pending and retry this identical file.", file=sys.stderr)
         return 8
     if code != 0 or response.get("status") not in ("accepted", "duplicate"):
         print(f"Accept not acknowledged (exit {code}): {response}", file=sys.stderr)
         return code or 1
-    receipt = verified_receipt(ledger, installation, event["operation_id"], response.get("receipt"))
+    receipt = verified_receipt(ledger, installation, customer, event["operation_id"], response.get("receipt"))
     save_receipt(outbox / "receipt.json", receipt)
     print(f"Acknowledged {response['status']} with original receipt {receipt['id']}")
     return 0

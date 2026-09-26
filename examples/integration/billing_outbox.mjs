@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Synthetic caller outbox for one ordinary billing accept request.
-// Usage: node billing_outbox.mjs LEDGER BILLING_DIR EVENT_JSON OUTBOX_DIR
+// Usage: node billing_outbox.mjs LEDGER BILLING_DIR CUSTOMER SOURCE EVENT_JSON OUTBOX_DIR
 // Run one caller process per outbox on a private, durable local filesystem.
 import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, writeSync } from 'node:fs';
@@ -38,13 +38,13 @@ function runJson(args) {
   return [result.status, value];
 }
 
-if (process.argv.length !== 6) fail('usage: node billing_outbox.mjs LEDGER BILLING_DIR EVENT_JSON OUTBOX_DIR');
-const [ledger, suppliedInstallation, eventFile, outbox] = process.argv.slice(2);
+if (process.argv.length !== 8) fail('usage: node billing_outbox.mjs LEDGER BILLING_DIR CUSTOMER SOURCE EVENT_JSON OUTBOX_DIR');
+const [ledger, suppliedInstallation, customer, source, eventFile, outbox] = process.argv.slice(2);
 const installation = realpathSync(suppliedInstallation);
-const source = readFileSync(eventFile);
+const eventBytes = readFileSync(eventFile);
 let event;
-try { event = JSON.parse(source.toString('utf8')); } catch { fail('event must be strict JSON'); }
-if (event?.schema !== 'ledger-event/1' || typeof event.id !== 'string' || !event.id ||
+try { event = JSON.parse(eventBytes.toString('utf8')); } catch { fail('event must be strict JSON'); }
+if (event?.schema !== 'ledger-event/1' || event.customer !== customer || typeof event.id !== 'string' || !event.id ||
     typeof event.operation_id !== 'string' || !event.operation_id) fail('event must contain stable id and operation_id');
 
 if (!existsSync(outbox)) {
@@ -56,9 +56,9 @@ if (!outboxStat.isDirectory() || outboxStat.isSymbolicLink())
 if (outboxStat.mode & 0o077) fail('outbox must have no group or other permission bits');
 syncDir(dirname(outbox));
 const marker = join(outbox, 'installation.path');
-const installed = Buffer.from(installation + '\n');
+const installed = Buffer.from(installation + '\n' + customer + '\n' + source + '\n');
 if (existsSync(marker)) {
-  if (!readFileSync(marker).equals(installed)) fail('outbox belongs to another canonical installation path');
+  if (!readFileSync(marker).equals(installed)) fail('outbox belongs to another canonical installation or customer/source scope');
 } else {
   saveNew(marker, installed, outbox);
 }
@@ -67,16 +67,16 @@ syncDir(outbox);
 const request = join(outbox, 'request.json');
 if (existsSync(request)) {
   const saved = readFileSync(request);
-  if (!saved.equals(source)) fail('event bytes differ from the pending request; retain the original IDs and bytes');
+  if (!saved.equals(eventBytes)) fail('event bytes differ from the pending request; retain the original IDs and bytes');
   const prior = JSON.parse(saved.toString('utf8'));
   if (prior.id !== event.id || prior.operation_id !== event.operation_id) fail('saved request IDs differ');
 } else {
-  saveNew(request, source, outbox);
+  saveNew(request, eventBytes, outbox);
 }
 syncFile(request);
 syncDir(outbox);
 
-const [code, response] = runJson([ledger, 'billing', '--directory', installation, 'accept', request, '--json']);
+const [code, response] = runJson([ledger, 'billing', '--directory', installation, 'accept', '--customer', customer, '--source', source, request, '--json']);
 if (code === 8) {
   console.error('Outcome unknown. Keep request.json pending and retry this identical file.');
   process.exit(8);
@@ -89,8 +89,8 @@ const receipt = response.receipt;
 const target = receipt?.body?.target;
 if (receipt?.kind !== 'base-acceptance' || typeof receipt.id !== 'string' || !receipt.id ||
     typeof target !== 'string' || !target) fail('receipt ID or target is missing');
-const [explainCode, history] = runJson([ledger, 'billing', '--directory', installation, 'explain', target, '--json']);
-if (explainCode !== 0 || history?.schema !== 'ledger-billing-statement/1' || history.complete !== true)
+const [explainCode, history] = runJson([ledger, 'billing', '--directory', installation, 'explain', '--customer', customer, target, '--json']);
+if (explainCode !== 0 || history?.schema !== 'ledger-billing-statement/2' || history.complete !== true)
   fail('complete target explanation unavailable; request remains unacknowledged');
 const matches = history.entries?.filter(entry => entry.target === target &&
   same(entry.receipt, receipt) && entry.receipt.id === receipt.id &&

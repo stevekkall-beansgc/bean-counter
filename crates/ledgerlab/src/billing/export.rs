@@ -74,6 +74,9 @@ const HEADER: [&str; 30] = [
 ];
 
 fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8>, Value)> {
+    if statement["schema"] != "ledger-billing-statement/2" {
+        return Err(integrity());
+    }
     if text(&statement["snapshot_hash"])? != pinned {
         return Err(reject("BILLING_EXPORT_SNAPSHOT"));
     }
@@ -121,10 +124,10 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
     }
     let export_id = digest(&json!([
         "billing-finance-csv",
-        1,
+        2,
         statement["scope"],
         statement["customer"],
-        statement["agreement"],
+        statement["agreements"],
         statement["snapshot_hash"],
         statement["cutoff"],
         mapping.accounts
@@ -229,7 +232,7 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
     trailer[26] = "USD".into();
     trailer[27] = "2".into();
     line(&mut csv, &trailer);
-    let summary = json!({"schema":"ledger-finance-export/1","status":"exported","complete":true,"export_id":export_id,"snapshot_hash":pinned,"cutoff":statement["cutoff"],"posting_count":count,"net_atoms":total.to_string(),"currency":"USD","scale":2,"account_mapping":mapping.accounts,"delivered":false,"payment_collected":false});
+    let summary = json!({"schema":"ledger-finance-export/2","status":"exported","complete":true,"export_id":export_id,"snapshot_hash":pinned,"cutoff":statement["cutoff"],"posting_count":count,"net_atoms":total.to_string(),"currency":"USD","scale":2,"account_mapping":mapping.accounts,"delivered":false,"payment_collected":false});
     Ok((csv.into_bytes(), summary))
 }
 

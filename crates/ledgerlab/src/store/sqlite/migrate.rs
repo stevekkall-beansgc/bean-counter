@@ -1,4 +1,5 @@
 use crate::store::errors::StoreError;
+use sha2::{Digest, Sha256};
 use sqlx::{
     migrate::{Migration, MigrationType, Migrator},
     SqlSafeStr, SqliteConnection,
@@ -221,6 +222,188 @@ pub(crate) struct BillingUpgradeSeed {
     pub effective_at_us: i64,
     pub recorded_at_us: i64,
     pub setup_bytes: Vec<u8>,
+    /// Digest from `preflight_billing`, supplied after coordinator validation.
+    pub snapshot_digest: [u8; 32],
+}
+
+/// The exact schema-8 history that the billing coordinator must validate before
+/// allowing the first schema-9 write. The digest includes row identities,
+/// ordering, and original BLOB bytes, not merely the interpreted billing facts.
+pub(crate) struct BillingUpgradePreflight {
+    pub snapshot: super::BillingSnapshot,
+    pub digest: [u8; 32],
+}
+
+/// Read the legacy billing history under the exclusive directory owner. This
+/// never runs migration SQL. The coordinator validates `snapshot` as a complete
+/// v0.4.3 history, then supplies `digest` with the upgrade seed.
+#[allow(dead_code)] // Wired by the M2 billing coordinator integration.
+pub(crate) async fn preflight_billing(
+    path: &std::path::Path,
+) -> Result<BillingUpgradePreflight, crate::maintenance::UpgradeError> {
+    use crate::maintenance::UpgradeError;
+    use sqlx::Connection;
+    let owner = super::owner::Owner::acquire(path)?;
+    let mut conn = super::connect::initial(&owner).await?;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        owner.verify_path()?;
+        super::connect::verify(&mut conn, false).await?;
+        sqlx::query("PRAGMA query_only=ON")
+            .execute(&mut conn)
+            .await?;
+        if version(&mut conn).await? != 8 {
+            return Err(UpgradeError::Refused);
+        }
+        super::connect::integrity(&mut conn).await?;
+        let mut tx = conn.begin().await?;
+        let snapshot = legacy_billing_snapshot(&mut tx).await?;
+        tx.commit().await?;
+        Ok(snapshot)
+    })
+    .await
+    .unwrap_or(Err(UpgradeError::Refused));
+    if conn.close().await.is_err() {
+        return Err(UpgradeError::Refused);
+    }
+    result
+}
+
+fn hash_bytes(hash: &mut Sha256, bytes: &[u8]) {
+    hash.update((bytes.len() as u64).to_be_bytes());
+    hash.update(bytes);
+}
+
+fn hash_number(hash: &mut Sha256, value: i64) {
+    hash.update(value.to_be_bytes());
+}
+
+async fn legacy_billing_snapshot(
+    conn: &mut SqliteConnection,
+) -> Result<BillingUpgradePreflight, crate::maintenance::UpgradeError> {
+    use super::{BillingAlias, BillingEntry, BillingSnapshot};
+    use crate::maintenance::UpgradeError;
+    let setup: Vec<u8> =
+        sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup WHERE singleton=1")
+            .fetch_one(&mut *conn)
+            .await?;
+    let (entry_count, entry_last, entry_size): (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*),COALESCE(max(ordinal),0),COALESCE(sum(length(bundle)+length(ingress)+length(facts)+length(semantic_key)),0) FROM billing_entries",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let (alias_count, alias_size): (i64, i64) =
+        sqlx::query_as("SELECT count(*),COALESCE(sum(length(ingress)),0) FROM billing_aliases")
+            .fetch_one(&mut *conn)
+            .await?;
+    let (permission_count, permission_max): (i64, i64) =
+        sqlx::query_as("SELECT count(*),COALESCE(max(revision),1) FROM billing_permissions")
+            .fetch_one(&mut *conn)
+            .await?;
+    if setup.is_empty()
+        || setup.len() > 65_536
+        || entry_count > 1_000
+        || entry_count != entry_last
+        || entry_size > 33_554_432
+        || alias_count > 1_000
+        || alias_size > 33_554_432
+        || permission_count > 1_000
+        || permission_max != permission_count + 1
+    {
+        return Err(UpgradeError::Refused);
+    }
+    type EntryRow = (i64, String, String, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
+    let entry_rows: Vec<EntryRow> = sqlx::query_as(
+        "SELECT ordinal,source,external_id,semantic_key,ingress,facts,bundle FROM billing_entries ORDER BY ordinal",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    type AliasRow = (String, String, Vec<u8>, i64);
+    let alias_rows: Vec<AliasRow> = sqlx::query_as(
+        "SELECT source,external_id,ingress,ordinal FROM billing_aliases ORDER BY source,external_id",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let permission_rows: Vec<(i64, Vec<u8>)> = sqlx::query_as(
+        "SELECT revision,canonical_bytes FROM billing_permissions ORDER BY revision",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    if entry_rows.len() != entry_count as usize
+        || alias_rows.len() != alias_count as usize
+        || permission_rows.len() != permission_count as usize
+    {
+        return Err(UpgradeError::Refused);
+    }
+    let mut hash = Sha256::new();
+    hash.update(b"bean-counter/billing-schema8-snapshot/v1\0");
+    hash_bytes(&mut hash, &setup);
+    hash_number(&mut hash, permission_count);
+    for (revision, bytes) in &permission_rows {
+        hash_number(&mut hash, *revision);
+        hash_bytes(&mut hash, bytes);
+    }
+    hash_number(&mut hash, entry_count);
+    for (ordinal, source, external_id, semantic_key, ingress, facts, bundle) in &entry_rows {
+        hash_number(&mut hash, *ordinal);
+        hash_bytes(&mut hash, source.as_bytes());
+        hash_bytes(&mut hash, external_id.as_bytes());
+        hash_bytes(&mut hash, semantic_key);
+        hash_bytes(&mut hash, ingress);
+        hash_bytes(&mut hash, facts);
+        hash_bytes(&mut hash, bundle);
+    }
+    hash_number(&mut hash, alias_count);
+    for (source, external_id, ingress, ordinal) in &alias_rows {
+        hash_bytes(&mut hash, source.as_bytes());
+        hash_bytes(&mut hash, external_id.as_bytes());
+        hash_bytes(&mut hash, ingress);
+        hash_number(&mut hash, *ordinal);
+    }
+    let digest = hash.finalize().into();
+    Ok(BillingUpgradePreflight {
+        snapshot: BillingSnapshot {
+            setup,
+            permissions: permission_rows
+                .into_iter()
+                .map(|(_, bytes)| bytes)
+                .collect(),
+            scoped_permissions: vec![],
+            customers: vec![],
+            agreements: vec![],
+            controls: vec![],
+            entries: entry_rows
+                .into_iter()
+                .map(
+                    |(ordinal, source, external_id, semantic_key, ingress, facts, bundle)| {
+                        BillingEntry {
+                            ordinal,
+                            customer: None,
+                            source,
+                            external_id,
+                            semantic_key,
+                            ingress,
+                            facts,
+                            bundle,
+                            accepted_at_us: None,
+                            agreement_id: None,
+                            agreement_version: None,
+                        }
+                    },
+                )
+                .collect(),
+            aliases: alias_rows
+                .into_iter()
+                .map(|(source, external_id, ingress, ordinal)| BillingAlias {
+                    customer: None,
+                    source,
+                    external_id,
+                    ingress,
+                    ordinal,
+                })
+                .collect(),
+        },
+        digest,
+    })
 }
 
 /// Explicit local billing schema-8 to schema-9 transition. Caller cancellation
@@ -343,6 +526,9 @@ async fn upgrade_billing_connection(
         || permissions > 1000
         || permission_max != permissions + 1
     {
+        return Err(UpgradeError::Refused);
+    }
+    if legacy_billing_snapshot(&mut tx).await?.digest != seed.snapshot_digest {
         return Err(UpgradeError::Refused);
     }
     if from == 8 {
