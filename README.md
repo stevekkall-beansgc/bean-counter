@@ -52,7 +52,7 @@ The Rust workspace uses pinned dependencies and builds offline once its dependen
 - [Release support contract](release/README.md)
 - [Validation evidence](docs/PHASE-0-VALIDATION.md)
 
-One coordinated release train: `ledgerlab-core` → `ledgerlab` → `ledgerlab-cli` (binary `ledger`). `ledgerlab-testkit` is unpublished and never a production dependency. [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog; source and native-archive publication do not publish Rust crates. See the [local release profile](release/local-sqlite.md). Project owner: BeanLabs.
+One coordinated release train: `ledgerlab-core` → `ledgerlab` → `ledgerlab-cli` (binary `ledger`). `ledgerlab-testkit` is unpublished and never a production dependency. [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog; source and native-archive publication do not publish Rust crates. See the [local release profile](release/local-sqlite.md). Project owner: Legume Labs.
 
 For the finance CSV workflow and expected $5.00 synthetic result, see [WORKFLOW.md](WORKFLOW.md) and the [owner end-to-end walkthrough](docs/finance-e2e.md).
 
