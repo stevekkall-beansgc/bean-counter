@@ -11,6 +11,7 @@ const PHASE4: &str = include_str!("../../../migrations/sqlite/0005_phase4.sql");
 const READER_BOUNDS: &str = include_str!("../../../migrations/sqlite/0006_r3_reader_bounds.sql");
 const BILLING: &str = include_str!("../../../migrations/sqlite/0007_local_billing.sql");
 const BILLING_ALIASES: &str = include_str!("../../../migrations/sqlite/0008_billing_aliases.sql");
+const CUSTOMERS: &str = include_str!("../../../migrations/sqlite/0009_customer_agreements.sql");
 fn migrator() -> Migrator {
     Migrator::with_migrations(vec![
         Migration::new(
@@ -69,6 +70,13 @@ fn migrator() -> Migrator {
             BILLING_ALIASES.into_sql_str(),
             false,
         ),
+        Migration::new(
+            9,
+            "customer agreements".into(),
+            MigrationType::Simple,
+            CUSTOMERS.into_sql_str(),
+            false,
+        ),
     ])
 }
 #[allow(dead_code)] // Explicit migration-owner provisioning; never run by open.
@@ -80,7 +88,7 @@ pub(super) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     let current: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if current != 8 {
+    if current != 9 {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     version(conn).await?;
@@ -90,7 +98,7 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
     let v: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if !(1..=8).contains(&v) {
+    if !(1..=9).contains(&v) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     let migrations = migrator();
@@ -149,6 +157,9 @@ async fn upgrade_connection(
     use sqlx::Connection;
     let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
     let from = version(&mut tx).await?;
+    if from > 8 {
+        return Err(UpgradeError::Refused);
+    }
     let installation = super::read::installation(&mut tx).await?;
     let stopped: bool = sqlx::query_scalar("SELECT owner IS NULL AND lease_until_us IS NULL AND enabled=0 FROM dispatcher_head WHERE singleton=1")
         .fetch_one(&mut *tx).await?;
@@ -162,7 +173,11 @@ async fn upgrade_connection(
         return Err(UpgradeError::Refused);
     }
     super::connect::integrity(&mut tx).await?;
-    for migration in migrator().iter().filter(|m| m.version > from) {
+    // The historical frozen-store path must never activate billing schema 9.
+    for migration in migrator()
+        .iter()
+        .filter(|m| m.version > from && m.version <= 8)
+    {
         sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref()))
             .execute(&mut *tx)
             .await?;
@@ -170,7 +185,9 @@ async fn upgrade_connection(
             .bind(migration.version).bind(migration.description.as_ref())
             .bind(migration.checksum.as_ref()).execute(&mut *tx).await?;
     }
-    verify(&mut tx).await?;
+    if version(&mut tx).await? != 8 {
+        return Err(UpgradeError::Refused);
+    }
     super::connect::integrity(&mut tx).await?;
     tx.commit()
         .await
@@ -189,3 +206,193 @@ async fn upgrade_connection(
 #[cfg(test)]
 #[path = "upgrade_tests.rs"]
 mod upgrade_tests;
+
+/// Mechanical seed already validated by the billing coordinator. Canonical
+/// setup bytes and primitive identity fields are checked again under the owner
+/// and write transaction; the store never evaluates terms or authority.
+#[derive(Clone, Debug)]
+pub(crate) struct BillingUpgradeSeed {
+    pub store_id: String,
+    pub tenant: String,
+    pub environment: String,
+    pub customer: String,
+    pub source: String,
+    pub agreement_id: String,
+    pub effective_at_us: i64,
+    pub recorded_at_us: i64,
+    pub setup_bytes: Vec<u8>,
+}
+
+/// Explicit local billing schema-8 to schema-9 transition. Caller cancellation
+/// leaves the supervised operation running with its exclusive directory owner.
+/// Repeating with the same commercial seed reconciles an unknown commit result.
+#[allow(dead_code)] // Wired by the M2 billing coordinator integration.
+pub(crate) async fn upgrade_billing(
+    path: &std::path::Path,
+    seed: &BillingUpgradeSeed,
+) -> Result<crate::maintenance::UpgradeResult, crate::maintenance::UpgradeError> {
+    let path = path.to_owned();
+    let seed = seed.clone();
+    tokio::spawn(async move { upgrade_billing_owned(&path, &seed).await })
+        .await
+        .unwrap_or(Err(crate::maintenance::UpgradeError::OutcomeUnknown))
+}
+
+async fn upgrade_billing_owned(
+    path: &std::path::Path,
+    seed: &BillingUpgradeSeed,
+) -> Result<crate::maintenance::UpgradeResult, crate::maintenance::UpgradeError> {
+    use crate::maintenance::UpgradeError;
+    use sqlx::Connection;
+    let owner = super::owner::Owner::acquire(path)?;
+    let mut conn = super::connect::initial(&owner).await?;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        owner.verify_path()?;
+        super::connect::verify(&mut conn, false).await?;
+        upgrade_billing_connection(
+            &mut conn,
+            seed,
+            #[cfg(test)]
+            0,
+        )
+        .await
+    })
+    .await
+    .unwrap_or(Err(UpgradeError::OutcomeUnknown));
+    // Drain rollback/commit on the SQLx worker before releasing the OS lock.
+    if conn.close().await.is_err() {
+        return Err(UpgradeError::OutcomeUnknown);
+    }
+    result
+}
+
+async fn upgrade_billing_connection(
+    conn: &mut SqliteConnection,
+    seed: &BillingUpgradeSeed,
+    #[cfg(test)] cut: u8,
+) -> Result<crate::maintenance::UpgradeResult, crate::maintenance::UpgradeError> {
+    use crate::maintenance::{UpgradeError, UpgradeResult};
+    use sqlx::Connection;
+    let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
+    let from = version(&mut tx).await?;
+    if from != 8 && from != 9 {
+        return Err(UpgradeError::Refused);
+    }
+    let installation = super::read::installation(&mut tx).await?;
+    let stopped: bool = sqlx::query_scalar("SELECT owner IS NULL AND lease_until_us IS NULL AND enabled=0 FROM dispatcher_head WHERE singleton=1")
+        .fetch_one(&mut *tx).await?;
+    if seed.store_id.is_empty()
+        || installation.logical_store_id != seed.store_id
+        || installation.scope.tenant != seed.tenant
+        || installation.scope.environment != seed.environment
+        || installation.mode != "real"
+        || installation.admission != "open"
+        || !installation.dispatch_hold
+        || installation.dispatch_enabled
+        || !stopped
+    {
+        return Err(UpgradeError::Refused);
+    }
+    super::connect::integrity(&mut tx).await?;
+    let bytes: Vec<u8> =
+        sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup WHERE singleton=1")
+            .fetch_one(&mut *tx)
+            .await?;
+    if bytes != seed.setup_bytes || bytes.is_empty() || bytes.len() > 65536 {
+        return Err(UpgradeError::Refused);
+    }
+    let setup = ledgerlab_core::canonical::parse_bounded(&bytes, 65536)
+        .map_err(|_| UpgradeError::Refused)?;
+    if ledgerlab_core::canonical::CanonicalBytes::from_value(&setup)
+        .map_err(|_| UpgradeError::Refused)?
+        .as_slice()
+        != bytes
+        || setup["schema"] != "ledger-local-billing/1"
+        || setup["store_id"] != seed.store_id
+        || setup["scope"] != serde_json::json!([seed.tenant, seed.environment])
+        || setup["customer"] != seed.customer
+        || setup["source"] != seed.source
+        || setup["agreement"] != seed.agreement_id
+        || ledgerlab_core::domain::Timestamp::parse(
+            setup["accepted_at"].as_str().ok_or(UpgradeError::Refused)?,
+        )
+        .map_err(|_| UpgradeError::Refused)?
+        .micros()
+            != seed.effective_at_us
+    {
+        return Err(UpgradeError::Refused);
+    }
+    let unrelated: i64 = sqlx::query_scalar("SELECT (SELECT count(*) FROM events)+(SELECT count(*) FROM outcome_records)+(SELECT count(*) FROM r3_commit_witness)")
+        .fetch_one(&mut *tx).await?;
+    let (count, last, size, wrong_source): (i64, i64, i64, i64) = sqlx::query_as("SELECT count(*),COALESCE(max(ordinal),0),COALESCE(sum(length(bundle)+length(ingress)+length(facts)+length(semantic_key)),0),COALESCE(sum(source<>?),0) FROM billing_entries")
+        .bind(&seed.source).fetch_one(&mut *tx).await?;
+    let (aliases, alias_size, wrong_alias_source): (i64, i64, i64) = sqlx::query_as("SELECT count(*),COALESCE(sum(length(ingress)),0),COALESCE(sum(source<>?),0) FROM billing_aliases")
+        .bind(&seed.source).fetch_one(&mut *tx).await?;
+    let (permissions, permission_max): (i64, i64) =
+        sqlx::query_as("SELECT count(*),COALESCE(max(revision),1) FROM billing_permissions")
+            .fetch_one(&mut *tx)
+            .await?;
+    if unrelated != 0
+        || count > 1000
+        || count != last
+        || size > 33_554_432
+        || wrong_source != 0
+        || aliases > 1000
+        || alias_size > 33_554_432
+        || wrong_alias_source != 0
+        || permissions > 1000
+        || permission_max != permissions + 1
+    {
+        return Err(UpgradeError::Refused);
+    }
+    if from == 8 {
+        let migration = migrator().migrations[8].clone();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref()))
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO _sqlx_migrations (version,description,success,checksum,execution_time) VALUES (?,?,TRUE,?,0)")
+            .bind(migration.version).bind(migration.description.as_ref())
+            .bind(migration.checksum.as_ref()).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO billing_customers(customer,tenant,environment) VALUES(?,?,?)")
+            .bind(&seed.customer)
+            .bind(&seed.tenant)
+            .bind(&seed.environment)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO billing_agreements(customer,source,revision,agreement_id,agreement_version,transition,effective_at_us,recorded_at_us,setup_bytes) VALUES(?,?,1,?,1,'start',?,?,?)")
+            .bind(&seed.customer).bind(&seed.source).bind(&seed.agreement_id)
+            .bind(seed.effective_at_us).bind(seed.recorded_at_us).bind(&seed.setup_bytes)
+            .execute(&mut *tx).await?;
+        #[cfg(test)]
+        if cut == 1 {
+            return Err(UpgradeError::Refused);
+        }
+    }
+    // A schema-9 history alone is insufficient: reconciliation requires the
+    // exact original mapping and initial terms, including retained scope.
+    let seeded: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_customers c JOIN billing_agreements a ON c.customer=a.customer WHERE c.customer=? AND c.tenant=? AND c.environment=? AND a.source=? AND a.revision=1 AND a.agreement_id=? AND a.agreement_version=1 AND a.transition='start' AND a.effective_at_us=? AND a.setup_bytes=?)")
+        .bind(&seed.customer).bind(&seed.tenant).bind(&seed.environment).bind(&seed.source)
+        .bind(&seed.agreement_id).bind(seed.effective_at_us).bind(&seed.setup_bytes)
+        .fetch_one(&mut *tx).await?;
+    if !seeded {
+        return Err(UpgradeError::Refused);
+    }
+    verify(&mut tx).await?;
+    super::connect::integrity(&mut tx).await?;
+    tx.commit()
+        .await
+        .map_err(|_| UpgradeError::OutcomeUnknown)?;
+    #[cfg(test)]
+    if cut == 2 {
+        return Err(UpgradeError::OutcomeUnknown);
+    }
+    Ok(if from == 9 {
+        UpgradeResult::AlreadyCurrent
+    } else {
+        UpgradeResult::Upgraded
+    })
+}
+
+#[cfg(test)]
+#[path = "billing_upgrade_tests.rs"]
+mod billing_upgrade_tests;

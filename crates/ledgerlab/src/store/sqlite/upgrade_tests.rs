@@ -221,10 +221,12 @@ async fn sqlite_schema_upgrade_populated_1_through_4_rollback_reopen_retry() {
             .await
             .unwrap();
         let stable = dump(&mut conn).await;
-        let ledger = crate::Ledger::open_sqlite(dir.path()).await.unwrap();
-        assert_original_retry(&ledger).await;
-        assert_eq!(dump(&mut conn).await, stable, "no duplicate economics");
-        ledger.close().await;
+        // Historical maintenance deliberately stops at schema 8. M2 runtime
+        // requires schema 9 and must not silently activate customer writes for
+        // a generic frozen store without a billing profile and explicit seed.
+        assert!(crate::Ledger::open_sqlite(dir.path()).await.is_err());
+        assert_eq!(version(&mut conn).await.unwrap(), 8);
+        assert_eq!(dump(&mut conn).await, stable, "open must not migrate");
         conn.close().await.unwrap();
     }
 }
