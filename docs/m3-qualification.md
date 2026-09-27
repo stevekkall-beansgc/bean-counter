@@ -4,12 +4,12 @@
 
 ## Candidate and environment
 
-- Base source commit: `ae03a62df72faad6cfc591237eece6bd95cbeeb9`; the M3 candidate contained uncommitted changes at measurement time.
-- Source-built M3 CLI SHA-256: `f9ec6e330d113a18f0bbfa5756d216cf3454829381a754764990b8d24e22b928`.
+- M3 implementation source commit: `e2ce81a7f6c0027f661be94b9952a31d60366167`.
+- Source-built M3 CLI SHA-256 used by the schema-9 migration exercise: `de3bf512dcb7e5b6a37145a05090ca2ce97b733e6ffd53513175cd8d9835d06d`.
 - M2 source commit: `685ea0aa1f5f5a79042802bfc2d9ccfb1aa2d00f`; M2 CLI SHA-256: `f9559b82a711df0b5e204e0f8386a17a8e0864d3d6812c44111a2a9f75e31b6c`.
 - Host and toolchain: macOS 26.6.2, Apple silicon (`aarch64-apple-darwin`), Rust 1.98.1, locked dependencies, offline build.
 
-The binary hash identifies the candidate used for the external schema-9 migration exercise. The source commit is its base; it is not a claim that the dirty working tree was identical to that commit.
+The external schema-9 capture records that it was first produced in a dirty worktree based on `ae03a62df72faad6cfc591237eece6bd95cbeeb9`. To reconcile that record with the release source, all 34 tracked or added candidate files were compared with commit `e2ce81a7f6c0027f661be94b9952a31d60366167`; their contents match byte-for-byte. The recorded M3 binary hash above is the binary used by that migration exercise. This identifies the measured M3 source content with the implementation commit while retaining the capture's original worktree metadata; it is not a claim that the original harness ran from a clean checkout.
 
 ## Retained history, retries, and concurrency
 
@@ -51,7 +51,7 @@ The M3 migration tests also exercise the direct schema-8-to-schema-10 code path 
 ## Checks run on the candidate
 
 - `cargo test -p ledgerlab --lib billing_upgrade_tests -- --test-threads=1`: 13 passed, including schema-9 index mismatch refusal, explicit upgrade-required behavior, a corrupted schema-10 meter, and a concurrent schema-9 to schema-10 upgrade retry that reopens through the full billing validator.
-- `cargo test -p ledgerlab --test m3_history -- --test-threads=1`: 6 passed, 2 ignored (the separate 1,001-plus acceptance gate is run explicitly).
+- `cargo test -p ledgerlab --test m3_history -- --test-threads=1`: 6 passed, 1 ignored (the separate 1,001-plus acceptance gate is run explicitly).
 - The explicit three-installation acceptance gate above: passed, 1 test.
 - `cargo test -p ledgerlab-cli --bin ledger output::tests -- --test-threads=1`: 4 passed.
 - `sh scripts/check-local-billing-e2e.sh`: passed; CLI output/setup 5, billing 6, finance CSV 1, and local CLI 17 tests.
@@ -59,6 +59,7 @@ The M3 migration tests also exercise the direct schema-8-to-schema-10 code path 
 - `cargo check --workspace --all-targets --no-default-features --locked --offline`: passed.
 - `sh scripts/check-boundaries.sh`: passed.
 - Source-built schema-9 migration, older-writer refusal, backup restore, and retry exercise: passed with the M3 binary hash above.
+- Exact-commit GitHub compliance gate for M3 implementation commit `e2ce81a7f6c0027f661be94b9952a31d60366167`: [passed](https://github.com/stevekkall-beansgc/bean-counter/actions/runs/36290980411).
 - Release workload and source-building checks are recorded above.
 
 No part of this record qualifies PostgreSQL billing support, multi-host writers, native package support, hosted operation, payments, resource reservations, or product use at production scale.

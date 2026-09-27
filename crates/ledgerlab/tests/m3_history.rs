@@ -42,11 +42,9 @@
 //!   These are overlapping *public calls*: a snapshot is never read from inside
 //!   an open write transaction, and no containment of one call by another is
 //!   claimed. The measured geometry of each pair is printed instead.
-//! - Baseline and acceptance are separate tests, and each is documented with its
-//!   own exact `cargo test ... --exact <name>` command. Two tests are
-//!   `#[ignore]`d; the acceptance one is expected to fail on this pre-M3 source
-//!   and is not evidence of anything. No single `--ignored` command may run
-//!   both: they assert opposite outcomes at the same boundary.
+//! - The long-running M3 acceptance gate is `#[ignore]`d and documented with
+//!   its exact command below. It is run separately from the ordinary integration
+//!   suite so its repeated 1,026-decision workload remains explicit.
 //! - Postponed capabilities (PostgreSQL, multi-host, resource proofs, hosted
 //!   operation, payments) are untouched by this file.
 
@@ -75,10 +73,8 @@ const WORK_OCCURRED_AT: &str = "2026-09-01T00:00:00.000000Z";
 const ADJUSTMENT_OCCURRED_AT: &str = "2026-09-22T00:00:00.000000Z";
 const SETUP: &[u8] = include_bytes!("../../../examples/billing/setup.json");
 const MAPPING: &[u8] = include_bytes!("../../../examples/finance/mapping.json");
-/// The pre-M3 source's retained-decision admission ceiling, read from the
-/// current requirements. Nothing here raises, bypasses or works around it: the
-/// baseline test records its refusal and the acceptance test requires decisions
-/// beyond it to succeed, which this source cannot do.
+/// The former M2 retained-decision ceiling. M3 acceptance proves that the
+/// measured source-built profile retains decisions across this boundary.
 const PRE_M3_DECISION_CEILING: usize = 1000;
 /// The first decision past the pre-M3 ceiling. M3 acceptance requires this
 /// decision, and decisions after it, to be accepted and retained.
@@ -1366,116 +1362,9 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
     close_shared(ledger).await;
 }
 
-/// The pre-M3 baseline, recorded as a baseline only. This is **not** M3
-/// acceptance: it records that this source accepts up to its retained-decision
-/// ceiling and then refuses, which is the opposite of the M3 exit condition. It
-/// is kept deliberately separate from the acceptance test below, and the two
-/// must never be run by one `--ignored` command: they assert opposite outcomes
-/// at the same 1,000/1,001 boundary.
-///
-/// It is `#[ignore]`d because it is a measured run, not a fast unit test: every
-/// submission re-verifies the whole retained history, so the wall time grows
-/// with the square of the retained entry count. **Its duration is not measured
-/// in this branch**: no timing for it is claimed here, and a run must report its
-/// own elapsed time to be evidence of anything. Run exactly this test:
-///
-/// ```text
-/// cargo test --release -p ledgerlab --test m3_history -- --ignored --exact \
-///   baseline_only_ceiling_accepts_1000_then_refuses_1001_and_beyond --nocapture
-/// ```
-#[tokio::test]
-#[ignore = "measured baseline run, unmeasured in this branch; --exact command above"]
-async fn baseline_only_ceiling_accepts_1000_then_refuses_1001_and_beyond() {
-    let scratch = scratch("baseline-ceiling");
-    let path = &scratch.path;
-    let ledger = install(path).await;
-    let mut original = Vec::new();
-    for index in 1..=PRE_M3_DECISION_CEILING {
-        let value = accept(&ledger, &work_event(index)).await;
-        assert_eq!(value["status"], "accepted", "decision {index}");
-        original.push(value["receipt"].clone());
-    }
-    let at_ceiling = ledger.statement(CUSTOMER, None).await.unwrap();
-    assert_eq!(expect_self_consistent(&at_ceiling), PRE_M3_DECISION_CEILING);
-    assert_eq!(at_ceiling["cutoff"], PRE_M3_DECISION_CEILING.to_string());
-    assert_eq!(
-        at_ceiling["net_atoms"],
-        (PRICE_ATOMS * PRE_M3_DECISION_CEILING as i128).to_string()
-    );
-
-    // The oldest accepted identity still resolves at the ceiling, so a caller
-    // can always reconcile a lost acknowledgement without new capacity.
-    let oldest = accept(&ledger, &work_event(1)).await;
-    assert_eq!(oldest["status"], "duplicate");
-    assert_eq!(oldest["kind"], "identity");
-    assert_eq!(oldest["receipt"], original[0]);
-    // A permanent semantic alias also still resolves, and adds no entry.
-    let alias = accept(
-        &ledger,
-        &work_event_with("m3-baseline-alias-1", "m3-op-000001"),
-    )
-    .await;
-    assert_eq!(alias["status"], "duplicate");
-    assert_eq!(alias["kind"], "semantic");
-    assert_eq!(alias["receipt"], original[0]);
-    // An adjustment is refused like any other new entry at the ceiling.
-    let outcome = ledger
-        .outcome(
-            CUSTOMER,
-            SOURCE,
-            &outcome_event("m3-baseline-outcome-1", &target_of(&original[0]), "rebate"),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(refusal(&outcome), "BILLING_HISTORY_LIMIT");
-
-    // And beyond: every further new decision is refused identically.
-    for index in (PRE_M3_DECISION_CEILING + 1)..=(PRE_M3_DECISION_CEILING + 10) {
-        let error = ledger
-            .accept(CUSTOMER, SOURCE, &work_event(index))
-            .await
-            .unwrap_err();
-        assert_eq!(
-            refusal(&error),
-            "BILLING_HISTORY_LIMIT",
-            "decision {index} must be refused at the ceiling"
-        );
-    }
-    // A conflicting reuse of a retained delivery identity is still a conflict,
-    // not a new effect, at the ceiling.
-    let conflict = ledger
-        .accept(
-            CUSTOMER,
-            SOURCE,
-            &work_event_with("m3-work-000001", "m3-op-other"),
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(refusal(&conflict), "IDENTITY_CONFLICT");
-
-    let unchanged = ledger.statement(CUSTOMER, None).await.unwrap();
-    assert_eq!(unchanged, at_ceiling, "refusals must not change history");
-    assert_eq!(entry_count(&unchanged), PRE_M3_DECISION_CEILING);
-    ledger.close().await;
-
-    // The refusal is not an artifact of one process: a fresh process sees the
-    // same retained history and the same ceiling.
-    let ledger = BillingLedger::open(path).await.unwrap();
-    assert_eq!(ledger.statement(CUSTOMER, None).await.unwrap(), at_ceiling);
-    let error = ledger
-        .accept(CUSTOMER, SOURCE, &work_event(PRE_M3_DECISION_CEILING + 1))
-        .await
-        .unwrap_err();
-    assert_eq!(refusal(&error), "BILLING_HISTORY_LIMIT");
-    let oldest = accept(&ledger, &work_event(1)).await;
-    assert_eq!(oldest["status"], "duplicate");
-    assert_eq!(oldest["receipt"], original[0]);
-    ledger.close().await;
-}
-
 /// M3 acceptance: a single host retains decisions past the pre-M3 ceiling, so
-/// the history is continuous rather than refused at 1,000. This test is the
-/// acceptance condition, and this source does not meet it.
+/// the history is continuous rather than refused at 1,000. This test provides
+/// acceptance evidence for the measured source-built profile.
 ///
 /// It requires repeated crossings, on more than one installation. Each of
 /// `ACCEPTANCE_INSTALLATIONS` independent fresh installations must accept and
@@ -1486,19 +1375,15 @@ async fn baseline_only_ceiling_accepts_1000_then_refuses_1001_and_beyond() {
 /// show a first crossing; the repetition across unrelated installations is the
 /// acceptance condition.
 ///
-/// It is `#[ignore]`d because on this pre-M3 source it fails by design at
-/// decision 1001, and because it is a measured run of the same order as the
-/// baseline one. It is deferred here and is not evidence of anything. It is run
-/// by its own exact name, never by a broad `--ignored` command that would also
-/// run the baseline refusal test above, because the two assert opposite outcomes
-/// at the same boundary:
+/// It is `#[ignore]`d because it is a measured run rather than a fast unit test.
+/// Run it explicitly by its exact name:
 ///
 /// ```text
 /// cargo test --release -p ledgerlab --test m3_history -- --ignored --exact \
 ///   m3_acceptance_retains_decisions_1001_and_later_on_three_fresh_installations --nocapture
 /// ```
 #[tokio::test]
-#[ignore = "M3 acceptance gate; fails by design on this pre-M3 source at decision 1001"]
+#[ignore = "M3 measured acceptance gate; invoke explicitly with the documented command"]
 async fn m3_acceptance_retains_decisions_1001_and_later_on_three_fresh_installations() {
     let last = ACCEPTANCE_CROSSING + ACCEPTANCE_TAIL;
     assert!(
@@ -1528,8 +1413,7 @@ async fn accept_beyond_the_ceiling(installation: usize, last: usize) {
             Ok(value) => value,
             Err(error) => panic!(
                 "M3 acceptance requires decision {index} to be accepted and retained, got \
-                 {error:?}. This source stops accepting new decisions at its retained-decision \
-                 ceiling, so the M3 acceptance gate is not met by this build."
+                 {error:?}; the measured source-built profile did not meet the acceptance gate."
             ),
         };
         assert_eq!(

@@ -238,14 +238,16 @@ pub(crate) struct BillingUpgradeSeed {
     /// The schema the digest was taken from, retained so a retry after an
     /// unknown commit re-derives exactly the same pre-M3 bytes.
     pub source_version: i64,
-    /// The durable target index the coordinator derived from the validated
-    /// receipts. Every field is re-checked against the retained row bytes.
+    /// The durable target index derived by the coordinator from validated
+    /// receipts. The migration rechecks the frozen-history digest and retained
+    /// identity fields; a full billing open validates derived fields afterward.
     pub index: Vec<BillingUpgradeIndex>,
 }
 
-/// One retained decision's derived index row. `target`, `kind` and
-/// `accepted_at_us` come from the coordinator's validated receipt decoding; the
-/// store only checks that they match the retained row it already holds.
+/// One retained decision's derived index row. The coordinator derives target,
+/// kind and acceptance time from validated history. The store rechecks retained
+/// source and identity fields plus the frozen-history digest; full-open history
+/// validation checks the resulting index against decoded entries.
 #[derive(Clone, Debug)]
 pub(crate) struct BillingUpgradeIndex {
     pub ordinal: i64,
@@ -1071,8 +1073,9 @@ async fn upgrade_billing_connection(
         let legacy_owner: Option<String> = sqlx::query_scalar("SELECT a.customer FROM billing_agreements a JOIN billing_setup s ON a.setup_bytes=s.canonical_bytes WHERE a.revision=1")
             .fetch_optional(&mut *tx).await?;
         for row in &seed.index {
-            // Every derived index field is re-proved against the retained row
-            // bytes under the write transaction before it becomes durable.
+            // Recheck retained source and identity fields under the write
+            // transaction. The coordinator derived target, kind and time from
+            // validated history; the final full open verifies those index fields.
             let retained: Option<(String, String, Vec<u8>, Option<i64>)> = sqlx::query_as(
                 "SELECT source,external_id,semantic_key,NULL FROM billing_entries WHERE ordinal=?",
             )
