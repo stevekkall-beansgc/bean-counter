@@ -10,7 +10,7 @@
 - Source-built pre-M4 CLI SHA-256: `713b3b2660aa7e3ea016fa5e2a1516a56fc680372d5a5654a63c8fd819c55dc0`.
 - Toolchain and host: Rust 1.98.1, Cargo 1.98.1, `aarch64-apple-darwin`, macOS 26.6.2.
 - Dependencies were locked and builds ran offline.
-- This candidate is committed locally on `codex/m4-big-pickle-policy-matrix`; it has not been pushed, tagged, or published as a release.
+- The M4 candidate shipped as v0.7.0 from exact commit `48d76ae249fbfcb79a5012b265da51a71cb996e3`. At publication, Bean's release proof verified that the annotated tag, `origin/main`, and GitHub Release all resolved to that commit. The later v0.7.1 documentation-only patch synchronizes roadmap and requirements status; it does not change M4 implementation or qualification.
 
 ## Qualified M4 behavior
 
