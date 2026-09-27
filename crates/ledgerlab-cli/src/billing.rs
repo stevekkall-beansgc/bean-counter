@@ -118,22 +118,28 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
                 Ok(()) => (true, Value::Null),
                 Err(recovery) => (false, json!(recovery.display().to_string())),
             };
-        return Ok((
-            json!({
-                "status": "initialized",
-                "directory": dir,
-                "profile": "local-retail",
-                "dispatch": "disabled",
-                "customer": summary["customer"],
-                "agreement": summary["agreement"],
-                "price_usd": summary["price_usd"],
-                "setup_config_retained": setup_config_retained,
-                "setup_config_failed_target": setup_config_failed_target,
-                "setup_config_warning": if setup_config_retained { Value::Null } else { json!("installation succeeded, but setup.json was not retained at the reported target; consult the actual agreement and retained assent evidence to prepare a private repeatable configuration") },
-                "version": env!("CARGO_PKG_VERSION")
-            }),
-            0,
-        ));
+        let pricing = if summary.get("price_usd").is_some() {
+            json!({"price_usd":summary["price_usd"]})
+        } else {
+            json!({"rate_usd_per_unit":summary["rate_usd_per_unit"],"unit":summary["unit"],"maximum_quantity":summary["maximum_quantity"],"currency_scale":summary["currency_scale"]})
+        };
+        let mut initialized = json!({
+            "status": "initialized",
+            "directory": dir,
+            "profile": "local-retail",
+            "dispatch": "disabled",
+            "customer": summary["customer"],
+            "agreement": summary["agreement"],
+            "setup_config_retained": setup_config_retained,
+            "setup_config_failed_target": setup_config_failed_target,
+            "setup_config_warning": if setup_config_retained { Value::Null } else { json!("installation succeeded, but setup.json was not retained at the reported target; consult the actual agreement and retained assent evidence to prepare a private repeatable configuration") },
+            "version": env!("CARGO_PKG_VERSION")
+        });
+        initialized
+            .as_object_mut()
+            .expect("initialized response object")
+            .extend(pricing.as_object().expect("pricing object").clone());
+        return Ok((initialized, 0));
     }
     if let ["init", dir, "--setup", file] = args.as_slice() {
         let raw = local::read_file(Path::new(file), local::CONFIG_LIMIT)?;

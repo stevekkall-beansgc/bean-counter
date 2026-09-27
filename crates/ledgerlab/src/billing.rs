@@ -42,7 +42,7 @@ impl BillingLedger {
                 })
             })
             .collect::<Vec<_>>();
-        Ok(json!({
+        let mut summary = json!({
             "profile": "local-retail",
             "schema": setup.schema,
             "scope": setup.scope,
@@ -52,7 +52,6 @@ impl BillingLedger {
             "host": setup.host,
             "agreement": setup.agreement,
             "binding": setup.binding,
-            "price_usd": setup.price,
             "accepted_at": setup.accepted_at,
             "outcome_family": family["family"],
             "outcome_codes": codes,
@@ -67,7 +66,16 @@ impl BillingLedger {
                 "authority_attestation": !setup.operator_attestation.is_empty(),
                 "finality_attestation": !setup.finality_attestation.is_empty()
             }
-        }))
+        });
+        if setup.schema == "ledger-local-billing/2" {
+            summary["rate_usd_per_unit"] = json!(setup.price);
+            summary["unit"] = json!(setup.unit);
+            summary["maximum_quantity"] = json!(setup.maximum_quantity);
+            summary["currency_scale"] = json!(18);
+        } else {
+            summary["price_usd"] = json!(setup.price);
+        }
+        Ok(summary)
     }
 
     /// Create a separate real-terms installation. Existing destinations refuse;

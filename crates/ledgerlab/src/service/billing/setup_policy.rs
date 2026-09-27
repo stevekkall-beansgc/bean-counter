@@ -17,9 +17,12 @@ fn slug(v: &Value) -> Result<()> {
         "BILLING_POLICY",
     )
 }
-fn money(v: &Value) -> Result<()> {
+fn money(v: &Value, scale: u8) -> Result<()> {
     keys(v, &["currency", "scale", "atoms"])?;
-    require(v["currency"] == "USD" && v["scale"] == 2, "BILLING_POLICY")?;
+    require(
+        v["currency"] == "USD" && v["scale"] == scale,
+        "BILLING_POLICY",
+    )?;
     b::money(v).map_err(|_| reject("BILLING_POLICY"))?;
     Ok(())
 }
@@ -91,7 +94,7 @@ pub(super) fn validate(s: &Setup) -> Result<()> {
         require(unique.insert(c["code"].as_str().unwrap()), "BILLING_POLICY")?;
         keys(&c["amount"], &["kind", "money"])?;
         require(c["amount"]["kind"] == "fixed", "BILLING_POLICY")?;
-        money(&c["amount"]["money"])?;
+        money(&c["amount"]["money"], s.money_scale())?;
     }
     let replacements = f["replacement_codes"]
         .as_array()
@@ -107,7 +110,7 @@ pub(super) fn validate(s: &Setup) -> Result<()> {
     )?;
     keys(&limits[0], &["binding_id", "premium"])?;
     require(limits[0]["binding_id"] == s.binding, "BILLING_POLICY")?;
-    money(&limits[0]["premium"])?;
+    money(&limits[0]["premium"], s.money_scale())?;
     require(
         b::money(&limits[0]["premium"])?.atoms() >= 0,
         "BILLING_POLICY",

@@ -1,0 +1,1 @@
+{"schema":"ledger-event/1","id":"usage-work-1","operation_id":"usage-operation-1","type":"content.generated","customer":"customer-usage-1","occurred_at":"2026-09-01T00:00:00.000000Z","status":"succeeded","quantity":"100","unit":"token"}

@@ -1323,3 +1323,419 @@ fn statement_sums_valid_charges_beyond_the_individual_money_bound() {
         statement
     );
 }
+
+#[test]
+fn unit_rate_profile_preserves_token_precision_and_rejects_failed_work() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/usage/setup.json"),
+    )
+    .unwrap();
+    let event: Value =
+        serde_json::from_slice(include_bytes!("../../../examples/billing/usage/event.json"))
+            .unwrap();
+    fs::write(root.join("event.json"), serde_json::to_vec(&event).unwrap()).unwrap();
+    let mut failed = event.clone();
+    failed["id"] = json!("failed-usage-work");
+    failed["operation_id"] = json!("failed-usage-operation");
+    failed["status"] = json!("failed");
+    fs::write(
+        root.join("failed.json"),
+        serde_json::to_vec(&failed).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join("mapping.json"),
+        include_bytes!("../../../examples/billing/usage/mapping.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let accepted = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "accept",
+            "--customer",
+            "customer-usage-1",
+            "--source",
+            "urn:example:usage-work",
+            "event.json",
+        ],
+        0,
+    );
+    let target = accepted["receipt"]["body"]["target"].as_str().unwrap();
+    let initial = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "statement",
+            "--customer",
+            "customer-usage-1",
+        ],
+        0,
+    );
+    assert_eq!(initial["schema"], "ledger-billing-statement/3");
+    assert_eq!(initial["scale"], 18);
+    assert_eq!(initial["net_atoms"], "25000000000000");
+
+    let failed_result = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "accept",
+            "--customer",
+            "customer-usage-1",
+            "--source",
+            "urn:example:usage-work",
+            "failed.json",
+        ],
+        3,
+    );
+    assert_eq!(failed_result["code"], "BILLING_FAILED_WORK");
+
+    let mut over_limit = event.clone();
+    over_limit["id"] = json!("over-limit-usage-work");
+    over_limit["operation_id"] = json!("over-limit-usage-operation");
+    over_limit["quantity"] = json!("1000001");
+    fs::write(
+        root.join("over-limit.json"),
+        serde_json::to_vec(&over_limit).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "accept",
+                "--customer",
+                "customer-usage-1",
+                "--source",
+                "urn:example:usage-work",
+                "over-limit.json",
+            ],
+            3
+        )["code"],
+        "QUANTITY"
+    );
+
+    let mut fractional = event.clone();
+    fractional["id"] = json!("fractional-usage-work");
+    fractional["operation_id"] = json!("fractional-usage-operation");
+    fractional["quantity"] = json!("100.5");
+    fs::write(
+        root.join("fractional.json"),
+        serde_json::to_vec(&fractional).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "accept",
+                "--customer",
+                "customer-usage-1",
+                "--source",
+                "urn:example:usage-work",
+                "fractional.json",
+            ],
+            3
+        )["code"],
+        "BILLING_QUANTITY"
+    );
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "statement",
+                "--customer",
+                "customer-usage-1"
+            ],
+            0
+        ),
+        initial
+    );
+
+    let mut outcome: Value = serde_json::from_slice(include_bytes!(
+        "../../../examples/billing/usage/outcome.json"
+    ))
+    .unwrap();
+    outcome["target"] = json!(target);
+    fs::write(
+        root.join("outcome.json"),
+        serde_json::to_vec(&outcome).unwrap(),
+    )
+    .unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "outcome",
+            "--customer",
+            "customer-usage-1",
+            "--source",
+            "urn:example:usage-work",
+            "outcome.json",
+        ],
+        0,
+    );
+    let discounted = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "statement",
+            "--customer",
+            "customer-usage-1",
+        ],
+        0,
+    );
+    assert_eq!(discounted["net_atoms"], "15000000000000");
+
+    let mut correction: Value = serde_json::from_slice(include_bytes!(
+        "../../../examples/billing/usage/correction.json"
+    ))
+    .unwrap();
+    correction["target"] = json!(target);
+    fs::write(
+        root.join("correction.json"),
+        serde_json::to_vec(&correction).unwrap(),
+    )
+    .unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "correct",
+            "--customer",
+            "customer-usage-1",
+            "--source",
+            "urn:example:usage-work",
+            "correction.json",
+        ],
+        0,
+    );
+    let corrected = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "statement",
+            "--customer",
+            "customer-usage-1",
+        ],
+        0,
+    );
+    assert_eq!(corrected["net_atoms"], "25000000000000");
+    let snapshot = corrected["snapshot_hash"].as_str().unwrap();
+    let export = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "export-csv",
+            "--customer",
+            "customer-usage-1",
+            "--snapshot",
+            snapshot,
+            "--mapping",
+            "mapping.json",
+            "--output",
+            "usage.csv",
+        ],
+        0,
+    );
+    assert_eq!(export["schema"], "ledger-finance-export/3");
+    assert_eq!(export["scale"], 18);
+    assert_eq!(export["net_atoms"], "25000000000000");
+    let csv = fs::read_to_string(root.join("usage.csv")).unwrap();
+    assert!(csv.contains("\"USD\",\"18\",\"increase\",\"25000000000000\""));
+    assert!(csv.contains("\"USD\",\"18\",\"decrease\",\"-10000000000000\""));
+}
+
+#[test]
+fn mixed_fixed_and_usage_history_exports_legacy_records_at_exact_scale_18() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    let legacy_setup: Value =
+        serde_json::from_slice(include_bytes!("../../../examples/billing/setup.json")).unwrap();
+    fs::write(
+        root.join("setup.json"),
+        serde_json::to_vec(&legacy_setup).unwrap(),
+    )
+    .unwrap();
+    let mut usage_setup: Value =
+        serde_json::from_slice(include_bytes!("../../../examples/billing/usage/setup.json"))
+            .unwrap();
+    usage_setup["store_id"] = legacy_setup["store_id"].clone();
+    usage_setup["operator"] = legacy_setup["operator"].clone();
+    usage_setup["customer"] = legacy_setup["customer"].clone();
+    usage_setup["source"] = json!("urn:example:usage-work");
+    usage_setup["agreement"] = json!("agreement-usage");
+    usage_setup["binding"] = json!("binding-usage");
+    usage_setup["outcome_policy"]["families"][0]["binding_id"] = json!("binding-usage");
+    usage_setup["outcome_policy"]["families"][0]["source"] = json!("urn:example:usage-work");
+    usage_setup["outcome_policy"]["families"][0]["correction_source"] =
+        json!("urn:example:usage-work");
+    usage_setup["outcome_policy"]["limits"][0]["binding_id"] = json!("binding-usage");
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let registration = json!({
+        "schema":"ledger-billing-registration/2",
+        "customer":"customer-1",
+        "source":"urn:example:usage-work",
+        "change_id":"register-usage-source",
+        "expected_revision":"0",
+        "effective_at":"2026-09-01T00:00:00.000001Z",
+        "setup":usage_setup
+    });
+    fs::write(
+        root.join("registration.json"),
+        serde_json::to_vec(&registration).unwrap(),
+    )
+    .unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "agreement",
+            "--customer",
+            "customer-1",
+            "--source",
+            "urn:example:usage-work",
+            "registration.json",
+        ],
+        0,
+    );
+    fs::write(
+        root.join("fixed-event.json"),
+        include_bytes!("../../../examples/billing/event.json"),
+    )
+    .unwrap();
+    let mut usage_event: Value =
+        serde_json::from_slice(include_bytes!("../../../examples/billing/usage/event.json"))
+            .unwrap();
+    usage_event["customer"] = json!("customer-1");
+    fs::write(
+        root.join("usage-event.json"),
+        serde_json::to_vec(&usage_event).unwrap(),
+    )
+    .unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "accept",
+            "--customer",
+            "customer-1",
+            "--source",
+            "urn:example:work",
+            "fixed-event.json",
+        ],
+        0,
+    );
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "accept",
+            "--customer",
+            "customer-1",
+            "--source",
+            "urn:example:usage-work",
+            "usage-event.json",
+        ],
+        0,
+    );
+    let statement = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "statement",
+            "--customer",
+            "customer-1",
+        ],
+        0,
+    );
+    assert_eq!(statement["schema"], "ledger-billing-statement/3");
+    assert_eq!(statement["scale"], 18);
+    assert_eq!(statement["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(statement["entries"][0]["net_atoms"], "2500000000000000000");
+    assert_eq!(statement["entries"][1]["net_atoms"], "25000000000000");
+    assert_eq!(statement["net_atoms"], "2500025000000000000");
+
+    let mapping = json!({
+        "schema":"ledger-finance-mapping/1",
+        "accounts":{"customer-1":"customer-account","example-company":"merchant-account"}
+    });
+    fs::write(
+        root.join("mapping.json"),
+        serde_json::to_vec(&mapping).unwrap(),
+    )
+    .unwrap();
+    let exported = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "export-csv",
+            "--customer",
+            "customer-1",
+            "--snapshot",
+            statement["snapshot_hash"].as_str().unwrap(),
+            "--mapping",
+            "mapping.json",
+            "--output",
+            "mixed.csv",
+        ],
+        0,
+    );
+    assert_eq!(exported["schema"], "ledger-finance-export/3");
+    assert_eq!(exported["net_atoms"], "2500025000000000000");
+    let csv = fs::read_to_string(root.join("mixed.csv")).unwrap();
+    assert!(csv.contains("\"USD\",\"18\",\"increase\",\"2500000000000000000\""));
+    assert!(csv.contains("\"USD\",\"18\",\"increase\",\"25000000000000\""));
+}

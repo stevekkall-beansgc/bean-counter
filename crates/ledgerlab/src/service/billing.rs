@@ -5,9 +5,9 @@ use b::{array, bytes, core, reference, row, text, Records, Result};
 use ledgerlab_core::{
     canonical::{self, Domain},
     domain::{self, Revision, Roles, Scope, Timestamp},
-    money::Decimal,
+    money::{Decimal, ExactRatio, Money},
     policy::chaining as c,
-    wire::EventKind,
+    wire::{Completion, EventKind},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -33,7 +33,13 @@ pub(crate) struct Setup {
     pub host: String,
     pub agreement: String,
     pub binding: String,
+    /// For schema /1, fixed USD price per call. For schema /2, USD rate per
+    /// configured usage unit. The schema discriminator defines the meaning.
     pub price: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum_quantity: Option<String>,
     pub accepted_at: Timestamp,
     pub acceptor: String,
     /// Retained asserted commercial assent, supplied by the operator, not a URL
@@ -74,11 +80,34 @@ fn doc(r: &Value) -> String {
         .into()
 }
 impl Setup {
+    pub(crate) fn money_scale(&self) -> u8 {
+        if self.schema == "ledger-local-billing/2" {
+            18
+        } else {
+            2
+        }
+    }
+
     pub(crate) fn parse(raw: &[u8]) -> Result<Self> {
         let value = canonical::parse_bounded(raw, 65536).map_err(|_| reject("BILLING_SETUP"))?;
         let mut s: Self = serde_json::from_value(value).map_err(|_| reject("BILLING_SETUP"))?;
         s.grant_revision = 1;
-        require(s.schema == "ledger-local-billing/1", "BILLING_SETUP")?;
+        require(
+            matches!(
+                s.schema.as_str(),
+                "ledger-local-billing/1" | "ledger-local-billing/2"
+            ),
+            "BILLING_SETUP",
+        )?;
+        let unit_pricing = s.schema == "ledger-local-billing/2";
+        require(
+            if unit_pricing {
+                s.unit.as_deref().is_some_and(valid_unit) && s.maximum_quantity.is_some()
+            } else {
+                s.unit.is_none() && s.maximum_quantity.is_none()
+            },
+            "BILLING_SETUP",
+        )?;
         for v in [
             &s.store_id,
             &s.operator,
@@ -112,6 +141,24 @@ impl Setup {
         }
         let price = Decimal::parse(&s.price).map_err(|_| reject("BILLING_PRICE"))?;
         require(!price.is_zero(), "BILLING_PRICE")?;
+        if unit_pricing {
+            let maximum = Decimal::parse(s.maximum_quantity.as_deref().unwrap())
+                .map_err(|_| reject("BILLING_QUANTITY"))?;
+            require(
+                !maximum.is_zero() && !maximum.to_string().contains('.'),
+                "BILLING_QUANTITY",
+            )?;
+            let maximum_atoms = price
+                .atoms_exact(18)
+                .map_err(|_| reject("BILLING_PRICE"))?
+                .checked_mul(
+                    maximum
+                        .atoms_exact(0)
+                        .map_err(|_| reject("BILLING_QUANTITY"))?,
+                )
+                .ok_or_else(|| reject("BILLING_PRICE"))?;
+            Money::new("USD", 18, maximum_atoms).map_err(|_| reject("BILLING_PRICE"))?;
+        }
         require(
             s.outcome_policy.is_object() && s.outcome_policy.get("document").is_none(),
             "BILLING_POLICY",
@@ -127,6 +174,49 @@ impl Setup {
         setup_policy::validate(&s)?;
         Ok(s)
     }
+}
+
+fn valid_unit(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
+}
+
+pub(crate) fn convert_atom_scale(
+    atoms: i128,
+    currency: &str,
+    input_scale: u8,
+    output_scale: u8,
+) -> Option<String> {
+    if currency != "USD" {
+        return None;
+    }
+    match (input_scale, output_scale) {
+        (2, 2) | (18, 18) => Some(atoms.to_string()),
+        (2, 18) => {
+            if atoms == 0 {
+                Some("0".into())
+            } else if atoms < 0 {
+                Some(format!("-{}{}", atoms.unsigned_abs(), "0".repeat(16)))
+            } else {
+                Some(format!("{}{}", atoms, "0".repeat(16)))
+            }
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn add_integer_atoms(left: &str, right: &str) -> Option<String> {
+    let left = ExactRatio::from_canonical(left, "1").ok()?;
+    let right = ExactRatio::from_canonical(right, "1").ok()?;
+    let sum = left.add(&right).ok()?;
+    let value = serde_json::to_value(sum).ok()?;
+    if value["denominator"] != "1" {
+        return None;
+    }
+    value["numerator"].as_str().map(str::to_owned)
 }
 
 /// Semantically validate the complete schema-8 billing history against the
@@ -358,6 +448,27 @@ pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Va
             && event.dto().evidence.as_ref().is_none_or(Vec::is_empty),
         "BILLING_UNSUPPORTED_EVENT",
     )?;
+    let unit_pricing = s.schema == "ledger-local-billing/2";
+    let usage_unit = s.unit.as_deref().unwrap_or("call");
+    let maximum_quantity = s.maximum_quantity.as_deref().unwrap_or("1");
+    let scale = s.money_scale();
+    if unit_pricing {
+        let submitted =
+            canonical::parse_bounded(raw, 262_144).map_err(|_| reject("BILLING_EVENT"))?;
+        let submitted_quantity = submitted["quantity"]
+            .as_str()
+            .and_then(|quantity| Decimal::parse(quantity).ok());
+        require(
+            submitted["status"].is_string()
+                && submitted["unit"] == usage_unit
+                && submitted_quantity.is_some_and(|quantity| !quantity.to_string().contains('.')),
+            "BILLING_QUANTITY",
+        )?;
+        require(
+            event.dto().status == Some(Completion::Succeeded),
+            "BILLING_FAILED_WORK",
+        )?;
+    }
     require(
         received.micros() >= s.accepted_at.micros(),
         "BILLING_TERMS_NOT_ACTIVE",
@@ -366,11 +477,16 @@ pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Va
         s.permissions.iter().any(|p| p == "submit") && s.permissions.iter().any(|p| p == "read"),
         "BILLING_UNAUTHORIZED",
     )?;
+    let terms = if unit_pricing {
+        json!({"unit_rate":s.price,"currency":"USD","scale":18,"unit":usage_unit,"maximum_quantity":maximum_quantity,"outcomes":s.outcome_policy})
+    } else {
+        json!({"fixed_price":s.price,"currency":"USD","scale":2,"unit":"call","maximum_quantity":"1","outcomes":s.outcome_policy})
+    };
     let assent = evidence(
         &scope,
         "assent",
         "assent",
-        json!({"mode":"real","agreement_id":s.agreement,"acceptor":s.acceptor,"bearer":s.customer,"payer":s.customer,"recipient":s.host,"accepted_at":s.accepted_at,"retained_evidence":s.assent_evidence,"operator":s.operator,"operator_attestation":s.operator_attestation,"terms":{"fixed_price":s.price,"currency":"USD","scale":2,"unit":"call","maximum_quantity":"1","outcomes":s.outcome_policy}}),
+        json!({"mode":"real","agreement_id":s.agreement,"acceptor":s.acceptor,"bearer":s.customer,"payer":s.customer,"recipient":s.host,"accepted_at":s.accepted_at,"retained_evidence":s.assent_evidence,"operator":s.operator,"operator_attestation":s.operator_attestation,"terms":terms}),
     )?;
     let grant = evidence(
         &scope,
@@ -404,26 +520,39 @@ pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Va
         offer: None,
         sources: vec![s.source.clone()],
         event_types: vec![EventKind::Generated],
-        unit: "call".into(),
-        maximum_quantity: core(Decimal::parse("1"))?,
+        unit: usage_unit.into(),
+        maximum_quantity: core(Decimal::parse(maximum_quantity))?,
         maximum_exposure: None,
         outcome: None,
         correction_sources: vec![s.source.clone()],
         allowed_modifiers: vec![],
         allocation_view: false,
     };
+    let base_price = if unit_pricing {
+        c::Price::Unit {
+            rate: core(Decimal::parse(&s.price))?,
+            unit: usage_unit.into(),
+        }
+    } else {
+        c::Price::Fixed(core(Decimal::parse(&s.price))?)
+    };
     let bundle = c::Bundle::compile(
         "USD",
-        2,
+        scale,
         vec![c::Policy {
             binding,
             rules: vec![c::Rule {
-                id: "fixed-price".into(),
+                id: if unit_pricing {
+                    "unit-price"
+                } else {
+                    "fixed-price"
+                }
+                .into(),
                 on: EventKind::Generated,
                 component: "generation.base".into(),
                 when: vec![],
                 matcher: None,
-                operation: c::Operation::Base(c::Price::Fixed(core(Decimal::parse(&s.price))?)),
+                operation: c::Operation::Base(base_price),
             }],
         }],
     )
@@ -553,7 +682,7 @@ pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Va
         let obligation = row(
             "obligation",
             &scope,
-            json!({"agreement_id":s.agreement,"book":"retail","currency":"USD","scale":2,"roles":a["binding"]["roles"]}),
+            json!({"agreement_id":s.agreement,"book":"retail","currency":"USD","scale":scale,"roles":a["binding"]["roles"]}),
         )?;
         maps.insert(
             ("action".into(), text(&a["id"])?.into()),
@@ -622,7 +751,7 @@ pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Va
         let r = row(
             "policy-snapshot",
             &scope,
-            json!({"agreement_id":s.agreement,"binding_id":s.binding,"book":"retail","roles":original_binding["roles"],"assent":assent["id"],"family_id":f["family"],"policy_version":policy["version"],"submission_source":f["source"],"correction_source":f["correction_source"],"evidence_required":f["evidence_required"],"ordinary":f["ordinary"],"corrections":f["corrections"],"allow_reversal":f["allow_reversal"],"replacement_codes":b::ordered(array(&f["replacement_codes"])?.clone())?,"rules":b::ordered(rules)?,"max_premium_atoms":limit["premium"]["atoms"],"max_discount_atoms":limit["discount_capacity"]["atoms"],"currency":"USD","scale":2,"basis_kind":"frozen_target_retail_net","rounding":"nearest_ties_away"}),
+            json!({"agreement_id":s.agreement,"binding_id":s.binding,"book":"retail","roles":original_binding["roles"],"assent":assent["id"],"family_id":f["family"],"policy_version":policy["version"],"submission_source":f["source"],"correction_source":f["correction_source"],"evidence_required":f["evidence_required"],"ordinary":f["ordinary"],"corrections":f["corrections"],"allow_reversal":f["allow_reversal"],"replacement_codes":b::ordered(array(&f["replacement_codes"])?.clone())?,"rules":b::ordered(rules)?,"max_premium_atoms":limit["premium"]["atoms"],"max_discount_atoms":limit["discount_capacity"]["atoms"],"currency":"USD","scale":scale,"basis_kind":"frozen_target_retail_net","rounding":"nearest_ties_away"}),
         )?;
         families.push(reference(&r));
         rows.push(r);
@@ -1074,7 +1203,7 @@ pub(crate) fn statement(
         .collect::<BTreeSet<_>>();
     require(!sources.is_empty(), "BILLING_SCOPE")?;
     let mut entries = vec![];
-    let mut net = 0i128;
+    let mut net = String::from("0");
     let mut roots = vec![];
     let audit = history::load(&initial, snapshot)?;
     let customer_entries = snapshot
@@ -1153,6 +1282,28 @@ pub(crate) fn statement(
     } else {
         customer_entries
     };
+    let mut high_precision = false;
+    for entry in &visible_entries {
+        let profile_scale = audit
+            .entry_terms
+            .get(&entry.ordinal)
+            .ok_or_else(b::integrity)?
+            .money_scale();
+        if profile_scale == 18 {
+            high_precision = true;
+        }
+        for posting in audit.rows[&entry.ordinal]
+            .iter()
+            .filter(|row| row["kind"] == "base-posting" || row["kind"] == "action")
+        {
+            require(
+                b::money(&posting["body"]["amount"])?.scale() == profile_scale,
+                "BILLING_SCALE",
+            )?;
+        }
+    }
+    let statement_scale = if high_precision { 18 } else { 2 };
+    let statement_version = if high_precision { 3 } else { 2 };
     let mut represented_agreements = BTreeSet::new();
     for (local_ordinal, e) in visible_entries.iter().enumerate() {
         let rows = &audit.rows[&e.ordinal];
@@ -1176,7 +1327,7 @@ pub(crate) fn statement(
         if target.is_some_and(|id| entry_target != id && accepted["id"] != id) {
             continue;
         }
-        let mut total = 0i128;
+        let mut total = String::from("0");
         let postings = rows
             .iter()
             .filter(|r| r["kind"] == "base-posting" || r["kind"] == "action")
@@ -1186,12 +1337,18 @@ pub(crate) fn statement(
             // A statement spans independent accepted decisions. Their exact
             // aggregate may exceed the per-record Money bound without making
             // any retained posting invalid. Keep checked wide integer totals.
-            total = total
-                .checked_add(b::money(&p["body"]["amount"])?.atoms())
-                .ok_or_else(b::integrity)?;
+            let amount = b::money(&p["body"]["amount"])?;
+            let scaled = convert_atom_scale(
+                amount.atoms(),
+                amount.currency(),
+                amount.scale(),
+                statement_scale,
+            )
+            .ok_or_else(b::integrity)?;
+            total = add_integer_atoms(&total, &scaled).ok_or_else(b::integrity)?;
         }
-        net = net.checked_add(total).ok_or_else(b::integrity)?;
-        entries.push(json!({"ordinal":(local_ordinal + 1).to_string(),"source":e.source,"external_id":e.external_id,"agreement_id":terms.agreement,"agreement_version":agreement_version.to_string(),"target":entry_target,"receipt":accepted,"postings":postings,"net_atoms":total.to_string(),"records":rows}));
+        net = add_integer_atoms(&net, &total).ok_or_else(b::integrity)?;
+        entries.push(json!({"ordinal":(local_ordinal + 1).to_string(),"source":e.source,"external_id":e.external_id,"agreement_id":terms.agreement,"agreement_version":agreement_version.to_string(),"target":entry_target,"receipt":accepted,"postings":postings,"net_atoms":total,"records":rows}));
     }
     require(target.is_none() || !entries.is_empty(), "BILLING_NOT_FOUND")?;
     let agreements = represented_agreements
@@ -1201,17 +1358,17 @@ pub(crate) fn statement(
         })
         .collect::<Vec<_>>();
     Ok(json!({
-        "schema":"ledger-billing-statement/2",
+        "schema":format!("ledger-billing-statement/{statement_version}"),
         "status":"ok",
         "customer":customer,
         "scope":scope,
         "agreements":agreements,
         "currency":"USD",
-        "scale":2,
-        "net_atoms":net.to_string(),
+        "scale":statement_scale,
+        "net_atoms":net,
         "complete":true,
         "cutoff":visible_entries.len().to_string(),
-        "snapshot_hash":core(canonical::digest(Domain::Document,&json!(["billing-statement",2,customer,visible_entries.len().to_string(),roots])))?,
+        "snapshot_hash":core(canonical::digest(Domain::Document,&json!(["billing-statement",statement_version,customer,visible_entries.len().to_string(),roots])))?,
         "entries":entries,
         "kind":"billing_statement",
         "payment_collected":false
@@ -1407,5 +1564,22 @@ mod tests {
             &setup.source,
         )
         .is_err());
+    }
+
+    #[test]
+    fn exact_scale_conversion_and_totals_cover_largest_booked_legacy_money() {
+        let largest = Money::new("USD", 2, ledgerlab_core::money::MAX_ATOMS)
+            .unwrap()
+            .atoms();
+        let scale_18 = convert_atom_scale(largest, "USD", 2, 18).unwrap();
+        assert_eq!(scale_18, "9999999999999999999999999999990000000000000000");
+        assert_eq!(
+            add_integer_atoms(&scale_18, &scale_18).unwrap(),
+            "19999999999999999999999999999980000000000000000"
+        );
+        assert_eq!(
+            convert_atom_scale(-largest, "USD", 2, 18).unwrap(),
+            format!("-{scale_18}")
+        );
     }
 }

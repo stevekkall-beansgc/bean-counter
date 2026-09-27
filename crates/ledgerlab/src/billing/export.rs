@@ -1,6 +1,10 @@
 //! Read-only finance projection and exclusive atomic file publication.
 use super::BillingLedger;
-use crate::{local, ServiceError};
+use crate::{
+    local,
+    service::billing::{add_integer_atoms, convert_atom_scale},
+    ServiceError,
+};
 use ledgerlab_core::canonical::{self, Domain};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -74,13 +78,17 @@ const HEADER: [&str; 30] = [
 ];
 
 fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8>, Value)> {
-    if statement["schema"] != "ledger-billing-statement/2" {
-        return Err(integrity());
-    }
+    let (export_version, export_scale) = match statement["schema"].as_str() {
+        Some("ledger-billing-statement/2") if statement["scale"].as_u64() == Some(2) => (2u8, 2u8),
+        Some("ledger-billing-statement/3") if statement["scale"].as_u64() == Some(18) => {
+            (3u8, 18u8)
+        }
+        _ => return Err(integrity()),
+    };
     if text(&statement["snapshot_hash"])? != pinned {
         return Err(reject("BILLING_EXPORT_SNAPSHOT"));
     }
-    if statement["complete"] != true || statement["scale"] != 2 || statement["currency"] != "USD" {
+    if statement["complete"] != true || statement["currency"] != "USD" {
         return Err(integrity());
     }
     if raw.len() > local::CONFIG_LIMIT as usize {
@@ -124,7 +132,7 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
     }
     let export_id = digest(&json!([
         "billing-finance-csv",
-        2,
+        export_version,
         statement["scope"],
         statement["customer"],
         statement["agreements"],
@@ -140,7 +148,7 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
     let mut csv = String::new();
     line(&mut csv, &HEADER.map(String::from));
     let mut seen = BTreeSet::new();
-    let mut total = 0i128;
+    let mut total = String::from("0");
     for entry in entries {
         for posting in entry["postings"].as_array().ok_or_else(integrity)? {
             let body = &posting["body"];
@@ -150,10 +158,19 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
             if !seen.insert(record_id) {
                 return Err(integrity());
             }
-            let atoms = text(&amount["atoms"])?;
-            total = total
-                .checked_add(atoms.parse::<i128>().map_err(|_| integrity())?)
-                .ok_or_else(integrity)?;
+            let recorded_atoms = text(&amount["atoms"])?
+                .parse::<i128>()
+                .map_err(|_| integrity())?;
+            let recorded_scale = u8::try_from(amount["scale"].as_u64().ok_or_else(integrity)?)
+                .map_err(|_| integrity())?;
+            let atoms = convert_atom_scale(
+                recorded_atoms,
+                text(&amount["currency"])?,
+                recorded_scale,
+                export_scale,
+            )
+            .ok_or_else(integrity)?;
+            total = add_integer_atoms(&total, &atoms).ok_or_else(integrity)?;
             let key = canonical::outcome::bytes(&json!([
                 body["agreement_id"],
                 body["book"],
@@ -203,7 +220,7 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
                 literal(&mapping.accounts[text(&roles["payer"])?]),
                 literal(&mapping.accounts[text(&roles["recipient"])?]),
                 text(&amount["currency"])?.into(),
-                "2".into(),
+                export_scale.to_string(),
                 if atoms.starts_with('-') {
                     "decrease"
                 } else if atoms == "0" {
@@ -212,12 +229,12 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
                     "increase"
                 }
                 .into(),
-                atoms.into(),
+                atoms,
             ];
             line(&mut csv, &fields);
         }
     }
-    if total.to_string() != text(&statement["net_atoms"])? {
+    if total.as_str() != text(&statement["net_atoms"])? {
         return Err(integrity());
     }
     let mut trailer = vec![String::new(); HEADER.len()];
@@ -227,12 +244,12 @@ fn project(statement: &Value, raw: &[u8], pinned: &str) -> local::Result<(Vec<u8
         pinned.into(),
         text(&statement["cutoff"])?.into(),
         count.clone(),
-        total.to_string(),
+        total.clone(),
     ]);
     trailer[26] = "USD".into();
-    trailer[27] = "2".into();
+    trailer[27] = export_scale.to_string();
     line(&mut csv, &trailer);
-    let summary = json!({"schema":"ledger-finance-export/2","status":"exported","complete":true,"export_id":export_id,"snapshot_hash":pinned,"cutoff":statement["cutoff"],"posting_count":count,"net_atoms":total.to_string(),"currency":"USD","scale":2,"account_mapping":mapping.accounts,"delivered":false,"payment_collected":false});
+    let summary = json!({"schema":format!("ledger-finance-export/{export_version}"),"status":"exported","complete":true,"export_id":export_id,"snapshot_hash":pinned,"cutoff":statement["cutoff"],"posting_count":count,"net_atoms":total,"currency":"USD","scale":export_scale,"account_mapping":mapping.accounts,"delivered":false,"payment_collected":false});
     Ok((csv.into_bytes(), summary))
 }
 
