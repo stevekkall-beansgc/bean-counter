@@ -155,18 +155,18 @@ pub(crate) fn validate_transition_time(
     Ok(())
 }
 
+/// The new ledger time must advance past every retained acceptance and every
+/// recorded control change. `ledger_time_max` comes from the durable index, so
+/// this stays O(1) over control rows instead of decoding retained history.
 pub(super) fn ensure_new_ledger_time(
     snapshot: &crate::store::sqlite::BillingSnapshot,
-    audit: &history::Audit,
+    ledger_time_max: Option<i64>,
     at: &Timestamp,
 ) -> Result<()> {
-    let mut maximum: Option<i64> = None;
+    let mut maximum = ledger_time_max;
     let mut observe = |value: i64| {
         maximum = Some(maximum.map_or(value, |prior| prior.max(value)));
     };
-    for receipt in audit.receipts.values() {
-        observe(b::time(&receipt["body"]["accepted_at"])?.micros());
-    }
     for row in &snapshot.agreements {
         observe(row.recorded_at_us);
     }
@@ -394,7 +394,7 @@ pub(crate) fn prepare(
 
     let initial = Setup::parse(&snapshot.setup)?;
     let audit = history::load(&initial, snapshot)?;
-    ensure_new_ledger_time(snapshot, &audit, recorded_at)?;
+    ensure_new_ledger_time(snapshot, history::max_accepted(&audit)?, recorded_at)?;
     validate_transition_time(
         &effective_at,
         recorded_at,

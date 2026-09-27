@@ -6,7 +6,7 @@ use crate::{
         errors::CommitError,
         ports::{AcceptanceStore, AcceptanceTx},
         records::Installation,
-        sqlite::SqliteStore,
+        sqlite::{BillingEntry, SqliteStore, SqliteTx},
     },
     ServiceError,
 };
@@ -16,7 +16,7 @@ use tokio::time::Instant;
 
 /// Version of the local billing facade and JSON contract family.
 /// Frozen economic record profiles have their own independent versions.
-pub const CONTRACT_VERSION: &str = "v0.2";
+pub const CONTRACT_VERSION: &str = "v0.3";
 
 mod export;
 
@@ -175,8 +175,9 @@ impl BillingLedger {
         Ok(Self { store })
     }
 
-    /// Explicitly upgrade a schema-8 billing installation after validating its
-    /// complete retained history against the exact snapshot to be migrated.
+    /// Explicitly upgrade a schema-8 or schema-9 billing installation after
+    /// validating its complete retained history against the exact snapshot to
+    /// be migrated.
     pub async fn upgrade(path: &Path) -> local::Result<Value> {
         let path = local::normalize_path(path)?;
         local::private_existing(&path, true)?;
@@ -192,11 +193,16 @@ impl BillingLedger {
         local::private_existing(&data, true)?;
         local::private_existing(&data.join("local.db"), false)?;
 
-        // A fully validated schema-9 open reconciles a previous unknown result.
-        if let Ok(ledger) = Self::open(&path).await {
-            ledger.close().await;
-            return Ok(json!({"status":"already_current","from_schema":9,"to_schema":9}));
-        }
+        // A store that opens at the current schema is already reconciled: a
+        // fully validated schema-10 open proves the previous unknown result
+        // committed, and no migration work is left to do.
+        let open_error = match Self::open(&path).await {
+            Ok(ledger) => {
+                ledger.close().await;
+                return Ok(json!({"status":"already_current","from_schema":10,"to_schema":10}));
+            }
+            Err(error) => error,
+        };
 
         let preflight = crate::store::sqlite::migrate::preflight_billing(&data)
             .await
@@ -207,15 +213,51 @@ impl BillingLedger {
                 crate::maintenance::UpgradeError::OutcomeUnknown => ServiceError::Unavailable,
             })?;
         let crate::store::sqlite::migrate::BillingUpgradePreflight {
+            version,
+            store_version,
             mut snapshot,
             digest,
         } = preflight;
+        // Schema 10 is already the migration target. Its upgrade retry is
+        // successful only when the complete billing open above validated it;
+        // a pre-M3 row reconciliation cannot stand in for current M3 checks.
+        if store_version == 10 {
+            return Err(open_error);
+        }
+        // `version` is the frozen pre-M3 schema the digest and the derived index
+        // belong to, which on a schema-10 store is the recorded source schema.
+        service::require(version == 8 || version == 9, "BILLING_UPGRADE_REFUSED")?;
         let migration_at = local::now()?;
-        let setup = service::validate_legacy_upgrade(&mut snapshot, &migration_at)?;
+        // Each source schema is validated against its own complete state. A
+        // schema-8 store has no customer, agreement, control or scoped-permission
+        // rows yet, so the migration seeds its first customer/agreement from the
+        // setup and proves the history against that. A schema-9 store already
+        // carries that state from M2, so it is validated where it stands and
+        // nothing about it is seeded, defaulted or repriced.
+        let setup = if version == 8 {
+            service::validate_legacy_upgrade(&mut snapshot, &migration_at)?
+        } else {
+            service::validate_m2_upgrade(&snapshot, &migration_at)?
+        };
         service::require(
             config["scope"] == json!(setup.scope) && config["store_id"] == setup.store_id,
             "BILLING_INSTALLATION",
         )?;
+        // The index is derived from the accepted history, so a migration never
+        // invents a target, a kind or an acceptance time.
+        let index = service::upgrade_index(&snapshot)?
+            .into_iter()
+            .map(|row| crate::store::sqlite::migrate::BillingUpgradeIndex {
+                ordinal: row.ordinal,
+                customer: row.customer,
+                source: row.source,
+                external_id: row.external_id,
+                semantic_key: row.semantic_key,
+                target: row.target,
+                kind: row.kind,
+                accepted_at_us: row.accepted_at_us,
+            })
+            .collect();
         let seed = crate::store::sqlite::migrate::BillingUpgradeSeed {
             store_id: setup.store_id.clone(),
             tenant: setup.scope.tenant().to_owned(),
@@ -225,8 +267,10 @@ impl BillingLedger {
             agreement_id: setup.agreement.clone(),
             effective_at_us: setup.accepted_at.micros(),
             recorded_at_us: migration_at.micros(),
-            setup_bytes: snapshot.setup,
+            setup_bytes: snapshot.setup.clone(),
             snapshot_digest: digest,
+            source_version: version,
+            index,
         };
         let result = crate::store::sqlite::migrate::upgrade_billing(&data, &seed)
             .await
@@ -238,14 +282,26 @@ impl BillingLedger {
                     service::reject("BILLING_UPGRADE_OUTCOME_UNKNOWN")
                 }
             })?;
+        // The storage layer may reconcile a schema-10 index committed by a
+        // concurrent upgrader. Its `already_current` result is not a full
+        // billing-health claim; the response path below validates the profile.
         match result {
             crate::maintenance::UpgradeResult::Upgraded => {
-                Ok(json!({"status":"upgraded","from_schema":8,"to_schema":9}))
+                Ok(json!({"status":"upgraded","from_schema":store_version,"to_schema":10}))
             }
             crate::maintenance::UpgradeResult::AlreadyCurrent => {
-                Ok(json!({"status":"already_current","from_schema":9,"to_schema":9}))
+                Self::confirm_already_current(&path).await
             }
         }
+    }
+    /// A concurrent upgrader may have advanced the store after our schema-9
+    /// preflight. Re-open through the full billing validator before claiming
+    /// that its schema-10 result is current; the migration's index reconciliation
+    /// alone does not validate every M3 billing invariant.
+    pub(crate) async fn confirm_already_current(path: &Path) -> local::Result<Value> {
+        let ledger = Self::open(path).await?;
+        ledger.close().await;
+        Ok(json!({"status":"already_current","from_schema":10,"to_schema":10}))
     }
     pub async fn permission_status(&self, customer: &str, source: &str) -> local::Result<Value> {
         let mut tx = self
@@ -350,6 +406,14 @@ impl BillingLedger {
     pub async fn correct(&self, customer: &str, source: &str, raw: &[u8]) -> local::Result<Value> {
         self.submit(customer, source, raw, Some(true)).await
     }
+    /// Decision deadlines. A write verifies the retained-history meter, so its
+    /// guard work grows with retained history even though it does not decode
+    /// every receipt. A complete statement or explanation also scans that
+    /// history and gets the same report budget. Neither path ever truncates: a
+    /// report that cannot finish inside its budget fails rather than returning
+    /// a partial ledger.
+    const WRITE_BUDGET: Duration = Duration::from_secs(300);
+    const REPORT_BUDGET: Duration = Duration::from_secs(300);
     async fn submit(
         &self,
         customer: &str,
@@ -359,23 +423,54 @@ impl BillingLedger {
     ) -> local::Result<Value> {
         let mut tx = self
             .store
-            .begin(Instant::now() + Duration::from_secs(5))
+            .begin(Instant::now() + Self::WRITE_BUDGET)
             .await
             .map_err(store_error)?;
         let at = local::now()?;
-        let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+        // Metadata only. The coordinator reads no retained bundle until the
+        // service has proved this submission is not already retained.
+        let meta = tx.billing_meta().await.map_err(store_error)?;
         let (result, plan) = if let Some(correction) = correction {
-            service::adjustment::prepare(&snapshot, customer, source, raw, &at, correction)?
+            let submission =
+                service::adjustment::begin(&meta, customer, source, raw, &at, correction)?;
+            let dedup = self
+                .resolve_dedup(
+                    &mut tx,
+                    submission.customer(),
+                    submission.source(),
+                    submission.external_id(),
+                    submission.semantic_key(),
+                )
+                .await?;
+            let target = self
+                .target_history(
+                    &mut tx,
+                    submission.customer(),
+                    submission.source(),
+                    submission.target(),
+                )
+                .await?;
+            service::adjustment::finish(&meta, &submission, &dedup, &target)?
         } else {
-            service::prepare(&snapshot, customer, source, raw, &at)?
+            let submission = service::begin(&meta, customer, source, raw, &at)?;
+            let dedup = self
+                .resolve_dedup(
+                    &mut tx,
+                    submission.customer(),
+                    submission.source(),
+                    submission.external_id(),
+                    submission.semantic_key(),
+                )
+                .await?;
+            service::finish(&meta, &submission, &dedup)?
         };
         if let Some(plan) = plan {
-            tx.append_billing_m2(&plan).await.map_err(store_error)?;
+            tx.append_billing_m3(&plan).await.map_err(store_error)?;
             match tx.commit().await {
                 Ok(()) => (),
                 Err(CommitError::RolledBack(e)) => return Err(store_error(e).into()),
                 Err(CommitError::OutcomeUnknown) => {
-                    let scope = service::control::customer_scope(&snapshot, customer)?;
+                    let scope = service::control::customer_scope(&meta, customer)?;
                     return Err(ServiceError::OutcomeUnknown {
                         scope: [scope.tenant().into(), scope.environment().into()],
                         source: plan.source().into(),
@@ -389,10 +484,91 @@ impl BillingLedger {
         }
         Ok(result)
     }
+    /// Exact retained identity and semantic matches for one submission. The
+    /// coordinator only fetches rows; the service compares them and decides
+    /// whether the submission is a duplicate or a conflict.
+    async fn resolve_dedup(
+        &self,
+        tx: &mut SqliteTx,
+        customer: &str,
+        source: &str,
+        external: &str,
+        semantic: &[u8],
+    ) -> local::Result<service::Dedup> {
+        let mut dedup = service::Dedup::empty();
+        if let Some(hit) = tx
+            .billing_identity_lookup(customer, source, external)
+            .await
+            .map_err(store_error)?
+        {
+            // Identity is decided first on every retained tier, alias rows
+            // included. An alias row stores the ordinal of the entry it aliases,
+            // so both tiers resolve to the entry that produced the original
+            // receipt, and the matched row's own retained ingress is the
+            // comparison: the alias's ingress for an alias. An exact alias
+            // replay is therefore a duplicate with the original receipt, and
+            // changed ingress under that identity refuses with
+            // IDENTITY_CONFLICT instead of reserving a second alias. A new
+            // delivery id with the same semantic key never reaches here: it has
+            // no retained identity, so the semantic lookup below still books its
+            // one alias.
+            let entry = tx.billing_entry(hit.ordinal).await.map_err(store_error)?;
+            let target = tx
+                .billing_index_target(hit.ordinal)
+                .await
+                .map_err(store_error)?;
+            let target_entries = self.target_history(tx, customer, source, &target).await?;
+            dedup.identity = Some(service::DedupHit::entry(
+                entry,
+                external.to_owned(),
+                hit.ingress,
+                hit.facts,
+                target_entries,
+            ));
+            return Ok(dedup);
+        }
+        if let Some(hit) = tx
+            .billing_semantic_lookup(customer, source, semantic)
+            .await
+            .map_err(store_error)?
+        {
+            let entry = tx.billing_entry(hit.ordinal).await.map_err(store_error)?;
+            let target = tx
+                .billing_index_target(hit.ordinal)
+                .await
+                .map_err(store_error)?;
+            let target_entries = self.target_history(tx, customer, source, &target).await?;
+            // A semantic hit is compared on its facts only, so it carries no
+            // ingress of its own.
+            dedup.semantic = Some(service::DedupHit::entry(
+                entry,
+                external.to_owned(),
+                vec![],
+                hit.facts,
+                target_entries,
+            ));
+        }
+        Ok(dedup)
+    }
+    /// The retained decisions of exactly one target, selected by the durable
+    /// index, for the economic replay an outcome or correction depends on.
+    async fn target_history(
+        &self,
+        tx: &mut SqliteTx,
+        customer: &str,
+        source: &str,
+        target: &str,
+    ) -> local::Result<Vec<BillingEntry>> {
+        let entries = tx
+            .billing_target_entries(customer, source, target)
+            .await
+            .map_err(store_error)?;
+        Ok(entries)
+    }
     pub async fn statement(&self, customer: &str, target: Option<&str>) -> local::Result<Value> {
         let mut tx = self
             .store
-            .begin(Instant::now() + Duration::from_secs(5))
+            .begin(Instant::now() + Self::REPORT_BUDGET)
             .await
             .map_err(store_error)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
@@ -403,7 +579,7 @@ impl BillingLedger {
     pub async fn explain(&self, customer: &str, target: &str) -> local::Result<Value> {
         let mut tx = self
             .store
-            .begin(Instant::now() + Duration::from_secs(5))
+            .begin(Instant::now() + Self::REPORT_BUDGET)
             .await
             .map_err(store_error)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;

@@ -166,20 +166,172 @@ pub(crate) fn validate_legacy_upgrade(
     control::validate_customer_registry(snapshot)?;
     permissions::effective(snapshot)?;
     let audit = history::load(&initial, snapshot)?;
-    control::ensure_new_ledger_time(snapshot, &audit, migration_at)?;
+    control::ensure_new_ledger_time(snapshot, history::max_accepted(&audit)?, migration_at)?;
     Ok(initial)
+}
+
+/// Semantically validate the complete schema-9 billing history against the exact
+/// snapshot to be migrated. A schema-9 store already holds its own M2 customer
+/// registry, agreement and control history, scoped permissions and retained
+/// decisions, so this proves that state where it stands: it seeds nothing, adds
+/// no default, mutates no row and never reprices a retained record. The M3 index
+/// is derived afterwards from these validated receipts only.
+pub(crate) fn validate_m2_upgrade(
+    snapshot: &crate::store::sqlite::BillingSnapshot,
+    migration_at: &Timestamp,
+) -> Result<Setup> {
+    let initial = Setup::parse(&snapshot.setup)?;
+    // The registry, its agreement timelines and the whole control history are
+    // proved first: a decision may only be decoded against terms this state
+    // already resolves.
+    control::validate_customer_registry(snapshot)?;
+    permissions::effective(snapshot)?;
+    // Every retained pair carries its own effective grant chain, so an
+    // unreferenced or mis-revisioned pair refuses here rather than at its first
+    // post-upgrade write.
+    for (customer, source) in agreement_pairs(snapshot) {
+        permissions::effective_for(snapshot, customer, source)?;
+    }
+    let audit = history::load(&initial, snapshot)?;
+    control::ensure_new_ledger_time(snapshot, history::max_accepted(&audit)?, migration_at)?;
+    Ok(initial)
+}
+
+/// Every retained agreement pair in a stable order, so a whole-store validation
+/// proves each pair's effective grants and not only the installation's own.
+fn agreement_pairs(snapshot: &crate::store::sqlite::BillingSnapshot) -> Vec<(&str, &str)> {
+    snapshot
+        .agreements
+        .iter()
+        .map(|row| (row.customer.as_str(), row.source.as_str()))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// One durable index row derived for an explicit upgrade. The store only
+/// re-proves each field against the retained row bytes it already holds; the
+/// target, kind and acceptance time are decided here.
+pub(crate) struct UpgradeIndex {
+    pub ordinal: i64,
+    pub customer: String,
+    pub source: String,
+    pub external_id: String,
+    pub semantic_key: Vec<u8>,
+    pub target: String,
+    pub kind: String,
+    pub accepted_at_us: i64,
+}
+/// Derive the durable index for an explicit upgrade from the accepted history,
+/// in ordinal order. A schema-8 row is attributed to the installation's own
+/// customer, and every acceptance time comes from the retained receipt, so a
+/// backfilled clock is the original recorded one rather than a migration time.
+pub(crate) fn upgrade_index(
+    snapshot: &crate::store::sqlite::BillingSnapshot,
+) -> Result<Vec<UpgradeIndex>> {
+    require(snapshot.retained, "BILLING_UPGRADE_STATE")?;
+    let initial = Setup::parse(&snapshot.setup)?;
+    let audit = history::load(&initial, snapshot)?;
+    let rows = snapshot
+        .entries
+        .iter()
+        .map(|entry| derive_index_row(&initial, &audit, entry))
+        .collect::<Result<Vec<UpgradeIndex>>>()?;
+    if snapshot.indexed {
+        verify_index(snapshot, &rows)?;
+    }
+    Ok(rows)
+}
+
+/// Re-derive one durable index row from the decision's own retained receipt.
+/// This is the only place a target, a kind or an acceptance time is defined:
+/// the upgrade backfill and every later open read the same derivation, so a
+/// forged index row cannot survive a validated open.
+fn derive_index_row(
+    initial: &Setup,
+    audit: &history::Audit,
+    entry: &crate::store::sqlite::BillingEntry,
+) -> Result<UpgradeIndex> {
+    let receipt = audit
+        .receipts
+        .get(&entry.ordinal)
+        .ok_or_else(b::integrity)?;
+    let accepted_at_us = b::time(&receipt["body"]["accepted_at"])?.micros();
+    if let Some(recorded) = entry.accepted_at_us {
+        b::check(recorded == accepted_at_us)?;
+    }
+    let (target, kind) = if receipt["kind"] == "base-acceptance" {
+        (
+            text(&receipt["body"]["target"])?.to_owned(),
+            "base".to_owned(),
+        )
+    } else {
+        let event = audit
+            .rows
+            .get(&entry.ordinal)
+            .and_then(|rows| rows.iter().find(|r| r["kind"] == "event"))
+            .ok_or_else(b::integrity)?;
+        let data = &event["body"]["data"];
+        let kind = match text(&data["type"])? {
+            "outcome" => "outcome",
+            "correction" => "correction",
+            _ => return Err(b::integrity()),
+        };
+        (text(&data["target"])?.to_owned(), kind.to_owned())
+    };
+    Ok(UpgradeIndex {
+        ordinal: entry.ordinal,
+        customer: entry
+            .customer
+            .clone()
+            .unwrap_or_else(|| initial.customer.clone()),
+        source: entry.source.clone(),
+        external_id: entry.external_id.clone(),
+        semantic_key: entry.semantic_key.clone(),
+        target,
+        kind,
+        accepted_at_us,
+    })
+}
+
+/// The durable index is a cache of the retained receipts, never an authority.
+/// Every retained decision is re-derived from its own bundle and compared with
+/// the committed row, so tampering is refused instead of being replayed.
+fn verify_index(
+    snapshot: &crate::store::sqlite::BillingSnapshot,
+    derived: &[UpgradeIndex],
+) -> Result<()> {
+    if snapshot.index.len() != derived.len() {
+        return Err(b::integrity());
+    }
+    for (row, expected) in snapshot.index.iter().zip(derived) {
+        b::check(
+            row.ordinal == expected.ordinal
+                && row.target == expected.target
+                && row.kind == expected.kind
+                && row.accepted_at_us == expected.accepted_at_us,
+        )?;
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_snapshot(snapshot: &crate::store::sqlite::BillingSnapshot) -> Result<()> {
     control::validate_customer_registry(snapshot)?;
     let initial = Setup::parse(&snapshot.setup)?;
     permissions::effective(snapshot)?;
-    history::load(&initial, snapshot)?;
-    let pairs = snapshot
-        .agreements
-        .iter()
-        .map(|row| (row.customer.as_str(), row.source.as_str()))
-        .collect::<BTreeSet<_>>();
+    let audit = history::load(&initial, snapshot)?;
+    // A schema-10 store proves its durable index against the receipts it just
+    // decoded, so a forged target, kind or acceptance time is refused at open
+    // instead of steering a later duplicate, adjustment or clock decision.
+    if snapshot.indexed {
+        let derived = snapshot
+            .entries
+            .iter()
+            .map(|entry| derive_index_row(&initial, &audit, entry))
+            .collect::<Result<Vec<UpgradeIndex>>>()?;
+        verify_index(snapshot, &derived)?;
+    }
+    let pairs = agreement_pairs(snapshot);
     for (customer, source) in pairs {
         permissions::effective_for(snapshot, customer, source)?;
     }
@@ -532,12 +684,21 @@ fn identity_refs(v: &Value, out: &mut BTreeSet<(String, String)>) {
 }
 
 /// Only this coordinator constructs a complete, verified economic append.
+/// Explicit M3 retained-history bounds for the local profile. The store refuses
+/// a retained decision or delivery alias beyond these and never truncates to
+/// fit; a bound refusal is a `BILLING_HISTORY_LIMIT`, not a silent drop.
+pub(crate) const MAX_RETAINED_ENTRIES: i64 = 100_000;
+pub(crate) const MAX_RETAINED_ALIASES: i64 = 100_000;
+pub(crate) const MAX_RETAINED_ENTRY_BYTES: i64 = 268_435_456;
+pub(crate) const MAX_RETAINED_ALIAS_BYTES: i64 = 67_108_864;
 pub(crate) struct ValidatedEntry {
     count: i64,
     alias: Option<i64>,
     customer: Option<String>,
     source: String,
     external: String,
+    target: Option<String>,
+    kind: Option<&'static str>,
     accepted_at_us: Option<i64>,
     agreement_id: Option<String>,
     agreement_version: Option<i64>,
@@ -561,6 +722,15 @@ impl ValidatedEntry {
     }
     pub(crate) fn external_id(&self) -> &str {
         &self.external
+    }
+    /// The retained target this decision charged. Recorded in the durable index
+    /// so a later adjustment reads only its own target history.
+    pub(crate) fn target(&self) -> Option<&str> {
+        self.target.as_deref()
+    }
+    /// The decision kind recorded alongside the target.
+    pub(crate) fn kind(&self) -> Option<&str> {
+        self.kind
     }
     pub(crate) fn semantic_key(&self) -> &[u8] {
         &self.semantic
@@ -613,85 +783,163 @@ fn receipt(records: &Records) -> Result<Value> {
     Ok(records.one("base-acceptance")?.clone())
 }
 type Prepared = (Value, Option<ValidatedEntry>);
-struct DuplicateIdentity<'a> {
-    legacy_customer: &'a str,
-    customer: &'a str,
-    source: &'a str,
-    external: &'a str,
-    ingress: &'a [u8],
-    facts: &'a [u8],
-    semantic: &'a [u8],
+/// One exact retained match, resolved by the store from the durable index and
+/// carrying the target entry's own retained row.
+pub(crate) struct DedupHit {
+    /// The target entry the match resolved to. A delivery-alias match resolves
+    /// to the aliased entry, because the alias is answered with that entry's
+    /// original receipt.
+    entry: crate::store::sqlite::BillingEntry,
+    /// The external id of the row that actually matched, which for an alias is
+    /// the alias identity rather than the target's.
+    external: String,
+    ingress: Vec<u8>,
+    facts: Vec<u8>,
+    /// Complete retained history for the matched target. Adjustment authority
+    /// may refer to grant evidence retained with its base decision, so a
+    /// duplicate receipt is verified against the target's rows together.
+    target_entries: Vec<crate::store::sqlite::BillingEntry>,
 }
-fn duplicate(
+impl DedupHit {
+    pub(crate) fn entry(
+        entry: crate::store::sqlite::BillingEntry,
+        external: String,
+        ingress: Vec<u8>,
+        facts: Vec<u8>,
+        target_entries: Vec<crate::store::sqlite::BillingEntry>,
+    ) -> Self {
+        Self {
+            entry,
+            external,
+            ingress,
+            facts,
+            target_entries,
+        }
+    }
+}
+/// Targeted retained matches for one submission. The coordinator fills this
+/// from exact SQL lookups; it never ranks, prices or decides authority.
+pub(crate) struct Dedup {
+    pub identity: Option<DedupHit>,
+    pub semantic: Option<DedupHit>,
+}
+impl Dedup {
+    pub(crate) fn empty() -> Self {
+        Self {
+            identity: None,
+            semantic: None,
+        }
+    }
+}
+/// The one submission a duplicate answer is computed from. Its identity and its
+/// retained bytes travel together, so a duplicate can never be answered from a
+/// different submission's parts.
+pub(crate) struct Incoming<'a> {
+    pub initial: &'a Setup,
+    pub customer: &'a str,
+    pub source: &'a str,
+    pub external: &'a str,
+    pub ingress: &'a [u8],
+    pub facts: &'a [u8],
+}
+/// Answer a duplicate from targeted lookups. Identity still takes precedence
+/// over the semantic key, and a conflicting reuse of either key is refused.
+pub(crate) fn resolve_duplicate(
     snapshot: &crate::store::sqlite::BillingSnapshot,
-    audit: &history::Audit,
-    identity: DuplicateIdentity<'_>,
+    dedup: &Dedup,
+    incoming: &Incoming<'_>,
 ) -> Result<Option<Prepared>> {
-    // Identity takes precedence over semantic lookup across the entire snapshot.
-    for e in &snapshot.entries {
-        let entry_customer = e.customer.as_deref().unwrap_or(identity.legacy_customer);
-        if entry_customer == identity.customer
-            && e.source == identity.source
-            && e.external_id == identity.external
-        {
-            require(e.ingress == identity.ingress, "IDENTITY_CONFLICT")?;
-            return Ok(Some((
-                json!({"status":"duplicate","kind":"identity","receipt":audit.receipts[&e.ordinal]}),
-                None,
-            )));
-        }
+    let Incoming {
+        initial,
+        customer,
+        source,
+        external,
+        ingress,
+        facts,
+    } = *incoming;
+    if let Some(hit) = &dedup.identity {
+        b::check(hit.entry.source == source && hit.external == external)?;
+        require(hit.ingress == ingress, "IDENTITY_CONFLICT")?;
+        return Ok(Some((
+            json!({"status":"duplicate","kind":"identity","receipt":history::receipt_of(initial, snapshot, &hit.target_entries, hit.entry.ordinal)?}),
+            None,
+        )));
     }
-    for a in &snapshot.aliases {
-        let alias_customer = a.customer.as_deref().unwrap_or(identity.legacy_customer);
-        if alias_customer == identity.customer
-            && a.source == identity.source
-            && a.external_id == identity.external
-        {
-            require(a.ingress == identity.ingress, "IDENTITY_CONFLICT")?;
-            return Ok(Some((
-                json!({"status":"duplicate","kind":"identity","receipt":audit.receipts[&a.ordinal]}),
-                None,
-            )));
-        }
-    }
-    for e in &snapshot.entries {
-        let entry_customer = e.customer.as_deref().unwrap_or(identity.legacy_customer);
-        if entry_customer == identity.customer
-            && e.source == identity.source
-            && e.semantic_key == identity.semantic
-        {
-            require(e.facts == identity.facts, "SEMANTIC_CONFLICT")?;
-            require(snapshot.aliases.len() < 1000, "BILLING_HISTORY_LIMIT")?;
-            let plan = ValidatedEntry {
-                count: snapshot.entries.len() as i64,
-                alias: Some(e.ordinal),
-                customer: Some(identity.customer.into()),
-                source: identity.source.into(),
-                external: identity.external.into(),
-                accepted_at_us: None,
-                agreement_id: None,
-                agreement_version: None,
-                ingress: identity.ingress.into(),
-                facts: vec![],
-                semantic: vec![],
-                bundle: vec![],
-            };
-            return Ok(Some((
-                json!({"status":"duplicate","kind":"semantic","receipt":audit.receipts[&e.ordinal]}),
-                Some(plan),
-            )));
-        }
+    if let Some(hit) = &dedup.semantic {
+        b::check(hit.entry.source == source)?;
+        require(hit.facts == facts, "SEMANTIC_CONFLICT")?;
+        // Only a delivery id that is not already retained reaches this branch, so
+        // the semantic-key retry reserves exactly one new alias of the matched
+        // entry. An alias that is already retained is an identity match and was
+        // answered above.
+        require(
+            snapshot.alias_count < MAX_RETAINED_ALIASES,
+            "BILLING_HISTORY_LIMIT",
+        )?;
+        require(hit.ingress.len() <= 262_144, "BILLING_HISTORY_LIMIT")?;
+        let plan = ValidatedEntry {
+            count: snapshot.entry_count,
+            alias: Some(hit.entry.ordinal),
+            customer: Some(customer.into()),
+            source: source.into(),
+            external: external.into(),
+            target: None,
+            kind: None,
+            accepted_at_us: None,
+            agreement_id: None,
+            agreement_version: None,
+            ingress: ingress.into(),
+            facts: vec![],
+            semantic: vec![],
+            bundle: vec![],
+        };
+        return Ok(Some((
+            json!({"status":"duplicate","kind":"semantic","receipt":history::receipt_of(initial, snapshot, &hit.target_entries, hit.entry.ordinal)?}),
+            Some(plan),
+        )));
     }
     Ok(None)
 }
+/// A normalized submission awaiting its retained dedup lookups. Splitting the
+/// decision lets the coordinator run exact indexed lookups without this module
+/// ever loading or decoding the whole installation.
+pub(crate) struct Submission<'a> {
+    customer: String,
+    source: String,
+    external: String,
+    ingress: Vec<u8>,
+    semantic: Vec<u8>,
+    facts: Vec<u8>,
+    initial: Setup,
+    scope: Scope,
+    raw: &'a [u8],
+    at: &'a Timestamp,
+    authority: Setup,
+}
+impl<'a> Submission<'a> {
+    pub(crate) fn customer(&self) -> &str {
+        &self.customer
+    }
+    pub(crate) fn source(&self) -> &str {
+        &self.source
+    }
+    pub(crate) fn external_id(&self) -> &str {
+        &self.external
+    }
+    pub(crate) fn semantic_key(&self) -> &[u8] {
+        &self.semantic
+    }
+}
 
-pub(crate) fn prepare(
+/// Normalize and scope one submission. Authority, identifier and candidate
+/// checks happen here, in the original order, before any retained lookup.
+pub(crate) fn begin<'a>(
     snapshot: &crate::store::sqlite::BillingSnapshot,
     customer: &str,
     source: &str,
-    raw: &[u8],
-    at: &Timestamp,
-) -> Result<(Value, Option<ValidatedEntry>)> {
+    raw: &'a [u8],
+    at: &'a Timestamp,
+) -> Result<Submission<'a>> {
     require(
         !customer.is_empty()
             && customer.len() <= 128
@@ -720,18 +968,49 @@ pub(crate) fn prepare(
     let semantic = bytes(&json!(["base", event.candidate().operation_id()]))?;
     let facts = bytes(&event.completion_facts(&[]).map_err(|e| reject(e.code))?)?;
     let initial = Setup::parse(&snapshot.setup)?;
-    let audit = history::load(&initial, snapshot)?;
-    if let Some(result) = duplicate(
+    Ok(Submission {
+        customer: customer.into(),
+        source: event.source().into(),
+        external: event.candidate().external_id().into(),
+        ingress,
+        semantic,
+        facts,
+        initial,
+        scope,
+        raw,
+        at,
+        authority,
+    })
+}
+
+pub(crate) fn finish(
+    snapshot: &crate::store::sqlite::BillingSnapshot,
+    submission: &Submission<'_>,
+    dedup: &Dedup,
+) -> Result<(Value, Option<ValidatedEntry>)> {
+    let Submission {
+        customer,
+        source,
+        external,
+        ingress,
+        semantic: _,
+        facts,
+        initial,
+        scope,
+        raw,
+        at,
+        authority,
+    } = submission;
+    if let Some(result) = resolve_duplicate(
         snapshot,
-        &audit,
-        DuplicateIdentity {
-            legacy_customer: &initial.customer,
+        dedup,
+        &Incoming {
+            initial,
             customer,
-            source: event.source(),
-            external: event.candidate().external_id(),
-            ingress: &ingress,
-            facts: &facts,
-            semantic: &semantic,
+            source,
+            external,
+            ingress,
+            facts,
         },
     )? {
         return Ok(result);
@@ -740,8 +1019,11 @@ pub(crate) fn prepare(
         authority.permissions.iter().any(|p| p == "submit"),
         "BILLING_UNAUTHORIZED",
     )?;
-    require(snapshot.entries.len() < 1000, "BILLING_HISTORY_LIMIT")?;
-    control::ensure_new_ledger_time(snapshot, &audit, at)?;
+    require(
+        snapshot.entry_count < MAX_RETAINED_ENTRIES,
+        "BILLING_HISTORY_LIMIT",
+    )?;
+    control::ensure_new_ledger_time(snapshot, snapshot.ledger_time_max, at)?;
     let (mut terms, agreement_version) = control::selected_terms(snapshot, customer, source, at)?
         .ok_or_else(|| reject("BILLING_TERMS_NOT_ACTIVE"))?;
     terms.permissions = authority.permissions.clone();
@@ -754,21 +1036,25 @@ pub(crate) fn prepare(
         &rows.iter().map(bytes).collect::<Result<Vec<_>>>()?,
         json!(scope),
     )?;
-    let result = json!({"status":"accepted","receipt":receipt(&records)?});
+    let receipt = receipt(&records)?;
+    let target = text(&receipt["body"]["target"])?.to_owned();
+    let result = json!({"status":"accepted","receipt":receipt});
     Ok((
         result,
         Some(ValidatedEntry {
             alias: None,
-            count: snapshot.entries.len() as i64,
+            count: snapshot.entry_count,
             customer: Some(customer.into()),
-            source: event.source().into(),
-            external: event.candidate().external_id().into(),
+            source: source.into(),
+            external: external.into(),
+            target: Some(target),
+            kind: Some("base"),
             accepted_at_us: Some(at.micros()),
             agreement_id: Some(agreement_id),
             agreement_version: Some(agreement_version),
-            semantic,
-            ingress,
-            facts,
+            semantic: submission.semantic.clone(),
+            ingress: ingress.clone(),
+            facts: facts.clone(),
             bundle,
         }),
     ))
@@ -961,6 +1247,12 @@ mod tests {
             aliases: vec![],
             setup: control::canonical_bytes(setup).unwrap(),
             entries: vec![],
+            retained: true,
+            indexed: false,
+            entry_count: 0,
+            alias_count: 0,
+            ledger_time_max: None,
+            index: vec![],
         }
     }
 
@@ -1060,9 +1352,13 @@ mod tests {
         audit
             .receipts
             .insert(1, json!({"body":{"accepted_at":accepted_at}}));
-        assert!(control::ensure_new_ledger_time(&snapshot, &audit, &accepted_at).is_err());
+        // The durable index clock is what a write path reads; the audit is only
+        // the source the store derives it from.
+        let clock = history::max_accepted(&audit).unwrap();
+        assert_eq!(clock, Some(accepted_at.micros()));
+        assert!(control::ensure_new_ledger_time(&snapshot, clock, &accepted_at).is_err());
         let advanced = Timestamp::parse("2026-09-20T12:00:00.000001Z").unwrap();
-        assert!(control::ensure_new_ledger_time(&snapshot, &audit, &advanced).is_ok());
+        assert!(control::ensure_new_ledger_time(&snapshot, clock, &advanced).is_ok());
     }
 
     #[test]

@@ -208,7 +208,7 @@ pub(crate) fn prepare_scoped(
     )?;
     let initial = Setup::parse(&snapshot.setup)?;
     let audit = history::load(&initial, snapshot)?;
-    control::ensure_new_ledger_time(snapshot, &audit, at)?;
+    control::ensure_new_ledger_time(snapshot, history::max_accepted(&audit)?, at)?;
     let revision = current.grant_revision + 1;
     let result = json!({
         "schema":"ledger-billing-permissions-result/2",

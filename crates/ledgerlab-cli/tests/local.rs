@@ -507,6 +507,7 @@ fn migrated_cli_ledger_coexists_with_fake_outbox_and_preserves_receipts() {
     });
     assert_eq!(fake.receipts("store-demo-slice").len(), 1);
     let before = db(dir);
+    // The global M3 migration adds schema objects without changing these rows.
     assert_eq!(
         before
             .iter()
@@ -514,7 +515,7 @@ fn migrated_cli_ledger_coexists_with_fake_outbox_and_preserves_receipts() {
             .unwrap()
             .1
             .len(),
-        9
+        10
     );
     assert_eq!(
         before

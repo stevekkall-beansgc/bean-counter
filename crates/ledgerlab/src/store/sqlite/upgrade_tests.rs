@@ -4,6 +4,7 @@ use super::*;
 use crate::{
     maintenance::*,
     store::{
+        ports::{AcceptanceStore, AcceptanceTx},
         records::WriteOp,
         sqlite::{self, tests},
     },
@@ -65,6 +66,48 @@ async fn legacy(v: usize) -> (tempfile::TempDir, SqliteConnection) {
     }
     tx.commit().await.unwrap();
     (dir, conn)
+}
+
+#[tokio::test]
+async fn m2_schema9_nonbilling_store_reopens_without_implicit_m3_migration() {
+    let (dir, mut conn) = legacy(9).await;
+    let before = dump(&mut conn).await;
+    assert_eq!(version(&mut conn).await.unwrap(), 9);
+    let m3_tables: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name GLOB 'billing_m3_*'",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(m3_tables, 0);
+    conn.close().await.unwrap();
+
+    let store = sqlite::SqliteStore::open(dir.path()).await.unwrap();
+    let mut tx = store
+        .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert_eq!(
+        tx.load_installation().await.unwrap().logical_store_id,
+        "store-demo-slice"
+    );
+    tx.rollback().await.unwrap();
+    store.close().await;
+
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(dir.path().join("local.db"))
+        .foreign_keys(true);
+    let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+    assert_eq!(version(&mut conn).await.unwrap(), 9);
+    assert_eq!(dump(&mut conn).await, before);
+    let m3_tables: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name GLOB 'billing_m3_*'",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(m3_tables, 0);
+    conn.close().await.unwrap();
 }
 
 #[tokio::test]

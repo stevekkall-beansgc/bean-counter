@@ -166,38 +166,102 @@ pub(super) fn verify_entry(s: &Setup, e: &BillingEntry, records: &Records) -> Re
     )?;
     Ok(())
 }
-pub(crate) fn prepare(
-    snapshot: &BillingSnapshot,
-    customer: &str,
-    source: &str,
-    raw: &[u8],
-    at: &Timestamp,
+/// A parsed outcome or correction awaiting its retained dedup lookups and its
+/// target history, both selected by the durable index.
+pub(crate) struct Submission<'a> {
+    adjustment: Adjustment,
+    ingress: Vec<u8>,
+    facts: Vec<u8>,
+    semantic: Vec<u8>,
+    initial: Setup,
+    authority: Setup,
+    customer: &'a str,
+    source: &'a str,
+    at: &'a Timestamp,
     correction: bool,
-) -> Result<(Value, Option<ValidatedEntry>)> {
-    let s = permissions::effective_for(snapshot, customer, source)?;
+}
+impl<'a> Submission<'a> {
+    pub(crate) fn customer(&self) -> &'a str {
+        self.customer
+    }
+    pub(crate) fn source(&self) -> &'a str {
+        self.source
+    }
+    pub(crate) fn external_id(&self) -> &str {
+        &self.adjustment.id
+    }
+    pub(crate) fn semantic_key(&self) -> &[u8] {
+        &self.semantic
+    }
+    /// The target this decision adjusts, used to select its retained history.
+    pub(crate) fn target(&self) -> &str {
+        &self.adjustment.target
+    }
+}
+/// Parse and scope one outcome or correction. Authority, schema and identifier
+/// checks happen here, in the original order, before any retained lookup.
+pub(crate) fn begin<'a>(
+    snapshot: &BillingSnapshot,
+    customer: &'a str,
+    source: &'a str,
+    raw: &[u8],
+    at: &'a Timestamp,
+    correction: bool,
+) -> Result<Submission<'a>> {
+    let authority = permissions::effective_for(snapshot, customer, source)?;
     let scope = control::customer_scope(snapshot, customer)?;
-    b::check(s.scope == scope)?;
+    b::check(authority.scope == scope)?;
     require(
-        s.permissions.iter().any(|p| p == "read"),
+        authority.permissions.iter().any(|p| p == "read"),
         "BILLING_UNAUTHORIZED",
     )?;
-    let a = Adjustment::parse(raw, correction, customer, source)?;
-    let ingress = a.ingress()?;
-    let facts = a.facts()?;
-    let semantic = a.semantic()?;
+    let adjustment = Adjustment::parse(raw, correction, customer, source)?;
+    let ingress = adjustment.ingress()?;
+    let facts = adjustment.facts()?;
+    let semantic = adjustment.semantic()?;
     let initial = Setup::parse(&snapshot.setup)?;
-    let mut audit = history::load(&initial, snapshot)?;
-    if let Some(result) = duplicate(
+    Ok(Submission {
+        adjustment,
+        ingress,
+        facts,
+        semantic,
+        initial,
+        authority,
+        customer,
+        source,
+        at,
+        correction,
+    })
+}
+pub(crate) fn finish(
+    snapshot: &BillingSnapshot,
+    submission: &Submission<'_>,
+    dedup: &super::Dedup,
+    target_entries: &[BillingEntry],
+) -> Result<(Value, Option<ValidatedEntry>)> {
+    let Submission {
+        adjustment: a,
+        ingress,
+        facts,
+        semantic,
+        initial,
+        authority: s,
+        customer,
+        source,
+        at,
+        correction,
+    } = submission;
+    let (customer, source) = (*customer, *source);
+    if let Some(result) = super::resolve_duplicate(
         snapshot,
-        &audit,
-        DuplicateIdentity {
-            legacy_customer: &initial.customer,
+        dedup,
+        &super::Incoming {
+            initial,
             customer,
             source,
             external: &a.id,
-            ingress: &ingress,
-            facts: &facts,
-            semantic: &semantic,
+            ingress,
+            facts,
         },
     )? {
         return Ok(result);
@@ -206,11 +270,16 @@ pub(crate) fn prepare(
     require(
         s.permissions
             .iter()
-            .any(|p| p == if correction { "correct" } else { "submit" }),
+            .any(|p| p == if *correction { "correct" } else { "submit" }),
         "BILLING_UNAUTHORIZED",
     )?;
-    require(snapshot.entries.len() < 1000, "BILLING_HISTORY_LIMIT")?;
-    control::ensure_new_ledger_time(snapshot, &audit, at)?;
+    require(
+        snapshot.entry_count < super::MAX_RETAINED_ENTRIES,
+        "BILLING_HISTORY_LIMIT",
+    )?;
+    control::ensure_new_ledger_time(snapshot, snapshot.ledger_time_max, at)?;
+    // Only this target's retained decisions are decoded, in ordinal order.
+    let mut audit = history::load_target(initial, snapshot, target_entries)?;
     let history = audit
         .targets
         .get_mut(&history::target_key(customer, &a.target))
@@ -244,8 +313,8 @@ pub(crate) fn prepare(
         history.records.insert(grant.clone())?;
         additions.push(grant.clone());
     }
-    let mut data = json!({"type":if correction{"correction"}else{"outcome"},"source":source,"external_id":a.id,"target":a.target,"chain_id":base.evaluation.event().chain(),"agreement_id":agreement_id,"family_id":a.family,"occurred_at":a.occurred_at,"evidence":[proof["id"]]});
-    if correction {
+    let mut data = json!({"type":if *correction{"correction"}else{"outcome"},"source":source,"external_id":a.id,"target":a.target,"chain_id":base.evaluation.event().chain(),"agreement_id":agreement_id,"family_id":a.family,"occurred_at":a.occurred_at,"evidence":[proof["id"]]});
+    if *correction {
         // Family identity is on the claim row; revision lookup is constrained by
         // the exact permanent claim identity, never an arbitrary latest row.
         let claim = core(codec::key(
@@ -331,16 +400,18 @@ pub(crate) fn prepare(
         json!({"status":"accepted","receipt":receipt}),
         Some(ValidatedEntry {
             alias: None,
-            count: snapshot.entries.len() as i64,
+            count: snapshot.entry_count,
             customer: Some(customer.into()),
             source: source.into(),
-            external: a.id,
+            external: a.id.clone(),
+            target: Some(a.target.clone()),
+            kind: Some(if *correction { "correction" } else { "outcome" }),
             accepted_at_us: Some(at.micros()),
             agreement_id: Some(agreement_id),
             agreement_version: Some(agreement_version),
-            semantic,
-            ingress,
-            facts,
+            semantic: semantic.clone(),
+            ingress: ingress.clone(),
+            facts: facts.clone(),
             bundle,
         }),
     ))

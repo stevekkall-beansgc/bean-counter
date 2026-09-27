@@ -11,6 +11,10 @@ pub(crate) enum StoreError {
     Overloaded,
     /// Explicit read work quota exhausted; distinct from admission contention.
     ReadBudgetExhausted,
+    /// A valid billing append would exceed a configured retained-history bound.
+    BillingHistoryLimit,
+    /// Billing commands require an explicit schema migration before access.
+    BillingUpgradeRequired,
     Deadline,
     InvalidStore(&'static str),
     Integrity(&'static str),

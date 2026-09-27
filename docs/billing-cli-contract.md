@@ -1,6 +1,10 @@
-# Billing CLI integration contract at v0.3.0 and v0.4.0
+# Billing CLI integration contract
 
-This page describes behavior visible in the ordinary local SQLite `ledger billing` implementation at these two source tags. v0.3.0 is the current native-package release for ordinary billing. [v0.4.0](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.4.0) is a published source release with no new native binaries; it leaves the v0.3.0 native assets unchanged. Record the exact source commit and binary used by an integration.
+This page preserves the observed v0.3.0 and v0.4.0 command contracts and records the M3 source-built additions. v0.3.0 remains the latest native-package release for ordinary billing; M3 does not qualify or replace those native assets. Record the exact source commit and binary used by an integration.
+
+## M3 source-built additions
+
+M3 adds the explicit `ledger billing --directory DIR upgrade --json` command for the qualified source-built schema-9 to schema-10 transition. Schema-9 billing commands refuse with `BILLING_UPGRADE_REQUIRED` until that command succeeds; ordinary open does not migrate implicitly. A valid operation beyond a configured history or payload ceiling refuses with `BILLING_HISTORY_LIMIT` before commit. Both are request/state rejections with exit 3. See the [M3 qualification](m3-qualification.md) for the exact source-built path, retained-history scope, and measured-workload limits.
 
 ## Command and format boundaries
 
@@ -10,7 +14,7 @@ The ordinary billing CLI also exposes `init`, `setup`, `outcome`, `correct`, `pe
 
 ## Version families and command outputs
 
-There is no single version marker for the whole billing CLI. The source declares a billing-facade constant `v0.2`, but it is not emitted in command output. The version markers below belong to separate input, storage, receipt, statement and export formats. Do not use one as a proxy for another.
+There is no single version marker for the whole billing CLI. The source declares a billing-facade constant `v0.3`, but it is not emitted in command output. The version markers below belong to separate input, storage, receipt, statement and export formats. Do not use one as a proxy for another.
 
 | Command | Versioned input or stored format | Observed successful JSON |
 |---|---|---|

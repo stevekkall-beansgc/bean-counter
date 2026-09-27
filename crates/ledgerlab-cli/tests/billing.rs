@@ -660,6 +660,47 @@ fn corrections_preserve_history_and_reconcile() {
         0,
     );
     assert_eq!(original["receipt"], duplicate["receipt"]);
+    let mut outcome_alias = outcome.clone();
+    outcome_alias["id"] = json!("quality-alias");
+    fs::write(
+        root.join("outcome-alias.json"),
+        serde_json::to_vec(&outcome_alias).unwrap(),
+    )
+    .unwrap();
+    let semantic_alias = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "outcome",
+            "--customer",
+            "customer-1",
+            "--source",
+            "urn:example:work",
+            "outcome-alias.json",
+        ],
+        0,
+    );
+    assert_eq!(semantic_alias["kind"], "semantic");
+    assert_eq!(semantic_alias["receipt"], original["receipt"]);
+    let identity_alias = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "outcome",
+            "--customer",
+            "customer-1",
+            "--source",
+            "urn:example:work",
+            "outcome-alias.json",
+        ],
+        0,
+    );
+    assert_eq!(identity_alias["kind"], "identity");
+    assert_eq!(identity_alias["receipt"], original["receipt"]);
     assert_eq!(
         run(
             root,

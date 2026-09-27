@@ -8,7 +8,7 @@ This is the current acceptance and publication scope for `ledger billing`. It su
 
 | Capability | Current scope / acceptance |
 | --- | --- |
-| Operator-configured billing | One customer and agreement per installation; immutable explicit terms, fixed USD price and one fixed-amount outcome family. Retain operator-supplied assent and authority evidence; software does not acquire consent. |
+| Operator-configured billing | One business per installation, with multiple customers and sources; immutable explicit terms, fixed USD price and one fixed-amount outcome family. Retain operator-supplied assent and authority evidence; software does not acquire consent. See the canonical [billing roadmap](docs/billing-roadmap.md) for the accepted product boundary and milestone status. |
 | Charges and adjustments | Existing pure evaluator and frozen economic records; exact integer atoms, authorized outcomes, expected-revision corrections and exact inverse/replacement postings. Never overwrite accepted economic history. |
 | Durable records and retries | Local SQLite with documented lock/fsync/storage assumptions; commit before success; restart-safe delivery identity, permanent semantic aliases and conflicts. Unknown commit results require original-identity retry/reconciliation. |
 | Authority and isolation | Local private-directory/OS administrator trust. Revocable read/submit/correct permissions within the original ceiling; wrong customer, source, scope, revision and rights refuse. No remote authentication claim. |
@@ -27,7 +27,7 @@ This is the current acceptance and publication scope for `ledger billing`. It su
 
 Unavailable memory, disk, locks or storage may cause refusal or an uncertain result. Never acknowledge an uncommitted charge, duplicate billing on retry, silently discard records or invent resource evidence. Do not interpret an unknown result as rollback. Reopen and resolve the original identity; preserve integrity failures for investigation. Provisioning and monitoring remain the operator's responsibility.
 
-Admission ceilings are 1,000 accepted decisions, 1,000 aliases, 1,000 permission changes, 32 MiB economic payloads and separately 32 MiB alias ingress. Setup/permission input is at most 64 KiB, event input 256 KiB and an economic bundle 8 MiB. These are bounds, not resource reservations or throughput guarantees. Small walkthrough measurements establish neither a production minimum nor peak demand at the limits. See [resources and costs](docs/resources-and-costs.md) and [recovery](docs/billing-recovery.md).
+Admission ceilings are 100,000 accepted decisions, 100,000 aliases, 1,000 permission changes, 256 MiB economic payloads and separately 64 MiB alias ingress. Setup/permission input is at most 64 KiB, event input 256 KiB and an economic bundle 8 MiB. These are bounds, not resource reservations or throughput guarantees. M3 records one synthetic single-host workload of 3,499 retained decisions; it does not demonstrate capacity or performance at the admission ceilings. See [M3 qualification](docs/m3-qualification.md), [resources and costs](docs/resources-and-costs.md) and [recovery](docs/billing-recovery.md).
 
 ## Release acceptance
 

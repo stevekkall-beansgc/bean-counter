@@ -120,8 +120,15 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
             if code == "BILLING_UPGRADE_OUTCOME_UNKNOWN" =>
         {
             (
-                json!({"status":"outcome_unknown","code":code,"message":"Upgrade may have committed. Reopen the installation; schema 9 means it is current, while schema 8 can be retried with the same upgrade command."}),
+                json!({"status":"outcome_unknown","code":code,"message":"Upgrade may have committed. Reopen the installation; schema 10 means it is current. If it remains at schema 8 or 9, retry the same upgrade command."}),
                 8,
+            )
+        }
+        LocalError::Service(ServiceError::Rejection(code)) if code == "BILLING_UPGRADE_REQUIRED" => {
+            super::error(
+                &code,
+                "this billing installation needs an explicit schema upgrade; run `ledger billing upgrade`",
+                3,
             )
         }
         LocalError::Service(ServiceError::Rejection(code)) => {
@@ -307,5 +314,31 @@ mod tests {
         assert_eq!(c, 8);
         assert_eq!(v["external_id"], "g1");
         assert_eq!(v["status"], "outcome_unknown");
+    }
+
+    #[test]
+    fn unknown_upgrade_result_describes_schema10_recovery() {
+        let (v, c) = local_error(LocalError::Service(ServiceError::Rejection(
+            "BILLING_UPGRADE_OUTCOME_UNKNOWN".into(),
+        )));
+        assert_eq!(c, 8);
+        assert_eq!(v["status"], "outcome_unknown");
+        assert_eq!(
+            v["message"],
+            "Upgrade may have committed. Reopen the installation; schema 10 means it is current. If it remains at schema 8 or 9, retry the same upgrade command."
+        );
+    }
+
+    #[test]
+    fn required_billing_upgrade_is_not_reported_as_integrity_failure() {
+        let (v, c) = local_error(LocalError::Service(ServiceError::Rejection(
+            "BILLING_UPGRADE_REQUIRED".into(),
+        )));
+        assert_eq!(c, 3);
+        assert_eq!(v["code"], "BILLING_UPGRADE_REQUIRED");
+        assert_eq!(
+            v["message"],
+            "this billing installation needs an explicit schema upgrade; run `ledger billing upgrade`"
+        );
     }
 }

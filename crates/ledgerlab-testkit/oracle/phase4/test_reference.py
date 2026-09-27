@@ -242,7 +242,7 @@ class NoChange(unittest.TestCase):
         import re
         from foundation import R3_SQLITE, R3_POSTGRES_V6
         root=HERE.parents[3]
-        for backend,expected in [('sqlite',COMMON|R3_SQLITE|{'billing_setup','billing_entries','billing_aliases','billing_permissions','billing_customers','billing_agreements','billing_m2_changes','billing_m2_permissions','billing_m2_entries','billing_m2_aliases'}),('postgres',COMMON|PG_ONLY|R3_POSTGRES_V6)]:
+        for backend,expected in [('sqlite',COMMON|R3_SQLITE|{'billing_setup','billing_entries','billing_aliases','billing_permissions','billing_customers','billing_agreements','billing_m2_changes','billing_m2_permissions','billing_m2_entries','billing_m2_aliases','billing_m3_bounds','billing_m3_aliases','billing_m3_index','billing_m3_entries','billing_m3_upgrade'}),('postgres',COMMON|PG_ONLY|R3_POSTGRES_V6)]:
             text='\n'.join(p.read_text() for p in (root/'crates/ledgerlab/migrations'/backend).glob('*.sql'))
             actual=set(re.findall(r'CREATE TABLE (?:IF NOT EXISTS )?(?:ledgerlab\.)?(\w+)',text))
             self.assertEqual(actual,expected)

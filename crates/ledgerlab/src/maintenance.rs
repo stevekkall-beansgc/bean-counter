@@ -14,6 +14,8 @@ use std::{path::Path, time::Duration};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UpgradeResult {
     Upgraded,
+    /// Storage-level upgrade state is reconciled. Billing callers must still
+    /// run their full profile validator before reporting the installation ready.
     AlreadyCurrent,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
