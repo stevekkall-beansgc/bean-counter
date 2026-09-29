@@ -1,7 +1,9 @@
+mod calendar;
 mod event;
 mod records;
 mod time;
 use crate::{Error, Result};
+pub use calendar::*;
 pub use event::*;
 pub use records::*;
 use serde::{Deserialize, Serialize};
