@@ -1,6 +1,6 @@
 # M5 decision register
 
-**Status (2026-09-29): Package 0 complete; owner defaults, including statement balance presentation, approved.** The [billing roadmap](billing-roadmap.md) is canonical. This register records the approved M5 direction and the defaults contract authors must preserve. Product implementation has not started.
+**Status (2026-09-29): Package 0 complete; owner defaults approved; Package 3 contract freeze is pending final independent review.** The [billing roadmap](billing-roadmap.md) is canonical. This register records the approved M5 direction and the defaults contract authors must preserve. Product implementation has not started.
 
 ## 1. Owner-approved constraints
 
@@ -57,7 +57,7 @@ Renewal creates a new immutable agreement/recurrence version. Automatic renewal 
 
 ### Usage quantity corrections and post-close adjustments
 
-Store each correction as a signed integer quantity delta linked to the original accepted usage and the original agreement/rate basis. Never overwrite or replace the accepted quantity. For a pre-close correction, require the original customer's billing period to remain open; the delta contributes to that period's effective quantity. If that period is closed, use the post-close adjustment path instead.
+Store each correction as a signed integer quantity delta linked to the original accepted usage and the original agreement/rate basis. Never overwrite or replace the accepted quantity. The original customer's billing period remains correction-eligible until its immutable close record is durably committed. A correction accepted after scheduled period end but before close is linked to the original period and contributes to its effective quantity. The writer lock serializes close and correction: whichever commits first determines whether the correction enters that statement or becomes a post-close adjustment.
 
 Proposed invariant: the cumulative corrected quantity remains within the original agreement's configured bounds, including a nonnegative lower bound; rate, unit, customer, and applicable agreement version remain those of the original accepted usage. Reject a delta that would violate those bounds. Each correction has a stable scoped identity and exact retry behavior. A post-close adjustment retains a link to the original usage, correction evidence, and later period; an ad hoc statement names the adjustment IDs it presents. Neither path alters the closed standard statement.
 
@@ -82,9 +82,9 @@ The following defaults were approved on 2026-09-29 and are the M5 policy record:
 | M5-G3 | Support versioned Gregorian month/quarter/year calendars and bounded declared 4-4-5/4-5-4/5-4-4 week patterns with explicit 52/53-week rules. Report runs pin the calendar version and accepted-ledger snapshot. |
 | M5-G4 | No background charge creation, no automatic missed-run catch-up, explicit operator catch-up, opt-in renewal, cancellation at first successful acceptance time, and no implicit proration (`none` by default). |
 | M5-G5 | The occurrence's first successful ledger acceptance time selects its agreement version and price, preserving M2. Scheduled time does not backdate pricing or period assignment. |
-| M5-G6 | Corrections use explicit existing correction authority/evidence, signed append-only deltas, the original unit/rate basis, and the original agreement's quantity bounds. Reject a result below zero or above the configured maximum. Post-close adjustments link to original usage; ad hoc statements identify the adjustment IDs they contain. |
+| M5-G6 | Corrections use explicit existing correction authority/evidence, signed append-only deltas, the original unit/rate basis, and the original agreement's quantity bounds. Reject a result below zero or above the configured maximum. Correction eligibility lasts until durable close, including after scheduled period end. Post-close adjustments link to original economics; each is presented exactly once, by default on the next standard statement or through an explicitly issued ad hoc statement first. |
 | M5-G7 | Preserve M4 outcome authority and admissibility windows. An outcome accepted after close belongs to a later period and never reopens the closed statement. |
-| M5-G8 | Preserve exact USD scale-18 atoms through period close and statement/export; do not apply unapproved cent or four-decimal rounding. Standard statements show only their own period's exact net, carry no prior balance, and classify a negative net as payable. |
+| M5-G8 | Preserve exact USD scale-18 atoms through period close and statement/export. Per-work amounts are never rounded. Cumulative-period conversion aggregates first and rounds a non-representable exact result once at close to scale 18 using `nearest_ties_away`; preserve the exact rational and booked atoms. Standard statements show only their own period's exact net, carry no prior balance, and classify a negative net as payable. |
 | M5-G9 | Omit manual external-payment status from M5; no provider, payment-execution, verification, or settlement semantics. |
 | M5-G10 | Preserve M2's no-automatic-expiry behavior for accepted records and retry identities. |
 
@@ -94,14 +94,18 @@ Stop and return to the owner if an implementation detail requires changing an ap
 
 Approved 2026-09-29: each immutable standard statement presents only its current period's exact net, with no carry-forward of prior unpaid balances. A negative exact net is represented as payable. This is a statement classification rule; it does not create payment, settlement, or cross-period balance-allocation behavior.
 
-### Remaining pre-implementation choices
+### Additional defaults approved 2026-09-29
 
-The architecture review identified two decisions not covered by the approved defaults:
+The owner approved these remaining architecture defaults:
 
-1. **Initial term coverage for existing M4 history.** Define how a customer first receives a billing term when M4 contains accepted work before M5 is configured. The system must not silently omit that history or move it into a current statement. The proposed safe behavior is to require an explicit operator-selected activation/backfill boundary and refuse period close for any eligible record left unassigned.
-2. **Post-close adjustment presentation.** The proposed default is to include a post-close adjustment in its next standard period, while allowing an operator to select and issue it through one ad hoc statement first. Each adjustment must be presented at most once across the two paths. Confirm this presentation rule before either statement path is implemented.
+| Decision | Approved rule |
+|---|---|
+| Existing M4 history | The operator explicitly sets the initial customer term anchor and effective instant. Where retained billable M4 history exists, that instant must be no later than the oldest retained billable acceptance. Activation and close refuse if any retained billable entry lacks exactly one deterministic period assignment; M5 never silently omits or moves older work. |
+| Correction cutoff | A period remains correction-eligible until its immutable close record is durably committed, even after scheduled end. The serialized writer lock makes correction-versus-close ordering decisive. A correction that commits first is linked into the original period; a close that commits first sends the change to the post-close adjustment path. |
+| Cumulative rounding | Aggregate a conversion bucket exactly and apply its versioned cumulative formula once. If the result is finer than USD scale 18, round once at close with `nearest_ties_away`, retaining the exact rational and booked atoms. Post-close cumulative corrections use `F(q_new)-F(q_old)` under the original pinned rule. |
+| Adjustment presentation | Default to the next standard period. An operator may issue one ad hoc receivable/payable statement before standard inclusion. A uniqueness constraint ensures each adjustment is presented once. |
 
-These are design gates, not approved policy. No implementation may infer a default from the proposal until the owner confirms it.
+These rules close the owner-decision gates identified by the architecture review. Package 3 still requires contract review and explicit acceptance evidence before dependent implementation begins.
 
 ## 4. Package acceptance and stop conditions
 
@@ -111,10 +115,10 @@ These are design gates, not approved policy. No implementation may infer a defau
 | 1 — Published-source seam report | Bounded advisory against the exact published v0.7.1 source; no private repository or roadmap input | Fresh exact-route check is missing, Agency denies the route, a safety marker appears, or private input is needed |
 | 2 — Synthetic calendar oracle | Generic synthetic boundary, DST, month-end, recurrence, quantity-delta and adjustment cases; no Bean Counter private inputs | Model route is not freshly authorized, any case requires real customer/private data, or expected results imply an unapproved money rule |
 | 3 — Architecture and contracts | Frozen calendar, recurrence, event-assignment, correction, close and statement contracts; independent review | Any amount, authority, assignment or statement rule conflicts with an approved decision, or compatibility/canonical-record impact is unclear |
-| 4 — Customer cycles and cumulative conversion | Different customer schedules, deterministic half-open assignment, idempotent close/retry, exact M4 precision, reconciled totals | Duplicate close, changed accepted history, unresolved rounding economics, or any schedule boundary is nondeterministic |
+| 4 — Customer cycles and cumulative conversion | Different customer schedules, deterministic half-open assignment, idempotent close/retry, exact M4 precision, one approved close-time scale-18 rounding per exact cumulative bucket, reconciled totals | Duplicate close, changed accepted history, nondeterministic schedule boundary, incorrect telescoping cumulative adjustments, or silent legacy-history omission |
 | 5 — Corrections and late facts | Authorized signed deltas, pre/post-close split, linked adjustment/ad hoc statement, accepted late-outcome rules, unchanged closed statements | Correction bounds/rights, late-outcome treatment, or statement linkage is unresolved |
 | 6 — Recurrence lifecycle | Stable occurrence identity across retry/restart, immutable versions, renewal/cancel/missed-run/proration rules | Any charge-on-miss, renewal, cancellation, price-basis, or proration rule is unresolved |
 | 7 — Fiscal reporting | Independent organization-level projection pinned to calendar version and ledger snapshot; reconciles without changing client statements | Report behavior implies tax/legal claims or affects customer amounts |
 | 8 — Integrated qualification/release | Synthetic end-to-end lifecycle, required recovery evidence, independent read-only review, exact candidate and normal release evidence | Any acceptance journey, reconciliation, recovery, review, or release gate fails |
 
-Packages 1 and 2 remain advisory and conditional on the exact Agency-controlled public/synthetic route in the execution plan. Their output cannot approve a policy gate or edit product files.
+Packages 1 and 2 remain advisory and conditional on the exact Agency-controlled public/synthetic route in the execution plan. Their output cannot approve a policy gate or edit product files. No remote model call is required to implement the owner-approved M5 defaults.
