@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 const MAX_ROWS: i64 = 100_000;
 const MAX_BYTES: i64 = 268_435_456;
 const MIGRATION_ID: &str = "bean-counter/m5/schema-11/1";
+// M3 ordinals are global across the original, M2, and M3 retained tiers.
+const ASSIGNED_OUTCOMES: &str = "SELECT COALESCE((SELECT ingress FROM billing_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m2_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m3_entries WHERE ordinal=i.ordinal)),a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal";
 
 #[derive(Clone)]
 pub(crate) struct Child<'a> {
@@ -328,9 +330,12 @@ pub(crate) async fn assignment_for_m3(
         let family = ingress["family"]
             .as_str()
             .ok_or(StoreError::InvalidStore("M5 correction family"))?;
-        let candidates: Vec<(Vec<u8>,i64,i64)> = sqlx::query_as(
-            "SELECT e.ingress,a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal"
-        ).bind(customer).bind(plan.source()).bind(target).fetch_all(&mut *conn).await?;
+        let candidates: Vec<(Vec<u8>, i64, i64)> = sqlx::query_as(ASSIGNED_OUTCOMES)
+            .bind(customer)
+            .bind(plan.source())
+            .bind(target)
+            .fetch_all(&mut *conn)
+            .await?;
         let mut original = None;
         for (ingress, original_version, original_period) in candidates {
             let candidate = parse_bounded(&ingress, 262_144)
@@ -856,9 +861,12 @@ async fn verify_term_projections(
             let family = ingress["family"]
                 .as_str()
                 .ok_or(StoreError::InvalidStore("M5 linked assignment family"))?;
-            let outcomes: Vec<(Vec<u8>,i64,i64)> = sqlx::query_as(
-                "SELECT e.ingress,a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal")
-                .bind(&customer).bind(&scope).bind(&target).fetch_all(&mut *conn).await?;
+            let outcomes: Vec<(Vec<u8>, i64, i64)> = sqlx::query_as(ASSIGNED_OUTCOMES)
+                .bind(&customer)
+                .bind(&scope)
+                .bind(&target)
+                .fetch_all(&mut *conn)
+                .await?;
             let mut linked = 0;
             for (outcome_ingress, outcome_version, outcome_period) in outcomes {
                 let outcome_ingress = parse_bounded(&outcome_ingress, 262_144)
@@ -870,9 +878,9 @@ async fn verify_term_projections(
                     linked += 1;
                 }
             }
-            let closed: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
-                .bind(&customer).bind(version).bind(index).fetch_one(&mut *conn).await?;
-            if linked != 1 || closed != 0 {
+            let close_cut: Option<(i64,)> = sqlx::query_as("SELECT m3_high_water FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
+                .bind(&customer).bind(version).bind(index).fetch_optional(&mut *conn).await?;
+            if linked != 1 || close_cut.is_some_and(|(cut,)| source_sequence > cut) {
                 return Err(StoreError::InvalidStore("M5 linked assignment owner"));
             }
         } else {
@@ -922,7 +930,7 @@ async fn verify_term_projections(
     ) in adjustments
     {
         if stream != "m3" {
-            continue;
+            return Err(StoreError::InvalidStore("M5 adjustment source stream"));
         }
         if cause_kind != "outcome-correction"
             || cause_id != adjustment_id
@@ -956,9 +964,9 @@ async fn verify_term_projections(
         }) {
             return Err(StoreError::InvalidStore("M5 M3 adjustment assignment"));
         }
-        let closed: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
-            .bind(&customer).bind(original_version).bind(original_period).fetch_one(&mut *conn).await?;
-        if closed != 1 {
+        let close_cut: Option<(i64,)> = sqlx::query_as("SELECT m3_high_water FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
+            .bind(&customer).bind(original_version).bind(original_period).fetch_optional(&mut *conn).await?;
+        if close_cut.is_none_or(|(cut,)| sequence <= cut) {
             return Err(StoreError::InvalidStore("M5 M3 adjustment close"));
         }
         let correction_ingress: Vec<u8> =
@@ -971,9 +979,12 @@ async fn verify_term_projections(
         let family = correction_ingress["family"]
             .as_str()
             .ok_or(StoreError::InvalidStore("M5 M3 adjustment family"))?;
-        let outcomes: Vec<(Vec<u8>,i64,i64)> = sqlx::query_as(
-            "SELECT e.ingress,a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal")
-            .bind(&customer).bind(&scope).bind(&target).fetch_all(&mut *conn).await?;
+        let outcomes: Vec<(Vec<u8>, i64, i64)> = sqlx::query_as(ASSIGNED_OUTCOMES)
+            .bind(&customer)
+            .bind(&scope)
+            .bind(&target)
+            .fetch_all(&mut *conn)
+            .await?;
         let mut linked = 0;
         for (ingress, version, period) in outcomes {
             let ingress = parse_bounded(&ingress, 262_144)
