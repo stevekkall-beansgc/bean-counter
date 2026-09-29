@@ -502,7 +502,7 @@ async fn schema9_billing_refuses_open_until_explicit_upgrade_without_mutation() 
 }
 
 #[tokio::test]
-async fn invalid_schema10_meter_does_not_report_already_current() {
+async fn invalid_current_m3_meter_does_not_report_already_current() {
     use crate::billing::BillingLedger;
 
     let temp = tempfile::tempdir().unwrap();
@@ -521,15 +521,15 @@ async fn invalid_schema10_meter_does_not_report_already_current() {
         .execute(&mut conn)
         .await
         .unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
     conn.close().await.unwrap();
 
     assert!(
         BillingLedger::upgrade(&path).await.is_err(),
-        "a failed full schema-10 open must not be reconciled as already current"
+        "a failed full current-schema open must not be reconciled as already current"
     );
     let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
     let count: i64 =
         sqlx::query_scalar("SELECT entry_count FROM billing_m3_bounds WHERE singleton=1")
             .fetch_one(&mut conn)
@@ -723,11 +723,14 @@ async fn billing_coordinator_upgrades_valid_m1_history_and_retries_exact_origina
     assert_eq!(migrated.store_version, 10);
     assert_eq!(migrated.version, 8);
     assert_eq!(migrated.digest, original_digest);
-    // Repeating the commercial seed reconciles the committed state and runs no
-    // further migration.
+    // The M5 sidecar transition follows the preserved M3 source upgrade.
     assert_eq!(
         BillingLedger::upgrade(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
+        serde_json::json!({"status":"upgraded","from_schema":10,"to_schema":11})
+    );
+    assert_eq!(
+        BillingLedger::upgrade(&path).await.unwrap(),
+        serde_json::json!({"status":"already_current","from_schema":11,"to_schema":11})
     );
     let ledger = BillingLedger::open(&path).await.unwrap();
     assert_eq!(
@@ -750,7 +753,8 @@ async fn billing_coordinator_upgrades_valid_m1_history_and_retries_exact_origina
     ledger.close().await;
 
     let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
+    crate::store::sqlite::m5::verify(&mut conn).await.unwrap();
     assert_eq!(old_rows(&mut conn).await, original_rows);
     let counts: (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM billing_entries),(SELECT count(*) FROM billing_m2_entries),(SELECT count(*) FROM billing_m2_aliases),(SELECT count(*) FROM billing_permissions),(SELECT count(*) FROM billing_m2_permissions),(SELECT count(*) FROM billing_m2_changes),(SELECT count(*) FROM billing_m3_index)",
@@ -918,11 +922,10 @@ async fn billing_coordinator_upgrades_populated_schema9_history_and_retries_exac
     assert_eq!(migrated.store_version, 10);
     assert_eq!(migrated.version, 9);
     assert_eq!(migrated.digest, original_digest);
-    // Repeating the same request reconciles the committed state and runs no
-    // further migration.
+    // The M5 sidecar transition follows the preserved M3 source upgrade.
     assert_eq!(
         BillingLedger::upgrade(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
+        serde_json::json!({"status":"upgraded","from_schema":10,"to_schema":11})
     );
 
     let ledger = BillingLedger::open(&path).await.unwrap();
@@ -971,7 +974,8 @@ async fn billing_coordinator_upgrades_populated_schema9_history_and_retries_exac
     ledger.close().await;
 
     let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
+    crate::store::sqlite::m5::verify(&mut conn).await.unwrap();
     // Neither the frozen schema-8 tier nor the M2 tier changed by a single byte,
     // including the customer's own agreement and control history.
     assert_eq!(old_rows(&mut conn).await, original_rows);
@@ -1029,11 +1033,11 @@ async fn billing_coordinator_upgrades_populated_schema9_history_and_retries_exac
     assert_eq!(counts, (1, 1, 0, 1, 2));
     super::super::connect::integrity(&mut conn).await.unwrap();
     conn.close().await.unwrap();
-    // The reconciled store reopens on the schema-10 writer path with no upgrade
+    // The reconciled store reopens on the schema-11 writer path with no upgrade
     // left to run.
     assert_eq!(
         BillingLedger::upgrade(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
+        serde_json::json!({"status":"already_current","from_schema":11,"to_schema":11})
     );
 }
 

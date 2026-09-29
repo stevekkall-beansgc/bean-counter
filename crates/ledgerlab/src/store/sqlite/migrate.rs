@@ -478,6 +478,7 @@ async fn m5_source_digest(conn: &mut SqliteConnection) -> Result<[u8; 32], Store
 #[derive(Clone)]
 pub(crate) struct M5UpgradeSeed {
     pub store_id: String,
+    pub source_version: i64,
     pub source_digest: [u8; 32],
 }
 
@@ -494,7 +495,8 @@ pub(crate) async fn preflight_m5(
         let mut tx = store
             .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(30))
             .await?;
-        if version(tx.conn()).await? != 10 {
+        let source_version = version(tx.conn()).await?;
+        if source_version != 10 && source_version != 11 {
             return Err(crate::maintenance::UpgradeError::Refused);
         }
         let installation = tx.load_installation().await?;
@@ -510,10 +512,16 @@ pub(crate) async fn preflight_m5(
         let snapshot = tx.billing_snapshot().await?;
         crate::service::billing::validate_snapshot(&snapshot)
             .map_err(|_| crate::maintenance::UpgradeError::Refused)?;
+        if source_version == 11 {
+            super::m5::verify(tx.conn())
+                .await
+                .map_err(|_| crate::maintenance::UpgradeError::Refused)?;
+        }
         let digest = m5_source_digest(tx.conn()).await?;
         tx.rollback().await?;
         Ok(M5UpgradeSeed {
             store_id: expected_id.to_owned(),
+            source_version,
             source_digest: digest,
         })
     }
@@ -550,13 +558,15 @@ async fn upgrade_m5_owned(
         let from = version(&mut tx).await?;
         if from == 11 {
             super::m5::verify(&mut tx).await?;
-            if m5_source_digest(&mut tx).await? != seed.source_digest {
+            if seed.source_version != 10 && seed.source_version != 11
+                || m5_source_digest(&mut tx).await? != seed.source_digest
+            {
                 return Err(UpgradeError::Refused);
             }
             tx.rollback().await?;
             return Ok(UpgradeResult::AlreadyCurrent);
         }
-        if from != 10 || seed.store_id.is_empty() {
+        if from != 10 || seed.source_version != 10 || seed.store_id.is_empty() {
             return Err(UpgradeError::Refused);
         }
         let installation = super::read::installation(&mut tx).await?;

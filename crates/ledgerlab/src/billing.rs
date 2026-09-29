@@ -201,13 +201,47 @@ impl BillingLedger {
         local::private_existing(&data, true)?;
         local::private_existing(&data.join("local.db"), false)?;
 
-        // A store that opens at the current schema is already reconciled: a
-        // fully validated schema-10 open proves the previous unknown result
-        // committed, and no migration work is left to do.
+        // A fully validated schema-11 open proves an earlier M5 upgrade
+        // committed. A schema-10 open is valid M3 state but still needs the
+        // explicit M5 transition.
         let open_error = match Self::open(&path).await {
             Ok(ledger) => {
                 ledger.close().await;
-                return Ok(json!({"status":"already_current","from_schema":10,"to_schema":10}));
+                let store_id = config["store_id"]
+                    .as_str()
+                    .ok_or(LocalError::Config("invalid billing installation"))?;
+                let seed = crate::store::sqlite::migrate::preflight_m5(&data, store_id)
+                    .await
+                    .map_err(|error| match error {
+                        crate::maintenance::UpgradeError::Refused => {
+                            service::reject("BILLING_UPGRADE_REFUSED")
+                        }
+                        crate::maintenance::UpgradeError::OutcomeUnknown => {
+                            ServiceError::Unavailable
+                        }
+                    })?;
+                if seed.source_version == 11 {
+                    return Ok(json!({"status":"already_current","from_schema":11,"to_schema":11}));
+                }
+                service::require(seed.source_version == 10, "BILLING_UPGRADE_REFUSED")?;
+                let result = crate::store::sqlite::migrate::upgrade_m5(&data, &seed)
+                    .await
+                    .map_err(|error| match error {
+                        crate::maintenance::UpgradeError::Refused => {
+                            service::reject("BILLING_UPGRADE_REFUSED")
+                        }
+                        crate::maintenance::UpgradeError::OutcomeUnknown => {
+                            service::reject("BILLING_UPGRADE_OUTCOME_UNKNOWN")
+                        }
+                    })?;
+                return match result {
+                    crate::maintenance::UpgradeResult::Upgraded => {
+                        Ok(json!({"status":"upgraded","from_schema":10,"to_schema":11}))
+                    }
+                    crate::maintenance::UpgradeResult::AlreadyCurrent => {
+                        Self::confirm_already_current(&path).await
+                    }
+                };
             }
             Err(error) => error,
         };
@@ -302,14 +336,32 @@ impl BillingLedger {
             }
         }
     }
-    /// A concurrent upgrader may have advanced the store after our schema-9
-    /// preflight. Re-open through the full billing validator before claiming
-    /// that its schema-10 result is current; the migration's index reconciliation
-    /// alone does not validate every M3 billing invariant.
+    /// Reopen through the full billing validator before claiming that an
+    /// earlier M2/M3 or M5 upgrade is current. The storage migration's
+    /// structural reconciliation alone does not validate billing invariants.
     pub(crate) async fn confirm_already_current(path: &Path) -> local::Result<Value> {
         let ledger = Self::open(path).await?;
         ledger.close().await;
-        Ok(json!({"status":"already_current","from_schema":10,"to_schema":10}))
+        let data = path.join(".ledger");
+        let raw = local::read_file(&path.join("billing.json"), local::CONFIG_LIMIT)?;
+        let config = ledgerlab_core::canonical::parse(&raw)
+            .map_err(|_| LocalError::Config("invalid billing.json"))?;
+        let store_id = config["store_id"]
+            .as_str()
+            .ok_or(LocalError::Config("invalid billing installation"))?;
+        let seed = crate::store::sqlite::migrate::preflight_m5(&data, store_id)
+            .await
+            .map_err(|error| match error {
+                crate::maintenance::UpgradeError::Refused => {
+                    service::reject("BILLING_UPGRADE_REFUSED")
+                }
+                crate::maintenance::UpgradeError::OutcomeUnknown => ServiceError::Unavailable,
+            })?;
+        if seed.source_version == 11 {
+            Ok(json!({"status":"already_current","from_schema":11,"to_schema":11}))
+        } else {
+            Ok(json!({"status":"already_current","from_schema":10,"to_schema":10}))
+        }
     }
     pub async fn permission_status(&self, customer: &str, source: &str) -> local::Result<Value> {
         let mut tx = self
