@@ -6,7 +6,7 @@
 use chrono::{
     DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc,
 };
-use chrono_tz::Tz;
+use chrono_tz::{GapInfo, Tz};
 
 /// The IANA tzdb release compiled into the pinned `chrono-tz` dependency.
 pub const IANA_TZDB_VERSION: &str = chrono_tz::IANA_TZDB_VERSION;
@@ -205,21 +205,12 @@ impl CalendarTerm {
             LocalResult::Single(dt) => Ok(dt.with_timezone(&Utc)),
             LocalResult::Ambiguous(a, b) => Ok(a.with_timezone(&Utc).min(b.with_timezone(&Utc))),
             LocalResult::None => {
-                // Gaps are bounded by the civil-time offset discontinuities represented
-                // in tzdb. Scan at second precision to select the first valid local instant.
-                for seconds in 1..=172_800_i64 {
-                    let probe = local
-                        .checked_add_signed(Duration::seconds(seconds))
-                        .ok_or(CalendarError::OutOfRange)?;
-                    match tz.from_local_datetime(&probe) {
-                        LocalResult::Single(dt) => return Ok(dt.with_timezone(&Utc)),
-                        LocalResult::Ambiguous(a, b) => {
-                            return Ok(a.with_timezone(&Utc).min(b.with_timezone(&Utc)));
-                        }
-                        LocalResult::None => {}
-                    }
-                }
-                Err(CalendarError::OutOfRange)
+                // GapInfo supplies the actual transition instant, preserving the
+                // contract's microsecond precision instead of rounding it to a scan step.
+                GapInfo::new(&local, &tz)
+                    .and_then(|gap| gap.end)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .ok_or(CalendarError::OutOfRange)
             }
         }
     }
@@ -462,6 +453,17 @@ mod tests {
                 NaiveDate::from_ymd_opt(2025, 3, 9)
                     .unwrap()
                     .and_hms_opt(2, 30, 0)
+                    .unwrap()
+            )
+            .unwrap()
+            .to_rfc3339(),
+            "2025-03-09T07:00:00+00:00"
+        );
+        assert_eq!(
+            gap.resolve_local(
+                NaiveDate::from_ymd_opt(2025, 3, 9)
+                    .unwrap()
+                    .and_hms_micro_opt(2, 30, 0, 500_000)
                     .unwrap()
             )
             .unwrap()
