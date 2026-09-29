@@ -1,6 +1,6 @@
 # M5 architecture and contract proposal
 
-**Status (2026-09-29): Architectural baseline passed independent Astra review; Package 3 is frozen after fresh Sol and Astra reviews, including the empty-period materialization path and exact retry vector. The owner-approved defaults are frozen; product code has not changed. Implementation is authorized to begin.** The [billing roadmap](billing-roadmap.md) is canonical. The [M5 decision register](m5-decision-register.md) is the owner-approved policy record. This proposal translates those choices into a compatible implementation shape; it does not authorize reopening a frozen economic rule.
+**Status (2026-09-29): Architectural baseline passed independent Astra review; Package 3 is frozen after fresh Sol and Astra reviews, including the empty-period materialization path and exact retry vector. The owner-approved defaults are frozen. Implementation started in `codex/m5-integration`; the first code change pins `chrono` 0.4.45 and `chrono-tz` 0.10.4 for IANA 2025b. No lifecycle behavior is qualified yet.** The [billing roadmap](billing-roadmap.md) is canonical. The [M5 decision register](m5-decision-register.md) is the owner-approved policy record. This proposal translates those choices into a compatible implementation shape; it does not authorize reopening a frozen economic rule.
 
 ## 1. Scope and existing baseline
 
