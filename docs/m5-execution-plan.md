@@ -1,6 +1,6 @@
 # M5 execution plan: billing lifecycle
 
-**Status (2026-09-29): planning and owner-approved direction recorded; implementation has not started.** The [billing roadmap](billing-roadmap.md) is the product-scope source of truth. This document expands M5 into execution packages, acceptance evidence, and remaining policy gates. M5 is scoped to the provider-free, one-business-per-installation, local billing profile.
+**Status (2026-09-29): Package 0 decision-register proposal prepared for owner review; implementation has not started.** The [billing roadmap](billing-roadmap.md) is the product-scope source of truth. The [M5 decision register](m5-decision-register.md) distinguishes owner-approved direction from proposed technical defaults and explicit owner gates. This document expands M5 into execution packages, acceptance evidence, and remaining policy gates. M5 is scoped to the provider-free, one-business-per-installation, local billing profile.
 
 ## M5 objective
 
