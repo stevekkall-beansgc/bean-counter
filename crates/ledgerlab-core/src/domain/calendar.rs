@@ -81,6 +81,20 @@ impl std::fmt::Display for CalendarError {
 }
 impl std::error::Error for CalendarError {}
 
+pub(crate) fn resolve_timezone_local(
+    tz: &Tz,
+    local: NaiveDateTime,
+) -> Result<DateTime<Utc>, CalendarError> {
+    match tz.from_local_datetime(&local) {
+        LocalResult::Single(dt) => Ok(dt.with_timezone(&Utc)),
+        LocalResult::Ambiguous(a, b) => Ok(a.with_timezone(&Utc).min(b.with_timezone(&Utc))),
+        LocalResult::None => GapInfo::new(&local, tz)
+            .and_then(|gap| gap.end)
+            .map(|dt| dt.with_timezone(&Utc))
+            .ok_or(CalendarError::OutOfRange),
+    }
+}
+
 impl CalendarTerm {
     pub fn validate(&self) -> Result<Tz, CalendarError> {
         if self.interval == 0 {
@@ -201,18 +215,7 @@ impl CalendarTerm {
 
     pub fn resolve_local(&self, local: NaiveDateTime) -> Result<DateTime<Utc>, CalendarError> {
         let tz = self.validate()?;
-        match tz.from_local_datetime(&local) {
-            LocalResult::Single(dt) => Ok(dt.with_timezone(&Utc)),
-            LocalResult::Ambiguous(a, b) => Ok(a.with_timezone(&Utc).min(b.with_timezone(&Utc))),
-            LocalResult::None => {
-                // GapInfo supplies the actual transition instant, preserving the
-                // contract's microsecond precision instead of rounding it to a scan step.
-                GapInfo::new(&local, &tz)
-                    .and_then(|gap| gap.end)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .ok_or(CalendarError::OutOfRange)
-            }
-        }
+        resolve_timezone_local(&tz, local)
     }
 
     /// Resolve period zero. Its start is `effective_at`; its end is the first

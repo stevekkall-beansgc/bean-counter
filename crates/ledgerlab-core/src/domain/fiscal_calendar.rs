@@ -1,8 +1,8 @@
 //! Pure organization fiscal calendar parsing and deterministic UTC period membership.
-use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc, Weekday as CWeekday};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc, Weekday as CWeekday};
 use serde::{Deserialize, Serialize};
 
-use super::calendar::{CalendarError, IANA_TZDB_VERSION};
+use super::calendar::{resolve_timezone_local, CalendarError, IANA_TZDB_VERSION};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -286,20 +286,16 @@ impl FiscalCalendarConfig {
             .timezone
             .parse()
             .map_err(|_| CalendarError::UnknownTimezone)?;
-        let s = tz
-            .from_local_datetime(
-                &start
-                    .and_hms_opt(0, 0, 0)
-                    .ok_or(CalendarError::OutOfRange)?,
-            )
-            .single()
-            .ok_or(CalendarError::OutOfRange)?
-            .with_timezone(&Utc);
-        let e = tz
-            .from_local_datetime(&end.and_hms_opt(0, 0, 0).ok_or(CalendarError::OutOfRange)?)
-            .single()
-            .ok_or(CalendarError::OutOfRange)?
-            .with_timezone(&Utc);
+        let s = resolve_timezone_local(
+            &tz,
+            start
+                .and_hms_opt(0, 0, 0)
+                .ok_or(CalendarError::OutOfRange)?,
+        )?;
+        let e = resolve_timezone_local(
+            &tz,
+            end.and_hms_opt(0, 0, 0).ok_or(CalendarError::OutOfRange)?,
+        )?;
         Ok(FiscalPeriod {
             fiscal_year: year,
             period,
@@ -396,6 +392,25 @@ mod tests {
         assert_eq!((p.fiscal_year, p.period), (2026, 1));
         assert_eq!(p.start, instant("2026-04-01T04:00:00Z"));
         assert_eq!(p.end, instant("2026-05-01T04:00:00Z"));
+    }
+
+    #[test]
+    fn fiscal_midnight_gap_and_overlap_follow_pinned_boundary_rules() {
+        let mut gap = cfg(FiscalCalendar::GregorianYears {
+            fiscal_year_start_month: 11,
+            fiscal_year_start_day: 4,
+        });
+        gap.timezone = "America/Sao_Paulo".into();
+        let gap_period = gap.period_for(instant("2018-11-04T12:00:00Z")).unwrap();
+        assert_eq!(gap_period.start, instant("2018-11-04T03:00:00Z"));
+
+        let mut overlap = cfg(FiscalCalendar::GregorianYears {
+            fiscal_year_start_month: 11,
+            fiscal_year_start_day: 1,
+        });
+        overlap.timezone = "America/Havana".into();
+        let overlap_period = overlap.period_for(instant("2020-11-01T12:00:00Z")).unwrap();
+        assert_eq!(overlap_period.start, instant("2020-11-01T04:00:00Z"));
     }
     #[test]
     fn rejects_wrong_timezone_rules_pin() {
