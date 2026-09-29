@@ -848,4 +848,74 @@ mod tests {
         );
         conn.close().await.unwrap();
     }
+
+    #[tokio::test]
+    async fn reopen_refuses_deleted_or_changed_initial_term_projections() {
+        let mutations = [
+            (
+                "DROP TRIGGER billing_m5_term_versions_no_delete",
+                "DELETE FROM billing_m5_term_versions",
+            ),
+            (
+                "DROP TRIGGER billing_m5_period_resolutions_no_delete",
+                "DELETE FROM billing_m5_period_resolutions",
+            ),
+            (
+                "DROP TRIGGER billing_m5_assignments_no_delete",
+                "DELETE FROM billing_m5_assignments",
+            ),
+            (
+                "DROP TRIGGER billing_m5_assignments_no_update",
+                "UPDATE billing_m5_assignments SET period_index=1",
+            ),
+            (
+                "DROP TRIGGER billing_m5_assignments_no_update",
+                "UPDATE billing_m5_assignments SET source_record_id='forged'",
+            ),
+        ];
+        for (trigger, mutation) in mutations {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().canonicalize().unwrap().join("billing");
+            BillingLedger::init(
+                &path,
+                include_bytes!("../../../examples/billing/setup.json"),
+            )
+            .await
+            .unwrap();
+            let ledger = BillingLedger::open(&path).await.unwrap();
+            ledger
+                .accept(
+                    "customer-1",
+                    "urn:example:work",
+                    include_bytes!("../../../examples/billing/event.json"),
+                )
+                .await
+                .unwrap();
+            let request = json!({
+                "schema":"ledger-billing-term/1","customer":"customer-1",
+                "change_id":"first","expected_revision":"0",
+                "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+                "term":{"interval":1,"unit":"month","alignment":"anchored",
+                    "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                    "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                    "timezone_rules_version":"IANA-2025b","proration":"none"}
+            });
+            let request = ledgerlab_core::canonical::CanonicalBytes::from_value(&request)
+                .unwrap()
+                .into_vec();
+            ledger.term_set(&request).await.unwrap();
+            ledger.close().await;
+            let mut conn = sqlx::SqliteConnection::connect_with(
+                &sqlx::sqlite::SqliteConnectOptions::new()
+                    .filename(path.join(".ledger/local.db"))
+                    .create_if_missing(false),
+            )
+            .await
+            .unwrap();
+            sqlx::query(trigger).execute(&mut conn).await.unwrap();
+            sqlx::query(mutation).execute(&mut conn).await.unwrap();
+            conn.close().await.unwrap();
+            assert!(BillingLedger::open(&path).await.is_err(), "{mutation}");
+        }
+    }
 }

@@ -1559,12 +1559,13 @@ mod tests {
         let store = SqliteStore::open(&path.join(".ledger")).await.unwrap();
         // Synthetic retained rows: the store owns ordering, bounds and exact
         // lookups, not the economics of an opaque bundle.
+        let mut seed = store.inner.writer.begin().await.unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(
             "WITH RECURSIVE n(i) AS (VALUES(2) UNION ALL SELECT i+1 FROM n WHERE i<1001)
              INSERT INTO billing_m3_index(ordinal,customer,source,external_id,semantic_key,target,kind,accepted_at_us)
              SELECT i,'customer-1','urn:example:work',printf('synthetic-%d',i),CAST(printf('semantic-%d',i) AS BLOB),'urn:example:work','base',1 FROM n",
         ))
-        .execute(&store.inner.writer)
+        .execute(&mut *seed)
         .await
         .unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(
@@ -1572,9 +1573,11 @@ mod tests {
              INSERT INTO billing_m3_entries(ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version)
              SELECT i,'customer-1','urn:example:work',printf('synthetic-%d',i),CAST(printf('semantic-%d',i) AS BLOB),x'01',x'02',x'03',1,'agreement-1',1 FROM n",
         ))
-        .execute(&store.inner.writer)
+        .execute(&mut *seed)
         .await
         .unwrap();
+        super::m5::append_boundary(&mut seed).await.unwrap();
+        seed.commit().await.unwrap();
         let mut tx = store
             .begin(Instant::now() + Duration::from_secs(300))
             .await

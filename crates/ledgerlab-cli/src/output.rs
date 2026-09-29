@@ -124,6 +124,19 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
                 8,
             )
         }
+        LocalError::Service(ServiceError::Rejection(code))
+            if code == "BILLING_M5_OUTCOME_UNKNOWN" =>
+        {
+            (
+                json!({"schema":"ledger-cli/1","status":"outcome_unknown","code":code,"message":"Term change may have committed. Reopen the installation and retry the identical request bytes with the same customer and change_id; do not choose a new identity."}),
+                8,
+            )
+        }
+        LocalError::Service(ServiceError::Rejection(code))
+            if code == "BILLING_M5_INTEGRITY" =>
+        {
+            super::error(&code, "retained M5 data failed verification", 9)
+        }
         LocalError::Service(ServiceError::Rejection(code)) if code == "BILLING_UPGRADE_REQUIRED" => {
             super::error(
                 &code,
@@ -327,6 +340,25 @@ mod tests {
             v["message"],
             "Upgrade may have committed. Reopen the installation; schema 10 means it is current. If it remains at schema 8 or 9, retry the same upgrade command."
         );
+    }
+
+    #[test]
+    fn m5_unknown_and_integrity_use_their_documented_exit_classes() {
+        let (unknown, unknown_exit) = local_error(LocalError::Service(ServiceError::Rejection(
+            "BILLING_M5_OUTCOME_UNKNOWN".into(),
+        )));
+        assert_eq!(unknown_exit, 8);
+        assert_eq!(unknown["status"], "outcome_unknown");
+        assert_eq!(unknown["code"], "BILLING_M5_OUTCOME_UNKNOWN");
+        assert!(unknown["message"]
+            .as_str()
+            .unwrap()
+            .contains("identical request bytes"));
+        let (integrity, integrity_exit) = local_error(LocalError::Service(
+            ServiceError::Rejection("BILLING_M5_INTEGRITY".into()),
+        ));
+        assert_eq!(integrity_exit, 9);
+        assert_eq!(integrity["code"], "BILLING_M5_INTEGRITY");
     }
 
     #[test]

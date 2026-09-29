@@ -101,6 +101,15 @@ struct WireTerm {
 /// rejects duplicate keys before serde converts the strict field structure.
 pub fn parse_initial_request(bytes: &[u8]) -> Result<InitialTermRequest, TermPlanError> {
     let value = canonical::parse(bytes).map_err(|_| TermPlanError::InvalidRequest)?;
+    if value["term"]["anchor"]
+        .get("time")
+        .is_some_and(serde_json::Value::is_null)
+        || value["term"]
+            .get("week_start")
+            .is_some_and(serde_json::Value::is_null)
+    {
+        return Err(TermPlanError::InvalidRequest);
+    }
     let wire: WireRequest =
         serde_json::from_value(value).map_err(|_| TermPlanError::InvalidRequest)?;
     if wire.schema != "ledger-billing-term/1" {
@@ -389,5 +398,26 @@ mod tests {
         );
         let parsed = parse_initial_request(request.as_bytes()).unwrap();
         assert_eq!(parsed.term.anchor.time().nanosecond(), 123_456_000);
+    }
+
+    #[test]
+    fn optional_term_fields_refuse_explicit_null() {
+        let raw = String::from_utf8(request()).unwrap();
+        let null_time = raw.replace(
+            "\"date\":\"2026-01-01\"",
+            "\"date\":\"2026-01-01\",\"time\":null",
+        );
+        assert_eq!(
+            parse_initial_request(null_time.as_bytes()).unwrap_err(),
+            TermPlanError::InvalidRequest
+        );
+        let null_week = raw.replace(
+            "\"timezone\":\"UTC\"",
+            "\"timezone\":\"UTC\",\"week_start\":null",
+        );
+        assert_eq!(
+            parse_initial_request(null_week.as_bytes()).unwrap_err(),
+            TermPlanError::InvalidRequest
+        );
     }
 }

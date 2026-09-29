@@ -5,6 +5,7 @@ use ledgerlab_core::canonical::{parse_bounded, CanonicalBytes};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
+use std::collections::BTreeMap;
 
 const MAX_ROWS: i64 = 100_000;
 const MAX_BYTES: i64 = 268_435_456;
@@ -480,6 +481,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
             return Err(StoreError::InvalidStore("M5 record integrity"));
         }
     }
+    verify_term_projections(conn, &record_rows).await?;
     let semantics: Vec<(String,String,String,i64,i64,Vec<u8>,Vec<u8>)> = sqlx::query_as(
         "SELECT customer,source,operation_id,command_sequence,activity_sequence,facts_bytes,facts_sha256 FROM billing_m5_activity_semantics ORDER BY customer,source,operation_id",
     ).fetch_all(&mut *conn).await?;
@@ -512,6 +514,217 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         }
     }
     Ok(())
+}
+
+type RetainedRecord = (i64, String, String, i64, Vec<u8>, Vec<u8>);
+
+async fn verify_term_projections(
+    conn: &mut SqliteConnection,
+    records: &[RetainedRecord],
+) -> Result<(), StoreError> {
+    let terms: Vec<(String,i64,i64,i64,Vec<u8>)> = sqlx::query_as(
+        "SELECT customer,term_version,record_sequence,effective_at_us,term_bytes FROM billing_m5_term_versions ORDER BY record_sequence"
+    ).fetch_all(&mut *conn).await?;
+    let resolutions: Vec<(String,i64,i64,String,i64,i64,i64,Option<String>)> = sqlx::query_as(
+        "SELECT customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id FROM billing_m5_period_resolutions ORDER BY record_sequence"
+    ).fetch_all(&mut *conn).await?;
+    let mut expected_terms = BTreeMap::new();
+    let mut expected_resolutions = BTreeMap::new();
+    for (sequence, _, family, _, raw, _) in records {
+        if family != "ledger-billing-term-version/1"
+            && family != "ledger-billing-boundary-resolution/1"
+        {
+            continue;
+        }
+        let value = canonical(raw, 262_144)?;
+        let customer = value["customer"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 term customer"))?
+            .to_owned();
+        let version = decimal(&value["term_version"])?;
+        if family == "ledger-billing-term-version/1" {
+            let effective = utc_us(&value["effective_at"])?;
+            let term = CanonicalBytes::from_value(&value["term"])
+                .map_err(|_| StoreError::InvalidStore("M5 term bytes"))?
+                .into_vec();
+            if expected_terms
+                .insert(*sequence, (customer, version, effective, term))
+                .is_some()
+            {
+                return Err(StoreError::InvalidStore("M5 duplicate term child"));
+            }
+        } else {
+            let index = decimal(&value["period_id"]["period_index"])?;
+            if value["period_id"]["term_version"] != version.to_string() {
+                return Err(StoreError::InvalidStore("M5 resolution period"));
+            }
+            let id = value["resolution_id"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 resolution ID"))?
+                .to_owned();
+            let start = utc_us(&value["start_utc"])?;
+            let end = utc_us(&value["end_utc"])?;
+            let supersedes = value
+                .get("supersedes_resolution_id")
+                .map(|v| v.as_str().ok_or(StoreError::InvalidStore("M5 supersedes")))
+                .transpose()?
+                .map(str::to_owned);
+            if expected_resolutions
+                .insert(
+                    *sequence,
+                    (customer, version, index, id, start, end, supersedes),
+                )
+                .is_some()
+            {
+                return Err(StoreError::InvalidStore("M5 duplicate resolution child"));
+            }
+        }
+    }
+    if terms.len() != expected_terms.len() || resolutions.len() != expected_resolutions.len() {
+        return Err(StoreError::InvalidStore("M5 missing term projection"));
+    }
+    for (customer, version, sequence, effective, term) in &terms {
+        if expected_terms.get(sequence)
+            != Some(&(customer.clone(), *version, *effective, term.clone()))
+        {
+            return Err(StoreError::InvalidStore("M5 term projection"));
+        }
+    }
+    for (customer, version, index, id, sequence, start, end, supersedes) in &resolutions {
+        if expected_resolutions.get(sequence)
+            != Some(&(
+                customer.clone(),
+                *version,
+                *index,
+                id.clone(),
+                *start,
+                *end,
+                supersedes.clone(),
+            ))
+        {
+            return Err(StoreError::InvalidStore("M5 resolution projection"));
+        }
+    }
+    let raw_by_sequence: BTreeMap<i64, &[u8]> = records
+        .iter()
+        .map(|record| (record.0, record.4.as_slice()))
+        .collect();
+    let mut term_requests = BTreeMap::new();
+    for (customer, version, sequence, _, term_bytes) in &terms {
+        let raw = raw_by_sequence
+            .get(sequence)
+            .ok_or(StoreError::InvalidStore("M5 assignment term child"))?;
+        let effective = canonical(raw, 262_144)?["effective_at"].clone();
+        let term = canonical(term_bytes, 262_144)?;
+        let verification = serde_json::json!({"schema":"ledger-billing-term/1","customer":customer,
+            "change_id":"projection-verify","expected_revision":"0",
+            "effective":{"mode":"initial","at":effective},"term":term});
+        let bytes = CanonicalBytes::from_value(&verification)
+            .map_err(|_| StoreError::InvalidStore("M5 assignment term"))?;
+        let request = ledgerlab_core::domain::term_service::parse_initial_request(bytes.as_slice())
+            .map_err(|_| StoreError::InvalidStore("M5 assignment term"))?;
+        term_requests.insert((customer.clone(), *version), request);
+    }
+    let assignments: Vec<(String,String,String,String,String,i64,i64,i64,String,i64)> = sqlx::query_as(
+        "SELECT customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us FROM billing_m5_assignments ORDER BY source_stream,source_sequence"
+    ).fetch_all(&mut *conn).await?;
+    let mut assigned_m3 = std::collections::BTreeSet::new();
+    for (customer, scope, kind, id, stream, source_sequence, version, index, basis, at) in
+        assignments
+    {
+        let request = term_requests
+            .get(&(customer.clone(), version))
+            .ok_or(StoreError::InvalidStore("M5 assignment term"))?;
+        if stream != "m3" || basis != "acceptance-time" {
+            // Other assignment routes are verified by their owning commands.
+            continue;
+        }
+        assigned_m3.insert(source_sequence);
+        let source: Option<(String, String, String, i64)> = sqlx::query_as(
+            "SELECT customer,source,kind,accepted_at_us FROM billing_m3_index WHERE ordinal=?",
+        )
+        .bind(source_sequence)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let (source_customer, source_scope, index_kind, source_at) =
+            source.ok_or(StoreError::InvalidStore("M5 assignment M3 source"))?;
+        if customer != source_customer
+            || scope != source_scope
+            || at != source_at
+            || (index_kind == "base") != (kind == "base-acceptance")
+        {
+            return Err(StoreError::InvalidStore("M5 assignment M3 index"));
+        }
+        let bundles: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "SELECT bundle FROM billing_entries WHERE ordinal=? UNION ALL SELECT bundle FROM billing_m2_entries WHERE ordinal=? UNION ALL SELECT bundle FROM billing_m3_entries WHERE ordinal=?"
+        ).bind(source_sequence).bind(source_sequence).bind(source_sequence).fetch_all(&mut *conn).await?;
+        if bundles.len() != 1 {
+            return Err(StoreError::InvalidStore("M5 assignment M3 bundle"));
+        }
+        let bundle = parse_bounded(&bundles[0].0, 8 * 1024 * 1024)
+            .map_err(|_| StoreError::InvalidStore("M5 assignment M3 bundle"))?;
+        let rows = bundle
+            .as_array()
+            .ok_or(StoreError::InvalidStore("M5 assignment M3 bundle"))?;
+        let receipt = rows
+            .iter()
+            .find(|row| row["kind"] == kind && row["id"] == id)
+            .ok_or(StoreError::InvalidStore("M5 assignment receipt"))?;
+        if utc_us(&receipt["body"]["accepted_at"])? != at {
+            return Err(StoreError::InvalidStore("M5 assignment time"));
+        }
+        let history = [ledgerlab_core::domain::term_service::BillableHistoryRow {
+            ordinal: source_sequence as u64,
+            accepted_at_us: at,
+        }];
+        let plan = ledgerlab_core::domain::term_service::plan_initial_activation(
+            request.clone(),
+            version as u64,
+            &history,
+        )
+        .map_err(|_| StoreError::InvalidStore("M5 assignment period"))?;
+        if plan.assignments[0].period_index != index as u64 {
+            return Err(StoreError::InvalidStore("M5 assignment period"));
+        }
+    }
+    let indexed: Vec<(i64, String, i64)> = sqlx::query_as(
+        "SELECT ordinal,customer,accepted_at_us FROM billing_m3_index ORDER BY ordinal",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut first_effective = BTreeMap::new();
+    for (customer, _, _, effective, _) in &terms {
+        first_effective
+            .entry(customer.as_str())
+            .and_modify(|earliest: &mut i64| *earliest = (*earliest).min(*effective))
+            .or_insert(*effective);
+    }
+    for (ordinal, customer, accepted_at_us) in indexed {
+        if let Some(effective) = first_effective.get(customer.as_str()) {
+            if accepted_at_us < *effective || !assigned_m3.contains(&ordinal) {
+                return Err(StoreError::InvalidStore("M5 missing M3 assignment"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn decimal(value: &Value) -> Result<i64, StoreError> {
+    let s = value
+        .as_str()
+        .ok_or(StoreError::InvalidStore("M5 decimal"))?;
+    let parsed = ledgerlab_core::domain::Revision::parse(s)
+        .map_err(|_| StoreError::InvalidStore("M5 decimal"))?;
+    i64::try_from(parsed.value()).map_err(|_| StoreError::InvalidStore("M5 decimal"))
+}
+fn utc_us(value: &Value) -> Result<i64, StoreError> {
+    ledgerlab_core::domain::Timestamp::parse(
+        value
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 timestamp"))?,
+    )
+    .map(|time| time.micros())
+    .map_err(|_| StoreError::InvalidStore("M5 timestamp"))
 }
 
 #[cfg(test)]
