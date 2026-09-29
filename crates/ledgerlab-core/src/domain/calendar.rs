@@ -11,6 +11,7 @@ use chrono_tz::Tz;
 /// The IANA tzdb release compiled into the pinned `chrono-tz` dependency.
 pub const IANA_TZDB_VERSION: &str = chrono_tz::IANA_TZDB_VERSION;
 pub const BOUNDARY_RULES_VERSION: &str = "m5-calendar/1";
+const MAX_BOUNDARY_SEARCH: u64 = 2_000_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CalendarUnit {
@@ -225,23 +226,18 @@ impl CalendarTerm {
 
     /// Resolve period zero. Its start is `effective_at`; its end is the first
     /// scheduled boundary strictly later than that instant. Later periods use
-    /// the same immutable schedule sequence.
+    /// the same immutable schedule sequence. If a historical timezone jump
+    /// maps adjacent local labels to the same UTC instant, the duplicate label
+    /// is skipped so every period has positive duration.
     pub fn period(&self, index: i64) -> Result<UtcPeriod, CalendarError> {
         if index < 0 {
             return Err(CalendarError::NegativePeriod);
         }
         let i = index as u64;
-        let mut ordinal = 0_u64;
-        let first_end = loop {
-            let boundary = self.resolve_local(self.scheduled_local(ordinal)?)?;
-            if boundary > self.effective_at {
-                break (ordinal, boundary);
-            }
-            ordinal = ordinal.checked_add(1).ok_or(CalendarError::OutOfRange)?;
-            if ordinal > 2_000_000 {
-                return Err(CalendarError::OutOfRange);
-            }
-        };
+        if i > MAX_BOUNDARY_SEARCH {
+            return Err(CalendarError::OutOfRange);
+        }
+        let first_end = self.first_boundary_after(self.effective_at, 0)?;
         if i == 0 {
             return Ok(UtcPeriod {
                 index: 0,
@@ -249,16 +245,24 @@ impl CalendarTerm {
                 end: first_end.1,
             });
         }
-        let start_ord = first_end
+        let mut start = first_end.1;
+        let mut next_ordinal = first_end
             .0
-            .checked_add(i - 1)
+            .checked_add(1)
             .ok_or(CalendarError::OutOfRange)?;
-        let end_ord = start_ord.checked_add(1).ok_or(CalendarError::OutOfRange)?;
-        Ok(UtcPeriod {
-            index: i,
-            start: self.resolve_local(self.scheduled_local(start_ord)?)?,
-            end: self.resolve_local(self.scheduled_local(end_ord)?)?,
-        })
+        for period_index in 1..=i {
+            let (ordinal, end) = self.first_boundary_after(start, next_ordinal)?;
+            if period_index == i {
+                return Ok(UtcPeriod {
+                    index: i,
+                    start,
+                    end,
+                });
+            }
+            start = end;
+            next_ordinal = ordinal.checked_add(1).ok_or(CalendarError::OutOfRange)?;
+        }
+        Err(CalendarError::OutOfRange)
     }
 
     /// Find the unique half-open period containing an accepted UTC instant.
@@ -266,25 +270,47 @@ impl CalendarTerm {
         if accepted_at < self.effective_at {
             return Err(CalendarError::OutOfRange);
         }
-        let mut lo = 0_i64;
-        let mut hi = 1_i64;
-        while self.period(hi)?.start <= accepted_at {
-            lo = hi;
-            hi = hi.checked_mul(2).ok_or(CalendarError::OutOfRange)?;
+        let first_end = self.first_boundary_after(self.effective_at, 0)?;
+        if accepted_at < first_end.1 {
+            return Ok(UtcPeriod {
+                index: 0,
+                start: self.effective_at,
+                end: first_end.1,
+            });
         }
-        while lo + 1 < hi {
-            let mid = lo + (hi - lo) / 2;
-            if self.period(mid)?.start <= accepted_at {
-                lo = mid;
-            } else {
-                hi = mid;
+        let mut index = 0_u64;
+        let mut start = first_end.1;
+        let mut next_ordinal = first_end
+            .0
+            .checked_add(1)
+            .ok_or(CalendarError::OutOfRange)?;
+        loop {
+            if index >= MAX_BOUNDARY_SEARCH {
+                return Err(CalendarError::OutOfRange);
             }
+            let (ordinal, end) = self.first_boundary_after(start, next_ordinal)?;
+            index += 1;
+            if accepted_at < end {
+                return Ok(UtcPeriod { index, start, end });
+            }
+            start = end;
+            next_ordinal = ordinal.checked_add(1).ok_or(CalendarError::OutOfRange)?;
         }
-        let p = self.period(lo)?;
-        if accepted_at >= p.end {
-            return self.period(lo + 1);
+    }
+
+    fn first_boundary_after(
+        &self,
+        instant: DateTime<Utc>,
+        mut ordinal: u64,
+    ) -> Result<(u64, DateTime<Utc>), CalendarError> {
+        for _ in 0..MAX_BOUNDARY_SEARCH {
+            let boundary = self.resolve_local(self.scheduled_local(ordinal)?)?;
+            if boundary > instant {
+                return Ok((ordinal, boundary));
+            }
+            ordinal = ordinal.checked_add(1).ok_or(CalendarError::OutOfRange)?;
         }
-        Ok(p)
+        Err(CalendarError::OutOfRange)
     }
 }
 
@@ -480,6 +506,26 @@ mod tests {
         assert_eq!(exact_end.index, 1);
         assert_eq!(exact_end.start, p0.end);
         assert!(t.period(-1).is_err());
+    }
+    #[test]
+    fn skipped_civil_date_does_not_create_zero_length_utc_period() {
+        let t = term(
+            CalendarUnit::Day,
+            Alignment::Anchored,
+            "2011-12-28 00:00:00",
+            "2011-12-28T10:00:00Z",
+            "Pacific/Apia",
+            MonthEndRule::PreserveAnchorAndClamp,
+        );
+        let p0 = t.period(0).unwrap();
+        let p1 = t.period(1).unwrap();
+        let p2 = t.period(2).unwrap();
+        assert_eq!(p0.end, p1.start);
+        assert_eq!(p1.end, p2.start);
+        assert!(p0.start < p0.end);
+        assert!(p1.start < p1.end);
+        assert!(p2.start < p2.end);
+        assert_eq!(t.period_for(p1.end).unwrap(), p2);
     }
     #[test]
     fn refuses_unpinned_zone_data_and_unknown_zones() {
