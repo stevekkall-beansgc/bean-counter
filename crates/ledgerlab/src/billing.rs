@@ -19,6 +19,7 @@ use tokio::time::Instant;
 pub const CONTRACT_VERSION: &str = "v0.3";
 
 mod export;
+mod term;
 
 pub struct BillingLedger {
     store: SqliteStore,
@@ -655,6 +656,8 @@ impl BillingLedger {
 #[cfg(test)]
 mod tests {
     use super::BillingLedger;
+    use serde_json::json;
+    use sqlx::Connection;
 
     #[test]
     fn setup_summary_validates_terms_without_exposing_evidence_text() {
@@ -667,5 +670,182 @@ mod tests {
         let serialized = serde_json::to_string(&summary).unwrap();
         assert!(!serialized.contains("No real customer assent"));
         assert!(!serialized.contains("No real authority attested"));
+    }
+
+    #[tokio::test]
+    async fn first_term_commits_two_children_and_replays_exact_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        let raw_setup = include_bytes!("../../../examples/billing/setup.json");
+        BillingLedger::init(&path, raw_setup).await.unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let request = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"first-term","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let bytes = serde_json::to_vec_pretty(&request).unwrap();
+        let first = ledger.term_set(&bytes).await.unwrap();
+        assert_eq!(first["status"], "term_updated");
+        assert_eq!(first["receipt"]["record_ids"].as_array().unwrap().len(), 2);
+        assert_eq!(ledger.term_set(&bytes).await.unwrap(), first);
+        let same_semantics_different_bytes =
+            ledgerlab_core::canonical::CanonicalBytes::from_value(&request)
+                .unwrap()
+                .into_vec();
+        assert!(
+            matches!(ledger.term_set(&same_semantics_different_bytes).await,
+            Err(super::LocalError::Service(super::ServiceError::Rejection(code))) if code == "IDENTITY_CONFLICT")
+        );
+        let mut changed = request;
+        changed["term"]["interval"] = json!(2);
+        let changed = ledgerlab_core::canonical::CanonicalBytes::from_value(&changed)
+            .unwrap()
+            .into_vec();
+        assert!(ledger.term_set(&changed).await.is_err());
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        assert_eq!(reopened.term_set(&bytes).await.unwrap(), first);
+        reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn initial_term_after_retained_acceptance_refuses_without_m5_mutation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let accepted = ledger
+            .accept(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
+            )
+            .await
+            .unwrap();
+        let request = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"too-late","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-10-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-10-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&request)
+            .unwrap()
+            .into_vec();
+        assert!(matches!(ledger.term_set(&bytes).await,
+            Err(super::LocalError::Service(super::ServiceError::Rejection(code))) if code == "BILLING_M5_PERIOD"));
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        // Refusal did not reserve the identity or advance the term revision.
+        let mut fixed = request;
+        fixed["effective"]["at"] = json!("2026-09-01T00:00:00.000000Z");
+        let fixed = ledgerlab_core::canonical::CanonicalBytes::from_value(&fixed)
+            .unwrap()
+            .into_vec();
+        assert_eq!(reopened.term_set(&fixed).await.unwrap()["revision"], "1");
+        reopened.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let assigned: (String, String, i64, i64) = sqlx::query_as(
+            "SELECT source_record_kind,source_record_id,term_version,period_index FROM billing_m5_assignments WHERE source_stream='m3' AND source_sequence=1",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(assigned.0, "base-acceptance");
+        assert_eq!(assigned.1, accepted["receipt"]["id"]);
+        assert_eq!((assigned.2, assigned.3), (1, 0));
+        conn.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn two_customers_get_distinct_term_and_resolution_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        let setup: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/setup.json")).unwrap();
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let mut second_setup = setup;
+        second_setup["customer"] = json!("customer-2");
+        second_setup["agreement"] = json!("agreement-2");
+        let registration = json!({
+            "schema":"ledger-billing-registration/2","customer":"customer-2",
+            "source":"urn:example:work","change_id":"register-2",
+            "expected_revision":"0","effective_at":"2026-09-01T00:00:00.000000Z",
+            "setup":second_setup
+        });
+        let registration = ledgerlab_core::canonical::CanonicalBytes::from_value(&registration)
+            .unwrap()
+            .into_vec();
+        ledger
+            .agreement_control("customer-2", "urn:example:work", &registration)
+            .await
+            .unwrap();
+        let mut term = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"same-change","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let first_request = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        let first = ledger.term_set(&first_request).await.unwrap();
+        term["customer"] = json!("customer-2");
+        let second_request = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        let second = ledger.term_set(&second_request).await.unwrap();
+        assert_eq!(first["revision"], "1");
+        assert_eq!(second["revision"], "1");
+        assert_eq!(first["term_version"], "1");
+        assert_eq!(second["term_version"], "2");
+        assert_eq!(ledger.term_set(&first_request).await.unwrap(), first);
+        assert_eq!(ledger.term_set(&second_request).await.unwrap(), second);
+        ledger.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let resolutions: Vec<(String,String)> = sqlx::query_as(
+            "SELECT customer,resolution_id FROM billing_m5_period_resolutions ORDER BY term_version"
+        ).fetch_all(&mut conn).await.unwrap();
+        assert_eq!(
+            resolutions,
+            vec![
+                ("customer-1".into(), "resolution-1-0".into()),
+                ("customer-2".into(), "resolution-2-0".into())
+            ]
+        );
+        conn.close().await.unwrap();
     }
 }

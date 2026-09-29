@@ -61,6 +61,42 @@ impl SqliteTx {
     pub(super) fn conn(&mut self) -> &mut SqliteConnection {
         self.transaction.as_mut().expect("live transaction")
     }
+    pub(crate) async fn m5_term_state(
+        &mut self,
+        customer: &str,
+    ) -> Result<super::m5::TermState, StoreError> {
+        super::m5::term_state(self.conn(), customer).await
+    }
+    pub(crate) async fn m5_lookup(
+        &mut self,
+        identity: &[u8],
+    ) -> Result<Option<super::m5::StoredCommand>, StoreError> {
+        super::m5::lookup(self.conn(), identity).await
+    }
+    pub(crate) async fn m5_append_initial_term(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        customer: &str,
+        term_bytes: &[u8],
+        effective_at_us: i64,
+        end_at_us: i64,
+        resolution_id: &str,
+        term_version: i64,
+        assignments: &[(i64, i64, &super::m5::TermHistory)],
+    ) -> Result<(), StoreError> {
+        super::m5::append_initial_term(
+            self.conn(),
+            command,
+            customer,
+            term_bytes,
+            effective_at_us,
+            end_at_us,
+            resolution_id,
+            term_version,
+            assignments,
+        )
+        .await
+    }
     #[cfg(test)]
     pub async fn load_delivery(
         &mut self,

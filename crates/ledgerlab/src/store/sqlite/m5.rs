@@ -41,13 +41,13 @@ pub(crate) struct StoredCommand {
     pub records: Vec<(i64, String, String, Vec<u8>)>,
 }
 
-fn hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
+pub(crate) fn hash(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(domain);
     h.update(bytes);
     h.finalize().into()
 }
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -74,7 +74,7 @@ fn bytes_len(parts: &[&[u8]]) -> Result<i64, StoreError> {
             .ok_or(StoreError::BillingHistoryLimit)
     })
 }
-fn record_id(identity: &[u8], child_key: &[u8]) -> String {
+pub(crate) fn record_id(identity: &[u8], child_key: &[u8]) -> String {
     let mut h = Sha256::new();
     h.update(b"bean-counter/m5/record-id/1\0");
     h.update(identity);
@@ -98,6 +98,126 @@ fn payload_hash(family: &str, payload: &Value) -> Result<[u8; 32], StoreError> {
     Ok(h.finalize().into())
 }
 
+pub(crate) fn seal_child(family: &str, payload: &mut Value) -> Result<Vec<u8>, StoreError> {
+    let digest = payload_hash(family, payload)?;
+    payload["record"]["payload_hash"] = Value::String(hex(&digest));
+    Ok(CanonicalBytes::from_value(payload)
+        .map_err(|_| StoreError::Integrity("M5 child encoding"))?
+        .into_vec())
+}
+
+#[derive(Debug)]
+pub(crate) struct TermHistory {
+    pub ordinal: i64,
+    pub customer: String,
+    pub source: String,
+    pub record_id: String,
+    pub kind: String,
+    pub accepted_at_us: i64,
+}
+
+pub(crate) struct TermState {
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+    pub revision: i64,
+    pub next_term_version: i64,
+    pub history: Vec<TermHistory>,
+}
+
+pub(crate) async fn term_state(
+    conn: &mut SqliteConnection,
+    customer: &str,
+) -> Result<TermState, StoreError> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if version != 11 {
+        return Err(StoreError::BillingUpgradeRequired);
+    }
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let revision: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM billing_m5_term_versions WHERE customer=?")
+            .bind(customer)
+            .fetch_one(&mut *conn)
+            .await?;
+    let next_term_version: i64 =
+        sqlx::query_scalar("SELECT COALESCE(max(term_version),0)+1 FROM billing_m5_term_versions")
+            .fetch_one(&mut *conn)
+            .await?;
+    let rows: Vec<(i64,String,String,String,i64)> = sqlx::query_as(
+        "SELECT ordinal,customer,source,kind,accepted_at_us FROM billing_m3_index WHERE customer=? ORDER BY ordinal"
+    ).bind(customer).fetch_all(&mut *conn).await?;
+    Ok(TermState {
+        command_sequence,
+        first_record_sequence,
+        revision,
+        next_term_version,
+        history: rows
+            .into_iter()
+            .map(
+                |(ordinal, customer, source, kind, accepted_at_us)| TermHistory {
+                    ordinal,
+                    customer,
+                    source,
+                    record_id: String::new(),
+                    kind,
+                    accepted_at_us,
+                },
+            )
+            .collect(),
+    })
+}
+
+pub(crate) async fn append_initial_term(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    customer: &str,
+    term_bytes: &[u8],
+    effective_at_us: i64,
+    end_at_us: i64,
+    resolution_id: &str,
+    term_version: i64,
+    assignments: &[(i64, i64, &TermHistory)],
+) -> Result<(), StoreError> {
+    let sequence = append(conn, command).await?;
+    let first = sqlx::query_scalar::<_, i64>(
+        "SELECT min(sequence) FROM billing_m5_records WHERE command_sequence=?",
+    )
+    .bind(sequence)
+    .fetch_one(&mut *conn)
+    .await?;
+    sqlx::query("INSERT INTO billing_m5_term_versions(customer,term_version,record_sequence,effective_at_us,term_bytes) VALUES(?,?,?,?,?)")
+        .bind(customer).bind(term_version).bind(first+1).bind(effective_at_us).bind(term_bytes).execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO billing_m5_period_resolutions(customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id) VALUES(?,?,0,?,?,?,?,NULL)")
+        .bind(customer).bind(term_version).bind(resolution_id).bind(first).bind(effective_at_us).bind(end_at_us).execute(&mut *conn).await?;
+    for &(term_version, period_index, row) in assignments {
+        sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES(?,?,?,?,'m3',?,?,?,'acceptance-time',?)")
+            .bind(customer).bind(&row.source).bind(&row.kind).bind(&row.record_id)
+            .bind(row.ordinal).bind(term_version).bind(period_index).bind(row.accepted_at_us)
+            .execute(&mut *conn).await?;
+    }
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+/// Transactional term lookup for a later M3 writer. The coordinator resolves
+/// the logical period with the pure calendar service before inserting its M3
+/// assignment in the same transaction.
+#[allow(dead_code)] // M3 writer integration is a separate bounded slice.
+pub(crate) async fn initial_assignment_at(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    accepted_at_us: i64,
+) -> Result<Option<(i64, i64, Vec<u8>)>, StoreError> {
+    let row = sqlx::query_as("SELECT term_version,effective_at_us,term_bytes FROM billing_m5_term_versions WHERE customer=? AND effective_at_us<=? ORDER BY term_version DESC LIMIT 1")
+        .bind(customer).bind(accepted_at_us).fetch_optional(&mut *conn).await?;
+    Ok(row)
+}
+
 /// Identity lookup returns exact original response and every domain child.
 /// The caller must compare the submitted request to the retained request before
 /// treating it as a retry, and does so before mutable authority checks.
@@ -112,7 +232,7 @@ pub(crate) async fn lookup(
     let Some((sequence, request, response, request_hash, response_hash, child_count)) = row else {
         return Ok(None);
     };
-    if canonical(&request, 262_144).is_err()
+    if parse_bounded(&request, 262_144).is_err()
         || canonical(&response, 262_144).is_err()
         || request_hash.as_slice() != hash(b"bean-counter/m5/request/1\0", &request)
         || response_hash.as_slice() != hash(b"bean-counter/m5/response/1\0", &response)
@@ -164,7 +284,8 @@ pub(crate) async fn append(
         return Err(StoreError::BillingHistoryLimit);
     }
     let identity = canonical(command.identity_key, 4096)?;
-    let request = canonical(command.request, 262_144)?;
+    let request = parse_bounded(command.request, 262_144)
+        .map_err(|_| StoreError::Integrity("M5 request JSON"))?;
     canonical(command.response, 262_144)?;
     if identity["schema"] != "ledger-billing-m5-command-identity/1"
         || identity["family"] != command.family
@@ -324,7 +445,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     {
         if *sequence != i as i64 + 1
             || canonical(identity, 4096).is_err()
-            || canonical(request, 262_144).is_err()
+            || parse_bounded(request, 262_144).is_err()
             || canonical(response, 262_144).is_err()
             || request_hash.as_slice() != hash(b"bean-counter/m5/request/1\0", request)
             || response_hash.as_slice() != hash(b"bean-counter/m5/response/1\0", response)
@@ -404,6 +525,60 @@ mod tests {
 
     fn encode(value: &Value) -> Vec<u8> {
         CanonicalBytes::from_value(value).unwrap().into_vec()
+    }
+
+    #[test]
+    fn initial_term_golden_keeps_child_order_and_exact_hashes() {
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../../../contracts/candidates/billing-lifecycle-m5/vectors/m5-command-goldens.json"
+        ))
+        .unwrap();
+        let golden = oracle["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["id"] == "initial-customer-term-setup")
+            .unwrap();
+        let command = &golden["command"];
+        let identity = encode(&command["identity"]);
+        assert_eq!(
+            identity,
+            command["identity_key_canonical_utf8"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+        );
+        let children = command["domain_children"].as_array().unwrap();
+        let mut previous = None;
+        for child in children {
+            let key = encode(&child["child_key"]);
+            assert_eq!(
+                key,
+                child["child_key_canonical_utf8"]
+                    .as_str()
+                    .unwrap()
+                    .as_bytes()
+            );
+            assert!(previous.as_ref().is_none_or(|prior| prior < &key));
+            previous = Some(key.clone());
+            assert_eq!(record_id(&identity, &key), child["record_id"]);
+            let family = child["family"].as_str().unwrap();
+            assert_eq!(
+                hex(&payload_hash(family, &child["payload"]).unwrap()),
+                child["payload_hash"]
+            );
+            assert_eq!(
+                encode(&child["payload"]),
+                child["payload_canonical_utf8"].as_str().unwrap().as_bytes()
+            );
+        }
+        assert_eq!(
+            encode(&command["result"]),
+            command["result_canonical_utf8"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+        );
     }
 
     #[tokio::test]

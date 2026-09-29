@@ -8,9 +8,15 @@ use chrono::{
 };
 use chrono_tz::{GapInfo, Tz};
 
-/// The IANA tzdb release compiled into the pinned `chrono-tz` dependency.
-pub const IANA_TZDB_VERSION: &str = chrono_tz::IANA_TZDB_VERSION;
-pub const BOUNDARY_RULES_VERSION: &str = "m5-calendar/1";
+/// Frozen public labels for the pinned calendar algorithm and timezone data.
+pub const IANA_TZDB_VERSION: &str = "IANA-2025b";
+pub const BOUNDARY_RULES_VERSION: &str = "billing-boundary/1";
+
+/// Both billing and fiscal calendars must reject a wire label that does not
+/// name the timezone data actually compiled into this deterministic engine.
+pub fn pinned_timezone_rules_match(label: &str) -> bool {
+    label == IANA_TZDB_VERSION && chrono_tz::IANA_TZDB_VERSION == "2025b"
+}
 const MAX_BOUNDARY_SEARCH: u64 = 2_000_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -103,7 +109,7 @@ impl CalendarTerm {
         if self.boundary_rule_version != BOUNDARY_RULES_VERSION {
             return Err(CalendarError::UnsupportedBoundaryRules);
         }
-        if self.timezone_rules_version != IANA_TZDB_VERSION {
+        if !pinned_timezone_rules_match(&self.timezone_rules_version) {
             return Err(CalendarError::UnsupportedTimezoneRules);
         }
         let tz: Tz = self
@@ -333,6 +339,11 @@ fn to_chrono(day: Weekday) -> chrono::Weekday {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn frozen_timezone_label_matches_the_compiled_tzdb() {
+        assert!(pinned_timezone_rules_match("IANA-2025b"));
+        assert!(!pinned_timezone_rules_match("2025b"));
+    }
     fn term(
         unit: CalendarUnit,
         alignment: Alignment,
