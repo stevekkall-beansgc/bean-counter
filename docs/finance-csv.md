@@ -20,6 +20,40 @@ UTF-8 without BOM, comma separators, CRLF row endings. Every cell is double-quot
 
 The export identity uses version `3` in the canonical digest domain (`billing-finance-csv`). The summary schema is `ledger-finance-export/3`. The original `/2` identity uses digest version `2` and remains unchanged for statement/2. Consumers must compare `(currency, scale, amount_atoms)` together and use exact integer arithmetic with at least the product's 512-bit bound (or arbitrary precision); a converted legacy posting or aggregate may exceed 128 bits. They must not interpret scale-18 atoms as cents.
 
+## Lifecycle export/4
+
+`ledger-finance-export/4` is selected only for a complete `ledger-billing-statement/4`. It is a separate line-level export; it does not reinterpret export/2 or export/3 rows. Export/2 and export/3 retain their existing header, row meaning, identity, and byte format.
+
+The export uses the existing strict `ledger-finance-mapping/1` input, UTF-8 without BOM, comma separators, CRLF row endings, and double-quoted cells with embedded quotes doubled. Its fixed header is:
+
+```text
+row_type,export_id,statement_hash,snapshot_boundary_id,m3_high_water,m5_high_water,posting_count,control_net_atoms,customer_text,term_version,period_index,start_utc,end_utc,line_id,basis,agreement_id_text,agreement_version,payer_text,recipient_text,payer_account_text,recipient_account_text,currency,scale,direction,amount_atoms,source_refs_text,calculation_text
+```
+
+There is one `posting` row for each statement line, sorted by `line_id`, followed by one `complete` trailer. `posting_count` is the number of line rows; `control_net_atoms` is the exact sum of their `amount_atoms` values and is repeated metadata, never an additional posting. The statement line carries one exact agreement/version and payer/recipient pair; the exporter verifies those values against its source references and accepted agreement version before publication. An adjustment, correction, cumulative close, or work posting is represented in the line's `basis` and calculation, not expanded into duplicate source postings.
+
+`source_refs_text` is `text:` plus canonical JSON for the line's complete source references, sorted by `(customer, source, kind, id)`. `calculation_text` is `text:` plus canonical JSON containing the exact typed formula operands, numerator, positive denominator, booked atoms, and applicable rounding rule. Customer, agreement, party, account-label, and JSON-text cells use the reversible `text:` prefix. `export_id` is the existing Document-domain digest form `sha256:<64 lowercase hex>`; statement hash and line ID are 64 lowercase hex without a prefix. Canonical version numbers, period index, UTC bounds, USD scale-18 `amount_atoms`, counts, and hashes remain literal text inside the quoted CSV fields. A positive line amount has `receivable`, a negative amount has `payable`, and a zero amount has `none`; the payer and recipient roles never swap based on sign. Every amount is a signed exact integer at USD scale 18.
+
+The summary schema is [finance-export.schema.json](../contracts/candidates/billing-lifecycle-m5/schemas/finance-export.schema.json), `ledger-finance-export/4`. The summary has `export_id`, `statement_hash`, `snapshot_boundary_id`, `m3_high_water`, `m5_high_water`, `posting_count`, `control_net_atoms`, and `complete:true`. The export ID is the canonical Document-domain digest of `["billing-finance-csv",4,customer,statement_hash,snapshot_boundary_id,accounts]`, with canonical mapping-key ordering. Output path and export time do not enter it. The trailer repeats the export and statement IDs, boundary ID, high-water pair, line count, and control net; line-specific cells are empty. Empty statements emit a header plus a zero-count, zero-total trailer. Publication uses the same exclusive, fully staged, same-directory atomic path as export/3. A file is complete only when its trailer is present and count and sum reconcile to the pinned statement/4.
+
+The following table fixes the values in every column. Every cell, including header cells, is CSV-quoted; quote bytes inside a cell are doubled. Blank means the empty string, not null.
+
+| Column | `posting` row | `complete` trailer |
+| --- | --- | --- |
+| `row_type` | `posting` | `complete` |
+| `export_id`, `statement_hash`, `snapshot_boundary_id`, `m3_high_water`, `m5_high_water` | Repeat the pinned export and statement snapshot identifiers. | Repeat the identical values. |
+| `posting_count`, `control_net_atoms` | Repeat total line count and exact signed net. | Repeat the identical values. |
+| `customer_text` | `text:` plus customer ID. | Blank. |
+| `term_version`, `period_index`, `start_utc`, `end_utc` | Selected term and resolved half-open period. | Blank. |
+| `line_id`, `basis`, `agreement_id_text`, `agreement_version` | One complete statement line and its pinned M2 version. | Blank. |
+| `payer_text`, `recipient_text`, `payer_account_text`, `recipient_account_text` | `text:` plus each exact line party and explicitly mapped account label. | Blank. |
+| `currency`, `scale`, `direction`, `amount_atoms` | `USD`, `18`, `receivable`/`payable`/`none`, and exact signed atoms. | Blank. |
+| `source_refs_text`, `calculation_text` | `text:` plus canonical JSON; source references are customer-scoped and sorted. | Blank. |
+
+`ledger-finance-export/4` golden vectors are in [finance-export-v4.json](../contracts/candidates/billing-lifecycle-m5/vectors/finance-export-v4.json). They fix the UTF-8 bytes (including CRLF), the empty-statement header/trailer, negative and zero lines, cumulative calculation provenance, quotes and spreadsheet-leading characters, and a changed mapping's export identity. The mapping change changes `export_id` and the posting account cell while leaving the pinned statement untouched.
+
+## Legacy export/2 and export/3 columns
+
 | Columns | Meaning |
 | --- | --- |
 | `row_type` | `posting` or final `complete` trailer. Sum only posting rows. |

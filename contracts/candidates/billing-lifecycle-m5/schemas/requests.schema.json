@@ -1,0 +1,1062 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:m5:requests:1",
+  "title": "Bean Counter M5 billing lifecycle requests",
+  "description": "Structural request union. Service validation and the normative behavior are specified in docs/m5-contracts.md.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/term"
+    },
+    {
+      "$ref": "#/$defs/fiscal_calendar"
+    },
+    {
+      "$ref": "#/$defs/cumulative_agreement"
+    },
+    {
+      "$ref": "#/$defs/activity"
+    },
+    {
+      "$ref": "#/$defs/quantity_correction"
+    },
+    {
+      "$ref": "#/$defs/period_resolve"
+    },
+    {
+      "$ref": "#/$defs/period_close"
+    },
+    {
+      "$ref": "#/$defs/ad_hoc_statement"
+    },
+    {
+      "$ref": "#/$defs/recurrence"
+    },
+    {
+      "$ref": "#/$defs/recurrence_cancel"
+    },
+    {
+      "$ref": "#/$defs/occurrence_query"
+    },
+    {
+      "$ref": "#/$defs/occurrence_acceptance"
+    },
+    {
+      "$ref": "#/$defs/fiscal_report"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "customer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "adjustment_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "adjustment_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "source",
+        "adjustment_id"
+      ]
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "positive_revision": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "positive_integer": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "quantity": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "signed_nonzero_quantity": {
+      "type": "string",
+      "pattern": "^-?[1-9][0-9]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "local_date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "local_time": {
+      "type": "string",
+      "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]{1,6})?$"
+    },
+    "iana_timezone": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "decimal_usd_rate": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+    },
+    "effective": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "initial"
+            },
+            "at": {
+              "$ref": "#/$defs/timestamp"
+            }
+          },
+          "required": [
+            "mode",
+            "at"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "next_boundary"
+            }
+          },
+          "required": [
+            "mode"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "immediate"
+            }
+          },
+          "required": [
+            "mode"
+          ]
+        }
+      ]
+    },
+    "term_definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interval": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "unit": {
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "year"
+          ]
+        },
+        "alignment": {
+          "enum": [
+            "anchored",
+            "calendar_aligned"
+          ]
+        },
+        "anchor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "date": {
+              "$ref": "#/$defs/local_date"
+            },
+            "time": {
+              "$ref": "#/$defs/local_time"
+            }
+          },
+          "required": [
+            "date"
+          ]
+        },
+        "timezone": {
+          "$ref": "#/$defs/iana_timezone"
+        },
+        "week_start": {
+          "enum": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"
+          ]
+        },
+        "month_end_rule": {
+          "enum": [
+            "preserve_anchor_and_clamp",
+            "explicit_end_of_month"
+          ]
+        },
+        "boundary_rule_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "timezone_rules_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "proration": {
+          "const": "none"
+        }
+      },
+      "required": [
+        "interval",
+        "unit",
+        "alignment",
+        "anchor",
+        "timezone",
+        "month_end_rule",
+        "boundary_rule_version",
+        "timezone_rules_version",
+        "proration"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "unit": {
+                "const": "week"
+              }
+            },
+            "required": [
+              "unit"
+            ]
+          },
+          "then": {
+            "required": [
+              "week_start"
+            ]
+          }
+        }
+      ]
+    },
+    "term": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-term/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "change_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "effective": {
+          "$ref": "#/$defs/effective"
+        },
+        "term": {
+          "$ref": "#/$defs/term_definition"
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "change_id",
+        "expected_revision",
+        "effective",
+        "term"
+      ]
+    },
+    "weekday": {
+      "enum": [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday"
+      ]
+    },
+    "fiscal_calendar": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-fiscal-calendar/1"
+        },
+        "change_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "timezone": {
+          "$ref": "#/$defs/iana_timezone"
+        },
+        "timezone_rules_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "calendar": {
+          "$ref": "#/$defs/calendar_definition"
+        }
+      },
+      "required": [
+        "schema",
+        "change_id",
+        "expected_revision",
+        "timezone",
+        "timezone_rules_version",
+        "calendar"
+      ]
+    },
+    "calendar_definition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "gregorian_months",
+                "gregorian_quarters",
+                "gregorian_years"
+              ]
+            },
+            "fiscal_year_start_month": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            },
+            "fiscal_year_start_day": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 31
+            },
+            "week_start": {
+              "$ref": "#/$defs/weekday"
+            }
+          },
+          "required": [
+            "kind",
+            "fiscal_year_start_month",
+            "fiscal_year_start_day"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "week_pattern"
+            },
+            "fiscal_year_end_month": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            },
+            "fiscal_year_end_day": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 31
+            },
+            "pattern": {
+              "enum": [
+                "4-4-5",
+                "4-5-4",
+                "5-4-4"
+              ]
+            },
+            "week_end_day": {
+              "$ref": "#/$defs/weekday"
+            },
+            "week_end_alignment": {
+              "enum": [
+                "nearest",
+                "last"
+              ]
+            },
+            "extra_week_period": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            }
+          },
+          "required": [
+            "kind",
+            "fiscal_year_end_month",
+            "fiscal_year_end_day",
+            "pattern",
+            "week_end_day",
+            "week_end_alignment",
+            "extra_week_period"
+          ]
+        }
+      ]
+    },
+    "cumulative_agreement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-cumulative-agreement/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "change_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/id"
+        },
+        "agreement_version": {
+          "$ref": "#/$defs/positive_revision"
+        },
+        "effective_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "basis": {
+          "$ref": "#/$defs/cumulative_basis"
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "source",
+        "change_id",
+        "expected_revision",
+        "agreement_id",
+        "agreement_version",
+        "effective_at",
+        "basis"
+      ]
+    },
+    "cumulative_basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "const": "cumulative_period"
+        },
+        "source_unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "billable_unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "conversion_numerator": {
+          "$ref": "#/$defs/positive_revision"
+        },
+        "conversion_denominator": {
+          "$ref": "#/$defs/positive_revision"
+        },
+        "rate_usd_per_billable_unit": {
+          "$ref": "#/$defs/decimal_usd_rate"
+        },
+        "maximum_period_quantity": {
+          "$ref": "#/$defs/positive_revision"
+        }
+      },
+      "required": [
+        "mode",
+        "source_unit",
+        "billable_unit",
+        "conversion_numerator",
+        "conversion_denominator",
+        "rate_usd_per_billable_unit",
+        "maximum_period_quantity"
+      ]
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-activity/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "quantity": {
+          "$ref": "#/$defs/quantity"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "source",
+        "id",
+        "operation_id",
+        "target",
+        "quantity",
+        "occurred_at",
+        "evidence"
+      ]
+    },
+    "quantity_correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-quantity-correction/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "target": {
+          "$ref": "#/$defs/id"
+        },
+        "quantity_delta": {
+          "$ref": "#/$defs/signed_nonzero_quantity"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "source",
+        "id",
+        "target",
+        "quantity_delta",
+        "occurred_at",
+        "evidence"
+      ]
+    },
+    "period_close": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-period-close/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "period_id": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "term_version": {
+              "$ref": "#/$defs/positive_revision"
+            },
+            "period_index": {
+              "$ref": "#/$defs/revision"
+            }
+          },
+          "required": [
+            "term_version",
+            "period_index"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "period_id"
+      ]
+    },
+    "ad_hoc_statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-ad-hoc-statement/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "command_id": {
+          "$ref": "#/$defs/id"
+        },
+        "adjustments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/adjustment_ref"
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "command_id",
+        "adjustments"
+      ]
+    },
+    "recurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-recurrence/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "change_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/id"
+        },
+        "agreement_version": {
+          "$ref": "#/$defs/positive_revision"
+        },
+        "rule": {
+          "$ref": "#/$defs/recurrence_rule"
+        },
+        "renewal": {
+          "$ref": "#/$defs/renewal"
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "source",
+        "change_id",
+        "expected_revision",
+        "agreement_id",
+        "agreement_version",
+        "rule",
+        "renewal"
+      ]
+    },
+    "occurrence_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-occurrence-query/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "recurrence_version": {
+          "$ref": "#/$defs/positive_revision"
+        },
+        "due_through": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "source",
+        "recurrence_version",
+        "due_through",
+        "limit"
+      ]
+    },
+    "occurrence_acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-occurrence-acceptance/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "occurrence_id": {
+          "$ref": "#/$defs/id"
+        },
+        "event": {
+          "$ref": "#/$defs/m4_event"
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "source",
+        "occurrence_id",
+        "event"
+      ]
+    },
+    "fiscal_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-fiscal-report-request/1"
+        },
+        "command_id": {
+          "$ref": "#/$defs/id"
+        },
+        "calendar_version": {
+          "$ref": "#/$defs/positive_revision"
+        },
+        "start": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "m3_high_water": {
+              "$ref": "#/$defs/revision"
+            },
+            "m5_high_water": {
+              "$ref": "#/$defs/revision"
+            }
+          },
+          "required": [
+            "m3_high_water",
+            "m5_high_water"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "command_id",
+        "calendar_version",
+        "start",
+        "end"
+      ]
+    },
+    "recurrence_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interval": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "unit": {
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "year"
+          ]
+        },
+        "anchor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "date": {
+              "$ref": "#/$defs/local_date"
+            },
+            "time": {
+              "$ref": "#/$defs/local_time"
+            }
+          },
+          "required": [
+            "date"
+          ]
+        },
+        "timezone": {
+          "$ref": "#/$defs/iana_timezone"
+        },
+        "effective_from": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "boundary_rule_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "timezone_rules_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "proration": {
+          "const": "none"
+        }
+      },
+      "required": [
+        "interval",
+        "unit",
+        "anchor",
+        "timezone",
+        "effective_from",
+        "boundary_rule_version",
+        "timezone_rules_version",
+        "proration"
+      ]
+    },
+    "renewal": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "manual"
+            }
+          },
+          "required": [
+            "mode"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "const": "automatic_opt_in"
+            },
+            "m2_change_id": {
+              "$ref": "#/$defs/id"
+            },
+            "next_agreement_version": {
+              "$ref": "#/$defs/positive_revision"
+            },
+            "next_rule": {
+              "$ref": "#/$defs/recurrence_rule"
+            }
+          },
+          "required": [
+            "mode",
+            "m2_change_id",
+            "next_agreement_version",
+            "next_rule"
+          ]
+        }
+      ]
+    },
+    "recurrence_cancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-recurrence-cancel/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "change_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "recurrence_version": {
+          "$ref": "#/$defs/positive_revision"
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "source",
+        "change_id",
+        "expected_revision",
+        "recurrence_version"
+      ]
+    },
+    "m4_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-event/1"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "content.generated"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "status": {
+          "const": "succeeded"
+        },
+        "quantity": {
+          "$ref": "#/$defs/quantity"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "schema",
+        "id",
+        "operation_id",
+        "type",
+        "customer",
+        "occurred_at",
+        "status"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "quantity"
+            ]
+          },
+          "then": {
+            "required": [
+              "unit"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "unit"
+            ]
+          },
+          "then": {
+            "required": [
+              "quantity"
+            ]
+          }
+        }
+      ]
+    },
+    "period_resolve": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-period-resolve/1"
+        },
+        "customer": {
+          "$ref": "#/$defs/customer"
+        },
+        "period_id": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "term_version": {
+              "$ref": "#/$defs/positive_revision"
+            },
+            "period_index": {
+              "$ref": "#/$defs/revision"
+            }
+          },
+          "required": [
+            "term_version",
+            "period_index"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "customer",
+        "period_id"
+      ]
+    }
+  }
+}
