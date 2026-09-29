@@ -880,134 +880,190 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn correction_assignment_reconciles_both_sides_of_close_cutoff() {
-        for close_before_correction in [false, true] {
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().canonicalize().unwrap().join("billing");
-            BillingLedger::init(
-                &path,
-                include_bytes!("../../../examples/billing/setup.json"),
+    async fn reopen_refuses_unreconciled_close_projection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let term = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"phantom-close","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&bytes).await.unwrap();
+        ledger.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let boundary_id: i64 =
+            sqlx::query_scalar("SELECT max(boundary_id) FROM billing_m5_snapshot_boundaries")
+                .fetch_one(&mut conn)
+                .await
+                .unwrap();
+        sqlx::query("INSERT INTO billing_m5_period_closes(customer,term_version,period_index,boundary_resolution_id,snapshot_boundary_id,m3_high_water,m5_high_water,statement_hash,close_sequence,statement_bytes) VALUES('customer-1',1,0,'resolution-1-0',?,0,2,?,2,x'7b7d')")
+            .bind(boundary_id).bind("0".repeat(64)).execute(&mut conn).await.unwrap();
+        conn.close().await.unwrap();
+        assert!(BillingLedger::open(&path).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn reopen_refuses_post_activation_correction_relabelled_acceptance_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let term = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"basis-test","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&bytes).await.unwrap();
+        let accepted = ledger
+            .accept(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
             )
             .await
             .unwrap();
-            let ledger = BillingLedger::open(&path).await.unwrap();
-            let term = json!({
-                "schema":"ledger-billing-term/1","customer":"customer-1",
-                "change_id":"cutoff-test","expected_revision":"0",
-                "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
-                "term":{"interval":1,"unit":"month","alignment":"anchored",
-                    "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
-                    "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
-                    "timezone_rules_version":"IANA-2025b","proration":"none"}
-            });
-            let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
-                .unwrap()
-                .into_vec();
-            ledger.term_set(&bytes).await.unwrap();
-            let accepted = ledger
-                .accept(
-                    "customer-1",
-                    "urn:example:work",
-                    include_bytes!("../../../examples/billing/event.json"),
-                )
-                .await
+        let target = accepted["receipt"]["body"]["target"].as_str().unwrap();
+        let mut outcome: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/outcome.json"))
                 .unwrap();
-            let target = accepted["receipt"]["body"]["target"].as_str().unwrap();
-            let mut outcome: serde_json::Value =
-                serde_json::from_slice(include_bytes!("../../../examples/billing/outcome.json"))
-                    .unwrap();
-            outcome["target"] = json!(target);
-            let outcome = ledgerlab_core::canonical::CanonicalBytes::from_value(&outcome)
-                .unwrap()
-                .into_vec();
-            ledger
-                .outcome("customer-1", "urn:example:work", &outcome)
-                .await
-                .unwrap();
-            let mut correction: serde_json::Value =
-                serde_json::from_slice(include_bytes!("../../../examples/billing/correction.json"))
-                    .unwrap();
-            correction["target"] = json!(target);
-            let correction = ledgerlab_core::canonical::CanonicalBytes::from_value(&correction)
-                .unwrap()
-                .into_vec();
-            if !close_before_correction {
-                ledger
-                    .correct("customer-1", "urn:example:work", &correction)
-                    .await
-                    .unwrap();
-            }
-            ledger.close().await;
-            // The close command is outside this slice. Seed its durable cutoff
-            // to exercise the assignment verifier's ordering rule.
-            let mut conn = sqlx::SqliteConnection::connect_with(
-                &sqlx::sqlite::SqliteConnectOptions::new()
-                    .filename(path.join(".ledger/local.db"))
-                    .create_if_missing(false),
-            )
+        outcome["target"] = json!(target);
+        let outcome = ledgerlab_core::canonical::CanonicalBytes::from_value(&outcome)
+            .unwrap()
+            .into_vec();
+        ledger
+            .outcome("customer-1", "urn:example:work", &outcome)
             .await
             .unwrap();
-            let valid_cut = if close_before_correction { 2i64 } else { 3i64 };
-            let boundary_id: i64 = sqlx::query_scalar("SELECT max(boundary_id) FROM billing_m5_snapshot_boundaries WHERE m3_high_water=? AND m5_high_water=2")
-                .bind(valid_cut).fetch_one(&mut conn).await.unwrap();
-            sqlx::query("INSERT INTO billing_m5_period_closes(customer,term_version,period_index,boundary_resolution_id,snapshot_boundary_id,m3_high_water,m5_high_water,statement_hash,close_sequence,statement_bytes) VALUES('customer-1',1,0,'resolution-1-0',?,?,2,?,2,x'7b7d')")
-                .bind(boundary_id).bind(valid_cut).bind("0".repeat(64))
-                .execute(&mut conn).await.unwrap();
-            conn.close().await.unwrap();
-            if close_before_correction {
-                let ledger = BillingLedger::open(&path).await.unwrap();
-                ledger
-                    .correct("customer-1", "urn:example:work", &correction)
-                    .await
-                    .unwrap();
-                ledger.close().await;
-            }
-            let ledger = BillingLedger::open(&path).await.unwrap();
-            ledger.close().await;
-            let mut conn = sqlx::SqliteConnection::connect_with(
-                &sqlx::sqlite::SqliteConnectOptions::new()
-                    .filename(path.join(".ledger/local.db"))
-                    .create_if_missing(false),
-            )
+        let mut correction: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/correction.json"))
+                .unwrap();
+        correction["target"] = json!(target);
+        let correction = ledgerlab_core::canonical::CanonicalBytes::from_value(&correction)
+            .unwrap()
+            .into_vec();
+        ledger
+            .correct("customer-1", "urn:example:work", &correction)
             .await
             .unwrap();
-            let basis: String = sqlx::query_scalar("SELECT assignment_basis FROM billing_m5_assignments WHERE source_stream='m3' AND source_sequence=3")
-                .fetch_one(&mut conn).await.unwrap();
-            assert_eq!(
-                basis,
-                if close_before_correction {
-                    "post-close-adjustment"
-                } else {
-                    "linked-open-period"
-                }
-            );
-            let adjustment_count: i64 =
-                sqlx::query_scalar("SELECT count(*) FROM billing_m5_adjustments")
-                    .fetch_one(&mut conn)
-                    .await
-                    .unwrap();
-            assert_eq!(
-                adjustment_count,
-                if close_before_correction { 1 } else { 0 }
-            );
-            let bad_cut = if close_before_correction { 3i64 } else { 2i64 };
-            let bad_boundary: i64 = sqlx::query_scalar("SELECT max(boundary_id) FROM billing_m5_snapshot_boundaries WHERE m3_high_water=? AND m5_high_water=2")
-                .bind(bad_cut).fetch_one(&mut conn).await.unwrap();
-            sqlx::query("DROP TRIGGER billing_m5_period_closes_no_update")
-                .execute(&mut conn)
-                .await
-                .unwrap();
-            sqlx::query(
-                "UPDATE billing_m5_period_closes SET snapshot_boundary_id=?,m3_high_water=?",
-            )
-            .bind(bad_boundary)
-            .bind(bad_cut)
+        ledger.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        sqlx::query("DROP TRIGGER billing_m5_assignments_no_update")
             .execute(&mut conn)
             .await
             .unwrap();
-            conn.close().await.unwrap();
-            assert!(BillingLedger::open(&path).await.is_err());
-        }
+        sqlx::query("UPDATE billing_m5_assignments SET assignment_basis='acceptance-time' WHERE source_stream='m3' AND source_sequence=3")
+            .execute(&mut conn).await.unwrap();
+        conn.close().await.unwrap();
+        assert!(BillingLedger::open(&path).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn pre_activation_correction_backfill_keeps_acceptance_time_basis() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let accepted = ledger
+            .accept(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
+            )
+            .await
+            .unwrap();
+        let target = accepted["receipt"]["body"]["target"].as_str().unwrap();
+        let mut outcome: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/outcome.json"))
+                .unwrap();
+        outcome["target"] = json!(target);
+        let outcome = ledgerlab_core::canonical::CanonicalBytes::from_value(&outcome)
+            .unwrap()
+            .into_vec();
+        ledger
+            .outcome("customer-1", "urn:example:work", &outcome)
+            .await
+            .unwrap();
+        let mut correction: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/correction.json"))
+                .unwrap();
+        correction["target"] = json!(target);
+        let correction = ledgerlab_core::canonical::CanonicalBytes::from_value(&correction)
+            .unwrap()
+            .into_vec();
+        ledger
+            .correct("customer-1", "urn:example:work", &correction)
+            .await
+            .unwrap();
+        let term = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"backfill-correction","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&bytes).await.unwrap();
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let basis: String = sqlx::query_scalar("SELECT assignment_basis FROM billing_m5_assignments WHERE source_stream='m3' AND source_sequence=3")
+            .fetch_one(&mut conn).await.unwrap();
+        assert_eq!(basis, "acceptance-time");
+        conn.close().await.unwrap();
     }
 
     #[tokio::test]

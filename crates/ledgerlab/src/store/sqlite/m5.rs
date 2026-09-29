@@ -242,6 +242,7 @@ pub(crate) async fn assignment_for_m3(
     conn: &mut SqliteConnection,
     plan: &crate::service::billing::ValidatedEntry,
 ) -> Result<Option<M3Assignment>, StoreError> {
+    ensure_no_unverified_closes(conn).await?;
     if plan.alias().is_some() {
         return Ok(None);
     }
@@ -528,6 +529,7 @@ pub(crate) async fn append(
 
 /// Store the only complete report cut, including same-cut alias mutations.
 pub(crate) async fn append_boundary(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
+    ensure_no_unverified_closes(conn).await?;
     let (next, previous_m3, previous_m5): (i64,i64,i64) = sqlx::query_as(
         "SELECT boundary_id+1,m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries ORDER BY boundary_id DESC LIMIT 1",
     ).fetch_one(&mut *conn).await?;
@@ -548,6 +550,7 @@ pub(crate) async fn append_boundary(conn: &mut SqliteConnection) -> Result<i64, 
 
 /// Fail closed on counters, links, hashes or a torn boundary at store open.
 pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError> {
+    ensure_no_unverified_closes(conn).await?;
     let rows: Vec<(String,i64,i64,i64,i64,i64,i64)> = sqlx::query_as(
         "SELECT migration_id,record_count,canonical_bytes,activity_identity_count,activity_identity_bytes,next_command_sequence,next_record_sequence FROM billing_m5_state",
     ).fetch_all(&mut *conn).await?;
@@ -679,6 +682,18 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     Ok(())
 }
 
+/// The close command and its statement reconciler are not present in this
+/// slice. A standalone projection row has no authoritative source to trust.
+async fn ensure_no_unverified_closes(conn: &mut SqliteConnection) -> Result<(), StoreError> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes")
+        .fetch_one(&mut *conn)
+        .await?;
+    if count != 0 {
+        return Err(StoreError::InvalidStore("M5 unverified period close"));
+    }
+    Ok(())
+}
+
 type RetainedRecord = (i64, String, String, i64, Vec<u8>, Vec<u8>);
 
 async fn verify_term_projections(
@@ -773,7 +788,12 @@ async fn verify_term_projections(
         .map(|record| (record.0, record.4.as_slice()))
         .collect();
     let mut term_requests = BTreeMap::new();
+    let mut initial_term_cuts = BTreeMap::new();
     for (customer, version, sequence, _, term_bytes) in &terms {
+        let cut: Option<(i64,)> = sqlx::query_as("SELECT m3_high_water FROM billing_m5_snapshot_boundaries WHERE m5_high_water=? ORDER BY boundary_id LIMIT 1")
+            .bind(sequence).fetch_optional(&mut *conn).await?;
+        let (cut,) = cut.ok_or(StoreError::InvalidStore("M5 initial term boundary"))?;
+        initial_term_cuts.insert((customer.clone(), *version), cut);
         let raw = raw_by_sequence
             .get(sequence)
             .ok_or(StoreError::InvalidStore("M5 assignment term child"))?;
@@ -798,6 +818,9 @@ async fn verify_term_projections(
         let request = term_requests
             .get(&(customer.clone(), version))
             .ok_or(StoreError::InvalidStore("M5 assignment term"))?;
+        let initial_cut = *initial_term_cuts
+            .get(&(customer.clone(), version))
+            .ok_or(StoreError::InvalidStore("M5 initial term boundary"))?;
         if stream != "m3" {
             return Err(StoreError::InvalidStore("M5 assignment source stream"));
         }
@@ -836,6 +859,12 @@ async fn verify_term_projections(
             return Err(StoreError::InvalidStore("M5 assignment time"));
         }
         if basis == "acceptance-time" || basis == "post-close-adjustment" {
+            if basis == "acceptance-time"
+                && index_kind == "correction"
+                && source_sequence > initial_cut
+            {
+                return Err(StoreError::InvalidStore("M5 correction assignment basis"));
+            }
             let history = [ledgerlab_core::domain::term_service::BillableHistoryRow {
                 ordinal: source_sequence as u64,
                 accepted_at_us: at,
@@ -850,7 +879,7 @@ async fn verify_term_projections(
                 return Err(StoreError::InvalidStore("M5 assignment period"));
             }
         } else if basis == "linked-open-period" {
-            if index_kind != "correction" {
+            if index_kind != "correction" || source_sequence <= initial_cut {
                 return Err(StoreError::InvalidStore("M5 linked assignment kind"));
             }
             let (target, ingress): (String, Vec<u8>) = sqlx::query_as(
