@@ -45,8 +45,11 @@ pub enum WeekAlignment {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WeekPattern {
+    #[serde(rename = "4-4-5")]
     FourFourFive,
+    #[serde(rename = "4-5-4")]
     FourFiveFour,
+    #[serde(rename = "5-4-4")]
     FiveFourFour,
 }
 impl WeekPattern {
@@ -67,14 +70,14 @@ pub enum FiscalCalendar {
         fiscal_year_start_month: u8,
         fiscal_year_start_day: u8,
         #[serde(default)]
-        week_start_day: Option<FiscalWeekday>,
+        week_start: Option<FiscalWeekday>,
     },
     #[serde(rename = "gregorian_quarters")]
     GregorianQuarters {
         fiscal_year_start_month: u8,
         fiscal_year_start_day: u8,
         #[serde(default)]
-        week_start_day: Option<FiscalWeekday>,
+        week_start: Option<FiscalWeekday>,
     },
     #[serde(rename = "gregorian_years")]
     GregorianYears {
@@ -360,6 +363,46 @@ mod tests {
         }
     }
     #[test]
+    fn serde_uses_frozen_fiscal_calendar_spellings() {
+        let months = FiscalCalendar::GregorianMonths {
+            fiscal_year_start_month: 1,
+            fiscal_year_start_day: 1,
+            week_start: Some(FiscalWeekday::Monday),
+        };
+        let months_json = serde_json::to_value(&months).unwrap();
+        assert_eq!(months_json["week_start"], "monday");
+        assert!(months_json.get("week_start_day").is_none());
+        assert_eq!(
+            serde_json::from_value::<FiscalCalendar>(months_json).unwrap(),
+            months
+        );
+
+        let pattern = FiscalCalendar::WeekPattern {
+            fiscal_year_end_month: 1,
+            fiscal_year_end_day: 31,
+            pattern: WeekPattern::FourFourFive,
+            week_end_day: FiscalWeekday::Saturday,
+            week_end_alignment: WeekAlignment::Nearest,
+            extra_week_period: 12,
+        };
+        let pattern_json = serde_json::to_value(&pattern).unwrap();
+        assert_eq!(pattern_json["pattern"], "4-4-5");
+        assert_eq!(
+            serde_json::from_value::<FiscalCalendar>(pattern_json).unwrap(),
+            pattern
+        );
+        for (wire, value) in [
+            ("4-4-5", WeekPattern::FourFourFive),
+            ("4-5-4", WeekPattern::FourFiveFour),
+            ("5-4-4", WeekPattern::FiveFourFour),
+        ] {
+            assert_eq!(
+                serde_json::from_str::<WeekPattern>(&format!("\"{wire}\"")).unwrap(),
+                value
+            );
+        }
+    }
+    #[test]
     fn frozen_445_53_week_vector() {
         let c = cfg(FiscalCalendar::WeekPattern {
             fiscal_year_end_month: 1,
@@ -386,7 +429,7 @@ mod tests {
         let c = cfg(FiscalCalendar::GregorianMonths {
             fiscal_year_start_month: 4,
             fiscal_year_start_day: 1,
-            week_start_day: None,
+            week_start: None,
         });
         let p = c.period_for(instant("2026-04-01T04:00:00Z")).unwrap();
         assert_eq!((p.fiscal_year, p.period), (2026, 1));
