@@ -540,6 +540,47 @@ async fn invalid_current_m3_meter_does_not_report_already_current() {
 }
 
 #[tokio::test]
+async fn schema11_m3_entry_and_semantic_alias_advance_snapshot_boundaries() {
+    use crate::billing::BillingLedger;
+
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().canonicalize().unwrap().join("billing");
+    BillingLedger::init(&path, SETUP).await.unwrap();
+    let ledger = BillingLedger::open(&path).await.unwrap();
+    let setup = ledgerlab_core::canonical::parse(SETUP).unwrap();
+    let customer = setup["customer"].as_str().unwrap();
+    let source = setup["source"].as_str().unwrap();
+
+    let accepted = ledger.accept(customer, source, EVENT).await.unwrap();
+    assert_eq!(accepted["status"], "accepted");
+    let mut semantic_retry = ledgerlab_core::canonical::parse(EVENT).unwrap();
+    semantic_retry["id"] = serde_json::json!("work-1-alias");
+    let semantic_retry = serde_json::to_vec(&semantic_retry).unwrap();
+    let duplicate = ledger
+        .accept(customer, source, &semantic_retry)
+        .await
+        .unwrap();
+    assert_eq!(duplicate["status"], "duplicate");
+    assert_eq!(duplicate["kind"], "semantic");
+    ledger.close().await;
+
+    let db_path = path.join(".ledger/local.db");
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db_path)
+        .foreign_keys(true);
+    let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+    let boundaries: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT boundary_id,m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries ORDER BY boundary_id",
+    )
+    .fetch_all(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(boundaries, vec![(1, 0, 0), (2, 1, 0), (3, 1, 0)]);
+    crate::store::sqlite::m5::verify(&mut conn).await.unwrap();
+    conn.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn stale_schema9_retry_revalidates_concurrent_schema10_upgrade() {
     use crate::maintenance::UpgradeResult;
     use crate::store::sqlite::migrate::{BillingUpgradeIndex, BillingUpgradeSeed};

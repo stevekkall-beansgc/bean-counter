@@ -220,6 +220,23 @@ impl SqliteTx {
         Ok(())
     }
 
+    /// M3 remains the authoritative work ledger under schema 11. Record a
+    /// complete cross-stream cut in the same transaction after every M3
+    /// mutation so fiscal and billing projections cannot observe a torn state.
+    async fn append_m5_boundary_if_current(&mut self) -> Result<(), StoreError> {
+        let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(self.conn())
+            .await?;
+        match version {
+            10 => Ok(()),
+            11 => {
+                super::m5::append_boundary(self.conn()).await?;
+                Ok(())
+            }
+            _ => Err(StoreError::BillingUpgradeRequired),
+        }
+    }
+
     /// Read the retained-history meter and the durable target index under the
     /// same transaction. Every bound below is proved against the counted rows,
     /// so a tampered or partial meter refuses the store instead of silently
@@ -916,6 +933,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m3_billing_schema().await?;
             let customer = plan
                 .customer()
                 .ok_or(StoreError::InvalidStore("M3 billing customer"))?;
@@ -943,6 +961,7 @@ impl SqliteTx {
                     .bind(ordinal)
                     .execute(self.conn())
                     .await?;
+                self.append_m5_boundary_if_current().await?;
                 return Ok(());
             }
             let accepted_at_us = plan
@@ -996,6 +1015,7 @@ impl SqliteTx {
                 .bind(accepted_at_us)
                 .execute(self.conn())
                 .await?;
+            self.append_m5_boundary_if_current().await?;
             Ok::<_, StoreError>(())
         })
         .await
