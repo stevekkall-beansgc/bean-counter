@@ -635,8 +635,8 @@ async fn verify_term_projections(
         let request = term_requests
             .get(&(customer.clone(), version))
             .ok_or(StoreError::InvalidStore("M5 assignment term"))?;
-        if stream != "m3" || basis != "acceptance-time" {
-            // Other assignment routes are verified by their owning commands.
+        if stream != "m3" {
+            // M5 source assignments are verified by their owning commands.
             continue;
         }
         assigned_m3.insert(source_sequence);
@@ -672,6 +672,10 @@ async fn verify_term_projections(
             .ok_or(StoreError::InvalidStore("M5 assignment receipt"))?;
         if utc_us(&receipt["body"]["accepted_at"])? != at {
             return Err(StoreError::InvalidStore("M5 assignment time"));
+        }
+        if basis != "acceptance-time" {
+            // Linked or post-close period selection is checked by its owner.
+            continue;
         }
         let history = [ledgerlab_core::domain::term_service::BillableHistoryRow {
             ordinal: source_sequence as u64,
