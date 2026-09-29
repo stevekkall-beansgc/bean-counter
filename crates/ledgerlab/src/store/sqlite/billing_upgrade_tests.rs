@@ -2,6 +2,8 @@
 //! database with its version number rewritten to pretend it is old.
 use super::*;
 use crate::maintenance::{UpgradeError, UpgradeResult};
+use crate::store::ports::{AcceptanceStore, AcceptanceTx};
+use crate::store::sqlite::SqliteStore;
 use ledgerlab_core::{canonical::CanonicalBytes, domain::Timestamp};
 use sqlx::{Connection, SqliteConnection};
 const SETUP: &[u8] = include_bytes!("../../../../../examples/billing/setup.json");
@@ -437,7 +439,7 @@ async fn installation(dir: &tempfile::TempDir) -> (Installation, SqliteConnectio
 }
 
 #[tokio::test]
-async fn schema9_billing_refuses_open_until_explicit_upgrade_without_mutation() {
+async fn schema9_billing_requires_explicit_m3_and_m5_upgrades_without_ordinary_schema10_access() {
     use crate::billing::BillingLedger;
 
     let dir = tempfile::tempdir().unwrap();
@@ -496,6 +498,36 @@ async fn schema9_billing_refuses_open_until_explicit_upgrade_without_mutation() 
     assert_eq!(
         BillingLedger::upgrade(&path).await.unwrap(),
         serde_json::json!({"status":"upgraded","from_schema":9,"to_schema":10})
+    );
+
+    let schema10_open = BillingLedger::open(&path).await;
+    assert!(matches!(
+        schema10_open,
+        Err(crate::local::LocalError::Service(
+            crate::ServiceError::Rejection(code)
+        )) if code == "BILLING_M5_SCHEMA_REQUIRED"
+    ));
+    assert!(matches!(
+        SqliteStore::open(&path.join(".ledger")).await,
+        Err(crate::store::errors::StoreError::BillingM5SchemaRequired)
+    ));
+    let store = SqliteStore::open_for_upgrade(&path.join(".ledger"))
+        .await
+        .unwrap();
+    let mut tx = store
+        .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert!(matches!(
+        tx.billing_meta().await,
+        Err(crate::store::errors::StoreError::BillingUpgradeRequired)
+    ));
+    tx.rollback().await.unwrap();
+    store.close().await;
+
+    assert_eq!(
+        BillingLedger::upgrade(&path).await.unwrap(),
+        serde_json::json!({"status":"upgraded","from_schema":10,"to_schema":11})
     );
     let ledger = BillingLedger::open(&path).await.unwrap();
     ledger.close().await;
@@ -661,10 +693,12 @@ async fn stale_schema9_retry_revalidates_concurrent_schema10_upgrade() {
         upgrade_billing(&data, &seed).await,
         Ok(UpgradeResult::AlreadyCurrent)
     );
-    assert_eq!(
-        BillingLedger::confirm_already_current(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
-    );
+    assert!(matches!(
+        BillingLedger::confirm_already_current(&path).await,
+        Err(crate::local::LocalError::Service(
+            crate::ServiceError::Rejection(code)
+        )) if code == "BILLING_M5_SCHEMA_REQUIRED"
+    ));
 
     // Migration-layer reconciliation can still return AlreadyCurrent for a
     // damaged M3 meter. The public result path must fully open and validate it.
@@ -1131,8 +1165,10 @@ async fn billing_upgrade_preserves_original_bytes_and_reconciles_unknown_commit(
         );
         assert_eq!(before, old_rows(&mut conn).await);
         conn.close().await.unwrap();
-        let store = super::super::SqliteStore::open(dir.path()).await.unwrap();
-        store.close().await;
+        assert!(matches!(
+            super::super::SqliteStore::open(dir.path()).await,
+            Err(crate::store::errors::StoreError::BillingM5SchemaRequired)
+        ));
     }
 }
 

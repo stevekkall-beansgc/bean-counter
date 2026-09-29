@@ -1,10 +1,6 @@
 use super::*;
-use crate::store::{
-    ports::{AcceptanceStore, AcceptanceTx},
-    records::{Installation, Scope, WriteOp},
-};
+use crate::store::records::{Installation, Scope, WriteOp};
 use sqlx::{Connection, SqliteConnection};
-use std::time::Duration;
 
 async fn schema10() -> (tempfile::TempDir, String, Vec<u8>) {
     let dir = tempfile::tempdir().unwrap();
@@ -36,25 +32,32 @@ async fn schema10() -> (tempfile::TempDir, String, Vec<u8>) {
     .await
     .unwrap();
     conn.close().await.unwrap();
-    let store = super::super::SqliteStore::open(dir.path()).await.unwrap();
-    let mut tx = store
-        .begin(tokio::time::Instant::now() + Duration::from_secs(5))
+    // Build an authentic schema-10 source fixture directly. Product writes are
+    // intentionally gated at this version, so setup helpers cannot be used.
+    let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query("INSERT INTO billing_setup(singleton,canonical_bytes) VALUES(1,?)")
+        .bind(&bytes)
+        .execute(&mut conn)
         .await
         .unwrap();
-    tx.billing_setup(&bytes).await.unwrap();
-    tx.billing_m2_initialize(super::super::BillingM2Initialization {
-        customer: &setup.customer,
-        tenant: setup.scope.tenant(),
-        environment: setup.scope.environment(),
-        source: &setup.source,
-        agreement_id: &setup.agreement,
-        accepted_at_us: setup.accepted_at.micros(),
-        setup: &bytes,
-    })
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
-    store.close().await;
+    sqlx::query("INSERT INTO billing_customers(customer,tenant,environment) VALUES(?,?,?)")
+        .bind(&setup.customer)
+        .bind(setup.scope.tenant())
+        .bind(setup.scope.environment())
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO billing_agreements(customer,source,revision,agreement_id,agreement_version,transition,effective_at_us,recorded_at_us,setup_bytes) VALUES(?,?,1,?,1,'start',?,?,?)")
+        .bind(&setup.customer)
+        .bind(&setup.source)
+        .bind(&setup.agreement)
+        .bind(setup.accepted_at.micros())
+        .bind(setup.accepted_at.micros())
+        .bind(&bytes)
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    conn.close().await.unwrap();
     (dir, setup.store_id, bytes)
 }
 

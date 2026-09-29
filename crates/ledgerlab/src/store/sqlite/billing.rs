@@ -143,6 +143,13 @@ type AgreementRow = (
 type ControlRow = (String, String, String, String, Vec<u8>, Vec<u8>, i64);
 
 impl SqliteTx {
+    pub(crate) async fn billing_schema_version(&mut self) -> Result<i64, StoreError> {
+        sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(self.conn())
+            .await
+            .map_err(StoreError::from)
+    }
+
     pub(crate) async fn billing_m2_initialize(
         &mut self,
         initialization: BillingM2Initialization<'_>,
@@ -161,6 +168,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m5_billing_schema().await?;
             let counts: (i64, i64) = sqlx::query_as(
                 "SELECT (SELECT count(*) FROM billing_customers),(SELECT count(*) FROM billing_agreements)",
             )
@@ -200,6 +208,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result=timeout_at(self.deadline,async {
+            self.require_m5_billing_schema().await?;
             let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM billing_setup)+(SELECT count(*) FROM events)+(SELECT count(*) FROM outcome_records)+(SELECT count(*) FROM r3_commit_witness)").fetch_one(self.conn()).await?;
             if count!=0 || setup.len()>65536 {return Err(StoreError::InvalidStore("billing installation is not empty"));}
             sqlx::query("INSERT INTO billing_setup VALUES(1,?)").bind(setup).execute(self.conn()).await?;
@@ -211,10 +220,16 @@ impl SqliteTx {
         result
     }
     async fn require_m3_billing_schema(&mut self) -> Result<(), StoreError> {
-        let version: i64 = sqlx::query_scalar("PRAGMA user_version")
-            .fetch_one(self.conn())
-            .await?;
+        let version = self.billing_schema_version().await?;
         if version != 10 && version != 11 {
+            return Err(StoreError::BillingUpgradeRequired);
+        }
+        Ok(())
+    }
+
+    async fn require_m5_billing_schema(&mut self) -> Result<(), StoreError> {
+        let version = self.billing_schema_version().await?;
+        if version != 11 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -228,7 +243,6 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
         match version {
-            10 => Ok(()),
             11 => {
                 super::m5::append_boundary(self.conn()).await?;
                 Ok(())
@@ -289,7 +303,7 @@ impl SqliteTx {
         let failed = self.failed;
         self.failed = true;
         let result = timeout_at(self.deadline, async {
-            self.require_m3_billing_schema().await?;
+            self.require_m5_billing_schema().await?;
             let setup: Vec<u8> =
                 sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup WHERE singleton=1")
                     .fetch_one(self.conn())
@@ -725,10 +739,27 @@ impl SqliteTx {
     }
 
     pub(crate) async fn billing_snapshot(&mut self) -> Result<BillingSnapshot, StoreError> {
+        self.billing_snapshot_inner(false).await
+    }
+
+    pub(crate) async fn billing_snapshot_for_upgrade(
+        &mut self,
+    ) -> Result<BillingSnapshot, StoreError> {
+        self.billing_snapshot_inner(true).await
+    }
+
+    async fn billing_snapshot_inner(
+        &mut self,
+        allow_schema10: bool,
+    ) -> Result<BillingSnapshot, StoreError> {
         let failed = self.failed;
         self.failed = true;
         let result=timeout_at(self.deadline,async {
-            self.require_m3_billing_schema().await?;
+            if allow_schema10 {
+                self.require_m3_billing_schema().await?;
+            } else {
+                self.require_m5_billing_schema().await?;
+            }
             let setup:Vec<u8>=sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup WHERE singleton=1").fetch_one(self.conn()).await?;
             let (entry_count, alias_count, _, _, _, clock, _) = self.billing_bounds().await?;
             let (permissions, scoped_permission_rows) = self.billing_rights().await?;
@@ -826,6 +857,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m5_billing_schema().await?;
             let (legacy, current): (i64, i64) = sqlx::query_as(
                 "SELECT (SELECT count(*) FROM billing_permissions),(SELECT count(*) FROM billing_m2_permissions)",
             )
@@ -870,6 +902,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m5_billing_schema().await?;
             if let Some((tenant, environment)) = &plan.new_customer_scope {
                 sqlx::query("INSERT INTO billing_customers(customer,tenant,environment) VALUES(?,?,?)")
                     .bind(&plan.customer)
@@ -933,7 +966,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
-            self.require_m3_billing_schema().await?;
+            self.require_m5_billing_schema().await?;
             let customer = plan
                 .customer()
                 .ok_or(StoreError::InvalidStore("M3 billing customer"))?;

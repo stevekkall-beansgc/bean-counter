@@ -43,6 +43,8 @@ Resolve a nonexistent local boundary to the first valid instant after the gap; f
 
 Keep a separately versioned organization-level definition. Proposed supported forms are Gregorian month/quarter/year calendars with configurable fiscal-year start and week start, plus bounded explicit period patterns for month-style or 4-4-5/4-5-4/5-4-4 reporting. A custom week pattern must declare its week start, period lengths, 52/53-week rule, and where an extra week goes. The same validated date engine can calculate both customer billing periods and fiscal periods, but definitions, versions, and outputs remain separate.
 
+Owner-approved default (2026-09-29): a February 29 week-pattern year-end anchor resolves to February 28 in non-leap years before weekday alignment, following the existing Gregorian clamp rule. This fixes the behavior of an already supported configuration; it does not add a calendar form.
+
 Every report run pins the fiscal-calendar version and a complete accepted-ledger snapshot. Changing the current calendar cannot mutate an issued run or a closed customer statement. Historical re-runs use the explicitly selected retained version and snapshot; no report silently adopts a newer calendar definition.
 
 ### Agreement recurrence and stable occurrences

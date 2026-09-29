@@ -169,7 +169,9 @@ impl CalendarTerm {
         let year = i32::try_from(total.div_euclid(12)).map_err(|_| CalendarError::OutOfRange)?;
         let month = (total.rem_euclid(12) + 1) as u32;
         let target_last = last_day(year, month).ok_or(CalendarError::OutOfRange)?;
-        let day = if self.month_end_rule == MonthEndRule::ExplicitEndOfMonth {
+        let day = if self.alignment == Alignment::Anchored
+            && self.month_end_rule == MonthEndRule::ExplicitEndOfMonth
+        {
             target_last
         } else {
             anchor.day().min(target_last)
@@ -434,6 +436,39 @@ mod tests {
         assert_eq!(
             t.scheduled_local(0).unwrap().to_string(),
             "2025-02-01 00:00:00"
+        );
+    }
+
+    #[test]
+    fn calendar_alignment_keeps_natural_month_and_year_boundaries_with_eom_rule() {
+        let monthly = term(
+            CalendarUnit::Month,
+            Alignment::CalendarAligned,
+            "2025-01-31 14:00:00",
+            "2025-01-31T00:00:00Z",
+            "UTC",
+            MonthEndRule::ExplicitEndOfMonth,
+        );
+        assert_eq!(
+            monthly.scheduled_local(0).unwrap().to_string(),
+            "2025-02-01 00:00:00"
+        );
+        assert_eq!(
+            monthly.scheduled_local(1).unwrap().to_string(),
+            "2025-03-01 00:00:00"
+        );
+
+        let yearly = term(
+            CalendarUnit::Year,
+            Alignment::CalendarAligned,
+            "2025-01-31 14:00:00",
+            "2025-01-31T00:00:00Z",
+            "UTC",
+            MonthEndRule::ExplicitEndOfMonth,
+        );
+        assert_eq!(
+            yearly.scheduled_local(0).unwrap().to_string(),
+            "2026-01-01 00:00:00"
         );
     }
     #[test]

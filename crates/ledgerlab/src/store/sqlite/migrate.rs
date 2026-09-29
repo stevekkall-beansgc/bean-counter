@@ -490,7 +490,7 @@ pub(crate) async fn preflight_m5(
     expected_id: &str,
 ) -> Result<M5UpgradeSeed, crate::maintenance::UpgradeError> {
     use crate::store::ports::{AcceptanceStore, AcceptanceTx};
-    let store = super::SqliteStore::open(path).await?;
+    let store = super::SqliteStore::open_for_upgrade(path).await?;
     let result = async {
         let mut tx = store
             .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(30))
@@ -509,7 +509,9 @@ pub(crate) async fn preflight_m5(
         {
             return Err(crate::maintenance::UpgradeError::Refused);
         }
-        let snapshot = tx.billing_snapshot().await?;
+        // Upgrade preflight is the only ordinary-looking read allowed to
+        // validate schema 10; the public billing snapshot requires schema 11.
+        let snapshot = tx.billing_snapshot_for_upgrade().await?;
         crate::service::billing::validate_snapshot(&snapshot)
             .map_err(|_| crate::maintenance::UpgradeError::Refused)?;
         if source_version == 11 {

@@ -17,6 +17,8 @@ pub(crate) enum StoreError {
     BillingPeriod,
     /// Billing commands require an explicit schema migration before access.
     BillingUpgradeRequired,
+    /// Schema-10 installations are read-only until the explicit M5 migration.
+    BillingM5SchemaRequired,
     Deadline,
     InvalidStore(&'static str),
     Integrity(&'static str),

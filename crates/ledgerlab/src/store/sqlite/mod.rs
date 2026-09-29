@@ -123,21 +123,40 @@ impl SqliteStore {
             fence.initialize(&mut conn).await?;
         }
         conn.close().await?;
-        Self::from_owner(owner).await
+        Self::from_owner(owner, false).await
     }
     pub async fn open(path: &Path) -> Result<Self, StoreError> {
-        Self::from_owner(Arc::new(owner::Owner::acquire(path)?)).await
+        Self::from_owner(Arc::new(owner::Owner::acquire(path)?), false).await
+    }
+    pub(crate) async fn open_for_upgrade(path: &Path) -> Result<Self, StoreError> {
+        Self::from_owner(Arc::new(owner::Owner::acquire(path)?), true).await
     }
     pub(crate) async fn open_fenced(path: &Path, anchor: &Path) -> Result<Self, StoreError> {
         let mut owner = owner::Owner::acquire(path)?;
         owner.fence = Some(Arc::new(fence::Fence::acquire(anchor, path)?));
-        Self::from_owner(Arc::new(owner)).await
+        Self::from_owner(Arc::new(owner), false).await
     }
-    async fn from_owner(owner: Arc<owner::Owner>) -> Result<Self, StoreError> {
+    async fn from_owner(
+        owner: Arc<owner::Owner>,
+        allow_billing_schema10: bool,
+    ) -> Result<Self, StoreError> {
         let mut conn = connect::initial(&owner).await?;
         owner.verify_path()?;
         let diagnostics = connect::verify(&mut conn, false).await?;
         migrate::verify(&mut conn).await?;
+        let schema_version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(&mut conn)
+            .await?;
+        if schema_version == 10 && !allow_billing_schema10 {
+            let has_billing_setup: i64 =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_setup WHERE singleton=1)")
+                    .fetch_one(&mut conn)
+                    .await?;
+            if has_billing_setup != 0 {
+                conn.close().await?;
+                return Err(StoreError::BillingM5SchemaRequired);
+            }
+        }
         connect::integrity(&mut conn).await?;
         read::installation(&mut conn).await?;
         if let Some(fence) = &owner.fence {
@@ -213,7 +232,7 @@ impl SqliteStore {
     /// real database contention; normal construction still has one writer pool.
     #[cfg(test)]
     pub(crate) async fn test_contender(&self) -> Result<Self, StoreError> {
-        Self::from_owner(self.inner._owner.clone()).await
+        Self::from_owner(self.inner._owner.clone(), false).await
     }
     #[cfg(test)]
     pub(crate) async fn test_write_locked(&self, path: &Path) -> Result<bool, StoreError> {

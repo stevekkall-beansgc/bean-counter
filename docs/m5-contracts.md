@@ -1,6 +1,6 @@
 # M5 CLI and storage contracts
 
-**Status (2026-09-29): Package 3 frozen after independent Sol and Astra reviews; not implemented.** The [billing roadmap](billing-roadmap.md) is canonical, the [decision register](m5-decision-register.md) records owner policy, and the [architecture baseline](m5-architecture.md) defines the system boundaries. This frozen contract specifies versioned M5 inputs, outputs, identity scope, exact period allocation, migration, and failure semantics. It does not amend `ledger-canonical-v1`.
+**Status (2026-09-29): Package 3 frozen after independent Sol and Astra reviews; implementation is underway, with initial term activation and pure billing/fiscal calendar calculations integrated. No M5 release profile is qualified.** The [billing roadmap](billing-roadmap.md) is canonical, the [decision register](m5-decision-register.md) records owner policy, and the [architecture baseline](m5-architecture.md) defines the system boundaries. This frozen contract specifies versioned M5 inputs, outputs, identity scope, exact period allocation, migration, and failure semantics. It does not amend `ledger-canonical-v1`.
 
 ## 1. Command families
 
@@ -64,7 +64,7 @@ Initial activation requires explicit `effective.mode=initial` and caller-supplie
 - `gregorian_years`: fiscal-year start month/day;
 - `week_pattern`: a fiscal-year end month/day, one of 4-4-5, 4-5-4, or 5-4-4, week-ending weekday, whether fiscal year end is the nearest or last matching weekday, and the period receiving an extra week when the resolved year has 53 weeks. These fields deterministically produce 52- or 53-week years; the extra week is assigned to the declared period.
 
-The active revision is installation-wide. For `week_pattern`, anchor the fiscal year by the declared month/day; select the nearest or last declared week-ending weekday as the fiscal-year end. The next fiscal year starts the following day. A resulting year has 52 or 53 complete weeks; in a 53-week year append the extra week to the declared period. Changing the active revision never changes customer billing terms or an already issued report.
+The active revision is installation-wide. For `week_pattern`, anchor the fiscal year by the declared month/day; a February 29 anchor is clamped to February 28 in non-leap years before weekday alignment, matching the existing Gregorian-calendar rule. Then select the nearest or last declared week-ending weekday as the fiscal-year end. The next fiscal year starts the following day. A resulting year has 52 or 53 complete weeks; in a 53-week year append the extra week to the declared period. Changing the active revision never changes customer billing terms or an already issued report.
 
 ### Cumulative agreement basis and activity
 

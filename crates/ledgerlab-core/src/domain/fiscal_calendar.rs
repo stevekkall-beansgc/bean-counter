@@ -2,7 +2,7 @@
 use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc, Weekday as CWeekday};
 use serde::{Deserialize, Serialize};
 
-use super::calendar::{resolve_timezone_local, CalendarError, IANA_TZDB_VERSION};
+use super::calendar::{pinned_timezone_rules_match, resolve_timezone_local, CalendarError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -120,7 +120,7 @@ pub struct FiscalPeriod {
 
 impl FiscalCalendarConfig {
     pub fn validate(&self) -> Result<(), CalendarError> {
-        if self.timezone_rules_version != IANA_TZDB_VERSION {
+        if !pinned_timezone_rules_match(&self.timezone_rules_version) {
             return Err(CalendarError::UnsupportedTimezoneRules);
         }
         let _: chrono_tz::Tz = self
@@ -274,18 +274,22 @@ impl FiscalCalendarConfig {
                 week_end_alignment,
                 ..
             } => {
-                let anchor = date(d.year(), *fiscal_year_end_month, *fiscal_year_end_day)?;
+                // Match Gregorian fiscal calendars: a February-29 anchor
+                // resolves to February 28 in non-leap years before weekday
+                // alignment is applied.
+                let anchor = date_clamped(d.year(), *fiscal_year_end_month, *fiscal_year_end_day)?;
                 let end = aligned_end(anchor, *week_end_day, *week_end_alignment)?;
                 let (s, e) = if d > end {
                     let next_anchor =
-                        date(d.year() + 1, *fiscal_year_end_month, *fiscal_year_end_day)?;
+                        date_clamped(d.year() + 1, *fiscal_year_end_month, *fiscal_year_end_day)?;
                     (
                         end + Duration::days(1),
                         aligned_end(next_anchor, *week_end_day, *week_end_alignment)?
                             + Duration::days(1),
                     )
                 } else {
-                    let prior = date(d.year() - 1, *fiscal_year_end_month, *fiscal_year_end_day)?;
+                    let prior =
+                        date_clamped(d.year() - 1, *fiscal_year_end_month, *fiscal_year_end_day)?;
                     let prior_end = aligned_end(prior, *week_end_day, *week_end_alignment)?;
                     (prior_end + Duration::days(1), end + Duration::days(1))
                 };
@@ -380,6 +384,7 @@ fn aligned_end(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::calendar::IANA_TZDB_VERSION;
     fn instant(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
@@ -473,6 +478,30 @@ mod tests {
             .period_for(instant("2025-02-27T12:00:00Z"))
             .unwrap();
         assert_eq!(quarter.end, instant("2025-02-28T05:00:00Z"));
+    }
+
+    #[test]
+    fn leap_day_week_pattern_anchor_clamps_in_nonleap_years() {
+        let calendar = cfg(FiscalCalendar::WeekPattern {
+            fiscal_year_end_month: 2,
+            fiscal_year_end_day: 29,
+            pattern: WeekPattern::FourFourFive,
+            week_end_day: FiscalWeekday::Saturday,
+            week_end_alignment: WeekAlignment::Last,
+            extra_week_period: 12,
+        });
+        let (start, end, _) = calendar
+            .fiscal_year_bounds(NaiveDate::from_ymd_opt(2024, 2, 20).unwrap())
+            .unwrap();
+        assert_eq!(start.to_string(), "2023-02-26");
+        assert_eq!(end.to_string(), "2024-02-25");
+
+        let (next_start, next_end, _) = calendar
+            .fiscal_year_bounds(NaiveDate::from_ymd_opt(2024, 2, 25).unwrap())
+            .unwrap();
+        assert_eq!(next_start, end);
+        assert_eq!(next_end.to_string(), "2025-02-23");
+        assert!(calendar.period_for(instant("2025-02-22T17:00:00Z")).is_ok());
     }
 
     #[test]

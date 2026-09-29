@@ -1,7 +1,7 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
 use std::io::{self, IsTerminal, Write};
-pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit schema-8/9 to schema-10 upgrade\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nCustomer/source are explicit on every write. Billing output is JSON; no payment or tax invoice.\n";
+pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema\n  billing [--directory DIR] term set FILE|-  Set a customer's initial billing term\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nWork writes require an explicit customer and source. Billing output is JSON; no payment or tax invoice.\n";
 pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     if a.config != Path::new("ledger.json") {
         return Ok(error(
@@ -155,6 +155,7 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             .map(|value| (value, 0));
     }
     let input_file = match args.as_slice() {
+        ["term", "set", file] => Some(*file),
         ["accept" | "outcome" | "correct", "--customer", _, "--source", _, file]
         | ["agreement", "--customer", _, "--source", _, file]
         | ["permissions", "--customer", _, "--source", _, file] => Some(*file),
@@ -172,14 +173,16 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     };
     if !matches!(
         args.as_slice(),
-        [
-            "accept" | "outcome" | "correct",
-            "--customer",
-            _,
-            "--source",
-            _,
-            _
-        ] | ["agreement", "--customer", _, "--source", _, _]
+        ["term", "set", _]
+            | [
+                "accept" | "outcome" | "correct",
+                "--customer",
+                _,
+                "--source",
+                _,
+                _
+            ]
+            | ["agreement", "--customer", _, "--source", _, _]
             | ["permissions", "--customer", _, "--source", _]
             | ["permissions", "--customer", _, "--source", _, _]
             | ["explain", "--customer", _, _]
@@ -222,6 +225,7 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         });
     }
     let result = match args.as_slice() {
+        ["term", "set", _] => ledger.term_set(input.as_ref().unwrap()).await,
         ["permissions", "--customer", customer, "--source", source] => {
             ledger.permission_status(customer, source).await
         }

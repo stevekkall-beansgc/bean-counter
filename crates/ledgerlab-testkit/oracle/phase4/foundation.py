@@ -18,6 +18,18 @@ R3_SQLITE = {
 R3_POSTGRES = (R3_SQLITE - {'r3_commit_witness'}) | {'r3_scope_locks', 'r3_unresolved_work'}
 R3_POSTGRES_V6 = R3_POSTGRES | {'r3_commit_witness'}
 
+M5_SQLITE = {
+    'billing_m5_state', 'billing_m5_commands', 'billing_m5_records',
+    'billing_m5_activity_semantics', 'billing_m5_activity_deliveries',
+    'billing_m5_snapshot_boundaries', 'billing_m5_term_versions',
+    'billing_m5_fiscal_versions', 'billing_m5_cumulative_basis_versions',
+    'billing_m5_recurrence_versions', 'billing_m5_recurrence_cancellations',
+    'billing_m5_occurrence_acceptances', 'billing_m5_period_resolutions',
+    'billing_m5_assignments', 'billing_m5_adjustments',
+    'billing_m5_period_closes', 'billing_m5_presentation_claims',
+    'billing_m5_fiscal_reports',
+}
+
 
 def stable(value):
     return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(',', ':'), allow_nan=False)
@@ -41,7 +53,7 @@ def inventory(snapshot, backend):
         assert tables['user_version']['columns'] == ['value']
         version = tables['user_version']['rows']
         assert len(version) == 1 and re.fullmatch(r'0|[1-9][0-9]*',version[0])
-        assert version in (['4'], ['5'], ['6'], ['7'], ['8'], ['9'], ['10']), 'unsupported SQLite inventory version'
+        assert version in (['4'], ['5'], ['6'], ['7'], ['8'], ['9'], ['10'], ['11']), 'unsupported SQLite inventory version'
         application = COMMON | (R3_SQLITE if version != ['4'] else set())
         if int(version[0]) >= 7:
             application |= {'billing_setup', 'billing_entries'}
@@ -57,6 +69,8 @@ def inventory(snapshot, backend):
                 'billing_m3_bounds', 'billing_m3_aliases', 'billing_m3_index',
                 'billing_m3_entries', 'billing_m3_upgrade',
             }
+        if int(version[0]) >= 11:
+            application |= M5_SQLITE
         assert set(tables) in (application | {'sqlite_schema','user_version'}, application | {'sqlite_schema','user_version','_sqlx_migrations'})
     else:
         assert type(snapshot) is dict and 'migration_history' in snapshot

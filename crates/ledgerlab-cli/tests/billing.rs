@@ -16,6 +16,94 @@ fn run(root: &Path, args: &[&str], expected: i32) -> Value {
     );
     serde_json::from_slice(&out.stdout).unwrap()
 }
+
+#[test]
+fn customer_term_command_uses_exact_retry_identity() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    let setup = include_bytes!("../../../examples/billing/setup.json");
+    fs::write(root.join("setup.json"), setup).unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+
+    let term = json!({
+        "schema":"ledger-billing-term/1",
+        "customer":"customer-1",
+        "change_id":"term-change-1",
+        "expected_revision":"0",
+        "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+        "term":{
+            "interval":1,
+            "unit":"month",
+            "alignment":"anchored",
+            "anchor":{"date":"2026-09-01","time":"00:00:00"},
+            "timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp",
+            "boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b",
+            "proration":"none"
+        }
+    });
+    fs::write(root.join("term.json"), serde_json::to_vec(&term).unwrap()).unwrap();
+    let result = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "term",
+            "set",
+            "term.json",
+        ],
+        0,
+    );
+    assert_eq!(result["status"], "term_updated");
+    assert_eq!(result["revision"], "1");
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "term",
+                "set",
+                "term.json",
+            ],
+            0,
+        ),
+        result
+    );
+
+    let mut changed = term;
+    changed["term"]["interval"] = json!(2);
+    fs::write(
+        root.join("term.json"),
+        serde_json::to_vec(&changed).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "term",
+                "set",
+                "term.json",
+            ],
+            4,
+        )["code"],
+        "IDENTITY_CONFLICT"
+    );
+}
+
 #[test]
 fn configured_billing_cli_reopen_retry_statement_and_refusals() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");

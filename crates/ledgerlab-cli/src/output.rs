@@ -120,7 +120,7 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
             if code == "BILLING_UPGRADE_OUTCOME_UNKNOWN" =>
         {
             (
-                json!({"status":"outcome_unknown","code":code,"message":"Upgrade may have committed. Reopen the installation; schema 10 means it is current. If it remains at schema 8 or 9, retry the same upgrade command."}),
+                json!({"status":"outcome_unknown","code":code,"message":"Upgrade may have committed. Reopen the installation; schema 11 means it is current. If it remains at schema 8, 9, or 10, retry the same upgrade command."}),
                 8,
             )
         }
@@ -137,7 +137,9 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
         {
             super::error(&code, "retained M5 data failed verification", 9)
         }
-        LocalError::Service(ServiceError::Rejection(code)) if code == "BILLING_UPGRADE_REQUIRED" => {
+        LocalError::Service(ServiceError::Rejection(code))
+            if code == "BILLING_UPGRADE_REQUIRED" || code == "BILLING_M5_SCHEMA_REQUIRED" =>
+        {
             super::error(
                 &code,
                 "this billing installation needs an explicit schema upgrade; run `ledger billing upgrade`",
@@ -338,7 +340,7 @@ mod tests {
         assert_eq!(v["status"], "outcome_unknown");
         assert_eq!(
             v["message"],
-            "Upgrade may have committed. Reopen the installation; schema 10 means it is current. If it remains at schema 8 or 9, retry the same upgrade command."
+            "Upgrade may have committed. Reopen the installation; schema 11 means it is current. If it remains at schema 8, 9, or 10, retry the same upgrade command."
         );
     }
 
@@ -362,15 +364,15 @@ mod tests {
     }
 
     #[test]
-    fn required_billing_upgrade_is_not_reported_as_integrity_failure() {
-        let (v, c) = local_error(LocalError::Service(ServiceError::Rejection(
-            "BILLING_UPGRADE_REQUIRED".into(),
-        )));
-        assert_eq!(c, 3);
-        assert_eq!(v["code"], "BILLING_UPGRADE_REQUIRED");
-        assert_eq!(
-            v["message"],
-            "this billing installation needs an explicit schema upgrade; run `ledger billing upgrade`"
-        );
+    fn required_billing_upgrades_are_not_reported_as_integrity_failures() {
+        for code in ["BILLING_UPGRADE_REQUIRED", "BILLING_M5_SCHEMA_REQUIRED"] {
+            let (v, c) = local_error(LocalError::Service(ServiceError::Rejection(code.into())));
+            assert_eq!(c, 3);
+            assert_eq!(v["code"], code);
+            assert_eq!(
+                v["message"],
+                "this billing installation needs an explicit schema upgrade; run `ledger billing upgrade`"
+            );
+        }
     }
 }

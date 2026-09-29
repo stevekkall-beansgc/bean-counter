@@ -138,6 +138,14 @@ impl BillingLedger {
         result
     }
     pub async fn open(path: &Path) -> local::Result<Self> {
+        Self::open_inner(path, false).await
+    }
+
+    async fn open_for_upgrade(path: &Path) -> local::Result<Self> {
+        Self::open_inner(path, true).await
+    }
+
+    async fn open_inner(path: &Path, allow_schema10: bool) -> local::Result<Self> {
         let path = local::normalize_path(path)?;
         local::private_existing(&path, true)?;
         let raw = local::read_file(&path.join("billing.json"), local::CONFIG_LIMIT)?;
@@ -151,14 +159,28 @@ impl BillingLedger {
         let data = path.join(".ledger");
         local::private_existing(&data, true)?;
         local::private_existing(&data.join("local.db"), false)?;
-        let store = SqliteStore::open(&data).await.map_err(store_error)?;
+        let store = if allow_schema10 {
+            SqliteStore::open_for_upgrade(&data).await
+        } else {
+            SqliteStore::open(&data).await
+        }
+        .map_err(store_error)?;
         let result = async {
             let mut tx = store
                 .begin(Instant::now() + Duration::from_secs(5))
                 .await
                 .map_err(store_error)?;
             let installation = tx.load_installation().await.map_err(store_error)?;
-            let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
+            let schema_version = tx.billing_schema_version().await.map_err(store_error)?;
+            if schema_version == 10 && !allow_schema10 {
+                return Err(service::reject("BILLING_M5_SCHEMA_REQUIRED"));
+            }
+            let snapshot = if allow_schema10 {
+                tx.billing_snapshot_for_upgrade().await
+            } else {
+                tx.billing_snapshot().await
+            }
+            .map_err(store_error)?;
             service::validate_snapshot(&snapshot)?;
             let setup = service::Setup::parse(&snapshot.setup)?;
             service::require(
@@ -202,10 +224,9 @@ impl BillingLedger {
         local::private_existing(&data, true)?;
         local::private_existing(&data.join("local.db"), false)?;
 
-        // A fully validated schema-11 open proves an earlier M5 upgrade
-        // committed. A schema-10 open is valid M3 state but still needs the
-        // explicit M5 transition.
-        let open_error = match Self::open(&path).await {
+        // This private path validates schema-10 state for the explicit upgrade
+        // command. Ordinary opens and writes require schema 11.
+        let open_error = match Self::open_for_upgrade(&path).await {
             Ok(ledger) => {
                 ledger.close().await;
                 let store_id = config["store_id"]
@@ -341,7 +362,7 @@ impl BillingLedger {
     /// earlier M2/M3 or M5 upgrade is current. The storage migration's
     /// structural reconciliation alone does not validate billing invariants.
     pub(crate) async fn confirm_already_current(path: &Path) -> local::Result<Value> {
-        let ledger = Self::open(path).await?;
+        let ledger = Self::open_for_upgrade(path).await?;
         ledger.close().await;
         let data = path.join(".ledger");
         let raw = local::read_file(&path.join("billing.json"), local::CONFIG_LIMIT)?;
@@ -361,7 +382,7 @@ impl BillingLedger {
         if seed.source_version == 11 {
             Ok(json!({"status":"already_current","from_schema":11,"to_schema":11}))
         } else {
-            Ok(json!({"status":"already_current","from_schema":10,"to_schema":10}))
+            Err(service::reject("BILLING_M5_SCHEMA_REQUIRED").into())
         }
     }
     pub async fn permission_status(&self, customer: &str, source: &str) -> local::Result<Value> {
