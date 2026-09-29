@@ -69,14 +69,22 @@ pub enum FiscalCalendar {
     GregorianMonths {
         fiscal_year_start_month: u8,
         fiscal_year_start_day: u8,
-        #[serde(default)]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_week_start"
+        )]
         week_start: Option<FiscalWeekday>,
     },
     #[serde(rename = "gregorian_quarters")]
     GregorianQuarters {
         fiscal_year_start_month: u8,
         fiscal_year_start_day: u8,
-        #[serde(default)]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "deserialize_week_start"
+        )]
         week_start: Option<FiscalWeekday>,
     },
     #[serde(rename = "gregorian_years")]
@@ -163,7 +171,11 @@ impl FiscalCalendarConfig {
             0 => {
                 let mut s = fy_start;
                 for n in 0..12 {
-                    let e = month_step(s, 1, fy_start.day())?;
+                    let e = if n == 11 {
+                        fy_end_exclusive
+                    } else {
+                        month_step(s, 1, fy_start.day())?
+                    };
                     if local >= s && local < e {
                         return self.result(fy_start.year(), n + 1, s, e, None);
                     }
@@ -174,7 +186,11 @@ impl FiscalCalendarConfig {
             1 => {
                 let mut s = fy_start;
                 for n in 0..4 {
-                    let e = month_step(s, 3, fy_start.day())?;
+                    let e = if n == 3 {
+                        fy_end_exclusive
+                    } else {
+                        month_step(s, 3, fy_start.day())?
+                    };
                     if local >= s && local < e {
                         return self.result(fy_start.year(), n + 1, s, e, None);
                     }
@@ -308,6 +324,13 @@ impl FiscalCalendarConfig {
         })
     }
 }
+fn deserialize_week_start<'de, D>(deserializer: D) -> Result<Option<FiscalWeekday>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    FiscalWeekday::deserialize(deserializer).map(Some)
+}
+
 fn date(y: i32, m: u8, d: u8) -> Result<NaiveDate, CalendarError> {
     NaiveDate::from_ymd_opt(y, m as u32, d as u32).ok_or(CalendarError::OutOfRange)
 }
@@ -344,7 +367,12 @@ fn aligned_end(
                 anchor - Duration::days(7 - delta)
             }
         }
-        WeekAlignment::Last => anchor + Duration::days(delta),
+        WeekAlignment::Last => {
+            let days_since = (anchor.weekday().num_days_from_monday() as i64
+                - day.chrono().num_days_from_monday() as i64)
+                .rem_euclid(7);
+            anchor - Duration::days(days_since)
+        }
     };
     Ok(d)
 }
@@ -402,6 +430,51 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn optional_week_start_omits_none_and_rejects_null() {
+        let calendar = FiscalCalendar::GregorianMonths {
+            fiscal_year_start_month: 1,
+            fiscal_year_start_day: 1,
+            week_start: None,
+        };
+        let value = serde_json::to_value(&calendar).unwrap();
+        assert!(value.get("week_start").is_none());
+        let null = serde_json::json!({"kind":"gregorian_months","fiscal_year_start_month":1,"fiscal_year_start_day":1,"week_start":null});
+        assert!(serde_json::from_value::<FiscalCalendar>(null).is_err());
+    }
+
+    #[test]
+    fn last_weekday_alignment_is_on_or_before_anchor() {
+        let anchor = NaiveDate::from_ymd_opt(2025, 1, 31).unwrap();
+        let end = aligned_end(anchor, FiscalWeekday::Saturday, WeekAlignment::Last).unwrap();
+        assert_eq!(end, NaiveDate::from_ymd_opt(2025, 1, 25).unwrap());
+        assert!(end <= anchor);
+    }
+
+    #[test]
+    fn leap_day_months_and_quarters_end_on_fiscal_year_boundary() {
+        let months = cfg(FiscalCalendar::GregorianMonths {
+            fiscal_year_start_month: 2,
+            fiscal_year_start_day: 29,
+            week_start: None,
+        });
+        let month = months.period_for(instant("2025-02-27T12:00:00Z")).unwrap();
+        assert_eq!(month.end, instant("2025-02-28T05:00:00Z"));
+        let at_boundary = months.period_for(instant("2025-02-28T05:00:00Z")).unwrap();
+        assert_eq!(at_boundary.start, month.end);
+        assert_eq!(at_boundary.fiscal_year, 2025);
+
+        let quarters = cfg(FiscalCalendar::GregorianQuarters {
+            fiscal_year_start_month: 2,
+            fiscal_year_start_day: 29,
+            week_start: None,
+        });
+        let quarter = quarters
+            .period_for(instant("2025-02-27T12:00:00Z"))
+            .unwrap();
+        assert_eq!(quarter.end, instant("2025-02-28T05:00:00Z"));
+    }
+
     #[test]
     fn frozen_445_53_week_vector() {
         let c = cfg(FiscalCalendar::WeekPattern {
