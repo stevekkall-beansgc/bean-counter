@@ -1,6 +1,6 @@
 # M5 execution plan: billing lifecycle
 
-**Status (2026-09-29): Package 0 decision-register proposal prepared for owner review; implementation has not started.** The [billing roadmap](billing-roadmap.md) is the product-scope source of truth. The [M5 decision register](m5-decision-register.md) distinguishes owner-approved direction from proposed technical defaults and explicit owner gates. This document expands M5 into execution packages, acceptance evidence, and remaining policy gates. M5 is scoped to the provider-free, one-business-per-installation, local billing profile.
+**Status (2026-09-29): Package 0 complete, including statement balance presentation. Package 3 architecture/contract design is in review; product implementation has not started.** The [billing roadmap](billing-roadmap.md) is the product-scope source of truth. The [M5 decision register](m5-decision-register.md) records owner-approved defaults. The [M5 architecture proposal](m5-architecture.md) translates them into contracts and identifies two remaining pre-implementation choices. This document expands M5 into execution packages, acceptance evidence, and remaining contract work. M5 is scoped to the provider-free, one-business-per-installation, local billing profile.
 
 ## M5 objective
 
@@ -38,7 +38,7 @@ Personas describe scoped work roles; they are not persistent processes or model 
 | 0 | Freeze the M5 decision register, supported-term proposal, per-package acceptance criteria, and stop conditions. Product/economic policy remains owner-approved. | **PINTO · OpenAI Luna** drafts the bounded package and decision record; Stephen owns product decisions. | **OpenAI Sol** manages dependencies and exact scope. |
 | 1 | Read-only inspection of the already published v0.7.1 source for generic extension seams. Produce a public-source report only; no M5 roadmap or private repository input. | **MUNG · OpenCode Zen Big Pickle** (`opencode/big-pickle`), conditional on a fresh approved route. | **OpenAI Sol** checks relevance; this is advisory, not approval. |
 | 2 | Produce generic synthetic date/quantity/adjustment cases and a small reference oracle for independent calendar projections. No Bean Counter repository or private roadmap input. | **SPROUT · OpenCode Zen Space Bunny** (`opencode/space-bunny-free`), conditional on a fresh approved route. | **OpenAI Sol** adapts only useful results into local acceptance fixtures. |
-| 3 | Freeze calendar, recurrence, event-assignment, correction, close, and ad hoc statement contracts; select a validated rule representation and effective-date behavior. | **SPROUT · OpenAI Sol** authors the architecture and contracts. | **FAVA · OpenAI Astra** provides independent read-only review; **Sol** resolves findings. |
+| 3 | Freeze calendar, recurrence, event-assignment, correction, close, and ad hoc statement contracts; select a validated rule representation and effective-date behavior. | **SPROUT · OpenAI Sol** authors the architecture and contracts. | **FAVA · OpenAI Astra** provides independent read-only review; **Sol** resolves findings and obtains any remaining owner decisions before freeze. |
 | 4 | Implement customer billing-term selection, cycle membership/close, cumulative period conversion, and retry-safe close identities. | **SPROUT · OpenAI Sol** owns economic and ledger behavior. **OpenAI Luna** may own isolated CLI, fixtures, and documentation tasks after contracts freeze. | **Sol** integrates; **FAVA · OpenAI Astra** reviews money, period assignment, and idempotency. |
 | 5 | Implement append-only usage quantity deltas, outcome windows, post-close adjustments, and manually issued ad hoc receivable/payable statements. | **SPROUT · OpenAI Sol** owns the ledger and adjustment path. | **Sol** integrates; **FAVA · OpenAI Astra** independently reviews immutability, authority, and reconciliation. |
 | 6 | Implement versioned recurring terms, stable occurrences, renewal/cancellation, missed-run policy, and agreed proration behavior. | **SPROUT · OpenAI Sol** owns lifecycle economics; **OpenAI Luna** may own non-economic CLI/docs/fixture leaves. | **Sol** manages; **FAVA · OpenAI Astra** reviews agreement and retry semantics. |
@@ -63,18 +63,11 @@ The integrated synthetic journey must demonstrate:
 
 The journey is qualified for its named source-built local profile. It does not imply native-package conformance (M8), PostgreSQL, multi-host operation, tax/legal invoice status, or payment execution. M7 recovery/operator needs should be completed alongside the lifecycle behavior they support.
 
-## Decisions to resolve in the freeze package
+## Contract freeze inputs
 
-These are bounded design/policy gates, not authorization to weaken existing guarantees:
+Package 0 is complete. The owner-approved choices in the [decision register](m5-decision-register.md) are the inputs to Package 3: finite customer calendar terms; separate versioned fiscal calendars; acceptance-time assignment; explicit recurrence and operator catch-up; signed bounded quantity deltas; immutable closed statements; period-only statement totals with negative nets classified payable; exact scale-18 totals; and no provider or payment-status lane. The [architecture proposal](m5-architecture.md) is under independent review. It identifies the legacy-history activation rule and mutually exclusive standard/ad hoc presentation of post-close adjustments as pre-implementation decisions. Package 3 must encode the settled rules without weakening existing authority, retry, persistence, or canonical-record guarantees. If contract drafting discovers a conflict or requires a change to an approved economic rule, stop and return that exact conflict to the owner.
 
-- The billing-term grammar and its safe customization limits, including interval/anchor choices, timezone/DST, month-end behavior, and how a mid-period term change takes effect.
-- The fiscal-calendar formats the internal report model must support, and how a changed calendar version affects regenerated historical reports. Ledger acceptance time remains the assignment basis.
-- The recurrence grammar and per-agreement options for missed occurrences, catch-up, renewal/cancellation, and proration.
-- Correction authorization/evidence, signed-delta bounds, over-correction handling, and the exact association between a post-close adjustment and its ad hoc receivable/payable statement.
-- Late-outcome admissibility after close, while period assignment remains based on acceptance time.
-- Final statement/payable rounding and presentation. Per-record scale-18 values remain exact; do not apply four-decimal work-level rounding.
-- Whether manual external-payment status is included in M5. It can record operator-supplied status only; it cannot initiate or reconcile provider payments.
-- Retention and retry-identity expiry; the existing approved no-automatic-expiry rule remains until explicitly changed.
+Statement totals remain exact at scale 18. Each standard statement covers only its own billing period, without prior-balance carry-forward; a negative exact net is represented as payable. Ad hoc statements remain linked to explicitly named post-close adjustment IDs. These semantics are frozen for M5 contract and implementation work.
 
 Multiple billable milestones or units per agreement, minimum charges, and explicit failed-work fees remain outside M5 unless the owner separately adds them. Failed work is chargeable only when a billing arrangement expressly permits it; M4 continues to refuse failed work in its qualified profile.
 
