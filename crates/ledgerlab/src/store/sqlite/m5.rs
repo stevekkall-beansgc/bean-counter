@@ -208,7 +208,6 @@ pub(crate) async fn append_initial_term(
 /// Transactional term lookup for a later M3 writer. The coordinator resolves
 /// the logical period with the pure calendar service before inserting its M3
 /// assignment in the same transaction.
-#[allow(dead_code)] // M3 writer integration is a separate bounded slice.
 pub(crate) async fn initial_assignment_at(
     conn: &mut SqliteConnection,
     customer: &str,
@@ -217,6 +216,165 @@ pub(crate) async fn initial_assignment_at(
     let row = sqlx::query_as("SELECT term_version,effective_at_us,term_bytes FROM billing_m5_term_versions WHERE customer=? AND effective_at_us<=? ORDER BY term_version DESC LIMIT 1")
         .bind(customer).bind(accepted_at_us).fetch_optional(&mut *conn).await?;
     Ok(row)
+}
+
+pub(crate) struct M3Assignment {
+    pub term_version: i64,
+    pub period_index: i64,
+    pub basis: &'static str,
+    pub receipt_kind: &'static str,
+    pub receipt_id: String,
+    pub adjustment: Option<M3Adjustment>,
+}
+
+pub(crate) struct M3Adjustment {
+    pub original_term_version: i64,
+    pub original_period_index: i64,
+    pub signed_delta_atoms: String,
+}
+
+/// Selects an M3 source's logical period from the active frozen term under the
+/// writer lock. A correction follows its first outcome until that period has
+/// closed; the M3 posting remains the only monetary source.
+pub(crate) async fn assignment_for_m3(
+    conn: &mut SqliteConnection,
+    plan: &crate::service::billing::ValidatedEntry,
+) -> Result<Option<M3Assignment>, StoreError> {
+    if plan.alias().is_some() {
+        return Ok(None);
+    }
+    let customer = plan
+        .customer()
+        .ok_or(StoreError::InvalidStore("M5 M3 customer"))?;
+    let at = plan
+        .accepted_at_us()
+        .ok_or(StoreError::InvalidStore("M5 M3 time"))?;
+    let terms: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM billing_m5_term_versions WHERE customer=?")
+            .bind(customer)
+            .fetch_one(&mut *conn)
+            .await?;
+    if terms == 0 {
+        return Ok(None);
+    }
+    let (version, effective, term_bytes) = initial_assignment_at(conn, customer, at)
+        .await?
+        .ok_or(StoreError::BillingPeriod)?;
+    let term = canonical(&term_bytes, 262_144)?;
+    let effective_wire: Vec<u8> = sqlx::query_scalar("SELECT payload_bytes FROM billing_m5_records WHERE sequence=(SELECT record_sequence FROM billing_m5_term_versions WHERE customer=? AND term_version=?)")
+        .bind(customer).bind(version).fetch_one(&mut *conn).await?;
+    let effective_wire = canonical(&effective_wire, 262_144)?;
+    let effective_at = effective_wire["effective_at"]
+        .as_str()
+        .ok_or(StoreError::InvalidStore("M5 term effective time"))?;
+    if utc_us(&effective_wire["effective_at"])? != effective {
+        return Err(StoreError::InvalidStore("M5 term effective time"));
+    }
+    let verification = serde_json::json!({
+        "schema":"ledger-billing-term/1", "customer":customer,
+        "change_id":"m3-assignment", "expected_revision":"0",
+        "effective":{"mode":"initial","at":effective_at}, "term":term
+    });
+    let request = CanonicalBytes::from_value(&verification)
+        .map_err(|_| StoreError::InvalidStore("M5 M3 term"))?;
+    let request = ledgerlab_core::domain::term_service::parse_initial_request(request.as_slice())
+        .map_err(|_| StoreError::InvalidStore("M5 M3 term"))?;
+    let ordinal = plan
+        .expected_count()
+        .checked_add(1)
+        .ok_or(StoreError::InvalidStore("M5 M3 ordinal"))?;
+    let history = [ledgerlab_core::domain::term_service::BillableHistoryRow {
+        ordinal: ordinal as u64,
+        accepted_at_us: at,
+    }];
+    let period = ledgerlab_core::domain::term_service::plan_initial_activation(
+        request,
+        version as u64,
+        &history,
+    )
+    .map_err(|_| StoreError::InvalidStore("M5 M3 period"))?
+    .assignments[0]
+        .period_index as i64;
+    let kind = if plan.kind() == Some("base") {
+        "base-acceptance"
+    } else {
+        "receipt"
+    };
+    let bundle = parse_bounded(plan.bundle(), 8 * 1024 * 1024)
+        .map_err(|_| StoreError::InvalidStore("M5 M3 bundle"))?;
+    let rows = bundle
+        .as_array()
+        .ok_or(StoreError::InvalidStore("M5 M3 bundle"))?;
+    let receipt_id = rows
+        .iter()
+        .find(|row| row["kind"] == kind)
+        .and_then(|row| row["id"].as_str())
+        .ok_or(StoreError::InvalidStore("M5 M3 receipt"))?
+        .to_owned();
+    let mut assignment = M3Assignment {
+        term_version: version,
+        period_index: period,
+        basis: "acceptance-time",
+        receipt_kind: kind,
+        receipt_id,
+        adjustment: None,
+    };
+    if plan.kind() == Some("correction") {
+        let target = plan
+            .target()
+            .ok_or(StoreError::InvalidStore("M5 correction target"))?;
+        let ingress = parse_bounded(plan.ingress(), 262_144)
+            .map_err(|_| StoreError::InvalidStore("M5 correction ingress"))?;
+        let family = ingress["family"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 correction family"))?;
+        let candidates: Vec<(Vec<u8>,i64,i64)> = sqlx::query_as(
+            "SELECT e.ingress,a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal"
+        ).bind(customer).bind(plan.source()).bind(target).fetch_all(&mut *conn).await?;
+        let mut original = None;
+        for (ingress, original_version, original_period) in candidates {
+            let candidate = parse_bounded(&ingress, 262_144)
+                .map_err(|_| StoreError::InvalidStore("M5 outcome ingress"))?;
+            if candidate["family"] == family {
+                if original
+                    .replace((original_version, original_period))
+                    .is_some()
+                {
+                    return Err(StoreError::InvalidStore("M5 duplicate first outcome"));
+                }
+            }
+        }
+        let (original_version, original_period) =
+            original.ok_or(StoreError::InvalidStore("M5 missing outcome assignment"))?;
+        let closed: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
+            .bind(customer).bind(original_version).bind(original_period).fetch_one(&mut *conn).await?;
+        if closed == 0 {
+            assignment.term_version = original_version;
+            assignment.period_index = original_period;
+            assignment.basis = "linked-open-period";
+        } else {
+            assignment.basis = "post-close-adjustment";
+            let delta = rows.iter().filter(|row| row["kind"] == "action").try_fold(
+                0i128,
+                |total, row| {
+                    let atoms = row["body"]["amount"]["atoms"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore("M5 correction action"))?
+                        .parse::<i128>()
+                        .map_err(|_| StoreError::InvalidStore("M5 correction action"))?;
+                    total
+                        .checked_add(atoms)
+                        .ok_or(StoreError::InvalidStore("M5 correction action"))
+                },
+            )?;
+            assignment.adjustment = Some(M3Adjustment {
+                original_term_version: original_version,
+                original_period_index: original_period,
+                signed_delta_atoms: delta.to_string(),
+            });
+        }
+    }
+    Ok(Some(assignment))
 }
 
 /// Identity lookup returns exact original response and every domain child.
@@ -636,8 +794,7 @@ async fn verify_term_projections(
             .get(&(customer.clone(), version))
             .ok_or(StoreError::InvalidStore("M5 assignment term"))?;
         if stream != "m3" {
-            // M5 source assignments are verified by their owning commands.
-            continue;
+            return Err(StoreError::InvalidStore("M5 assignment source stream"));
         }
         assigned_m3.insert(source_sequence);
         let source: Option<(String, String, String, i64)> = sqlx::query_as(
@@ -673,22 +830,53 @@ async fn verify_term_projections(
         if utc_us(&receipt["body"]["accepted_at"])? != at {
             return Err(StoreError::InvalidStore("M5 assignment time"));
         }
-        if basis != "acceptance-time" {
-            // Linked or post-close period selection is checked by its owner.
-            continue;
-        }
-        let history = [ledgerlab_core::domain::term_service::BillableHistoryRow {
-            ordinal: source_sequence as u64,
-            accepted_at_us: at,
-        }];
-        let plan = ledgerlab_core::domain::term_service::plan_initial_activation(
-            request.clone(),
-            version as u64,
-            &history,
-        )
-        .map_err(|_| StoreError::InvalidStore("M5 assignment period"))?;
-        if plan.assignments[0].period_index != index as u64 {
-            return Err(StoreError::InvalidStore("M5 assignment period"));
+        if basis == "acceptance-time" || basis == "post-close-adjustment" {
+            let history = [ledgerlab_core::domain::term_service::BillableHistoryRow {
+                ordinal: source_sequence as u64,
+                accepted_at_us: at,
+            }];
+            let plan = ledgerlab_core::domain::term_service::plan_initial_activation(
+                request.clone(),
+                version as u64,
+                &history,
+            )
+            .map_err(|_| StoreError::InvalidStore("M5 assignment period"))?;
+            if plan.assignments[0].period_index != index as u64 {
+                return Err(StoreError::InvalidStore("M5 assignment period"));
+            }
+        } else if basis == "linked-open-period" {
+            if index_kind != "correction" {
+                return Err(StoreError::InvalidStore("M5 linked assignment kind"));
+            }
+            let (target, ingress): (String, Vec<u8>) = sqlx::query_as(
+                "SELECT i.target,e.ingress FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal WHERE i.ordinal=?")
+                .bind(source_sequence).fetch_one(&mut *conn).await?;
+            let ingress = parse_bounded(&ingress, 262_144)
+                .map_err(|_| StoreError::InvalidStore("M5 linked assignment ingress"))?;
+            let family = ingress["family"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 linked assignment family"))?;
+            let outcomes: Vec<(Vec<u8>,i64,i64)> = sqlx::query_as(
+                "SELECT e.ingress,a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal")
+                .bind(&customer).bind(&scope).bind(&target).fetch_all(&mut *conn).await?;
+            let mut linked = 0;
+            for (outcome_ingress, outcome_version, outcome_period) in outcomes {
+                let outcome_ingress = parse_bounded(&outcome_ingress, 262_144)
+                    .map_err(|_| StoreError::InvalidStore("M5 linked outcome ingress"))?;
+                if outcome_ingress["family"] == family {
+                    if (outcome_version, outcome_period) != (version, index) {
+                        return Err(StoreError::InvalidStore("M5 linked assignment period"));
+                    }
+                    linked += 1;
+                }
+            }
+            let closed: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
+                .bind(&customer).bind(version).bind(index).fetch_one(&mut *conn).await?;
+            if linked != 1 || closed != 0 {
+                return Err(StoreError::InvalidStore("M5 linked assignment owner"));
+            }
+        } else {
+            return Err(StoreError::InvalidStore("M5 assignment basis"));
         }
     }
     let indexed: Vec<(i64, String, i64)> = sqlx::query_as(
@@ -708,6 +896,127 @@ async fn verify_term_projections(
             if accepted_at_us < *effective || !assigned_m3.contains(&ordinal) {
                 return Err(StoreError::InvalidStore("M5 missing M3 assignment"));
             }
+        }
+    }
+    // Adjustment links carry no separate economics. Every post-close M3
+    // correction must have exactly one link to its posting, and every retained
+    // link must reconcile to that posting and its closed original period.
+    let adjustments: Vec<(String,String,String,String,String,String,i64,i64,i64,i64,String,i64,String)> =
+        sqlx::query_as("SELECT customer,source_scope,adjustment_id,cause_kind,cause_id,target_id,original_term_version,original_period_index,assigned_term_version,assigned_period_index,source_stream,source_sequence,signed_delta_atoms FROM billing_m5_adjustments ORDER BY source_stream,source_sequence")
+            .fetch_all(&mut *conn).await?;
+    let mut adjustment_sources = std::collections::BTreeSet::new();
+    for (
+        customer,
+        scope,
+        adjustment_id,
+        cause_kind,
+        cause_id,
+        target,
+        original_version,
+        original_period,
+        assigned_version,
+        assigned_period,
+        stream,
+        sequence,
+        delta,
+    ) in adjustments
+    {
+        if stream != "m3" {
+            continue;
+        }
+        if cause_kind != "outcome-correction"
+            || cause_id != adjustment_id
+            || !adjustment_sources.insert(sequence)
+        {
+            return Err(StoreError::InvalidStore("M5 M3 adjustment identity"));
+        }
+        let source: Option<(String,String,String,String,Vec<u8>)> = sqlx::query_as(
+            "SELECT i.customer,i.source,i.external_id,i.target,e.bundle FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal WHERE i.ordinal=? AND i.kind='correction'")
+            .bind(sequence).fetch_optional(&mut *conn).await?;
+        let (source_customer, source_scope, source_id, source_target, bundle) =
+            source.ok_or(StoreError::InvalidStore("M5 M3 adjustment source"))?;
+        if (
+            customer.as_str(),
+            scope.as_str(),
+            adjustment_id.as_str(),
+            target.as_str(),
+        ) != (
+            source_customer.as_str(),
+            source_scope.as_str(),
+            source_id.as_str(),
+            source_target.as_str(),
+        ) {
+            return Err(StoreError::InvalidStore("M5 M3 adjustment source"));
+        }
+        let assignment: Option<(i64,i64,String)> = sqlx::query_as(
+            "SELECT term_version,period_index,assignment_basis FROM billing_m5_assignments WHERE source_stream='m3' AND source_sequence=?")
+            .bind(sequence).fetch_optional(&mut *conn).await?;
+        if assignment.as_ref().is_none_or(|(v, p, b)| {
+            *v != assigned_version || *p != assigned_period || b != "post-close-adjustment"
+        }) {
+            return Err(StoreError::InvalidStore("M5 M3 adjustment assignment"));
+        }
+        let closed: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
+            .bind(&customer).bind(original_version).bind(original_period).fetch_one(&mut *conn).await?;
+        if closed != 1 {
+            return Err(StoreError::InvalidStore("M5 M3 adjustment close"));
+        }
+        let correction_ingress: Vec<u8> =
+            sqlx::query_scalar("SELECT ingress FROM billing_m3_entries WHERE ordinal=?")
+                .bind(sequence)
+                .fetch_one(&mut *conn)
+                .await?;
+        let correction_ingress = parse_bounded(&correction_ingress, 262_144)
+            .map_err(|_| StoreError::InvalidStore("M5 M3 adjustment ingress"))?;
+        let family = correction_ingress["family"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 M3 adjustment family"))?;
+        let outcomes: Vec<(Vec<u8>,i64,i64)> = sqlx::query_as(
+            "SELECT e.ingress,a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal")
+            .bind(&customer).bind(&scope).bind(&target).fetch_all(&mut *conn).await?;
+        let mut linked = 0;
+        for (ingress, version, period) in outcomes {
+            let ingress = parse_bounded(&ingress, 262_144)
+                .map_err(|_| StoreError::InvalidStore("M5 M3 outcome ingress"))?;
+            if ingress["family"] == family {
+                if (version, period) != (original_version, original_period) {
+                    return Err(StoreError::InvalidStore("M5 M3 adjustment original period"));
+                }
+                linked += 1;
+            }
+        }
+        if linked != 1 {
+            return Err(StoreError::InvalidStore(
+                "M5 M3 adjustment original outcome",
+            ));
+        }
+        let bundle = parse_bounded(&bundle, 8 * 1024 * 1024)
+            .map_err(|_| StoreError::InvalidStore("M5 M3 adjustment bundle"))?;
+        let rows = bundle
+            .as_array()
+            .ok_or(StoreError::InvalidStore("M5 M3 adjustment bundle"))?;
+        let actual =
+            rows.iter()
+                .filter(|row| row["kind"] == "action")
+                .try_fold(0i128, |sum, row| {
+                    let atoms = row["body"]["amount"]["atoms"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore("M5 M3 adjustment amount"))?
+                        .parse::<i128>()
+                        .map_err(|_| StoreError::InvalidStore("M5 M3 adjustment amount"))?;
+                    sum.checked_add(atoms)
+                        .ok_or(StoreError::InvalidStore("M5 M3 adjustment amount"))
+                })?;
+        if delta != actual.to_string() {
+            return Err(StoreError::InvalidStore("M5 M3 adjustment amount"));
+        }
+    }
+    let post_close: Vec<(i64,)> = sqlx::query_as(
+        "SELECT source_sequence FROM billing_m5_assignments WHERE source_stream='m3' AND assignment_basis='post-close-adjustment'")
+        .fetch_all(&mut *conn).await?;
+    for (sequence,) in post_close {
+        if !adjustment_sources.contains(&sequence) {
+            return Err(StoreError::InvalidStore("M5 missing M3 adjustment"));
         }
     }
     Ok(())

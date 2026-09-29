@@ -986,6 +986,13 @@ impl SqliteTx {
                 return Err(StoreError::BillingHistoryLimit);
             }
             let ordinal = entry_count + 1;
+            let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
+                .fetch_one(self.conn()).await?;
+            let assignment = if schema == 11 {
+                super::m5::assignment_for_m3(self.conn(), plan).await?
+            } else {
+                None
+            };
             sqlx::query("INSERT INTO billing_m3_entries(ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
                 .bind(ordinal)
                 .bind(customer)
@@ -1015,6 +1022,22 @@ impl SqliteTx {
                 .bind(accepted_at_us)
                 .execute(self.conn())
                 .await?;
+            if let Some(assignment) = assignment {
+                sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES(?,?,?,?,'m3',?,?,?,?,?)")
+                    .bind(customer).bind(plan.source()).bind(assignment.receipt_kind)
+                    .bind(&assignment.receipt_id).bind(ordinal).bind(assignment.term_version)
+                    .bind(assignment.period_index).bind(assignment.basis).bind(accepted_at_us)
+                    .execute(self.conn()).await?;
+                if let Some(adjustment) = assignment.adjustment {
+                    sqlx::query("INSERT INTO billing_m5_adjustments(customer,source_scope,adjustment_id,cause_kind,cause_id,target_id,original_term_version,original_period_index,assigned_term_version,assigned_period_index,source_stream,source_sequence,signed_delta_atoms) VALUES(?,? ,?,'outcome-correction',?,?,?,?,?,?,'m3',?,?)")
+                        .bind(customer).bind(plan.source()).bind(plan.external_id())
+                        .bind(plan.external_id()).bind(target)
+                        .bind(adjustment.original_term_version).bind(adjustment.original_period_index)
+                        .bind(assignment.term_version).bind(assignment.period_index)
+                        .bind(ordinal).bind(adjustment.signed_delta_atoms)
+                        .execute(self.conn()).await?;
+                }
+            }
             self.append_m5_boundary_if_current().await?;
             Ok::<_, StoreError>(())
         })

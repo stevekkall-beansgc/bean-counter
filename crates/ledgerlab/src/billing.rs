@@ -714,6 +714,156 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn active_term_assigns_new_m3_history_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let term = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"active-term","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let term = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&term).await.unwrap();
+        let accepted = ledger
+            .accept(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
+            )
+            .await
+            .unwrap();
+        let target = accepted["receipt"]["body"]["target"].as_str().unwrap();
+        let mut outcome: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/outcome.json"))
+                .unwrap();
+        outcome["target"] = json!(target);
+        let outcome = ledgerlab_core::canonical::CanonicalBytes::from_value(&outcome)
+            .unwrap()
+            .into_vec();
+        ledger
+            .outcome("customer-1", "urn:example:work", &outcome)
+            .await
+            .unwrap();
+        let mut correction: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/correction.json"))
+                .unwrap();
+        correction["target"] = json!(target);
+        let correction = ledgerlab_core::canonical::CanonicalBytes::from_value(&correction)
+            .unwrap()
+            .into_vec();
+        ledger
+            .correct("customer-1", "urn:example:work", &correction)
+            .await
+            .unwrap();
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+            "SELECT term_version,period_index,assignment_basis FROM billing_m5_assignments WHERE source_stream='m3' ORDER BY source_sequence")
+            .fetch_all(&mut conn).await.unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (1, 0, "acceptance-time".into()),
+                (1, 0, "acceptance-time".into()),
+                (1, 0, "linked-open-period".into())
+            ]
+        );
+        let counts: (i64,i64,i64) = sqlx::query_as("SELECT (SELECT count(*) FROM billing_m3_index), (SELECT count(*) FROM billing_m5_records), (SELECT count(*) FROM billing_m5_snapshot_boundaries)")
+            .fetch_one(&mut conn).await.unwrap();
+        assert_eq!(counts, (3, 2, 5));
+        conn.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn term_end_outside_timestamp_range_refuses_before_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let term = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"max-year","expected_revision":"0",
+            "effective":{"mode":"initial","at":"9999-12-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"9999-12-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        assert!(matches!(ledger.term_set(&bytes).await,
+            Err(super::LocalError::Service(super::ServiceError::Rejection(code))) if code == "BILLING_M5_BOUNDS"));
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn reopen_refuses_phantom_m5_source_assignment() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let term = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"phantom-test","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&bytes).await.unwrap();
+        ledger.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES('customer-1','urn:example:work','activity','phantom','m5',999,1,0,'acceptance-time',0)")
+            .execute(&mut conn).await.unwrap();
+        conn.close().await.unwrap();
+        assert!(BillingLedger::open(&path).await.is_err());
+    }
+
+    #[tokio::test]
     async fn initial_term_after_retained_acceptance_refuses_without_m5_mutation() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().canonicalize().unwrap().join("billing");

@@ -13,6 +13,8 @@ pub(crate) enum StoreError {
     ReadBudgetExhausted,
     /// A valid billing append would exceed a configured retained-history bound.
     BillingHistoryLimit,
+    /// A new M3 decision is outside the customer's active billing term.
+    BillingPeriod,
     /// Billing commands require an explicit schema migration before access.
     BillingUpgradeRequired,
     Deadline,

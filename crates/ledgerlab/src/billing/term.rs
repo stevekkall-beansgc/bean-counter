@@ -121,6 +121,11 @@ impl BillingLedger {
             .end
             .format("%Y-%m-%dT%H:%M:%S%.6fZ")
             .to_string();
+        // The calendar can resolve beyond the wire timestamp domain (for
+        // example the next monthly boundary after December 9999).
+        ledgerlab_core::domain::Timestamp::parse(&effective_at)
+            .and_then(|_| ledgerlab_core::domain::Timestamp::parse(&end_at))
+            .map_err(|_| service::reject("BILLING_M5_BOUNDS"))?;
         let term_bytes = bytes(&request_value["term"])?;
         let resolution_id = format!("resolution-{term_version}-0");
         let keys = [
