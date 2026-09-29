@@ -1,6 +1,7 @@
 mod calendar;
 mod event;
 mod records;
+pub mod term_service;
 mod time;
 use crate::{Error, Result};
 pub use calendar::*;
