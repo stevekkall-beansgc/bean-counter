@@ -9,6 +9,7 @@ mod comparison;
 mod connect;
 mod fence;
 mod inspect;
+pub(crate) mod m5;
 pub(crate) mod migrate;
 mod outbox;
 mod outcomes;

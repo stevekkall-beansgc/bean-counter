@@ -14,6 +14,17 @@ const BILLING: &str = include_str!("../../../migrations/sqlite/0007_local_billin
 const BILLING_ALIASES: &str = include_str!("../../../migrations/sqlite/0008_billing_aliases.sql");
 const CUSTOMERS: &str = include_str!("../../../migrations/sqlite/0009_customer_agreements.sql");
 const M3_HISTORY: &str = include_str!("../../../migrations/sqlite/0010_m3_history.sql");
+const M5_LIFECYCLE: &str = include_str!("../../../migrations/sqlite/0011_m5_lifecycle.sql");
+const M5_MIGRATION_ID: &str = "bean-counter/m5/schema-11/1";
+fn m5_migration() -> Migration {
+    Migration::new(
+        11,
+        "M5 billing lifecycle".into(),
+        MigrationType::Simple,
+        M5_LIFECYCLE.into_sql_str(),
+        false,
+    )
+}
 fn migrator() -> Migrator {
     Migrator::with_migrations(vec![
         Migration::new(
@@ -90,27 +101,33 @@ fn migrator() -> Migrator {
 }
 #[allow(dead_code)] // Explicit migration-owner provisioning; never run by open.
 pub(super) async fn create(conn: &mut SqliteConnection) -> Result<(), StoreError> {
-    migrator().run(conn).await?;
+    migrator().run(&mut *conn).await?;
+    use sqlx::Connection;
+    let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
+    apply_m5(&mut tx).await?;
+    tx.commit().await?;
     Ok(())
 }
 pub(super) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError> {
     let current: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    // Keep the shared non-billing facade open on the supported schema-9
-    // predecessor and current schema 10. Billing-specific reads and writes
-    // enforce schema 10; the ordinary opener never runs M3 migration implicitly.
-    if current != 9 && current != 10 {
+    // Ordinary open never upgrades. The M5 coordinator owns schema-11 billing
+    // writes; the historical schema-10 billing writer still refuses version 11.
+    if current != 9 && current != 10 && current != 11 {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     version(conn).await?;
+    if current == 11 {
+        super::m5::verify(conn).await?;
+    }
     Ok(())
 }
 async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
     let v: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if !(1..=10).contains(&v) {
+    if !(1..=11).contains(&v) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     let migrations = migrator();
@@ -120,9 +137,12 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
             .await?;
     if rows.len() != v as usize
         || rows.iter().enumerate().any(|(i, row)| {
-            row.0 != (i + 1) as i64
-                || !row.1
-                || row.2.as_slice() != migrations.migrations[i].checksum.as_ref()
+            let expected = if i == 10 {
+                m5_migration()
+            } else {
+                migrations.migrations[i].clone()
+            };
+            row.0 != (i + 1) as i64 || !row.1 || row.2.as_slice() != expected.checksum.as_ref()
         })
     {
         return Err(StoreError::InvalidStore(
@@ -130,6 +150,33 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
         ));
     }
     Ok(v)
+}
+
+async fn apply_m5(conn: &mut SqliteConnection) -> Result<(), StoreError> {
+    let collision: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM sqlite_schema WHERE name LIKE 'billing_m5_%'")
+            .fetch_one(&mut *conn)
+            .await?;
+    if collision != 0 {
+        return Err(StoreError::InvalidStore("M5 sidecar name collision"));
+    }
+    let migration = m5_migration();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref()))
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("INSERT INTO billing_m5_state(singleton,migration_id,record_count,canonical_bytes,activity_identity_count,activity_identity_bytes,next_command_sequence,next_record_sequence) VALUES(1,?,0,0,0,0,1,1)")
+        .bind(M5_MIGRATION_ID).execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO billing_m5_snapshot_boundaries(boundary_id,m3_high_water,m5_high_water) SELECT 1,COALESCE(max(ordinal),0),0 FROM billing_m3_index")
+        .execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO _sqlx_migrations(version,description,success,checksum,execution_time) VALUES(?,?,TRUE,?,0)")
+        .bind(migration.version).bind(migration.description.as_ref()).bind(migration.checksum.as_ref())
+        .execute(&mut *conn).await?;
+    sqlx::query("PRAGMA user_version=11")
+        .execute(&mut *conn)
+        .await?;
+    version(conn).await?;
+    super::m5::verify(conn).await?;
+    Ok(())
 }
 
 pub(crate) async fn upgrade(
@@ -360,6 +407,187 @@ fn hash_bytes(hash: &mut Sha256, bytes: &[u8]) {
 
 fn hash_number(hash: &mut Sha256, value: i64) {
     hash.update(value.to_be_bytes());
+}
+
+/// Validation and the commit preflight observe identical schema-10 bytes.
+/// This covers every existing SQL object and retained row, including tiers that
+/// the M3 billing validator reads through its original schema-8/9 adapters.
+async fn m5_source_digest(conn: &mut SqliteConnection) -> Result<[u8; 32], StoreError> {
+    use sqlx::{Row, TypeInfo, ValueRef};
+    let objects: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT type,name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations' AND substr(name,1,11) <> 'billing_m5_' ORDER BY type,name",
+    ).fetch_all(&mut *conn).await?;
+    let mut hash = Sha256::new();
+    hash.update(b"bean-counter/m5/schema-10-source/1\0");
+    for (kind, name, sql) in &objects {
+        hash_bytes(&mut hash, kind.as_bytes());
+        hash_bytes(&mut hash, name.as_bytes());
+        hash_bytes(&mut hash, sql.as_deref().unwrap_or_default().as_bytes());
+        if kind != "table" {
+            continue;
+        }
+        let quoted = format!("\"{}\"", name.replace('"', "\"\""));
+        let columns: i64 = sqlx::query_scalar("SELECT count(*) FROM pragma_table_info(?)")
+            .bind(name)
+            .fetch_one(&mut *conn)
+            .await?;
+        if columns < 1 {
+            return Err(StoreError::InvalidStore("empty SQLite source table"));
+        }
+        let order = (1..=columns)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!("SELECT * FROM {quoted} ORDER BY {order}");
+        let rows = sqlx::query(sqlx::AssertSqlSafe(query))
+            .fetch_all(&mut *conn)
+            .await?;
+        hash_number(&mut hash, rows.len() as i64);
+        for row in rows {
+            for col in 0..columns as usize {
+                let value = row.try_get_raw(col)?;
+                if value.is_null() {
+                    hash.update([0]);
+                    continue;
+                }
+                match value.type_info().name() {
+                    "INTEGER" => {
+                        hash.update([1]);
+                        hash_number(&mut hash, row.try_get::<i64, _>(col)?);
+                    }
+                    "REAL" => {
+                        hash.update([2]);
+                        hash.update(row.try_get::<f64, _>(col)?.to_bits().to_be_bytes());
+                    }
+                    "TEXT" => {
+                        hash.update([3]);
+                        hash_bytes(&mut hash, row.try_get::<String, _>(col)?.as_bytes());
+                    }
+                    "BLOB" => {
+                        hash.update([4]);
+                        hash_bytes(&mut hash, &row.try_get::<Vec<u8>, _>(col)?);
+                    }
+                    _ => return Err(StoreError::InvalidStore("unknown SQLite source value")),
+                }
+            }
+        }
+    }
+    Ok(hash.finalize().into())
+}
+
+#[derive(Clone)]
+pub(crate) struct M5UpgradeSeed {
+    pub store_id: String,
+    pub source_digest: [u8; 32],
+}
+
+/// Run the unchanged M3 whole-history validator and capture the exact source
+/// bytes in the same SQLite snapshot. The subsequent writer transaction must
+/// reproduce this digest before applying any M5 DDL.
+pub(crate) async fn preflight_m5(
+    path: &std::path::Path,
+    expected_id: &str,
+) -> Result<M5UpgradeSeed, crate::maintenance::UpgradeError> {
+    use crate::store::ports::{AcceptanceStore, AcceptanceTx};
+    let store = super::SqliteStore::open(path).await?;
+    let result = async {
+        let mut tx = store
+            .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(30))
+            .await?;
+        if version(tx.conn()).await? != 10 {
+            return Err(crate::maintenance::UpgradeError::Refused);
+        }
+        let installation = tx.load_installation().await?;
+        if expected_id.is_empty()
+            || installation.logical_store_id != expected_id
+            || installation.mode != "real"
+            || installation.admission != "open"
+            || !installation.dispatch_hold
+            || installation.dispatch_enabled
+        {
+            return Err(crate::maintenance::UpgradeError::Refused);
+        }
+        let snapshot = tx.billing_snapshot().await?;
+        crate::service::billing::validate_snapshot(&snapshot)
+            .map_err(|_| crate::maintenance::UpgradeError::Refused)?;
+        let digest = m5_source_digest(tx.conn()).await?;
+        tx.rollback().await?;
+        Ok(M5UpgradeSeed {
+            store_id: expected_id.to_owned(),
+            source_digest: digest,
+        })
+    }
+    .await;
+    store.close().await;
+    result
+}
+
+/// Cancellation leaves the owned, bounded upgrade running. The same seed can
+/// reconcile a lost commit acknowledgment through a full schema-11 reopen.
+pub(crate) async fn upgrade_m5(
+    path: &std::path::Path,
+    seed: &M5UpgradeSeed,
+) -> Result<crate::maintenance::UpgradeResult, crate::maintenance::UpgradeError> {
+    let path = path.to_owned();
+    let seed = seed.clone();
+    tokio::spawn(async move { upgrade_m5_owned(&path, &seed).await })
+        .await
+        .unwrap_or(Err(crate::maintenance::UpgradeError::OutcomeUnknown))
+}
+
+async fn upgrade_m5_owned(
+    path: &std::path::Path,
+    seed: &M5UpgradeSeed,
+) -> Result<crate::maintenance::UpgradeResult, crate::maintenance::UpgradeError> {
+    use crate::maintenance::{UpgradeError, UpgradeResult};
+    use sqlx::Connection;
+    let owner = super::owner::Owner::acquire(path)?;
+    let mut conn = super::connect::initial(&owner).await?;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        owner.verify_path()?;
+        super::connect::verify(&mut conn, false).await?;
+        let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
+        let from = version(&mut tx).await?;
+        if from == 11 {
+            super::m5::verify(&mut tx).await?;
+            if m5_source_digest(&mut tx).await? != seed.source_digest {
+                return Err(UpgradeError::Refused);
+            }
+            tx.rollback().await?;
+            return Ok(UpgradeResult::AlreadyCurrent);
+        }
+        if from != 10 || seed.store_id.is_empty() {
+            return Err(UpgradeError::Refused);
+        }
+        let installation = super::read::installation(&mut tx).await?;
+        if installation.logical_store_id != seed.store_id
+            || installation.mode != "real"
+            || installation.admission != "open"
+            || !installation.dispatch_hold
+            || installation.dispatch_enabled
+        {
+            return Err(UpgradeError::Refused);
+        }
+        super::connect::integrity(&mut tx).await?;
+        if m5_source_digest(&mut tx).await? != seed.source_digest {
+            return Err(UpgradeError::Refused);
+        }
+        apply_m5(&mut tx).await?;
+        if m5_source_digest(&mut tx).await? != seed.source_digest {
+            return Err(UpgradeError::Refused);
+        }
+        super::connect::integrity(&mut tx).await?;
+        tx.commit()
+            .await
+            .map_err(|_| UpgradeError::OutcomeUnknown)?;
+        Ok(UpgradeResult::Upgraded)
+    })
+    .await
+    .unwrap_or(Err(UpgradeError::OutcomeUnknown));
+    if conn.close().await.is_err() {
+        return Err(UpgradeError::OutcomeUnknown);
+    }
+    result
 }
 
 async fn legacy_billing_snapshot(
@@ -1181,3 +1409,6 @@ async fn upgrade_billing_connection(
 #[cfg(test)]
 #[path = "billing_upgrade_tests.rs"]
 mod billing_upgrade_tests;
+#[cfg(test)]
+#[path = "m5_upgrade_tests.rs"]
+mod m5_upgrade_tests;
