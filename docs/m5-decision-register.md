@@ -1,6 +1,6 @@
 # M5 decision register
 
-**Status (2026-09-29): Package 0 complete; owner defaults approved; Package 3 contract freeze is pending final independent review.** The [billing roadmap](billing-roadmap.md) is canonical. This register records the approved M5 direction and the defaults contract authors must preserve. Product implementation has not started.
+**Status (2026-09-29): Package 0 complete; owner defaults approved; the architecture baseline passed independent Astra review; Package 3 contracts are being drafted.** The [billing roadmap](billing-roadmap.md) is canonical. This register records the approved M5 direction and the defaults contract authors must preserve. Product implementation has not started.
 
 ## 1. Owner-approved constraints
 

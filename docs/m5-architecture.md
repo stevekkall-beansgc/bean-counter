@@ -1,6 +1,6 @@
 # M5 architecture and contract proposal
 
-**Status (2026-09-29): Package 3 design revised after independent review and owner approval of the remaining defaults; product code has not changed.** The [billing roadmap](billing-roadmap.md) is canonical. The [M5 decision register](m5-decision-register.md) is the owner-approved policy record. This proposal translates those choices into a compatible implementation shape; it does not authorize reopening a frozen economic rule.
+**Status (2026-09-29): Architectural baseline passed independent Astra review; Package 3 contract drafting is next. The owner-approved defaults are frozen; product code has not changed.** The [billing roadmap](billing-roadmap.md) is canonical. The [M5 decision register](m5-decision-register.md) is the owner-approved policy record. This proposal translates those choices into a compatible implementation shape; it does not authorize reopening a frozen economic rule.
 
 ## 1. Scope and existing baseline
 
@@ -14,7 +14,7 @@ M5 adds these capabilities:
 - Deterministic period assignment by the accepted timestamp retained by the ledger.
 - Explicit, idempotent period close with an immutable statement snapshot.
 - A separate cumulative-activity model that aggregates within a period and performs configured conversion only at period close.
-- Append-only quantity deltas before a period boundary and linked post-close adjustments after it.
+- Append-only quantity deltas before durable period close and linked post-close adjustments after it.
 - Stable recurring-occurrence identities with operator-triggered generation, explicit catch-up, opt-in renewal, cancellation, and no implicit proration.
 - Internal fiscal reports reproducible from a pinned calendar version and ledger snapshot.
 

@@ -1,6 +1,6 @@
 # M5 execution plan: billing lifecycle
 
-**Status (2026-09-29): Package 0 complete. Package 3 architecture/contract design has been revised after independent review and the owner has approved the remaining defaults; final independent contract review is pending. Product implementation has not started.** The [billing roadmap](billing-roadmap.md) is the product-scope source of truth. The [M5 decision register](m5-decision-register.md) records owner-approved defaults. The [M5 architecture proposal](m5-architecture.md) translates them into contracts. This document expands M5 into execution packages and acceptance evidence. M5 is scoped to the provider-free, one-business-per-installation, local billing profile.
+**Status (2026-09-29): Package 0 complete; the architecture baseline passed independent Astra review; Package 3 contract drafting is underway. Product implementation has not started.** The [billing roadmap](billing-roadmap.md) is the product-scope source of truth. The [M5 decision register](m5-decision-register.md) records owner-approved defaults. The [M5 architecture proposal](m5-architecture.md) translates them into contracts. This document expands M5 into execution packages and acceptance evidence. M5 is scoped to the provider-free, one-business-per-installation, local billing profile.
 
 ## M5 objective
 
