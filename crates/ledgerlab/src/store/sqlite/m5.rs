@@ -1850,6 +1850,124 @@ async fn verify_fiscal_projections(
         .bind(boundary_id)
         .fetch_optional(&mut *conn)
         .await?;
+        let calendar: Option<(String, String, Vec<u8>)> = sqlx::query_as(
+            "SELECT timezone,timezone_rules_version,calendar_bytes FROM billing_m5_fiscal_versions WHERE calendar_version=?",
+        )
+        .bind(calendar_version)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let (calendar_timezone, calendar_rules, calendar_bytes) =
+            calendar.ok_or(StoreError::InvalidStore("M5 fiscal report calendar"))?;
+        let calendar_value = canonical(&calendar_bytes, 262_144)?;
+        let calendar = ledgerlab_core::domain::fiscal_calendar::FiscalCalendarConfig {
+            timezone: calendar_timezone.clone(),
+            timezone_rules_version: calendar_rules.clone(),
+            calendar: serde_json::from_value(calendar_value)
+                .map_err(|_| StoreError::InvalidStore("M5 fiscal report calendar"))?,
+        };
+        let start_at_us = utc_us(&payload["start_utc"])?;
+        let end_at_us = utc_us(&payload["end_utc"])?;
+        let endpoints_are_boundaries = calendar
+            .period_for_micros(start_at_us)
+            .map(|period| period.start.timestamp_micros())
+            == Ok(start_at_us)
+            && calendar
+                .period_for_micros(end_at_us)
+                .map(|period| period.start.timestamp_micros())
+                == Ok(end_at_us);
+        let included = payload["included_records"]
+            .as_array()
+            .ok_or(StoreError::InvalidStore("M5 fiscal report sources"))?;
+        let mut prior_source: Option<(&str, &str, &str, &str)> = None;
+        let mut included_set = BTreeSet::new();
+        for source in included {
+            let item = (
+                source["customer"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 fiscal report source"))?,
+                source["source"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 fiscal report source"))?,
+                source["kind"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 fiscal report source"))?,
+                source["id"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 fiscal report source"))?,
+            );
+            if prior_source.is_some_and(|prior| prior >= item) {
+                return Err(StoreError::InvalidStore("M5 fiscal report source order"));
+            }
+            prior_source = Some(item);
+            included_set.insert(item);
+        }
+        let view = json!({
+            "calendar_version":calendar_version.to_string(),
+            "start_utc":payload["start_utc"],"end_utc":payload["end_utc"],
+            "m3_high_water":m3_high_water.to_string(),
+            "m5_high_water":m5_high_water.to_string()
+        });
+        let lines = payload["monetary_lines"]
+            .as_array()
+            .ok_or(StoreError::InvalidStore("M5 fiscal report lines"))?;
+        let mut prior_line = None;
+        let mut calculated_net = 0i128;
+        for line in lines {
+            let line_id = line["line_id"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 fiscal report line"))?;
+            if prior_line.is_some_and(|prior| prior >= line_id) {
+                return Err(StoreError::InvalidStore("M5 fiscal report line order"));
+            }
+            prior_line = Some(line_id);
+            let mut unsigned_line = line.clone();
+            unsigned_line
+                .as_object_mut()
+                .ok_or(StoreError::InvalidStore("M5 fiscal report line"))?
+                .remove("line_id");
+            let line_identity = CanonicalBytes::from_value(&json!({
+                "view_kind":"fiscal","view_identity":view,"line":unsigned_line
+            }))
+            .map_err(|_| StoreError::InvalidStore("M5 fiscal report line"))?;
+            if hex(&hash(
+                b"bean-counter/m5/statement-line/1\0",
+                line_identity.as_slice(),
+            )) != line_id
+            {
+                return Err(StoreError::InvalidStore("M5 fiscal report line hash"));
+            }
+            calculated_net = calculated_net
+                .checked_add(
+                    line["amount_atoms"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore("M5 fiscal report amount"))?
+                        .parse::<i128>()
+                        .map_err(|_| StoreError::InvalidStore("M5 fiscal report amount"))?,
+                )
+                .ok_or(StoreError::InvalidStore("M5 fiscal report amount"))?;
+            let line_sources = line["source_records"]
+                .as_array()
+                .ok_or(StoreError::InvalidStore("M5 fiscal report line sources"))?;
+            for source in line_sources {
+                let item = (
+                    source["customer"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore("M5 fiscal report line source"))?,
+                    source["source"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore("M5 fiscal report line source"))?,
+                    source["kind"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore("M5 fiscal report line source"))?,
+                    source["id"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore("M5 fiscal report line source"))?,
+                );
+                if !included_set.contains(&item) {
+                    return Err(StoreError::InvalidStore("M5 fiscal report line source"));
+                }
+            }
+        }
         if report_id.is_empty()
             || *calendar_version < 1
             || family != "ledger-fiscal-report-run/1"
@@ -1863,6 +1981,10 @@ async fn verify_fiscal_projections(
             || payload["m5_high_water"] != m5_high_water.to_string()
             || payload["snapshot_boundary_id"] != boundary_id.to_string()
             || payload["report_hash"] != *report_hash
+            || payload["timezone"] != calendar_timezone
+            || payload["timezone_rules_version"] != calendar_rules
+            || !endpoints_are_boundaries
+            || payload["net_atoms"] != calculated_net.to_string()
             || result["schema"] != "ledger-fiscal-report/1"
             || result["status"] != "complete"
             || result["currency"] != "USD"
