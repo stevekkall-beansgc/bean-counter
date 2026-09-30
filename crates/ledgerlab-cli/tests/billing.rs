@@ -105,6 +105,75 @@ fn customer_term_command_uses_exact_retry_identity() {
 }
 
 #[test]
+fn fiscal_calendar_and_report_are_runnable_from_the_cli() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/setup.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let calendar = json!({
+        "schema":"ledger-fiscal-calendar/1","change_id":"cli-fiscal-1",
+        "expected_revision":"0","timezone":"UTC","timezone_rules_version":"IANA-2025b",
+        "calendar":{"kind":"gregorian_years","fiscal_year_start_month":1,
+            "fiscal_year_start_day":1}
+    });
+    fs::write(
+        root.join("calendar.json"),
+        serde_json::to_vec(&calendar).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "fiscal",
+                "set",
+                "calendar.json",
+            ],
+            0,
+        )["status"],
+        "calendar_updated"
+    );
+    let report = json!({
+        "schema":"ledger-fiscal-report-request/1","command_id":"cli-report-1",
+        "calendar_version":"1","start":"2026-01-01T00:00:00.000000Z",
+        "end":"2027-01-01T00:00:00.000000Z"
+    });
+    fs::write(
+        root.join("report.json"),
+        serde_json::to_vec(&report).unwrap(),
+    )
+    .unwrap();
+    let result = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "fiscal",
+            "report",
+            "report.json",
+        ],
+        0,
+    );
+    assert_eq!(result["schema"], "ledger-fiscal-report/1");
+    assert_eq!(result["status"], "complete");
+    assert_eq!(result["monetary_lines"], json!([]));
+}
+
+#[test]
 fn billing_close_accepts_the_frozen_period_request() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
     fs::create_dir_all(&root).unwrap();
