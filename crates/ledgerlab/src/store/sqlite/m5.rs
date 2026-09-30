@@ -63,8 +63,36 @@ type PeriodCloseM3Row = (
     String,
     String,
     Vec<u8>,
+    Vec<u8>,
     Option<String>,
     Option<i64>,
+);
+type PresentableProjectionRow = (
+    String,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    i64,
+    i64,
+    String,
+    i64,
+    String,
+    Option<String>,
+    Option<String>,
+);
+type PresentableSourceRow = (String, String, Vec<u8>, Vec<u8>, String, i64);
+type ClaimReconciliationRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    Vec<u8>,
+    String,
+    i64,
 );
 
 #[derive(Clone)]
@@ -396,7 +424,178 @@ pub(crate) struct PeriodCloseState {
     pub m3_high_water: i64,
     pub m5_high_water: i64,
     pub m3_assignments: Vec<PeriodCloseM3Assignment>,
+    pub adjustments: Vec<PresentableAdjustment>,
     pub unsupported_assignment_count: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PresentableAdjustment {
+    pub source: String,
+    pub adjustment_id: String,
+    pub cause_kind: String,
+    pub target_id: String,
+    pub original_term_version: i64,
+    pub original_period_index: i64,
+    pub assigned_term_version: i64,
+    pub assigned_period_index: i64,
+    pub source_stream: String,
+    pub source_sequence: i64,
+    pub signed_delta_atoms: String,
+    pub source_record_id: String,
+    pub source_record_kind: String,
+    pub bundle: Vec<u8>,
+    pub ingress: Vec<u8>,
+    pub agreement_id: String,
+    pub agreement_version: i64,
+    pub prior_outcome_id: Option<String>,
+}
+
+async fn prior_outcome_id(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    source: &str,
+    target: &str,
+    before_sequence: i64,
+    family: &str,
+) -> Result<Option<String>, StoreError> {
+    let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+        "SELECT COALESCE((SELECT ingress FROM billing_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m2_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m3_entries WHERE ordinal=i.ordinal)) FROM billing_m3_index i WHERE i.customer=? AND i.source=? AND i.target=? AND i.ordinal<? AND i.kind IN ('outcome','correction') ORDER BY i.ordinal DESC"
+    ).bind(customer).bind(source).bind(target).bind(before_sequence).fetch_all(&mut *conn).await?;
+    for (ingress,) in rows {
+        let ingress = parse_bounded(&ingress, 262_144)
+            .map_err(|_| StoreError::InvalidStore("M5 prior outcome ingress"))?;
+        if ingress["family"] == family {
+            return Ok(Some(
+                ingress["id"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 prior outcome id"))?
+                    .to_owned(),
+            ));
+        }
+    }
+    Ok(None)
+}
+
+pub(crate) async fn unclaimed_adjustments(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    assigned_period: Option<(i64, i64)>,
+    m3_high_water: i64,
+    m5_high_water: i64,
+) -> Result<Vec<PresentableAdjustment>, StoreError> {
+    presentable_adjustments(
+        conn,
+        customer,
+        assigned_period,
+        m3_high_water,
+        m5_high_water,
+        None,
+        None,
+    )
+    .await
+}
+
+async fn presentable_adjustments(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    assigned_period: Option<(i64, i64)>,
+    m3_high_water: i64,
+    m5_high_water: i64,
+    claim_statement: Option<(&str, &str)>,
+    requested: Option<&BTreeSet<(String, String)>>,
+) -> Result<Vec<PresentableAdjustment>, StoreError> {
+    let rows: Vec<PresentableProjectionRow> = sqlx::query_as(
+        "SELECT a.source_scope,a.adjustment_id,a.cause_kind,a.target_id,a.original_term_version,a.original_period_index,a.assigned_term_version,a.assigned_period_index,a.source_stream,a.source_sequence,a.signed_delta_atoms,p.presentation_kind,p.statement_id FROM billing_m5_adjustments a LEFT JOIN billing_m5_presentation_claims p ON p.customer=a.customer AND p.source_scope=a.source_scope AND p.adjustment_id=a.adjustment_id WHERE a.customer=? ORDER BY a.source_scope,a.adjustment_id"
+    ).bind(customer).fetch_all(&mut *conn).await?;
+    let mut result = Vec::new();
+    for (
+        source,
+        adjustment_id,
+        cause_kind,
+        target_id,
+        original_term_version,
+        original_period_index,
+        assigned_term_version,
+        assigned_period_index,
+        source_stream,
+        source_sequence,
+        signed_delta_atoms,
+        claim_kind,
+        statement_id,
+    ) in rows
+    {
+        if requested.is_some_and(|keys| !keys.contains(&(source.clone(), adjustment_id.clone()))) {
+            continue;
+        }
+        if match claim_statement {
+            None => statement_id.is_some(),
+            Some((kind, expected)) => {
+                statement_id.as_deref() != Some(expected) || claim_kind.as_deref() != Some(kind)
+            }
+        } {
+            continue;
+        }
+        if assigned_period
+            .is_some_and(|period| period != (assigned_term_version, assigned_period_index))
+        {
+            continue;
+        }
+        if (source_stream == "m3" && source_sequence > m3_high_water)
+            || (source_stream == "m5" && source_sequence > m5_high_water)
+        {
+            continue;
+        }
+        let original_closed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?)")
+            .bind(customer).bind(original_term_version).bind(original_period_index)
+            .fetch_one(&mut *conn).await?;
+        if !original_closed {
+            return Err(StoreError::InvalidStore("M5 unclosed adjustment origin"));
+        }
+        // The M4 correction remains the authoritative monetary source. Its
+        // adjustment is only a projection and does not advance the M5 stream.
+        if source_stream != "m3" || cause_kind != "outcome-correction" {
+            return Err(StoreError::BillingPeriod);
+        }
+        let retained: Option<PresentableSourceRow> = sqlx::query_as(
+            "SELECT a.source_record_id,a.source_record_kind,e.bundle,e.ingress,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.source_stream='m3' AND a.source_sequence=? AND a.customer=? AND a.source_scope=? AND a.assignment_basis='post-close-adjustment'"
+        ).bind(source_sequence).bind(customer).bind(&source).fetch_optional(&mut *conn).await?;
+        let (
+            source_record_id,
+            source_record_kind,
+            bundle,
+            ingress,
+            agreement_id,
+            agreement_version,
+        ) = retained.ok_or(StoreError::InvalidStore("M5 adjustment source"))?;
+        let parsed_ingress = parse_bounded(&ingress, 262_144)
+            .map_err(|_| StoreError::InvalidStore("M5 adjustment ingress"))?;
+        let family = parsed_ingress["family"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 adjustment family"))?;
+        let prior_outcome_id =
+            prior_outcome_id(conn, customer, &source, &target_id, source_sequence, family).await?;
+        result.push(PresentableAdjustment {
+            source,
+            adjustment_id,
+            cause_kind,
+            target_id,
+            original_term_version,
+            original_period_index,
+            assigned_term_version,
+            assigned_period_index,
+            source_stream,
+            source_sequence,
+            signed_delta_atoms,
+            source_record_id,
+            source_record_kind,
+            bundle,
+            ingress,
+            agreement_id,
+            agreement_version,
+            prior_outcome_id,
+        });
+    }
+    Ok(result)
 }
 
 pub(crate) struct PeriodCloseM3Assignment {
@@ -404,8 +603,65 @@ pub(crate) struct PeriodCloseM3Assignment {
     pub kind: String,
     pub id: String,
     pub bundle: Vec<u8>,
+    pub ingress: Vec<u8>,
     pub agreement_id: Option<String>,
     pub agreement_version: Option<i64>,
+    pub prior_outcome_id: Option<String>,
+}
+
+pub(crate) struct AdHocState {
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+    pub adjustments: Vec<PresentableAdjustment>,
+}
+
+pub(crate) async fn ad_hoc_state(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    references: &[(String, String)],
+) -> Result<AdHocState, StoreError> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if version != 11 {
+        return Err(StoreError::BillingUpgradeRequired);
+    }
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let (m3_high_water,m5_high_water): (i64,i64) = sqlx::query_as(
+        "SELECT m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries ORDER BY boundary_id DESC LIMIT 1"
+    ).fetch_one(&mut *conn).await?;
+    let requested: BTreeSet<_> = references.iter().cloned().collect();
+    let adjustments = presentable_adjustments(
+        conn,
+        customer,
+        None,
+        m3_high_water,
+        m5_high_water,
+        None,
+        Some(&requested),
+    )
+    .await?;
+    Ok(AdHocState {
+        command_sequence,
+        first_record_sequence,
+        adjustments,
+    })
+}
+
+pub(crate) async fn adjustment_claimed(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    source: &str,
+    adjustment_id: &str,
+) -> Result<Option<bool>, StoreError> {
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT p.statement_id FROM billing_m5_adjustments a LEFT JOIN billing_m5_presentation_claims p ON p.customer=a.customer AND p.source_scope=a.source_scope AND p.adjustment_id=a.adjustment_id WHERE a.customer=? AND a.source_scope=? AND a.adjustment_id=?"
+    ).bind(customer).bind(source).bind(adjustment_id).fetch_optional(&mut *conn).await?;
+    Ok(row.map(|(claim,)| claim.is_some()))
 }
 
 async fn period_close_m3_assignments(
@@ -416,7 +672,7 @@ async fn period_close_m3_assignments(
     m3_high_water: i64,
 ) -> Result<Vec<PeriodCloseM3Assignment>, StoreError> {
     let assignment_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m3' AND source_sequence<=?",
+        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m3' AND assignment_basis!='post-close-adjustment' AND source_sequence<=?",
     )
     .bind(customer)
     .bind(term_version)
@@ -425,7 +681,7 @@ async fn period_close_m3_assignments(
     .fetch_one(&mut *conn)
     .await?;
     let rows: Vec<PeriodCloseM3Row> = sqlx::query_as(
-        "SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,g.agreement_id,g.agreement_version FROM billing_m5_assignments a JOIN billing_entries e ON e.ordinal=a.source_sequence JOIN billing_setup s ON s.singleton=1 JOIN billing_agreements g ON g.customer=a.customer AND g.source=a.source_scope AND g.revision=1 AND g.transition='start' AND g.setup_bytes=s.canonical_bytes WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.source_sequence<=? UNION ALL SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m2_entries e ON e.ordinal=a.source_sequence WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.source_sequence<=? UNION ALL SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.source_sequence<=? ORDER BY 1,2,3,4",
+        "SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,e.ingress,g.agreement_id,g.agreement_version FROM billing_m5_assignments a JOIN billing_entries e ON e.ordinal=a.source_sequence JOIN billing_setup s ON s.singleton=1 JOIN billing_agreements g ON g.customer=a.customer AND g.source=a.source_scope AND g.revision=1 AND g.transition='start' AND g.setup_bytes=s.canonical_bytes WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.assignment_basis!='post-close-adjustment' AND a.source_sequence<=? UNION ALL SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,e.ingress,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m2_entries e ON e.ordinal=a.source_sequence WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.assignment_basis!='post-close-adjustment' AND a.source_sequence<=? UNION ALL SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,e.ingress,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.assignment_basis!='post-close-adjustment' AND a.source_sequence<=? ORDER BY 1,2,3,4",
     )
     .bind(customer)
     .bind(term_version)
@@ -451,21 +707,33 @@ async fn period_close_m3_assignments(
     {
         return Err(StoreError::InvalidStore("M5 close assignment tier"));
     }
-    Ok(rows
-        .into_iter()
-        .map(
-            |(_, source, kind, id, bundle, agreement_id, agreement_version)| {
-                PeriodCloseM3Assignment {
-                    source,
-                    kind,
-                    id,
-                    bundle,
-                    agreement_id,
-                    agreement_version,
-                }
-            },
-        )
-        .collect())
+    let mut assignments = Vec::with_capacity(rows.len());
+    for (sequence, source, kind, id, bundle, ingress, agreement_id, agreement_version) in rows {
+        let prior = if kind == "receipt" {
+            let parsed = parse_bounded(&ingress, 262_144)
+                .map_err(|_| StoreError::InvalidStore("M5 outcome ingress"))?;
+            let family = parsed["family"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 outcome family"))?;
+            let target = parsed["target"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 outcome target"))?;
+            prior_outcome_id(conn, customer, &source, target, sequence, family).await?
+        } else {
+            None
+        };
+        assignments.push(PeriodCloseM3Assignment {
+            source,
+            kind,
+            id,
+            bundle,
+            ingress,
+            agreement_id,
+            agreement_version,
+            prior_outcome_id: prior,
+        });
+    }
+    Ok(assignments)
 }
 
 pub(crate) async fn term_state(
@@ -704,6 +972,14 @@ pub(crate) async fn period_close_state(
     let m3_assignments =
         period_close_m3_assignments(conn, customer, term_version, period_index, m3_high_water)
             .await?;
+    let adjustments = unclaimed_adjustments(
+        conn,
+        customer,
+        Some((term_version, period_index)),
+        m3_high_water,
+        m5_high_water,
+    )
+    .await?;
     let unsupported_assignment_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=?",
     )
@@ -728,6 +1004,7 @@ pub(crate) async fn period_close_state(
         m3_high_water,
         m5_high_water,
         m3_assignments,
+        adjustments,
         unsupported_assignment_count,
     })
 }
@@ -930,6 +1207,7 @@ pub(crate) struct PeriodCloseProjection<'a> {
     pub m5_high_water: i64,
     pub statement_hash: &'a str,
     pub statement_bytes: &'a [u8],
+    pub adjustments: &'a [PresentableAdjustment],
 }
 
 pub(crate) async fn append_period_close(
@@ -977,6 +1255,21 @@ pub(crate) async fn append_period_close(
     let unsigned = CanonicalBytes::from_value(&unsigned)
         .map_err(|_| StoreError::Integrity("M5 period close statement"))?;
     let expected_hash = hex(&hash(b"bean-counter/m5/statement/4\0", unsigned.as_slice()));
+    let selected = unclaimed_adjustments(
+        conn,
+        projection.customer,
+        Some((projection.term_version, projection.period_index)),
+        projection.m3_high_water,
+        projection.m5_high_water,
+    )
+    .await?;
+    let selected_keys: BTreeSet<_> = selected
+        .iter()
+        .map(|a| (a.source.clone(), a.adjustment_id.clone()))
+        .collect();
+    if selected != projection.adjustments {
+        return Err(StoreError::Integrity("M5 close claim selection"));
+    }
     let (expected_lines, expected_included, expected_net) = expected_close_economics(
         conn,
         projection.customer,
@@ -984,6 +1277,7 @@ pub(crate) async fn append_period_close(
         projection.period_index,
         projection.m3_high_water,
         projection.m5_high_water,
+        projection.adjustments,
     )
     .await
     .map_err(|_| StoreError::Integrity("M5 period close economics"))?;
@@ -1011,8 +1305,36 @@ pub(crate) async fn append_period_close(
         return Err(StoreError::Integrity("M5 period close statement"));
     }
     let sequence = append(conn, command).await?;
+    let claim_rows: Vec<(i64,Vec<u8>)> = sqlx::query_as(
+        "SELECT sequence,payload_bytes FROM billing_m5_records WHERE command_sequence=? AND family='ledger-billing-presentation-claim/1' ORDER BY sequence"
+    ).bind(sequence).fetch_all(&mut *conn).await?;
+    if claim_rows.len() != selected.len() {
+        return Err(StoreError::Integrity("M5 close claim count"));
+    }
+    let mut claimed = BTreeSet::new();
+    for (claim_sequence, payload_bytes) in claim_rows {
+        let claim = canonical(&payload_bytes, 262_144)?;
+        let source = claim["source"]
+            .as_str()
+            .ok_or(StoreError::Integrity("M5 close claim"))?;
+        let adjustment_id = claim["adjustment_id"]
+            .as_str()
+            .ok_or(StoreError::Integrity("M5 close claim"))?;
+        if claim["schema"] != "ledger-billing-presentation-claim/1"
+            || claim["customer"] != projection.customer
+            || claim["presentation_kind"] != "standard-period"
+            || claim["statement_id"] != projection.statement_hash
+            || !selected_keys.contains(&(source.to_owned(), adjustment_id.to_owned()))
+            || !claimed.insert((source.to_owned(), adjustment_id.to_owned()))
+        {
+            return Err(StoreError::Integrity("M5 close claim"));
+        }
+        sqlx::query("INSERT INTO billing_m5_presentation_claims(customer,source_scope,adjustment_id,presentation_kind,statement_id,record_sequence) VALUES(?,?,?,'standard-period',?,?)")
+            .bind(projection.customer).bind(source).bind(adjustment_id)
+            .bind(projection.statement_hash).bind(claim_sequence).execute(&mut *conn).await?;
+    }
     let row: (i64, String, Vec<u8>) = sqlx::query_as(
-        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE command_sequence=?",
+        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE command_sequence=? AND family='ledger-billing-period-close-record/1'",
     )
     .bind(sequence)
     .fetch_one(&mut *conn)
@@ -1039,6 +1361,154 @@ pub(crate) async fn append_period_close(
         .bind(projection.m3_high_water).bind(projection.m5_high_water)
         .bind(projection.statement_hash).bind(row.0).bind(projection.statement_bytes)
         .execute(&mut *conn).await?;
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) struct AdHocProjection<'a> {
+    pub customer: &'a str,
+    pub statement_id: &'a str,
+    pub adjustments: &'a [PresentableAdjustment],
+    pub statement_hash: &'a str,
+    pub statement_bytes: &'a [u8],
+}
+
+pub(crate) async fn append_ad_hoc(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    projection: &AdHocProjection<'_>,
+) -> Result<(), StoreError> {
+    let requested: Vec<_> = projection
+        .adjustments
+        .iter()
+        .map(|a| (a.source.clone(), a.adjustment_id.clone()))
+        .collect();
+    let state = ad_hoc_state(conn, projection.customer, &requested).await?;
+    let expected: BTreeSet<_> = projection
+        .adjustments
+        .iter()
+        .map(|a| (a.source.clone(), a.adjustment_id.clone()))
+        .collect();
+    let available: BTreeSet<_> = state
+        .adjustments
+        .iter()
+        .map(|a| (a.source.clone(), a.adjustment_id.clone()))
+        .collect();
+    if expected.is_empty()
+        || expected.len() != projection.adjustments.len()
+        || !expected.is_subset(&available)
+        || projection
+            .adjustments
+            .iter()
+            .any(|a| !state.adjustments.contains(a))
+    {
+        return Err(StoreError::Integrity("M5 ad hoc adjustment selection"));
+    }
+    let result = canonical(projection.statement_bytes, 262_144)?;
+    let mut unsigned = result.clone();
+    unsigned
+        .as_object_mut()
+        .ok_or(StoreError::Integrity("M5 ad hoc result"))?
+        .remove("statement_hash");
+    let unsigned = CanonicalBytes::from_value(&unsigned)
+        .map_err(|_| StoreError::Integrity("M5 ad hoc result"))?;
+    let hash = hex(&hash(
+        b"bean-counter/m5/ad-hoc-statement/1\0",
+        unsigned.as_slice(),
+    ));
+    let view = json!({"customer":projection.customer,"statement_id":projection.statement_id});
+    let mut lines = Vec::new();
+    let mut net = 0i128;
+    let mut refs = Vec::new();
+    for adjustment in projection.adjustments {
+        let (line, amount) = crate::billing::presentation::adjustment_line(
+            projection.customer,
+            "ad_hoc",
+            &view,
+            adjustment,
+        )
+        .map_err(StoreError::Integrity)?;
+        lines.push(line);
+        net = net
+            .checked_add(amount)
+            .ok_or(StoreError::Integrity("M5 ad hoc net"))?;
+        refs.push(json!({"source":adjustment.source,"adjustment_id":adjustment.adjustment_id}));
+    }
+    lines.sort_by(|left, right| left["line_id"].as_str().cmp(&right["line_id"].as_str()));
+    refs.sort_by(|left, right| {
+        (left["source"].as_str(), left["adjustment_id"].as_str())
+            .cmp(&(right["source"].as_str(), right["adjustment_id"].as_str()))
+    });
+    if result["schema"] != "ledger-billing-ad-hoc-statement-result/1"
+        || result["status"] != "issued"
+        || result["customer"] != projection.customer
+        || result["statement_id"] != projection.statement_id
+        || result["adjustments"] != json!(refs)
+        || result["lines"] != json!(lines)
+        || result["net_atoms"] != net.to_string()
+        || result["direction"]
+            != if net == 0 {
+                "none"
+            } else if net < 0 {
+                "payable"
+            } else {
+                "receivable"
+            }
+        || result["currency"] != "USD"
+        || result["scale"] != 18
+        || result["complete"] != true
+        || result["statement_hash"] != hash
+        || projection.statement_hash != hash
+    {
+        return Err(StoreError::Integrity("M5 ad hoc result"));
+    }
+    let sequence = append(conn, command).await?;
+    let rows: Vec<(i64,String,Vec<u8>)> = sqlx::query_as(
+        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE command_sequence=? ORDER BY sequence"
+    ).bind(sequence).fetch_all(&mut *conn).await?;
+    if rows.len() != expected.len() + 1 {
+        return Err(StoreError::Integrity("M5 ad hoc children"));
+    }
+    let mut claimed = BTreeSet::new();
+    let mut statement_seen = false;
+    for (record_sequence, family, payload_bytes) in rows {
+        let payload = canonical(&payload_bytes, 262_144)?;
+        if family == "ledger-billing-presentation-claim/1" {
+            let source = payload["source"]
+                .as_str()
+                .ok_or(StoreError::Integrity("M5 ad hoc claim"))?;
+            let adjustment_id = payload["adjustment_id"]
+                .as_str()
+                .ok_or(StoreError::Integrity("M5 ad hoc claim"))?;
+            if payload["customer"] != projection.customer
+                || payload["presentation_kind"] != "ad-hoc"
+                || payload["statement_id"] != projection.statement_id
+                || !expected.contains(&(source.to_owned(), adjustment_id.to_owned()))
+                || !claimed.insert((source.to_owned(), adjustment_id.to_owned()))
+            {
+                return Err(StoreError::Integrity("M5 ad hoc claim"));
+            }
+            sqlx::query("INSERT INTO billing_m5_presentation_claims(customer,source_scope,adjustment_id,presentation_kind,statement_id,record_sequence) VALUES(?,?,?,'ad-hoc',?,?)")
+                .bind(projection.customer).bind(source).bind(adjustment_id)
+                .bind(projection.statement_id).bind(record_sequence).execute(&mut *conn).await?;
+        } else if family == "ledger-billing-ad-hoc-statement-record/1" && !statement_seen {
+            statement_seen = true;
+            let complete_refs = refs.iter().map(|r| json!({"customer":projection.customer,"source":r["source"],"adjustment_id":r["adjustment_id"]})).collect::<Vec<_>>();
+            if payload["customer"] != projection.customer
+                || payload["statement_id"] != projection.statement_id
+                || payload["adjustments"] != json!(complete_refs)
+                || payload["net_atoms"] != net.to_string()
+                || payload["statement_hash"] != hash
+            {
+                return Err(StoreError::Integrity("M5 ad hoc child"));
+            }
+        } else {
+            return Err(StoreError::Integrity("M5 ad hoc child"));
+        }
+    }
+    if claimed != expected || !statement_seen {
+        return Err(StoreError::Integrity("M5 ad hoc children"));
+    }
     append_boundary(conn).await?;
     Ok(())
 }
@@ -1732,6 +2202,8 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         }
     }
     verify_period_closes(conn).await?;
+    verify_presentation_claims(conn).await?;
+    verify_ad_hoc_statements(conn).await?;
     verify_term_projections(conn, &record_rows).await?;
     verify_fiscal_projections(conn, &record_rows).await?;
     let semantics: Vec<ActivityIdentityRow> = sqlx::query_as(
@@ -2029,6 +2501,7 @@ async fn expected_close_economics(
     period_index: i64,
     m3_high_water: i64,
     m5_high_water: i64,
+    adjustments: &[PresentableAdjustment],
 ) -> Result<(Value, Value, String), StoreError> {
     let unsupported: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=?",
@@ -2052,6 +2525,27 @@ async fn expected_close_economics(
     let mut included = Vec::with_capacity(assignments.len());
     let mut net = 0i128;
     for assignment in assignments {
+        if assignment.kind == "receipt" {
+            let (line, amount) = crate::billing::presentation::outcome_assignment_line(
+                customer,
+                "standard",
+                &json!({"customer":customer,"period_id":period_id}),
+                &assignment,
+            )
+            .map_err(StoreError::InvalidStore)?;
+            included.extend(
+                line["source_records"]
+                    .as_array()
+                    .ok_or(StoreError::InvalidStore("M5 outcome line"))?
+                    .iter()
+                    .cloned(),
+            );
+            lines.push(line);
+            net = net
+                .checked_add(amount)
+                .ok_or(StoreError::InvalidStore("M5 close net"))?;
+            continue;
+        }
         if assignment.kind != "base-acceptance" {
             return Err(StoreError::InvalidStore(
                 "M5 unsupported closed M3 assignment",
@@ -2184,6 +2678,26 @@ async fn expected_close_economics(
         )));
         lines.push(line);
     }
+    for adjustment in adjustments {
+        let (line, amount) = crate::billing::presentation::adjustment_line(
+            customer,
+            "standard",
+            &json!({"customer":customer,"period_id":period_id}),
+            adjustment,
+        )
+        .map_err(StoreError::InvalidStore)?;
+        included.extend(
+            line["source_records"]
+                .as_array()
+                .ok_or(StoreError::InvalidStore("M5 adjustment line"))?
+                .iter()
+                .cloned(),
+        );
+        lines.push(line);
+        net = net
+            .checked_add(amount)
+            .ok_or(StoreError::InvalidStore("M5 close net"))?;
+    }
     included.sort_by(|left, right| {
         (
             left["customer"].as_str(),
@@ -2276,6 +2790,16 @@ async fn verify_period_closes(conn: &mut SqliteConnection) -> Result<(), StoreEr
         let net = statement["net_atoms"]
             .as_str()
             .ok_or(StoreError::InvalidStore("M5 period close net"))?;
+        let claimed_adjustments = presentable_adjustments(
+            conn,
+            &customer,
+            Some((term_version, period_index)),
+            m3_high_water,
+            m5_high_water,
+            Some(("standard-period", &statement_hash)),
+            None,
+        )
+        .await?;
         let (expected_lines, expected_included, expected_net) = expected_close_economics(
             conn,
             &customer,
@@ -2283,6 +2807,7 @@ async fn verify_period_closes(conn: &mut SqliteConnection) -> Result<(), StoreEr
             period_index,
             m3_high_water,
             m5_high_water,
+            &claimed_adjustments,
         )
         .await?;
         let direction = if net == "0" {
@@ -2333,6 +2858,164 @@ async fn verify_period_closes(conn: &mut SqliteConnection) -> Result<(), StoreEr
     }
     if projected != retained {
         return Err(StoreError::InvalidStore("M5 period close projection set"));
+    }
+    Ok(())
+}
+
+async fn verify_presentation_claims(conn: &mut SqliteConnection) -> Result<(), StoreError> {
+    let rows: Vec<ClaimReconciliationRow> = sqlx::query_as(
+        "SELECT p.customer,p.source_scope,p.adjustment_id,p.presentation_kind,p.statement_id,p.record_sequence,r.payload_bytes,c.family,c.command_sequence FROM billing_m5_presentation_claims p JOIN billing_m5_records r ON r.sequence=p.record_sequence JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence ORDER BY p.customer,p.source_scope,p.adjustment_id"
+    ).fetch_all(&mut *conn).await?;
+    let retained: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_records WHERE family='ledger-billing-presentation-claim/1'")
+        .fetch_one(&mut *conn).await?;
+    if rows.len() as i64 != retained {
+        return Err(StoreError::InvalidStore("M5 claim projection count"));
+    }
+    for (
+        customer,
+        source,
+        adjustment_id,
+        kind,
+        statement_id,
+        sequence,
+        payload_bytes,
+        family,
+        command_sequence,
+    ) in rows
+    {
+        let payload = canonical(&payload_bytes, 262_144)?;
+        if payload["schema"] != "ledger-billing-presentation-claim/1"
+            || payload["customer"] != customer
+            || payload["source"] != source
+            || payload["adjustment_id"] != adjustment_id
+            || payload["presentation_kind"] != kind
+            || payload["statement_id"] != statement_id
+            || decimal(&payload["record"]["sequence"])? != sequence
+        {
+            return Err(StoreError::InvalidStore("M5 claim projection"));
+        }
+        match kind.as_str() {
+            "standard-period" if family == "ledger-billing-period-close/1" => {
+                let close: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM billing_m5_period_closes p JOIN billing_m5_records r ON r.sequence=p.close_sequence WHERE p.customer=? AND p.statement_hash=? AND r.command_sequence=?)"
+                ).bind(&customer).bind(&statement_id).bind(command_sequence).fetch_one(&mut *conn).await?;
+                if !close {
+                    return Err(StoreError::InvalidStore("M5 standard claim owner"));
+                }
+            }
+            "ad-hoc" if family == "ledger-billing-ad-hoc-statement/1" => {
+                let response: Vec<u8> = sqlx::query_scalar(
+                    "SELECT response_bytes FROM billing_m5_commands WHERE command_sequence=?",
+                )
+                .bind(command_sequence)
+                .fetch_one(&mut *conn)
+                .await?;
+                let response = canonical(&response, 262_144)?;
+                if response["customer"] != customer || response["statement_id"] != statement_id {
+                    return Err(StoreError::InvalidStore("M5 ad hoc claim owner"));
+                }
+            }
+            _ => return Err(StoreError::InvalidStore("M5 claim owner")),
+        }
+    }
+    Ok(())
+}
+
+async fn verify_ad_hoc_statements(conn: &mut SqliteConnection) -> Result<(), StoreError> {
+    let commands: Vec<(i64,Vec<u8>,Vec<u8>)> = sqlx::query_as(
+        "SELECT command_sequence,request_bytes,response_bytes FROM billing_m5_commands WHERE family='ledger-billing-ad-hoc-statement/1' ORDER BY command_sequence"
+    ).fetch_all(&mut *conn).await?;
+    let records: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_records WHERE family='ledger-billing-ad-hoc-statement-record/1'")
+        .fetch_one(&mut *conn).await?;
+    if commands.len() as i64 != records {
+        return Err(StoreError::InvalidStore("M5 ad hoc statement count"));
+    }
+    for (command_sequence, request_bytes, response_bytes) in commands {
+        let request = canonical(&request_bytes, 262_144)?;
+        let result = canonical(&response_bytes, 262_144)?;
+        let customer = result["customer"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 ad hoc customer"))?;
+        let statement_id = result["statement_id"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 ad hoc identity"))?;
+        let hash_value = result["statement_hash"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 ad hoc hash"))?;
+        let (payload_bytes,): (Vec<u8>,) = sqlx::query_as(
+            "SELECT payload_bytes FROM billing_m5_records WHERE command_sequence=? AND family='ledger-billing-ad-hoc-statement-record/1'"
+        ).bind(command_sequence).fetch_one(&mut *conn).await?;
+        let payload = canonical(&payload_bytes, 262_144)?;
+        let adjustments = presentable_adjustments(
+            conn,
+            customer,
+            None,
+            i64::MAX,
+            i64::MAX,
+            Some(("ad-hoc", statement_id)),
+            None,
+        )
+        .await?;
+        let mut lines = Vec::new();
+        let mut net = 0i128;
+        let mut refs = Vec::new();
+        let mut full_refs = Vec::new();
+        let view = json!({"customer":customer,"statement_id":statement_id});
+        for adjustment in &adjustments {
+            let (line, amount) = crate::billing::presentation::adjustment_line(
+                customer, "ad_hoc", &view, adjustment,
+            )
+            .map_err(StoreError::InvalidStore)?;
+            lines.push(line);
+            net = net
+                .checked_add(amount)
+                .ok_or(StoreError::InvalidStore("M5 ad hoc amount"))?;
+            refs.push(json!({"source":adjustment.source,"adjustment_id":adjustment.adjustment_id}));
+            full_refs.push(json!({"customer":customer,"source":adjustment.source,"adjustment_id":adjustment.adjustment_id}));
+        }
+        lines.sort_by(|left, right| left["line_id"].as_str().cmp(&right["line_id"].as_str()));
+        let mut unsigned = result.clone();
+        unsigned
+            .as_object_mut()
+            .ok_or(StoreError::InvalidStore("M5 ad hoc result"))?
+            .remove("statement_hash");
+        let unsigned = CanonicalBytes::from_value(&unsigned)
+            .map_err(|_| StoreError::InvalidStore("M5 ad hoc result"))?;
+        let expected_hash = hex(&hash(
+            b"bean-counter/m5/ad-hoc-statement/1\0",
+            unsigned.as_slice(),
+        ));
+        if adjustments.is_empty()
+            || request["schema"] != "ledger-billing-ad-hoc-statement/1"
+            || request["customer"] != customer
+            || request["command_id"] != statement_id
+            || request["adjustments"] != json!(refs)
+            || result["schema"] != "ledger-billing-ad-hoc-statement-result/1"
+            || result["status"] != "issued"
+            || result["adjustments"] != json!(refs)
+            || result["lines"] != json!(lines)
+            || result["net_atoms"] != net.to_string()
+            || result["direction"]
+                != if net == 0 {
+                    "none"
+                } else if net < 0 {
+                    "payable"
+                } else {
+                    "receivable"
+                }
+            || result["complete"] != true
+            || result["currency"] != "USD"
+            || result["scale"] != 18
+            || hash_value != expected_hash
+            || payload["schema"] != "ledger-billing-ad-hoc-statement-record/1"
+            || payload["customer"] != customer
+            || payload["statement_id"] != statement_id
+            || payload["adjustments"] != json!(full_refs)
+            || payload["net_atoms"] != net.to_string()
+            || payload["statement_hash"] != hash_value
+        {
+            return Err(StoreError::InvalidStore("M5 ad hoc statement"));
+        }
     }
     Ok(())
 }

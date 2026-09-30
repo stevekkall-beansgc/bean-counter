@@ -105,6 +105,27 @@ fn per_work_lines(
     let mut included = Vec::with_capacity(assignments.len());
     let mut net = 0i128;
     for assignment in assignments {
+        if assignment.kind == "receipt" {
+            let (line, amount) = super::presentation::outcome_assignment_line(
+                customer,
+                "standard",
+                &json!({"customer":customer,"period_id":period_id}),
+                assignment,
+            )
+            .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+            included.extend(
+                line["source_records"]
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .iter()
+                    .cloned(),
+            );
+            lines.push(line);
+            net = net
+                .checked_add(amount)
+                .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+            continue;
+        }
         if assignment.kind != "base-acceptance" {
             return Err(service::reject("BILLING_M5_PERIOD"));
         }
@@ -525,6 +546,44 @@ impl BillingLedger {
         });
         let (lines, included_records, net) =
             per_work_lines(&request.customer, &period_id, &state.m3_assignments)?;
+        let mut lines = lines;
+        let mut included_records = included_records;
+        let mut net = net;
+        for adjustment in &state.adjustments {
+            let (line, amount) = super::presentation::adjustment_line(
+                &request.customer,
+                "standard",
+                &json!({"customer":request.customer,"period_id":period_id}),
+                adjustment,
+            )
+            .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+            included_records.extend(
+                line["source_records"]
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .iter()
+                    .cloned(),
+            );
+            lines.push(line);
+            net = net
+                .checked_add(amount)
+                .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+        }
+        included_records.sort_by(|left, right| {
+            (
+                left["customer"].as_str(),
+                left["source"].as_str(),
+                left["kind"].as_str(),
+                left["id"].as_str(),
+            )
+                .cmp(&(
+                    right["customer"].as_str(),
+                    right["source"].as_str(),
+                    right["kind"].as_str(),
+                    right["id"].as_str(),
+                ))
+        });
+        lines.sort_by(|left, right| left["line_id"].as_str().cmp(&right["line_id"].as_str()));
         if state.resolution.is_none() {
             let predicted_resolution_id =
                 format!("boundary-resolution-{term_version}-{period_index}");
@@ -559,7 +618,7 @@ impl BillingLedger {
                 state.m3_high_water,
                 predicted_m5_high_water,
                 predicted_snapshot_boundary_id,
-                predicted_record_sequence,
+                predicted_record_sequence + state.adjustments.len() as i64,
                 predicted_command_sequence,
             )?;
             if predicted.response.len() > limits.response
@@ -577,17 +636,37 @@ impl BillingLedger {
                 state.command_sequence,
                 state.first_record_sequence,
             )?;
+            let claim_refs = state
+                .adjustments
+                .iter()
+                .map(|a| (a.source.as_str(), a.adjustment_id.as_str()))
+                .collect::<Vec<_>>();
+            let claims = super::presentation::claim_children(
+                &identity,
+                &request.customer,
+                &claim_refs,
+                "standard-period",
+                &predicted.statement_hash,
+                accepted.as_str(),
+                predicted_command_sequence,
+                predicted_record_sequence,
+            )
+            .map_err(|_| service::reject("BILLING_M5_BOUNDS"))?;
             let close_bytes = [&identity[..], raw, &predicted.response, &predicted.payload]
                 .into_iter()
                 .try_fold(0i64, |total, part| {
                     total
                         .checked_add(part.len() as i64)
                         .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))
-                })?;
+                })?
+                + claims
+                    .iter()
+                    .map(|claim| claim.payload.len() as i64)
+                    .sum::<i64>();
             let combined_bytes = resolution_bytes
                 .checked_add(close_bytes)
                 .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
-            tx.m5_preflight_capacity(2, 2, combined_bytes)
+            tx.m5_preflight_capacity(2, 2 + claims.len() as i64, combined_bytes)
                 .await
                 .map_err(close_store_error)?;
             tx.rollback().await.map_err(store_error)?;
@@ -615,19 +694,46 @@ impl BillingLedger {
             state.m3_high_water,
             state.m5_high_water,
             state.snapshot_boundary_id,
-            state.first_record_sequence,
+            state.first_record_sequence + state.adjustments.len() as i64,
             state.command_sequence,
         )?;
         if prepared.response.len() > limits.response || prepared.payload.len() > limits.payload {
             return Err(service::reject("BILLING_M5_BOUNDS").into());
         }
-        let child = Child {
+        let claim_refs = state
+            .adjustments
+            .iter()
+            .map(|a| (a.source.as_str(), a.adjustment_id.as_str()))
+            .collect::<Vec<_>>();
+        let claims = super::presentation::claim_children(
+            &identity,
+            &request.customer,
+            &claim_refs,
+            "standard-period",
+            &prepared.statement_hash,
+            accepted.as_str(),
+            state.command_sequence,
+            state.first_record_sequence,
+        )
+        .map_err(|_| service::reject("BILLING_M5_BOUNDS"))?;
+        let mut children: Vec<Child<'_>> = claims
+            .iter()
+            .map(|claim| Child {
+                family: "ledger-billing-presentation-claim/1",
+                customer: Some(&request.customer),
+                source: Some(&claim.source),
+                child_key: &claim.key,
+                payload: &claim.payload,
+            })
+            .collect();
+        children.push(Child {
             family: CLOSE_RECORD,
             customer: Some(&request.customer),
             source: None,
             child_key: &prepared.key,
             payload: &prepared.payload,
-        };
+        });
+        children.sort_by(|left, right| left.child_key.cmp(right.child_key));
         let command = Command {
             family: CLOSE,
             domain: "customer-admin",
@@ -637,7 +743,7 @@ impl BillingLedger {
             accepted_at_us: accepted.micros(),
             request: raw,
             response: &prepared.response,
-            children: std::slice::from_ref(&child),
+            children: &children,
         };
         tx.m5_append_period_close(
             &command,
@@ -651,6 +757,7 @@ impl BillingLedger {
                 m5_high_water: state.m5_high_water,
                 statement_hash: &prepared.statement_hash,
                 statement_bytes: &prepared.response,
+                adjustments: &state.adjustments,
             },
         )
         .await

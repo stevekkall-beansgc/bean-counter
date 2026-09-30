@@ -21,6 +21,7 @@ pub const CONTRACT_VERSION: &str = "v0.3";
 mod close;
 mod export;
 mod fiscal;
+pub(crate) mod presentation;
 mod term;
 
 pub struct BillingLedger {
@@ -2099,7 +2100,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn period_close_refuses_m3_correction_route_without_appending() {
+    async fn period_close_includes_m3_outcome_revisions_once() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().canonicalize().unwrap().join("billing");
         BillingLedger::init(
@@ -2183,12 +2184,26 @@ mod tests {
         conn.close().await.unwrap();
         let close_at =
             ledgerlab_core::domain::Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap();
-        let error = ledger.period_close_at(&close, close_at).await.unwrap_err();
-        assert!(
-            matches!(&error,
-                super::LocalError::Service(super::ServiceError::Rejection(code)) if *code == "BILLING_M5_PERIOD"),
-            "{error:?}"
+        let statement = ledger.period_close_at(&close, close_at).await.unwrap();
+        assert_eq!(statement["net_atoms"], "2500000000000000000");
+        assert_eq!(statement["lines"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            statement["lines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|line| line["basis"] == "outcome_revision")
+                .count(),
+            2
         );
+        assert!(statement["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |line| line["calculation"]["operands"]["change_kind"] == "replacement"
+                    && line["calculation"]["operands"]["prior_outcome_id"] == "quality-1"
+            ));
         ledger.close().await;
         let mut conn = sqlx::SqliteConnection::connect_with(
             &sqlx::sqlite::SqliteConnectOptions::new()
@@ -2205,9 +2220,213 @@ mod tests {
             .fetch_one(&mut conn)
             .await
             .unwrap();
-        assert_eq!(after, before);
-        assert_eq!(closes, 0);
+        assert_eq!(after, before + 1);
+        assert_eq!(closes, 1);
         conn.close().await.unwrap();
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+    }
+
+    async fn post_close_m4_correction(path: &std::path::Path) -> BillingLedger {
+        BillingLedger::init(path, include_bytes!("../../../examples/billing/setup.json"))
+            .await
+            .unwrap();
+        let ledger = BillingLedger::open(path).await.unwrap();
+        let term = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1","change_id":"presentation-term",
+            "expected_revision":"0","effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        })).unwrap().into_vec();
+        ledger.term_set(&term).await.unwrap();
+        let accepted = ledger
+            .accept_at(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let target = accepted["receipt"]["body"]["target"].as_str().unwrap();
+        let mut outcome: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/outcome.json"))
+                .unwrap();
+        outcome["target"] = json!(target);
+        let outcome = ledgerlab_core::canonical::CanonicalBytes::from_value(&outcome)
+            .unwrap()
+            .into_vec();
+        ledger
+            .outcome_at(
+                "customer-1",
+                "urn:example:work",
+                &outcome,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-23T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .period_close_at(
+                &close,
+                ledgerlab_core::domain::Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut correction: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/correction.json"))
+                .unwrap();
+        correction["target"] = json!(target);
+        let correction = ledgerlab_core::canonical::CanonicalBytes::from_value(&correction)
+            .unwrap()
+            .into_vec();
+        ledger
+            .correct_at(
+                "customer-1",
+                "urn:example:work",
+                &correction,
+                ledgerlab_core::domain::Timestamp::parse("2026-10-06T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        ledger
+    }
+
+    #[tokio::test]
+    async fn standard_close_claims_post_close_outcome_adjustment() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        let ledger = post_close_m4_correction(&path).await;
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"1"}
+        }))
+        .unwrap()
+        .into_vec();
+        let at = ledgerlab_core::domain::Timestamp::parse("2026-11-05T12:00:00.000000Z").unwrap();
+        let statement = ledger.period_close_at(&close, at.clone()).await.unwrap();
+        assert_eq!(statement["net_atoms"], "500000000000000000");
+        assert_eq!(statement["lines"].as_array().unwrap().len(), 1);
+        assert_eq!(statement["lines"][0]["basis"], "outcome_revision");
+        let issue = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-ad-hoc-statement/1","customer":"customer-1","command_id":"late-issue",
+            "adjustments":[{"source":"urn:example:work","adjustment_id":"correction-1"}]
+        })).unwrap().into_vec();
+        let error = ledger
+            .adjustment_statement_at(&issue, at.clone())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, super::LocalError::Service(super::ServiceError::Rejection(ref code)) if code == "BILLING_M5_PRESENTED")
+        );
+        assert_eq!(ledger.period_close_at(&close, at).await.unwrap(), statement);
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn ad_hoc_claim_excludes_adjustment_from_standard_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        let ledger = post_close_m4_correction(&path).await;
+        let issue = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-ad-hoc-statement/1","customer":"customer-1","command_id":"late-issue",
+            "adjustments":[{"source":"urn:example:work","adjustment_id":"correction-1"}]
+        })).unwrap().into_vec();
+        let at = ledgerlab_core::domain::Timestamp::parse("2026-10-07T12:00:00.000000Z").unwrap();
+        let wrong_scope = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-ad-hoc-statement/1","customer":"customer-1","command_id":"wrong-scope",
+            "adjustments":[{"source":"urn:example:other","adjustment_id":"correction-1"}]
+        })).unwrap().into_vec();
+        let scope_error = ledger
+            .adjustment_statement_at(&wrong_scope, at.clone())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(scope_error, super::LocalError::Service(super::ServiceError::Rejection(ref code)) if code == "BILLING_M5_SCOPE")
+        );
+        let issued = ledger
+            .adjustment_statement_at(&issue, at.clone())
+            .await
+            .unwrap();
+        assert_eq!(issued["net_atoms"], "500000000000000000");
+        assert_eq!(issued["direction"], "receivable");
+        assert_eq!(
+            issued["lines"][0]["calculation"]["operands"]["prior_outcome_id"],
+            "quality-1"
+        );
+        let mut unsigned = issued.clone();
+        unsigned.as_object_mut().unwrap().remove("statement_hash");
+        let unsigned = ledgerlab_core::canonical::CanonicalBytes::from_value(&unsigned).unwrap();
+        assert_eq!(
+            issued["statement_hash"],
+            json!(crate::store::sqlite::m5::hex(
+                &crate::store::sqlite::m5::hash(
+                    b"bean-counter/m5/ad-hoc-statement/1\0",
+                    unsigned.as_slice()
+                )
+            ))
+        );
+        assert_eq!(
+            ledger.adjustment_statement_at(&issue, at).await.unwrap(),
+            issued
+        );
+        let changed = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-ad-hoc-statement/1","customer":"customer-1","command_id":"late-issue",
+            "adjustments":[{"source":"urn:example:work","adjustment_id":"different-adjustment"}]
+        })).unwrap().into_vec();
+        let conflict = ledger
+            .adjustment_statement_at(
+                &changed,
+                ledgerlab_core::domain::Timestamp::parse("2026-10-08T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(conflict, super::LocalError::Service(super::ServiceError::Rejection(ref code)) if code == "IDENTITY_CONFLICT")
+        );
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"1"}
+        }))
+        .unwrap()
+        .into_vec();
+        let statement = ledger
+            .period_close_at(
+                &close,
+                ledgerlab_core::domain::Timestamp::parse("2026-11-05T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(statement["net_atoms"], "0");
+        assert_eq!(statement["lines"], json!([]));
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        sqlx::query("DROP TRIGGER billing_m5_presentation_claims_no_update")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE billing_m5_presentation_claims SET statement_id='wrong-statement' WHERE adjustment_id='correction-1'")
+            .execute(&mut conn).await.unwrap();
+        conn.close().await.unwrap();
+        assert!(BillingLedger::open(&path).await.is_err());
     }
 
     #[tokio::test]

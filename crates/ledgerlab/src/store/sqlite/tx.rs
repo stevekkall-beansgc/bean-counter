@@ -117,6 +117,21 @@ impl SqliteTx {
     ) -> Result<super::m5::PeriodCloseState, StoreError> {
         super::m5::period_close_state(self.conn(), customer, term_version, period_index).await
     }
+    pub(crate) async fn m5_ad_hoc_state(
+        &mut self,
+        customer: &str,
+        references: &[(String, String)],
+    ) -> Result<super::m5::AdHocState, StoreError> {
+        super::m5::ad_hoc_state(self.conn(), customer, references).await
+    }
+    pub(crate) async fn m5_adjustment_claimed(
+        &mut self,
+        customer: &str,
+        source: &str,
+        adjustment_id: &str,
+    ) -> Result<Option<bool>, StoreError> {
+        super::m5::adjustment_claimed(self.conn(), customer, source, adjustment_id).await
+    }
     pub(crate) async fn m5_lookup(
         &mut self,
         identity: &[u8],
@@ -164,6 +179,13 @@ impl SqliteTx {
         projection: &super::m5::PeriodCloseProjection<'_>,
     ) -> Result<(), StoreError> {
         super::m5::append_period_close(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_ad_hoc(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::AdHocProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_ad_hoc(self.conn(), command, projection).await
     }
     pub(crate) async fn m5_preflight_capacity(
         &mut self,
