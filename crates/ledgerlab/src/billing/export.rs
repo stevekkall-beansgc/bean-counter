@@ -731,7 +731,13 @@ mod tests {
         }))
         .unwrap()
         .into_vec();
-        ledger.term_set(&term).await.unwrap();
+        ledger
+            .term_set_at(
+                &term,
+                ledgerlab_core::domain::Timestamp::parse("2026-01-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let close = canonical::CanonicalBytes::from_value(&json!({
             "schema":"ledger-billing-period-close/1","customer":"customer-1",
             "period_id":{"term_version":"1","period_index":"0"}
