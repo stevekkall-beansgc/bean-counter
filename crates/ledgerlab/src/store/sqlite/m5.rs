@@ -243,6 +243,171 @@ pub(crate) struct FiscalReportState {
     pub sources: Vec<FiscalReportSource>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct RecurrenceVersion {
+    pub agreement_id: String,
+    pub agreement_version: i64,
+    pub recurrence_version: i64,
+    pub rule: Value,
+    pub cancelled_at_us: Option<i64>,
+}
+
+pub(crate) struct RecurrenceState {
+    pub revision: i64,
+    pub next_version: i64,
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+    pub versions: Vec<RecurrenceVersion>,
+}
+
+pub(crate) async fn recurrence_state(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    source: &str,
+) -> Result<RecurrenceState, StoreError> {
+    let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if schema != 11 {
+        return Err(StoreError::BillingUpgradeRequired);
+    }
+    let rows: Vec<(String,i64,i64,Vec<u8>,Option<i64>)> = sqlx::query_as(
+        "SELECT v.agreement_id,v.agreement_version,v.recurrence_version,v.rule_bytes,c.cancelled_at_us FROM billing_m5_recurrence_versions v LEFT JOIN billing_m5_recurrence_cancellations c ON c.customer=v.customer AND c.source=v.source AND c.recurrence_version=v.recurrence_version WHERE v.customer=? AND v.source=? ORDER BY v.recurrence_version"
+    ).bind(customer).bind(source).fetch_all(&mut *conn).await?;
+    let mut versions = Vec::with_capacity(rows.len());
+    for (i, (agreement_id, agreement_version, recurrence_version, rule_bytes, cancelled_at_us)) in
+        rows.into_iter().enumerate()
+    {
+        if recurrence_version != i as i64 + 1 {
+            return Err(StoreError::InvalidStore("M5 recurrence sequence"));
+        }
+        versions.push(RecurrenceVersion {
+            agreement_id,
+            agreement_version,
+            recurrence_version,
+            rule: canonical(&rule_bytes, 262_144)?,
+            cancelled_at_us,
+        });
+    }
+    let revision: i64=sqlx::query_scalar("SELECT count(*) FROM billing_m5_commands WHERE family IN ('ledger-billing-recurrence/1','ledger-billing-recurrence-cancel/1') AND customer=? AND source=?")
+        .bind(customer).bind(source).fetch_one(&mut *conn).await?;
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(RecurrenceState {
+        revision,
+        next_version: versions.len() as i64 + 1,
+        command_sequence,
+        first_record_sequence,
+        versions,
+    })
+}
+
+pub(crate) async fn append_recurrence_versions(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+) -> Result<(), StoreError> {
+    append(conn, command).await?;
+    for child in command.children {
+        if child.family != "ledger-billing-recurrence-version/1" {
+            return Err(StoreError::Integrity("M5 recurrence child"));
+        }
+        let payload = canonical(child.payload, 262_144)?;
+        let customer = payload["customer"]
+            .as_str()
+            .ok_or(StoreError::Integrity("M5 recurrence customer"))?;
+        let source = payload["source"]
+            .as_str()
+            .ok_or(StoreError::Integrity("M5 recurrence source"))?;
+        let agreement_id = payload["agreement_id"]
+            .as_str()
+            .ok_or(StoreError::Integrity("M5 recurrence agreement"))?;
+        let agreement_version = decimal(&payload["agreement_version"])?;
+        let recurrence_version = decimal(&payload["recurrence_version"])?;
+        let next:i64=sqlx::query_scalar("SELECT COALESCE(max(recurrence_version),0)+1 FROM billing_m5_recurrence_versions WHERE customer=? AND source=?")
+            .bind(customer).bind(source).fetch_one(&mut *conn).await?;
+        if Some(customer) != command.customer
+            || Some(source) != command.source
+            || recurrence_version != next
+            || agreement_version < 1
+        {
+            return Err(StoreError::Integrity("M5 recurrence version"));
+        }
+        let rule = CanonicalBytes::from_value(&payload["rule"])
+            .map_err(|_| StoreError::Integrity("M5 recurrence rule"))?;
+        let renewal = CanonicalBytes::from_value(&payload["renewal"])
+            .map_err(|_| StoreError::Integrity("M5 recurrence renewal"))?;
+        sqlx::query("INSERT INTO billing_m5_recurrence_versions(customer,source,agreement_id,agreement_version,recurrence_version,record_sequence,rule_bytes,renewal_bytes) VALUES(?,?,?,?,?,?,?,?)")
+            .bind(customer).bind(source).bind(agreement_id).bind(agreement_version).bind(recurrence_version)
+            .bind(payload["record"]["sequence"].as_str().and_then(|s|s.parse::<i64>().ok()).ok_or(StoreError::Integrity("M5 recurrence sequence"))?)
+            .bind(rule.as_slice()).bind(renewal.as_slice()).execute(&mut *conn).await?;
+    }
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) async fn append_recurrence_cancel(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+) -> Result<(), StoreError> {
+    if command.children.len() != 1 {
+        return Err(StoreError::Integrity("M5 cancellation child"));
+    }
+    append(conn, command).await?;
+    let payload = canonical(command.children[0].payload, 262_144)?;
+    if payload["customer"] != command.customer.unwrap_or("")
+        || payload["source"] != command.source.unwrap_or("")
+    {
+        return Err(StoreError::Integrity("M5 cancellation scope"));
+    }
+    sqlx::query("INSERT INTO billing_m5_recurrence_cancellations(customer,source,recurrence_version,cancelled_at_us,record_sequence) VALUES(?,?,?,?,?)")
+        .bind(command.customer.ok_or(StoreError::Integrity("M5 cancellation customer"))?)
+        .bind(command.source.ok_or(StoreError::Integrity("M5 cancellation source"))?)
+        .bind(decimal(&payload["recurrence_version"])?).bind(command.accepted_at_us)
+        .bind(decimal(&payload["record"]["sequence"])?).execute(&mut *conn).await?;
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) async fn append_occurrence(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    receipt_id: &str,
+) -> Result<(), StoreError> {
+    if command.children.len() != 1
+        || command.children[0].family != "ledger-billing-occurrence-acceptance-record/1"
+    {
+        return Err(StoreError::Integrity("M5 occurrence child"));
+    }
+    append(conn, command).await?;
+    let payload = canonical(command.children[0].payload, 262_144)?;
+    if payload["accepted_m3_receipt_id"] != receipt_id
+        || payload["customer"] != command.customer.unwrap_or("")
+        || payload["source"] != command.source.unwrap_or("")
+    {
+        return Err(StoreError::Integrity("M5 occurrence receipt"));
+    }
+    sqlx::query("INSERT INTO billing_m5_occurrence_acceptances(customer,source,occurrence_id,accepted_m3_receipt_id,record_sequence) VALUES(?,?,?,?,?)")
+        .bind(command.customer.ok_or(StoreError::Integrity("M5 occurrence customer"))?)
+        .bind(command.source.ok_or(StoreError::Integrity("M5 occurrence source"))?)
+        .bind(payload["occurrence_id"].as_str().ok_or(StoreError::Integrity("M5 occurrence ID"))?)
+        .bind(receipt_id).bind(decimal(&payload["record"]["sequence"])?).execute(&mut *conn).await?;
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) async fn occurrence_accepted(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    source: &str,
+    id: &str,
+) -> Result<bool, StoreError> {
+    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_m5_occurrence_acceptances WHERE customer=? AND source=? AND occurrence_id=?)")
+        .bind(customer).bind(source).bind(id).fetch_one(&mut *conn).await.map_err(StoreError::from)
+}
+
 pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalState, StoreError> {
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
@@ -2210,6 +2375,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     verify_ad_hoc_statements(conn).await?;
     verify_term_projections(conn, &record_rows).await?;
     verify_fiscal_projections(conn, &record_rows).await?;
+    verify_recurrence_projections(conn, &record_rows).await?;
     let semantics: Vec<ActivityIdentityRow> = sqlx::query_as(
         "SELECT customer,source,operation_id,command_sequence,activity_sequence,facts_bytes,facts_sha256 FROM billing_m5_activity_semantics ORDER BY customer,source,operation_id",
     ).fetch_all(&mut *conn).await?;
@@ -2240,6 +2406,143 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         {
             return Err(StoreError::InvalidStore("M5 delivery identity"));
         }
+    }
+    Ok(())
+}
+
+async fn verify_recurrence_projections(
+    conn: &mut SqliteConnection,
+    records: &[RetainedRecord],
+) -> Result<(), StoreError> {
+    let versions:Vec<(String,String,String,i64,i64,i64,Vec<u8>,Vec<u8>)>=sqlx::query_as(
+        "SELECT customer,source,agreement_id,agreement_version,recurrence_version,record_sequence,rule_bytes,renewal_bytes FROM billing_m5_recurrence_versions ORDER BY customer,source,recurrence_version"
+    ).fetch_all(&mut *conn).await?;
+    let mut prior: Option<(String, String, i64)> = None;
+    for (customer, source, agreement_id, agreement_version, version, sequence, rule, renewal) in
+        &versions
+    {
+        let expected = match &prior {
+            Some((c, s, n)) if c == customer && s == source => n + 1,
+            _ => 1,
+        };
+        if *version != expected {
+            return Err(StoreError::InvalidStore("M5 recurrence version sequence"));
+        }
+        prior = Some((customer.clone(), source.clone(), *version));
+        let record = records
+            .iter()
+            .find(|r| r.0 == *sequence)
+            .ok_or(StoreError::InvalidStore("M5 recurrence record"))?;
+        let payload = canonical(&record.4, 262_144)?;
+        if record.2 != "ledger-billing-recurrence-version/1"
+            || payload["customer"] != *customer
+            || payload["source"] != *source
+            || payload["agreement_id"] != *agreement_id
+            || decimal(&payload["agreement_version"])? != *agreement_version
+            || decimal(&payload["recurrence_version"])? != *version
+            || CanonicalBytes::from_value(&payload["rule"])
+                .map_err(|_| StoreError::InvalidStore("M5 recurrence rule"))?
+                .as_slice()
+                != rule
+            || CanonicalBytes::from_value(&payload["renewal"])
+                .map_err(|_| StoreError::InvalidStore("M5 recurrence renewal"))?
+                .as_slice()
+                != renewal
+        {
+            return Err(StoreError::InvalidStore("M5 recurrence projection"));
+        }
+    }
+    if records
+        .iter()
+        .filter(|r| r.2 == "ledger-billing-recurrence-version/1")
+        .count()
+        != versions.len()
+    {
+        return Err(StoreError::InvalidStore("M5 recurrence projection count"));
+    }
+    let cancels:Vec<(String,String,i64,i64,i64)>=sqlx::query_as(
+        "SELECT customer,source,recurrence_version,cancelled_at_us,record_sequence FROM billing_m5_recurrence_cancellations"
+    ).fetch_all(&mut *conn).await?;
+    for (customer, source, version, at, sequence) in &cancels {
+        if !versions
+            .iter()
+            .any(|v| v.0 == *customer && v.1 == *source && v.4 == *version)
+        {
+            return Err(StoreError::InvalidStore("M5 cancellation target"));
+        }
+        let record = records
+            .iter()
+            .find(|r| r.0 == *sequence)
+            .ok_or(StoreError::InvalidStore("M5 cancellation record"))?;
+        let payload = canonical(&record.4, 262_144)?;
+        let timestamp = ledgerlab_core::domain::Timestamp::parse(
+            payload["cancelled_at"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 cancellation time"))?,
+        )
+        .map_err(|_| StoreError::InvalidStore("M5 cancellation time"))?;
+        if record.2 != "ledger-billing-recurrence-cancellation/1"
+            || payload["customer"] != *customer
+            || payload["source"] != *source
+            || decimal(&payload["recurrence_version"])? != *version
+            || timestamp.micros() != *at
+        {
+            return Err(StoreError::InvalidStore("M5 cancellation projection"));
+        }
+    }
+    if records
+        .iter()
+        .filter(|r| r.2 == "ledger-billing-recurrence-cancellation/1")
+        .count()
+        != cancels.len()
+    {
+        return Err(StoreError::InvalidStore("M5 cancellation projection count"));
+    }
+    let occurrences:Vec<(String,String,String,String,i64)>=sqlx::query_as(
+        "SELECT customer,source,occurrence_id,accepted_m3_receipt_id,record_sequence FROM billing_m5_occurrence_acceptances"
+    ).fetch_all(&mut *conn).await?;
+    for (customer, source, id, receipt_id, sequence) in &occurrences {
+        let record = records
+            .iter()
+            .find(|r| r.0 == *sequence)
+            .ok_or(StoreError::InvalidStore("M5 occurrence record"))?;
+        let payload = canonical(&record.4, 262_144)?;
+        if record.2 != "ledger-billing-occurrence-acceptance-record/1"
+            || payload["customer"] != *customer
+            || payload["source"] != *source
+            || payload["occurrence_id"] != *id
+            || payload["accepted_m3_receipt_id"] != *receipt_id
+        {
+            return Err(StoreError::InvalidStore("M5 occurrence projection"));
+        }
+        let m3:Option<(i64,Vec<u8>)>=sqlx::query_as(
+            "SELECT e.ordinal,e.bundle FROM billing_m3_entries e WHERE e.customer=? AND e.source=? AND e.external_id=?"
+        ).bind(customer).bind(source).bind(id).fetch_optional(&mut *conn).await?;
+        let (ordinal, bundle) = m3.ok_or(StoreError::InvalidStore("M5 occurrence M3 entry"))?;
+        let rows = canonical(&bundle, 8 * 1024 * 1024)?;
+        if !rows.as_array().is_some_and(|rows| {
+            rows.iter()
+                .any(|row| row["kind"] == "base-acceptance" && row["id"] == *receipt_id)
+        }) {
+            return Err(StoreError::InvalidStore("M5 occurrence M3 receipt"));
+        }
+        let assignment:Option<(i64,i64)>=sqlx::query_as(
+            "SELECT term_version,period_index FROM billing_m5_assignments WHERE source_stream='m3' AND source_sequence=? AND customer=? AND source_scope=?"
+        ).bind(ordinal).bind(customer).bind(source).fetch_optional(&mut *conn).await?;
+        if assignment.is_none_or(|(term, index)| {
+            payload["period_id"]["term_version"] != term.to_string()
+                || payload["period_id"]["period_index"] != index.to_string()
+        }) {
+            return Err(StoreError::InvalidStore("M5 occurrence assignment"));
+        }
+    }
+    if records
+        .iter()
+        .filter(|r| r.2 == "ledger-billing-occurrence-acceptance-record/1")
+        .count()
+        != occurrences.len()
+    {
+        return Err(StoreError::InvalidStore("M5 occurrence projection count"));
     }
     Ok(())
 }

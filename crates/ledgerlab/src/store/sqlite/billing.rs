@@ -951,8 +951,28 @@ impl SqliteTx {
         &mut self,
         plan: &ValidatedEntry,
     ) -> Result<(), StoreError> {
-        self.append_billing_m3_with_limits(plan, MAX_RETAINED_ENTRY_BYTES, MAX_RETAINED_ALIAS_BYTES)
-            .await
+        self.append_billing_m3_with_limits(
+            plan,
+            MAX_RETAINED_ENTRY_BYTES,
+            MAX_RETAINED_ALIAS_BYTES,
+            true,
+        )
+        .await
+    }
+
+    /// The occurrence bridge appends its M5 link in the same transaction and
+    /// writes one complete boundary after both streams have advanced.
+    pub(crate) async fn append_billing_m3_for_occurrence(
+        &mut self,
+        plan: &ValidatedEntry,
+    ) -> Result<(), StoreError> {
+        self.append_billing_m3_with_limits(
+            plan,
+            MAX_RETAINED_ENTRY_BYTES,
+            MAX_RETAINED_ALIAS_BYTES,
+            false,
+        )
+        .await
     }
 
     async fn append_billing_m3_with_limits(
@@ -960,6 +980,7 @@ impl SqliteTx {
         plan: &ValidatedEntry,
         entry_byte_limit: i64,
         alias_byte_limit: i64,
+        append_boundary: bool,
     ) -> Result<(), StoreError> {
         if self.failed {
             return Err(StoreError::InvalidStore("poisoned billing transaction"));
@@ -994,7 +1015,7 @@ impl SqliteTx {
                     .bind(ordinal)
                     .execute(self.conn())
                     .await?;
-                self.append_m5_boundary_if_current().await?;
+                if append_boundary { self.append_m5_boundary_if_current().await?; }
                 return Ok(());
             }
             let accepted_at_us = plan
@@ -1071,7 +1092,7 @@ impl SqliteTx {
                         .execute(self.conn()).await?;
                 }
             }
-            self.append_m5_boundary_if_current().await?;
+            if append_boundary { self.append_m5_boundary_if_current().await?; }
             Ok::<_, StoreError>(())
         })
         .await
@@ -1173,7 +1194,7 @@ mod tests {
         let plan_bytes = i64::try_from(plan.byte_len()).unwrap();
         assert!(!would_exceed_byte_limit(0, plan.byte_len(), plan_bytes));
         let error = tx
-            .append_billing_m3_with_limits(&plan, plan_bytes - 1, MAX_RETAINED_ALIAS_BYTES)
+            .append_billing_m3_with_limits(&plan, plan_bytes - 1, MAX_RETAINED_ALIAS_BYTES, true)
             .await
             .unwrap_err();
         assert!(matches!(error, StoreError::BillingHistoryLimit));
@@ -1211,7 +1232,7 @@ mod tests {
             ingress_bytes
         ));
         let error = tx
-            .append_billing_m3_with_limits(&plan, MAX_RETAINED_ENTRY_BYTES, ingress_bytes - 1)
+            .append_billing_m3_with_limits(&plan, MAX_RETAINED_ENTRY_BYTES, ingress_bytes - 1, true)
             .await
             .unwrap_err();
         assert!(matches!(error, StoreError::BillingHistoryLimit));

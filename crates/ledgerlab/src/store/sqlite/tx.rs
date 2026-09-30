@@ -86,6 +86,46 @@ impl SqliteTx {
         )
         .await
     }
+    pub(crate) async fn m5_recurrence_state(
+        &mut self,
+        customer: &str,
+        source: &str,
+    ) -> Result<super::m5::RecurrenceState, StoreError> {
+        super::m5::recurrence_state(self.conn(), customer, source).await
+    }
+    pub(crate) async fn m5_append_recurrence_versions(
+        &mut self,
+        command: &super::m5::Command<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_recurrence_versions(self.conn(), command).await
+    }
+    pub(crate) async fn m5_append_recurrence_cancel(
+        &mut self,
+        command: &super::m5::Command<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_recurrence_cancel(self.conn(), command).await
+    }
+    pub(crate) async fn m5_assignment_for_occurrence(
+        &mut self,
+        plan: &crate::service::billing::ValidatedEntry,
+    ) -> Result<Option<super::m5::M3Assignment>, StoreError> {
+        super::m5::assignment_for_m3(self.conn(), plan).await
+    }
+    pub(crate) async fn m5_append_occurrence(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        m3_receipt_id: &str,
+    ) -> Result<(), StoreError> {
+        super::m5::append_occurrence(self.conn(), command, m3_receipt_id).await
+    }
+    pub(crate) async fn m5_occurrence_accepted(
+        &mut self,
+        customer: &str,
+        source: &str,
+        id: &str,
+    ) -> Result<bool, StoreError> {
+        super::m5::occurrence_accepted(self.conn(), customer, source, id).await
+    }
     pub(crate) async fn m5_term_transition_state(
         &mut self,
         customer: &str,

@@ -6,6 +6,7 @@ pub mod term_service;
 mod time;
 use crate::{Error, Result};
 pub use calendar::*;
+pub use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 pub use event::*;
 pub use records::*;
 use serde::{Deserialize, Serialize};

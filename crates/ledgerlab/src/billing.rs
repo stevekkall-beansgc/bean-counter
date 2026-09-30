@@ -22,6 +22,7 @@ mod close;
 mod export;
 mod fiscal;
 pub(crate) mod presentation;
+mod recurrence;
 mod term;
 
 pub struct BillingLedger {
