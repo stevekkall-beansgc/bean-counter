@@ -1,6 +1,6 @@
 # M5 decision register
 
-**Status (2026-09-29): Package 0 complete; owner defaults approved; the architecture baseline passed independent Astra review; Package 3 contracts are being drafted.** The [billing roadmap](billing-roadmap.md) is canonical. This register records the approved M5 direction and the defaults contract authors must preserve. Product implementation has not started.
+**Status (2026-09-30): Package 0 is complete, owner defaults are approved, the architecture baseline passed independent Astra review, and Package 3 is frozen after independent Sol and Astra reviews. Implementation is underway in `codex/m5-integration`; initial-term activation, calendar foundations, and the schema-11 upgrade path have focused evidence. M5 is not fully qualified and has no release candidate.** The [billing roadmap](billing-roadmap.md) is canonical. This register records the approved M5 direction and defaults implementation must preserve.
 
 ## 1. Owner-approved constraints
 
@@ -41,7 +41,7 @@ Resolve a nonexistent local boundary to the first valid instant after the gap; f
 
 ### Organization fiscal calendar
 
-Keep a separately versioned organization-level definition. Proposed supported forms are Gregorian month/quarter/year calendars with configurable fiscal-year start and week start, plus bounded explicit period patterns for month-style or 4-4-5/4-5-4/5-4-4 reporting. A custom week pattern must declare its week start, period lengths, 52/53-week rule, and where an extra week goes. The same validated date engine can calculate both customer billing periods and fiscal periods, but definitions, versions, and outputs remain separate.
+Keep a separately versioned organization-level definition. Approved supported forms are Gregorian month/quarter/year calendars with configurable fiscal-year start and week start, plus bounded explicit period patterns for month-style or 4-4-5/4-5-4/5-4-4 reporting. A custom week pattern must declare its week start, period lengths, 52/53-week rule, and where an extra week goes. The same validated date engine can calculate both customer billing periods and fiscal periods, but definitions, versions, and outputs remain separate.
 
 Owner-approved default (2026-09-29): a February 29 week-pattern year-end anchor resolves to February 28 in non-leap years before weekday alignment, following the existing Gregorian clamp rule. This fixes the behavior of an already supported configuration; it does not add a calendar form.
 
@@ -61,7 +61,7 @@ Renewal creates a new immutable agreement/recurrence version. Automatic renewal 
 
 Store each correction as a signed integer quantity delta linked to the original accepted usage and the original agreement/rate basis. Never overwrite or replace the accepted quantity. The original customer's billing period remains correction-eligible until its immutable close record is durably committed. A correction accepted after scheduled period end but before close is linked to the original period and contributes to its effective quantity. The writer lock serializes close and correction: whichever commits first determines whether the correction enters that statement or becomes a post-close adjustment.
 
-Proposed invariant: the cumulative corrected quantity remains within the original agreement's configured bounds, including a nonnegative lower bound; rate, unit, customer, and applicable agreement version remain those of the original accepted usage. Reject a delta that would violate those bounds. Each correction has a stable scoped identity and exact retry behavior. A post-close adjustment retains a link to the original usage, correction evidence, and later period; an ad hoc statement names the adjustment IDs it presents. Neither path alters the closed standard statement.
+Approved invariant: the cumulative corrected quantity remains within the original agreement's configured bounds, including a nonnegative lower bound; rate, unit, customer, and applicable agreement version remain those of the original accepted usage. Reject a delta that would violate those bounds. Each correction has a stable scoped identity and exact retry behavior. A post-close adjustment retains a link to the original usage, correction evidence, and later period; an ad hoc statement names the adjustment IDs it presents. Neither path alters the closed standard statement.
 
 Require the existing explicit correction permission/source and retain the evidence required by the original agreement. Refuse corrections outside the original agreement's quantity bounds; there is no special over-maximum override in this profile.
 
@@ -71,7 +71,7 @@ Keep the current M4 outcome authority and admissibility window unless the owner 
 
 Preserve USD scale-18 integer atoms through close, statement and export, with no unapproved close-time cent rounding. If a later regulatory or presentation rule requires rounding, make it an explicit versioned statement-level policy that retains the exact subtotal and records any rounding delta. Standard period statements show only that period's exact net; they do not carry forward prior unpaid balances. A negative exact net is represented as payable. Any future balance-forward presentation requires an explicit owner decision and a distinct statement contract.
 
-Keep M5 provider-free. The recommended scope is to omit manual payment-status tracking unless the owner explicitly wants it; status labels must not imply provider verification, execution, or settlement. If included, it needs separate authority, transition, partial-payment-allocation, and audit rules.
+Keep M5 provider-free. Owner-approved M5 scope omits manual payment-status tracking; no status label may imply provider verification, execution, or settlement. Adding payment-status tracking later would require separate authority, transition, partial-payment-allocation, and audit rules.
 
 ## 3. Owner decision gates
 
@@ -107,7 +107,7 @@ The owner approved these remaining architecture defaults:
 | Cumulative rounding | Let `E(q)` be the exact rational scale-18 atom result and `B(q)=nearest_ties_away(E(q))` be the booked atoms. Aggregate a conversion bucket exactly and apply `B` once at close, retaining the exact rational and booked atoms. Post-close cumulative corrections use `B(q_new)-B(q_old)` under the original pinned rule, with no second rounding. |
 | Adjustment presentation | Default to the next standard period. An operator may issue one ad hoc receivable/payable statement before standard inclusion. A uniqueness constraint ensures each adjustment is presented once. |
 
-These rules close the owner-decision gates identified by the architecture review. Package 3 still requires contract review and explicit acceptance evidence before dependent implementation begins.
+These rules close the owner-decision gates identified by the architecture review. Package 3 is frozen after contract review and explicit acceptance; dependent implementation is underway.
 
 ## 4. Package acceptance and stop conditions
 
