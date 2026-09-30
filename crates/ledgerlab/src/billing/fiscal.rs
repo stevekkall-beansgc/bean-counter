@@ -92,6 +92,12 @@ fn atoms(value: &Value) -> Result<i128, ServiceError> {
         .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))
 }
 
+fn integer(value: &Value) -> Result<i64, ServiceError> {
+    text(value)?
+        .parse()
+        .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))
+}
+
 fn scale_18(value: i128, scale: u64) -> Result<i128, ServiceError> {
     match scale {
         18 => Ok(value),
@@ -111,6 +117,136 @@ fn fiscal_line_id(view: &Value, mut line: Value) -> Result<Value, ServiceError> 
     digest.update(encoded);
     line["line_id"] = json!(m5::hex(&digest.finalize()));
     Ok(line)
+}
+
+struct CorrectionProvenance {
+    agreement_id: String,
+    agreement_version: i64,
+    payer: String,
+    recipient: String,
+    unit: String,
+    rate_atoms_per_unit: Option<i128>,
+}
+
+fn correction_provenance(
+    source: &m5::FiscalReportM5Source,
+    payload: &Value,
+) -> Result<CorrectionProvenance, ServiceError> {
+    let target = source
+        .target
+        .as_deref()
+        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+    let setup = source
+        .agreement_setup
+        .as_deref()
+        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+    let agreement_id = source
+        .agreement_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+    let agreement_version = source
+        .agreement_version
+        .filter(|value| *value > 0)
+        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+    let setup = ledgerlab_core::canonical::parse_bounded(setup, 262_144)
+        .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+    let payer = text(&setup["customer"])?;
+    let recipient = text(&setup["host"])?;
+    if payload["customer"] != payer || payload["source"] != setup["source"] {
+        return Err(service::reject("BILLING_M5_INTEGRITY"));
+    }
+    let mode = payload["mode"]
+        .as_str()
+        .or_else(|| match payload["cause_kind"].as_str() {
+            Some("per-work-quantity-correction") => Some("per-work"),
+            Some("cumulative-quantity-correction") => Some("cumulative"),
+            _ => None,
+        });
+    if mode == Some("per-work") {
+        let bundle = ledgerlab_core::canonical::parse_bounded(target, 8 * 1024 * 1024)
+            .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+        let rows = bundle
+            .as_array()
+            .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+        let event = rows
+            .iter()
+            .find(|row| row["kind"] == "event")
+            .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+        let quantity = atoms(&event["body"]["data"]["quantity"])?;
+        let unit = text(&event["body"]["data"]["unit"])?;
+        let postings = rows
+            .iter()
+            .filter(|row| row["kind"] == "base-posting")
+            .collect::<Vec<_>>();
+        if quantity <= 0 || postings.is_empty() {
+            return Err(service::reject("BILLING_M5_INTEGRITY"));
+        }
+        let mut booked = 0i128;
+        for posting in postings {
+            if posting["body"]["agreement_id"] != agreement_id
+                || posting["body"]["roles"]["payer"] != payer
+                || posting["body"]["roles"]["recipient"] != recipient
+                || posting["body"]["amount"]["currency"] != "USD"
+                || posting["body"]["amount"]["scale"] != 18
+            {
+                return Err(service::reject("BILLING_M5_INTEGRITY"));
+            }
+            booked = booked
+                .checked_add(atoms(&posting["body"]["amount"]["atoms"])?)
+                .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+        }
+        if booked % quantity != 0 || setup["unit"] != unit {
+            return Err(service::reject("BILLING_M5_INTEGRITY"));
+        }
+        Ok(CorrectionProvenance {
+            agreement_id: agreement_id.to_owned(),
+            agreement_version,
+            payer: payer.to_owned(),
+            recipient: recipient.to_owned(),
+            unit: unit.to_owned(),
+            rate_atoms_per_unit: Some(booked / quantity),
+        })
+    } else if mode == Some("cumulative") {
+        let target = ledgerlab_core::canonical::parse_bounded(target, 262_144)
+            .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+        let target_id = payload["target_activity_id"]
+            .as_str()
+            .or_else(|| payload["target_id"].as_str())
+            .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+        if target["schema"] != "ledger-billing-activity-record/1"
+            || target["customer"] != payload["customer"]
+            || target["source"] != payload["source"]
+            || target["activity_id"] != target_id
+            || target["agreement_id"] != agreement_id
+            || integer(&target["agreement_version"])? != agreement_version
+        {
+            return Err(service::reject("BILLING_M5_INTEGRITY"));
+        }
+        let basis = source
+            .basis
+            .as_deref()
+            .and_then(|bytes| ledgerlab_core::canonical::parse_bounded(bytes, 262_144).ok())
+            .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+        let unit = payload["unit"]
+            .as_str()
+            .or_else(|| payload["calculation"]["operands"]["unit"].as_str())
+            .or_else(|| basis["source_unit"].as_str())
+            .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+        if basis["mode"] != "cumulative_period" || basis["source_unit"] != unit {
+            return Err(service::reject("BILLING_M5_INTEGRITY"));
+        }
+        Ok(CorrectionProvenance {
+            agreement_id: agreement_id.to_owned(),
+            agreement_version,
+            payer: payer.to_owned(),
+            recipient: recipient.to_owned(),
+            unit: unit.to_owned(),
+            rate_atoms_per_unit: None,
+        })
+    } else {
+        Err(service::reject("BILLING_M5_INTEGRITY"))
+    }
 }
 
 fn fiscal_m3_lines(
@@ -310,10 +446,12 @@ fn fiscal_m3_lines(
     Ok((lines, included, net))
 }
 
+type FiscalM5Effects = (Vec<Value>, Vec<Value>, Vec<Value>, i128);
+
 fn fiscal_m5_effects(
     state: &m5::FiscalReportState,
     view: &Value,
-) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>, i128), ServiceError> {
+) -> Result<FiscalM5Effects, ServiceError> {
     let mut lines = Vec::new();
     let mut included = Vec::new();
     let mut quantities = Vec::new();
@@ -326,8 +464,9 @@ fn fiscal_m5_effects(
         prior_ordinal = source.ordinal;
         let payload = ledgerlab_core::canonical::parse_bounded(&source.payload, 262_144)
             .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
-        if payload["record"]["record_id"] != source.id
-            || payload["record"]["sequence"] != source.ordinal.to_string()
+        if payload["schema"] != source.kind
+            || payload["record"]["record_id"] != source.id
+            || integer(&payload["record"]["sequence"])? != source.ordinal
             || Timestamp::parse(text(&payload["record"]["accepted_at"])?)
                 .map(|accepted| accepted.micros())
                 != Ok(source.accepted_at_us)
@@ -342,8 +481,23 @@ fn fiscal_m5_effects(
                     .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
                 let basis = ledgerlab_core::canonical::parse_bounded(basis, 262_144)
                     .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+                let request = ledgerlab_core::canonical::parse_bounded(&source.request, 262_144)
+                    .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
                 let customer = text(&payload["customer"])?;
                 let application = text(&payload["source"])?;
+                if request["schema"] != "ledger-billing-activity/1"
+                    || request["customer"] != customer
+                    || request["source"] != application
+                    || request["id"] != payload["activity_id"]
+                    || request["operation_id"] != payload["operation_id"]
+                    || request["target"] != payload["target"]
+                    || request["quantity"] != payload["quantity"]
+                    || atoms(&payload["quantity"])? <= 0
+                    || basis["mode"] != "cumulative_period"
+                    || basis["source_unit"].as_str().is_none()
+                {
+                    return Err(service::reject("BILLING_M5_INTEGRITY"));
+                }
                 quantities.push(json!({"customer":customer,"source":application,
                     "kind":"activity","id":payload["activity_id"],
                     "unit":basis["source_unit"],"quantity":payload["quantity"],
@@ -355,6 +509,17 @@ fn fiscal_m5_effects(
             "ledger-billing-quantity-correction-record/1" => {
                 let customer = text(&payload["customer"])?;
                 let application = text(&payload["source"])?;
+                let request = ledgerlab_core::canonical::parse_bounded(&source.request, 262_144)
+                    .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+                if request["schema"] != "ledger-billing-quantity-correction/1"
+                    || request["customer"] != customer
+                    || request["source"] != application
+                    || request["id"] != payload["correction_id"]
+                    || request["target"] != payload["target_activity_id"]
+                    || request["quantity_delta"] != payload["quantity_delta"]
+                {
+                    return Err(service::reject("BILLING_M5_INTEGRITY"));
+                }
                 quantities.push(json!({"customer":customer,"source":application,
                     "kind":"quantity-correction","id":payload["correction_id"],
                     "unit":payload["unit"],"quantity":payload["quantity_delta"],
@@ -364,6 +529,50 @@ fn fiscal_m5_effects(
                     "kind":source.kind,"id":source.id}));
                 if payload["mode"] == "per-work"
                     && payload["correction_route"] == "original-open-period"
+                {
+                    let provenance = correction_provenance(source, &payload)?;
+                    let calculation = &payload["calculation"];
+                    let amount = atoms(&calculation["booked_atoms"])?;
+                    let delta = atoms(&payload["quantity_delta"])?;
+                    let rate = provenance
+                        .rate_atoms_per_unit
+                        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+                    let expected = delta
+                        .checked_mul(rate)
+                        .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                    if integer(&payload["agreement_version"])? != provenance.agreement_version
+                        || payload["unit"] != provenance.unit
+                        || calculation["kind"] != "quantity_correction"
+                        || calculation["exact_atoms_numerator"] != expected.to_string()
+                        || calculation["exact_atoms_denominator"] != "1"
+                        || calculation["booked_atoms"] != expected.to_string()
+                        || calculation["rounding"] != "none"
+                        || integer(&calculation["operands"]["agreement_version"])?
+                            != provenance.agreement_version
+                        || calculation["operands"]["target_id"] != payload["target_activity_id"]
+                        || calculation["operands"]["quantity_delta"] != payload["quantity_delta"]
+                        || calculation["operands"]["unit"] != provenance.unit
+                        || calculation["operands"]["rate_atoms_per_unit"] != rate.to_string()
+                        || amount != expected
+                    {
+                        return Err(service::reject("BILLING_M5_INTEGRITY"));
+                    }
+                    let source_record = json!({"customer":customer,"source":application,
+                        "kind":source.kind,"id":source.id});
+                    let line = json!({"source_records":[source_record],"basis":"quantity_correction",
+                        "agreement_id":provenance.agreement_id,
+                        "agreement_version":provenance.agreement_version.to_string(),
+                        "payer":provenance.payer,"recipient":provenance.recipient,
+                        "currency":"USD","scale":18,"amount_atoms":amount.to_string(),
+                        "calculation":calculation});
+                    net = net
+                        .checked_add(amount)
+                        .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                    lines.push(fiscal_line_id(view, line)?);
+                } else if !((payload["mode"] == "cumulative"
+                    && payload["correction_route"] == "original-open-period")
+                    || ((payload["mode"] == "per-work" || payload["mode"] == "cumulative")
+                        && payload["correction_route"] == "post-close-adjustment"))
                 {
                     return Err(service::reject("BILLING_M5_INTEGRITY"));
                 }
@@ -390,24 +599,128 @@ fn fiscal_m5_effects(
                     }
                     let source_record = json!({"customer":customer,"source":application,
                         "kind":source.kind,"id":source.id});
+                    let agreement_id = text(&retained["agreement_id"])?;
+                    let agreement_version = integer(&retained["agreement_version"])?;
+                    let agreement = source
+                        .close_agreements
+                        .iter()
+                        .find(|agreement| {
+                            agreement.source == application
+                                && agreement.agreement_id == agreement_id
+                                && agreement.agreement_version == agreement_version
+                        })
+                        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+                    let setup = ledgerlab_core::canonical::parse_bounded(&agreement.setup, 262_144)
+                        .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
                     let mut line = retained.clone();
                     line.as_object_mut()
                         .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?
                         .remove("line_id");
-                    line["source_records"] = json!([source_record.clone()]);
+                    let mut fiscal_sources = original_sources.to_vec();
+                    fiscal_sources.push(source_record.clone());
+                    fiscal_sources.sort_by(|left, right| {
+                        (
+                            left["customer"].as_str(),
+                            left["source"].as_str(),
+                            left["kind"].as_str(),
+                            left["id"].as_str(),
+                        )
+                            .cmp(&(
+                                right["customer"].as_str(),
+                                right["source"].as_str(),
+                                right["kind"].as_str(),
+                                right["id"].as_str(),
+                            ))
+                    });
+                    fiscal_sources.dedup();
+                    line["source_records"] = json!(fiscal_sources.clone());
                     let amount = atoms(&line["amount_atoms"])?;
-                    if line["calculation"]["booked_atoms"] != line["amount_atoms"] {
+                    if line["basis"] != "cumulative_close"
+                        || line["currency"] != "USD"
+                        || line["scale"] != 18
+                        || line["payer"] != setup["customer"]
+                        || line["payer"] != customer
+                        || line["recipient"] != setup["host"]
+                        || setup["source"] != application
+                        || line["calculation"]["kind"] != "cumulative_close"
+                        || line["calculation"]["booked_atoms"] != line["amount_atoms"]
+                    {
                         return Err(service::reject("BILLING_M5_INTEGRITY"));
                     }
                     net = net
                         .checked_add(amount)
                         .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
-                    included.push(source_record);
+                    included.extend(fiscal_sources);
                     lines.push(fiscal_line_id(view, line)?);
                 }
             }
             "ledger-billing-post-close-adjustment/1" => {
-                return Err(service::reject("BILLING_M5_INTEGRITY"));
+                let customer = text(&payload["customer"])?;
+                let application = text(&payload["source"])?;
+                let provenance = correction_provenance(source, &payload)?;
+                let request = ledgerlab_core::canonical::parse_bounded(&source.request, 262_144)
+                    .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+                let calculation = &payload["calculation"];
+                let amount = atoms(&payload["signed_delta_atoms"])?;
+                if request["schema"] != "ledger-billing-quantity-correction/1"
+                    || request["customer"] != customer
+                    || request["source"] != application
+                    || request["id"] != payload["cause_id"]
+                    || request["target"] != payload["target_id"]
+                    || request["quantity_delta"] != calculation["operands"]["quantity_delta"]
+                    || payload["currency"] != "USD"
+                    || payload["scale"] != 18
+                    || calculation["kind"] != "post_close_adjustment"
+                    || calculation["exact_atoms_numerator"] != amount.to_string()
+                    || calculation["exact_atoms_denominator"] != "1"
+                    || calculation["booked_atoms"] != amount.to_string()
+                    || calculation["rounding"] != "none"
+                    || calculation["operands"]["adjustment_id"] != payload["adjustment_id"]
+                    || calculation["operands"]["cause_kind"] != payload["cause_kind"]
+                    || calculation["operands"]["cause_id"] != payload["cause_id"]
+                    || calculation["operands"]["target_id"] != payload["target_id"]
+                    || calculation["operands"]["original_period_id"]
+                        != payload["original_period_id"]
+                    || calculation["operands"]["assigned_period_id"]
+                        != payload["assigned_period_id"]
+                    || calculation["operands"]["unit"] != provenance.unit
+                {
+                    return Err(service::reject("BILLING_M5_INTEGRITY"));
+                }
+                if payload["cause_kind"] == "per-work-quantity-correction" {
+                    let delta = atoms(&request["quantity_delta"])?;
+                    let rate = provenance
+                        .rate_atoms_per_unit
+                        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+                    if delta.checked_mul(rate) != Some(amount)
+                        || calculation["operands"]["rate_atoms_per_unit"] != rate.to_string()
+                        || integer(&calculation["operands"]["agreement_version"])?
+                            != provenance.agreement_version
+                    {
+                        return Err(service::reject("BILLING_M5_INTEGRITY"));
+                    }
+                } else if payload["cause_kind"] == "cumulative-quantity-correction" {
+                    let old = atoms(&calculation["operands"]["old_booked_atoms"])?;
+                    let new = atoms(&calculation["operands"]["new_booked_atoms"])?;
+                    if new.checked_sub(old) != Some(amount) {
+                        return Err(service::reject("BILLING_M5_INTEGRITY"));
+                    }
+                } else {
+                    return Err(service::reject("BILLING_M5_INTEGRITY"));
+                }
+                let source_record = json!({"customer":customer,"source":application,
+                    "kind":source.kind,"id":source.id});
+                included.push(source_record.clone());
+                let line = json!({"source_records":[source_record],"basis":"post_close_adjustment",
+                    "agreement_id":provenance.agreement_id,
+                    "agreement_version":provenance.agreement_version.to_string(),
+                    "payer":provenance.payer,"recipient":provenance.recipient,
+                    "currency":"USD","scale":18,"amount_atoms":amount.to_string(),
+                    "calculation":calculation});
+                net = net
+                    .checked_add(amount)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                lines.push(fiscal_line_id(view, line)?);
             }
             _ => return Err(service::reject("BILLING_M5_INTEGRITY")),
         }
@@ -1126,6 +1439,315 @@ mod tests {
         assert!(row.2 > row.1);
         assert_eq!(row.3, 1);
         conn.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fiscal_reports_include_open_and_post_close_per_work_corrections_exactly() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../../examples/billing/usage/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        ledger
+            .fiscal_set_at(
+                &utc_year_calendar("correction-fiscal-year"),
+                Timestamp::parse("2026-01-01T00:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let term = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-usage-1",
+            "change_id":"fiscal-correction-term","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp",
+                "boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .term_set_at(
+                &term,
+                Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        ledger
+            .accept_at(
+                "customer-usage-1",
+                "urn:example:usage-work",
+                include_bytes!("../../../../examples/billing/usage/event.json"),
+                Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let open = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-quantity-correction/1",
+            "customer":"customer-usage-1","source":"urn:example:usage-work",
+            "id":"fiscal-work-open","target":"usage-work-1","quantity_delta":"-1",
+            "occurred_at":"2026-09-20T11:00:00.000000Z","evidence":"verified open correction"
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .quantity_correct_at(
+                &open,
+                Timestamp::parse("2026-09-20T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let open_request = report(
+            "fiscal-open-correction",
+            "2026-01-01T00:00:00.000000Z",
+            "2027-01-01T00:00:00.000000Z",
+        );
+        let open_report = ledger
+            .fiscal_report_at(
+                &open_request,
+                Timestamp::parse("2026-09-25T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let open_line = open_report["monetary_lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|line| line["basis"] == "quantity_correction")
+            .unwrap();
+        assert_eq!(open_line["amount_atoms"], "-250000000000");
+        assert_eq!(open_line["agreement_id"], "agreement-usage-1");
+        assert_eq!(open_line["payer"], "customer-usage-1");
+        assert_eq!(open_line["recipient"], "example-company");
+
+        let close = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-usage-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .period_close_at(
+                &close,
+                Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let late = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-quantity-correction/1",
+            "customer":"customer-usage-1","source":"urn:example:usage-work",
+            "id":"fiscal-work-late","target":"usage-work-1","quantity_delta":"2",
+            "occurred_at":"2026-10-06T11:00:00.000000Z","evidence":"verified late correction"
+        }))
+        .unwrap()
+        .into_vec();
+        let late_result = ledger
+            .quantity_correct_at(
+                &late,
+                Timestamp::parse("2026-10-06T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            late_result["adjustment"]["signed_delta_atoms"],
+            "500000000000"
+        );
+        assert_eq!(
+            ledger
+                .fiscal_report_at(
+                    &open_request,
+                    Timestamp::parse("2026-10-07T12:00:00.000000Z").unwrap()
+                )
+                .await
+                .unwrap(),
+            open_report
+        );
+        let complete_request = report(
+            "fiscal-post-close-correction",
+            "2026-01-01T00:00:00.000000Z",
+            "2027-01-01T00:00:00.000000Z",
+        );
+        let complete = ledger
+            .fiscal_report_at(
+                &complete_request,
+                Timestamp::parse("2026-10-08T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let adjustment = complete["monetary_lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|line| line["basis"] == "post_close_adjustment")
+            .unwrap();
+        assert_eq!(adjustment["amount_atoms"], "500000000000");
+        assert_eq!(adjustment["agreement_id"], "agreement-usage-1");
+        assert_eq!(
+            complete["nonmonetary_quantities"].as_array().unwrap().len(),
+            2
+        );
+        let summed = complete["monetary_lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| atoms(&line["amount_atoms"]).unwrap())
+            .sum::<i128>();
+        assert_eq!(complete["net_atoms"], summed.to_string());
+        ledger.close().await;
+
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        assert_eq!(
+            reopened.fiscal_report(&complete_request).await.unwrap(),
+            complete
+        );
+        reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn fiscal_reports_include_cumulative_close_and_late_remeasurement_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        ledger
+            .fiscal_set_at(
+                &utc_year_calendar("cumulative-fiscal-year"),
+                Timestamp::parse("2026-01-01T00:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let term = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"fiscal-cumulative-term","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-10-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-10-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp",
+                "boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .term_set_at(
+                &term,
+                Timestamp::parse("2026-10-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let basis = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-cumulative-agreement/1","customer":"customer-1",
+            "source":"urn:example:work","change_id":"fiscal-basis","expected_revision":"0",
+            "agreement_id":"agreement-1","agreement_version":"1",
+            "effective_at":"2026-10-01T00:00:00.000000Z",
+            "basis":{"mode":"cumulative_period","source_unit":"token",
+                "billable_unit":"billable-token","conversion_numerator":"1",
+                "conversion_denominator":"2","rate_usd_per_billable_unit":"0.000000000000000001",
+                "maximum_period_quantity":"100"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .cumulative_agreement_set_at(
+                &basis,
+                Timestamp::parse("2026-10-02T09:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let activity = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-activity/1","customer":"customer-1",
+            "source":"urn:example:work","id":"fiscal-activity","operation_id":"fiscal-operation",
+            "target":"fiscal-run","quantity":"2","occurred_at":"2026-10-10T10:00:00.000000Z",
+            "evidence":"completed batch"
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .activity_submit_at(
+                &activity,
+                Timestamp::parse("2026-10-10T10:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let close = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .period_close_at(
+                &close,
+                Timestamp::parse("2026-11-05T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let correction = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-quantity-correction/1","customer":"customer-1",
+            "source":"urn:example:work","id":"fiscal-cumulative-late",
+            "target":"fiscal-activity","quantity_delta":"1",
+            "occurred_at":"2026-11-06T11:00:00.000000Z","evidence":"verified late quantity"
+        }))
+        .unwrap()
+        .into_vec();
+        let corrected = ledger
+            .quantity_correct_at(
+                &correction,
+                Timestamp::parse("2026-11-06T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(corrected["adjustment"]["signed_delta_atoms"], "1");
+        let request = report(
+            "fiscal-cumulative-correction",
+            "2026-01-01T00:00:00.000000Z",
+            "2027-01-01T00:00:00.000000Z",
+        );
+        let result = ledger
+            .fiscal_report_at(
+                &request,
+                Timestamp::parse("2026-11-07T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let cumulative = result["monetary_lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|line| line["basis"] == "cumulative_close")
+            .unwrap();
+        assert_eq!(cumulative["amount_atoms"], "1");
+        assert!(cumulative["source_records"].as_array().unwrap().len() >= 2);
+        let adjustment = result["monetary_lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|line| line["basis"] == "post_close_adjustment")
+            .unwrap();
+        assert_eq!(adjustment["amount_atoms"], "1");
+        assert_eq!(adjustment["agreement_id"], "agreement-1");
+        assert_eq!(adjustment["payer"], "customer-1");
+        assert_eq!(adjustment["recipient"], "example-company");
+        assert_eq!(result["net_atoms"], "2");
+        assert_eq!(
+            result["nonmonetary_quantities"].as_array().unwrap().len(),
+            2
+        );
+        assert_eq!(ledger.fiscal_report(&request).await.unwrap(), result);
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        assert_eq!(reopened.fiscal_report(&request).await.unwrap(), result);
+        reopened.close().await;
     }
 
     #[test]

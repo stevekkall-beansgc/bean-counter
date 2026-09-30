@@ -18,6 +18,7 @@ const MIGRATION_ID: &str = "bean-counter/m5/schema-11/1";
 const ASSIGNED_OUTCOMES: &str = "SELECT COALESCE((SELECT ingress FROM billing_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m2_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m3_entries WHERE ordinal=i.ordinal)),a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal";
 
 type StoredCommandRow = (i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i64);
+type FiscalM5Row = (i64, i64, String, String, Vec<u8>, Vec<u8>);
 type RetainedRecord = (i64, String, String, i64, Vec<u8>, Vec<u8>);
 type CommandIntegrityRow = (i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i64);
 type ActivityIdentityRow = (String, String, String, i64, i64, Vec<u8>, Vec<u8>);
@@ -246,6 +247,19 @@ pub(crate) struct FiscalReportM5Source {
     pub id: String,
     pub payload: Vec<u8>,
     pub basis: Option<Vec<u8>>,
+    pub target: Option<Vec<u8>>,
+    pub agreement_setup: Option<Vec<u8>>,
+    pub agreement_id: Option<String>,
+    pub agreement_version: Option<i64>,
+    pub request: Vec<u8>,
+    pub close_agreements: Vec<FiscalAgreementProvenance>,
+}
+
+pub(crate) struct FiscalAgreementProvenance {
+    pub source: String,
+    pub agreement_id: String,
+    pub agreement_version: i64,
+    pub setup: Vec<u8>,
 }
 
 pub(crate) struct FiscalReportState {
@@ -520,8 +534,8 @@ pub(crate) async fn fiscal_report_state(
     if rows.iter().any(|row| !ordinals.insert(row.0)) {
         return Err(StoreError::InvalidStore("M5 fiscal source tier"));
     }
-    let m5_rows: Vec<(i64, i64, String, String, Vec<u8>)> = sqlx::query_as(
-        "SELECT r.sequence,c.accepted_at_us,r.family,r.record_id,r.payload_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE r.sequence<=? AND c.accepted_at_us>=? AND c.accepted_at_us<? AND r.family IN ('ledger-billing-activity-record/1','ledger-billing-quantity-correction-record/1','ledger-billing-period-close-record/1','ledger-billing-post-close-adjustment/1') ORDER BY r.sequence",
+    let m5_rows: Vec<FiscalM5Row> = sqlx::query_as(
+        "SELECT r.sequence,c.accepted_at_us,r.family,r.record_id,r.payload_bytes,c.request_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE r.sequence<=? AND c.accepted_at_us>=? AND c.accepted_at_us<? AND r.family IN ('ledger-billing-activity-record/1','ledger-billing-quantity-correction-record/1','ledger-billing-period-close-record/1','ledger-billing-post-close-adjustment/1') ORDER BY r.sequence",
     )
     .bind(m5_high_water)
     .bind(start_at_us)
@@ -529,7 +543,7 @@ pub(crate) async fn fiscal_report_state(
     .fetch_all(&mut *conn)
     .await?;
     let mut m5_sources = Vec::with_capacity(m5_rows.len());
-    for (ordinal, accepted_at_us, kind, id, payload) in m5_rows {
+    for (ordinal, accepted_at_us, kind, id, payload, request) in m5_rows {
         let value = canonical(&payload, 262_144)?;
         if value["record"]["record_id"] != id
             || decimal(&value["record"]["sequence"])? != ordinal
@@ -537,7 +551,7 @@ pub(crate) async fn fiscal_report_state(
         {
             return Err(StoreError::InvalidStore("M5 fiscal source"));
         }
-        let basis = if kind == "ledger-billing-activity-record/1" {
+        let mut basis = if kind == "ledger-billing-activity-record/1" {
             let customer = value["customer"]
                 .as_str()
                 .ok_or(StoreError::InvalidStore("M5 fiscal activity"))?;
@@ -564,6 +578,144 @@ pub(crate) async fn fiscal_report_state(
         } else {
             None
         };
+        let (target, agreement_setup, agreement_id, agreement_version) = if kind
+            == "ledger-billing-quantity-correction-record/1"
+            || kind == "ledger-billing-post-close-adjustment/1"
+        {
+            let customer = value["customer"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 fiscal correction customer"))?;
+            let source = value["source"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 fiscal correction source"))?;
+            let target_id = if kind == "ledger-billing-quantity-correction-record/1" {
+                value["target_activity_id"].as_str()
+            } else {
+                value["target_id"].as_str()
+            }
+            .ok_or(StoreError::InvalidStore("M5 fiscal correction target"))?;
+            let mode = if kind == "ledger-billing-quantity-correction-record/1" {
+                value["mode"].as_str()
+            } else {
+                match value["cause_kind"].as_str() {
+                    Some("per-work-quantity-correction") => Some("per-work"),
+                    Some("cumulative-quantity-correction") => Some("cumulative"),
+                    _ => None,
+                }
+            }
+            .ok_or(StoreError::InvalidStore("M5 fiscal correction mode"))?;
+            let (target, agreement_id, agreement_version) = if mode == "per-work" {
+                let target: Option<(i64, Vec<u8>, String, i64)> = sqlx::query_as(
+                    "SELECT i.ordinal,e.bundle,e.agreement_id,e.agreement_version FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.kind='base' AND i.external_id=?",
+                )
+                .bind(customer)
+                .bind(source)
+                .bind(target_id)
+                .fetch_optional(&mut *conn)
+                .await?;
+                let (target_ordinal, target, agreement_id, agreement_version) =
+                    target.ok_or(StoreError::InvalidStore("M5 fiscal per-work target"))?;
+                if target_ordinal > m3_high_water {
+                    return Err(StoreError::InvalidStore("M5 fiscal per-work cut"));
+                }
+                (target, agreement_id, agreement_version)
+            } else if mode == "cumulative" {
+                let target: Option<(i64, Vec<u8>)> = sqlx::query_as(
+                    "SELECT r.sequence,r.payload_bytes FROM billing_m5_activity_deliveries d JOIN billing_m5_records r ON r.sequence=d.activity_sequence WHERE d.customer=? AND d.source=? AND d.external_id=?",
+                )
+                .bind(customer)
+                .bind(source)
+                .bind(target_id)
+                .fetch_optional(&mut *conn)
+                .await?;
+                let (target_ordinal, target) =
+                    target.ok_or(StoreError::InvalidStore("M5 fiscal cumulative target"))?;
+                if target_ordinal > m5_high_water {
+                    return Err(StoreError::InvalidStore("M5 fiscal cumulative cut"));
+                }
+                let target_value = canonical(&target, 262_144)?;
+                let agreement_id = target_value["agreement_id"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 fiscal cumulative agreement"))?
+                    .to_owned();
+                let agreement_version = decimal(&target_value["agreement_version"])?;
+                let basis_version = decimal(&target_value["basis_version"])?;
+                basis = Some(
+                    cumulative_basis_version(
+                        conn,
+                        customer,
+                        source,
+                        &agreement_id,
+                        agreement_version,
+                        basis_version,
+                    )
+                    .await?
+                    .ok_or(StoreError::InvalidStore("M5 fiscal correction basis"))?,
+                );
+                (target, agreement_id, agreement_version)
+            } else {
+                return Err(StoreError::InvalidStore("M5 fiscal correction mode"));
+            };
+            let agreement_setup: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT setup_bytes FROM billing_agreements WHERE customer=? AND source=? AND agreement_id=? AND agreement_version=? AND transition IN ('start','amend') ORDER BY revision DESC LIMIT 1",
+            )
+            .bind(customer)
+            .bind(source)
+            .bind(&agreement_id)
+            .bind(agreement_version)
+            .fetch_optional(&mut *conn)
+            .await?;
+            (
+                Some(target),
+                Some(agreement_setup.ok_or(StoreError::InvalidStore("M5 fiscal agreement setup"))?),
+                Some(agreement_id),
+                Some(agreement_version),
+            )
+        } else {
+            (None, None, None, None)
+        };
+        let mut close_agreements = Vec::new();
+        if kind == "ledger-billing-period-close-record/1" {
+            let lines = value["lines"]
+                .as_array()
+                .ok_or(StoreError::InvalidStore("M5 fiscal close lines"))?;
+            let mut keys = BTreeSet::new();
+            for line in lines {
+                if line["basis"] != "cumulative_close" {
+                    continue;
+                }
+                let agreement_id = line["agreement_id"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 fiscal close agreement"))?
+                    .to_owned();
+                let agreement_version = decimal(&line["agreement_version"])?;
+                let source = line["source_records"]
+                    .as_array()
+                    .and_then(|records| records.first())
+                    .and_then(|record| record["source"].as_str())
+                    .ok_or(StoreError::InvalidStore("M5 fiscal close source"))?;
+                if !keys.insert((source.to_owned(), agreement_id.clone(), agreement_version)) {
+                    continue;
+                }
+                let setup: Option<Vec<u8>> = sqlx::query_scalar(
+                    "SELECT setup_bytes FROM billing_agreements WHERE customer=? AND source=? AND agreement_id=? AND agreement_version=? AND transition IN ('start','amend') ORDER BY revision DESC LIMIT 1",
+                )
+                .bind(value["customer"].as_str().ok_or(StoreError::InvalidStore(
+                    "M5 fiscal close customer",
+                ))?)
+                .bind(source)
+                .bind(&agreement_id)
+                .bind(agreement_version)
+                .fetch_optional(&mut *conn)
+                .await?;
+                close_agreements.push(FiscalAgreementProvenance {
+                    source: source.to_owned(),
+                    agreement_id,
+                    agreement_version,
+                    setup: setup.ok_or(StoreError::InvalidStore("M5 fiscal close setup"))?,
+                });
+            }
+        }
         m5_sources.push(FiscalReportM5Source {
             ordinal,
             accepted_at_us,
@@ -571,6 +723,12 @@ pub(crate) async fn fiscal_report_state(
             id,
             payload,
             basis,
+            target,
+            agreement_setup,
+            agreement_id,
+            agreement_version,
+            request,
+            close_agreements,
         });
     }
     let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
