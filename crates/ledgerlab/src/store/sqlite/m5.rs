@@ -7,6 +7,10 @@ use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "m5_cumulative.rs"]
+mod cumulative;
+pub(crate) use cumulative::*;
+
 const MAX_ROWS: i64 = 100_000;
 const MAX_BYTES: i64 = 268_435_456;
 const MIGRATION_ID: &str = "bean-counter/m5/schema-11/1";
@@ -1146,7 +1150,7 @@ pub(crate) async fn period_close_state(
     )
     .await?;
     let unsupported_assignment_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=?",
+        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=? AND source_record_kind NOT IN ('ledger-billing-activity-record/1','ledger-billing-quantity-correction-record/1')",
     )
     .bind(customer)
     .bind(term_version)
@@ -1901,6 +1905,27 @@ pub(crate) async fn assignment_for_m3(
     let at = plan
         .accepted_at_us()
         .ok_or(StoreError::InvalidStore("M5 M3 time"))?;
+    if plan.kind() == Some("base") {
+        let agreement_id = plan
+            .agreement_id()
+            .ok_or(StoreError::InvalidStore("M5 M3 agreement"))?;
+        let agreement_version = plan
+            .agreement_version()
+            .ok_or(StoreError::InvalidStore("M5 M3 agreement"))?;
+        if cumulative_basis_at(
+            conn,
+            customer,
+            plan.source(),
+            agreement_id,
+            agreement_version,
+            at,
+        )
+        .await?
+        .is_some()
+        {
+            return Err(StoreError::BillingPeriod);
+        }
+    }
     let terms: i64 =
         sqlx::query_scalar("SELECT count(*) FROM billing_m5_term_versions WHERE customer=?")
             .bind(customer)
@@ -2376,6 +2401,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     verify_term_projections(conn, &record_rows).await?;
     verify_fiscal_projections(conn, &record_rows).await?;
     verify_recurrence_projections(conn, &record_rows).await?;
+    verify_cumulative_basis_projections(conn).await?;
     let semantics: Vec<ActivityIdentityRow> = sqlx::query_as(
         "SELECT customer,source,operation_id,command_sequence,activity_sequence,facts_bytes,facts_sha256 FROM billing_m5_activity_semantics ORDER BY customer,source,operation_id",
     ).fetch_all(&mut *conn).await?;
@@ -2407,6 +2433,8 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
             return Err(StoreError::InvalidStore("M5 delivery identity"));
         }
     }
+    verify_cumulative_activity_identities(conn).await?;
+    verify_cumulative_corrections(conn).await?;
     Ok(())
 }
 
@@ -2816,7 +2844,7 @@ async fn expected_close_economics(
     adjustments: &[PresentableAdjustment],
 ) -> Result<(Value, Value, String), StoreError> {
     let unsupported: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=?",
+        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=? AND source_record_kind NOT IN ('ledger-billing-activity-record/1','ledger-billing-quantity-correction-record/1')",
     )
     .bind(customer)
     .bind(term_version)
@@ -3010,6 +3038,20 @@ async fn expected_close_economics(
             .checked_add(amount)
             .ok_or(StoreError::InvalidStore("M5 close net"))?;
     }
+    let (cumulative_lines, cumulative_included, cumulative_net) =
+        expected_cumulative_close_economics(
+            conn,
+            customer,
+            term_version,
+            period_index,
+            m5_high_water,
+        )
+        .await?;
+    lines.extend(cumulative_lines);
+    included.extend(cumulative_included);
+    net = net
+        .checked_add(cumulative_net)
+        .ok_or(StoreError::InvalidStore("M5 close net"))?;
     included.sort_by(|left, right| {
         (
             left["customer"].as_str(),
@@ -3458,6 +3500,43 @@ async fn verify_term_projections(
         let initial_cut = *initial_term_cuts
             .get(&(customer.clone(), version))
             .ok_or(StoreError::InvalidStore("M5 initial term boundary"))?;
+        if stream == "m5" {
+            let source: Option<(String, String, String, i64, Vec<u8>)> = sqlx::query_as(
+                "SELECT r.customer,r.source,r.family,c.accepted_at_us,r.payload_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE r.sequence=?",
+            ).bind(source_sequence).fetch_optional(&mut *conn).await?;
+            let (source_customer, source_scope, family, source_at, payload) =
+                source.ok_or(StoreError::InvalidStore("M5 assignment M5 source"))?;
+            let payload = canonical(&payload, 262_144)?;
+            let period = if family == "ledger-billing-activity-record/1" {
+                &payload["period_id"]
+            } else if family == "ledger-billing-quantity-correction-record/1" {
+                &payload["assigned_period_id"]
+            } else {
+                return Err(StoreError::InvalidStore("M5 assignment M5 family"));
+            };
+            if source_customer != customer
+                || source_scope != scope
+                || family != kind
+                || payload["record"]["record_id"] != id
+                || source_at != at
+                || decimal(&period["term_version"])? != version
+                || decimal(&period["period_index"])? != index
+                || (family == "ledger-billing-activity-record/1" && basis != "acceptance-time")
+                || (family == "ledger-billing-quantity-correction-record/1"
+                    && basis != "linked-open-period"
+                    && basis != "post-close-adjustment")
+            {
+                return Err(StoreError::InvalidStore("M5 assignment M5 projection"));
+            }
+            if family == "ledger-billing-activity-record/1" {
+                let (active_version, active_period) =
+                    cumulative_period_at(conn, &customer, at).await?;
+                if (active_version, active_period) != (version, index) {
+                    return Err(StoreError::InvalidStore("M5 activity period assignment"));
+                }
+            }
+            continue;
+        }
         if stream != "m3" {
             return Err(StoreError::InvalidStore("M5 assignment source stream"));
         }

@@ -544,11 +544,8 @@ impl BillingLedger {
         let period_id = json!({
             "term_version":term_version.to_string(),"period_index":period_index.to_string()
         });
-        let (lines, included_records, net) =
+        let (mut lines, mut included_records, mut net) =
             per_work_lines(&request.customer, &period_id, &state.m3_assignments)?;
-        let mut lines = lines;
-        let mut included_records = included_records;
-        let mut net = net;
         for adjustment in &state.adjustments {
             let (line, amount) = super::presentation::adjustment_line(
                 &request.customer,
@@ -569,6 +566,21 @@ impl BillingLedger {
                 .checked_add(amount)
                 .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
         }
+        let (cumulative_lines, cumulative_records, cumulative_net) = cumulative::close_lines(
+            &mut tx,
+            &snapshot,
+            &request.customer,
+            &period_id,
+            term_version,
+            period_index,
+            state.m5_high_water,
+        )
+        .await?;
+        lines.extend(cumulative_lines);
+        included_records.extend(cumulative_records);
+        net = net
+            .checked_add(cumulative_net)
+            .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
         included_records.sort_by(|left, right| {
             (
                 left["customer"].as_str(),

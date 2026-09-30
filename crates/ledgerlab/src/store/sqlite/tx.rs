@@ -241,6 +241,215 @@ impl SqliteTx {
         )
         .await
     }
+    pub(crate) async fn m5_cumulative_sequences(
+        &mut self,
+    ) -> Result<super::m5::CumulativeSequences, StoreError> {
+        super::m5::cumulative_sequences(self.conn()).await
+    }
+    pub(crate) async fn m5_cumulative_last_accepted(&mut self) -> Result<Option<i64>, StoreError> {
+        super::m5::cumulative_last_accepted(self.conn()).await
+    }
+    pub(crate) async fn m5_cumulative_basis_revision(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+    ) -> Result<i64, StoreError> {
+        super::m5::cumulative_basis_revision(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_latest_basis_effective(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+    ) -> Result<Option<i64>, StoreError> {
+        super::m5::cumulative_latest_basis_effective(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_basis_at(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+        at_us: i64,
+    ) -> Result<Option<super::m5::RetainedBasis>, StoreError> {
+        super::m5::cumulative_basis_at(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+            at_us,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_basis_version(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+        basis_version: i64,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        super::m5::cumulative_basis_version(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+            basis_version,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_period_at(
+        &mut self,
+        customer: &str,
+        at_us: i64,
+    ) -> Result<(i64, i64), StoreError> {
+        super::m5::cumulative_period_at(self.conn(), customer, at_us).await
+    }
+    pub(crate) async fn m5_append_cumulative_basis(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        agreement_id: &str,
+        agreement_version: i64,
+        basis_version: i64,
+        effective_at_us: i64,
+        basis_bytes: &[u8],
+    ) -> Result<(), StoreError> {
+        super::m5::append_cumulative_basis(
+            self.conn(),
+            command,
+            agreement_id,
+            agreement_version,
+            basis_version,
+            effective_at_us,
+            basis_bytes,
+        )
+        .await
+    }
+    pub(crate) async fn m5_activity_delivery(
+        &mut self,
+        customer: &str,
+        source: &str,
+        id: &str,
+    ) -> Result<Option<super::m5::ActivityIdentity>, StoreError> {
+        super::m5::activity_delivery(self.conn(), customer, source, id).await
+    }
+    pub(crate) async fn m5_activity_semantic(
+        &mut self,
+        customer: &str,
+        source: &str,
+        operation_id: &str,
+    ) -> Result<Option<super::m5::ActivityIdentity>, StoreError> {
+        super::m5::activity_semantic(self.conn(), customer, source, operation_id).await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn m5_append_activity(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        operation_id: &str,
+        external_id: &str,
+        facts: &[u8],
+        ingress: &[u8],
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<(), StoreError> {
+        super::m5::append_activity(
+            self.conn(),
+            command,
+            operation_id,
+            external_id,
+            facts,
+            ingress,
+            term_version,
+            period_index,
+        )
+        .await
+    }
+    pub(crate) async fn m5_append_activity_alias(
+        &mut self,
+        customer: &str,
+        source: &str,
+        external_id: &str,
+        ingress: &[u8],
+        identity_key: &[u8],
+    ) -> Result<(), StoreError> {
+        super::m5::append_activity_alias(
+            self.conn(),
+            customer,
+            source,
+            external_id,
+            ingress,
+            identity_key,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_period_records(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+        high_water: i64,
+    ) -> Result<Vec<super::m5::CumulativeAssignedRecord>, StoreError> {
+        super::m5::cumulative_period_records(
+            self.conn(),
+            customer,
+            term_version,
+            period_index,
+            high_water,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_activity_target(
+        &mut self,
+        customer: &str,
+        source: &str,
+        target_id: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        super::m5::cumulative_activity_target(self.conn(), customer, source, target_id).await
+    }
+    pub(crate) async fn m5_cumulative_target_deltas(
+        &mut self,
+        customer: &str,
+        source: &str,
+        activity_id: &str,
+    ) -> Result<Vec<Vec<u8>>, StoreError> {
+        super::m5::cumulative_target_deltas(self.conn(), customer, source, activity_id).await
+    }
+    pub(crate) async fn m5_cumulative_period_closed(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<bool, StoreError> {
+        super::m5::cumulative_period_closed(self.conn(), customer, term_version, period_index).await
+    }
+    pub(crate) async fn m5_append_cumulative_correction(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<(), StoreError> {
+        super::m5::append_cumulative_correction(self.conn(), command, term_version, period_index)
+            .await
+    }
     #[cfg(test)]
     pub async fn load_delivery(
         &mut self,

@@ -19,6 +19,7 @@ use tokio::time::Instant;
 pub const CONTRACT_VERSION: &str = "v0.3";
 
 mod close;
+mod cumulative;
 mod export;
 mod fiscal;
 pub(crate) mod presentation;
