@@ -1603,6 +1603,38 @@ pub(crate) async fn append_period_close(
     Ok(())
 }
 
+/// Select one already-verified immutable standard statement by its public hash.
+/// The installation-open reconciliation proves the statement against its source
+/// records and accepted agreement versions; this point lookup preserves that
+/// exact retained byte representation for finance export.
+pub(crate) async fn period_close_statement(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    statement_hash: &str,
+) -> Result<Option<Vec<u8>>, StoreError> {
+    let rows: Vec<Vec<u8>> = sqlx::query_scalar(
+        "SELECT statement_bytes FROM billing_m5_period_closes WHERE customer=? AND statement_hash=? ORDER BY term_version,period_index",
+    )
+    .bind(customer)
+    .bind(statement_hash)
+    .fetch_all(&mut *conn)
+    .await?;
+    match rows.as_slice() {
+        [] => Ok(None),
+        [bytes] => {
+            let statement = canonical(bytes, 262_144)?;
+            if statement["schema"] != "ledger-billing-statement/4"
+                || statement["customer"] != customer
+                || statement["statement_hash"] != statement_hash
+            {
+                return Err(StoreError::Integrity("M5 period close selection"));
+            }
+            Ok(Some(bytes.clone()))
+        }
+        _ => Err(StoreError::Integrity("M5 duplicate statement hash")),
+    }
+}
+
 pub(crate) struct AdHocProjection<'a> {
     pub customer: &'a str,
     pub statement_id: &'a str,

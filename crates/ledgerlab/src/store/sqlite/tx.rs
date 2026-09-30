@@ -157,6 +157,13 @@ impl SqliteTx {
     ) -> Result<super::m5::PeriodCloseState, StoreError> {
         super::m5::period_close_state(self.conn(), customer, term_version, period_index).await
     }
+    pub(crate) async fn m5_period_close_statement(
+        &mut self,
+        customer: &str,
+        statement_hash: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        super::m5::period_close_statement(self.conn(), customer, statement_hash).await
+    }
     pub(crate) async fn m5_ad_hoc_state(
         &mut self,
         customer: &str,

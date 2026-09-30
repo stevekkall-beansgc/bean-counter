@@ -254,6 +254,38 @@ fn billing_close_accepts_the_frozen_period_request() {
         ),
         first
     );
+    fs::write(
+        root.join("mapping.json"),
+        br#"{"schema":"ledger-finance-mapping/1","accounts":{}}"#,
+    )
+    .unwrap();
+    let export = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "export-csv",
+            "--customer",
+            "customer-1",
+            "--snapshot",
+            first["statement_hash"].as_str().unwrap(),
+            "--mapping",
+            "mapping.json",
+            "--output",
+            "period.csv",
+        ],
+        0,
+    );
+    assert_eq!(export["schema"], "ledger-finance-export/4");
+    assert_eq!(export["statement_hash"], first["statement_hash"]);
+    assert_eq!(export["posting_count"], "0");
+    assert_eq!(export["control_net_atoms"], "0");
+    assert!(export.get("output").is_none());
+    let csv = fs::read_to_string(root.join("period.csv")).unwrap();
+    assert!(csv.starts_with("\"row_type\",\"export_id\",\"statement_hash\""));
+    assert_eq!(csv.matches("\r\n").count(), 2);
+    assert!(csv.contains("\r\n\"complete\",\"sha256:"));
 }
 
 #[test]
