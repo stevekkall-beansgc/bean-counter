@@ -2,6 +2,14 @@
 
 **Status:** Package 3 contract frozen after independent Sol and Astra review; not implemented and not accepted as conformance evidence.
 
+The deterministic schema gate added during implementation found and repaired one
+non-semantic fixture inconsistency: the first occurrence result had copied the
+M5 command sequence into the otherwise exact M4 `base-acceptance` receipt. The
+field was removed and only the dependent saved response bytes/hash changed; the
+pre-existing retry vector, schema, normative text, and implementation already
+required the corrected exact M4 envelope. The current command-golden SHA-256 is
+`c95e0f6bafb2c0262656729f00e388a39380ccf7ba0fed53c825aec22502d10c`.
+
 This candidate contains additive M5 CLI input/output and sidecar-record families. It does not modify `contracts/schemas/v1/canonical-records.schema.json`, `contracts/freeze.json`, the canonical v1 fixture set, or any M1–M4 family. The product and economic source of truth remains [the canonical billing roadmap](../../../docs/billing-roadmap.md). Detailed behavior is in [the frozen M5 contract](../../../docs/m5-contracts.md) and [the reviewed architecture baseline](../../../docs/m5-architecture.md).
 
 Owner-rule-to-contract-to-evidence mapping is in the [M5 contract traceability matrix](../../../docs/m5-contract-traceability.md).
@@ -19,3 +27,14 @@ Owner-rule-to-contract-to-evidence mapping is in the [M5 contract traceability m
 - `migration/schema-10-to-11.md` — explicit-upgrade preflight, atomicity, recovery and old-writer refusal contract.
 
 Schema validation is only structural. Duplicate JSON keys, UTF-8/canonical-byte constraints, timestamp normalization, rational reduction, authority, ownership, current revisions, period lookup, M3/M5 linkage, snapshot-cut validation, bounds, lock ordering, and exact money conservation remain service/store checks. `billing_m5_commands` owns control idempotency and saved response bytes; one command may have many linked records. Cumulative activity additionally has durable delivery and semantic identity tables so exact semantic retries can reserve fresh delivery IDs without duplicating activity or quantity. `billing_m5_snapshot_boundaries` contains only atomic cross-stream cuts, including equal high-water cuts for new activity aliases. The recurrence golden wraps the exact accepted `base-acceptance` envelope captured from the released v0.7.1 source-built M4 CLI; it is synthetic contract material, not evidence that M5 is implemented or conformant. The contract families reconciled with the existing CLI, every owner-approved rule has an exact oracle case, migration DDL/preflight agree with the existing SQLite migration path, and independent Sol and Astra reviews passed. Product implementation, migration qualification, and release readiness remain separate gates.
+
+Run `sh scripts/check-m5-contracts.sh` after `scripts/ci-setup.sh` (or with the
+dependencies from `scripts/requirements-contracts.txt` on `PYTHONPATH`). The
+offline gate meta-validates all four Draft 2020-12 schemas, resolves all 442
+references from checked-in candidate files, validates every command request,
+result, command record and domain child, checks exact canonical bytes and
+domain-separated hashes, and validates the finance export and declared oracle
+request/result vectors plus strict rejection probes. It is also part of
+`scripts/check-local-billing.sh` and the dedicated `m5-contracts` CI job. The
+historical `scripts/check.sh` remains byte-frozen by earlier contract manifests
+and is intentionally unchanged.

@@ -1,0 +1,27 @@
+name: m5-contracts
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema-and-goldens:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install pinned contract validators
+        run: python3 -m pip install --disable-pip-version-check --target work/check-deps -r scripts/requirements-contracts.txt
+      - name: Validate M5 schemas and goldens offline
+        run: sh scripts/check-m5-contracts.sh
