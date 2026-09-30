@@ -123,7 +123,7 @@ def audit_local_refs(schema_paths, documents):
                 pointer(documents[target], fragment, f"{path.name}: {ref}")
             except (KeyError, IndexError, ValueError) as error:
                 raise AssertionError(f"{path.name}: unresolved $ref {ref}") from error
-    assert count == 442, f"M5 local $ref inventory changed: {count}"
+    assert count == 444, f"M5 local $ref inventory changed: {count}"
     return count
 
 

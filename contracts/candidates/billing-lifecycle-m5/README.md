@@ -30,7 +30,7 @@ Schema validation is only structural. Duplicate JSON keys, UTF-8/canonical-byte 
 
 Run `sh scripts/check-m5-contracts.sh` after `scripts/ci-setup.sh` (or with the
 dependencies from `scripts/requirements-contracts.txt` on `PYTHONPATH`). The
-offline gate meta-validates all four Draft 2020-12 schemas, resolves all 442
+offline gate meta-validates all four Draft 2020-12 schemas, resolves all 444
 references from checked-in candidate files, validates every command request,
 result, command record and domain child, checks exact canonical bytes and
 domain-separated hashes, and validates the finance export and declared oracle

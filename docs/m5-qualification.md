@@ -22,7 +22,7 @@ Every accepted M5 command retains its exact identity, request, response, accepte
 
 ## Contract and storage gates
 
-The offline M5 contract gate validates four Draft 2020-12 schemas with 442 local references, 22 command requests, 22 results, 22 command records, 33 child records, three finance vectors, the oracle values, embedded M4 receipts and negative rejection probes. It also recomputes canonical bytes, Base64 envelopes, record IDs and domain-separated hashes.
+The offline M5 contract gate validates four Draft 2020-12 schemas with 444 local references, 22 command requests, 22 results, 22 command records, 33 child records, three finance vectors, the oracle values, embedded M4 receipts and negative rejection probes. It also recomputes canonical bytes, Base64 envelopes, record IDs and domain-separated hashes.
 
 The SQLite qualification covers fresh schema 11 creation, exact schema-10 preflight, preserved setup/history bytes, explicit upgrade and retry reconciliation, malformed-source refusal before DDL, transactional rollback after injected post-DDL failure, schema-10 ordinary-write refusal and snapshot-boundary advancement. Existing process-exit, unknown-commit, immutable-row, retained-identity and quiescent restore suites continue to pass. These tests are software evidence under SQLite/WAL/FULL and the documented host/storage assumptions; they are not a power-loss or storage-hardware certification.
 
