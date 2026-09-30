@@ -210,10 +210,7 @@ impl CalendarTerm {
             candidate = match self.unit {
                 CalendarUnit::Day => candidate.checked_add_signed(Duration::days(1)),
                 CalendarUnit::Week => candidate.checked_add_signed(Duration::weeks(1)),
-                CalendarUnit::Month => {
-                    let next = self.month_at(candidate, 1).ok();
-                    next
-                }
+                CalendarUnit::Month => self.month_at(candidate, 1).ok(),
                 CalendarUnit::Year => self.month_at(candidate, 12).ok(),
             }
             .ok_or(CalendarError::OutOfRange)?;

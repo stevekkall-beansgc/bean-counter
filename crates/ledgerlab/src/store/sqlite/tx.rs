@@ -67,6 +67,29 @@ impl SqliteTx {
     ) -> Result<super::m5::TermState, StoreError> {
         super::m5::term_state(self.conn(), customer).await
     }
+    pub(crate) async fn m5_term_transition_state(
+        &mut self,
+        customer: &str,
+        accepted_at_us: i64,
+    ) -> Result<super::m5::TermTransitionState, StoreError> {
+        super::m5::term_transition_state(self.conn(), customer, accepted_at_us).await
+    }
+    pub(crate) async fn m5_resolution_head(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<Option<super::m5::ResolutionHead>, StoreError> {
+        super::m5::resolution_head(self.conn(), customer, term_version, period_index).await
+    }
+    pub(crate) async fn m5_period_resolve_state(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<super::m5::PeriodResolveState, StoreError> {
+        super::m5::period_resolve_state(self.conn(), customer, term_version, period_index).await
+    }
     pub(crate) async fn m5_lookup(
         &mut self,
         identity: &[u8],
@@ -76,26 +99,23 @@ impl SqliteTx {
     pub(crate) async fn m5_append_initial_term(
         &mut self,
         command: &super::m5::Command<'_>,
-        customer: &str,
-        term_bytes: &[u8],
-        effective_at_us: i64,
-        end_at_us: i64,
-        resolution_id: &str,
-        term_version: i64,
-        assignments: &[(i64, i64, &super::m5::TermHistory)],
+        projection: &super::m5::InitialTermProjection<'_>,
     ) -> Result<(), StoreError> {
-        super::m5::append_initial_term(
-            self.conn(),
-            command,
-            customer,
-            term_bytes,
-            effective_at_us,
-            end_at_us,
-            resolution_id,
-            term_version,
-            assignments,
-        )
-        .await
+        super::m5::append_initial_term(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_term_transition(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::TransitionProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_term_transition(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_period_resolution(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::PeriodResolutionProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_period_resolution(self.conn(), command, projection).await
     }
     #[cfg(test)]
     pub async fn load_delivery(

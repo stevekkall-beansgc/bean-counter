@@ -1,5 +1,5 @@
-//! Pure initial customer-term activation planning. The manager supplies the
-//! already validated billable M3 history and persists the returned plan.
+//! Pure customer-term activation and transition planning. The manager supplies
+//! validated retained state and persists the returned plan atomically.
 
 use super::{
     Alignment, CalendarError, CalendarTerm, CalendarUnit, MonthEndRule, Revision, Timestamp,
@@ -20,6 +20,8 @@ pub enum TermPlanError {
     InvalidVersion,
     HistoryBeforeEffective,
     InvalidHistory,
+    TransitionAtBoundary,
+    PendingTermTransition,
 }
 
 impl From<CalendarError> for TermPlanError {
@@ -55,6 +57,48 @@ pub struct InitialTermPlan {
     pub term_version: u64,
     pub period_zero: UtcPeriod,
     pub assignments: Vec<PeriodAssignment>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TermChangeMode {
+    Initial,
+    NextBoundary,
+    Immediate,
+}
+
+/// A strictly parsed customer-term command. For `initial`, `term_template`
+/// carries the caller's effective instant. For a transition, that field is a
+/// placeholder only; `plan_term_transition` replaces it with the instant
+/// selected under the writer lock.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TermChangeRequest {
+    pub customer: String,
+    pub change_id: String,
+    pub expected_revision: Revision,
+    pub mode: TermChangeMode,
+    pub requested_effective_at: Option<DateTime<Utc>>,
+    pub term_template: CalendarTerm,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TermTransitionPlan {
+    pub request: TermChangeRequest,
+    pub term_version: u64,
+    pub effective_at: DateTime<Utc>,
+    pub term: CalendarTerm,
+    pub period_zero: UtcPeriod,
+    /// For an immediate transition, the predecessor's still-open logical
+    /// period with its resolved end clipped to the accepted instant. If the
+    /// transition lands exactly on that period's start, planning refuses with
+    /// `TransitionAtBoundary` instead of producing a zero-length period.
+    pub predecessor_resolution: Option<UtcPeriod>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PeriodResolveRequest {
+    pub customer: String,
+    pub term_version: u64,
+    pub period_index: u64,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +139,21 @@ struct WireTerm {
     boundary_rule_version: String,
     timezone_rules_version: String,
     proration: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePeriodResolve {
+    schema: String,
+    customer: String,
+    period_id: WirePeriodId,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePeriodId {
+    term_version: String,
+    period_index: String,
 }
 
 /// Parse the exact `ledger-billing-term/1` initial form. Lexical JSON parsing
@@ -200,6 +259,154 @@ pub fn parse_initial_request(bytes: &[u8]) -> Result<InitialTermRequest, TermPla
     })
 }
 
+/// Parse all supported customer-term request modes. Transition timestamps are
+/// intentionally absent from the wire request: the manager selects the
+/// effective instant after taking the serialized writer lock.
+pub fn parse_term_change_request(bytes: &[u8]) -> Result<TermChangeRequest, TermPlanError> {
+    let value = canonical::parse(bytes).map_err(|_| TermPlanError::InvalidRequest)?;
+    let effective = value
+        .get("effective")
+        .and_then(serde_json::Value::as_object)
+        .ok_or(TermPlanError::InvalidRequest)?;
+    let mode = match effective.get("mode").and_then(serde_json::Value::as_str) {
+        Some("initial") => TermChangeMode::Initial,
+        Some("next_boundary") => TermChangeMode::NextBoundary,
+        Some("immediate") => TermChangeMode::Immediate,
+        _ => return Err(TermPlanError::UnsupportedMode),
+    };
+
+    if mode == TermChangeMode::Initial {
+        let request = parse_initial_request(bytes)?;
+        let effective_at = request.term.effective_at;
+        return Ok(TermChangeRequest {
+            customer: request.customer,
+            change_id: request.change_id,
+            expected_revision: request.expected_revision,
+            mode,
+            requested_effective_at: Some(effective_at),
+            term_template: request.term,
+        });
+    }
+
+    // Transition modes are clocked by the accepted command instant or the
+    // current term's next boundary. Accepting a caller-supplied time here
+    // would allow a delayed command to backdate a term change.
+    if effective.len() != 1 || effective.contains_key("at") {
+        return Err(TermPlanError::InvalidRequest);
+    }
+
+    // Reuse the complete strict term/request validator with a private clock
+    // placeholder. The placeholder never reaches a plan or persistent record;
+    // the writer-locked transition planner substitutes the resolved instant.
+    let mut normalized = value;
+    normalized["effective"] = serde_json::json!({
+        "mode": "initial",
+        "at": "1970-01-01T00:00:00Z"
+    });
+    let normalized = canonical::CanonicalBytes::from_value(&normalized)
+        .map_err(|_| TermPlanError::InvalidRequest)?;
+    let template = parse_initial_request(normalized.as_slice())?;
+    Ok(TermChangeRequest {
+        customer: template.customer,
+        change_id: template.change_id,
+        expected_revision: template.expected_revision,
+        mode,
+        requested_effective_at: None,
+        term_template: template.term,
+    })
+}
+
+pub fn parse_period_resolve_request(bytes: &[u8]) -> Result<PeriodResolveRequest, TermPlanError> {
+    let value = canonical::parse(bytes).map_err(|_| TermPlanError::InvalidRequest)?;
+    let wire: WirePeriodResolve =
+        serde_json::from_value(value).map_err(|_| TermPlanError::InvalidRequest)?;
+    if wire.schema != "ledger-billing-period-resolve/1" {
+        return Err(TermPlanError::UnsupportedSchema);
+    }
+    check_id(&wire.customer)?;
+    let term_version = Revision::parse(&wire.period_id.term_version)
+        .map_err(|_| TermPlanError::InvalidRequest)?
+        .value();
+    let period_index = Revision::parse(&wire.period_id.period_index)
+        .map_err(|_| TermPlanError::InvalidRequest)?
+        .value();
+    if term_version == 0 {
+        return Err(TermPlanError::InvalidVersion);
+    }
+    Ok(PeriodResolveRequest {
+        customer: wire.customer,
+        term_version,
+        period_index,
+    })
+}
+
+/// Resolve a versioned term transition using the current term and the
+/// post-lock accepted instant. The caller persists the returned term and any
+/// predecessor resolution atomically with its command record.
+pub fn plan_term_transition(
+    request: TermChangeRequest,
+    current_term: &CalendarTerm,
+    pending_effective_at: Option<DateTime<Utc>>,
+    accepted_at: DateTime<Utc>,
+    term_version: u64,
+) -> Result<TermTransitionPlan, TermPlanError> {
+    if term_version == 0 || term_version > i64::MAX as u64 {
+        return Err(TermPlanError::InvalidVersion);
+    }
+    if request.mode == TermChangeMode::Initial {
+        return Err(TermPlanError::UnsupportedMode);
+    }
+    if accepted_at < current_term.effective_at {
+        return Err(TermPlanError::HistoryBeforeEffective);
+    }
+    let effective_at = match request.mode {
+        TermChangeMode::Immediate => accepted_at,
+        TermChangeMode::NextBoundary => current_term.period_for(accepted_at)?.end,
+        TermChangeMode::Initial => return Err(TermPlanError::UnsupportedMode),
+    };
+    // Term versions are immutable and tied to the revision chain in command
+    // order. Inserting before an already-pending successor would branch that
+    // chain even when the requested instant is earlier than the pending one.
+    if pending_effective_at.is_some() {
+        return Err(TermPlanError::PendingTermTransition);
+    }
+
+    let mut term = request.term_template.clone();
+    term.effective_at = effective_at;
+    term.validate()?;
+    let period_zero = term.period(0)?;
+
+    let predecessor_resolution = if request.mode == TermChangeMode::Immediate {
+        let mut predecessor = current_term.period_for(accepted_at)?;
+        if predecessor.start >= accepted_at {
+            // A zero-length predecessor cannot be persisted, and an M3 write
+            // serialized just before this transition may carry the same
+            // microsecond. Refuse until a strictly later accepted instant can
+            // clip the retained predecessor without changing that assignment.
+            return Err(TermPlanError::TransitionAtBoundary);
+        }
+        predecessor.end = accepted_at;
+        Some(predecessor)
+    } else {
+        None
+    };
+
+    Ok(TermTransitionPlan {
+        request,
+        term_version,
+        effective_at,
+        term,
+        period_zero,
+        predecessor_resolution,
+    })
+}
+
+/// Convert the facade timestamp into the calendar engine's UTC instant without
+/// making infrastructure crates depend directly on the calendar library.
+pub fn transition_instant(timestamp: &Timestamp) -> Result<DateTime<Utc>, TermPlanError> {
+    utc_micros(timestamp.micros())
+}
+
 /// Derive period zero and map every supplied billable acceptance exactly once.
 /// The manager must provide the complete customer history under its writer lock.
 pub fn plan_initial_activation(
@@ -283,6 +490,22 @@ mod tests {
         format!(r#"{{"schema":"ledger-billing-term/1","customer":"c","change_id":"first","expected_revision":"0","effective":{{"mode":"initial","at":"2026-01-10T09:00:00Z"}},"term":{{"interval":1,"unit":"month","alignment":"calendar_aligned","anchor":{{"date":"2026-01-01"}},"timezone":"UTC","month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"{}","timezone_rules_version":"{}","proration":"none"}}}}"#, super::super::BOUNDARY_RULES_VERSION, super::super::IANA_TZDB_VERSION).into_bytes()
     }
 
+    fn transition(mode: &str) -> Vec<u8> {
+        let mut value = canonical::parse(&request()).unwrap();
+        value["change_id"] = serde_json::json!(format!("{mode}-change"));
+        value["expected_revision"] = serde_json::json!("1");
+        value["effective"] = serde_json::json!({"mode": mode});
+        canonical::CanonicalBytes::from_value(&value)
+            .unwrap()
+            .into_vec()
+    }
+
+    fn accepted_at(value: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(value)
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
     #[test]
     fn maps_retained_history_across_exact_end() {
         let req = parse_initial_request(&request()).unwrap();
@@ -307,6 +530,73 @@ mod tests {
         assert_eq!(plan.period_zero.end.timestamp_micros(), boundary);
         assert_eq!(plan.assignments[0].period_index, 0);
         assert_eq!(plan.assignments[1].period_index, 1);
+    }
+
+    #[test]
+    fn immediate_transition_uses_locked_acceptance_time_and_clips_open_period() {
+        let req = parse_term_change_request(&transition("immediate")).unwrap();
+        assert_eq!(req.mode, TermChangeMode::Immediate);
+        assert_eq!(req.requested_effective_at, None);
+        let current = parse_initial_request(&request()).unwrap().term;
+        let accepted = accepted_at("2026-01-15T12:00:00Z");
+        let plan = plan_term_transition(req, &current, None, accepted, 2).unwrap();
+        assert_eq!(plan.effective_at, accepted);
+        assert_eq!(plan.term.effective_at, accepted);
+        assert_eq!(plan.period_zero.start, accepted);
+        let predecessor = plan.predecessor_resolution.unwrap();
+        assert_eq!(predecessor.index, 0);
+        assert_eq!(predecessor.start, accepted_at("2026-01-10T09:00:00Z"));
+        assert_eq!(predecessor.end, accepted);
+    }
+
+    #[test]
+    fn regular_transition_uses_next_boundary_of_current_term() {
+        let req = parse_term_change_request(&transition("next_boundary")).unwrap();
+        let current = parse_initial_request(&request()).unwrap().term;
+        let accepted = accepted_at("2026-01-15T12:00:00Z");
+        let plan = plan_term_transition(req, &current, None, accepted, 2).unwrap();
+        assert_eq!(plan.effective_at, accepted_at("2026-02-01T00:00:00Z"));
+        assert_eq!(plan.period_zero.start, plan.effective_at);
+        assert!(plan.predecessor_resolution.is_none());
+    }
+
+    #[test]
+    fn immediate_transition_at_existing_boundary_fails_closed() {
+        let req = parse_term_change_request(&transition("immediate")).unwrap();
+        let current = parse_initial_request(&request()).unwrap().term;
+        let accepted = accepted_at("2026-02-01T00:00:00Z");
+        assert_eq!(
+            plan_term_transition(req, &current, None, accepted, 2).unwrap_err(),
+            TermPlanError::TransitionAtBoundary
+        );
+    }
+
+    #[test]
+    fn any_term_change_refuses_while_a_successor_is_pending() {
+        let current = parse_initial_request(&request()).unwrap().term;
+        let accepted = accepted_at("2026-01-15T12:00:00Z");
+        let pending = accepted_at("2026-03-01T00:00:00Z");
+        for mode in ["immediate", "next_boundary"] {
+            let req = parse_term_change_request(&transition(mode)).unwrap();
+            assert_eq!(
+                plan_term_transition(req, &current, Some(pending), accepted, 2).unwrap_err(),
+                TermPlanError::PendingTermTransition,
+                "mode {mode}"
+            );
+        }
+    }
+
+    #[test]
+    fn transition_modes_reject_caller_supplied_effective_time() {
+        let raw = String::from_utf8(transition("immediate")).unwrap();
+        let changed = raw.replace(
+            "\"effective\":{\"mode\":\"immediate\"}",
+            "\"effective\":{\"mode\":\"immediate\",\"at\":\"2026-01-15T12:00:00Z\"}",
+        );
+        assert_eq!(
+            parse_term_change_request(changed.as_bytes()).unwrap_err(),
+            TermPlanError::InvalidRequest
+        );
     }
 
     #[test]

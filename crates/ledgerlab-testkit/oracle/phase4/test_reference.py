@@ -12,6 +12,7 @@ from observer import COMMON, PG_ONLY, no_change, assert_result
 
 HERE = pathlib.Path(__file__).resolve().parent
 DATA = json.loads((HERE/'stories.json').read_text())
+SQLITE_M5 = set('billing_m5_state billing_m5_commands billing_m5_records billing_m5_activity_semantics billing_m5_activity_deliveries billing_m5_snapshot_boundaries billing_m5_term_versions billing_m5_fiscal_versions billing_m5_cumulative_basis_versions billing_m5_recurrence_versions billing_m5_recurrence_cancellations billing_m5_occurrence_acceptances billing_m5_period_resolutions billing_m5_assignments billing_m5_adjustments billing_m5_period_closes billing_m5_presentation_claims billing_m5_fiscal_reports'.split())
 
 
 class Oracle(unittest.TestCase):
@@ -242,7 +243,7 @@ class NoChange(unittest.TestCase):
         import re
         from foundation import R3_SQLITE, R3_POSTGRES_V6
         root=HERE.parents[3]
-        for backend,expected in [('sqlite',COMMON|R3_SQLITE|{'billing_setup','billing_entries','billing_aliases','billing_permissions','billing_customers','billing_agreements','billing_m2_changes','billing_m2_permissions','billing_m2_entries','billing_m2_aliases','billing_m3_bounds','billing_m3_aliases','billing_m3_index','billing_m3_entries','billing_m3_upgrade'}),('postgres',COMMON|PG_ONLY|R3_POSTGRES_V6)]:
+        for backend,expected in [('sqlite',COMMON|R3_SQLITE|SQLITE_M5|{'billing_setup','billing_entries','billing_aliases','billing_permissions','billing_customers','billing_agreements','billing_m2_changes','billing_m2_permissions','billing_m2_entries','billing_m2_aliases','billing_m3_bounds','billing_m3_aliases','billing_m3_index','billing_m3_entries','billing_m3_upgrade'}),('postgres',COMMON|PG_ONLY|R3_POSTGRES_V6)]:
             text='\n'.join(p.read_text() for p in (root/'crates/ledgerlab/migrations'/backend).glob('*.sql'))
             actual=set(re.findall(r'CREATE TABLE (?:IF NOT EXISTS )?(?:ledgerlab\.)?(\w+)',text))
             self.assertEqual(actual,expected)

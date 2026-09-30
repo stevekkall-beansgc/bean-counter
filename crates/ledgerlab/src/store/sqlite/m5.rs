@@ -13,6 +13,39 @@ const MIGRATION_ID: &str = "bean-counter/m5/schema-11/1";
 // M3 ordinals are global across the original, M2, and M3 retained tiers.
 const ASSIGNED_OUTCOMES: &str = "SELECT COALESCE((SELECT ingress FROM billing_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m2_entries WHERE ordinal=i.ordinal),(SELECT ingress FROM billing_m3_entries WHERE ordinal=i.ordinal)),a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.target=? AND i.kind='outcome' ORDER BY i.ordinal";
 
+type StoredCommandRow = (i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i64);
+type RetainedRecord = (i64, String, String, i64, Vec<u8>, Vec<u8>);
+type CommandIntegrityRow = (i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i64);
+type ActivityIdentityRow = (String, String, String, i64, i64, Vec<u8>, Vec<u8>);
+type ResolutionProjectionRow = (String, i64, i64, String, i64, i64, i64, Option<String>);
+type AssignmentProjectionRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    i64,
+    String,
+    i64,
+);
+type AdjustmentProjectionRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    i64,
+    i64,
+    i64,
+    String,
+    i64,
+    String,
+);
+
 #[derive(Clone)]
 pub(crate) struct Child<'a> {
     pub family: &'a str,
@@ -38,9 +71,11 @@ pub(crate) struct Command<'a> {
 
 #[derive(Debug)]
 pub(crate) struct StoredCommand {
+    #[cfg(test)]
     pub sequence: i64,
     pub request: Vec<u8>,
     pub response: Vec<u8>,
+    #[cfg(test)]
     pub records: Vec<(i64, String, String, Vec<u8>)>,
 }
 
@@ -127,6 +162,37 @@ pub(crate) struct TermState {
     pub history: Vec<TermHistory>,
 }
 
+pub(crate) struct CurrentTerm {
+    pub term_version: i64,
+    pub effective_at_us: i64,
+    pub term_bytes: Vec<u8>,
+    pub payload_bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolutionHead {
+    pub resolution_id: String,
+    pub record_sequence: i64,
+    pub start_at_us: i64,
+    pub end_at_us: i64,
+}
+
+pub(crate) struct TermTransitionState {
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+    pub revision: i64,
+    pub next_term_version: i64,
+    pub current: CurrentTerm,
+    pub has_pending_successor: bool,
+}
+
+pub(crate) struct PeriodResolveState {
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+    pub term: CurrentTerm,
+    pub existing: Option<ResolutionHead>,
+}
+
 pub(crate) async fn term_state(
     conn: &mut SqliteConnection,
     customer: &str,
@@ -175,16 +241,335 @@ pub(crate) async fn term_state(
     })
 }
 
+pub(crate) async fn term_transition_state(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    accepted_at_us: i64,
+) -> Result<TermTransitionState, StoreError> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if version != 11 {
+        return Err(StoreError::BillingUpgradeRequired);
+    }
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let revision: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM billing_m5_term_versions WHERE customer=?")
+            .bind(customer)
+            .fetch_one(&mut *conn)
+            .await?;
+    let next_term_version: i64 =
+        sqlx::query_scalar("SELECT COALESCE(max(term_version),0)+1 FROM billing_m5_term_versions")
+            .fetch_one(&mut *conn)
+            .await?;
+    let current: Option<(i64, i64, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT t.term_version,t.effective_at_us,t.term_bytes,r.payload_bytes FROM billing_m5_term_versions t JOIN billing_m5_records r ON r.sequence=t.record_sequence WHERE t.customer=? AND t.effective_at_us<=? ORDER BY t.effective_at_us DESC,t.term_version DESC LIMIT 1",
+    )
+    .bind(customer)
+    .bind(accepted_at_us)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let (term_version, effective_at_us, term_bytes, payload_bytes) =
+        current.ok_or(StoreError::BillingPeriod)?;
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM billing_m5_term_versions WHERE customer=? AND effective_at_us>?",
+    )
+    .bind(customer)
+    .bind(accepted_at_us)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(TermTransitionState {
+        command_sequence,
+        first_record_sequence,
+        revision,
+        next_term_version,
+        current: CurrentTerm {
+            term_version,
+            effective_at_us,
+            term_bytes,
+            payload_bytes,
+        },
+        has_pending_successor: pending != 0,
+    })
+}
+
+pub(crate) async fn resolution_head(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    term_version: i64,
+    period_index: i64,
+) -> Result<Option<ResolutionHead>, StoreError> {
+    let row: Option<(String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT resolution_id,record_sequence,start_at_us,end_at_us FROM billing_m5_period_resolutions WHERE customer=? AND term_version=? AND period_index=? ORDER BY record_sequence DESC LIMIT 1",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(row.map(
+        |(resolution_id, record_sequence, start_at_us, end_at_us)| ResolutionHead {
+            resolution_id,
+            record_sequence,
+            start_at_us,
+            end_at_us,
+        },
+    ))
+}
+
+pub(crate) async fn period_resolve_state(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    term_version: i64,
+    period_index: i64,
+) -> Result<PeriodResolveState, StoreError> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if version != 11 {
+        return Err(StoreError::BillingUpgradeRequired);
+    }
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let term: Option<(i64, i64, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT t.term_version,t.effective_at_us,t.term_bytes,r.payload_bytes FROM billing_m5_term_versions t JOIN billing_m5_records r ON r.sequence=t.record_sequence WHERE t.customer=? AND t.term_version=?",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let (term_version, effective_at_us, term_bytes, payload_bytes) =
+        term.ok_or(StoreError::BillingPeriod)?;
+    let existing = resolution_head(conn, customer, term_version, period_index).await?;
+    Ok(PeriodResolveState {
+        command_sequence,
+        first_record_sequence,
+        term: CurrentTerm {
+            term_version,
+            effective_at_us,
+            term_bytes,
+            payload_bytes,
+        },
+        existing,
+    })
+}
+
+pub(crate) struct PeriodResolutionProjection<'a> {
+    pub customer: &'a str,
+    pub term_version: i64,
+    pub period_index: i64,
+    pub resolution_id: &'a str,
+    pub start_at_us: i64,
+    pub end_at_us: i64,
+}
+
+pub(crate) async fn append_period_resolution(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    projection: &PeriodResolutionProjection<'_>,
+) -> Result<(), StoreError> {
+    if projection.term_version <= 0
+        || projection.period_index < 0
+        || projection.end_at_us <= projection.start_at_us
+        || resolution_head(
+            conn,
+            projection.customer,
+            projection.term_version,
+            projection.period_index,
+        )
+        .await?
+        .is_some()
+    {
+        return Err(StoreError::Integrity("M5 period resolution projection"));
+    }
+    let sequence = append(conn, command).await?;
+    let row: (i64, String, Vec<u8>) = sqlx::query_as(
+        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE command_sequence=?",
+    )
+    .bind(sequence)
+    .fetch_one(&mut *conn)
+    .await?;
+    let value = canonical(&row.2, 262_144)?;
+    if row.1 != "ledger-billing-boundary-resolution/1"
+        || value["customer"] != projection.customer
+        || decimal(&value["term_version"])? != projection.term_version
+        || decimal(&value["period_id"]["term_version"])? != projection.term_version
+        || decimal(&value["period_id"]["period_index"])? != projection.period_index
+        || value["resolution_id"] != projection.resolution_id
+        || utc_us(&value["start_utc"])? != projection.start_at_us
+        || utc_us(&value["end_utc"])? != projection.end_at_us
+        || value.get("supersedes_resolution_id").is_some()
+    {
+        return Err(StoreError::Integrity("M5 period resolution child"));
+    }
+    sqlx::query("INSERT INTO billing_m5_period_resolutions(customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id) VALUES(?,?,?,?,?,?,?,NULL)")
+        .bind(projection.customer).bind(projection.term_version).bind(projection.period_index)
+        .bind(projection.resolution_id).bind(row.0).bind(projection.start_at_us).bind(projection.end_at_us)
+        .execute(&mut *conn).await?;
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) struct TransitionProjection<'a> {
+    pub customer: &'a str,
+    pub previous_term_version: i64,
+    pub term_version: i64,
+    pub effective_at_us: i64,
+    pub term_bytes: &'a [u8],
+    pub successor_resolution_id: &'a str,
+    pub successor_end_at_us: i64,
+    pub predecessor: Option<(&'a ResolutionHead, &'a str, i64)>,
+}
+
+pub(crate) async fn append_term_transition(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    projection: &TransitionProjection<'_>,
+) -> Result<(), StoreError> {
+    if projection.term_version <= 0
+        || projection.previous_term_version <= 0
+        || projection.successor_end_at_us <= projection.effective_at_us
+    {
+        return Err(StoreError::Integrity("M5 term transition projection"));
+    }
+    let latest_version: Option<i64> = sqlx::query_scalar(
+        "SELECT term_version FROM billing_m5_term_versions WHERE customer=? ORDER BY term_version DESC LIMIT 1",
+    )
+    .bind(projection.customer)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if latest_version != Some(projection.previous_term_version) {
+        return Err(StoreError::Integrity("M5 term transition predecessor"));
+    }
+    if let Some((head, _, clipped_end_at_us)) = projection.predecessor {
+        let period_index: i64 = sqlx::query_scalar(
+            "SELECT period_index FROM billing_m5_period_resolutions WHERE record_sequence=?",
+        )
+        .bind(head.record_sequence)
+        .fetch_one(&mut *conn)
+        .await?;
+        let retained = resolution_head(
+            conn,
+            projection.customer,
+            projection.previous_term_version,
+            period_index,
+        )
+        .await?;
+        if retained.as_ref() != Some(head)
+            || clipped_end_at_us <= head.start_at_us
+            || clipped_end_at_us >= head.end_at_us
+        {
+            return Err(StoreError::Integrity("M5 resolution head changed"));
+        }
+    }
+    let sequence = append(conn, command).await?;
+    let records: Vec<(i64, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE command_sequence=? ORDER BY sequence",
+    )
+    .bind(sequence)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut term_sequence = None;
+    let mut successor_sequence = None;
+    let mut predecessor_sequence = None;
+    for (record_sequence, family, raw) in records {
+        let value = canonical(&raw, 262_144)?;
+        if family == "ledger-billing-term-version/1" {
+            if value["customer"] != projection.customer
+                || decimal(&value["term_version"])? != projection.term_version
+                || decimal(&value["previous_term_version"])? != projection.previous_term_version
+                || utc_us(&value["effective_at"])? != projection.effective_at_us
+                || CanonicalBytes::from_value(&value["term"])
+                    .map_err(|_| StoreError::Integrity("M5 transition term"))?
+                    .as_slice()
+                    != projection.term_bytes
+                || term_sequence.replace(record_sequence).is_some()
+            {
+                return Err(StoreError::Integrity("M5 transition term child"));
+            }
+        } else if family == "ledger-billing-boundary-resolution/1" {
+            let resolution_id = value["resolution_id"]
+                .as_str()
+                .ok_or(StoreError::Integrity("M5 transition resolution"))?;
+            if resolution_id == projection.successor_resolution_id {
+                if decimal(&value["term_version"])? != projection.term_version
+                    || decimal(&value["period_id"]["period_index"])? != 0
+                    || utc_us(&value["start_utc"])? != projection.effective_at_us
+                    || utc_us(&value["end_utc"])? != projection.successor_end_at_us
+                    || value.get("supersedes_resolution_id").is_some()
+                    || successor_sequence.replace(record_sequence).is_some()
+                {
+                    return Err(StoreError::Integrity("M5 successor resolution child"));
+                }
+            } else if let Some((head, replacement_id, clipped_end_at_us)) = projection.predecessor {
+                if resolution_id != replacement_id
+                    || value["supersedes_resolution_id"] != head.resolution_id
+                    || decimal(&value["term_version"])? != projection.previous_term_version
+                    || utc_us(&value["start_utc"])? != head.start_at_us
+                    || utc_us(&value["end_utc"])? != clipped_end_at_us
+                    || predecessor_sequence.replace(record_sequence).is_some()
+                {
+                    return Err(StoreError::Integrity("M5 predecessor resolution child"));
+                }
+            } else {
+                return Err(StoreError::Integrity("M5 unexpected transition resolution"));
+            }
+        } else {
+            return Err(StoreError::Integrity("M5 transition child family"));
+        }
+    }
+    let term_sequence = term_sequence.ok_or(StoreError::Integrity("M5 missing term child"))?;
+    let successor_sequence =
+        successor_sequence.ok_or(StoreError::Integrity("M5 missing successor resolution"))?;
+    if projection.predecessor.is_some() != predecessor_sequence.is_some() {
+        return Err(StoreError::Integrity("M5 predecessor resolution count"));
+    }
+    sqlx::query("INSERT INTO billing_m5_term_versions(customer,term_version,record_sequence,effective_at_us,term_bytes) VALUES(?,?,?,?,?)")
+        .bind(projection.customer).bind(projection.term_version).bind(term_sequence)
+        .bind(projection.effective_at_us).bind(projection.term_bytes).execute(&mut *conn).await?;
+    sqlx::query("INSERT INTO billing_m5_period_resolutions(customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id) VALUES(?,?,0,?,?,?,?,NULL)")
+        .bind(projection.customer).bind(projection.term_version).bind(projection.successor_resolution_id)
+        .bind(successor_sequence).bind(projection.effective_at_us).bind(projection.successor_end_at_us)
+        .execute(&mut *conn).await?;
+    if let (Some((head, replacement_id, clipped_end_at_us)), Some(record_sequence)) =
+        (projection.predecessor, predecessor_sequence)
+    {
+        let period_index: i64 = sqlx::query_scalar(
+            "SELECT period_index FROM billing_m5_period_resolutions WHERE record_sequence=?",
+        )
+        .bind(head.record_sequence)
+        .fetch_one(&mut *conn)
+        .await?;
+        sqlx::query("INSERT INTO billing_m5_period_resolutions(customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id) VALUES(?,?,?,?,?,?,?,?)")
+            .bind(projection.customer).bind(projection.previous_term_version).bind(period_index)
+            .bind(replacement_id).bind(record_sequence).bind(head.start_at_us).bind(clipped_end_at_us)
+            .bind(&head.resolution_id).execute(&mut *conn).await?;
+    }
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) struct InitialTermProjection<'a> {
+    pub customer: &'a str,
+    pub term_bytes: &'a [u8],
+    pub effective_at_us: i64,
+    pub end_at_us: i64,
+    pub resolution_id: &'a str,
+    pub term_version: i64,
+    pub assignments: &'a [(i64, i64, &'a TermHistory)],
+}
+
 pub(crate) async fn append_initial_term(
     conn: &mut SqliteConnection,
     command: &Command<'_>,
-    customer: &str,
-    term_bytes: &[u8],
-    effective_at_us: i64,
-    end_at_us: i64,
-    resolution_id: &str,
-    term_version: i64,
-    assignments: &[(i64, i64, &TermHistory)],
+    projection: &InitialTermProjection<'_>,
 ) -> Result<(), StoreError> {
     let sequence = append(conn, command).await?;
     let first = sqlx::query_scalar::<_, i64>(
@@ -194,12 +579,12 @@ pub(crate) async fn append_initial_term(
     .fetch_one(&mut *conn)
     .await?;
     sqlx::query("INSERT INTO billing_m5_term_versions(customer,term_version,record_sequence,effective_at_us,term_bytes) VALUES(?,?,?,?,?)")
-        .bind(customer).bind(term_version).bind(first+1).bind(effective_at_us).bind(term_bytes).execute(&mut *conn).await?;
+        .bind(projection.customer).bind(projection.term_version).bind(first+1).bind(projection.effective_at_us).bind(projection.term_bytes).execute(&mut *conn).await?;
     sqlx::query("INSERT INTO billing_m5_period_resolutions(customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id) VALUES(?,?,0,?,?,?,?,NULL)")
-        .bind(customer).bind(term_version).bind(resolution_id).bind(first).bind(effective_at_us).bind(end_at_us).execute(&mut *conn).await?;
-    for &(term_version, period_index, row) in assignments {
+        .bind(projection.customer).bind(projection.term_version).bind(projection.resolution_id).bind(first).bind(projection.effective_at_us).bind(projection.end_at_us).execute(&mut *conn).await?;
+    for &(term_version, period_index, row) in projection.assignments {
         sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES(?,?,?,?,'m3',?,?,?,'acceptance-time',?)")
-            .bind(customer).bind(&row.source).bind(&row.kind).bind(&row.record_id)
+            .bind(projection.customer).bind(&row.source).bind(&row.kind).bind(&row.record_id)
             .bind(row.ordinal).bind(term_version).bind(period_index).bind(row.accepted_at_us)
             .execute(&mut *conn).await?;
     }
@@ -341,13 +726,12 @@ pub(crate) async fn assignment_for_m3(
         for (ingress, original_version, original_period) in candidates {
             let candidate = parse_bounded(&ingress, 262_144)
                 .map_err(|_| StoreError::InvalidStore("M5 outcome ingress"))?;
-            if candidate["family"] == family {
-                if original
+            if candidate["family"] == family
+                && original
                     .replace((original_version, original_period))
                     .is_some()
-                {
-                    return Err(StoreError::InvalidStore("M5 duplicate first outcome"));
-                }
+            {
+                return Err(StoreError::InvalidStore("M5 duplicate first outcome"));
             }
         }
         let (original_version, original_period) =
@@ -391,7 +775,7 @@ pub(crate) async fn lookup(
     identity: &[u8],
 ) -> Result<Option<StoredCommand>, StoreError> {
     canonical(identity, 4096)?;
-    let row: Option<(i64, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, i64)> = sqlx::query_as(
+    let row: Option<StoredCommandRow> = sqlx::query_as(
         "SELECT command_sequence,request_bytes,response_bytes,request_sha256,response_sha256,child_count FROM billing_m5_commands WHERE identity_key=?",
     ).bind(identity).fetch_optional(&mut *conn).await?;
     let Some((sequence, request, response, request_hash, response_hash, child_count)) = row else {
@@ -418,8 +802,8 @@ pub(crate) async fn lookup(
                 .fetch_one(&mut *conn)
                 .await?;
         if parsed["record"]["record_id"] != *id
-            || parsed["record"]["sequence"] != record_sequence.to_string()
-            || parsed["record"]["command_sequence"] != sequence.to_string()
+            || decimal(&parsed["record"]["sequence"])? != *record_sequence
+            || decimal(&parsed["record"]["command_sequence"])? != sequence
             || parsed["record"]["payload_hash"] != hex(&digest)
             || retained_hash.as_slice() != digest
         {
@@ -427,9 +811,11 @@ pub(crate) async fn lookup(
         }
     }
     Ok(Some(StoredCommand {
+        #[cfg(test)]
         sequence,
         request,
         response,
+        #[cfg(test)]
         records,
     }))
 }
@@ -484,8 +870,8 @@ pub(crate) async fn append(
             || key.get("customer").and_then(Value::as_str) != child.customer
             || key.get("source").and_then(Value::as_str) != child.source
             || record["record_id"] != expected_id
-            || record["sequence"] != record_sequence.to_string()
-            || record["command_sequence"] != sequence.to_string()
+            || decimal(&record["sequence"])? != record_sequence
+            || decimal(&record["command_sequence"])? != sequence
             || ledgerlab_core::domain::Timestamp::parse(
                 record["accepted_at"]
                     .as_str()
@@ -604,7 +990,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     {
         return Err(StoreError::InvalidStore("M5 snapshot sequence"));
     }
-    let command_rows: Vec<(i64,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,i64)> = sqlx::query_as(
+    let command_rows: Vec<CommandIntegrityRow> = sqlx::query_as(
         "SELECT command_sequence,identity_key,request_bytes,request_sha256,response_bytes,response_sha256,child_count FROM billing_m5_commands ORDER BY command_sequence",
     ).fetch_all(&mut *conn).await?;
     for (i, (sequence, identity, request, request_hash, response, response_hash, child_count)) in
@@ -627,7 +1013,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
             return Err(StoreError::InvalidStore("M5 command integrity"));
         }
     }
-    let record_rows: Vec<(i64,String,String,i64,Vec<u8>,Vec<u8>)> = sqlx::query_as(
+    let record_rows: Vec<RetainedRecord> = sqlx::query_as(
         "SELECT sequence,record_id,family,command_sequence,payload_bytes,content_sha256 FROM billing_m5_records ORDER BY sequence",
     ).fetch_all(&mut *conn).await?;
     for (i, (sequence, id, family, command_sequence, payload, stored_hash)) in
@@ -638,9 +1024,9 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         let expected =
             payload_hash(family, &value).map_err(|_| StoreError::InvalidStore("M5 record hash"))?;
         if *sequence != i as i64 + 1
-            || value["record"]["sequence"] != sequence.to_string()
+            || decimal(&value["record"]["sequence"])? != *sequence
             || value["record"]["record_id"] != *id
-            || value["record"]["command_sequence"] != command_sequence.to_string()
+            || decimal(&value["record"]["command_sequence"])? != *command_sequence
             || value["record"]["payload_hash"] != hex(&expected)
             || stored_hash.as_slice() != expected
         {
@@ -648,7 +1034,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         }
     }
     verify_term_projections(conn, &record_rows).await?;
-    let semantics: Vec<(String,String,String,i64,i64,Vec<u8>,Vec<u8>)> = sqlx::query_as(
+    let semantics: Vec<ActivityIdentityRow> = sqlx::query_as(
         "SELECT customer,source,operation_id,command_sequence,activity_sequence,facts_bytes,facts_sha256 FROM billing_m5_activity_semantics ORDER BY customer,source,operation_id",
     ).fetch_all(&mut *conn).await?;
     for (customer, source, operation, command, activity, facts, digest) in semantics {
@@ -665,7 +1051,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
             return Err(StoreError::InvalidStore("M5 semantic identity"));
         }
     }
-    let deliveries: Vec<(String,String,String,i64,i64,Vec<u8>,Vec<u8>)> = sqlx::query_as(
+    let deliveries: Vec<ActivityIdentityRow> = sqlx::query_as(
         "SELECT customer,source,external_id,command_sequence,activity_sequence,ingress_bytes,ingress_sha256 FROM billing_m5_activity_deliveries ORDER BY customer,source,external_id",
     ).fetch_all(&mut *conn).await?;
     for (customer, source, external, command, activity, ingress, digest) in deliveries {
@@ -694,8 +1080,6 @@ async fn ensure_no_unverified_closes(conn: &mut SqliteConnection) -> Result<(), 
     Ok(())
 }
 
-type RetainedRecord = (i64, String, String, i64, Vec<u8>, Vec<u8>);
-
 async fn verify_term_projections(
     conn: &mut SqliteConnection,
     records: &[RetainedRecord],
@@ -703,7 +1087,7 @@ async fn verify_term_projections(
     let terms: Vec<(String,i64,i64,i64,Vec<u8>)> = sqlx::query_as(
         "SELECT customer,term_version,record_sequence,effective_at_us,term_bytes FROM billing_m5_term_versions ORDER BY record_sequence"
     ).fetch_all(&mut *conn).await?;
-    let resolutions: Vec<(String,i64,i64,String,i64,i64,i64,Option<String>)> = sqlx::query_as(
+    let resolutions: Vec<ResolutionProjectionRow> = sqlx::query_as(
         "SELECT customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id FROM billing_m5_period_resolutions ORDER BY record_sequence"
     ).fetch_all(&mut *conn).await?;
     let mut expected_terms = BTreeMap::new();
@@ -733,7 +1117,7 @@ async fn verify_term_projections(
             }
         } else {
             let index = decimal(&value["period_id"]["period_index"])?;
-            if value["period_id"]["term_version"] != version.to_string() {
+            if decimal(&value["period_id"]["term_version"])? != version {
                 return Err(StoreError::InvalidStore("M5 resolution period"));
             }
             let id = value["resolution_id"]
@@ -808,7 +1192,7 @@ async fn verify_term_projections(
             .map_err(|_| StoreError::InvalidStore("M5 assignment term"))?;
         term_requests.insert((customer.clone(), *version), request);
     }
-    let assignments: Vec<(String,String,String,String,String,i64,i64,i64,String,i64)> = sqlx::query_as(
+    let assignments: Vec<AssignmentProjectionRow> = sqlx::query_as(
         "SELECT customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us FROM billing_m5_assignments ORDER BY source_stream,source_sequence"
     ).fetch_all(&mut *conn).await?;
     let mut assigned_m3 = std::collections::BTreeSet::new();
@@ -859,6 +1243,30 @@ async fn verify_term_projections(
             return Err(StoreError::InvalidStore("M5 assignment time"));
         }
         if basis == "acceptance-time" || basis == "post-close-adjustment" {
+            let first_version = terms
+                .iter()
+                .filter(|term| term.0 == customer)
+                .map(|term| term.1)
+                .min()
+                .ok_or(StoreError::InvalidStore("M5 assignment term"))?;
+            let active_version = terms
+                .iter()
+                .filter(|term| {
+                    if term.0 != customer || term.3 > at {
+                        return false;
+                    }
+                    if term.1 == first_version {
+                        return true;
+                    }
+                    initial_term_cuts
+                        .get(&(customer.clone(), term.1))
+                        .is_some_and(|cut| source_sequence > *cut)
+                })
+                .max_by_key(|term| (term.3, term.1))
+                .map(|term| term.1);
+            if active_version != Some(version) {
+                return Err(StoreError::InvalidStore("M5 assignment active term"));
+            }
             if basis == "acceptance-time"
                 && index_kind == "correction"
                 && source_sequence > initial_cut
@@ -938,7 +1346,7 @@ async fn verify_term_projections(
     // Adjustment links carry no separate economics. Every post-close M3
     // correction must have exactly one link to its posting, and every retained
     // link must reconcile to that posting and its closed original period.
-    let adjustments: Vec<(String,String,String,String,String,String,i64,i64,i64,i64,String,i64,String)> =
+    let adjustments: Vec<AdjustmentProjectionRow> =
         sqlx::query_as("SELECT customer,source_scope,adjustment_id,cause_kind,cause_id,target_id,original_term_version,original_period_index,assigned_term_version,assigned_period_index,source_stream,source_sequence,signed_delta_atoms FROM billing_m5_adjustments ORDER BY source_stream,source_sequence")
             .fetch_all(&mut *conn).await?;
     let mut adjustment_sources = std::collections::BTreeSet::new();
