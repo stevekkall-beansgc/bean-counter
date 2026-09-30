@@ -67,6 +67,9 @@ impl SqliteTx {
     ) -> Result<super::m5::TermState, StoreError> {
         super::m5::term_state(self.conn(), customer).await
     }
+    pub(crate) async fn m5_fiscal_state(&mut self) -> Result<super::m5::FiscalState, StoreError> {
+        super::m5::fiscal_state(self.conn()).await
+    }
     pub(crate) async fn m5_term_transition_state(
         &mut self,
         customer: &str,
@@ -110,6 +113,13 @@ impl SqliteTx {
         projection: &super::m5::InitialTermProjection<'_>,
     ) -> Result<(), StoreError> {
         super::m5::append_initial_term(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_fiscal_version(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::FiscalVersionProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_fiscal_version(self.conn(), command, projection).await
     }
     pub(crate) async fn m5_append_term_transition(
         &mut self,

@@ -183,6 +183,41 @@ pub(crate) struct TermState {
     pub history: Vec<TermHistory>,
 }
 
+pub(crate) struct FiscalState {
+    pub revision: i64,
+    pub next_calendar_version: i64,
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+}
+
+pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalState, StoreError> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if version != 11 {
+        return Err(StoreError::BillingUpgradeRequired);
+    }
+    let (count, maximum): (i64, i64) = sqlx::query_as(
+        "SELECT count(*),COALESCE(max(calendar_version),0) FROM billing_m5_fiscal_versions",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if count != maximum {
+        return Err(StoreError::InvalidStore("M5 fiscal version sequence"));
+    }
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(FiscalState {
+        revision: count,
+        next_calendar_version: maximum + 1,
+        command_sequence,
+        first_record_sequence,
+    })
+}
+
 pub(crate) struct CurrentTerm {
     pub term_version: i64,
     pub effective_at_us: i64,
@@ -568,6 +603,39 @@ pub(crate) struct PeriodResolutionProjection<'a> {
     pub resolution_id: &'a str,
     pub start_at_us: i64,
     pub end_at_us: i64,
+}
+
+pub(crate) struct FiscalVersionProjection<'a> {
+    pub calendar_version: i64,
+    pub timezone: &'a str,
+    pub timezone_rules_version: &'a str,
+    pub calendar_bytes: &'a [u8],
+}
+
+pub(crate) async fn append_fiscal_version(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    projection: &FiscalVersionProjection<'_>,
+) -> Result<(), StoreError> {
+    if command.children.len() != 1 || projection.calendar_version < 1 {
+        return Err(StoreError::Integrity("M5 fiscal append"));
+    }
+    let sequence = append(conn, command).await?;
+    let record_sequence: i64 =
+        sqlx::query_scalar("SELECT sequence FROM billing_m5_records WHERE command_sequence=?")
+            .bind(sequence)
+            .fetch_one(&mut *conn)
+            .await?;
+    sqlx::query("INSERT INTO billing_m5_fiscal_versions(calendar_version,record_sequence,timezone,timezone_rules_version,calendar_bytes) VALUES(?,?,?,?,?)")
+        .bind(projection.calendar_version)
+        .bind(record_sequence)
+        .bind(projection.timezone)
+        .bind(projection.timezone_rules_version)
+        .bind(projection.calendar_bytes)
+        .execute(&mut *conn)
+        .await?;
+    append_boundary(conn).await?;
+    Ok(())
 }
 
 pub(crate) async fn append_period_resolution(
@@ -1430,6 +1498,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     }
     verify_period_closes(conn).await?;
     verify_term_projections(conn, &record_rows).await?;
+    verify_fiscal_projections(conn, &record_rows).await?;
     let semantics: Vec<ActivityIdentityRow> = sqlx::query_as(
         "SELECT customer,source,operation_id,command_sequence,activity_sequence,facts_bytes,facts_sha256 FROM billing_m5_activity_semantics ORDER BY customer,source,operation_id",
     ).fetch_all(&mut *conn).await?;
@@ -1460,6 +1529,46 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         {
             return Err(StoreError::InvalidStore("M5 delivery identity"));
         }
+    }
+    Ok(())
+}
+
+async fn verify_fiscal_projections(
+    conn: &mut SqliteConnection,
+    records: &[RetainedRecord],
+) -> Result<(), StoreError> {
+    let rows: Vec<(i64, i64, String, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT calendar_version,record_sequence,timezone,timezone_rules_version,calendar_bytes FROM billing_m5_fiscal_versions ORDER BY calendar_version",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    for (index, (version, sequence, timezone, rules, calendar_bytes)) in rows.iter().enumerate() {
+        if *version != index as i64 + 1 || canonical(calendar_bytes, 262_144).is_err() {
+            return Err(StoreError::InvalidStore("M5 fiscal projection"));
+        }
+        let (_, _, family, _, payload_bytes, _) = records
+            .iter()
+            .find(|record| record.0 == *sequence)
+            .ok_or(StoreError::InvalidStore("M5 fiscal record"))?;
+        let payload = canonical(payload_bytes, 262_144)?;
+        if family != "ledger-fiscal-calendar-version/1"
+            || decimal(&payload["calendar_version"])? != *version
+            || payload["timezone"] != *timezone
+            || payload["timezone_rules_version"] != *rules
+            || CanonicalBytes::from_value(&payload["calendar"])
+                .map_err(|_| StoreError::InvalidStore("M5 fiscal calendar"))?
+                .as_slice()
+                != calendar_bytes
+        {
+            return Err(StoreError::InvalidStore("M5 fiscal projection"));
+        }
+    }
+    let child_count = records
+        .iter()
+        .filter(|record| record.2 == "ledger-fiscal-calendar-version/1")
+        .count();
+    if child_count != rows.len() {
+        return Err(StoreError::InvalidStore("M5 fiscal projection count"));
     }
     Ok(())
 }
