@@ -111,6 +111,7 @@ impl BillingLedger {
         }
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
         service::validate_snapshot(&snapshot)?;
+        let enforce_clock = accepted_override.is_none();
         let accepted = match accepted_override {
             Some(at) => at,
             None => local::now()?,
@@ -229,6 +230,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock,
             request: raw,
             response: &response,
             children: &children,

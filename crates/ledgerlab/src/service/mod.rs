@@ -15,6 +15,8 @@ pub(crate) fn store_error(e: StoreError) -> ServiceError {
         ServiceError::Rejection("BILLING_HISTORY_LIMIT".into())
     } else if matches!(e, StoreError::BillingPeriod) {
         ServiceError::Rejection("BILLING_M5_PERIOD".into())
+    } else if matches!(e, StoreError::BillingClockNotAdvanced) {
+        ServiceError::Rejection("BILLING_CLOCK_NOT_ADVANCED".into())
     } else if e.retryable_after_rollback() {
         ServiceError::Retryable
     } else if matches!(e, StoreError::Integrity(_) | StoreError::InvalidStore(_)) {

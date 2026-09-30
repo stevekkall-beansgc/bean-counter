@@ -310,6 +310,141 @@ fn fiscal_m3_lines(
     Ok((lines, included, net))
 }
 
+fn fiscal_m5_effects(
+    state: &m5::FiscalReportState,
+    view: &Value,
+) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>, i128), ServiceError> {
+    let mut lines = Vec::new();
+    let mut included = Vec::new();
+    let mut quantities = Vec::new();
+    let mut net = 0i128;
+    let mut prior_ordinal = 0i64;
+    for source in &state.m5_sources {
+        if source.ordinal <= prior_ordinal || source.ordinal > state.m5_high_water {
+            return Err(service::reject("BILLING_M5_INTEGRITY"));
+        }
+        prior_ordinal = source.ordinal;
+        let payload = ledgerlab_core::canonical::parse_bounded(&source.payload, 262_144)
+            .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+        if payload["record"]["record_id"] != source.id
+            || payload["record"]["sequence"] != source.ordinal.to_string()
+            || Timestamp::parse(text(&payload["record"]["accepted_at"])?)
+                .map(|accepted| accepted.micros())
+                != Ok(source.accepted_at_us)
+        {
+            return Err(service::reject("BILLING_M5_INTEGRITY"));
+        }
+        match source.kind.as_str() {
+            "ledger-billing-activity-record/1" => {
+                let basis = source
+                    .basis
+                    .as_deref()
+                    .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+                let basis = ledgerlab_core::canonical::parse_bounded(basis, 262_144)
+                    .map_err(|_| service::reject("BILLING_M5_INTEGRITY"))?;
+                let customer = text(&payload["customer"])?;
+                let application = text(&payload["source"])?;
+                quantities.push(json!({"customer":customer,"source":application,
+                    "kind":"activity","id":payload["activity_id"],
+                    "unit":basis["source_unit"],"quantity":payload["quantity"],
+                    "accepted_at":payload["record"]["accepted_at"],
+                    "period_id":payload["period_id"]}));
+                included.push(json!({"customer":customer,"source":application,
+                    "kind":source.kind,"id":source.id}));
+            }
+            "ledger-billing-quantity-correction-record/1" => {
+                let customer = text(&payload["customer"])?;
+                let application = text(&payload["source"])?;
+                quantities.push(json!({"customer":customer,"source":application,
+                    "kind":"quantity-correction","id":payload["correction_id"],
+                    "unit":payload["unit"],"quantity":payload["quantity_delta"],
+                    "accepted_at":payload["record"]["accepted_at"],
+                    "period_id":payload["assigned_period_id"]}));
+                included.push(json!({"customer":customer,"source":application,
+                    "kind":source.kind,"id":source.id}));
+                if payload["mode"] == "per-work"
+                    && payload["correction_route"] == "original-open-period"
+                {
+                    return Err(service::reject("BILLING_M5_INTEGRITY"));
+                }
+            }
+            "ledger-billing-period-close-record/1" => {
+                let customer = text(&payload["customer"])?;
+                let retained_lines = payload["lines"]
+                    .as_array()
+                    .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+                for retained in retained_lines {
+                    if retained["basis"] != "cumulative_close" {
+                        continue;
+                    }
+                    let original_sources = retained["source_records"]
+                        .as_array()
+                        .filter(|sources| !sources.is_empty())
+                        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?;
+                    let application = text(&original_sources[0]["source"])?;
+                    if original_sources
+                        .iter()
+                        .any(|item| item["customer"] != customer || item["source"] != application)
+                    {
+                        return Err(service::reject("BILLING_M5_INTEGRITY"));
+                    }
+                    let source_record = json!({"customer":customer,"source":application,
+                        "kind":source.kind,"id":source.id});
+                    let mut line = retained.clone();
+                    line.as_object_mut()
+                        .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))?
+                        .remove("line_id");
+                    line["source_records"] = json!([source_record.clone()]);
+                    let amount = atoms(&line["amount_atoms"])?;
+                    if line["calculation"]["booked_atoms"] != line["amount_atoms"] {
+                        return Err(service::reject("BILLING_M5_INTEGRITY"));
+                    }
+                    net = net
+                        .checked_add(amount)
+                        .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                    included.push(source_record);
+                    lines.push(fiscal_line_id(view, line)?);
+                }
+            }
+            "ledger-billing-post-close-adjustment/1" => {
+                return Err(service::reject("BILLING_M5_INTEGRITY"));
+            }
+            _ => return Err(service::reject("BILLING_M5_INTEGRITY")),
+        }
+    }
+    included.sort_by(|left, right| {
+        (
+            left["customer"].as_str(),
+            left["source"].as_str(),
+            left["kind"].as_str(),
+            left["id"].as_str(),
+        )
+            .cmp(&(
+                right["customer"].as_str(),
+                right["source"].as_str(),
+                right["kind"].as_str(),
+                right["id"].as_str(),
+            ))
+    });
+    included.dedup();
+    quantities.sort_by(|left, right| {
+        (
+            left["customer"].as_str(),
+            left["source"].as_str(),
+            left["kind"].as_str(),
+            left["id"].as_str(),
+        )
+            .cmp(&(
+                right["customer"].as_str(),
+                right["source"].as_str(),
+                right["kind"].as_str(),
+                right["id"].as_str(),
+            ))
+    });
+    lines.sort_by(|left, right| left["line_id"].as_str().cmp(&right["line_id"].as_str()));
+    Ok((lines, included, quantities, net))
+}
+
 impl BillingLedger {
     pub async fn fiscal_set(&self, raw: &[u8]) -> local::Result<Value> {
         self.fiscal_set_inner(raw, None).await
@@ -382,6 +517,7 @@ impl BillingLedger {
             return Err(service::reject("BILLING_M5_STALE_REVISION").into());
         }
         let calendar_version = state.next_calendar_version.to_string();
+        let enforce_clock = accepted_override.is_none();
         let accepted = match accepted_override {
             Some(accepted) => accepted,
             None => local::now()?,
@@ -427,6 +563,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock,
             request: raw,
             response: &response,
             children: std::slice::from_ref(&child),
@@ -557,8 +694,32 @@ impl BillingLedger {
             "end_utc":end_utc,"m3_high_water":state.m3_high_water.to_string(),
             "m5_high_water":state.m5_high_water.to_string()
         });
-        let (monetary_lines, included_records, net_atoms) =
+        let (mut monetary_lines, mut included_records, mut net_atoms) =
             fiscal_m3_lines(&state, start.micros(), &view)?;
+        let (m5_lines, m5_records, nonmonetary_quantities, m5_net) =
+            fiscal_m5_effects(&state, &view)?;
+        monetary_lines.extend(m5_lines);
+        monetary_lines
+            .sort_by(|left, right| left["line_id"].as_str().cmp(&right["line_id"].as_str()));
+        included_records.extend(m5_records);
+        included_records.sort_by(|left, right| {
+            (
+                left["customer"].as_str(),
+                left["source"].as_str(),
+                left["kind"].as_str(),
+                left["id"].as_str(),
+            )
+                .cmp(&(
+                    right["customer"].as_str(),
+                    right["source"].as_str(),
+                    right["kind"].as_str(),
+                    right["id"].as_str(),
+                ))
+        });
+        included_records.dedup();
+        net_atoms = net_atoms
+            .checked_add(m5_net)
+            .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
         let mut result = json!({
             "schema":"ledger-fiscal-report/1","status":"complete",
             "calendar_version":calendar_version.to_string(),"timezone":state.timezone,
@@ -566,7 +727,7 @@ impl BillingLedger {
             "start_utc":start_utc,"end_utc":end_utc,
             "m3_high_water":state.m3_high_water.to_string(),
             "m5_high_water":state.m5_high_water.to_string(),
-            "monetary_lines":monetary_lines,"nonmonetary_quantities":[],
+            "monetary_lines":monetary_lines,"nonmonetary_quantities":nonmonetary_quantities,
             "net_atoms":net_atoms.to_string(),"currency":"USD","scale":18,"complete":true,
             "snapshot_boundary_id":state.snapshot_boundary_id.to_string()
         });
@@ -576,6 +737,7 @@ impl BillingLedger {
         let report_hash = m5::hex(&report_digest.finalize());
         result["report_hash"] = json!(report_hash);
         let response = output_bytes(&result)?;
+        let enforce_clock = accepted_override.is_none();
         let accepted = match accepted_override {
             Some(accepted) => accepted,
             None => local::now()?,
@@ -615,6 +777,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock,
             request: raw,
             response: &response,
             children: std::slice::from_ref(&child),

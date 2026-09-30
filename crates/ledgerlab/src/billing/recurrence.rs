@@ -384,7 +384,7 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("target"));
-        assert_eq!(accepted["receipt"]["command_sequence"], "3");
+        assert!(accepted["receipt"].get("command_sequence").is_none());
         ledger.close().await;
         BillingLedger::open(&path).await.unwrap().close().await;
     }
@@ -780,14 +780,24 @@ impl BillingLedger {
             } else {
                 successor.as_ref().unwrap().1
             };
-            let mut payload = json!({"schema":VERSION,"customer":wire.customer,"source":wire.source,
+            let payload = json!({"schema":VERSION,"customer":wire.customer,"source":wire.source,
                 "agreement_id":wire.agreement_id,"agreement_version":agreement_v.to_string(),
                 "recurrence_version":version_s,"rule":rule,"renewal":renewal,
-                "record":{"record_id":record_id,"sequence":(state.first_record_sequence+i).to_string(),
-                    "accepted_at":accepted_at,"command_sequence":state.command_sequence.to_string()}});
-            let data = m5::seal_child(VERSION, &mut payload).map_err(store_error_m5)?;
-            children_data.push((key, data, record_id));
+                "record":{"record_id":record_id,"accepted_at":accepted_at,
+                    "command_sequence":state.command_sequence.to_string()}});
+            children_data.push((key, payload, record_id));
         }
+        children_data.sort_by(|left, right| left.0.cmp(&right.0));
+        let children_data = children_data
+            .into_iter()
+            .enumerate()
+            .map(|(i, (key, mut payload, record_id))| {
+                payload["record"]["sequence"] =
+                    json!((state.first_record_sequence + i as i64).to_string());
+                let data = m5::seal_child(VERSION, &mut payload).map_err(store_error_m5)?;
+                Ok((key, data, record_id))
+            })
+            .collect::<Result<Vec<_>, ServiceError>>()?;
         let ids = children_data
             .iter()
             .map(|(_, _, id)| id.clone())
@@ -815,6 +825,7 @@ impl BillingLedger {
             source: Some(&wire.source),
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock: true,
             request: raw,
             response: &response_bytes,
             children: &children,
@@ -900,6 +911,7 @@ impl BillingLedger {
             source: Some(&wire.source),
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock: true,
             request: raw,
             response: &response_bytes,
             children: std::slice::from_ref(&child),
@@ -1087,20 +1099,7 @@ impl BillingLedger {
             .begin(Instant::now() + Self::WRITE_BUDGET)
             .await
             .map_err(store_error)?;
-        if let Some(saved) = tx.m5_lookup(&identity).await.map_err(store_error_m5)? {
-            if saved.request != raw {
-                return Err(reject("IDENTITY_CONFLICT").into());
-            }
-            let result = serde_json::from_slice(&saved.response)
-                .map_err(|_| ServiceError::IntegrityFailure)?;
-            tx.rollback().await.map_err(store_error)?;
-            return Ok(result);
-        }
         let accepted = local::now()?;
-        let state = tx
-            .m5_recurrence_state(&wire.customer, &wire.source)
-            .await
-            .map_err(store_error_m5)?;
         let snapshot = tx.billing_meta().await.map_err(store_error)?;
         let event_bytes = bytes(&wire.event)?;
         let submission = service::begin(
@@ -1110,6 +1109,19 @@ impl BillingLedger {
             &event_bytes,
             &accepted,
         )?;
+        if let Some(saved) = tx.m5_lookup(&identity).await.map_err(store_error_m5)? {
+            if saved.request != raw {
+                return Err(reject("IDENTITY_CONFLICT").into());
+            }
+            let result = serde_json::from_slice(&saved.response)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            tx.rollback().await.map_err(store_error)?;
+            return Ok(result);
+        }
+        let state = tx
+            .m5_recurrence_state(&wire.customer, &wire.source)
+            .await
+            .map_err(store_error_m5)?;
         if tx
             .billing_identity_lookup(&wire.customer, &wire.source, submission.external_id())
             .await
@@ -1192,8 +1204,7 @@ impl BillingLedger {
             "record":{"record_id":record_id,"sequence":state.first_record_sequence.to_string(),
                 "accepted_at":accepted.as_str(),"command_sequence":state.command_sequence.to_string()}});
         let payload_bytes = m5::seal_child(ACCEPT_RECORD, &mut payload).map_err(store_error_m5)?;
-        let mut response = m4_result;
-        response["receipt"]["command_sequence"] = json!(state.command_sequence.to_string());
+        let response = m4_result;
         let response_bytes = bytes(&response)?;
         let child = Child {
             family: ACCEPT_RECORD,
@@ -1209,6 +1220,7 @@ impl BillingLedger {
             source: Some(&wire.source),
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock: true,
             request: raw,
             response: &response_bytes,
             children: std::slice::from_ref(&child),

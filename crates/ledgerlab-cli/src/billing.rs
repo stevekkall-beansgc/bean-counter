@@ -1,7 +1,7 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
 use std::io::{self, IsTerminal, Write};
-pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema\n  billing [--directory DIR] term set FILE|-  Set a customer's initial billing term\n  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar\n  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report\n  billing [--directory DIR] close FILE|-     Close one logical billing period\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nWork writes require an explicit customer and source. Billing output is JSON; no payment or tax invoice.\n";
+pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema\n  billing [--directory DIR] term set FILE|-  Set a customer's billing term\n  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar\n  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report\n  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis\n  billing [--directory DIR] activity FILE|-   Submit cumulative activity\n  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction\n  billing [--directory DIR] close FILE|-      Close one logical billing period\n  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement\n  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule\n  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule\n  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences\n  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nWork writes require an explicit customer and source. Billing output is JSON; no payment or tax invoice.\n";
 pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     if a.config != Path::new("ledger.json") {
         return Ok(error(
@@ -155,7 +155,13 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             .map(|value| (value, 0));
     }
     let input_file = match args.as_slice() {
-        ["term", "set", file] | ["fiscal", "set" | "report", file] | ["close", file] => Some(*file),
+        ["term", "set", file]
+        | ["fiscal", "set" | "report", file]
+        | ["cumulative", "setup", file]
+        | ["activity" | "correct" | "close" | "occurrences", file]
+        | ["adjustment", "statement", file]
+        | ["recurrence", "set" | "cancel", file]
+        | ["occurrence", "accept", file] => Some(*file),
         ["accept" | "outcome" | "correct", "--customer", _, "--source", _, file]
         | ["agreement", "--customer", _, "--source", _, file]
         | ["permissions", "--customer", _, "--source", _, file] => Some(*file),
@@ -175,7 +181,11 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         args.as_slice(),
         ["term", "set", _]
             | ["fiscal", "set" | "report", _]
-            | ["close", _]
+            | ["cumulative", "setup", _]
+            | ["activity" | "correct" | "close" | "occurrences", _]
+            | ["adjustment", "statement", _]
+            | ["recurrence", "set" | "cancel", _]
+            | ["occurrence", "accept", _]
             | [
                 "accept" | "outcome" | "correct",
                 "--customer",
@@ -230,7 +240,21 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         ["term", "set", _] => ledger.term_set(input.as_ref().unwrap()).await,
         ["fiscal", "set", _] => ledger.fiscal_set(input.as_ref().unwrap()).await,
         ["fiscal", "report", _] => ledger.fiscal_report(input.as_ref().unwrap()).await,
+        ["cumulative", "setup", _] => {
+            ledger
+                .cumulative_agreement_set(input.as_ref().unwrap())
+                .await
+        }
+        ["activity", _] => ledger.activity_submit(input.as_ref().unwrap()).await,
+        ["correct", _] => ledger.quantity_correct(input.as_ref().unwrap()).await,
         ["close", _] => ledger.period_close(input.as_ref().unwrap()).await,
+        ["adjustment", "statement", _] => {
+            ledger.adjustment_statement(input.as_ref().unwrap()).await
+        }
+        ["recurrence", "set", _] => ledger.recurrence_set(input.as_ref().unwrap()).await,
+        ["recurrence", "cancel", _] => ledger.recurrence_cancel(input.as_ref().unwrap()).await,
+        ["occurrences", _] => ledger.occurrences(input.as_ref().unwrap()).await,
+        ["occurrence", "accept", _] => ledger.occurrence_accept(input.as_ref().unwrap()).await,
         ["permissions", "--customer", customer, "--source", source] => {
             ledger.permission_status(customer, source).await
         }

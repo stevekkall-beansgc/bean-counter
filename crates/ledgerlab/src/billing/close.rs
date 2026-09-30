@@ -682,8 +682,14 @@ impl BillingLedger {
                 .await
                 .map_err(close_store_error)?;
             tx.rollback().await.map_err(store_error)?;
-            self.period_resolve_at(&request.customer, term_version, period_index, &accepted)
-                .await?;
+            self.period_resolve_at(
+                &request.customer,
+                term_version,
+                period_index,
+                &accepted,
+                !preserve_accepted,
+            )
+            .await?;
             let retry_accepted = preserve_accepted.then_some(accepted);
             return Box::pin(self.period_close_inner(raw, retry_accepted, true, limits)).await;
         }
@@ -753,6 +759,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock: !preserve_accepted,
             request: raw,
             response: &prepared.response,
             children: &children,

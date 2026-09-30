@@ -115,6 +115,7 @@ pub(crate) struct Command<'a> {
     pub source: Option<&'a str>,
     pub identity_key: &'a [u8],
     pub accepted_at_us: i64,
+    pub enforce_clock: bool,
     pub request: &'a [u8],
     pub response: &'a [u8],
     /// Already sorted by canonical child-key bytes; every child has a stable
@@ -235,6 +236,15 @@ pub(crate) struct FiscalReportSource {
     pub agreement_version: Option<i64>,
 }
 
+pub(crate) struct FiscalReportM5Source {
+    pub ordinal: i64,
+    pub accepted_at_us: i64,
+    pub kind: String,
+    pub id: String,
+    pub payload: Vec<u8>,
+    pub basis: Option<Vec<u8>>,
+}
+
 pub(crate) struct FiscalReportState {
     pub command_sequence: i64,
     pub first_record_sequence: i64,
@@ -245,6 +255,7 @@ pub(crate) struct FiscalReportState {
     pub m3_high_water: i64,
     pub m5_high_water: i64,
     pub sources: Vec<FiscalReportSource>,
+    pub m5_sources: Vec<FiscalReportM5Source>,
 }
 
 #[derive(Debug, Clone)]
@@ -506,6 +517,59 @@ pub(crate) async fn fiscal_report_state(
     if rows.iter().any(|row| !ordinals.insert(row.0)) {
         return Err(StoreError::InvalidStore("M5 fiscal source tier"));
     }
+    let m5_rows: Vec<(i64, i64, String, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT r.sequence,c.accepted_at_us,r.family,r.record_id,r.payload_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE r.sequence<=? AND c.accepted_at_us>=? AND c.accepted_at_us<? AND r.family IN ('ledger-billing-activity-record/1','ledger-billing-quantity-correction-record/1','ledger-billing-period-close-record/1','ledger-billing-post-close-adjustment/1') ORDER BY r.sequence",
+    )
+    .bind(m5_high_water)
+    .bind(start_at_us)
+    .bind(end_at_us)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut m5_sources = Vec::with_capacity(m5_rows.len());
+    for (ordinal, accepted_at_us, kind, id, payload) in m5_rows {
+        let value = canonical(&payload, 262_144)?;
+        if value["record"]["record_id"] != id
+            || decimal(&value["record"]["sequence"])? != ordinal
+            || utc_us(&value["record"]["accepted_at"])? != accepted_at_us
+        {
+            return Err(StoreError::InvalidStore("M5 fiscal source"));
+        }
+        let basis = if kind == "ledger-billing-activity-record/1" {
+            let customer = value["customer"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 fiscal activity"))?;
+            let source = value["source"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 fiscal activity"))?;
+            let agreement_id = value["agreement_id"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 fiscal activity"))?;
+            let agreement_version = decimal(&value["agreement_version"])?;
+            let basis_version = decimal(&value["basis_version"])?;
+            Some(
+                cumulative_basis_version(
+                    conn,
+                    customer,
+                    source,
+                    agreement_id,
+                    agreement_version,
+                    basis_version,
+                )
+                .await?
+                .ok_or(StoreError::InvalidStore("M5 fiscal activity basis"))?,
+            )
+        } else {
+            None
+        };
+        m5_sources.push(FiscalReportM5Source {
+            ordinal,
+            accepted_at_us,
+            kind,
+            id,
+            payload,
+            basis,
+        });
+    }
     let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
         "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
     )
@@ -548,6 +612,7 @@ pub(crate) async fn fiscal_report_state(
                 },
             )
             .collect(),
+        m5_sources,
     })
 }
 
@@ -2133,6 +2198,30 @@ pub(crate) async fn append(
         || command.response.len() > 262_144
     {
         return Err(StoreError::BillingHistoryLimit);
+    }
+    let maximum_m5: Option<i64> =
+        sqlx::query_scalar("SELECT max(accepted_at_us) FROM billing_m5_commands")
+            .fetch_one(&mut *conn)
+            .await?;
+    let latest_m3: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT ordinal,accepted_at_us FROM billing_m3_index ORDER BY ordinal DESC LIMIT 1",
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    let boundary_m3: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(m3_high_water,0) FROM billing_m5_snapshot_boundaries ORDER BY boundary_id DESC LIMIT 1",
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .unwrap_or(0);
+    if command.enforce_clock
+        && (maximum_m5.is_some_and(|prior| command.accepted_at_us <= prior)
+            || latest_m3.is_some_and(|(ordinal, prior)| {
+                command.accepted_at_us < prior
+                    || (command.accepted_at_us == prior && ordinal <= boundary_m3)
+            }))
+    {
+        return Err(StoreError::BillingClockNotAdvanced);
     }
     let identity = canonical(command.identity_key, 4096)?;
     let request = parse_bounded(command.request, 262_144)
@@ -3961,6 +4050,7 @@ mod tests {
             source: None,
             identity_key: &identity,
             accepted_at_us: micros,
+            enforce_clock: true,
             request: &request,
             response: &response,
             children: &children,

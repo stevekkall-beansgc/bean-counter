@@ -545,7 +545,7 @@ pub(crate) async fn verify_cumulative_basis_projections(
             || request["source"] != source
             || request["agreement_id"] != agreement_id
             || decimal(&request["agreement_version"])? != agreement_version
-            || request["basis"] != basis
+            || normalized_cumulative_basis(&request["basis"])? != basis
             || utc_us(&request["effective_at"])? != effective
             || decimal(&request["expected_revision"])? != version - 1
         {
@@ -743,6 +743,19 @@ fn cumulative_integer(value: &Value) -> Result<i128, StoreError> {
         .ok_or(StoreError::InvalidStore("M5 cumulative integer"))?
         .parse::<i128>()
         .map_err(|_| StoreError::InvalidStore("M5 cumulative integer"))
+}
+
+fn normalized_cumulative_basis(value: &Value) -> Result<Value, StoreError> {
+    let mut basis = value.clone();
+    let numerator = cumulative_integer(&basis["conversion_numerator"])?;
+    let denominator = cumulative_integer(&basis["conversion_denominator"])?;
+    if numerator <= 0 || denominator <= 0 {
+        return Err(StoreError::InvalidStore("M5 cumulative conversion"));
+    }
+    let divisor = cumulative_gcd(numerator, denominator);
+    basis["conversion_numerator"] = json!((numerator / divisor).to_string());
+    basis["conversion_denominator"] = json!((denominator / divisor).to_string());
+    Ok(basis)
 }
 
 fn cumulative_rate_atoms(rate: &str) -> Result<i128, StoreError> {

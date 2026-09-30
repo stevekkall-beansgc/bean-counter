@@ -74,11 +74,22 @@ impl Basis {
         )?;
         let numerator = positive(&self.conversion_numerator)?;
         let denominator = positive(&self.conversion_denominator)?;
-        service::require(gcd(numerator, denominator) == 1, "BILLING_M5_REQUEST")?;
+        let _ = gcd(numerator, denominator);
         let _ = rate_atoms(&self.rate_usd_per_billable_unit)?;
         let maximum = positive(&self.maximum_period_quantity)?;
         let _ = self.book(maximum)?;
         Ok(())
+    }
+
+    fn normalized(&self) -> Result<Self, ServiceError> {
+        self.validate()?;
+        let numerator = positive(&self.conversion_numerator)?;
+        let denominator = positive(&self.conversion_denominator)?;
+        let divisor = gcd(numerator, denominator);
+        let mut normalized = self.clone();
+        normalized.conversion_numerator = (numerator / divisor).to_string();
+        normalized.conversion_denominator = (denominator / divisor).to_string();
+        Ok(normalized)
     }
 
     pub(super) fn maximum(&self) -> Result<i128, ServiceError> {
@@ -293,7 +304,7 @@ impl BillingLedger {
         named(&request.source, 256)?;
         named(&request.change_id, 128)?;
         named(&request.agreement_id, 128)?;
-        request.basis.validate()?;
+        let basis = request.basis.normalized()?;
         let agreement_version = positive(&request.agreement_version)?;
         let agreement_version =
             i64::try_from(agreement_version).map_err(|_| service::reject("BILLING_M5_BOUNDS"))?;
@@ -363,6 +374,7 @@ impl BillingLedger {
         {
             service::require(effective.micros() > previous, "BILLING_M5_EFFECTIVE_TIME")?;
         }
+        let enforce_clock = accepted_override.is_none();
         let accepted = accepted_override.unwrap_or(local::now()?);
         require_new_time(&mut tx, &snapshot, &accepted).await?;
         let sequences = tx.m5_cumulative_sequences().await.map_err(store_error)?;
@@ -370,12 +382,12 @@ impl BillingLedger {
             .checked_add(1)
             .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
         let basis_value = json!({
-            "mode":"cumulative_period","source_unit":request.basis.source_unit,
-            "billable_unit":request.basis.billable_unit,
-            "conversion_numerator":request.basis.conversion_numerator,
-            "conversion_denominator":request.basis.conversion_denominator,
-            "rate_usd_per_billable_unit":request.basis.rate_usd_per_billable_unit,
-            "maximum_period_quantity":request.basis.maximum_period_quantity
+            "mode":"cumulative_period","source_unit":basis.source_unit,
+            "billable_unit":basis.billable_unit,
+            "conversion_numerator":basis.conversion_numerator,
+            "conversion_denominator":basis.conversion_denominator,
+            "rate_usd_per_billable_unit":basis.rate_usd_per_billable_unit,
+            "maximum_period_quantity":basis.maximum_period_quantity
         });
         let basis_bytes = canonical(&basis_value)?;
         let key = canonical(&json!({
@@ -415,6 +427,7 @@ impl BillingLedger {
             source: Some(&request.source),
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock,
             request: raw,
             response: &response,
             children: std::slice::from_ref(&child),
@@ -486,6 +499,17 @@ impl BillingLedger {
             .begin(Instant::now() + Self::WRITE_BUDGET)
             .await
             .map_err(crate::service::store_error)?;
+        let snapshot = tx
+            .billing_snapshot()
+            .await
+            .map_err(crate::service::store_error)?;
+        service::validate_snapshot(&snapshot)?;
+        let authority =
+            service::permissions::effective_for(&snapshot, &request.customer, &request.source)?;
+        service::require(
+            authority.permissions.iter().any(|p| p == "read"),
+            "BILLING_UNAUTHORIZED",
+        )?;
         if let Some(saved) = tx
             .m5_activity_delivery(&request.customer, &request.source, &request.id)
             .await
@@ -518,6 +542,10 @@ impl BillingLedger {
             if saved.retained_bytes != facts {
                 return Err(service::reject("SEMANTIC_CONFLICT").into());
             }
+            service::require(
+                authority.permissions.iter().any(|p| p == "submit"),
+                "BILLING_PERMISSION",
+            )?;
             tx.m5_append_activity_alias(
                 &request.customer,
                 &request.source,
@@ -530,17 +558,11 @@ impl BillingLedger {
             let result = retained_result(&saved.response)?;
             return accepted_commit(result, tx.commit().await);
         }
-        let snapshot = tx
-            .billing_snapshot()
-            .await
-            .map_err(crate::service::store_error)?;
-        service::validate_snapshot(&snapshot)?;
-        let authority =
-            service::permissions::effective_for(&snapshot, &request.customer, &request.source)?;
         service::require(
             authority.permissions.iter().any(|p| p == "submit"),
             "BILLING_PERMISSION",
         )?;
+        let enforce_clock = accepted_override.is_none();
         let accepted = accepted_override.unwrap_or(local::now()?);
         require_new_time(&mut tx, &snapshot, &accepted).await?;
         let (agreement, agreement_version) = service::control::selected_terms(
@@ -629,6 +651,7 @@ impl BillingLedger {
             source: Some(&request.source),
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock,
             request: raw,
             response: &response,
             children: std::slice::from_ref(&child),
@@ -691,6 +714,17 @@ impl BillingLedger {
             .begin(Instant::now() + Self::WRITE_BUDGET)
             .await
             .map_err(crate::service::store_error)?;
+        let snapshot = tx
+            .billing_snapshot()
+            .await
+            .map_err(crate::service::store_error)?;
+        service::validate_snapshot(&snapshot)?;
+        let authority =
+            service::permissions::effective_for(&snapshot, &request.customer, &request.source)?;
+        service::require(
+            authority.permissions.iter().any(|p| p == "read"),
+            "BILLING_UNAUTHORIZED",
+        )?;
         if let Some(saved) = tx.m5_lookup(&identity).await.map_err(store_error)? {
             if saved.request != raw {
                 return Err(service::reject("IDENTITY_CONFLICT").into());
@@ -699,13 +733,6 @@ impl BillingLedger {
             tx.rollback().await.map_err(crate::service::store_error)?;
             return Ok(result);
         }
-        let snapshot = tx
-            .billing_snapshot()
-            .await
-            .map_err(crate::service::store_error)?;
-        service::validate_snapshot(&snapshot)?;
-        let authority =
-            service::permissions::effective_for(&snapshot, &request.customer, &request.source)?;
         service::require(
             authority.permissions.iter().any(|p| p == "correct"),
             "BILLING_PERMISSION",
@@ -829,6 +856,7 @@ impl BillingLedger {
             new_total >= 0 && new_total <= basis.maximum()?,
             "BILLING_M5_QUANTITY",
         )?;
+        let enforce_clock = accepted_override.is_none();
         let accepted = accepted_override.unwrap_or(local::now()?);
         require_new_time(&mut tx, &snapshot, &accepted).await?;
         let period_id = json!({"term_version":term_version.to_string(),"period_index":period_index.to_string()});
@@ -866,6 +894,7 @@ impl BillingLedger {
             source: Some(&request.source),
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock,
             request: raw,
             response: &response,
             children: std::slice::from_ref(&child),
@@ -1229,6 +1258,23 @@ mod tests {
                 booked_atoms: 100000000000000000001
             }
         );
+
+        let unreduced = Basis {
+            conversion_numerator: "2".into(),
+            conversion_denominator: "4".into(),
+            ..Basis {
+                mode: "cumulative_period".into(),
+                source_unit: "token".into(),
+                billable_unit: "billable-token".into(),
+                conversion_numerator: "1".into(),
+                conversion_denominator: "2".into(),
+                rate_usd_per_billable_unit: "0.000000000000000001".into(),
+                maximum_period_quantity: "100".into(),
+            }
+        };
+        let normalized = unreduced.normalized().unwrap();
+        assert_eq!(normalized.conversion_numerator, "1");
+        assert_eq!(normalized.conversion_denominator, "2");
     }
 
     #[tokio::test]

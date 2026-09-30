@@ -224,6 +224,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock: true,
             request: raw,
             response: &response,
             children: &children,
@@ -377,8 +378,14 @@ impl BillingLedger {
                 }
                 let customer = plan.request.customer.clone();
                 tx.rollback().await.map_err(store_error)?;
-                self.period_resolve_at(&customer, previous_term_version, index, &accepted)
-                    .await?;
+                self.period_resolve_at(
+                    &customer,
+                    previous_term_version,
+                    index,
+                    &accepted,
+                    retry_override.is_none(),
+                )
+                .await?;
                 let retry = term_service::parse_term_change_request(raw).map_err(period_error)?;
                 return Box::pin(self.term_set_transition(raw, retry, retry_override, true)).await;
             };
@@ -515,6 +522,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock: retry_override.is_none(),
             request: raw,
             response: &response,
             children: &children,
@@ -552,6 +560,7 @@ impl BillingLedger {
         term_version: i64,
         period_index: i64,
         accepted: &ledgerlab_core::domain::Timestamp,
+        enforce_clock: bool,
     ) -> local::Result<()> {
         let raw = bytes(&json!({
             "schema":PERIOD_RESOLVE,"customer":customer,
@@ -669,6 +678,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
+            enforce_clock,
             request: &raw,
             response: &response,
             children: std::slice::from_ref(&child),
