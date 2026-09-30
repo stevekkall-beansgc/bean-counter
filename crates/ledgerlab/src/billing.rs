@@ -1400,7 +1400,13 @@ mod tests {
         let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
             .unwrap()
             .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-01-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
 
         let next = json!({
             "schema":"ledger-billing-term/1","customer":"customer-1",
@@ -1603,7 +1609,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn equal_timestamp_assignment_before_immediate_transition_stays_on_predecessor() {
+    async fn assignment_before_immediate_transition_stays_on_predecessor() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().canonicalize().unwrap().join("billing");
         BillingLedger::init(
@@ -1625,7 +1631,13 @@ mod tests {
         let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
             .unwrap()
             .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-01-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let accepted = ledger
             .accept(
                 "customer-1",
@@ -1635,7 +1647,13 @@ mod tests {
             .await
             .unwrap();
         let accepted_at = accepted["receipt"]["body"]["accepted_at"].as_str().unwrap();
-        let transition_at = ledgerlab_core::domain::Timestamp::parse(accepted_at).unwrap();
+        let transition_at = ledgerlab_core::domain::Timestamp::from_micros(
+            ledgerlab_core::domain::Timestamp::parse(accepted_at)
+                .unwrap()
+                .micros()
+                + 1,
+        )
+        .unwrap();
         let immediate = json!({
             "schema":"ledger-billing-term/1","customer":"customer-1",
             "change_id":"equal-cut-immediate","expected_revision":"1",
@@ -1670,7 +1688,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn equal_timestamp_assignment_after_immediate_transition_uses_successor() {
+    async fn assignment_after_immediate_transition_uses_successor() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().canonicalize().unwrap().join("billing");
         BillingLedger::init(
@@ -1692,7 +1710,13 @@ mod tests {
         let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
             .unwrap()
             .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-01-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let transition_at =
             ledgerlab_core::domain::Timestamp::parse("2026-10-02T12:00:00.000000Z").unwrap();
         let immediate = json!({
@@ -1741,7 +1765,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clock_rollback_keeps_pre_transition_assignment_on_predecessor() {
+    async fn later_transition_keeps_prior_assignment_on_predecessor() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().canonicalize().unwrap().join("billing");
         BillingLedger::init(
@@ -1763,7 +1787,13 @@ mod tests {
         let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
             .unwrap()
             .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-01-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let work_at =
             ledgerlab_core::domain::Timestamp::parse("2026-10-02T12:00:01.000000Z").unwrap();
         ledger
@@ -1788,7 +1818,7 @@ mod tests {
             .unwrap()
             .into_vec();
         let transition_at =
-            ledgerlab_core::domain::Timestamp::parse("2026-10-02T12:00:00.000000Z").unwrap();
+            ledgerlab_core::domain::Timestamp::parse("2026-10-02T12:00:02.000000Z").unwrap();
         ledger.term_set_at(&immediate, transition_at).await.unwrap();
         ledger.close().await;
         let mut conn = sqlx::SqliteConnection::connect_with(
@@ -1833,7 +1863,13 @@ mod tests {
         let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
             .unwrap()
             .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-01-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let close = json!({
             "schema":"ledger-billing-period-close/1","customer":"customer-1",
             "period_id":{"term_version":"1","period_index":"1"}
@@ -1923,7 +1959,13 @@ mod tests {
         let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
             .unwrap()
             .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let work_at =
             ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap();
         let accepted = ledger
@@ -1990,7 +2032,13 @@ mod tests {
         }))
         .unwrap()
         .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         ledger
             .accept_at(
                 "customer-1",
@@ -2242,7 +2290,13 @@ mod tests {
                 "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
                 "timezone_rules_version":"IANA-2025b","proration":"none"}
         })).unwrap().into_vec();
-        ledger.term_set(&term).await.unwrap();
+        ledger
+            .term_set_at(
+                &term,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let accepted = ledger
             .accept_at(
                 "customer-1",

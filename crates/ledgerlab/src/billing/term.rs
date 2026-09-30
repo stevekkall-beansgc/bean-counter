@@ -41,7 +41,7 @@ impl BillingLedger {
     pub async fn term_set(&self, raw: &[u8]) -> local::Result<Value> {
         let request = term_service::parse_term_change_request(raw).map_err(period_error)?;
         match request.mode {
-            term_service::TermChangeMode::Initial => self.term_set_initial(raw).await,
+            term_service::TermChangeMode::Initial => self.term_set_initial(raw, None).await,
             term_service::TermChangeMode::NextBoundary
             | term_service::TermChangeMode::Immediate => {
                 self.term_set_transition(raw, request, None, false).await
@@ -57,7 +57,9 @@ impl BillingLedger {
     ) -> local::Result<Value> {
         let request = term_service::parse_term_change_request(raw).map_err(period_error)?;
         match request.mode {
-            term_service::TermChangeMode::Initial => self.term_set_initial(raw).await,
+            term_service::TermChangeMode::Initial => {
+                self.term_set_initial(raw, Some(accepted)).await
+            }
             term_service::TermChangeMode::NextBoundary
             | term_service::TermChangeMode::Immediate => {
                 self.term_set_transition(raw, request, Some(accepted), false)
@@ -68,7 +70,11 @@ impl BillingLedger {
 
     /// Activate a customer's first term. The complete M3 history and every
     /// projection are validated under the same writer transaction.
-    async fn term_set_initial(&self, raw: &[u8]) -> local::Result<Value> {
+    async fn term_set_initial(
+        &self,
+        raw: &[u8],
+        accepted_override: Option<ledgerlab_core::domain::Timestamp>,
+    ) -> local::Result<Value> {
         let request = term_service::parse_initial_request(raw).map_err(period_error)?;
         let request_value = ledgerlab_core::canonical::parse(raw)
             .map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
@@ -141,7 +147,8 @@ impl BillingLedger {
         )
         .map_err(period_error)?;
         let term_version = plan.term_version.to_string();
-        let accepted = local::now()?;
+        let enforce_clock = accepted_override.is_none();
+        let accepted = accepted_override.unwrap_or(local::now()?);
         let accepted_at = accepted.as_str().to_owned();
         let effective_at = plan
             .request
@@ -224,7 +231,7 @@ impl BillingLedger {
             source: None,
             identity_key: &identity,
             accepted_at_us: accepted.micros(),
-            enforce_clock: true,
+            enforce_clock,
             request: raw,
             response: &response,
             children: &children,

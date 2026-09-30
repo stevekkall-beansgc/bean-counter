@@ -1295,7 +1295,13 @@ mod tests {
                 "timezone":"UTC","month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
                 "timezone_rules_version":"IANA-2025b","proration":"none"}
         }));
-        ledger.term_set(&term).await.unwrap();
+        ledger
+            .term_set_at(
+                &term,
+                Timestamp::parse("2026-10-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let basis = serde_json::to_vec_pretty(&json!({
             "schema":"ledger-billing-cumulative-agreement/1","customer":"customer-1","source":"urn:example:work",
             "change_id":"basis-1","expected_revision":"0","agreement_id":"agreement-1","agreement_version":"1",

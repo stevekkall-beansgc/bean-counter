@@ -2464,6 +2464,42 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
             return Err(StoreError::InvalidStore("M5 command integrity"));
         }
     }
+    let command_times: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT command_sequence,accepted_at_us FROM billing_m5_commands ORDER BY command_sequence",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut prior_m5_time = None;
+    for (sequence, accepted_at_us) in command_times {
+        // One public operation may append a derived follow-on command at the
+        // same accepted instant (for example, resolution followed by close).
+        // Public entry points still require their first command to advance;
+        // replay must reject only an actual clock rollback.
+        if prior_m5_time.is_some_and(|prior| accepted_at_us < prior) {
+            return Err(StoreError::InvalidStore("M5 command clock order"));
+        }
+        let first_record: i64 = sqlx::query_scalar(
+            "SELECT min(sequence) FROM billing_m5_records WHERE command_sequence=?",
+        )
+        .bind(sequence)
+        .fetch_one(&mut *conn)
+        .await?;
+        let prior_m3_cut: i64 = sqlx::query_scalar(
+            "SELECT m3_high_water FROM billing_m5_snapshot_boundaries WHERE m5_high_water<? ORDER BY boundary_id DESC LIMIT 1",
+        )
+        .bind(first_record)
+        .fetch_one(&mut *conn)
+        .await?;
+        let prior_m3_time: Option<i64> =
+            sqlx::query_scalar("SELECT max(accepted_at_us) FROM billing_m3_index WHERE ordinal<=?")
+                .bind(prior_m3_cut)
+                .fetch_one(&mut *conn)
+                .await?;
+        if prior_m3_time.is_some_and(|prior| accepted_at_us < prior) {
+            return Err(StoreError::InvalidStore("M5 command clock versus M3"));
+        }
+        prior_m5_time = Some(accepted_at_us);
+    }
     let record_rows: Vec<RetainedRecord> = sqlx::query_as(
         "SELECT sequence,record_id,family,command_sequence,payload_bytes,content_sha256 FROM billing_m5_records ORDER BY sequence",
     ).fetch_all(&mut *conn).await?;
