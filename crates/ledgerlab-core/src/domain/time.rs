@@ -8,6 +8,36 @@ pub struct Timestamp {
     micros: i64,
 }
 impl Timestamp {
+    pub fn from_micros(micros: i64) -> Result<Self> {
+        let seconds = micros.div_euclid(1_000_000);
+        let fraction = micros.rem_euclid(1_000_000);
+        let day = seconds.div_euclid(86_400) + days_before_year(1970);
+        let within = seconds.rem_euclid(86_400);
+        if day < 0 || day >= days_before_year(10000) {
+            return Err(Error::new(
+                "TIMESTAMP",
+                "timestamp is outside year 0001..9999",
+            ));
+        }
+        let mut year = (day / 366 + 1).min(9999);
+        while days_before_year(year + 1) <= day {
+            year += 1;
+        }
+        let mut rest = day - days_before_year(year);
+        let mut month = 1;
+        while rest >= month_days(year, month) {
+            rest -= month_days(year, month);
+            month += 1;
+        }
+        Self::parse(&format!(
+            "{year:04}-{month:02}-{:02}T{:02}:{:02}:{:02}.{fraction:06}Z",
+            rest + 1,
+            within / 3600,
+            (within / 60) % 60,
+            within % 60
+        ))
+    }
+
     pub fn parse(s: &str) -> Result<Self> {
         fn fail() -> Error {
             Error::new("TIMESTAMP","expected Gregorian timestamp with explicit offset and at most six fractional digits")
@@ -135,5 +165,31 @@ impl TryFrom<String> for Timestamp {
 impl From<Timestamp> for String {
     fn from(v: Timestamp) -> Self {
         v.canonical
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn micros_round_trip_across_supported_utc_range() {
+        let cases = [
+            (0, "1970-01-01T00:00:00.000000Z"),
+            (-1, "1969-12-31T23:59:59.999999Z"),
+            (-62_135_596_800_000_000, "0001-01-01T00:00:00.000000Z"),
+            (253_402_300_799_999_999, "9999-12-31T23:59:59.999999Z"),
+        ];
+        for (micros, expected) in cases {
+            let timestamp = Timestamp::from_micros(micros).unwrap();
+            assert_eq!(timestamp.as_str(), expected);
+            assert_eq!(timestamp.micros(), micros);
+        }
+    }
+
+    #[test]
+    fn micros_refuses_values_outside_supported_utc_range() {
+        assert!(Timestamp::from_micros(-62_135_596_800_000_001).is_err());
+        assert!(Timestamp::from_micros(253_402_300_800_000_000).is_err());
     }
 }

@@ -7,10 +7,16 @@ use crate::{store::errors::StoreError, ServiceError};
 pub(crate) fn store_error(e: StoreError) -> ServiceError {
     if matches!(e, StoreError::ReadBudgetExhausted) {
         ServiceError::ReadBudgetExhausted
+    } else if matches!(e, StoreError::BillingM5SchemaRequired) {
+        ServiceError::Rejection("BILLING_M5_SCHEMA_REQUIRED".into())
     } else if matches!(e, StoreError::BillingUpgradeRequired) {
         ServiceError::Rejection("BILLING_UPGRADE_REQUIRED".into())
     } else if matches!(e, StoreError::BillingHistoryLimit) {
         ServiceError::Rejection("BILLING_HISTORY_LIMIT".into())
+    } else if matches!(e, StoreError::BillingPeriod) {
+        ServiceError::Rejection("BILLING_M5_PERIOD".into())
+    } else if matches!(e, StoreError::BillingClockNotAdvanced) {
+        ServiceError::Rejection("BILLING_CLOCK_NOT_ADVANCED".into())
     } else if e.retryable_after_rollback() {
         ServiceError::Retryable
     } else if matches!(e, StoreError::Integrity(_) | StoreError::InvalidStore(_)) {

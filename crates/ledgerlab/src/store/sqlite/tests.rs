@@ -700,15 +700,35 @@ async fn immutable_guards_cover_every_journal_table() {
     drop(ledger);
     let before = dump(&store).await;
     let tables:Vec<String>=sqlx::query_scalar("SELECT DISTINCT tbl_name FROM sqlite_schema WHERE type='trigger' AND name LIKE '%_no_update' ORDER BY tbl_name").fetch_all(&store.inner.readers).await.unwrap();
-    // The ordinary billing profile has separate populated guard coverage in
-    // billing::tests; this fixture populates the original journal only.
+    // The ordinary and M5 billing profiles have separate populated guard
+    // coverage; this fixture populates the original journal only.
     assert_eq!(
         tables
             .iter()
             .filter(|t| t.starts_with("billing_"))
             .map(String::as_str)
             .collect::<Vec<_>>(),
-        ["billing_entries", "billing_setup"]
+        [
+            "billing_entries",
+            "billing_m5_activity_deliveries",
+            "billing_m5_activity_semantics",
+            "billing_m5_adjustments",
+            "billing_m5_assignments",
+            "billing_m5_commands",
+            "billing_m5_cumulative_basis_versions",
+            "billing_m5_fiscal_reports",
+            "billing_m5_fiscal_versions",
+            "billing_m5_occurrence_acceptances",
+            "billing_m5_period_closes",
+            "billing_m5_period_resolutions",
+            "billing_m5_presentation_claims",
+            "billing_m5_records",
+            "billing_m5_recurrence_cancellations",
+            "billing_m5_recurrence_versions",
+            "billing_m5_snapshot_boundaries",
+            "billing_m5_term_versions",
+            "billing_setup"
+        ]
     );
     let tables: Vec<_> = tables
         .into_iter()

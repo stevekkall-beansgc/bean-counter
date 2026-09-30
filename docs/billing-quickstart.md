@@ -65,7 +65,7 @@ For runnable success, unsuccessful-by-cutoff, retry and correction examples usin
 
 ## Exact per-work usage
 
-The additive `ledger-local-billing/2` profile rates successful `content.generated` work using one explicitly configured unit per agreement and work record. Its `price` field is a USD rate per unit; `unit` and a positive-integer `maximum_quantity` are required. The rate can have up to 18 fractional digits. Usage events must explicitly supply `status`, integer `quantity`, and the matching `unit`. Successful work is rated at USD scale 18. There is no minimum charge, and an accepted base quantity is immutable. Failed work is refused with `BILLING_FAILED_WORK` before charge; an explicitly agreed failed-work fee is not supported by this profile. The existing outcome-correction path applies only to outcome claims. Cycle-bounded usage corrections and post-close adjustments are deferred to M5. This profile does not round each work item or statement total. Billing-cycle payable rounding is a separate M5 decision.
+The additive `ledger-local-billing/2` profile rates successful `content.generated` work using one explicitly configured unit per agreement and work record. Its `price` field is a USD rate per unit; `unit` and a positive-integer `maximum_quantity` are required. The rate can have up to 18 fractional digits. Usage events must explicitly supply `status`, integer `quantity`, and the matching `unit`. Successful work is rated at USD scale 18. There is no minimum charge, and an accepted base quantity is immutable. Failed work is refused with `BILLING_FAILED_WORK` before charge; an explicitly agreed failed-work fee is not supported by this profile. The existing outcome-correction path applies only to outcome claims. M5 adds signed, bounded quantity corrections without replacing the accepted base quantity. This profile does not round each work item or statement total.
 
 The synthetic files in `examples/billing/usage/` show a USD 0.00000025/token rate and 100 tokens, producing USD 0.000025 (`25000000000000` atoms at scale 18). A four-decimal per-work rounding rule would have erased this charge. Initialize and accept the example:
 
@@ -92,6 +92,27 @@ ledger billing --directory ./usage-billing export-csv --customer customer-usage-
 
 Usage and mixed-scale statements are `ledger-billing-statement/3` at USD scale 18. Their CSV projections use `ledger-finance-export/3` and exactly convert legacy scale-2 records to scale 18 where needed. Neither projection changes original retained records. Legacy-only statements and exports remain `/2` at scale 2.
 
+## Billing lifecycle (M5)
+
+The source-built v0.8.0 local SQLite profile adds schema 11 and the lifecycle commands shown by `ledger billing --help`: customer billing terms, a separate organization fiscal calendar, cumulative activity, signed quantity corrections, immutable period close, ad hoc adjustment statements, explicit recurrence/cancellation, due-occurrence enumeration and occurrence acceptance. Existing M2–M4 requests and statement/export families remain available.
+
+Start by setting a term that covers every retained billable acceptance. A term change is effective-dated and versioned; it never reassigns closed work. Configure cumulative conversion only for an already accepted agreement version. Activity quantities are nonmonetary until close; close aggregates the period, converts once using the pinned rational basis and books at USD scale 18 with `nearest_ties_away` only when the exact result is not representable. An open-period correction changes the original bucket through an append-only signed delta. A correction accepted after durable close creates one linked monetary adjustment in its acceptance-time period; it does not rewrite the closed statement.
+
+```sh
+ledger billing --directory ./billing term set term.json --json
+ledger billing --directory ./billing cumulative setup cumulative-basis.json --json
+ledger billing --directory ./billing activity activity.json --json
+ledger billing --directory ./billing correct quantity-correction.json --json
+ledger billing --directory ./billing close period-close.json --json > statement-v4.json
+ledger billing --directory ./billing adjustment statement adjustment-statement.json --json
+```
+
+`statement/4` is one immutable logical billing period. Its `statement_hash` selects the exact 27-column `ledger-finance-export/4` CSV projection through the existing `export-csv --snapshot` flag. Standard and ad hoc presentation are mutually exclusive for each adjustment. Negative period or adjustment net is classified as payable; positive is receivable; neither is a payment, settlement record or tax/legal invoice.
+
+Recurrence is operator-triggered. Setting a rule does not create charges, querying due occurrences does not mutate history, and there is no automatic missed-run catch-up. `occurrence accept` is the explicit charge-producing operation and retains the selected agreement and recurrence versions alongside the unchanged M4 receipt. Cancellation takes effect at its first successful acceptance time. Fiscal reports are installation-scoped internal views that pin the calendar version and both M3/M5 high-water marks; they never alter customer statements.
+
+All M5 writes use stable command or delivery identities. Retry the exact original request after an unknown outcome. A changed request under the same identity refuses. The M5 sidecar retains at most 100,000 combined command, domain-record, semantic-identity and delivery-identity rows, with 256 MiB shared by their exact canonical material; it does not prune automatically. See the [M5 qualification](m5-qualification.md), [contract](m5-contracts.md) and [recovery guide](billing-recovery.md) before operating the lifecycle.
+
 Statements use `ledger-billing-statement/2` for legacy-only scale-2 history and `/3` for scale-18 usage or mixed-scale history. They cover all accepted decisions for the requested customer across every registered source at their cutoff and include full retained records, stable IDs, agreement versions, original and correction postings, exact integer-atom totals and a receipt-root snapshot hash. They replay/verify retained decisions and project their saved postings; editing a draft setup cannot reprice history. A statement refuses rather than returning a partial result if read permission is missing for any source. `complete:true` means the whole customer history, or the requested target history, at that snapshot is included. Customer statements and CSV exports have customer-local ordinals and hashes. The receipt-root hash describes economic history, not a backup or a hash of administrator changes. It is a billing statement, not a tax/legal invoice or proof of payment. No money is collected or dispatched.
 
 ## Permissions and revocation
@@ -105,7 +126,7 @@ ledger billing --directory ./billing permissions --customer customer-1 --source 
 
 The `/2` sample change expects revision `1`, has a stable `change_id`, retains only `read` and includes a reason. New submissions and corrections then refuse. Read-authorized exact retries still return original receipts after revocation or agreement end. Removing `read` blocks reports and duplicate resolution. To restore, supply the current `expected_revision`, a new `change_id`, a reason, and a subset of the original rights. Controls are checked and recorded inside the same immediate transaction as relevant reads/writes. Accepted evidence records the permission revision used. The `permissions` status command is an administrator control; remote callers are not part of this local profile.
 
-Terms and the permission ceiling cannot be edited in place. Use an immutable amendment or a new agreement start; already accepted work keeps its original price and policy. Schema-8 and schema-9 installations require the explicit command `ledger billing --directory ./billing upgrade --json`; ordinary open does not migrate them silently. The M2 schema-8 to schema-9 qualification and M3 source-built schema-9 to schema-10 qualification cover those named transitions. Keep a quiescent whole-installation backup before upgrading and validate the resulting customer statement and exact retries. These results do not qualify native artifacts or other historical stores.
+Terms and the permission ceiling cannot be edited in place. Use an immutable amendment or a new agreement start; already accepted work keeps its original price and policy. Schema-8, schema-9 and schema-10 installations require the explicit command `ledger billing --directory ./billing upgrade --json`; ordinary open does not migrate them silently. The M2 schema-8 to schema-9, M3 schema-9 to schema-10 and M5 schema-10 to schema-11 qualifications cover only their named source-built paths. Keep a quiescent whole-installation backup before upgrading and validate retained statements, identities and exact retries afterward. These results do not qualify native artifacts or other historical stores.
 
 ## Bounds and failures
 

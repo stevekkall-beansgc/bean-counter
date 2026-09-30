@@ -16,6 +16,635 @@ fn run(root: &Path, args: &[&str], expected: i32) -> Value {
     );
     serde_json::from_slice(&out.stdout).unwrap()
 }
+
+#[test]
+fn customer_term_command_uses_exact_retry_identity() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    let setup = include_bytes!("../../../examples/billing/setup.json");
+    fs::write(root.join("setup.json"), setup).unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+
+    let term = json!({
+        "schema":"ledger-billing-term/1",
+        "customer":"customer-1",
+        "change_id":"term-change-1",
+        "expected_revision":"0",
+        "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+        "term":{
+            "interval":1,
+            "unit":"month",
+            "alignment":"anchored",
+            "anchor":{"date":"2026-09-01","time":"00:00:00"},
+            "timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp",
+            "boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b",
+            "proration":"none"
+        }
+    });
+    fs::write(root.join("term.json"), serde_json::to_vec(&term).unwrap()).unwrap();
+    let result = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "term",
+            "set",
+            "term.json",
+        ],
+        0,
+    );
+    assert_eq!(result["status"], "term_updated");
+    assert_eq!(result["revision"], "1");
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "term",
+                "set",
+                "term.json",
+            ],
+            0,
+        ),
+        result
+    );
+
+    let mut changed = term;
+    changed["term"]["interval"] = json!(2);
+    fs::write(
+        root.join("term.json"),
+        serde_json::to_vec(&changed).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "term",
+                "set",
+                "term.json",
+            ],
+            4,
+        )["code"],
+        "IDENTITY_CONFLICT"
+    );
+}
+
+#[test]
+fn fiscal_calendar_and_report_are_runnable_from_the_cli() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/setup.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let calendar = json!({
+        "schema":"ledger-fiscal-calendar/1","change_id":"cli-fiscal-1",
+        "expected_revision":"0","timezone":"UTC","timezone_rules_version":"IANA-2025b",
+        "calendar":{"kind":"gregorian_years","fiscal_year_start_month":1,
+            "fiscal_year_start_day":1}
+    });
+    fs::write(
+        root.join("calendar.json"),
+        serde_json::to_vec(&calendar).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "fiscal",
+                "set",
+                "calendar.json",
+            ],
+            0,
+        )["status"],
+        "calendar_updated"
+    );
+    let report = json!({
+        "schema":"ledger-fiscal-report-request/1","command_id":"cli-report-1",
+        "calendar_version":"1","start":"2026-01-01T00:00:00.000000Z",
+        "end":"2027-01-01T00:00:00.000000Z"
+    });
+    fs::write(
+        root.join("report.json"),
+        serde_json::to_vec(&report).unwrap(),
+    )
+    .unwrap();
+    let result = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "fiscal",
+            "report",
+            "report.json",
+        ],
+        0,
+    );
+    assert_eq!(result["schema"], "ledger-fiscal-report/1");
+    assert_eq!(result["status"], "complete");
+    assert_eq!(result["monetary_lines"], json!([]));
+}
+
+#[test]
+fn billing_close_accepts_the_frozen_period_request() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/setup.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let term = json!({
+        "schema":"ledger-billing-term/1","customer":"customer-1",
+        "change_id":"close-cli-term","expected_revision":"0",
+        "effective":{"mode":"initial","at":"2000-01-01T00:00:00.000000Z"},
+        "term":{"interval":1,"unit":"month","alignment":"anchored",
+            "anchor":{"date":"2000-01-01","time":"00:00:00"},"timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b","proration":"none"}
+    });
+    fs::write(root.join("term.json"), serde_json::to_vec(&term).unwrap()).unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "term",
+            "set",
+            "term.json",
+        ],
+        0,
+    );
+    let close = json!({
+        "schema":"ledger-billing-period-close/1","customer":"customer-1",
+        "period_id":{"term_version":"1","period_index":"0"}
+    });
+    let mut invalid = close.clone();
+    invalid["period_id"]["period_index"] = json!(0);
+    fs::write(
+        root.join("close-invalid.json"),
+        serde_json::to_vec(&invalid).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "close",
+                "close-invalid.json",
+            ],
+            3,
+        )["code"],
+        "BILLING_M5_REQUEST"
+    );
+    fs::write(root.join("close.json"), serde_json::to_vec(&close).unwrap()).unwrap();
+    let first = run(
+        root,
+        &["billing", "--directory", "store", "close", "close.json"],
+        0,
+    );
+    assert_eq!(first["schema"], "ledger-billing-statement/4");
+    assert_eq!(first["status"], "closed");
+    assert_eq!(first["period_id"], close["period_id"]);
+    assert_eq!(first["lines"], json!([]));
+    assert_eq!(
+        run(
+            root,
+            &["billing", "--directory", "store", "close", "close.json",],
+            0,
+        ),
+        first
+    );
+    fs::write(
+        root.join("mapping.json"),
+        br#"{"schema":"ledger-finance-mapping/1","accounts":{}}"#,
+    )
+    .unwrap();
+    let export = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "export-csv",
+            "--customer",
+            "customer-1",
+            "--snapshot",
+            first["statement_hash"].as_str().unwrap(),
+            "--mapping",
+            "mapping.json",
+            "--output",
+            "period.csv",
+        ],
+        0,
+    );
+    assert_eq!(export["schema"], "ledger-finance-export/4");
+    assert_eq!(export["statement_hash"], first["statement_hash"]);
+    assert_eq!(export["posting_count"], "0");
+    assert_eq!(export["control_net_atoms"], "0");
+    assert!(export.get("output").is_none());
+    let csv = fs::read_to_string(root.join("period.csv")).unwrap();
+    assert!(csv.starts_with("\"row_type\",\"export_id\",\"statement_hash\""));
+    assert_eq!(csv.matches("\r\n").count(), 2);
+    assert!(csv.contains("\r\n\"complete\",\"sha256:"));
+}
+
+#[test]
+fn cumulative_activity_and_quantity_correction_are_runnable_from_the_cli() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/setup.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+
+    let term = json!({
+        "schema":"ledger-billing-term/1","customer":"customer-1",
+        "change_id":"cumulative-cli-term","expected_revision":"0",
+        "effective":{"mode":"initial","at":"2000-01-01T00:00:00.000000Z"},
+        "term":{"interval":1,"unit":"month","alignment":"anchored",
+            "anchor":{"date":"2000-01-01","time":"00:00:00"},"timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b","proration":"none"}
+    });
+    fs::write(root.join("term.json"), serde_json::to_vec(&term).unwrap()).unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "term",
+            "set",
+            "term.json",
+        ],
+        0,
+    );
+
+    let basis = json!({
+        "schema":"ledger-billing-cumulative-agreement/1","customer":"customer-1",
+        "source":"urn:example:work","change_id":"cumulative-cli-basis",
+        "expected_revision":"0","agreement_id":"agreement-1","agreement_version":"1",
+        "effective_at":"2026-09-01T00:00:00.000000Z",
+        "basis":{"mode":"cumulative_period","source_unit":"token",
+            "billable_unit":"billable-token","conversion_numerator":"1",
+            "conversion_denominator":"2","rate_usd_per_billable_unit":"0.000000000000000002",
+            "maximum_period_quantity":"1000"}
+    });
+    fs::write(root.join("basis.json"), serde_json::to_vec(&basis).unwrap()).unwrap();
+    let setup = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "cumulative",
+            "setup",
+            "basis.json",
+        ],
+        0,
+    );
+    assert_eq!(setup["status"], "basis_updated");
+    assert_eq!(setup["basis_version"], "1");
+
+    let activity = json!({
+        "schema":"ledger-billing-activity/1","customer":"customer-1",
+        "source":"urn:example:work","id":"cumulative-cli-delivery",
+        "operation_id":"cumulative-cli-operation","target":"cumulative-cli-target",
+        "quantity":"10",
+        "occurred_at":"2000-01-02T00:00:00.000000Z",
+        "evidence":"synthetic CLI cumulative activity"
+    });
+    fs::write(
+        root.join("activity.json"),
+        serde_json::to_vec(&activity).unwrap(),
+    )
+    .unwrap();
+    let accepted = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "activity",
+            "activity.json",
+        ],
+        0,
+    );
+    assert_eq!(accepted["status"], "accepted");
+    assert_eq!(
+        accepted["receipt"]["record_ids"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "activity",
+                "activity.json",
+            ],
+            0,
+        ),
+        accepted
+    );
+
+    let correction = json!({
+        "schema":"ledger-billing-quantity-correction/1","customer":"customer-1",
+        "source":"urn:example:work","id":"cumulative-cli-correction",
+        "target":"cumulative-cli-delivery","quantity_delta":"-2",
+        "occurred_at":"2000-01-03T00:00:00.000000Z",
+        "evidence":"synthetic CLI quantity correction"
+    });
+    fs::write(
+        root.join("correction.json"),
+        serde_json::to_vec(&correction).unwrap(),
+    )
+    .unwrap();
+    let corrected = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "correct",
+            "correction.json",
+        ],
+        0,
+    );
+    assert_eq!(corrected["status"], "accepted");
+    assert!(corrected.get("adjustment").is_none());
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "correct",
+                "correction.json",
+            ],
+            0,
+        ),
+        corrected
+    );
+}
+
+#[test]
+fn recurrence_occurrence_and_cancel_are_runnable_from_the_cli() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/setup.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let term = json!({
+        "schema":"ledger-billing-term/1","customer":"customer-1",
+        "change_id":"recurrence-cli-term","expected_revision":"0",
+        "effective":{"mode":"initial","at":"2000-01-01T00:00:00.000000Z"},
+        "term":{"interval":1,"unit":"month","alignment":"anchored",
+            "anchor":{"date":"2000-01-01","time":"00:00:00"},"timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b","proration":"none"}
+    });
+    fs::write(root.join("term.json"), serde_json::to_vec(&term).unwrap()).unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "term",
+            "set",
+            "term.json",
+        ],
+        0,
+    );
+    let recurrence = json!({
+        "schema":"ledger-billing-recurrence/1","customer":"customer-1",
+        "source":"urn:example:work","change_id":"recurrence-cli-1",
+        "expected_revision":"0","agreement_id":"agreement-1","agreement_version":"1",
+        "rule":{"interval":1,"unit":"month","anchor":{"date":"2026-09-01","time":"00:00:00"},
+            "timezone":"UTC","effective_from":"2026-09-01T00:00:00.000000Z",
+            "boundary_rule_version":"billing-boundary/1","timezone_rules_version":"IANA-2025b",
+            "proration":"none"},"renewal":{"mode":"manual"}
+    });
+    fs::write(
+        root.join("recurrence.json"),
+        serde_json::to_vec(&recurrence).unwrap(),
+    )
+    .unwrap();
+    let recurrence_result = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "recurrence",
+            "set",
+            "recurrence.json",
+        ],
+        0,
+    );
+    assert_eq!(recurrence_result["recurrence_version"], "1");
+    let query = json!({
+        "schema":"ledger-billing-occurrence-query/1","customer":"customer-1",
+        "source":"urn:example:work","recurrence_version":"1",
+        "due_through":"2026-09-30T00:00:00.000000Z","limit":10
+    });
+    fs::write(root.join("query.json"), serde_json::to_vec(&query).unwrap()).unwrap();
+    let due = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "occurrences",
+            "query.json",
+        ],
+        0,
+    );
+    assert_eq!(due["occurrences"].as_array().unwrap().len(), 1);
+    let occurrence_id = due["occurrences"][0]["occurrence_id"].as_str().unwrap();
+    let accept = json!({
+        "schema":"ledger-billing-occurrence-acceptance/1","customer":"customer-1",
+        "source":"urn:example:work","occurrence_id":occurrence_id,
+        "event":{"schema":"ledger-event/1","id":occurrence_id,
+            "operation_id":"recurrence-cli-operation","type":"content.generated",
+            "customer":"customer-1","occurred_at":"2026-09-01T00:00:00.000000Z",
+            "status":"succeeded"}
+    });
+    fs::write(
+        root.join("accept.json"),
+        serde_json::to_vec(&accept).unwrap(),
+    )
+    .unwrap();
+    let accepted = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "occurrence",
+            "accept",
+            "accept.json",
+        ],
+        0,
+    );
+    assert_eq!(accepted["status"], "accepted");
+    assert_eq!(accepted["receipt"]["kind"], "base-acceptance");
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "occurrence",
+                "accept",
+                "accept.json",
+            ],
+            0,
+        ),
+        accepted
+    );
+    let cancel = json!({
+        "schema":"ledger-billing-recurrence-cancel/1","customer":"customer-1",
+        "source":"urn:example:work","change_id":"recurrence-cli-cancel",
+        "expected_revision":"1","recurrence_version":"1"
+    });
+    fs::write(
+        root.join("cancel.json"),
+        serde_json::to_vec(&cancel).unwrap(),
+    )
+    .unwrap();
+    let cancelled = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "recurrence",
+            "cancel",
+            "cancel.json",
+        ],
+        0,
+    );
+    assert_eq!(cancelled["status"], "recurrence_cancelled");
+
+    // Every CLI command has exited, so copying the whole installation is a
+    // quiescent restore. The restored M5 term, recurrence, occurrence receipt,
+    // cancellation and exact command identities must all reopen together.
+    assert!(Command::new("cp")
+        .current_dir(root)
+        .args(["-Rp", "store", "restored-m5"])
+        .status()
+        .unwrap()
+        .success());
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "restored-m5",
+                "recurrence",
+                "set",
+                "recurrence.json",
+            ],
+            0,
+        ),
+        recurrence_result
+    );
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "restored-m5",
+                "occurrence",
+                "accept",
+                "accept.json",
+            ],
+            0,
+        ),
+        accepted
+    );
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "restored-m5",
+                "recurrence",
+                "cancel",
+                "cancel.json",
+            ],
+            0,
+        ),
+        cancelled
+    );
+}
+
 #[test]
 fn configured_billing_cli_reopen_retry_statement_and_refusals() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");

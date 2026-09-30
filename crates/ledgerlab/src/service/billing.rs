@@ -428,6 +428,28 @@ pub(crate) fn validate_snapshot(snapshot: &crate::store::sqlite::BillingSnapshot
     Ok(())
 }
 
+/// Source identities for an already validated complete retained history.
+/// M3's index external ID is a delivery key, not the authoritative record ID.
+pub(crate) fn validated_m3_receipt_refs(
+    snapshot: &crate::store::sqlite::BillingSnapshot,
+) -> Result<std::collections::BTreeMap<i64, (String, String)>> {
+    let setup = Setup::parse(&snapshot.setup)?;
+    let audit = history::load(&setup, snapshot)?;
+    audit
+        .receipts
+        .into_iter()
+        .map(|(ordinal, receipt)| {
+            Ok((
+                ordinal,
+                (
+                    text(&receipt["kind"])?.to_owned(),
+                    text(&receipt["id"])?.to_owned(),
+                ),
+            ))
+        })
+        .collect()
+}
+
 /// Build from newly evaluated inputs, never from a fixture or accepted journal.
 /// The complete result is replayed through the existing decoder before use.
 pub(crate) fn base(s: &Setup, raw: &[u8], received: &Timestamp) -> Result<Vec<Value>> {
@@ -1409,6 +1431,7 @@ mod tests {
             entry_count: 0,
             alias_count: 0,
             ledger_time_max: None,
+            cross_stream_time_max: None,
             index: vec![],
         }
     }

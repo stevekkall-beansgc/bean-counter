@@ -1,0 +1,2331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "bean-counter-m5-synthetic-oracle/1",
+  "status": "draft",
+  "note": "These synthetic expected outcomes define the contract; they are not implementation or release evidence.",
+  "currency": {
+    "code": "USD",
+    "scale": 18,
+    "unit": "atom"
+  },
+  "cases": [
+    {
+      "id": "anchored-month-end-clamp",
+      "setup": {
+        "term": {
+          "interval": 1,
+          "unit": "month",
+          "alignment": "anchored",
+          "anchor": {
+            "date": "2026-01-31",
+            "time": "10:00:00"
+          },
+          "timezone": "America/New_York",
+          "month_end_rule": "preserve_anchor_and_clamp"
+        }
+      },
+      "input": {
+        "period_indexes": [
+          "0",
+          "1",
+          "2"
+        ]
+      },
+      "expected": {
+        "boundary_local": [
+          "2026-01-31T10:00:00",
+          "2026-02-28T10:00:00",
+          "2026-03-31T10:00:00"
+        ],
+        "boundary_utc": [
+          "2026-01-31T15:00:00.000000Z",
+          "2026-02-28T15:00:00.000000Z",
+          "2026-03-31T14:00:00.000000Z"
+        ],
+        "rule": "Each boundary derives from the immutable Jan-31 anchor; February clamp does not shift March."
+      }
+    },
+    {
+      "id": "calendar-aligned-multi-month",
+      "setup": {
+        "term": {
+          "interval": 3,
+          "unit": "month",
+          "alignment": "calendar_aligned",
+          "anchor": {
+            "date": "2026-02-14",
+            "time": "12:00:00"
+          },
+          "timezone": "UTC"
+        }
+      },
+      "input": {
+        "period_indexes": [
+          "0",
+          "1",
+          "2"
+        ]
+      },
+      "expected": {
+        "boundary_local": [
+          "2026-03-01T00:00:00",
+          "2026-06-01T00:00:00",
+          "2026-09-01T00:00:00"
+        ],
+        "boundary_utc": [
+          "2026-03-01T00:00:00.000000Z",
+          "2026-06-01T00:00:00.000000Z",
+          "2026-09-01T00:00:00.000000Z"
+        ]
+      }
+    },
+    {
+      "id": "dst-gap-resolves-forward",
+      "setup": {
+        "term": {
+          "interval": 1,
+          "unit": "day",
+          "alignment": "anchored",
+          "anchor": {
+            "date": "2026-03-07",
+            "time": "02:30:00"
+          },
+          "timezone": "America/New_York",
+          "timezone_rules_version": "IANA-2025b"
+        }
+      },
+      "input": {
+        "boundary_local_date": "2026-03-08"
+      },
+      "expected": {
+        "resolved_local": "2026-03-08T03:00:00",
+        "resolved_utc": "2026-03-08T07:00:00.000000Z",
+        "resolution": "first valid instant after the nonexistent 02:30 local time"
+      }
+    },
+    {
+      "id": "dst-overlap-chooses-earlier-utc",
+      "setup": {
+        "term": {
+          "interval": 1,
+          "unit": "day",
+          "alignment": "anchored",
+          "anchor": {
+            "date": "2026-10-31",
+            "time": "01:30:00"
+          },
+          "timezone": "America/New_York",
+          "timezone_rules_version": "IANA-2025b"
+        }
+      },
+      "input": {
+        "boundary_local_date": "2026-11-01"
+      },
+      "expected": {
+        "resolved_local": "2026-11-01T01:30:00",
+        "resolved_utc": "2026-11-01T05:30:00.000000Z",
+        "rejected_alternative_utc": "2026-11-01T06:30:00.000000Z",
+        "resolution": "earlier UTC occurrence"
+      }
+    },
+    {
+      "id": "acceptance-at-end-belongs-to-next-period",
+      "setup": {
+        "customer": "synthetic-customer",
+        "periods": [
+          {
+            "id": {
+              "term_version": "1",
+              "period_index": "0"
+            },
+            "start": "2026-01-01T00:00:00.000000Z",
+            "end": "2026-02-01T00:00:00.000000Z"
+          },
+          {
+            "id": {
+              "term_version": "1",
+              "period_index": "1"
+            },
+            "start": "2026-02-01T00:00:00.000000Z",
+            "end": "2026-03-01T00:00:00.000000Z"
+          }
+        ]
+      },
+      "input": {
+        "accepted_at": "2026-02-01T00:00:00.000000Z",
+        "occurred_at": "2026-01-31T23:59:59.000000Z"
+      },
+      "expected": {
+        "assigned_period_id": {
+          "term_version": "1",
+          "period_index": "1"
+        },
+        "basis": "acceptance-time",
+        "occurred_at_is_assignment_clock": false
+      }
+    },
+    {
+      "id": "initial-term-must-cover-retained-history",
+      "setup": {
+        "oldest_retained_billable_acceptance": "2026-01-10T09:00:00.000000Z"
+      },
+      "input": {
+        "effective": {
+          "mode": "initial",
+          "at": "2026-01-11T00:00:00.000000Z"
+        },
+        "command": "ledger-billing-term/1"
+      },
+      "expected": {
+        "status": "error",
+        "code": "BILLING_M5_PERIOD",
+        "mutation": "none",
+        "reason": "term activation after the oldest retained billable acceptance leaves history unassigned"
+      }
+    },
+    {
+      "id": "correction-commits-before-close",
+      "setup": {
+        "period": {
+          "id": {
+            "term_version": "1",
+            "period_index": "0"
+          },
+          "start": "2026-01-01T00:00:00.000000Z",
+          "end": "2026-02-01T00:00:00.000000Z"
+        },
+        "target_amount_atoms": "1000000000000000000",
+        "target_quantity": "1",
+        "target_unit": "token",
+        "original_rate_atoms_per_unit": "1000000000000000000",
+        "agreement_version": "3",
+        "target_period_closed": false
+      },
+      "operations": [
+        {
+          "kind": "quantity-correction",
+          "accepted_at": "2026-02-02T12:00:00.000000Z",
+          "quantity_delta": "-1"
+        },
+        {
+          "kind": "period-close",
+          "accepted_at": "2026-02-05T12:00:00.000000Z"
+        }
+      ],
+      "expected": {
+        "correction_route": "original-open-period",
+        "correction_record_monetary_owner": true,
+        "post_close_adjustment_child_count": 0,
+        "calculation": {
+          "kind": "quantity_correction",
+          "exact_atoms_numerator": "-1000000000000000000",
+          "exact_atoms_denominator": "1",
+          "booked_atoms": "-1000000000000000000",
+          "rounding": "none",
+          "operands": {
+            "target_id": "usage-1",
+            "quantity_delta": "-1",
+            "unit": "token",
+            "rate_atoms_per_unit": "1000000000000000000",
+            "agreement_version": "3"
+          }
+        },
+        "statement_period_id": {
+          "term_version": "1",
+          "period_index": "0"
+        },
+        "statement_delta_atoms": "-1000000000000000000",
+        "fiscal_timestamp": "2026-02-02T12:00:00.000000Z",
+        "earlier_statement_mutated": false
+      }
+    },
+    {
+      "id": "close-commits-before-correction",
+      "setup": {
+        "period": {
+          "id": {
+            "term_version": "1",
+            "period_index": "0"
+          },
+          "start": "2026-01-01T00:00:00.000000Z",
+          "end": "2026-02-01T00:00:00.000000Z"
+        },
+        "target_amount_atoms": "1000000000000000000",
+        "target_quantity": "1",
+        "target_unit": "token",
+        "original_rate_atoms_per_unit": "1000000000000000000",
+        "agreement_version": "3"
+      },
+      "operations": [
+        {
+          "kind": "period-close",
+          "accepted_at": "2026-02-01T12:00:00.000000Z"
+        },
+        {
+          "kind": "quantity-correction",
+          "accepted_at": "2026-02-02T12:00:00.000000Z",
+          "quantity_delta": "-1"
+        }
+      ],
+      "expected": {
+        "correction_route": "post-close-adjustment",
+        "correction_support_record_monetary_owner": false,
+        "adjustment_child_count": 1,
+        "adjustment_child_monetary_owner": true,
+        "post_close_calculation": {
+          "kind": "post_close_adjustment",
+          "exact_atoms_numerator": "-1000000000000000000",
+          "exact_atoms_denominator": "1",
+          "booked_atoms": "-1000000000000000000",
+          "rounding": "none",
+          "operands": {
+            "adjustment_id": "adjustment-1",
+            "cause_kind": "per-work-quantity-correction",
+            "cause_id": "correction-1",
+            "original_period_id": {
+              "term_version": "1",
+              "period_index": "0"
+            },
+            "assigned_period_id": {
+              "term_version": "1",
+              "period_index": "1"
+            },
+            "target_id": "usage-1",
+            "quantity_delta": "-1",
+            "unit": "token",
+            "rate_atoms_per_unit": "1000000000000000000",
+            "agreement_version": "3"
+          }
+        },
+        "original_period_id": {
+          "term_version": "1",
+          "period_index": "0"
+        },
+        "adjustment_assigned_by_acceptance_time": true,
+        "closed_statement_mutated": false
+      }
+    },
+    {
+      "id": "late-first-outcome-then-correction",
+      "setup": {
+        "base_target_period_id": {
+          "term_version": "1",
+          "period_index": "0"
+        },
+        "period_0_end": "2026-02-01T00:00:00.000000Z",
+        "period_1_id": {
+          "term_version": "1",
+          "period_index": "1"
+        },
+        "period_1_end": "2026-03-01T00:00:00.000000Z",
+        "customer": "cust-outcome-1",
+        "source": "urn:example:outcome-work",
+        "m3_high_water_before": "40",
+        "m5_high_water_before": "18",
+        "base_acceptance": {
+          "receipt_id": "ba2_1111111111111111111111111111111111111111111111111111111111111111",
+          "external_id": "work-outcome-1",
+          "accepted_at": "2026-01-25T12:00:00.000000Z",
+          "amount_atoms": "500",
+          "period_id": {
+            "term_version": "1",
+            "period_index": "0"
+          }
+        },
+        "period_1_boundary_resolution_id": "resolution-1-1"
+      },
+      "operations": [
+        {
+          "kind": "first-outcome",
+          "accepted_at": "2026-02-02T10:00:00.000000Z",
+          "target": "base-1",
+          "outcome_id": "late-outcome-1",
+          "receipt_id": "ba2_2222222222222222222222222222222222222222222222222222222222222222",
+          "m3_ordinal": "41",
+          "signed_m3_posting_atoms": "500"
+        },
+        {
+          "kind": "outcome-correction",
+          "accepted_at": "2026-02-10T10:00:00.000000Z",
+          "target": "base-1",
+          "target_outcome": "late-outcome-1",
+          "target_period_closed": false,
+          "outcome_id": "late-outcome-2",
+          "prior_atoms": "500",
+          "accepted_atoms": "450",
+          "receipt_id": "ba2_3333333333333333333333333333333333333333333333333333333333333333",
+          "m3_ordinal": "42",
+          "signed_m3_posting_atoms": "-50",
+          "m5_domain_child_count": "0"
+        }
+      ],
+      "expected": {
+        "first_outcome_period_id": {
+          "term_version": "1",
+          "period_index": "1"
+        },
+        "outcome_correction_period_id": {
+          "term_version": "1",
+          "period_index": "1"
+        },
+        "late_outcome_reopens_period_0": false,
+        "correction_keeps_its_acceptance_time_for_fiscal_reporting": true,
+        "first_outcome_m3_is_sole_monetary_owner": true,
+        "first_outcome_m5_projection": {
+          "source_stream": "m3",
+          "source_ordinal": "41",
+          "assigned_period_id": {
+            "term_version": "1",
+            "period_index": "1"
+          },
+          "money_added": false
+        },
+        "correction_m3_is_sole_monetary_owner": true,
+        "correction_m5_projection": {
+          "source_stream": "m3",
+          "source_ordinal": "42",
+          "assigned_period_id": {
+            "term_version": "1",
+            "period_index": "1"
+          },
+          "signed_delta_atoms": "-50",
+          "money_added": false
+        },
+        "fiscal_effects": [
+          {
+            "receipt_id": "ba2_2222222222222222222222222222222222222222222222222222222222222222",
+            "accepted_at": "2026-02-02T10:00:00.000000Z",
+            "signed_atoms": "500"
+          },
+          {
+            "receipt_id": "ba2_3333333333333333333333333333333333333333333333333333333333333333",
+            "accepted_at": "2026-02-10T10:00:00.000000Z",
+            "signed_atoms": "-50"
+          }
+        ]
+      }
+    },
+    {
+      "id": "late-first-outcome-correction-after-period-close",
+      "setup": {
+        "first_outcome_period_id": {
+          "term_version": "1",
+          "period_index": "1"
+        },
+        "period_1_closed": true,
+        "period_2_id": {
+          "term_version": "1",
+          "period_index": "2"
+        },
+        "customer": "cust-outcome-1",
+        "source": "urn:example:outcome-work",
+        "m3_high_water_before": "42",
+        "m5_high_water_before": "18",
+        "prior_target_net_atoms": "450",
+        "first_outcome_receipt_id": "ba2_2222222222222222222222222222222222222222222222222222222222222222",
+        "first_outcome_assigned_period_id": {
+          "term_version": "1",
+          "period_index": "1"
+        }
+      },
+      "input": {
+        "kind": "outcome-correction",
+        "accepted_at": "2026-03-04T10:00:00.000000Z",
+        "target_period_id": {
+          "term_version": "1",
+          "period_index": "1"
+        },
+        "outcome_id": "late-outcome-3",
+        "prior_atoms": "450",
+        "accepted_atoms": "400",
+        "signed_m3_posting_atoms": "-50",
+        "receipt_id": "ba2_4444444444444444444444444444444444444444444444444444444444444444",
+        "m3_ordinal": "43"
+      },
+      "expected": {
+        "customer_statement_assignment": {
+          "term_version": "1",
+          "period_index": "2"
+        },
+        "fiscal_timestamp": "2026-03-04T10:00:00.000000Z",
+        "period_1_mutated": false,
+        "m3_posting_is_sole_monetary_owner": true,
+        "m5_adjustment_projection": {
+          "source_stream": "m3",
+          "source_ordinal": "43",
+          "source_receipt_id": "ba2_4444444444444444444444444444444444444444444444444444444444444444",
+          "original_outcome_period_id": {
+            "term_version": "1",
+            "period_index": "1"
+          },
+          "assigned_period_id": {
+            "term_version": "1",
+            "period_index": "2"
+          },
+          "signed_delta_atoms": "-50",
+          "domain_record_added": false
+        },
+        "fiscal_monetary_effect": {
+          "accepted_at": "2026-03-04T10:00:00.000000Z",
+          "signed_atoms": "-50"
+        },
+        "closed_period_1_statement_hash_unchanged": true
+      }
+    },
+    {
+      "id": "cumulative-round-once-and-telescope",
+      "setup": {
+        "scale": 18,
+        "bucket": "q",
+        "basis_version": "1",
+        "source_unit": "token",
+        "billable_unit": "token",
+        "conversion_numerator": "1",
+        "conversion_denominator": "2",
+        "rate_atoms_per_billable_unit": "1",
+        "exact_atoms_by_quantity": {
+          "1": "1/2",
+          "2": "1/1",
+          "3": "3/2"
+        },
+        "rounding": "nearest_ties_away"
+      },
+      "operations": [
+        {
+          "kind": "close",
+          "quantity": "1"
+        },
+        {
+          "kind": "post-close-quantity-delta",
+          "delta": "1",
+          "old_quantity": "1",
+          "new_quantity": "2",
+          "calculation": {
+            "exact_old_atoms": {
+              "numerator": "1",
+              "denominator": "2",
+              "booked_atoms": "1"
+            },
+            "exact_new_atoms": {
+              "numerator": "1",
+              "denominator": "1",
+              "booked_atoms": "1"
+            },
+            "exact_atoms_numerator": "0",
+            "exact_atoms_denominator": "1",
+            "booked_atoms": "0",
+            "rounding": "none"
+          }
+        },
+        {
+          "kind": "post-close-quantity-delta",
+          "delta": "1",
+          "old_quantity": "2",
+          "new_quantity": "3",
+          "calculation": {
+            "exact_old_atoms": {
+              "numerator": "1",
+              "denominator": "1",
+              "booked_atoms": "1"
+            },
+            "exact_new_atoms": {
+              "numerator": "3",
+              "denominator": "2",
+              "booked_atoms": "2"
+            },
+            "exact_atoms_numerator": "1",
+            "exact_atoms_denominator": "1",
+            "booked_atoms": "1",
+            "rounding": "none"
+          }
+        }
+      ],
+      "expected": {
+        "booked_atoms": {
+          "1": "1",
+          "2": "1",
+          "3": "2"
+        },
+        "adjustment_atoms": [
+          "0",
+          "1"
+        ],
+        "sum_adjustments_atoms": "1",
+        "final_minus_initial_booked_atoms": "1",
+        "re_round_adjustment": false
+      }
+    },
+    {
+      "id": "cumulative-close-allows-zero-quantity",
+      "setup": {
+        "basis_version": "1",
+        "source_unit": "token",
+        "billable_unit": "token",
+        "conversion_numerator": "1",
+        "conversion_denominator": "2",
+        "rate_atoms_per_billable_unit": "1"
+      },
+      "input": {
+        "period_id": {
+          "term_version": "1",
+          "period_index": "0"
+        },
+        "quantity": "0"
+      },
+      "expected": {
+        "calculation": {
+          "kind": "cumulative_close",
+          "exact_atoms_numerator": "0",
+          "exact_atoms_denominator": "1",
+          "booked_atoms": "0",
+          "rounding": "nearest_ties_away",
+          "operands": {
+            "basis_version": "1",
+            "source_unit": "token",
+            "billable_unit": "token",
+            "quantity": "0",
+            "conversion_numerator": "1",
+            "conversion_denominator": "2",
+            "rate_atoms_per_billable_unit": "1"
+          }
+        },
+        "statement_direction": "none"
+      }
+    },
+    {
+      "id": "outcome-first-replacement-and-reversal-arithmetic",
+      "setup": {
+        "target_id": "work-3",
+        "outcome_family": "content.generated"
+      },
+      "operations": [
+        {
+          "change_kind": "first",
+          "outcome_id": "outcome-1",
+          "accepted_atoms": "10",
+          "signed_posting_atoms": "10"
+        },
+        {
+          "change_kind": "replacement",
+          "outcome_id": "outcome-2",
+          "prior_outcome_id": "outcome-1",
+          "prior_atoms": "10",
+          "accepted_atoms": "7",
+          "signed_posting_atoms": "-3"
+        },
+        {
+          "change_kind": "reversal",
+          "outcome_id": "reversal-1",
+          "prior_outcome_id": "outcome-2",
+          "prior_atoms": "7",
+          "accepted_atoms": "0",
+          "signed_posting_atoms": "-7"
+        }
+      ],
+      "expected": {
+        "m3_postings_only": true,
+        "m5_monetary_children": 0,
+        "net_atoms": "0"
+      }
+    },
+    {
+      "id": "cumulative-activity-not-monetary-until-close",
+      "setup": {
+        "period_id": {
+          "term_version": "2",
+          "period_index": "4"
+        },
+        "quantity": "2500",
+        "booked_atoms_at_close": "4500000000000000000"
+      },
+      "operations": [
+        {
+          "kind": "activity",
+          "accepted_at": "2026-04-01T10:00:00.000000Z",
+          "quantity": "2500"
+        },
+        {
+          "kind": "close",
+          "accepted_at": "2026-05-01T00:00:00.000000Z"
+        }
+      ],
+      "expected": {
+        "fiscal_monetary_effect_at_activity": "0",
+        "fiscal_monetary_effect_at_close": "4500000000000000000",
+        "quantity_reported_separately": true
+      }
+    },
+    {
+      "id": "term-transition-preserves-logical-period-and-close-retry",
+      "setup": {
+        "logical_period_id": {
+          "term_version": "3",
+          "period_index": "0"
+        },
+        "original_resolution_id": "resolution-3-0-a",
+        "close_time": "2026-01-31T12:00:00.000000Z"
+      },
+      "operations": [
+        {
+          "kind": "immediate-term-change",
+          "writer_lock_acquired_at": "2026-01-15T12:00:00.000000Z",
+          "sampled_accepted_at": "2026-01-15T12:00:00.000000Z",
+          "new_term_version": "4"
+        },
+        {
+          "kind": "period-close",
+          "logical_period_id": {
+            "term_version": "3",
+            "period_index": "0"
+          },
+          "accepted_at": "2026-01-31T12:00:00.000000Z"
+        },
+        {
+          "kind": "exact-close-retry",
+          "after_new_term_active": true
+        }
+      ],
+      "expected": {
+        "period_key_mutated": false,
+        "successor_boundary_resolution_appended": true,
+        "successor_resolution_id": "resolution-3-0-b",
+        "successor_end_utc": "2026-01-15T12:00:00.000000Z",
+        "close_uses_saved_resolution_id": "resolution-3-0-b",
+        "close_after_period_end_allowed": true,
+        "retry_result_byte_identical": true
+      }
+    },
+    {
+      "id": "ad-hoc-preparation-does-not-consume-adjustment",
+      "setup": {
+        "source": "urn:example:usage-work",
+        "adjustment_id": "adj-1",
+        "amount_atoms": "-2500000000000000000",
+        "presentation_claim_exists": false
+      },
+      "operations": [
+        {
+          "kind": "prepare-ad-hoc-request",
+          "adjustments": [
+            {
+              "source": "urn:example:usage-work",
+              "adjustment_id": "adj-1"
+            }
+          ]
+        },
+        {
+          "kind": "standard-close"
+        }
+      ],
+      "expected": {
+        "standard_close_includes_adjustment": true,
+        "presentation_claim_count": 1,
+        "negative_net_direction": "payable"
+      }
+    },
+    {
+      "id": "ad-hoc-issue-and-standard-close-exclusive",
+      "setup": {
+        "source": "urn:example:usage-work",
+        "adjustment_id": "adj-2",
+        "amount_atoms": "750000000000000000"
+      },
+      "operations": [
+        {
+          "kind": "ad-hoc-issue",
+          "adjustments": [
+            {
+              "source": "urn:example:usage-work",
+              "adjustment_id": "adj-2"
+            }
+          ]
+        },
+        {
+          "kind": "standard-close"
+        }
+      ],
+      "expected": {
+        "ad_hoc_includes_adjustment": true,
+        "standard_close_includes_adjustment": false,
+        "presentation_claim_count": 1,
+        "ad_hoc_is_tax_or_legal_invoice": false
+      }
+    },
+    {
+      "id": "four-four-five-fifty-three-week-year",
+      "setup": {
+        "timezone": "America/New_York",
+        "calendar": {
+          "kind": "week_pattern",
+          "fiscal_year_end_month": 1,
+          "fiscal_year_end_day": 31,
+          "pattern": "4-4-5",
+          "week_end_day": "saturday",
+          "week_end_alignment": "nearest",
+          "extra_week_period": 12
+        }
+      },
+      "input": {
+        "fiscal_year_start_boundary": "2028-01-30",
+        "fiscal_year_end_boundary_exclusive": "2029-02-04"
+      },
+      "expected": {
+        "weeks": 53,
+        "period_weeks": [
+          4,
+          4,
+          5,
+          4,
+          4,
+          5,
+          4,
+          4,
+          5,
+          4,
+          4,
+          6
+        ],
+        "extra_week_period": 12,
+        "next_fiscal_year_start_boundary": "2029-02-04"
+      }
+    },
+    {
+      "id": "recurrence-stable-retry-and-no-implicit-catchup",
+      "setup": {
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "agreement_id": "agreement-usage-1",
+        "agreement_version": "1",
+        "recurrence_version": "1",
+        "scheduled_local_label": "2026-09-01T00:00:00",
+        "timezone": "UTC",
+        "timezone_rules_version": "IANA-2025b",
+        "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+        "billing_term_version": "1",
+        "billing_period_id": {
+          "term_version": "1",
+          "period_index": "0"
+        },
+        "billing_period_boundary_resolution_id": "resolution-1-0"
+      },
+      "operations": [
+        {
+          "kind": "occurrence-query",
+          "request": {
+            "schema": "ledger-billing-occurrence-query/1",
+            "customer": "customer-usage-1",
+            "source": "urn:example:usage-work",
+            "recurrence_version": "1",
+            "due_through": "2026-09-29T15:02:13.019263Z",
+            "limit": 10
+          }
+        },
+        {
+          "kind": "operator-accept-occurrence",
+          "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+          "accepted_at": "2026-09-29T15:02:13.019263Z",
+          "event": {
+            "schema": "ledger-event/1",
+            "id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+            "operation_id": "m5-candidate-occurrence-op-2",
+            "type": "content.generated",
+            "customer": "customer-usage-1",
+            "occurred_at": "2026-09-01T00:00:00.000000Z",
+            "status": "succeeded",
+            "quantity": "100",
+            "unit": "token"
+          }
+        },
+        {
+          "kind": "exact-retry",
+          "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+          "after": "recurrence-cancel-1"
+        }
+      ],
+      "expected": {
+        "query_mutates_ledger": false,
+        "same_local_label_same_occurrence_id": true,
+        "retry_returns_original_m5_response_bytes": true,
+        "retry_receipt_is_exact_m4_base_acceptance_envelope": true,
+        "billing_period_and_agreement_selected_at_acceptance": true,
+        "missed_occurrence_auto_charged": false,
+        "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+        "query_response": {
+          "schema": "ledger-billing-occurrence-list/1",
+          "status": "ok",
+          "has_more": false,
+          "due_through": "2026-09-29T15:02:13.019263Z",
+          "occurrences": [
+            {
+              "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+              "scheduled_local_label": "2026-09-01T00:00:00",
+              "scheduled_at": "2026-09-01T00:00:00.000000Z",
+              "agreement_id": "agreement-usage-1",
+              "agreement_version": "1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fiscal-report-pins-calendar-and-both-high-waters",
+      "setup": {
+        "calendar_version": "3",
+        "timezone_rules_version": "IANA-2025b",
+        "m3_high_water": "190",
+        "m5_high_water": "77",
+        "start": "2026-01-01T00:00:00.000000Z",
+        "end": "2027-01-01T00:00:00.000000Z",
+        "retained_snapshot_boundaries": [
+          {
+            "m3_high_water": "190",
+            "m5_high_water": "77"
+          },
+          {
+            "m3_high_water": "150",
+            "m5_high_water": "50"
+          }
+        ]
+      },
+      "operations": [
+        {
+          "kind": "fiscal-report-run"
+        },
+        {
+          "kind": "exact-retry"
+        },
+        {
+          "kind": "historical-rerun",
+          "calendar_version": "2",
+          "m3_high_water": "150",
+          "m5_high_water": "50"
+        },
+        {
+          "kind": "historical-rerun",
+          "calendar_version": "2",
+          "m3_high_water": "190",
+          "m5_high_water": "50"
+        }
+      ],
+      "expected": {
+        "exact_retry_same_report_hash": true,
+        "historical_rerun_is_new_explicit_snapshot": true,
+        "new_calendar_silently_replaces_saved_report": false,
+        "report_changes_customer_statement_or_amount": false,
+        "torn_pair": {
+          "m3_high_water": "190",
+          "m5_high_water": "50",
+          "status": "error",
+          "code": "BILLING_M5_PERIOD",
+          "mutation": "none"
+        }
+      }
+    },
+    {
+      "id": "scoped-identities-do-not-collide",
+      "operations": [
+        {
+          "domain": "application",
+          "customer": "cust-a",
+          "source": "urn:example:usage-work",
+          "id": "delivery-1"
+        },
+        {
+          "domain": "application",
+          "customer": "cust-b",
+          "source": "urn:example:usage-work",
+          "id": "delivery-1"
+        },
+        {
+          "domain": "installation-admin",
+          "change_id": "calendar-change-1"
+        }
+      ],
+      "expected": {
+        "both_customer_deliveries_accepted_independently": true,
+        "installation_command_has_customer": false,
+        "identity_domains_disjoint": true
+      }
+    },
+    {
+      "id": "quantity-correction-bounds-and-authority",
+      "setup": {
+        "customer": "cust-a",
+        "source": "urn:example:usage-work",
+        "usage_id": "u-1",
+        "accepted_quantity": "2",
+        "maximum_quantity": "3"
+      },
+      "operations": [
+        {
+          "kind": "correct",
+          "quantity_delta": "-2",
+          "authorized": true
+        },
+        {
+          "kind": "correct",
+          "quantity_delta": "-1",
+          "authorized": true
+        },
+        {
+          "kind": "correct",
+          "quantity_delta": "4",
+          "authorized": true
+        },
+        {
+          "kind": "correct",
+          "quantity_delta": "1",
+          "authorized": false
+        }
+      ],
+      "expected": [
+        {
+          "status": "accepted",
+          "resulting_quantity": "0",
+          "economic_delta_atoms": "-2000000000000000000"
+        },
+        {
+          "status": "error",
+          "code": "BILLING_M5_BOUNDS",
+          "mutation": "none"
+        },
+        {
+          "status": "error",
+          "code": "BILLING_M5_BOUNDS",
+          "mutation": "none"
+        },
+        {
+          "status": "error",
+          "code": "BILLING_UNAUTHORIZED",
+          "mutation": "none"
+        }
+      ]
+    },
+    {
+      "id": "fiscal-source-identity-includes-customer",
+      "setup": {
+        "source": "urn:example:usage-work",
+        "event_id": "delivery-1",
+        "m3_high_water": "2",
+        "m5_high_water": "0",
+        "fiscal_interval": [
+          "2026-01-01T00:00:00.000000Z",
+          "2027-01-01T00:00:00.000000Z"
+        ]
+      },
+      "records": [
+        {
+          "customer": "cust-a",
+          "source": "urn:example:usage-work",
+          "kind": "posting",
+          "id": "delivery-1",
+          "amount_atoms": "1000000000000000000"
+        },
+        {
+          "customer": "cust-b",
+          "source": "urn:example:usage-work",
+          "kind": "posting",
+          "id": "delivery-1",
+          "amount_atoms": "-250000000000000000"
+        }
+      ],
+      "expected": {
+        "included_record_count": 2,
+        "sorted_identity": [
+          [
+            "cust-a",
+            "urn:example:usage-work",
+            "posting",
+            "delivery-1"
+          ],
+          [
+            "cust-b",
+            "urn:example:usage-work",
+            "posting",
+            "delivery-1"
+          ]
+        ],
+        "net_atoms": "750000000000000000"
+      }
+    },
+    {
+      "id": "snapshot-pair-rejects-torn-cross-stream-cut",
+      "setup": {
+        "retained_snapshot_boundaries": [
+          {
+            "m3_high_water": "10",
+            "m5_high_water": "19"
+          },
+          {
+            "m3_high_water": "11",
+            "m5_high_water": "20"
+          }
+        ],
+        "atomic_event": {
+          "m3_ordinal": "11",
+          "m5_occurrence_acceptance_sequence": "20",
+          "assignment_projection": {
+            "source_stream": "m3",
+            "source_sequence": "11",
+            "consumes_m5_record_sequence": false
+          }
+        }
+      },
+      "input": {
+        "snapshot": {
+          "m3_high_water": "11",
+          "m5_high_water": "19"
+        }
+      },
+      "expected": {
+        "status": "error",
+        "code": "BILLING_M5_PERIOD",
+        "mutation": "none",
+        "reason": "pair is absent from billing_m5_snapshot_boundaries"
+      }
+    },
+    {
+      "id": "recurrence-cancellation-at-acceptance",
+      "setup": {
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "agreement_id": "agreement-usage-1",
+        "agreement_version": "1",
+        "recurrence_version": "1",
+        "accepted_occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+        "blocked_occurrence_id": "occ_c29781d4810c5ff7abb91a1ac7520c2e7140118cbd12357fa48f102b96597a18",
+        "cancelled_at": "2026-09-29T16:00:00.000000Z",
+        "m4_receipt": {
+          "body": {
+            "accepted_at": "2026-09-29T15:02:13.019263Z",
+            "base_evaluation": {
+              "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+              "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+              "kind": "base-evaluation"
+            },
+            "members": [
+              {
+                "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+                "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+                "kind": "base-evaluation"
+              },
+              {
+                "content_hash": "sha256:b186f3a3ba67937749dcac23afb0e2e21ab292597fedd2ba40bf0c57308be186",
+                "id": "bi2_3559e90bd57231ee3672b3fbe43e03f033a058da5aeda1237c8735863acab101",
+                "kind": "base-identity"
+              },
+              {
+                "content_hash": "sha256:9e1fa824c1aa9e411492cd599bdb42fa0d7db616af2efae72ce0c24d5756c1b8",
+                "id": "bi2_3d45a8bd6b94b326e3e8b46166dc1f8acbc57a121a7c325aa9f7dfbe81e92ef1",
+                "kind": "base-identity"
+              },
+              {
+                "content_hash": "sha256:43c852931f9411982f825f76ca6c724cc9a3ea1cf98aef7ae14a8480c5d2a9a8",
+                "id": "bp2_99033db999308099e87876c64a1f4b2b26d181c0aa4a7f925dd9965c8c305c89",
+                "kind": "base-posting"
+              },
+              {
+                "content_hash": "sha256:3f20f6415d146acc93bd1e3e45453aa78d0cf6c5b53f1d79c76fd3384cc47143",
+                "id": "bs2_5053ad5959ccb98b7dc6c9cd9e5c873e50a6b48ac2a910e06c92dbca6c975aad",
+                "kind": "binding-snapshot"
+              },
+              {
+                "content_hash": "sha256:1755fc3df071c6393a042ddb63d117b34d7258d4d8d536d64175da0bab6a83b7",
+                "id": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+                "kind": "event"
+              },
+              {
+                "content_hash": "sha256:b1ed9b8c660b89ed893f065bf469c93c2b1dfc90bfae64d880704fe763d25d55",
+                "id": "ed2_17af06c359b25ba3001346dbdeba531f3b03db142f0c10cd22b602be1705846a",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:ee43ab7d610e0f319801dbac0dfc977cb4396ec838864133945d7987650a3e27",
+                "id": "ed2_46589f22b242cfb21aa85575ad94dec40ed5566cd86f058cb1a285c8959f9145",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:dfd49fdcfed991b8b608fd3d7e33fad9d19182e33e730b8059acb51cfdc0c62a",
+                "id": "ed2_5ac720222547bf0a24c640ad015d563e19f84a2082e907a822f4362ea458a22e",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:f59f8698d42b5bddc8bfff915e95b32f62a3272d1058a8b9a6f0fdcb493b2836",
+                "id": "ed2_6bf38bb3a74087279e47bfab61f7e727b0273ecf86d8799b73be7f4330e0ea1f",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:25780bad25357b75a1492d02c3ddffce2fd7a96eb59164275d538fefaba02102",
+                "id": "ed2_d608a91449b4bbd84d474297bc270c56b11c7b56efc8c7fa3a756d2574e844af",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:f7154e4bf98ec7bbcb25c3f472c0f77eca2ae624b18803a70861f3755d2bfd52",
+                "id": "ob2_b036ba17d031146ba4a874ad211ab09ad323ffe82c75afef92cdeac81e10ac04",
+                "kind": "obligation"
+              },
+              {
+                "content_hash": "sha256:d77fb5035d75f0de3eed8900ad8f69fb095dd2ca5107d821c66f0b1b6a635a9b",
+                "id": "po2_35cde1989b6e8b20c7f2b1b28bbda156a478030177e6843474e9de87cdaf97d6",
+                "kind": "policy-snapshot"
+              },
+              {
+                "content_hash": "sha256:872645e30dc232e6c71fe6ce08330b5da49c0588b0bb20d9de7e8e3e36bc5710",
+                "id": "tb2_beefea1f9798511f11c32363eeae70b64ea855f52322ca372fdc015b22177fe6",
+                "kind": "target-basis"
+              },
+              {
+                "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+                "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+                "kind": "target-snapshot"
+              }
+            ],
+            "original_receipt_utf8": "{\"accepted_at\":\"2026-09-29T15:02:13.019263Z\",\"base_evaluation\":{\"content_hash\":\"sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2\",\"id\":\"be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60\",\"kind\":\"base-evaluation\"},\"membership_hash\":\"sha256:fa62384d4ff92a43c5f1cef495aca52aea255c06d7e3dd996c61d03fc20dd30d\",\"schema\":\"ledger-base-receipt/2-candidate.4\",\"target\":\"ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c\",\"target_snapshot\":{\"content_hash\":\"sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8\",\"id\":\"ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63\",\"kind\":\"target-snapshot\"}}",
+            "schema": "ledger-base-acceptance/2-candidate.4",
+            "target": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+            "target_snapshot": {
+              "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+              "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+              "kind": "target-snapshot"
+            }
+          },
+          "content_hash": "sha256:da5fb6cb616e7e8a323fdb6e5a90173ceacbdc27da22439b158a4795e2a06bda",
+          "id": "ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9",
+          "kind": "base-acceptance",
+          "scope": [
+            "example-company",
+            "local"
+          ]
+        }
+      },
+      "operations": [
+        {
+          "kind": "accept-occurrence",
+          "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+          "request": {
+            "schema": "ledger-billing-occurrence-acceptance/1",
+            "customer": "customer-usage-1",
+            "source": "urn:example:usage-work",
+            "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+            "event": {
+              "schema": "ledger-event/1",
+              "id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+              "operation_id": "m5-candidate-occurrence-op-2",
+              "type": "content.generated",
+              "customer": "customer-usage-1",
+              "occurred_at": "2026-09-01T00:00:00.000000Z",
+              "status": "succeeded",
+              "quantity": "100",
+              "unit": "token"
+            }
+          },
+          "accepted_at": "2026-09-29T15:02:13.019263Z"
+        },
+        {
+          "kind": "cancel-recurrence",
+          "request": {
+            "schema": "ledger-billing-recurrence-cancel/1",
+            "customer": "customer-usage-1",
+            "source": "urn:example:usage-work",
+            "change_id": "recurrence-cancel-1",
+            "expected_revision": "1",
+            "recurrence_version": "1"
+          },
+          "cancelled_at": "2026-09-29T16:00:00.000000Z"
+        },
+        {
+          "kind": "retry-accepted-occurrence",
+          "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+          "expected_saved_response": {
+            "status": "accepted",
+            "receipt": {
+              "body": {
+                "accepted_at": "2026-09-29T15:02:13.019263Z",
+                "base_evaluation": {
+                  "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+                  "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+                  "kind": "base-evaluation"
+                },
+                "members": [
+                  {
+                    "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+                    "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+                    "kind": "base-evaluation"
+                  },
+                  {
+                    "content_hash": "sha256:b186f3a3ba67937749dcac23afb0e2e21ab292597fedd2ba40bf0c57308be186",
+                    "id": "bi2_3559e90bd57231ee3672b3fbe43e03f033a058da5aeda1237c8735863acab101",
+                    "kind": "base-identity"
+                  },
+                  {
+                    "content_hash": "sha256:9e1fa824c1aa9e411492cd599bdb42fa0d7db616af2efae72ce0c24d5756c1b8",
+                    "id": "bi2_3d45a8bd6b94b326e3e8b46166dc1f8acbc57a121a7c325aa9f7dfbe81e92ef1",
+                    "kind": "base-identity"
+                  },
+                  {
+                    "content_hash": "sha256:43c852931f9411982f825f76ca6c724cc9a3ea1cf98aef7ae14a8480c5d2a9a8",
+                    "id": "bp2_99033db999308099e87876c64a1f4b2b26d181c0aa4a7f925dd9965c8c305c89",
+                    "kind": "base-posting"
+                  },
+                  {
+                    "content_hash": "sha256:3f20f6415d146acc93bd1e3e45453aa78d0cf6c5b53f1d79c76fd3384cc47143",
+                    "id": "bs2_5053ad5959ccb98b7dc6c9cd9e5c873e50a6b48ac2a910e06c92dbca6c975aad",
+                    "kind": "binding-snapshot"
+                  },
+                  {
+                    "content_hash": "sha256:1755fc3df071c6393a042ddb63d117b34d7258d4d8d536d64175da0bab6a83b7",
+                    "id": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+                    "kind": "event"
+                  },
+                  {
+                    "content_hash": "sha256:b1ed9b8c660b89ed893f065bf469c93c2b1dfc90bfae64d880704fe763d25d55",
+                    "id": "ed2_17af06c359b25ba3001346dbdeba531f3b03db142f0c10cd22b602be1705846a",
+                    "kind": "evidence"
+                  },
+                  {
+                    "content_hash": "sha256:ee43ab7d610e0f319801dbac0dfc977cb4396ec838864133945d7987650a3e27",
+                    "id": "ed2_46589f22b242cfb21aa85575ad94dec40ed5566cd86f058cb1a285c8959f9145",
+                    "kind": "evidence"
+                  },
+                  {
+                    "content_hash": "sha256:dfd49fdcfed991b8b608fd3d7e33fad9d19182e33e730b8059acb51cfdc0c62a",
+                    "id": "ed2_5ac720222547bf0a24c640ad015d563e19f84a2082e907a822f4362ea458a22e",
+                    "kind": "evidence"
+                  },
+                  {
+                    "content_hash": "sha256:f59f8698d42b5bddc8bfff915e95b32f62a3272d1058a8b9a6f0fdcb493b2836",
+                    "id": "ed2_6bf38bb3a74087279e47bfab61f7e727b0273ecf86d8799b73be7f4330e0ea1f",
+                    "kind": "evidence"
+                  },
+                  {
+                    "content_hash": "sha256:25780bad25357b75a1492d02c3ddffce2fd7a96eb59164275d538fefaba02102",
+                    "id": "ed2_d608a91449b4bbd84d474297bc270c56b11c7b56efc8c7fa3a756d2574e844af",
+                    "kind": "evidence"
+                  },
+                  {
+                    "content_hash": "sha256:f7154e4bf98ec7bbcb25c3f472c0f77eca2ae624b18803a70861f3755d2bfd52",
+                    "id": "ob2_b036ba17d031146ba4a874ad211ab09ad323ffe82c75afef92cdeac81e10ac04",
+                    "kind": "obligation"
+                  },
+                  {
+                    "content_hash": "sha256:d77fb5035d75f0de3eed8900ad8f69fb095dd2ca5107d821c66f0b1b6a635a9b",
+                    "id": "po2_35cde1989b6e8b20c7f2b1b28bbda156a478030177e6843474e9de87cdaf97d6",
+                    "kind": "policy-snapshot"
+                  },
+                  {
+                    "content_hash": "sha256:872645e30dc232e6c71fe6ce08330b5da49c0588b0bb20d9de7e8e3e36bc5710",
+                    "id": "tb2_beefea1f9798511f11c32363eeae70b64ea855f52322ca372fdc015b22177fe6",
+                    "kind": "target-basis"
+                  },
+                  {
+                    "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+                    "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+                    "kind": "target-snapshot"
+                  }
+                ],
+                "original_receipt_utf8": "{\"accepted_at\":\"2026-09-29T15:02:13.019263Z\",\"base_evaluation\":{\"content_hash\":\"sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2\",\"id\":\"be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60\",\"kind\":\"base-evaluation\"},\"membership_hash\":\"sha256:fa62384d4ff92a43c5f1cef495aca52aea255c06d7e3dd996c61d03fc20dd30d\",\"schema\":\"ledger-base-receipt/2-candidate.4\",\"target\":\"ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c\",\"target_snapshot\":{\"content_hash\":\"sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8\",\"id\":\"ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63\",\"kind\":\"target-snapshot\"}}",
+                "schema": "ledger-base-acceptance/2-candidate.4",
+                "target": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+                "target_snapshot": {
+                  "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+                  "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+                  "kind": "target-snapshot"
+                }
+              },
+              "content_hash": "sha256:da5fb6cb616e7e8a323fdb6e5a90173ceacbdc27da22439b158a4795e2a06bda",
+              "id": "ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9",
+              "kind": "base-acceptance",
+              "scope": [
+                "example-company",
+                "local"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "accept-occurrence-after-cancellation",
+          "occurrence_id": "occ_c29781d4810c5ff7abb91a1ac7520c2e7140118cbd12357fa48f102b96597a18"
+        }
+      ],
+      "expected": [
+        {
+          "status": "accepted",
+          "receipt": {
+            "body": {
+              "accepted_at": "2026-09-29T15:02:13.019263Z",
+              "base_evaluation": {
+                "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+                "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+                "kind": "base-evaluation"
+              },
+              "members": [
+                {
+                  "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+                  "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+                  "kind": "base-evaluation"
+                },
+                {
+                  "content_hash": "sha256:b186f3a3ba67937749dcac23afb0e2e21ab292597fedd2ba40bf0c57308be186",
+                  "id": "bi2_3559e90bd57231ee3672b3fbe43e03f033a058da5aeda1237c8735863acab101",
+                  "kind": "base-identity"
+                },
+                {
+                  "content_hash": "sha256:9e1fa824c1aa9e411492cd599bdb42fa0d7db616af2efae72ce0c24d5756c1b8",
+                  "id": "bi2_3d45a8bd6b94b326e3e8b46166dc1f8acbc57a121a7c325aa9f7dfbe81e92ef1",
+                  "kind": "base-identity"
+                },
+                {
+                  "content_hash": "sha256:43c852931f9411982f825f76ca6c724cc9a3ea1cf98aef7ae14a8480c5d2a9a8",
+                  "id": "bp2_99033db999308099e87876c64a1f4b2b26d181c0aa4a7f925dd9965c8c305c89",
+                  "kind": "base-posting"
+                },
+                {
+                  "content_hash": "sha256:3f20f6415d146acc93bd1e3e45453aa78d0cf6c5b53f1d79c76fd3384cc47143",
+                  "id": "bs2_5053ad5959ccb98b7dc6c9cd9e5c873e50a6b48ac2a910e06c92dbca6c975aad",
+                  "kind": "binding-snapshot"
+                },
+                {
+                  "content_hash": "sha256:1755fc3df071c6393a042ddb63d117b34d7258d4d8d536d64175da0bab6a83b7",
+                  "id": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+                  "kind": "event"
+                },
+                {
+                  "content_hash": "sha256:b1ed9b8c660b89ed893f065bf469c93c2b1dfc90bfae64d880704fe763d25d55",
+                  "id": "ed2_17af06c359b25ba3001346dbdeba531f3b03db142f0c10cd22b602be1705846a",
+                  "kind": "evidence"
+                },
+                {
+                  "content_hash": "sha256:ee43ab7d610e0f319801dbac0dfc977cb4396ec838864133945d7987650a3e27",
+                  "id": "ed2_46589f22b242cfb21aa85575ad94dec40ed5566cd86f058cb1a285c8959f9145",
+                  "kind": "evidence"
+                },
+                {
+                  "content_hash": "sha256:dfd49fdcfed991b8b608fd3d7e33fad9d19182e33e730b8059acb51cfdc0c62a",
+                  "id": "ed2_5ac720222547bf0a24c640ad015d563e19f84a2082e907a822f4362ea458a22e",
+                  "kind": "evidence"
+                },
+                {
+                  "content_hash": "sha256:f59f8698d42b5bddc8bfff915e95b32f62a3272d1058a8b9a6f0fdcb493b2836",
+                  "id": "ed2_6bf38bb3a74087279e47bfab61f7e727b0273ecf86d8799b73be7f4330e0ea1f",
+                  "kind": "evidence"
+                },
+                {
+                  "content_hash": "sha256:25780bad25357b75a1492d02c3ddffce2fd7a96eb59164275d538fefaba02102",
+                  "id": "ed2_d608a91449b4bbd84d474297bc270c56b11c7b56efc8c7fa3a756d2574e844af",
+                  "kind": "evidence"
+                },
+                {
+                  "content_hash": "sha256:f7154e4bf98ec7bbcb25c3f472c0f77eca2ae624b18803a70861f3755d2bfd52",
+                  "id": "ob2_b036ba17d031146ba4a874ad211ab09ad323ffe82c75afef92cdeac81e10ac04",
+                  "kind": "obligation"
+                },
+                {
+                  "content_hash": "sha256:d77fb5035d75f0de3eed8900ad8f69fb095dd2ca5107d821c66f0b1b6a635a9b",
+                  "id": "po2_35cde1989b6e8b20c7f2b1b28bbda156a478030177e6843474e9de87cdaf97d6",
+                  "kind": "policy-snapshot"
+                },
+                {
+                  "content_hash": "sha256:872645e30dc232e6c71fe6ce08330b5da49c0588b0bb20d9de7e8e3e36bc5710",
+                  "id": "tb2_beefea1f9798511f11c32363eeae70b64ea855f52322ca372fdc015b22177fe6",
+                  "kind": "target-basis"
+                },
+                {
+                  "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+                  "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+                  "kind": "target-snapshot"
+                }
+              ],
+              "original_receipt_utf8": "{\"accepted_at\":\"2026-09-29T15:02:13.019263Z\",\"base_evaluation\":{\"content_hash\":\"sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2\",\"id\":\"be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60\",\"kind\":\"base-evaluation\"},\"membership_hash\":\"sha256:fa62384d4ff92a43c5f1cef495aca52aea255c06d7e3dd996c61d03fc20dd30d\",\"schema\":\"ledger-base-receipt/2-candidate.4\",\"target\":\"ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c\",\"target_snapshot\":{\"content_hash\":\"sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8\",\"id\":\"ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63\",\"kind\":\"target-snapshot\"}}",
+              "schema": "ledger-base-acceptance/2-candidate.4",
+              "target": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+              "target_snapshot": {
+                "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+                "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+                "kind": "target-snapshot"
+              }
+            },
+            "content_hash": "sha256:da5fb6cb616e7e8a323fdb6e5a90173ceacbdc27da22439b158a4795e2a06bda",
+            "id": "ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9",
+            "kind": "base-acceptance",
+            "scope": [
+              "example-company",
+              "local"
+            ]
+          }
+        },
+        {
+          "status": "recurrence_cancelled",
+          "cancelled_at": "2026-09-29T16:00:00.000000Z"
+        },
+        {
+          "status": "accepted",
+          "request_and_response_bytes_identical_to_first_result": true,
+          "mutation": "none"
+        },
+        {
+          "status": "error",
+          "code": "BILLING_M5_CANCELLED",
+          "mutation": "none"
+        }
+      ]
+    },
+    {
+      "id": "renewal-requires-preaccepted-successor-terms",
+      "setup": {
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "predecessor_recurrence_version": "1",
+        "current_agreement_id": "agreement-usage-1",
+        "current_agreement_version": "1",
+        "m2_change_id": "renewal-change-2",
+        "successor_agreement_id": "agreement-usage-1",
+        "successor_agreement_version": "2",
+        "successor_effective_at": "2026-10-01T00:00:00.000000Z",
+        "successor_recurrence_version": "2",
+        "successor_rule": {
+          "interval": 1,
+          "unit": "month",
+          "anchor": {
+            "date": "2026-10-01",
+            "time": "00:00:00"
+          },
+          "timezone": "UTC",
+          "effective_from": "2026-10-01T00:00:00.000000Z",
+          "boundary_rule_version": "billing-boundary/1",
+          "timezone_rules_version": "IANA-2025b",
+          "proration": "none"
+        },
+        "recurrence_setup_request": {
+          "schema": "ledger-billing-recurrence/1",
+          "customer": "customer-usage-1",
+          "source": "urn:example:usage-work",
+          "change_id": "recurrence-set-1",
+          "expected_revision": "0",
+          "agreement_id": "agreement-usage-1",
+          "agreement_version": "1",
+          "rule": {
+            "interval": 1,
+            "unit": "month",
+            "anchor": {
+              "date": "2026-09-01",
+              "time": "00:00:00"
+            },
+            "timezone": "UTC",
+            "effective_from": "2026-09-01T00:00:00.000000Z",
+            "boundary_rule_version": "billing-boundary/1",
+            "timezone_rules_version": "IANA-2025b",
+            "proration": "none"
+          },
+          "renewal": {
+            "mode": "automatic_opt_in",
+            "m2_change_id": "renewal-change-2",
+            "next_agreement_version": "2",
+            "next_rule": {
+              "interval": 1,
+              "unit": "month",
+              "anchor": {
+                "date": "2026-10-01",
+                "time": "00:00:00"
+              },
+              "timezone": "UTC",
+              "effective_from": "2026-10-01T00:00:00.000000Z",
+              "boundary_rule_version": "billing-boundary/1",
+              "timezone_rules_version": "IANA-2025b",
+              "proration": "none"
+            }
+          }
+        }
+      },
+      "expected": {
+        "preaccepted_m2_amendment_required": true,
+        "recurrence_set_commits_current_and_successor_versions_atomically": true,
+        "recurrence_version_is_source_wide_and_next": true,
+        "successor_version_must_be_immediately_next": true,
+        "successor_inactive_until_m2_effective_time": "2026-10-01T00:00:00.000000Z",
+        "accepted_before_successor_effective_time": "refused",
+        "price_source": "exact retained M2 successor setup",
+        "background_charge": "none",
+        "automatic_catchup": "none"
+      }
+    },
+    {
+      "id": "schema-10-migration-mixed-retention-tiers",
+      "setup": {
+        "index_ordinals": [
+          1,
+          2,
+          3
+        ],
+        "retained_tiers": {
+          "billing_entries": [
+            1
+          ],
+          "billing_m2_entries": [
+            2
+          ],
+          "billing_m3_entries": [
+            3
+          ]
+        },
+        "each_ordinal_matches_exactly_one_bundle": true
+      },
+      "expected": {
+        "upgrade_status": "schema-11",
+        "source_rows_changed": 0,
+        "source_hashes_changed": 0,
+        "initial_snapshot_boundary": {
+          "m3_high_water": "3",
+          "m5_high_water": "0"
+        },
+        "migration_id_present": true
+      }
+    },
+    {
+      "id": "schema-10-migration-missing-or-duplicate-tier-refuses",
+      "setup": {
+        "missing_ordinal": 2,
+        "duplicate_ordinal": 3
+      },
+      "expected": {
+        "status": "error",
+        "code": "BILLING_M5_INTEGRITY",
+        "schema_change": "none",
+        "m5_objects_created": 0,
+        "source_rows_changed": 0
+      }
+    },
+    {
+      "id": "immediate-transition-samples-after-delayed-lock-and-retry",
+      "setup": {
+        "caller_supplied_at": "not-present",
+        "clock_before_lock": "2026-01-15T11:59:59.000000Z"
+      },
+      "operations": [
+        {
+          "kind": "acquire-writer-lock",
+          "at": "2026-01-15T12:00:00.000000Z"
+        },
+        {
+          "kind": "term-change",
+          "effective": {
+            "mode": "immediate"
+          }
+        },
+        {
+          "kind": "advance-clock",
+          "at": "2026-01-16T00:00:00.000000Z"
+        },
+        {
+          "kind": "exact-retry"
+        }
+      ],
+      "expected": {
+        "resolved_effective_at": "2026-01-15T12:00:00.000000Z",
+        "retry_effective_at": "2026-01-15T12:00:00.000000Z",
+        "retry_response_bytes_equal": true,
+        "new_timestamp_sampled_on_retry": false
+      }
+    },
+    {
+      "id": "m5-activity-semantic-retry-binds-occurred-at",
+      "rule": "A fresh delivery ID replays the first accepted M5 response only when canonical semantic facts, including caller occurred_at, match. A changed occurred_at under the same operation ID conflicts without mutation.",
+      "setup": {
+        "customer": "cust-a",
+        "source": "urn:example:usage-work",
+        "basis_version": "1",
+        "period_id": {
+          "term_version": "1",
+          "period_index": "0"
+        }
+      },
+      "operations": [
+        {
+          "kind": "activity-acceptance",
+          "request": {
+            "schema": "ledger-billing-activity/1",
+            "customer": "cust-a",
+            "source": "urn:example:usage-work",
+            "id": "activity-1",
+            "operation_id": "operation-1",
+            "target": "run-1",
+            "quantity": "2",
+            "occurred_at": "2026-01-10T10:00:00.000000Z",
+            "evidence": "synthetic completed batch"
+          }
+        },
+        {
+          "kind": "semantic-delivery-alias",
+          "request": {
+            "schema": "ledger-billing-activity/1",
+            "customer": "cust-a",
+            "source": "urn:example:usage-work",
+            "id": "activity-1-alias",
+            "operation_id": "operation-1",
+            "target": "run-1",
+            "quantity": "2",
+            "occurred_at": "2026-01-10T10:00:00.000000Z",
+            "evidence": "synthetic completed batch"
+          }
+        },
+        {
+          "kind": "semantic-delivery-alias-conflict",
+          "request": {
+            "schema": "ledger-billing-activity/1",
+            "customer": "cust-a",
+            "source": "urn:example:usage-work",
+            "id": "activity-1-changed-time",
+            "operation_id": "operation-1",
+            "target": "run-1",
+            "quantity": "2",
+            "occurred_at": "2026-01-11T10:00:00.000000Z",
+            "evidence": "synthetic completed batch"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "accepted",
+          "response_bytes_base64": "eyJyZWNlaXB0Ijp7ImFjY2VwdGVkX2F0IjoiMjAyNi0wMS0xMFQxMDowMDowMS4wMDAwMDBaIiwiY29tbWFuZF9zZXF1ZW5jZSI6IjMiLCJyZWNvcmRfaWRzIjpbIm01cl82MDUwZmJhMDE3M2ZmNWIyOTMzMTMyNWQ4NGUyYjBiMmUzMmZjZDBhYzY0MTNlZDcyNjRjNWM0MDE0YjM1OGRjIl0sInJlcXVlc3RfaGFzaCI6ImU4NmFkMTg1YWI1YWQ2NTI5ZWVlZjY4MGE5ZGY4YmVjMmY3YmMxODVmNGQ5YTAxMDM0Y2VkODE2YTdhMjFhMTQiLCJzY2hlbWEiOiJsZWRnZXItYmlsbGluZy1tNS1yZWNlaXB0LzEifSwic3RhdHVzIjoiYWNjZXB0ZWQifQ=="
+        },
+        {
+          "status": "accepted",
+          "response_bytes_base64": "eyJyZWNlaXB0Ijp7ImFjY2VwdGVkX2F0IjoiMjAyNi0wMS0xMFQxMDowMDowMS4wMDAwMDBaIiwiY29tbWFuZF9zZXF1ZW5jZSI6IjMiLCJyZWNvcmRfaWRzIjpbIm01cl82MDUwZmJhMDE3M2ZmNWIyOTMzMTMyNWQ4NGUyYjBiMmUzMmZjZDBhYzY0MTNlZDcyNjRjNWM0MDE0YjM1OGRjIl0sInJlcXVlc3RfaGFzaCI6ImU4NmFkMTg1YWI1YWQ2NTI5ZWVlZjY4MGE5ZGY4YmVjMmY3YmMxODVmNGQ5YTAxMDM0Y2VkODE2YTdhMjFhMTQiLCJzY2hlbWEiOiJsZWRnZXItYmlsbGluZy1tNS1yZWNlaXB0LzEifSwic3RhdHVzIjoiYWNjZXB0ZWQifQ==",
+          "returns_original_response_bytes": true,
+          "appends_command": false,
+          "appends_domain_record": false,
+          "adds_quantity": "0",
+          "reserves_delivery_id": true
+        },
+        {
+          "status": "error",
+          "code": "SEMANTIC_CONFLICT",
+          "mutation": "none"
+        }
+      ],
+      "command_golden_reference": {
+        "case_id": "cumulative-fractional-close-with-semantic-alias-and-preclose-delta",
+        "command_index": 2,
+        "semantic_alias_index": 0
+      }
+    },
+    {
+      "id": "m3-application-identity-and-semantic-retry-conflict",
+      "setup": {
+        "customer": "cust-a",
+        "source": "urn:example:usage-work"
+      },
+      "operations": [
+        {
+          "id": "d-1",
+          "operation_id": "op-1",
+          "facts": {
+            "target": "t-1",
+            "quantity": "2"
+          }
+        },
+        {
+          "id": "d-1",
+          "operation_id": "op-1",
+          "facts": {
+            "target": "t-1",
+            "quantity": "2"
+          }
+        },
+        {
+          "id": "d-2",
+          "operation_id": "op-1",
+          "facts": {
+            "target": "t-1",
+            "quantity": "2"
+          }
+        },
+        {
+          "id": "d-1",
+          "operation_id": "op-1",
+          "facts": {
+            "target": "t-1",
+            "quantity": "3"
+          }
+        }
+      ],
+      "expected": [
+        {
+          "status": "accepted"
+        },
+        {
+          "status": "duplicate",
+          "kind": "identity",
+          "original_result": true
+        },
+        {
+          "status": "duplicate",
+          "kind": "semantic",
+          "original_result": true
+        },
+        {
+          "status": "error",
+          "code": "IDENTITY_CONFLICT",
+          "mutation": "none"
+        }
+      ],
+      "compatibility_scope": "Unchanged direct M3 application delivery behavior; M5 activity retries use the saved accepted M5 response bytes specified by the typed activity vector and command golden."
+    },
+    {
+      "id": "calendar-aligned-week-start",
+      "setup": {
+        "term": {
+          "interval": 1,
+          "unit": "week",
+          "alignment": "calendar_aligned",
+          "anchor": {
+            "date": "2026-02-04",
+            "time": "14:00:00"
+          },
+          "timezone": "UTC",
+          "week_start": "monday",
+          "month_end_rule": "preserve_anchor_and_clamp",
+          "boundary_rule_version": "billing-boundary/1",
+          "timezone_rules_version": "IANA-2025b",
+          "proration": "none"
+        }
+      },
+      "input": {
+        "period_indexes": [
+          "0",
+          "1",
+          "2"
+        ]
+      },
+      "expected": {
+        "boundary_local": [
+          "2026-02-09T00:00:00",
+          "2026-02-16T00:00:00",
+          "2026-02-23T00:00:00"
+        ],
+        "boundary_utc": [
+          "2026-02-09T00:00:00.000000Z",
+          "2026-02-16T00:00:00.000000Z",
+          "2026-02-23T00:00:00.000000Z"
+        ]
+      }
+    },
+    {
+      "id": "anchored-leap-day-yearly-clamp-from-anchor",
+      "setup": {
+        "term": {
+          "interval": 1,
+          "unit": "year",
+          "alignment": "anchored",
+          "anchor": {
+            "date": "2028-02-29",
+            "time": "09:15:00"
+          },
+          "timezone": "UTC",
+          "month_end_rule": "preserve_anchor_and_clamp",
+          "boundary_rule_version": "billing-boundary/1",
+          "timezone_rules_version": "IANA-2025b",
+          "proration": "none"
+        }
+      },
+      "input": {
+        "period_indexes": [
+          "0",
+          "1",
+          "2",
+          "4"
+        ]
+      },
+      "expected": {
+        "boundary_local": [
+          "2028-02-29T09:15:00",
+          "2029-02-28T09:15:00",
+          "2030-02-28T09:15:00",
+          "2032-02-29T09:15:00"
+        ],
+        "leap_years_do_not_drift_anchor": true
+      }
+    },
+    {
+      "id": "explicit-end-of-month-uses-each-month-end",
+      "setup": {
+        "term": {
+          "interval": 1,
+          "unit": "month",
+          "alignment": "anchored",
+          "anchor": {
+            "date": "2026-02-28",
+            "time": "10:00:00"
+          },
+          "timezone": "UTC",
+          "month_end_rule": "explicit_end_of_month",
+          "boundary_rule_version": "billing-boundary/1",
+          "timezone_rules_version": "IANA-2025b",
+          "proration": "none"
+        }
+      },
+      "input": {
+        "period_indexes": [
+          "0",
+          "1",
+          "2",
+          "3"
+        ]
+      },
+      "expected": {
+        "boundary_local": [
+          "2026-02-28T10:00:00",
+          "2026-03-31T10:00:00",
+          "2026-04-30T10:00:00",
+          "2026-05-31T10:00:00"
+        ],
+        "anchor_must_be_last_calendar_day": true
+      }
+    },
+    {
+      "id": "duplicate-snapshot-high-water-pair-resolves-to-latest-boundary",
+      "setup": {
+        "retained_snapshot_boundaries": [
+          {
+            "boundary_id": "4",
+            "m3_high_water": "10",
+            "m5_high_water": "5"
+          },
+          {
+            "boundary_id": "5",
+            "m3_high_water": "10",
+            "m5_high_water": "5"
+          }
+        ],
+        "second_boundary_reason": "M3 semantic alias metadata changed; neither economic ordinal advanced"
+      },
+      "input": {
+        "m3_high_water": "10",
+        "m5_high_water": "5"
+      },
+      "expected": {
+        "resolved_boundary_id": "5",
+        "resolution_rule": "greatest boundary_id among exact matching pairs",
+        "economic_snapshot_equal_to_boundary_4": true
+      }
+    },
+    {
+      "id": "recurrence-version-is-unique-across-agreement-versions",
+      "setup": {
+        "customer": "cust-a",
+        "source": "urn:example:usage-work",
+        "recurrence_versions": [
+          {
+            "recurrence_version": "1",
+            "agreement_id": "agreement-1",
+            "agreement_version": "1"
+          },
+          {
+            "recurrence_version": "2",
+            "agreement_id": "agreement-2",
+            "agreement_version": "1"
+          }
+        ]
+      },
+      "input": {
+        "query_recurrence_version": "2",
+        "cancel_recurrence_version": "2"
+      },
+      "expected": {
+        "query_resolves_to": "agreement-2/agreement-version-1",
+        "cancellation_targets_only_recurrence_version": "2",
+        "recurrence_version_scope": [
+          "customer",
+          "source"
+        ],
+        "version_is_monotonic_across_agreement_changes": true
+      }
+    },
+    {
+      "id": "preexisting-m4-delivery-identity-refuses-without-m5-link",
+      "setup": {
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "recurrence_version": "1",
+        "m3_delivery_identity_retained": true,
+        "m5_occurrence_link_retained": false,
+        "m4_receipt": {
+          "body": {
+            "accepted_at": "2026-09-29T15:02:13.019263Z",
+            "base_evaluation": {
+              "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+              "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+              "kind": "base-evaluation"
+            },
+            "members": [
+              {
+                "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+                "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+                "kind": "base-evaluation"
+              },
+              {
+                "content_hash": "sha256:b186f3a3ba67937749dcac23afb0e2e21ab292597fedd2ba40bf0c57308be186",
+                "id": "bi2_3559e90bd57231ee3672b3fbe43e03f033a058da5aeda1237c8735863acab101",
+                "kind": "base-identity"
+              },
+              {
+                "content_hash": "sha256:9e1fa824c1aa9e411492cd599bdb42fa0d7db616af2efae72ce0c24d5756c1b8",
+                "id": "bi2_3d45a8bd6b94b326e3e8b46166dc1f8acbc57a121a7c325aa9f7dfbe81e92ef1",
+                "kind": "base-identity"
+              },
+              {
+                "content_hash": "sha256:43c852931f9411982f825f76ca6c724cc9a3ea1cf98aef7ae14a8480c5d2a9a8",
+                "id": "bp2_99033db999308099e87876c64a1f4b2b26d181c0aa4a7f925dd9965c8c305c89",
+                "kind": "base-posting"
+              },
+              {
+                "content_hash": "sha256:3f20f6415d146acc93bd1e3e45453aa78d0cf6c5b53f1d79c76fd3384cc47143",
+                "id": "bs2_5053ad5959ccb98b7dc6c9cd9e5c873e50a6b48ac2a910e06c92dbca6c975aad",
+                "kind": "binding-snapshot"
+              },
+              {
+                "content_hash": "sha256:1755fc3df071c6393a042ddb63d117b34d7258d4d8d536d64175da0bab6a83b7",
+                "id": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+                "kind": "event"
+              },
+              {
+                "content_hash": "sha256:b1ed9b8c660b89ed893f065bf469c93c2b1dfc90bfae64d880704fe763d25d55",
+                "id": "ed2_17af06c359b25ba3001346dbdeba531f3b03db142f0c10cd22b602be1705846a",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:ee43ab7d610e0f319801dbac0dfc977cb4396ec838864133945d7987650a3e27",
+                "id": "ed2_46589f22b242cfb21aa85575ad94dec40ed5566cd86f058cb1a285c8959f9145",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:dfd49fdcfed991b8b608fd3d7e33fad9d19182e33e730b8059acb51cfdc0c62a",
+                "id": "ed2_5ac720222547bf0a24c640ad015d563e19f84a2082e907a822f4362ea458a22e",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:f59f8698d42b5bddc8bfff915e95b32f62a3272d1058a8b9a6f0fdcb493b2836",
+                "id": "ed2_6bf38bb3a74087279e47bfab61f7e727b0273ecf86d8799b73be7f4330e0ea1f",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:25780bad25357b75a1492d02c3ddffce2fd7a96eb59164275d538fefaba02102",
+                "id": "ed2_d608a91449b4bbd84d474297bc270c56b11c7b56efc8c7fa3a756d2574e844af",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:f7154e4bf98ec7bbcb25c3f472c0f77eca2ae624b18803a70861f3755d2bfd52",
+                "id": "ob2_b036ba17d031146ba4a874ad211ab09ad323ffe82c75afef92cdeac81e10ac04",
+                "kind": "obligation"
+              },
+              {
+                "content_hash": "sha256:d77fb5035d75f0de3eed8900ad8f69fb095dd2ca5107d821c66f0b1b6a635a9b",
+                "id": "po2_35cde1989b6e8b20c7f2b1b28bbda156a478030177e6843474e9de87cdaf97d6",
+                "kind": "policy-snapshot"
+              },
+              {
+                "content_hash": "sha256:872645e30dc232e6c71fe6ce08330b5da49c0588b0bb20d9de7e8e3e36bc5710",
+                "id": "tb2_beefea1f9798511f11c32363eeae70b64ea855f52322ca372fdc015b22177fe6",
+                "kind": "target-basis"
+              },
+              {
+                "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+                "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+                "kind": "target-snapshot"
+              }
+            ],
+            "original_receipt_utf8": "{\"accepted_at\":\"2026-09-29T15:02:13.019263Z\",\"base_evaluation\":{\"content_hash\":\"sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2\",\"id\":\"be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60\",\"kind\":\"base-evaluation\"},\"membership_hash\":\"sha256:fa62384d4ff92a43c5f1cef495aca52aea255c06d7e3dd996c61d03fc20dd30d\",\"schema\":\"ledger-base-receipt/2-candidate.4\",\"target\":\"ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c\",\"target_snapshot\":{\"content_hash\":\"sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8\",\"id\":\"ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63\",\"kind\":\"target-snapshot\"}}",
+            "schema": "ledger-base-acceptance/2-candidate.4",
+            "target": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+            "target_snapshot": {
+              "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+              "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+              "kind": "target-snapshot"
+            }
+          },
+          "content_hash": "sha256:da5fb6cb616e7e8a323fdb6e5a90173ceacbdc27da22439b158a4795e2a06bda",
+          "id": "ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9",
+          "kind": "base-acceptance",
+          "scope": [
+            "example-company",
+            "local"
+          ]
+        }
+      },
+      "request": {
+        "schema": "ledger-billing-occurrence-acceptance/1",
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+        "event": {
+          "schema": "ledger-event/1",
+          "id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+          "operation_id": "m5-candidate-occurrence-op-2",
+          "type": "content.generated",
+          "customer": "customer-usage-1",
+          "occurred_at": "2026-09-01T00:00:00.000000Z",
+          "status": "succeeded",
+          "quantity": "100",
+          "unit": "token"
+        }
+      },
+      "expected": {
+        "status": "error",
+        "code": "BILLING_M5_OCCURRENCE_CONFLICT",
+        "mutation": "none",
+        "m3_rows_added": 0,
+        "m5_rows_added": 0
+      }
+    },
+    {
+      "id": "preexisting-m4-semantic-identity-on-different-event-refuses-without-link",
+      "setup": {
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "recurrence_version": "2",
+        "m3_semantic_operation_retained": true,
+        "m3_external_event_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
+        "m5_occurrence_link_retained": false,
+        "m4_receipt": {
+          "body": {
+            "accepted_at": "2026-09-29T15:02:13.019263Z",
+            "base_evaluation": {
+              "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+              "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+              "kind": "base-evaluation"
+            },
+            "members": [
+              {
+                "content_hash": "sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2",
+                "id": "be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60",
+                "kind": "base-evaluation"
+              },
+              {
+                "content_hash": "sha256:b186f3a3ba67937749dcac23afb0e2e21ab292597fedd2ba40bf0c57308be186",
+                "id": "bi2_3559e90bd57231ee3672b3fbe43e03f033a058da5aeda1237c8735863acab101",
+                "kind": "base-identity"
+              },
+              {
+                "content_hash": "sha256:9e1fa824c1aa9e411492cd599bdb42fa0d7db616af2efae72ce0c24d5756c1b8",
+                "id": "bi2_3d45a8bd6b94b326e3e8b46166dc1f8acbc57a121a7c325aa9f7dfbe81e92ef1",
+                "kind": "base-identity"
+              },
+              {
+                "content_hash": "sha256:43c852931f9411982f825f76ca6c724cc9a3ea1cf98aef7ae14a8480c5d2a9a8",
+                "id": "bp2_99033db999308099e87876c64a1f4b2b26d181c0aa4a7f925dd9965c8c305c89",
+                "kind": "base-posting"
+              },
+              {
+                "content_hash": "sha256:3f20f6415d146acc93bd1e3e45453aa78d0cf6c5b53f1d79c76fd3384cc47143",
+                "id": "bs2_5053ad5959ccb98b7dc6c9cd9e5c873e50a6b48ac2a910e06c92dbca6c975aad",
+                "kind": "binding-snapshot"
+              },
+              {
+                "content_hash": "sha256:1755fc3df071c6393a042ddb63d117b34d7258d4d8d536d64175da0bab6a83b7",
+                "id": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+                "kind": "event"
+              },
+              {
+                "content_hash": "sha256:b1ed9b8c660b89ed893f065bf469c93c2b1dfc90bfae64d880704fe763d25d55",
+                "id": "ed2_17af06c359b25ba3001346dbdeba531f3b03db142f0c10cd22b602be1705846a",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:ee43ab7d610e0f319801dbac0dfc977cb4396ec838864133945d7987650a3e27",
+                "id": "ed2_46589f22b242cfb21aa85575ad94dec40ed5566cd86f058cb1a285c8959f9145",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:dfd49fdcfed991b8b608fd3d7e33fad9d19182e33e730b8059acb51cfdc0c62a",
+                "id": "ed2_5ac720222547bf0a24c640ad015d563e19f84a2082e907a822f4362ea458a22e",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:f59f8698d42b5bddc8bfff915e95b32f62a3272d1058a8b9a6f0fdcb493b2836",
+                "id": "ed2_6bf38bb3a74087279e47bfab61f7e727b0273ecf86d8799b73be7f4330e0ea1f",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:25780bad25357b75a1492d02c3ddffce2fd7a96eb59164275d538fefaba02102",
+                "id": "ed2_d608a91449b4bbd84d474297bc270c56b11c7b56efc8c7fa3a756d2574e844af",
+                "kind": "evidence"
+              },
+              {
+                "content_hash": "sha256:f7154e4bf98ec7bbcb25c3f472c0f77eca2ae624b18803a70861f3755d2bfd52",
+                "id": "ob2_b036ba17d031146ba4a874ad211ab09ad323ffe82c75afef92cdeac81e10ac04",
+                "kind": "obligation"
+              },
+              {
+                "content_hash": "sha256:d77fb5035d75f0de3eed8900ad8f69fb095dd2ca5107d821c66f0b1b6a635a9b",
+                "id": "po2_35cde1989b6e8b20c7f2b1b28bbda156a478030177e6843474e9de87cdaf97d6",
+                "kind": "policy-snapshot"
+              },
+              {
+                "content_hash": "sha256:872645e30dc232e6c71fe6ce08330b5da49c0588b0bb20d9de7e8e3e36bc5710",
+                "id": "tb2_beefea1f9798511f11c32363eeae70b64ea855f52322ca372fdc015b22177fe6",
+                "kind": "target-basis"
+              },
+              {
+                "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+                "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+                "kind": "target-snapshot"
+              }
+            ],
+            "original_receipt_utf8": "{\"accepted_at\":\"2026-09-29T15:02:13.019263Z\",\"base_evaluation\":{\"content_hash\":\"sha256:2ed44243cfd1aba144cfc956fa2212406c4a52e1e9013cf722e79463602bb6d2\",\"id\":\"be2_cb8586ab091a0ff8f40a95be3262ff14f8d83a0ae167cc0caecb15e432955d60\",\"kind\":\"base-evaluation\"},\"membership_hash\":\"sha256:fa62384d4ff92a43c5f1cef495aca52aea255c06d7e3dd996c61d03fc20dd30d\",\"schema\":\"ledger-base-receipt/2-candidate.4\",\"target\":\"ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c\",\"target_snapshot\":{\"content_hash\":\"sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8\",\"id\":\"ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63\",\"kind\":\"target-snapshot\"}}",
+            "schema": "ledger-base-acceptance/2-candidate.4",
+            "target": "ev2_08b126c1bdb7d5192c1d84cc86e97bbe637ed74bcc6c8c36158e9677d08ed72c",
+            "target_snapshot": {
+              "content_hash": "sha256:42af441c2b013c1ccd39e312303913193dafe1c6b114cc8132ef05bd866ed4f8",
+              "id": "ts2_fe912d8e522948fb8951626e1e2ab6c98140c37065009f06e66df23c126a3a63",
+              "kind": "target-snapshot"
+            }
+          },
+          "content_hash": "sha256:da5fb6cb616e7e8a323fdb6e5a90173ceacbdc27da22439b158a4795e2a06bda",
+          "id": "ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9",
+          "kind": "base-acceptance",
+          "scope": [
+            "example-company",
+            "local"
+          ]
+        }
+      },
+      "semantic_identity": {
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "agreement_id": "agreement-usage-1",
+        "agreement_version": "1",
+        "recurrence_version": "2",
+        "scheduled_local_label": "2026-09-01T00:00:00"
+      },
+      "request": {
+        "schema": "ledger-billing-occurrence-acceptance/1",
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "occurrence_id": "occ_d38a03bec7145aada6bdcb9ce6f43eab6101b8b757a844735472be3df6bfb568",
+        "event": {
+          "schema": "ledger-event/1",
+          "id": "occ_d38a03bec7145aada6bdcb9ce6f43eab6101b8b757a844735472be3df6bfb568",
+          "operation_id": "m5-candidate-occurrence-op-2",
+          "type": "content.generated",
+          "customer": "customer-usage-1",
+          "occurred_at": "2026-09-01T00:00:00.000000Z",
+          "status": "succeeded",
+          "quantity": "100",
+          "unit": "token"
+        }
+      },
+      "expected": {
+        "status": "error",
+        "code": "BILLING_M5_OCCURRENCE_CONFLICT",
+        "mutation": "none",
+        "reason": "M4 semantic operation already resolves to another external event ID; M5 must not attach that receipt to a new occurrence",
+        "m3_rows_added": 0,
+        "m5_rows_added": 0
+      }
+    },
+    {
+      "id": "recurrence-opt-in-and-exact-cancel-retry",
+      "source_golden": "m5-command-goldens.json#recurrence-opt-in-occurrence-cancel-exact-retry",
+      "expected": {
+        "recurrence_children_from_opt_in_command": 2,
+        "occurrence_child_count": 1,
+        "occurrence_receipt_envelope_id": "ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9",
+        "cancelled_recurrence_version": "1",
+        "successor_recurrence_version": "2",
+        "successor_active_before_m2_effective_at": false,
+        "retry_result_exactly_equals_first_occurrence_result": true,
+        "retry_appends_no_m3_or_m5_record": true
+      }
+    },
+    {
+      "id": "standard-close-claims-adjustment-before-ad-hoc",
+      "setup": {
+        "customer": "customer-usage-1",
+        "source": "urn:example:usage-work",
+        "m3_high_water": "50",
+        "m5_high_water": "32",
+        "boundary_id": "101",
+        "logical_period_id": {
+          "term_version": "1",
+          "period_index": "1"
+        },
+        "adjustment": {
+          "adjustment_id": "adj-open-1",
+          "record_id": "m5r_3ab6fe438640d32b975f2a73b4c5db692eaadf72fd9d5adf4b605fe79f2f442a",
+          "assigned_period_id": {
+            "term_version": "1",
+            "period_index": "1"
+          },
+          "signed_delta_atoms": "300",
+          "presentation_claim_exists": false
+        },
+        "standard_close_command_golden": "standard-close-claims-adjustment-before-ad-hoc"
+      },
+      "operations": [
+        {
+          "kind": "ad-hoc-issue-after-standard-close",
+          "request": {
+            "schema": "ledger-billing-ad-hoc-statement/1",
+            "customer": "customer-usage-1",
+            "command_id": "adhoc-too-late-1",
+            "adjustments": [
+              {
+                "source": "urn:example:usage-work",
+                "adjustment_id": "adj-open-1"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "status": "error",
+        "code": "BILLING_M5_PRESENTED",
+        "mutation": "none",
+        "m3_high_water_after": "50",
+        "m5_high_water_after": "34",
+        "boundary_id_after": "102",
+        "adjustment_presented_once_by": "standard-period",
+        "closed_statement_net_atoms": "375",
+        "closed_statement_direction": "receivable"
+      }
+    }
+  ],
+  "canonicalization_vectors": [
+    {
+      "id": "utf16-object-key-order-distinguishes-utf8-order",
+      "value": {
+        "": 2,
+        "𐀀": 1
+      },
+      "canonical_utf8": "{\"𐀀\":1,\"\":2}",
+      "canonical_hex": "7b22f0908080223a312c22ee8080223a327d",
+      "sha256_of_canonical_bytes": "4045c21a23c8ae8f8d9add81f54bd506bee65885099876fb4afb378b1f2c3516",
+      "utf8_byte_order_would_be": "{\"\":2,\"𐀀\":1}",
+      "utf8_byte_order_sha256": "daec79d8b6582badd3b46bd783a72379bc0b5ae29f5d59f6133025aad69bc8d4"
+    }
+  ],
+  "timezone_fixture": {
+    "iana_release": "2025b",
+    "source": "https://www.iana.org/time-zones/releases/2025b",
+    "zones": {
+      "UTC": {
+        "offsets": [
+          "+00:00"
+        ]
+      },
+      "America/New_York": {
+        "2026-03-08T02:30:00": {
+          "before": "2026-03-08T01:59:59.999999-05:00",
+          "after": "2026-03-08T03:00:00-04:00",
+          "resolved_utc": "2026-03-08T07:00:00.000000Z"
+        },
+        "2026-11-01T01:30:00": {
+          "earlier_utc": "2026-11-01T05:30:00.000000Z",
+          "later_utc": "2026-11-01T06:30:00.000000Z",
+          "selected": "2026-11-01T05:30:00.000000Z"
+        }
+      }
+    },
+    "fixture_rule": "The cases use these fixed transitions; replay must load tzdb 2025b, never the host default."
+  },
+  "golden_command_ref": "m5-command-goldens.json#initial-customer-term-setup"
+}

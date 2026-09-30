@@ -43,7 +43,19 @@ Exit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;
 Ordinary local billing (separate installation):
   billing setup DIR [--setup FILE]     Guided, confirmed private setup
   billing init DIR --setup FILE        Noninteractive JSON setup
-  billing [--directory DIR] upgrade    Explicit schema-8/9 to schema-10 upgrade
+  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema
+  billing [--directory DIR] term set FILE|-  Set a customer's billing term
+  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar
+  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report
+  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis
+  billing [--directory DIR] activity FILE|-   Submit cumulative activity
+  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction
+  billing [--directory DIR] close FILE|-      Close one logical billing period
+  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement
+  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule
+  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule
+  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences
+  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence
   billing [--directory DIR] accept --customer C --source S FILE|-
   billing [--directory DIR] outcome --customer C --source S FILE|-
   billing [--directory DIR] correct --customer C --source S FILE|-
@@ -52,4 +64,4 @@ Ordinary local billing (separate installation):
   billing [--directory DIR] explain --customer C TARGET_ID
   billing [--directory DIR] statement --customer C
   billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE
-Customer/source are explicit on every write. Billing output is JSON; no payment or tax invoice.
+Work writes require an explicit customer and source. Billing output is JSON; no payment or tax invoice.

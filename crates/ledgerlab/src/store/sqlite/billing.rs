@@ -89,6 +89,10 @@ pub(crate) struct BillingSnapshot {
     pub alias_count: i64,
     /// Latest accepted ledger time over every retained decision.
     pub ledger_time_max: Option<i64>,
+    /// Latest accepted time across retained M3 decisions and M5 lifecycle
+    /// commands. M2 control clocks are carried by their decoded rows and are
+    /// folded in by the service before every public write.
+    pub cross_stream_time_max: Option<i64>,
     /// The durable index rows a complete retained snapshot carries, in ordinal
     /// order. Only the fields the entry row cannot prove are kept: identity,
     /// scope and semantic key are cross-checked against the retained entry
@@ -143,6 +147,13 @@ type AgreementRow = (
 type ControlRow = (String, String, String, String, Vec<u8>, Vec<u8>, i64);
 
 impl SqliteTx {
+    pub(crate) async fn billing_schema_version(&mut self) -> Result<i64, StoreError> {
+        sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(self.conn())
+            .await
+            .map_err(StoreError::from)
+    }
+
     pub(crate) async fn billing_m2_initialize(
         &mut self,
         initialization: BillingM2Initialization<'_>,
@@ -161,6 +172,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m5_billing_schema().await?;
             let counts: (i64, i64) = sqlx::query_as(
                 "SELECT (SELECT count(*) FROM billing_customers),(SELECT count(*) FROM billing_agreements)",
             )
@@ -200,6 +212,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result=timeout_at(self.deadline,async {
+            self.require_m5_billing_schema().await?;
             let count:i64=sqlx::query_scalar("SELECT (SELECT count(*) FROM billing_setup)+(SELECT count(*) FROM events)+(SELECT count(*) FROM outcome_records)+(SELECT count(*) FROM r3_commit_witness)").fetch_one(self.conn()).await?;
             if count!=0 || setup.len()>65536 {return Err(StoreError::InvalidStore("billing installation is not empty"));}
             sqlx::query("INSERT INTO billing_setup VALUES(1,?)").bind(setup).execute(self.conn()).await?;
@@ -211,13 +224,35 @@ impl SqliteTx {
         result
     }
     async fn require_m3_billing_schema(&mut self) -> Result<(), StoreError> {
-        let version: i64 = sqlx::query_scalar("PRAGMA user_version")
-            .fetch_one(self.conn())
-            .await?;
-        if version != 10 {
+        let version = self.billing_schema_version().await?;
+        if version != 10 && version != 11 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
+    }
+
+    async fn require_m5_billing_schema(&mut self) -> Result<(), StoreError> {
+        let version = self.billing_schema_version().await?;
+        if version != 11 {
+            return Err(StoreError::BillingUpgradeRequired);
+        }
+        Ok(())
+    }
+
+    /// M3 remains the authoritative work ledger under schema 11. Record a
+    /// complete cross-stream cut in the same transaction after every M3
+    /// mutation so fiscal and billing projections cannot observe a torn state.
+    async fn append_m5_boundary_if_current(&mut self) -> Result<(), StoreError> {
+        let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(self.conn())
+            .await?;
+        match version {
+            11 => {
+                super::m5::append_boundary(self.conn()).await?;
+                Ok(())
+            }
+            _ => Err(StoreError::BillingUpgradeRequired),
+        }
     }
 
     /// Read the retained-history meter and the durable target index under the
@@ -265,6 +300,23 @@ impl SqliteTx {
         ))
     }
 
+    async fn cross_stream_time_max(&mut self, m3: Option<i64>) -> Result<Option<i64>, StoreError> {
+        let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(self.conn())
+            .await?;
+        if version < 11 {
+            return Ok(m3);
+        }
+        let m5: Option<i64> =
+            sqlx::query_scalar("SELECT max(accepted_at_us) FROM billing_m5_commands")
+                .fetch_one(self.conn())
+                .await?;
+        Ok(match (m3, m5) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (left, right) => left.or(right),
+        })
+    }
+
     /// Metadata for a write decision. It never decodes retained bundles, but
     /// verifies the retained-history meter against stored rows, so this check
     /// grows with history size.
@@ -272,12 +324,13 @@ impl SqliteTx {
         let failed = self.failed;
         self.failed = true;
         let result = timeout_at(self.deadline, async {
-            self.require_m3_billing_schema().await?;
+            self.require_m5_billing_schema().await?;
             let setup: Vec<u8> =
                 sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup WHERE singleton=1")
                     .fetch_one(self.conn())
                     .await?;
             let (entry_count, alias_count, _, _, _, clock, _) = self.billing_bounds().await?;
+            let cross_stream_time_max = self.cross_stream_time_max(clock).await?;
             let (permissions, scoped) = self.billing_rights().await?;
             let (customers, agreements, controls) = self.billing_controls().await?;
             // A metadata snapshot carries no retained row and no index row, so
@@ -296,6 +349,7 @@ impl SqliteTx {
                 entry_count,
                 alias_count,
                 ledger_time_max: clock,
+                cross_stream_time_max,
                 index: vec![],
             })
         })
@@ -708,10 +762,27 @@ impl SqliteTx {
     }
 
     pub(crate) async fn billing_snapshot(&mut self) -> Result<BillingSnapshot, StoreError> {
+        self.billing_snapshot_inner(false).await
+    }
+
+    pub(crate) async fn billing_snapshot_for_upgrade(
+        &mut self,
+    ) -> Result<BillingSnapshot, StoreError> {
+        self.billing_snapshot_inner(true).await
+    }
+
+    async fn billing_snapshot_inner(
+        &mut self,
+        allow_schema10: bool,
+    ) -> Result<BillingSnapshot, StoreError> {
         let failed = self.failed;
         self.failed = true;
         let result=timeout_at(self.deadline,async {
-            self.require_m3_billing_schema().await?;
+            if allow_schema10 {
+                self.require_m3_billing_schema().await?;
+            } else {
+                self.require_m5_billing_schema().await?;
+            }
             let setup:Vec<u8>=sqlx::query_scalar("SELECT canonical_bytes FROM billing_setup WHERE singleton=1").fetch_one(self.conn()).await?;
             let (entry_count, alias_count, _, _, _, clock, _) = self.billing_bounds().await?;
             let (permissions, scoped_permission_rows) = self.billing_rights().await?;
@@ -780,6 +851,7 @@ impl SqliteTx {
                 entry_count,
                 alias_count,
                 ledger_time_max: clock,
+                cross_stream_time_max: self.cross_stream_time_max(clock).await?,
                 index: derived,
             })
         }).await.map_err(|_|StoreError::Deadline)?;
@@ -809,6 +881,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m5_billing_schema().await?;
             let (legacy, current): (i64, i64) = sqlx::query_as(
                 "SELECT (SELECT count(*) FROM billing_permissions),(SELECT count(*) FROM billing_m2_permissions)",
             )
@@ -853,6 +926,7 @@ impl SqliteTx {
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m5_billing_schema().await?;
             if let Some((tenant, environment)) = &plan.new_customer_scope {
                 sqlx::query("INSERT INTO billing_customers(customer,tenant,environment) VALUES(?,?,?)")
                     .bind(&plan.customer)
@@ -901,8 +975,28 @@ impl SqliteTx {
         &mut self,
         plan: &ValidatedEntry,
     ) -> Result<(), StoreError> {
-        self.append_billing_m3_with_limits(plan, MAX_RETAINED_ENTRY_BYTES, MAX_RETAINED_ALIAS_BYTES)
-            .await
+        self.append_billing_m3_with_limits(
+            plan,
+            MAX_RETAINED_ENTRY_BYTES,
+            MAX_RETAINED_ALIAS_BYTES,
+            true,
+        )
+        .await
+    }
+
+    /// The occurrence bridge appends its M5 link in the same transaction and
+    /// writes one complete boundary after both streams have advanced.
+    pub(crate) async fn append_billing_m3_for_occurrence(
+        &mut self,
+        plan: &ValidatedEntry,
+    ) -> Result<(), StoreError> {
+        self.append_billing_m3_with_limits(
+            plan,
+            MAX_RETAINED_ENTRY_BYTES,
+            MAX_RETAINED_ALIAS_BYTES,
+            false,
+        )
+        .await
     }
 
     async fn append_billing_m3_with_limits(
@@ -910,12 +1004,14 @@ impl SqliteTx {
         plan: &ValidatedEntry,
         entry_byte_limit: i64,
         alias_byte_limit: i64,
+        append_boundary: bool,
     ) -> Result<(), StoreError> {
         if self.failed {
             return Err(StoreError::InvalidStore("poisoned billing transaction"));
         }
         self.failed = true;
         let result = timeout_at(self.deadline, async {
+            self.require_m5_billing_schema().await?;
             let customer = plan
                 .customer()
                 .ok_or(StoreError::InvalidStore("M3 billing customer"))?;
@@ -943,6 +1039,7 @@ impl SqliteTx {
                     .bind(ordinal)
                     .execute(self.conn())
                     .await?;
+                if append_boundary { self.append_m5_boundary_if_current().await?; }
                 return Ok(());
             }
             let accepted_at_us = plan
@@ -967,6 +1064,13 @@ impl SqliteTx {
                 return Err(StoreError::BillingHistoryLimit);
             }
             let ordinal = entry_count + 1;
+            let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
+                .fetch_one(self.conn()).await?;
+            let assignment = if schema == 11 {
+                super::m5::assignment_for_m3(self.conn(), plan).await?
+            } else {
+                None
+            };
             sqlx::query("INSERT INTO billing_m3_entries(ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
                 .bind(ordinal)
                 .bind(customer)
@@ -996,6 +1100,23 @@ impl SqliteTx {
                 .bind(accepted_at_us)
                 .execute(self.conn())
                 .await?;
+            if let Some(assignment) = assignment {
+                sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES(?,?,?,?,'m3',?,?,?,?,?)")
+                    .bind(customer).bind(plan.source()).bind(assignment.receipt_kind)
+                    .bind(&assignment.receipt_id).bind(ordinal).bind(assignment.term_version)
+                    .bind(assignment.period_index).bind(assignment.basis).bind(accepted_at_us)
+                    .execute(self.conn()).await?;
+                if let Some(adjustment) = assignment.adjustment {
+                    sqlx::query("INSERT INTO billing_m5_adjustments(customer,source_scope,adjustment_id,cause_kind,cause_id,target_id,original_term_version,original_period_index,assigned_term_version,assigned_period_index,source_stream,source_sequence,signed_delta_atoms) VALUES(?,? ,?,'outcome-correction',?,?,?,?,?,?,'m3',?,?)")
+                        .bind(customer).bind(plan.source()).bind(plan.external_id())
+                        .bind(plan.external_id()).bind(target)
+                        .bind(adjustment.original_term_version).bind(adjustment.original_period_index)
+                        .bind(assignment.term_version).bind(assignment.period_index)
+                        .bind(ordinal).bind(adjustment.signed_delta_atoms)
+                        .execute(self.conn()).await?;
+                }
+            }
+            if append_boundary { self.append_m5_boundary_if_current().await?; }
             Ok::<_, StoreError>(())
         })
         .await
@@ -1097,7 +1218,7 @@ mod tests {
         let plan_bytes = i64::try_from(plan.byte_len()).unwrap();
         assert!(!would_exceed_byte_limit(0, plan.byte_len(), plan_bytes));
         let error = tx
-            .append_billing_m3_with_limits(&plan, plan_bytes - 1, MAX_RETAINED_ALIAS_BYTES)
+            .append_billing_m3_with_limits(&plan, plan_bytes - 1, MAX_RETAINED_ALIAS_BYTES, true)
             .await
             .unwrap_err();
         assert!(matches!(error, StoreError::BillingHistoryLimit));
@@ -1135,7 +1256,7 @@ mod tests {
             ingress_bytes
         ));
         let error = tx
-            .append_billing_m3_with_limits(&plan, MAX_RETAINED_ENTRY_BYTES, ingress_bytes - 1)
+            .append_billing_m3_with_limits(&plan, MAX_RETAINED_ENTRY_BYTES, ingress_bytes - 1, true)
             .await
             .unwrap_err();
         assert!(matches!(error, StoreError::BillingHistoryLimit));
@@ -1539,12 +1660,13 @@ mod tests {
         let store = SqliteStore::open(&path.join(".ledger")).await.unwrap();
         // Synthetic retained rows: the store owns ordering, bounds and exact
         // lookups, not the economics of an opaque bundle.
+        let mut seed = store.inner.writer.begin().await.unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(
             "WITH RECURSIVE n(i) AS (VALUES(2) UNION ALL SELECT i+1 FROM n WHERE i<1001)
              INSERT INTO billing_m3_index(ordinal,customer,source,external_id,semantic_key,target,kind,accepted_at_us)
              SELECT i,'customer-1','urn:example:work',printf('synthetic-%d',i),CAST(printf('semantic-%d',i) AS BLOB),'urn:example:work','base',1 FROM n",
         ))
-        .execute(&store.inner.writer)
+        .execute(&mut *seed)
         .await
         .unwrap();
         sqlx::raw_sql(sqlx::AssertSqlSafe(
@@ -1552,9 +1674,11 @@ mod tests {
              INSERT INTO billing_m3_entries(ordinal,customer,source,external_id,semantic_key,ingress,facts,bundle,accepted_at_us,agreement_id,agreement_version)
              SELECT i,'customer-1','urn:example:work',printf('synthetic-%d',i),CAST(printf('semantic-%d',i) AS BLOB),x'01',x'02',x'03',1,'agreement-1',1 FROM n",
         ))
-        .execute(&store.inner.writer)
+        .execute(&mut *seed)
         .await
         .unwrap();
+        super::m5::append_boundary(&mut seed).await.unwrap();
+        seed.commit().await.unwrap();
         let mut tx = store
             .begin(Instant::now() + Duration::from_secs(300))
             .await

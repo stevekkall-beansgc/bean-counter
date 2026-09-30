@@ -61,6 +61,432 @@ impl SqliteTx {
     pub(super) fn conn(&mut self) -> &mut SqliteConnection {
         self.transaction.as_mut().expect("live transaction")
     }
+    pub(crate) async fn m5_term_state(
+        &mut self,
+        customer: &str,
+    ) -> Result<super::m5::TermState, StoreError> {
+        super::m5::term_state(self.conn(), customer).await
+    }
+    pub(crate) async fn m5_fiscal_state(&mut self) -> Result<super::m5::FiscalState, StoreError> {
+        super::m5::fiscal_state(self.conn()).await
+    }
+    pub(crate) async fn m5_fiscal_report_state(
+        &mut self,
+        calendar_version: i64,
+        requested_snapshot: Option<(i64, i64)>,
+        start_at_us: i64,
+        end_at_us: i64,
+    ) -> Result<super::m5::FiscalReportState, StoreError> {
+        super::m5::fiscal_report_state(
+            self.conn(),
+            calendar_version,
+            requested_snapshot,
+            start_at_us,
+            end_at_us,
+        )
+        .await
+    }
+    pub(crate) async fn m5_recurrence_state(
+        &mut self,
+        customer: &str,
+        source: &str,
+    ) -> Result<super::m5::RecurrenceState, StoreError> {
+        super::m5::recurrence_state(self.conn(), customer, source).await
+    }
+    pub(crate) async fn m5_append_recurrence_versions(
+        &mut self,
+        command: &super::m5::Command<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_recurrence_versions(self.conn(), command).await
+    }
+    pub(crate) async fn m5_append_recurrence_cancel(
+        &mut self,
+        command: &super::m5::Command<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_recurrence_cancel(self.conn(), command).await
+    }
+    pub(crate) async fn m5_assignment_for_occurrence(
+        &mut self,
+        plan: &crate::service::billing::ValidatedEntry,
+    ) -> Result<Option<super::m5::M3Assignment>, StoreError> {
+        super::m5::assignment_for_m3(self.conn(), plan).await
+    }
+    pub(crate) async fn m5_append_occurrence(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        m3_receipt_id: &str,
+    ) -> Result<(), StoreError> {
+        super::m5::append_occurrence(self.conn(), command, m3_receipt_id).await
+    }
+    pub(crate) async fn m5_occurrence_accepted(
+        &mut self,
+        customer: &str,
+        source: &str,
+        id: &str,
+    ) -> Result<bool, StoreError> {
+        super::m5::occurrence_accepted(self.conn(), customer, source, id).await
+    }
+    pub(crate) async fn m5_term_transition_state(
+        &mut self,
+        customer: &str,
+        accepted_at_us: i64,
+    ) -> Result<super::m5::TermTransitionState, StoreError> {
+        super::m5::term_transition_state(self.conn(), customer, accepted_at_us).await
+    }
+    pub(crate) async fn m5_resolution_head(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<Option<super::m5::ResolutionHead>, StoreError> {
+        super::m5::resolution_head(self.conn(), customer, term_version, period_index).await
+    }
+    pub(crate) async fn m5_period_resolve_state(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<super::m5::PeriodResolveState, StoreError> {
+        super::m5::period_resolve_state(self.conn(), customer, term_version, period_index).await
+    }
+    pub(crate) async fn m5_period_close_state(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<super::m5::PeriodCloseState, StoreError> {
+        super::m5::period_close_state(self.conn(), customer, term_version, period_index).await
+    }
+    pub(crate) async fn m5_period_close_statement(
+        &mut self,
+        customer: &str,
+        statement_hash: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        super::m5::period_close_statement(self.conn(), customer, statement_hash).await
+    }
+    pub(crate) async fn m5_ad_hoc_state(
+        &mut self,
+        customer: &str,
+        references: &[(String, String)],
+    ) -> Result<super::m5::AdHocState, StoreError> {
+        super::m5::ad_hoc_state(self.conn(), customer, references).await
+    }
+    pub(crate) async fn m5_adjustment_claimed(
+        &mut self,
+        customer: &str,
+        source: &str,
+        adjustment_id: &str,
+    ) -> Result<Option<bool>, StoreError> {
+        super::m5::adjustment_claimed(self.conn(), customer, source, adjustment_id).await
+    }
+    pub(crate) async fn m5_lookup(
+        &mut self,
+        identity: &[u8],
+    ) -> Result<Option<super::m5::StoredCommand>, StoreError> {
+        super::m5::lookup(self.conn(), identity).await
+    }
+    pub(crate) async fn m5_append_initial_term(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::InitialTermProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_initial_term(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_fiscal_version(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::FiscalVersionProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_fiscal_version(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_fiscal_report(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::FiscalReportProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_fiscal_report(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_term_transition(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::TransitionProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_term_transition(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_period_resolution(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::PeriodResolutionProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_period_resolution(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_period_close(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::PeriodCloseProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_period_close(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_ad_hoc(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::AdHocProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_ad_hoc(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_preflight_capacity(
+        &mut self,
+        additional_commands: i64,
+        additional_records: i64,
+        additional_bytes: i64,
+    ) -> Result<(), StoreError> {
+        super::m5::preflight_capacity(
+            self.conn(),
+            additional_commands,
+            additional_records,
+            additional_bytes,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_sequences(
+        &mut self,
+    ) -> Result<super::m5::CumulativeSequences, StoreError> {
+        super::m5::cumulative_sequences(self.conn()).await
+    }
+    pub(crate) async fn m5_cumulative_last_accepted(&mut self) -> Result<Option<i64>, StoreError> {
+        super::m5::cumulative_last_accepted(self.conn()).await
+    }
+    pub(crate) async fn m5_cumulative_basis_revision(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+    ) -> Result<i64, StoreError> {
+        super::m5::cumulative_basis_revision(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_latest_basis_effective(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+    ) -> Result<Option<i64>, StoreError> {
+        super::m5::cumulative_latest_basis_effective(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_basis_at(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+        at_us: i64,
+    ) -> Result<Option<super::m5::RetainedBasis>, StoreError> {
+        super::m5::cumulative_basis_at(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+            at_us,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_basis_version(
+        &mut self,
+        customer: &str,
+        source: &str,
+        agreement_id: &str,
+        agreement_version: i64,
+        basis_version: i64,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        super::m5::cumulative_basis_version(
+            self.conn(),
+            customer,
+            source,
+            agreement_id,
+            agreement_version,
+            basis_version,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_period_at(
+        &mut self,
+        customer: &str,
+        at_us: i64,
+    ) -> Result<(i64, i64), StoreError> {
+        super::m5::cumulative_period_at(self.conn(), customer, at_us).await
+    }
+    pub(crate) async fn m5_append_cumulative_basis(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        agreement_id: &str,
+        agreement_version: i64,
+        basis_version: i64,
+        effective_at_us: i64,
+        basis_bytes: &[u8],
+    ) -> Result<(), StoreError> {
+        super::m5::append_cumulative_basis(
+            self.conn(),
+            command,
+            agreement_id,
+            agreement_version,
+            basis_version,
+            effective_at_us,
+            basis_bytes,
+        )
+        .await
+    }
+    pub(crate) async fn m5_activity_delivery(
+        &mut self,
+        customer: &str,
+        source: &str,
+        id: &str,
+    ) -> Result<Option<super::m5::ActivityIdentity>, StoreError> {
+        super::m5::activity_delivery(self.conn(), customer, source, id).await
+    }
+    pub(crate) async fn m5_activity_semantic(
+        &mut self,
+        customer: &str,
+        source: &str,
+        operation_id: &str,
+    ) -> Result<Option<super::m5::ActivityIdentity>, StoreError> {
+        super::m5::activity_semantic(self.conn(), customer, source, operation_id).await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn m5_append_activity(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        operation_id: &str,
+        external_id: &str,
+        facts: &[u8],
+        ingress: &[u8],
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<(), StoreError> {
+        super::m5::append_activity(
+            self.conn(),
+            command,
+            operation_id,
+            external_id,
+            facts,
+            ingress,
+            term_version,
+            period_index,
+        )
+        .await
+    }
+    pub(crate) async fn m5_append_activity_alias(
+        &mut self,
+        customer: &str,
+        source: &str,
+        external_id: &str,
+        ingress: &[u8],
+        identity_key: &[u8],
+    ) -> Result<(), StoreError> {
+        super::m5::append_activity_alias(
+            self.conn(),
+            customer,
+            source,
+            external_id,
+            ingress,
+            identity_key,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_period_records(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+        high_water: i64,
+    ) -> Result<Vec<super::m5::CumulativeAssignedRecord>, StoreError> {
+        super::m5::cumulative_period_records(
+            self.conn(),
+            customer,
+            term_version,
+            period_index,
+            high_water,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_original_period_records(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+        high_water: i64,
+    ) -> Result<Vec<super::m5::CumulativeAssignedRecord>, StoreError> {
+        super::m5::cumulative_original_period_records(
+            self.conn(),
+            customer,
+            term_version,
+            period_index,
+            high_water,
+        )
+        .await
+    }
+    pub(crate) async fn m5_cumulative_activity_target(
+        &mut self,
+        customer: &str,
+        source: &str,
+        target_id: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        super::m5::cumulative_activity_target(self.conn(), customer, source, target_id).await
+    }
+    pub(crate) async fn m5_cumulative_target_deltas(
+        &mut self,
+        customer: &str,
+        source: &str,
+        activity_id: &str,
+    ) -> Result<Vec<Vec<u8>>, StoreError> {
+        super::m5::cumulative_target_deltas(self.conn(), customer, source, activity_id).await
+    }
+    pub(crate) async fn m5_cumulative_period_closed(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<bool, StoreError> {
+        super::m5::cumulative_period_closed(self.conn(), customer, term_version, period_index).await
+    }
+    pub(crate) async fn m5_per_work_target(
+        &mut self,
+        customer: &str,
+        source: &str,
+        target: &str,
+    ) -> Result<Option<super::m5::PerWorkTarget>, StoreError> {
+        super::m5::per_work_target(self.conn(), customer, source, target).await
+    }
+    pub(crate) async fn m5_per_work_target_deltas(
+        &mut self,
+        customer: &str,
+        source: &str,
+        target: &str,
+    ) -> Result<Vec<Vec<u8>>, StoreError> {
+        super::m5::per_work_target_deltas(self.conn(), customer, source, target).await
+    }
+    pub(crate) async fn m5_append_quantity_correction(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::QuantityCorrectionProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_quantity_correction(self.conn(), command, projection).await
+    }
     #[cfg(test)]
     pub async fn load_delivery(
         &mut self,

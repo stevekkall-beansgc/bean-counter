@@ -1,0 +1,1688 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:m5:results:1",
+  "title": "Bean Counter M5 billing lifecycle results",
+  "description": "Structural result union. Result bytes are saved with their accepted command and replayed exactly.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/term_result"
+    },
+    {
+      "$ref": "#/$defs/fiscal_calendar_result"
+    },
+    {
+      "$ref": "#/$defs/cumulative_agreement_result"
+    },
+    {
+      "$ref": "#/$defs/ack"
+    },
+    {
+      "$ref": "#/$defs/occurrence_ack"
+    },
+    {
+      "$ref": "#/$defs/period_resolution_result"
+    },
+    {
+      "$ref": "#/$defs/statement"
+    },
+    {
+      "$ref": "#/$defs/ad_hoc_statement"
+    },
+    {
+      "$ref": "#/$defs/recurrence_result"
+    },
+    {
+      "$ref": "#/$defs/recurrence_cancel_result"
+    },
+    {
+      "$ref": "#/$defs/occurrence_list"
+    },
+    {
+      "$ref": "#/$defs/fiscal_report"
+    },
+    {
+      "$ref": "#/$defs/error"
+    },
+    {
+      "$ref": "#/$defs/outcome_unknown"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "positive_integer": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "signed_integer": {
+      "type": "string",
+      "pattern": "^(0|-?[1-9][0-9]*)$"
+    },
+    "period_id": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "term_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "period_index": {
+          "$ref": "#/$defs/revision"
+        }
+      },
+      "required": [
+        "term_version",
+        "period_index"
+      ]
+    },
+    "source_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "customer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "customer",
+        "source",
+        "kind",
+        "id"
+      ]
+    },
+    "adjustment_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "adjustment_id": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "source",
+        "adjustment_id"
+      ]
+    },
+    "calculation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "fixed"
+            },
+            "exact_atoms_numerator": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "exact_atoms_denominator": {
+              "$ref": "#/$defs/positive_integer"
+            },
+            "booked_atoms": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "rounding": {
+              "enum": [
+                "none",
+                "nearest_ties_away"
+              ]
+            },
+            "operands": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "agreement_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "agreement_version": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "fixed_atoms_scale_2": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "usd_scale_18_multiplier": {
+                  "const": "10000000000000000"
+                }
+              },
+              "required": [
+                "agreement_id",
+                "agreement_version",
+                "fixed_atoms_scale_2",
+                "usd_scale_18_multiplier"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "exact_atoms_numerator",
+            "exact_atoms_denominator",
+            "booked_atoms",
+            "rounding",
+            "operands"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "per_work"
+            },
+            "exact_atoms_numerator": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "exact_atoms_denominator": {
+              "$ref": "#/$defs/positive_integer"
+            },
+            "booked_atoms": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "rounding": {
+              "enum": [
+                "none",
+                "nearest_ties_away"
+              ]
+            },
+            "operands": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "agreement_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "agreement_version": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "quantity": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "rate_atoms_per_unit": {
+                  "$ref": "#/$defs/signed_integer"
+                }
+              },
+              "required": [
+                "agreement_id",
+                "agreement_version",
+                "unit",
+                "quantity",
+                "rate_atoms_per_unit"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "exact_atoms_numerator",
+            "exact_atoms_denominator",
+            "booked_atoms",
+            "rounding",
+            "operands"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "cumulative_close"
+            },
+            "exact_atoms_numerator": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "exact_atoms_denominator": {
+              "$ref": "#/$defs/positive_integer"
+            },
+            "booked_atoms": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "rounding": {
+              "enum": [
+                "none",
+                "nearest_ties_away"
+              ]
+            },
+            "operands": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "basis_version": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "source_unit": {
+                  "type": "string"
+                },
+                "billable_unit": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/revision"
+                },
+                "conversion_numerator": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "conversion_denominator": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "rate_atoms_per_billable_unit": {
+                  "$ref": "#/$defs/signed_integer"
+                }
+              },
+              "required": [
+                "basis_version",
+                "source_unit",
+                "billable_unit",
+                "quantity",
+                "conversion_numerator",
+                "conversion_denominator",
+                "rate_atoms_per_billable_unit"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "exact_atoms_numerator",
+            "exact_atoms_denominator",
+            "booked_atoms",
+            "rounding",
+            "operands"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "quantity_correction"
+            },
+            "exact_atoms_numerator": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "exact_atoms_denominator": {
+              "$ref": "#/$defs/positive_integer"
+            },
+            "booked_atoms": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "rounding": {
+              "enum": [
+                "none",
+                "nearest_ties_away"
+              ]
+            },
+            "operands": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "target_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "quantity_delta": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "rate_atoms_per_unit": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "agreement_version": {
+                  "$ref": "#/$defs/positive_integer"
+                }
+              },
+              "required": [
+                "target_id",
+                "quantity_delta",
+                "unit",
+                "rate_atoms_per_unit",
+                "agreement_version"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "exact_atoms_numerator",
+            "exact_atoms_denominator",
+            "booked_atoms",
+            "rounding",
+            "operands"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "post_close_adjustment"
+            },
+            "exact_atoms_numerator": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "exact_atoms_denominator": {
+              "$ref": "#/$defs/positive_integer"
+            },
+            "booked_atoms": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "rounding": {
+              "enum": [
+                "none",
+                "nearest_ties_away"
+              ]
+            },
+            "operands": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "adjustment_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "cause_kind": {
+                  "enum": [
+                    "per-work-quantity-correction",
+                    "cumulative-quantity-correction"
+                  ]
+                },
+                "cause_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "original_period_id": {
+                  "$ref": "#/$defs/period_id"
+                },
+                "assigned_period_id": {
+                  "$ref": "#/$defs/period_id"
+                },
+                "basis_version": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "target_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "quantity_delta": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "rate_atoms_per_unit": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "old_quantity": {
+                  "$ref": "#/$defs/revision"
+                },
+                "new_quantity": {
+                  "$ref": "#/$defs/revision"
+                },
+                "old_exact_atoms_numerator": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "old_exact_atoms_denominator": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "old_booked_atoms": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "new_exact_atoms_numerator": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "new_exact_atoms_denominator": {
+                  "$ref": "#/$defs/positive_integer"
+                },
+                "new_booked_atoms": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "agreement_version": {
+                  "$ref": "#/$defs/positive_integer"
+                }
+              },
+              "required": [
+                "adjustment_id",
+                "cause_kind",
+                "cause_id",
+                "original_period_id",
+                "assigned_period_id"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "exact_atoms_numerator",
+            "exact_atoms_denominator",
+            "booked_atoms",
+            "rounding",
+            "operands"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "operands": {
+                    "properties": {
+                      "cause_kind": {
+                        "const": "cumulative-quantity-correction"
+                      }
+                    },
+                    "required": [
+                      "cause_kind"
+                    ]
+                  }
+                },
+                "required": [
+                  "operands"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "exact_atoms_denominator": {
+                    "const": "1"
+                  },
+                  "rounding": {
+                    "const": "none"
+                  },
+                  "operands": {
+                    "required": [
+                      "basis_version",
+                      "old_quantity",
+                      "new_quantity",
+                      "old_exact_atoms_numerator",
+                      "old_exact_atoms_denominator",
+                      "old_booked_atoms",
+                      "new_exact_atoms_numerator",
+                      "new_exact_atoms_denominator",
+                      "new_booked_atoms",
+                      "quantity_delta"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operands": {
+                    "properties": {
+                      "cause_kind": {
+                        "const": "per-work-quantity-correction"
+                      }
+                    },
+                    "required": [
+                      "cause_kind"
+                    ]
+                  }
+                },
+                "required": [
+                  "operands"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "exact_atoms_denominator": {
+                    "const": "1"
+                  },
+                  "rounding": {
+                    "const": "none"
+                  },
+                  "operands": {
+                    "required": [
+                      "target_id",
+                      "quantity_delta",
+                      "unit",
+                      "rate_atoms_per_unit",
+                      "agreement_version"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "outcome_revision"
+            },
+            "exact_atoms_numerator": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "exact_atoms_denominator": {
+              "$ref": "#/$defs/positive_integer"
+            },
+            "booked_atoms": {
+              "$ref": "#/$defs/signed_integer"
+            },
+            "rounding": {
+              "enum": [
+                "none",
+                "nearest_ties_away"
+              ]
+            },
+            "operands": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "change_kind": {
+                  "enum": [
+                    "first",
+                    "replacement",
+                    "reversal"
+                  ]
+                },
+                "target_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "outcome_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "prior_outcome_id": {
+                  "$ref": "#/$defs/id"
+                },
+                "prior_atoms": {
+                  "$ref": "#/$defs/signed_integer"
+                },
+                "accepted_atoms": {
+                  "$ref": "#/$defs/signed_integer"
+                }
+              },
+              "required": [
+                "change_kind",
+                "target_id",
+                "outcome_id"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "exact_atoms_numerator",
+            "exact_atoms_denominator",
+            "booked_atoms",
+            "rounding",
+            "operands"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "operands": {
+                    "properties": {
+                      "change_kind": {
+                        "const": "first"
+                      }
+                    },
+                    "required": [
+                      "change_kind"
+                    ]
+                  }
+                },
+                "required": [
+                  "operands"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "operands": {
+                    "required": [
+                      "outcome_id",
+                      "accepted_atoms"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operands": {
+                    "properties": {
+                      "change_kind": {
+                        "const": "replacement"
+                      }
+                    },
+                    "required": [
+                      "change_kind"
+                    ]
+                  }
+                },
+                "required": [
+                  "operands"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "operands": {
+                    "required": [
+                      "prior_outcome_id",
+                      "prior_atoms",
+                      "accepted_atoms"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "operands": {
+                    "properties": {
+                      "change_kind": {
+                        "const": "reversal"
+                      }
+                    },
+                    "required": [
+                      "change_kind"
+                    ]
+                  }
+                },
+                "required": [
+                  "operands"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "operands": {
+                    "required": [
+                      "prior_outcome_id",
+                      "prior_atoms",
+                      "accepted_atoms"
+                    ],
+                    "properties": {
+                      "accepted_atoms": {
+                        "const": "0"
+                      }
+                    }
+                  },
+                  "rounding": {
+                    "const": "none"
+                  },
+                  "exact_atoms_denominator": {
+                    "const": "1"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "m4_acceptance_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The exact existing M4 billing accept receipt: the canonical base-acceptance record envelope returned by billing accept. The original M3 base receipt remains embedded as body.original_receipt_utf8.",
+      "properties": {
+        "kind": {
+          "const": "base-acceptance"
+        },
+        "scope": {
+          "$ref": "../../v2/schemas/canonical-records.schema.json#/$defs/scope"
+        },
+        "id": {
+          "$ref": "../../v2/schemas/canonical-records.schema.json#/$defs/base-acceptance-id"
+        },
+        "body": {
+          "$ref": "../../v2/schemas/canonical-records.schema.json#/$defs/base-acceptance"
+        },
+        "content_hash": {
+          "$ref": "../../v2/schemas/canonical-records.schema.json#/$defs/hash"
+        }
+      },
+      "required": [
+        "kind",
+        "scope",
+        "id",
+        "body",
+        "content_hash"
+      ]
+    },
+    "term_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-term-result/1"
+        },
+        "status": {
+          "const": "term_updated"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "term_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "effective_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m5_receipt"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "revision",
+        "term_version",
+        "effective_at",
+        "receipt"
+      ]
+    },
+    "fiscal_calendar_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-fiscal-calendar-result/1"
+        },
+        "status": {
+          "const": "calendar_updated"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "calendar_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m5_receipt"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "revision",
+        "calendar_version",
+        "receipt"
+      ]
+    },
+    "cumulative_agreement_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-cumulative-agreement-result/1"
+        },
+        "status": {
+          "const": "basis_updated"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/id"
+        },
+        "agreement_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "basis_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m5_receipt"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "revision",
+        "agreement_id",
+        "agreement_version",
+        "basis_version",
+        "receipt"
+      ]
+    },
+    "ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "accepted"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m5_receipt"
+        },
+        "adjustment": {
+          "$ref": "#/$defs/adjustment_receipt"
+        }
+      },
+      "required": [
+        "status",
+        "receipt"
+      ]
+    },
+    "occurrence_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "accepted"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m4_acceptance_receipt"
+        }
+      },
+      "required": [
+        "status",
+        "receipt"
+      ]
+    },
+    "adjustment_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adjustment_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "original_period_id": {
+          "$ref": "#/$defs/period_id"
+        },
+        "assigned_period_id": {
+          "$ref": "#/$defs/period_id"
+        },
+        "signed_delta_atoms": {
+          "$ref": "#/$defs/signed_integer"
+        },
+        "basis": {
+          "enum": [
+            "per_work_quantity",
+            "cumulative_quantity",
+            "outcome_revision"
+          ]
+        }
+      },
+      "required": [
+        "adjustment_id",
+        "source",
+        "original_period_id",
+        "assigned_period_id",
+        "signed_delta_atoms",
+        "basis"
+      ]
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "line_id": {
+          "$ref": "#/$defs/id"
+        },
+        "source_records": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/source_record"
+          }
+        },
+        "basis": {
+          "enum": [
+            "fixed",
+            "per_work",
+            "cumulative_close",
+            "quantity_correction",
+            "post_close_adjustment",
+            "outcome_revision"
+          ]
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/id"
+        },
+        "agreement_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "payer": {
+          "$ref": "#/$defs/id"
+        },
+        "recipient": {
+          "$ref": "#/$defs/id"
+        },
+        "currency": {
+          "const": "USD"
+        },
+        "scale": {
+          "const": 18
+        },
+        "amount_atoms": {
+          "$ref": "#/$defs/signed_integer"
+        },
+        "calculation": {
+          "$ref": "#/$defs/calculation"
+        }
+      },
+      "required": [
+        "line_id",
+        "source_records",
+        "basis",
+        "agreement_id",
+        "agreement_version",
+        "payer",
+        "recipient",
+        "currency",
+        "scale",
+        "amount_atoms",
+        "calculation"
+      ]
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-statement/4"
+        },
+        "status": {
+          "const": "closed"
+        },
+        "customer": {
+          "$ref": "#/$defs/id"
+        },
+        "period_id": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "term_version": {
+              "$ref": "#/$defs/positive_integer"
+            },
+            "period_index": {
+              "$ref": "#/$defs/revision"
+            }
+          },
+          "required": [
+            "term_version",
+            "period_index"
+          ]
+        },
+        "boundary_resolution_id": {
+          "$ref": "#/$defs/id"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "timezone_rules_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "boundary_rule_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "start_utc": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end_utc": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "currency": {
+          "const": "USD"
+        },
+        "scale": {
+          "const": 18
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        },
+        "net_atoms": {
+          "$ref": "#/$defs/signed_integer"
+        },
+        "direction": {
+          "enum": [
+            "receivable",
+            "payable",
+            "none"
+          ]
+        },
+        "complete": {
+          "const": true
+        },
+        "close_acceptance_time": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "m3_high_water": {
+          "$ref": "#/$defs/revision"
+        },
+        "m5_high_water": {
+          "$ref": "#/$defs/revision"
+        },
+        "statement_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "snapshot_boundary_id": {
+          "$ref": "#/$defs/positive_integer"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "customer",
+        "period_id",
+        "boundary_resolution_id",
+        "timezone",
+        "timezone_rules_version",
+        "boundary_rule_version",
+        "start_utc",
+        "end_utc",
+        "currency",
+        "scale",
+        "lines",
+        "net_atoms",
+        "direction",
+        "complete",
+        "close_acceptance_time",
+        "m3_high_water",
+        "m5_high_water",
+        "statement_hash",
+        "snapshot_boundary_id"
+      ]
+    },
+    "ad_hoc_statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-ad-hoc-statement-result/1"
+        },
+        "status": {
+          "const": "issued"
+        },
+        "customer": {
+          "$ref": "#/$defs/id"
+        },
+        "statement_id": {
+          "$ref": "#/$defs/id"
+        },
+        "adjustments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/adjustment_ref"
+          }
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        },
+        "currency": {
+          "const": "USD"
+        },
+        "scale": {
+          "const": 18
+        },
+        "net_atoms": {
+          "$ref": "#/$defs/signed_integer"
+        },
+        "direction": {
+          "enum": [
+            "receivable",
+            "payable",
+            "none"
+          ]
+        },
+        "complete": {
+          "const": true
+        },
+        "statement_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "customer",
+        "statement_id",
+        "adjustments",
+        "lines",
+        "currency",
+        "scale",
+        "net_atoms",
+        "direction",
+        "complete",
+        "statement_hash"
+      ]
+    },
+    "occurrence_list": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-occurrence-list/1"
+        },
+        "status": {
+          "const": "ok"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "due_through": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "next_cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "occurrences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "occurrence_id": {
+                "$ref": "#/$defs/id"
+              },
+              "scheduled_local_label": {
+                "type": "string"
+              },
+              "scheduled_at": {
+                "$ref": "#/$defs/timestamp"
+              },
+              "agreement_id": {
+                "$ref": "#/$defs/id"
+              },
+              "agreement_version": {
+                "$ref": "#/$defs/positive_integer"
+              }
+            },
+            "required": [
+              "occurrence_id",
+              "scheduled_local_label",
+              "scheduled_at",
+              "agreement_id",
+              "agreement_version"
+            ]
+          }
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "has_more",
+        "due_through",
+        "occurrences"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "has_more": {
+                "const": true
+              }
+            },
+            "required": [
+              "has_more"
+            ]
+          },
+          "then": {
+            "required": [
+              "next_cursor"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "has_more": {
+                "const": false
+              }
+            },
+            "required": [
+              "has_more"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "next_cursor"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "fiscal_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-fiscal-report/1"
+        },
+        "status": {
+          "const": "complete"
+        },
+        "calendar_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "timezone_rules_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_utc": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end_utc": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "m3_high_water": {
+          "$ref": "#/$defs/revision"
+        },
+        "m5_high_water": {
+          "$ref": "#/$defs/revision"
+        },
+        "monetary_lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        },
+        "nonmonetary_quantities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonmonetary_quantity"
+          }
+        },
+        "net_atoms": {
+          "$ref": "#/$defs/signed_integer"
+        },
+        "currency": {
+          "const": "USD"
+        },
+        "scale": {
+          "const": 18
+        },
+        "complete": {
+          "const": true
+        },
+        "report_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "snapshot_boundary_id": {
+          "$ref": "#/$defs/positive_integer"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "calendar_version",
+        "timezone",
+        "timezone_rules_version",
+        "start_utc",
+        "end_utc",
+        "m3_high_water",
+        "m5_high_water",
+        "monetary_lines",
+        "nonmonetary_quantities",
+        "net_atoms",
+        "currency",
+        "scale",
+        "complete",
+        "report_hash",
+        "snapshot_boundary_id"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "error"
+        },
+        "code": {
+          "enum": [
+            "BILLING_M5_REQUEST",
+            "BILLING_M5_SCOPE",
+            "BILLING_UNAUTHORIZED",
+            "BILLING_PERMISSION",
+            "BILLING_CLOCK_NOT_ADVANCED",
+            "BILLING_HISTORY_LIMIT",
+            "BILLING_UPGRADE_REQUIRED",
+            "BILLING_EXPORT_MAPPING",
+            "BILLING_EXPORT_SNAPSHOT",
+            "BILLING_M5_STALE_REVISION",
+            "BILLING_M5_PERIOD",
+            "BILLING_M5_NOT_DUE",
+            "BILLING_M5_CLOSED",
+            "BILLING_M5_AGREEMENT",
+            "BILLING_M5_BASIS",
+            "BILLING_M5_BOUNDS",
+            "BILLING_M5_EFFECTIVE_TIME",
+            "BILLING_M5_QUANTITY",
+            "BILLING_M5_RECURRENCE",
+            "BILLING_M5_RECURRENCE_CANCELLED",
+            "BILLING_M5_TARGET",
+            "BILLING_M5_PRESENTED",
+            "BILLING_M5_OCCURRENCE_CONFLICT",
+            "IDENTITY_CONFLICT",
+            "SEMANTIC_CONFLICT",
+            "BILLING_M5_SCHEMA_REQUIRED",
+            "BILLING_M5_INTEGRITY",
+            "BILLING_M5_CANCELLED"
+          ]
+        },
+        "identity_domain": {
+          "enum": [
+            "application",
+            "customer-admin",
+            "installation-admin"
+          ]
+        },
+        "customer": {
+          "$ref": "#/$defs/id"
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "command_id": {
+          "$ref": "#/$defs/id"
+        },
+        "change_id": {
+          "$ref": "#/$defs/id"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "period_id": {
+          "$ref": "#/$defs/period_id"
+        }
+      },
+      "required": [
+        "status",
+        "code"
+      ]
+    },
+    "outcome_unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "outcome_unknown"
+        },
+        "identity_domain": {
+          "enum": [
+            "application",
+            "customer-admin",
+            "installation-admin"
+          ]
+        },
+        "customer": {
+          "$ref": "#/$defs/id"
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "identity_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "retry_exact_input_only": {
+          "const": true
+        }
+      },
+      "required": [
+        "status",
+        "identity_domain",
+        "identity_key",
+        "retry_exact_input_only"
+      ]
+    },
+    "m5_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-m5-receipt/1"
+        },
+        "command_sequence": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "record_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "request_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema",
+        "command_sequence",
+        "accepted_at",
+        "record_ids",
+        "request_hash"
+      ]
+    },
+    "nonmonetary_quantity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "customer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "kind": {
+          "enum": [
+            "activity",
+            "outcome",
+            "quantity-correction"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "quantity": {
+          "$ref": "#/$defs/signed_integer"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "period_id": {
+          "$ref": "#/$defs/period_id"
+        }
+      },
+      "required": [
+        "customer",
+        "source",
+        "kind",
+        "id",
+        "unit",
+        "quantity",
+        "accepted_at",
+        "period_id"
+      ]
+    },
+    "recurrence_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-recurrence-result/1"
+        },
+        "status": {
+          "const": "recurrence_updated"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "recurrence_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/id"
+        },
+        "agreement_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "effective_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m5_receipt"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "revision",
+        "recurrence_version",
+        "agreement_id",
+        "agreement_version",
+        "effective_at",
+        "receipt"
+      ]
+    },
+    "recurrence_cancel_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-recurrence-cancel-result/1"
+        },
+        "status": {
+          "const": "recurrence_cancelled"
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "recurrence_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "cancelled_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m5_receipt"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "revision",
+        "recurrence_version",
+        "cancelled_at",
+        "receipt"
+      ]
+    },
+    "period_resolution_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "ledger-billing-period-resolution-result/1"
+        },
+        "status": {
+          "const": "resolved"
+        },
+        "customer": {
+          "$ref": "#/$defs/id"
+        },
+        "period_id": {
+          "$ref": "#/$defs/period_id"
+        },
+        "boundary_resolution_id": {
+          "$ref": "#/$defs/id"
+        },
+        "record_sequence": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "start_utc": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end_utc": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "receipt": {
+          "$ref": "#/$defs/m5_receipt"
+        }
+      },
+      "required": [
+        "schema",
+        "status",
+        "customer",
+        "period_id",
+        "boundary_resolution_id",
+        "record_sequence",
+        "start_utc",
+        "end_utc",
+        "receipt"
+      ]
+    }
+  }
+}

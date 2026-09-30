@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:m5:finance-export:4",
+  "title": "Bean Counter finance export summary",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "ledger-finance-export/4"},
+    "status": {"const": "exported"},
+    "complete": {"const": true},
+    "export_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "statement_hash": {"$ref": "#/$defs/hash"},
+    "snapshot_boundary_id": {"$ref": "results.schema.json#/$defs/positive_integer"},
+    "m3_high_water": {"$ref": "results.schema.json#/$defs/revision"},
+    "m5_high_water": {"$ref": "results.schema.json#/$defs/revision"},
+    "posting_count": {"$ref": "results.schema.json#/$defs/revision"},
+    "control_net_atoms": {"$ref": "results.schema.json#/$defs/signed_integer"},
+    "currency": {"const": "USD"},
+    "scale": {"const": 18},
+    "account_mapping": {
+      "type": "object",
+      "propertyNames": {"type": "string", "minLength": 1, "maxLength": 128},
+      "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 128}
+    },
+    "delivered": {"const": false},
+    "payment_collected": {"const": false}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "required": [
+    "schema",
+    "status",
+    "complete",
+    "export_id",
+    "statement_hash",
+    "snapshot_boundary_id",
+    "m3_high_water",
+    "m5_high_water",
+    "posting_count",
+    "control_net_atoms",
+    "currency",
+    "scale",
+    "account_mapping",
+    "delivered",
+    "payment_collected"
+  ]
+}

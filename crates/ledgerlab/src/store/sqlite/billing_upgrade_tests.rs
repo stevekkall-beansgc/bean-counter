@@ -2,6 +2,8 @@
 //! database with its version number rewritten to pretend it is old.
 use super::*;
 use crate::maintenance::{UpgradeError, UpgradeResult};
+use crate::store::ports::{AcceptanceStore, AcceptanceTx};
+use crate::store::sqlite::SqliteStore;
 use ledgerlab_core::{canonical::CanonicalBytes, domain::Timestamp};
 use sqlx::{Connection, SqliteConnection};
 const SETUP: &[u8] = include_bytes!("../../../../../examples/billing/setup.json");
@@ -437,7 +439,7 @@ async fn installation(dir: &tempfile::TempDir) -> (Installation, SqliteConnectio
 }
 
 #[tokio::test]
-async fn schema9_billing_refuses_open_until_explicit_upgrade_without_mutation() {
+async fn schema9_billing_requires_explicit_m3_and_m5_upgrades_without_ordinary_schema10_access() {
     use crate::billing::BillingLedger;
 
     let dir = tempfile::tempdir().unwrap();
@@ -497,12 +499,42 @@ async fn schema9_billing_refuses_open_until_explicit_upgrade_without_mutation() 
         BillingLedger::upgrade(&path).await.unwrap(),
         serde_json::json!({"status":"upgraded","from_schema":9,"to_schema":10})
     );
+
+    let schema10_open = BillingLedger::open(&path).await;
+    assert!(matches!(
+        schema10_open,
+        Err(crate::local::LocalError::Service(
+            crate::ServiceError::Rejection(code)
+        )) if code == "BILLING_M5_SCHEMA_REQUIRED"
+    ));
+    assert!(matches!(
+        SqliteStore::open(&path.join(".ledger")).await,
+        Err(crate::store::errors::StoreError::BillingM5SchemaRequired)
+    ));
+    let store = SqliteStore::open_for_upgrade(&path.join(".ledger"))
+        .await
+        .unwrap();
+    let mut tx = store
+        .begin(tokio::time::Instant::now() + std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert!(matches!(
+        tx.billing_meta().await,
+        Err(crate::store::errors::StoreError::BillingUpgradeRequired)
+    ));
+    tx.rollback().await.unwrap();
+    store.close().await;
+
+    assert_eq!(
+        BillingLedger::upgrade(&path).await.unwrap(),
+        serde_json::json!({"status":"upgraded","from_schema":10,"to_schema":11})
+    );
     let ledger = BillingLedger::open(&path).await.unwrap();
     ledger.close().await;
 }
 
 #[tokio::test]
-async fn invalid_schema10_meter_does_not_report_already_current() {
+async fn invalid_current_m3_meter_does_not_report_already_current() {
     use crate::billing::BillingLedger;
 
     let temp = tempfile::tempdir().unwrap();
@@ -521,21 +553,62 @@ async fn invalid_schema10_meter_does_not_report_already_current() {
         .execute(&mut conn)
         .await
         .unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
     conn.close().await.unwrap();
 
     assert!(
         BillingLedger::upgrade(&path).await.is_err(),
-        "a failed full schema-10 open must not be reconciled as already current"
+        "a failed full current-schema open must not be reconciled as already current"
     );
     let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
     let count: i64 =
         sqlx::query_scalar("SELECT entry_count FROM billing_m3_bounds WHERE singleton=1")
             .fetch_one(&mut conn)
             .await
             .unwrap();
     assert_eq!(count, 1, "failed reconciliation leaves the store unchanged");
+    conn.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn schema11_m3_entry_and_semantic_alias_advance_snapshot_boundaries() {
+    use crate::billing::BillingLedger;
+
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().canonicalize().unwrap().join("billing");
+    BillingLedger::init(&path, SETUP).await.unwrap();
+    let ledger = BillingLedger::open(&path).await.unwrap();
+    let setup = ledgerlab_core::canonical::parse(SETUP).unwrap();
+    let customer = setup["customer"].as_str().unwrap();
+    let source = setup["source"].as_str().unwrap();
+
+    let accepted = ledger.accept(customer, source, EVENT).await.unwrap();
+    assert_eq!(accepted["status"], "accepted");
+    let mut semantic_retry = ledgerlab_core::canonical::parse(EVENT).unwrap();
+    semantic_retry["id"] = serde_json::json!("work-1-alias");
+    let semantic_retry = serde_json::to_vec(&semantic_retry).unwrap();
+    let duplicate = ledger
+        .accept(customer, source, &semantic_retry)
+        .await
+        .unwrap();
+    assert_eq!(duplicate["status"], "duplicate");
+    assert_eq!(duplicate["kind"], "semantic");
+    ledger.close().await;
+
+    let db_path = path.join(".ledger/local.db");
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db_path)
+        .foreign_keys(true);
+    let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
+    let boundaries: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT boundary_id,m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries ORDER BY boundary_id",
+    )
+    .fetch_all(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(boundaries, vec![(1, 0, 0), (2, 1, 0), (3, 1, 0)]);
+    crate::store::sqlite::m5::verify(&mut conn).await.unwrap();
     conn.close().await.unwrap();
 }
 
@@ -620,10 +693,12 @@ async fn stale_schema9_retry_revalidates_concurrent_schema10_upgrade() {
         upgrade_billing(&data, &seed).await,
         Ok(UpgradeResult::AlreadyCurrent)
     );
-    assert_eq!(
-        BillingLedger::confirm_already_current(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
-    );
+    assert!(matches!(
+        BillingLedger::confirm_already_current(&path).await,
+        Err(crate::local::LocalError::Service(
+            crate::ServiceError::Rejection(code)
+        )) if code == "BILLING_M5_SCHEMA_REQUIRED"
+    ));
 
     // Migration-layer reconciliation can still return AlreadyCurrent for a
     // damaged M3 meter. The public result path must fully open and validate it.
@@ -723,11 +798,14 @@ async fn billing_coordinator_upgrades_valid_m1_history_and_retries_exact_origina
     assert_eq!(migrated.store_version, 10);
     assert_eq!(migrated.version, 8);
     assert_eq!(migrated.digest, original_digest);
-    // Repeating the commercial seed reconciles the committed state and runs no
-    // further migration.
+    // The M5 sidecar transition follows the preserved M3 source upgrade.
     assert_eq!(
         BillingLedger::upgrade(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
+        serde_json::json!({"status":"upgraded","from_schema":10,"to_schema":11})
+    );
+    assert_eq!(
+        BillingLedger::upgrade(&path).await.unwrap(),
+        serde_json::json!({"status":"already_current","from_schema":11,"to_schema":11})
     );
     let ledger = BillingLedger::open(&path).await.unwrap();
     assert_eq!(
@@ -750,7 +828,8 @@ async fn billing_coordinator_upgrades_valid_m1_history_and_retries_exact_origina
     ledger.close().await;
 
     let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
+    crate::store::sqlite::m5::verify(&mut conn).await.unwrap();
     assert_eq!(old_rows(&mut conn).await, original_rows);
     let counts: (i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM billing_entries),(SELECT count(*) FROM billing_m2_entries),(SELECT count(*) FROM billing_m2_aliases),(SELECT count(*) FROM billing_permissions),(SELECT count(*) FROM billing_m2_permissions),(SELECT count(*) FROM billing_m2_changes),(SELECT count(*) FROM billing_m3_index)",
@@ -918,11 +997,10 @@ async fn billing_coordinator_upgrades_populated_schema9_history_and_retries_exac
     assert_eq!(migrated.store_version, 10);
     assert_eq!(migrated.version, 9);
     assert_eq!(migrated.digest, original_digest);
-    // Repeating the same request reconciles the committed state and runs no
-    // further migration.
+    // The M5 sidecar transition follows the preserved M3 source upgrade.
     assert_eq!(
         BillingLedger::upgrade(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
+        serde_json::json!({"status":"upgraded","from_schema":10,"to_schema":11})
     );
 
     let ledger = BillingLedger::open(&path).await.unwrap();
@@ -968,10 +1046,39 @@ async fn billing_coordinator_upgrades_populated_schema9_history_and_retries_exac
         ledger.statement(&customer, None).await.unwrap(),
         original_statement
     );
+    // M5 close must resolve a retained logical index through its actual source
+    // tier. Period zero contains only the schema-8 decision; the schema-9
+    // decision accepted two days later belongs to period two.
+    let term = CanonicalBytes::from_value(&serde_json::json!({
+        "schema":"ledger-billing-term/1","customer":customer,
+        "change_id":"retained-tier-close","expected_revision":"0",
+        "effective":{"mode":"initial","at":FIRST_ACCEPTED_AT},
+        "term":{"interval":1,"unit":"day","alignment":"anchored",
+            "anchor":{"date":"2026-09-02","time":"00:00:00"},"timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b","proration":"none"}
+    }))
+    .unwrap()
+    .into_vec();
+    ledger.term_set(&term).await.unwrap();
+    let close = CanonicalBytes::from_value(&serde_json::json!({
+        "schema":"ledger-billing-period-close/1","customer":customer,
+        "period_id":{"term_version":"1","period_index":"0"}
+    }))
+    .unwrap()
+    .into_vec();
+    let closed = ledger.period_close(&close).await.unwrap();
+    assert_eq!(closed["net_atoms"], "2500000000000000000");
+    assert_eq!(closed["lines"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        closed["lines"][0]["source_records"][0]["id"],
+        legacy_accepted["receipt"]["id"]
+    );
     ledger.close().await;
 
     let mut conn = SqliteConnection::connect_with(&options).await.unwrap();
-    assert_eq!(version(&mut conn).await.unwrap(), 10);
+    assert_eq!(version(&mut conn).await.unwrap(), 11);
+    crate::store::sqlite::m5::verify(&mut conn).await.unwrap();
     // Neither the frozen schema-8 tier nor the M2 tier changed by a single byte,
     // including the customer's own agreement and control history.
     assert_eq!(old_rows(&mut conn).await, original_rows);
@@ -1029,11 +1136,11 @@ async fn billing_coordinator_upgrades_populated_schema9_history_and_retries_exac
     assert_eq!(counts, (1, 1, 0, 1, 2));
     super::super::connect::integrity(&mut conn).await.unwrap();
     conn.close().await.unwrap();
-    // The reconciled store reopens on the schema-10 writer path with no upgrade
+    // The reconciled store reopens on the schema-11 writer path with no upgrade
     // left to run.
     assert_eq!(
         BillingLedger::upgrade(&path).await.unwrap(),
-        serde_json::json!({"status":"already_current","from_schema":10,"to_schema":10})
+        serde_json::json!({"status":"already_current","from_schema":11,"to_schema":11})
     );
 }
 
@@ -1086,8 +1193,10 @@ async fn billing_upgrade_preserves_original_bytes_and_reconciles_unknown_commit(
         );
         assert_eq!(before, old_rows(&mut conn).await);
         conn.close().await.unwrap();
-        let store = super::super::SqliteStore::open(dir.path()).await.unwrap();
-        store.close().await;
+        assert!(matches!(
+            super::super::SqliteStore::open(dir.path()).await,
+            Err(crate::store::errors::StoreError::BillingM5SchemaRequired)
+        ));
     }
 }
 

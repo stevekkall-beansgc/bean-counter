@@ -9,6 +9,7 @@ mod comparison;
 mod connect;
 mod fence;
 mod inspect;
+pub(crate) mod m5;
 pub(crate) mod migrate;
 mod outbox;
 mod outcomes;
@@ -57,6 +58,10 @@ struct Inner {
     fence_cut: std::sync::atomic::AtomicU8,
     #[cfg(test)]
     append_pause: Mutex<Option<Arc<adjudication::AppendPause>>>,
+    #[cfg(test)]
+    begin_pause: Mutex<Option<Arc<BeginPause>>>,
+    #[cfg(test)]
+    begin_attempt: Mutex<Option<Arc<tokio::sync::Notify>>>,
 }
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
@@ -122,21 +127,40 @@ impl SqliteStore {
             fence.initialize(&mut conn).await?;
         }
         conn.close().await?;
-        Self::from_owner(owner).await
+        Self::from_owner(owner, false).await
     }
     pub async fn open(path: &Path) -> Result<Self, StoreError> {
-        Self::from_owner(Arc::new(owner::Owner::acquire(path)?)).await
+        Self::from_owner(Arc::new(owner::Owner::acquire(path)?), false).await
+    }
+    pub(crate) async fn open_for_upgrade(path: &Path) -> Result<Self, StoreError> {
+        Self::from_owner(Arc::new(owner::Owner::acquire(path)?), true).await
     }
     pub(crate) async fn open_fenced(path: &Path, anchor: &Path) -> Result<Self, StoreError> {
         let mut owner = owner::Owner::acquire(path)?;
         owner.fence = Some(Arc::new(fence::Fence::acquire(anchor, path)?));
-        Self::from_owner(Arc::new(owner)).await
+        Self::from_owner(Arc::new(owner), false).await
     }
-    async fn from_owner(owner: Arc<owner::Owner>) -> Result<Self, StoreError> {
+    async fn from_owner(
+        owner: Arc<owner::Owner>,
+        allow_billing_schema10: bool,
+    ) -> Result<Self, StoreError> {
         let mut conn = connect::initial(&owner).await?;
         owner.verify_path()?;
         let diagnostics = connect::verify(&mut conn, false).await?;
         migrate::verify(&mut conn).await?;
+        let schema_version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(&mut conn)
+            .await?;
+        if schema_version == 10 && !allow_billing_schema10 {
+            let has_billing_setup: i64 =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM billing_setup WHERE singleton=1)")
+                    .fetch_one(&mut conn)
+                    .await?;
+            if has_billing_setup != 0 {
+                conn.close().await?;
+                return Err(StoreError::BillingM5SchemaRequired);
+            }
+        }
         connect::integrity(&mut conn).await?;
         read::installation(&mut conn).await?;
         if let Some(fence) = &owner.fence {
@@ -188,6 +212,10 @@ impl SqliteStore {
                 fence_cut: std::sync::atomic::AtomicU8::new(0),
                 #[cfg(test)]
                 append_pause: Mutex::new(None),
+                #[cfg(test)]
+                begin_pause: Mutex::new(None),
+                #[cfg(test)]
+                begin_attempt: Mutex::new(None),
                 _owner: owner,
             }),
             diagnostics,
@@ -212,7 +240,27 @@ impl SqliteStore {
     /// real database contention; normal construction still has one writer pool.
     #[cfg(test)]
     pub(crate) async fn test_contender(&self) -> Result<Self, StoreError> {
-        Self::from_owner(self.inner._owner.clone()).await
+        Self::from_owner(self.inner._owner.clone(), false).await
+    }
+    #[cfg(test)]
+    pub(crate) fn test_commit_cut(&self, cut: u8) {
+        self.inner.fence_cut.store(cut, Ordering::Release);
+    }
+    #[cfg(test)]
+    pub(crate) fn test_pause_next_begin(&self) -> Arc<BeginPause> {
+        let pause = Arc::new(BeginPause::default());
+        let mut slot = self.inner.begin_pause.lock().unwrap();
+        assert!(slot.is_none());
+        *slot = Some(Arc::clone(&pause));
+        pause
+    }
+    #[cfg(test)]
+    pub(crate) fn test_notify_next_begin_attempt(&self) -> Arc<tokio::sync::Notify> {
+        let reached = Arc::new(tokio::sync::Notify::new());
+        let mut slot = self.inner.begin_attempt.lock().unwrap();
+        assert!(slot.is_none());
+        *slot = Some(Arc::clone(&reached));
+        reached
     }
     #[cfg(test)]
     pub(crate) async fn test_write_locked(&self, path: &Path) -> Result<bool, StoreError> {
@@ -316,12 +364,24 @@ impl SqliteStore {
         } else {
             None
         };
+        #[cfg(test)]
+        if let Some(reached) = self.inner.begin_attempt.lock().unwrap().take() {
+            reached.notify_one();
+        }
         let mut transaction = timeout_at(wait, self.inner.writer.begin_with("BEGIN IMMEDIATE"))
             .await
             .map_err(|_| StoreError::Deadline)??;
         if self.inner.disabled.load(Ordering::Acquire) {
             transaction.rollback().await?;
             return Err(StoreError::WritesDisabled);
+        }
+        #[cfg(test)]
+        {
+            let pause = self.inner.begin_pause.lock().unwrap().take();
+            if let Some(pause) = pause {
+                pause.reached.notify_one();
+                pause.release.notified().await;
+            }
         }
         let physical_start_pages = if self
             .inner
@@ -358,6 +418,14 @@ impl SqliteStore {
             outcome_fault: None,
         })
     }
+}
+
+/// Test-only scheduling latch placed immediately after the SQLite writer lock.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct BeginPause {
+    pub reached: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
 }
 
 #[cfg(test)]
