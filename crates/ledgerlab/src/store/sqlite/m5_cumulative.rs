@@ -6,6 +6,7 @@ type AssignedCumulativeRow = (i64, String, Vec<u8>, String, String, String, Stri
 type BasisProjectionRow = (String, String, String, i64, i64, i64, i64, Vec<u8>);
 type SemanticProjectionRow = (String, String, String, i64, i64, Vec<u8>, Vec<u8>, Vec<u8>);
 type DeliveryProjectionRow = (String, String, String, Vec<u8>, Vec<u8>, String, Vec<u8>);
+type PerWorkTargetRow = (i64, String, Vec<u8>, String, i64, i64, i64);
 
 pub(crate) struct CumulativeSequences {
     pub command: i64,
@@ -405,6 +406,122 @@ pub(crate) async fn cumulative_period_records(
     Ok(result)
 }
 
+pub(crate) async fn cumulative_original_period_records(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    term_version: i64,
+    period_index: i64,
+    high_water: i64,
+) -> Result<Vec<CumulativeAssignedRecord>, StoreError> {
+    let mut rows =
+        cumulative_period_records(conn, customer, term_version, period_index, high_water).await?;
+    let present = rows
+        .iter()
+        .map(|row| row.sequence)
+        .collect::<std::collections::BTreeSet<_>>();
+    let corrections: Vec<(i64, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE family='ledger-billing-quantity-correction-record/1' AND customer=? AND sequence<=? ORDER BY sequence",
+    )
+    .bind(customer)
+    .bind(high_water)
+    .fetch_all(&mut *conn)
+    .await?;
+    for (sequence, family, payload) in corrections {
+        if present.contains(&sequence) {
+            continue;
+        }
+        let value = canonical(&payload, 262_144)?;
+        if decimal(&value["original_period_id"]["term_version"])? == term_version
+            && decimal(&value["original_period_id"]["period_index"])? == period_index
+        {
+            rows.push(CumulativeAssignedRecord {
+                sequence,
+                family,
+                payload,
+            });
+        }
+    }
+    rows.sort_by_key(|row| row.sequence);
+    Ok(rows)
+}
+
+pub(crate) struct PerWorkTarget {
+    pub bundle: Vec<u8>,
+    pub agreement_id: String,
+    pub agreement_version: i64,
+    pub setup: Vec<u8>,
+    pub term_version: i64,
+    pub period_index: i64,
+}
+
+pub(crate) async fn per_work_target(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    source: &str,
+    target: &str,
+) -> Result<Option<PerWorkTarget>, StoreError> {
+    let row: Option<PerWorkTargetRow> = sqlx::query_as(
+        "SELECT i.ordinal,i.external_id,e.bundle,e.agreement_id,e.agreement_version,a.term_version,a.period_index FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.kind='base' AND i.external_id=?",
+    )
+    .bind(customer)
+    .bind(source)
+    .bind(target)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((
+        _ordinal,
+        _external_id,
+        bundle,
+        agreement_id,
+        agreement_version,
+        term_version,
+        period_index,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    let setup: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT setup_bytes FROM billing_agreements WHERE customer=? AND source=? AND agreement_id=? AND agreement_version=? AND transition IN ('start','amend') ORDER BY revision DESC LIMIT 1",
+    )
+    .bind(customer)
+    .bind(source)
+    .bind(&agreement_id)
+    .bind(agreement_version)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(Some(PerWorkTarget {
+        bundle,
+        agreement_id,
+        agreement_version,
+        setup: setup.ok_or(StoreError::InvalidStore("M5 per-work setup"))?,
+        term_version,
+        period_index,
+    }))
+}
+
+pub(crate) async fn per_work_target_deltas(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    source: &str,
+    target: &str,
+) -> Result<Vec<Vec<u8>>, StoreError> {
+    let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+        "SELECT payload_bytes FROM billing_m5_records WHERE family='ledger-billing-quantity-correction-record/1' AND customer=? AND source=? ORDER BY sequence",
+    )
+    .bind(customer)
+    .bind(source)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut result = Vec::new();
+    for (payload,) in rows {
+        let value = canonical(&payload, 262_144)?;
+        if value["mode"] == "per-work" && value["target_activity_id"] == target {
+            result.push(payload);
+        }
+    }
+    Ok(result)
+}
+
 pub(crate) async fn cumulative_activity_target(
     conn: &mut SqliteConnection,
     customer: &str,
@@ -447,45 +564,110 @@ pub(crate) async fn cumulative_period_closed(
         .bind(customer).bind(term_version).bind(period_index).fetch_one(&mut *conn).await.map_err(Into::into)
 }
 
-pub(crate) async fn append_cumulative_correction(
+pub(crate) struct QuantityCorrectionProjection<'a> {
+    pub customer: &'a str,
+    pub source: &'a str,
+    pub correction_id: &'a str,
+    pub target_id: &'a str,
+    pub mode: &'a str,
+    pub original_term_version: i64,
+    pub original_period_index: i64,
+    pub assigned_term_version: i64,
+    pub assigned_period_index: i64,
+    pub adjustment_id: Option<&'a str>,
+    pub signed_delta_atoms: Option<&'a str>,
+}
+
+pub(crate) async fn append_quantity_correction(
     conn: &mut SqliteConnection,
     command: &Command<'_>,
-    term_version: i64,
-    period_index: i64,
+    projection: &QuantityCorrectionProjection<'_>,
 ) -> Result<(), StoreError> {
-    if command.children.len() != 1
-        || command.children[0].family != "ledger-billing-quantity-correction-record/1"
+    let correction = command
+        .children
+        .iter()
+        .find(|child| child.family == "ledger-billing-quantity-correction-record/1")
+        .ok_or(StoreError::Integrity("M5 correction child"))?;
+    let correction_payload = canonical(correction.payload, 262_144)?;
+    let post_close = projection.adjustment_id.is_some();
+    if correction_payload["customer"] != projection.customer
+        || correction_payload["source"] != projection.source
+        || correction_payload["correction_id"] != projection.correction_id
+        || correction_payload["target_activity_id"] != projection.target_id
+        || correction_payload["mode"] != projection.mode
+        || decimal(&correction_payload["original_period_id"]["term_version"])?
+            != projection.original_term_version
+        || decimal(&correction_payload["original_period_id"]["period_index"])?
+            != projection.original_period_index
+        || decimal(&correction_payload["assigned_period_id"]["term_version"])?
+            != projection.assigned_term_version
+        || decimal(&correction_payload["assigned_period_id"]["period_index"])?
+            != projection.assigned_period_index
+        || correction_payload["correction_route"]
+            != if post_close {
+                "post-close-adjustment"
+            } else {
+                "original-open-period"
+            }
+        || command.children.len() != if post_close { 2 } else { 1 }
     {
-        return Err(StoreError::Integrity("M5 cumulative correction child"));
+        return Err(StoreError::Integrity("M5 correction projection"));
     }
-    let payload = canonical(command.children[0].payload, 262_144)?;
-    if payload["mode"] != "cumulative"
-        || payload["correction_route"] != "original-open-period"
-        || decimal(&payload["original_period_id"]["term_version"])? != term_version
-        || decimal(&payload["original_period_id"]["period_index"])? != period_index
-        || payload["assigned_period_id"] != payload["original_period_id"]
-        || cumulative_period_closed(
-            conn,
-            command
-                .customer
-                .ok_or(StoreError::Integrity("M5 correction customer"))?,
-            term_version,
-            period_index,
-        )
-        .await?
+    if cumulative_period_closed(
+        conn,
+        projection.customer,
+        projection.assigned_term_version,
+        projection.assigned_period_index,
+    )
+    .await?
     {
         return Err(StoreError::BillingPeriod);
     }
     let sequence = append(conn, command).await?;
-    let record_sequence: i64 =
-        sqlx::query_scalar("SELECT sequence FROM billing_m5_records WHERE command_sequence=?")
-            .bind(sequence)
-            .fetch_one(&mut *conn)
-            .await?;
-    sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES(?,?,?,?,'m5',?,?,?,'linked-open-period',?)")
-        .bind(command.customer).bind(command.source).bind("ledger-billing-quantity-correction-record/1")
-        .bind(payload["record"]["record_id"].as_str()).bind(record_sequence).bind(term_version).bind(period_index)
-        .bind(command.accepted_at_us).execute(&mut *conn).await?;
+    let records: Vec<(i64, String, String, Vec<u8>)> = sqlx::query_as(
+        "SELECT sequence,family,record_id,payload_bytes FROM billing_m5_records WHERE command_sequence=? ORDER BY sequence",
+    )
+    .bind(sequence)
+    .fetch_all(&mut *conn)
+    .await?;
+    let (correction_sequence, _, correction_record_id, _) = records
+        .iter()
+        .find(|row| row.1 == "ledger-billing-quantity-correction-record/1")
+        .ok_or(StoreError::Integrity("M5 correction record"))?;
+    sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES(?,?,?,?,'m5',?,?,?,?,?)")
+        .bind(projection.customer).bind(projection.source).bind("ledger-billing-quantity-correction-record/1")
+        .bind(correction_record_id).bind(correction_sequence).bind(projection.assigned_term_version).bind(projection.assigned_period_index)
+        .bind(if post_close { "post-close-adjustment" } else { "linked-open-period" }).bind(command.accepted_at_us)
+        .execute(&mut *conn).await?;
+    if let Some(adjustment_id) = projection.adjustment_id {
+        let (adjustment_sequence, _, adjustment_record_id, adjustment_bytes) = records
+            .iter()
+            .find(|row| row.1 == "ledger-billing-post-close-adjustment/1")
+            .ok_or(StoreError::Integrity("M5 adjustment record"))?;
+        let adjustment = canonical(adjustment_bytes, 262_144)?;
+        let cause_kind = if projection.mode == "cumulative" {
+            "cumulative-quantity-correction"
+        } else {
+            "per-work-quantity-correction"
+        };
+        let signed = projection
+            .signed_delta_atoms
+            .ok_or(StoreError::Integrity("M5 adjustment amount"))?;
+        if adjustment["record"]["record_id"] != adjustment_record_id.as_str()
+            || adjustment["adjustment_id"] != adjustment_id
+            || adjustment["cause_kind"] != cause_kind
+            || adjustment["cause_id"] != projection.correction_id
+            || adjustment["target_id"] != projection.target_id
+            || adjustment["signed_delta_atoms"] != signed
+        {
+            return Err(StoreError::Integrity("M5 adjustment child"));
+        }
+        sqlx::query("INSERT INTO billing_m5_adjustments(customer,source_scope,adjustment_id,cause_kind,cause_id,target_id,original_term_version,original_period_index,assigned_term_version,assigned_period_index,source_stream,source_sequence,signed_delta_atoms) VALUES(?,?,?,?,?,?,?,?,?,?,'m5',?,?)")
+            .bind(projection.customer).bind(projection.source).bind(adjustment_id).bind(cause_kind)
+            .bind(projection.correction_id).bind(projection.target_id).bind(projection.original_term_version)
+            .bind(projection.original_period_index).bind(projection.assigned_term_version).bind(projection.assigned_period_index)
+            .bind(adjustment_sequence).bind(signed).execute(&mut *conn).await?;
+    }
     append_boundary(conn).await?;
     Ok(())
 }
@@ -668,45 +850,99 @@ pub(crate) async fn verify_cumulative_corrections(
         let target = request["target"]
             .as_str()
             .ok_or(StoreError::InvalidStore("M5 correction target"))?;
-        let activity_bytes = cumulative_activity_target(conn, customer, source, target)
+        let cumulative = cumulative_activity_target(conn, customer, source, target).await?;
+        let per_work = if cumulative.is_none() {
+            per_work_target(conn, customer, source, target).await?
+        } else {
+            None
+        };
+        let activity = cumulative
+            .as_deref()
+            .map(|bytes| canonical(bytes, 262_144))
+            .transpose()?;
+        let activity_id = activity
+            .as_ref()
+            .and_then(|value| value["activity_id"].as_str())
+            .unwrap_or(target);
+        let (
+            initial_quantity,
+            maximum,
+            unit,
+            term_version,
+            period_index,
+            agreement_version,
+            basis_version,
+        ) = if let Some(activity) = &activity {
+            let agreement_id = activity["agreement_id"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 correction agreement"))?;
+            let agreement_version = decimal(&activity["agreement_version"])?;
+            let basis_version = decimal(&activity["basis_version"])?;
+            let basis_bytes = cumulative_basis_version(
+                conn,
+                customer,
+                source,
+                agreement_id,
+                agreement_version,
+                basis_version,
+            )
             .await?
-            .ok_or(StoreError::InvalidStore("M5 correction target"))?;
-        let activity = canonical(&activity_bytes, 262_144)?;
-        let activity_id = activity["activity_id"]
-            .as_str()
-            .ok_or(StoreError::InvalidStore("M5 correction activity"))?;
+            .ok_or(StoreError::InvalidStore("M5 correction basis"))?;
+            let basis = canonical(&basis_bytes, 262_144)?;
+            (
+                cumulative_integer(&activity["quantity"])?,
+                cumulative_integer(&basis["maximum_period_quantity"])?,
+                basis["source_unit"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 correction unit"))?
+                    .to_owned(),
+                decimal(&activity["period_id"]["term_version"])?,
+                decimal(&activity["period_id"]["period_index"])?,
+                agreement_version,
+                Some(basis_version),
+            )
+        } else {
+            let target = per_work
+                .as_ref()
+                .ok_or(StoreError::InvalidStore("M5 correction target"))?;
+            let bundle = canonical(&target.bundle, 8 * 1024 * 1024)?;
+            let event = bundle
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["kind"] == "event"))
+                .ok_or(StoreError::InvalidStore("M5 correction event"))?;
+            let setup = canonical(&target.setup, 262_144)?;
+            (
+                cumulative_integer(&event["body"]["data"]["quantity"])?,
+                cumulative_integer(&setup["maximum_quantity"])?,
+                event["body"]["data"]["unit"]
+                    .as_str()
+                    .ok_or(StoreError::InvalidStore("M5 correction unit"))?
+                    .to_owned(),
+                target.term_version,
+                target.period_index,
+                target.agreement_version,
+                None,
+            )
+        };
         let key = (
             customer.to_owned(),
             source.to_owned(),
             activity_id.to_owned(),
         );
-        let previous = *quantities
-            .get(&key)
-            .unwrap_or(&cumulative_integer(&activity["quantity"])?);
+        let previous = *quantities.get(&key).unwrap_or(&initial_quantity);
         let delta = cumulative_integer(&request["quantity_delta"])?;
         let resulting = previous
             .checked_add(delta)
             .ok_or(StoreError::InvalidStore("M5 correction quantity"))?;
-        let agreement_id = activity["agreement_id"]
-            .as_str()
-            .ok_or(StoreError::InvalidStore("M5 correction agreement"))?;
-        let agreement_version = decimal(&activity["agreement_version"])?;
-        let basis_version = decimal(&activity["basis_version"])?;
-        let basis_bytes = cumulative_basis_version(
-            conn,
-            customer,
-            source,
-            agreement_id,
-            agreement_version,
-            basis_version,
-        )
-        .await?
-        .ok_or(StoreError::InvalidStore("M5 correction basis"))?;
-        let basis = canonical(&basis_bytes, 262_144)?;
-        let term_version = decimal(&activity["period_id"]["term_version"])?;
-        let period_index = decimal(&activity["period_id"]["period_index"])?;
         let close_cut:Option<i64>=sqlx::query_scalar("SELECT m5_high_water FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
             .bind(customer).bind(term_version).bind(period_index).fetch_optional(&mut *conn).await?;
+        let route = payload["correction_route"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 correction route"))?;
+        let assigned: Option<(i64,i64,String)> = sqlx::query_as("SELECT term_version,period_index,assignment_basis FROM billing_m5_assignments WHERE source_stream='m5' AND source_sequence=?")
+            .bind(sequence).fetch_optional(&mut *conn).await?;
+        let assigned = assigned.ok_or(StoreError::InvalidStore("M5 correction assignment"))?;
+        let post_close = route == "post-close-adjustment";
         if request["schema"] != "ledger-billing-quantity-correction/1"
             || payload["schema"] != "ledger-billing-quantity-correction-record/1"
             || payload["customer"] != customer
@@ -717,16 +953,32 @@ pub(crate) async fn verify_cumulative_corrections(
             || request["quantity_delta"] != delta.to_string()
             || delta == 0
             || resulting < 0
-            || resulting > cumulative_integer(&basis["maximum_period_quantity"])?
+            || resulting > maximum
             || payload["resulting_quantity"] != resulting.to_string()
-            || payload["mode"] != "cumulative"
-            || payload["unit"] != basis["source_unit"]
-            || decimal(&payload["basis_version"])? != basis_version
-            || payload["original_period_id"] != activity["period_id"]
-            || payload["assigned_period_id"] != activity["period_id"]
-            || payload["correction_route"] != "original-open-period"
+            || payload["mode"]
+                != if basis_version.is_some() {
+                    "cumulative"
+                } else {
+                    "per-work"
+                }
+            || payload["unit"] != unit
+            || basis_version
+                .is_some_and(|version| decimal(&payload["basis_version"]).ok() != Some(version))
+            || basis_version.is_none()
+                && decimal(&payload["agreement_version"])? != agreement_version
+            || decimal(&payload["original_period_id"]["term_version"])? != term_version
+            || decimal(&payload["original_period_id"]["period_index"])? != period_index
+            || decimal(&payload["assigned_period_id"]["term_version"])? != assigned.0
+            || decimal(&payload["assigned_period_id"]["period_index"])? != assigned.1
+            || assigned.2
+                != if post_close {
+                    "post-close-adjustment"
+                } else {
+                    "linked-open-period"
+                }
             || utc_us(&payload["record"]["accepted_at"])? != accepted_at_us
-            || close_cut.is_some_and(|cut| sequence > cut)
+            || (post_close && close_cut.is_none_or(|cut| sequence <= cut))
+            || (!post_close && close_cut.is_some_and(|cut| sequence > cut))
         {
             return Err(StoreError::InvalidStore(
                 "M5 cumulative correction projection",
@@ -843,6 +1095,12 @@ pub(crate) async fn expected_cumulative_close_economics(
             continue;
         }
         let value = canonical(&row.payload, 262_144)?;
+        if value["mode"] == "per-work" {
+            continue;
+        }
+        if value["correction_route"] == "post-close-adjustment" {
+            continue;
+        }
         if value["mode"] != "cumulative" || value["correction_route"] != "original-open-period" {
             return Err(StoreError::InvalidStore("M5 cumulative correction route"));
         }
@@ -872,6 +1130,58 @@ pub(crate) async fn expected_cumulative_close_economics(
     let mut lines = Vec::new();
     let mut included = Vec::new();
     let mut net = 0i128;
+    for row in &rows {
+        if row.family != "ledger-billing-quantity-correction-record/1" {
+            continue;
+        }
+        let value = canonical(&row.payload, 262_144)?;
+        if value["mode"] != "per-work" {
+            continue;
+        }
+        if value["correction_route"] != "original-open-period" {
+            continue;
+        }
+        let source = value["source"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 correction source"))?;
+        let target_id = value["target_activity_id"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 correction target"))?;
+        let target = per_work_target(conn, customer, source, target_id)
+            .await?
+            .ok_or(StoreError::InvalidStore("M5 correction target"))?;
+        if decimal(&value["agreement_version"])? != target.agreement_version {
+            return Err(StoreError::InvalidStore("M5 correction agreement"));
+        }
+        let setup = canonical(&target.setup, 262_144)?;
+        let calculation = value["calculation"].clone();
+        let amount = cumulative_integer(&calculation["booked_atoms"])?;
+        if calculation["kind"] != "quantity_correction"
+            || calculation["exact_atoms_numerator"] != amount.to_string()
+            || calculation["exact_atoms_denominator"] != "1"
+            || calculation["rounding"] != "none"
+        {
+            return Err(StoreError::InvalidStore("M5 correction calculation"));
+        }
+        let source_record = json!({"customer":customer,"source":source,"kind":row.family,
+            "id":value["record"]["record_id"]});
+        included.push(source_record.clone());
+        let mut line = json!({"source_records":[source_record],"basis":"quantity_correction",
+            "agreement_id":target.agreement_id,"agreement_version":target.agreement_version.to_string(),
+            "payer":customer,"recipient":setup["host"],"currency":"USD","scale":18,
+            "amount_atoms":amount.to_string(),"calculation":calculation});
+        let identity = CanonicalBytes::from_value(&json!({"view_kind":"standard",
+            "view_identity":{"customer":customer,"period_id":period_id},"line":line}))
+        .map_err(|_| StoreError::InvalidStore("M5 correction line"))?;
+        line["line_id"] = json!(hex(&hash(
+            b"bean-counter/m5/statement-line/1\0",
+            identity.as_slice()
+        )));
+        lines.push(line);
+        net = net
+            .checked_add(amount)
+            .ok_or(StoreError::InvalidStore("M5 close net"))?;
+    }
     for ((source, agreement_id, agreement_version, basis_version), mut bucket) in buckets {
         let basis_bytes = cumulative_basis_version(
             conn,

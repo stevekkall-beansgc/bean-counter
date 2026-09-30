@@ -241,6 +241,97 @@ fn accepted_commit(result: Value, outcome: Result<(), CommitError>) -> local::Re
     }
 }
 
+struct PerWorkFacts {
+    quantity: i128,
+    maximum: i128,
+    unit: String,
+    rate: i128,
+    payer: String,
+    recipient: String,
+}
+
+fn per_work_facts(target: &m5::PerWorkTarget) -> Result<PerWorkFacts, ServiceError> {
+    let bundle = ledgerlab_core::canonical::parse_bounded(&target.bundle, 8 * 1024 * 1024)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let rows = bundle.as_array().ok_or(ServiceError::IntegrityFailure)?;
+    let event = rows
+        .iter()
+        .find(|row| row["kind"] == "event")
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let quantity = event["body"]["data"]["quantity"]
+        .as_str()
+        .ok_or(ServiceError::IntegrityFailure)?
+        .parse::<i128>()
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let unit = event["body"]["data"]["unit"]
+        .as_str()
+        .ok_or(ServiceError::IntegrityFailure)?
+        .to_owned();
+    let postings = rows
+        .iter()
+        .filter(|row| row["kind"] == "base-posting")
+        .collect::<Vec<_>>();
+    let first = postings.first().ok_or(ServiceError::IntegrityFailure)?;
+    let payer = first["body"]["roles"]["payer"]
+        .as_str()
+        .ok_or(ServiceError::IntegrityFailure)?
+        .to_owned();
+    let recipient = first["body"]["roles"]["recipient"]
+        .as_str()
+        .ok_or(ServiceError::IntegrityFailure)?
+        .to_owned();
+    let mut booked = 0i128;
+    for posting in postings {
+        if posting["body"]["amount"]["currency"] != "USD"
+            || posting["body"]["amount"]["scale"] != 18
+            || posting["body"]["roles"]["payer"] != payer
+            || posting["body"]["roles"]["recipient"] != recipient
+            || posting["body"]["agreement_id"] != target.agreement_id
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        booked = booked
+            .checked_add(
+                posting["body"]["amount"]["atoms"]
+                    .as_str()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .parse::<i128>()
+                    .map_err(|_| ServiceError::IntegrityFailure)?,
+            )
+            .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+    }
+    service::require(
+        quantity > 0 && booked % quantity == 0,
+        "BILLING_M5_QUANTITY",
+    )?;
+    let setup = ledgerlab_core::canonical::parse_bounded(&target.setup, 262_144)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let maximum = setup["maximum_quantity"]
+        .as_str()
+        .ok_or(ServiceError::IntegrityFailure)?
+        .parse::<i128>()
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    service::require(
+        setup["unit"] == unit && maximum >= quantity,
+        "BILLING_M5_QUANTITY",
+    )?;
+    Ok(PerWorkFacts {
+        quantity,
+        maximum,
+        unit,
+        rate: booked / quantity,
+        payer,
+        recipient,
+    })
+}
+
+fn adjustment_id(identity: &[u8]) -> String {
+    format!(
+        "m5a_{}",
+        m5::hex(&m5::hash(b"bean-counter/m5/adjustment-id/1\0", identity))
+    )
+}
+
 async fn require_new_time(
     tx: &mut SqliteTx,
     snapshot: &crate::store::sqlite::BillingSnapshot,
@@ -479,7 +570,7 @@ impl BillingLedger {
             "BILLING_M5_REQUEST",
         )?;
         let quantity = positive(&request.quantity)?;
-        let _ = Timestamp::parse(&request.occurred_at)
+        let occurred = Timestamp::parse(&request.occurred_at)
             .map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
         let value = ledgerlab_core::canonical::parse_bounded(raw, 262_144)
             .map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
@@ -564,6 +655,7 @@ impl BillingLedger {
         )?;
         let enforce_clock = accepted_override.is_none();
         let accepted = accepted_override.unwrap_or(local::now()?);
+        service::require(occurred.micros() <= accepted.micros(), "BILLING_M5_REQUEST")?;
         require_new_time(&mut tx, &snapshot, &accepted).await?;
         let (agreement, agreement_version) = service::control::selected_terms(
             &snapshot,
@@ -702,7 +794,7 @@ impl BillingLedger {
             "BILLING_M5_REQUEST",
         )?;
         let delta = signed_nonzero(&request.quantity_delta)?;
-        let _ = Timestamp::parse(&request.occurred_at)
+        let occurred = Timestamp::parse(&request.occurred_at)
             .map_err(|_| service::reject("BILLING_M5_REQUEST"))?;
         let identity = canonical(&json!({
             "schema":"ledger-billing-m5-command-identity/1","domain":"application",
@@ -737,23 +829,45 @@ impl BillingLedger {
             authority.permissions.iter().any(|p| p == "correct"),
             "BILLING_PERMISSION",
         )?;
-        let target_raw = tx
+        let cumulative_target = tx
             .m5_cumulative_activity_target(&request.customer, &request.source, &request.target)
             .await
-            .map_err(store_error)?
-            .ok_or_else(|| service::reject("BILLING_M5_TARGET"))?;
-        let target = retained_result(&target_raw)?;
-        let original_id = target["activity_id"]
-            .as_str()
+            .map_err(store_error)?;
+        let per_work_target = if cumulative_target.is_none() {
+            tx.m5_per_work_target(&request.customer, &request.source, &request.target)
+                .await
+                .map_err(store_error)?
+        } else {
+            None
+        };
+        service::require(
+            cumulative_target.is_some() || per_work_target.is_some(),
+            "BILLING_M5_TARGET",
+        )?;
+        let target = cumulative_target
+            .as_deref()
+            .map(retained_result)
+            .transpose()?;
+        let mode = if target.is_some() {
+            "cumulative"
+        } else {
+            "per-work"
+        };
+        let original_id = target
+            .as_ref()
+            .and_then(|v| v["activity_id"].as_str())
+            .unwrap_or(&request.target);
+        let agreement_id = target
+            .as_ref()
+            .and_then(|v| v["agreement_id"].as_str())
+            .or_else(|| per_work_target.as_ref().map(|v| v.agreement_id.as_str()))
             .ok_or(ServiceError::IntegrityFailure)?;
-        let agreement_id = target["agreement_id"]
-            .as_str()
+        let agreement_version = target
+            .as_ref()
+            .and_then(|v| v["agreement_version"].as_str())
+            .and_then(|v| v.parse::<i64>().ok())
+            .or_else(|| per_work_target.as_ref().map(|v| v.agreement_version))
             .ok_or(ServiceError::IntegrityFailure)?;
-        let agreement_version = target["agreement_version"]
-            .as_str()
-            .ok_or(ServiceError::IntegrityFailure)?
-            .parse::<i64>()
-            .map_err(|_| ServiceError::IntegrityFailure)?;
         let original_agreement = service::control::terms_for_entry(
             &snapshot,
             &request.customer,
@@ -768,52 +882,99 @@ impl BillingLedger {
                 .any(|right| right == "correct"),
             "BILLING_PERMISSION",
         )?;
-        let basis_version = target["basis_version"]
-            .as_str()
-            .ok_or(ServiceError::IntegrityFailure)?
-            .parse::<i64>()
-            .map_err(|_| ServiceError::IntegrityFailure)?;
-        let term_version = target["period_id"]["term_version"]
-            .as_str()
-            .ok_or(ServiceError::IntegrityFailure)?
-            .parse::<i64>()
-            .map_err(|_| ServiceError::IntegrityFailure)?;
-        let period_index = target["period_id"]["period_index"]
-            .as_str()
-            .ok_or(ServiceError::IntegrityFailure)?
-            .parse::<i64>()
-            .map_err(|_| ServiceError::IntegrityFailure)?;
-        if tx
+        let basis_version = target
+            .as_ref()
+            .and_then(|v| v["basis_version"].as_str())
+            .and_then(|v| v.parse::<i64>().ok());
+        let (term_version, period_index) = if let Some(target) = &target {
+            (
+                target["period_id"]["term_version"]
+                    .as_str()
+                    .and_then(|v| v.parse().ok())
+                    .ok_or(ServiceError::IntegrityFailure)?,
+                target["period_id"]["period_index"]
+                    .as_str()
+                    .and_then(|v| v.parse().ok())
+                    .ok_or(ServiceError::IntegrityFailure)?,
+            )
+        } else {
+            let target = per_work_target
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            (target.term_version, target.period_index)
+        };
+        let closed = tx
             .m5_cumulative_period_closed(&request.customer, term_version, period_index)
             .await
-            .map_err(store_error)?
-        {
-            return Err(service::reject("BILLING_M5_PERIOD_CLOSED").into());
-        }
-        let basis_bytes = tx
-            .m5_cumulative_basis_version(
-                &request.customer,
-                &request.source,
-                agreement_id,
-                agreement_version,
-                basis_version,
+            .map_err(store_error)?;
+        let enforce_clock = accepted_override.is_none();
+        let accepted = accepted_override.unwrap_or(local::now()?);
+        service::require(occurred.micros() <= accepted.micros(), "BILLING_M5_REQUEST")?;
+        require_new_time(&mut tx, &snapshot, &accepted).await?;
+        let (assigned_term_version, assigned_period_index) = if closed {
+            let assigned = tx
+                .m5_cumulative_period_at(&request.customer, accepted.micros())
+                .await
+                .map_err(store_error)?;
+            service::require(
+                !tx.m5_cumulative_period_closed(&request.customer, assigned.0, assigned.1)
+                    .await
+                    .map_err(store_error)?,
+                "BILLING_M5_PERIOD",
+            )?;
+            assigned
+        } else {
+            (term_version, period_index)
+        };
+
+        let (basis, per_work) = if let Some(version) = basis_version {
+            let basis_bytes = tx
+                .m5_cumulative_basis_version(
+                    &request.customer,
+                    &request.source,
+                    agreement_id,
+                    agreement_version,
+                    version,
+                )
+                .await
+                .map_err(store_error)?
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let basis: Basis =
+                serde_json::from_slice(&basis_bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+            basis.validate()?;
+            (Some(basis), None)
+        } else {
+            (
+                None,
+                Some(per_work_facts(
+                    per_work_target
+                        .as_ref()
+                        .ok_or(ServiceError::IntegrityFailure)?,
+                )?),
             )
-            .await
-            .map_err(store_error)?
-            .ok_or(ServiceError::IntegrityFailure)?;
-        let basis: Basis =
-            serde_json::from_slice(&basis_bytes).map_err(|_| ServiceError::IntegrityFailure)?;
-        basis.validate()?;
-        let mut resulting = target["quantity"]
-            .as_str()
-            .ok_or(ServiceError::IntegrityFailure)?
-            .parse::<i128>()
-            .map_err(|_| ServiceError::IntegrityFailure)?;
-        for raw_delta in tx
-            .m5_cumulative_target_deltas(&request.customer, &request.source, original_id)
-            .await
-            .map_err(store_error)?
-        {
+        };
+        let mut resulting = if let Some(target) = &target {
+            target["quantity"]
+                .as_str()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .parse::<i128>()
+                .map_err(|_| ServiceError::IntegrityFailure)?
+        } else {
+            per_work
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .quantity
+        };
+        let deltas = if mode == "cumulative" {
+            tx.m5_cumulative_target_deltas(&request.customer, &request.source, original_id)
+                .await
+                .map_err(store_error)?
+        } else {
+            tx.m5_per_work_target_deltas(&request.customer, &request.source, original_id)
+                .await
+                .map_err(store_error)?
+        };
+        for raw_delta in deltas {
             let value = retained_result(&raw_delta)?;
             resulting = resulting
                 .checked_add(
@@ -828,65 +989,205 @@ impl BillingLedger {
         resulting = resulting
             .checked_add(delta)
             .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+        let maximum = basis
+            .as_ref()
+            .map(Basis::maximum)
+            .transpose()?
+            .or_else(|| per_work.as_ref().map(|facts| facts.maximum))
+            .ok_or(ServiceError::IntegrityFailure)?;
         service::require(
-            resulting >= 0 && resulting <= basis.maximum()?,
+            resulting >= 0 && resulting <= maximum,
             "BILLING_M5_QUANTITY",
         )?;
         let sequences = tx.m5_cumulative_sequences().await.map_err(store_error)?;
-        let rows = tx
-            .m5_cumulative_period_records(
-                &request.customer,
-                term_version,
-                period_index,
-                sequences.record - 1,
-            )
-            .await
-            .map_err(store_error)?;
-        let total = bucket_quantity(
-            &rows,
-            &request.source,
-            agreement_id,
-            agreement_version,
-            basis_version,
-        )?;
-        let new_total = total
-            .checked_add(delta)
-            .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
-        service::require(
-            new_total >= 0 && new_total <= basis.maximum()?,
-            "BILLING_M5_QUANTITY",
-        )?;
-        let enforce_clock = accepted_override.is_none();
-        let accepted = accepted_override.unwrap_or(local::now()?);
-        require_new_time(&mut tx, &snapshot, &accepted).await?;
-        let period_id = json!({"term_version":term_version.to_string(),"period_index":period_index.to_string()});
-        let key = canonical(&json!({
+        let (old_booking, new_booking) =
+            if let (Some(basis), Some(version)) = (&basis, basis_version) {
+                let rows = tx
+                    .m5_cumulative_original_period_records(
+                        &request.customer,
+                        term_version,
+                        period_index,
+                        sequences.record - 1,
+                    )
+                    .await
+                    .map_err(store_error)?;
+                let total = bucket_quantity(
+                    &rows,
+                    &request.source,
+                    agreement_id,
+                    agreement_version,
+                    version,
+                )?;
+                let new_total = total
+                    .checked_add(delta)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                service::require(
+                    new_total >= 0 && new_total <= basis.maximum()?,
+                    "BILLING_M5_QUANTITY",
+                )?;
+                (
+                    Some((total, basis.book(total)?)),
+                    Some((new_total, basis.book(new_total)?)),
+                )
+            } else {
+                (None, None)
+            };
+        let original_period_id = json!({"term_version":term_version.to_string(),"period_index":period_index.to_string()});
+        let assigned_period_id = json!({"term_version":assigned_term_version.to_string(),"period_index":assigned_period_index.to_string()});
+        let correction_key = canonical(&json!({
             "role":"quantity-correction","customer":request.customer,"source":request.source,
             "kind":"ledger-billing-quantity-correction-record/1","key":{"correction_id":request.id}
         }))?;
-        let id = m5::record_id(&identity, &key);
+        let correction_id = m5::record_id(&identity, &correction_key);
+        let adjustment_name = closed.then(|| adjustment_id(&identity));
+        let adjustment_key = adjustment_name.as_ref().map(|adjustment_id| canonical(&json!({
+            "role":"post-close-adjustment","customer":request.customer,"source":request.source,
+            "kind":"ledger-billing-post-close-adjustment/1","key":{"adjustment_id":adjustment_id}
+        }))).transpose()?;
+        let adjustment_record_id = adjustment_key
+            .as_ref()
+            .map(|key| m5::record_id(&identity, key));
+        let correction_sequence = sequences.record + i64::from(closed);
+        let unit = basis
+            .as_ref()
+            .map(|b| b.source_unit.as_str())
+            .or_else(|| per_work.as_ref().map(|facts| facts.unit.as_str()))
+            .ok_or(ServiceError::IntegrityFailure)?;
         let mut payload = json!({
             "schema":"ledger-billing-quantity-correction-record/1","customer":request.customer,
             "source":request.source,"correction_id":request.id,"target_activity_id":original_id,
-            "quantity_delta":request.quantity_delta,"mode":"cumulative","unit":basis.source_unit,
-            "basis_version":basis_version.to_string(),"resulting_quantity":resulting.to_string(),
-            "original_period_id":period_id,"assigned_period_id":period_id,
-            "correction_route":"original-open-period",
-            "record":{"record_id":id,"sequence":sequences.record.to_string(),
+            "quantity_delta":request.quantity_delta,"mode":mode,"unit":unit,
+            "resulting_quantity":resulting.to_string(),
+            "original_period_id":original_period_id,"assigned_period_id":assigned_period_id,
+            "correction_route":if closed {"post-close-adjustment"} else {"original-open-period"},
+            "record":{"record_id":correction_id,"sequence":correction_sequence.to_string(),
                 "accepted_at":accepted.as_str(),"command_sequence":sequences.command.to_string()}
         });
+        if let Some(version) = basis_version {
+            payload["basis_version"] = json!(version.to_string());
+        }
+        if mode == "per-work" {
+            payload["agreement_version"] = json!(agreement_version.to_string());
+            if !closed {
+                let facts = per_work.as_ref().ok_or(ServiceError::IntegrityFailure)?;
+                let amount = facts
+                    .rate
+                    .checked_mul(delta)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                payload["calculation"] = json!({"kind":"quantity_correction","exact_atoms_numerator":amount.to_string(),
+                    "exact_atoms_denominator":"1","booked_atoms":amount.to_string(),"rounding":"none",
+                    "operands":{"agreement_version":agreement_version.to_string(),"target_id":original_id,
+                        "quantity_delta":request.quantity_delta,"unit":facts.unit,"rate_atoms_per_unit":facts.rate.to_string()}});
+            }
+        }
         let payload = m5::seal_child("ledger-billing-quantity-correction-record/1", &mut payload)
             .map_err(store_error)?;
-        let result =
-            json!({"status":"accepted","receipt":receipt(sequences.command,&[id],&accepted,raw)});
+        let mut adjustment_payload = None;
+        let mut signed_delta_atoms = None;
+        if closed {
+            let adjustment_id = adjustment_name
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let adjustment_record_id = adjustment_record_id
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let (cause_kind, signed, calculation) = if let (
+                Some((old_quantity, old)),
+                Some((new_quantity, new)),
+            ) = (old_booking, new_booking)
+            {
+                let signed = new
+                    .booked_atoms
+                    .checked_sub(old.booked_atoms)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                (
+                    "cumulative-quantity-correction",
+                    signed,
+                    json!({"kind":"post_close_adjustment",
+                    "exact_atoms_numerator":signed.to_string(),"exact_atoms_denominator":"1","booked_atoms":signed.to_string(),"rounding":"none",
+                    "operands":{"adjustment_id":adjustment_id,"cause_kind":"cumulative-quantity-correction","cause_id":request.id,
+                        "original_period_id":original_period_id,"assigned_period_id":assigned_period_id,"basis_version":basis_version.unwrap().to_string(),
+                        "target_id":original_id,"quantity_delta":request.quantity_delta,"unit":unit,
+                        "old_quantity":old_quantity.to_string(),"new_quantity":new_quantity.to_string(),
+                        "old_exact_atoms_numerator":old.numerator,"old_exact_atoms_denominator":old.denominator,"old_booked_atoms":old.booked_atoms.to_string(),
+                        "new_exact_atoms_numerator":new.numerator,"new_exact_atoms_denominator":new.denominator,"new_booked_atoms":new.booked_atoms.to_string()}}),
+                )
+            } else {
+                let facts = per_work.as_ref().ok_or(ServiceError::IntegrityFailure)?;
+                let old_quantity = resulting
+                    .checked_sub(delta)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                let old_atoms = facts
+                    .rate
+                    .checked_mul(old_quantity)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                let new_atoms = facts
+                    .rate
+                    .checked_mul(resulting)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                let signed = new_atoms
+                    .checked_sub(old_atoms)
+                    .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+                (
+                    "per-work-quantity-correction",
+                    signed,
+                    json!({"kind":"post_close_adjustment",
+                    "exact_atoms_numerator":signed.to_string(),"exact_atoms_denominator":"1","booked_atoms":signed.to_string(),"rounding":"none",
+                    "operands":{"adjustment_id":adjustment_id,"cause_kind":"per-work-quantity-correction","cause_id":request.id,
+                        "original_period_id":original_period_id,"assigned_period_id":assigned_period_id,"target_id":original_id,
+                        "quantity_delta":request.quantity_delta,"unit":facts.unit,"rate_atoms_per_unit":facts.rate.to_string(),
+                        "old_quantity":old_quantity.to_string(),"new_quantity":resulting.to_string(),
+                        "old_exact_atoms_numerator":old_atoms.to_string(),"old_exact_atoms_denominator":"1","old_booked_atoms":old_atoms.to_string(),
+                        "new_exact_atoms_numerator":new_atoms.to_string(),"new_exact_atoms_denominator":"1","new_booked_atoms":new_atoms.to_string(),
+                        "agreement_version":agreement_version.to_string()}}),
+                )
+            };
+            signed_delta_atoms = Some(signed.to_string());
+            let mut value = json!({"schema":"ledger-billing-post-close-adjustment/1","customer":request.customer,
+                "source":request.source,"adjustment_id":adjustment_id,"cause_kind":cause_kind,"cause_id":request.id,
+                "target_id":original_id,"original_period_id":original_period_id,"assigned_period_id":assigned_period_id,
+                "signed_delta_atoms":signed.to_string(),"currency":"USD","scale":18,"calculation":calculation,
+                "record":{"record_id":adjustment_record_id,"sequence":sequences.record.to_string(),
+                    "accepted_at":accepted.as_str(),"command_sequence":sequences.command.to_string()}});
+            adjustment_payload = Some(
+                m5::seal_child("ledger-billing-post-close-adjustment/1", &mut value)
+                    .map_err(store_error)?,
+            );
+        }
+        let record_ids = if let Some(adjustment_record_id) = &adjustment_record_id {
+            vec![adjustment_record_id.clone(), correction_id.clone()]
+        } else {
+            vec![correction_id.clone()]
+        };
+        let mut result = json!({"status":"accepted","receipt":receipt(sequences.command,&record_ids,&accepted,raw)});
+        if let (Some(adjustment_id), Some(signed)) = (&adjustment_name, &signed_delta_atoms) {
+            result["adjustment"] = json!({"source":request.source,"adjustment_id":adjustment_id,
+                "basis":if mode=="cumulative" {"cumulative_quantity"} else {"per_work_quantity"},
+                "original_period_id":original_period_id,"assigned_period_id":assigned_period_id,"signed_delta_atoms":signed});
+        }
         let response = canonical(&result)?;
-        let child = Child {
+        let correction_child = Child {
             family: "ledger-billing-quantity-correction-record/1",
             customer: Some(&request.customer),
             source: Some(&request.source),
-            child_key: &key,
+            child_key: &correction_key,
             payload: &payload,
         };
+        let adjustment_child = adjustment_payload
+            .as_ref()
+            .zip(adjustment_key.as_ref())
+            .map(|(payload, key)| Child {
+                family: "ledger-billing-post-close-adjustment/1",
+                customer: Some(&request.customer),
+                source: Some(&request.source),
+                child_key: key,
+                payload,
+            });
+        let mut children = adjustment_child
+            .into_iter()
+            .chain(std::iter::once(correction_child))
+            .collect::<Vec<_>>();
+        children.sort_by(|left, right| left.child_key.cmp(right.child_key));
         let command = Command {
             family: "ledger-billing-quantity-correction/1",
             domain: "application",
@@ -897,11 +1198,26 @@ impl BillingLedger {
             enforce_clock,
             request: raw,
             response: &response,
-            children: std::slice::from_ref(&child),
+            children: &children,
         };
-        tx.m5_append_cumulative_correction(&command, term_version, period_index)
-            .await
-            .map_err(store_error)?;
+        tx.m5_append_quantity_correction(
+            &command,
+            &m5::QuantityCorrectionProjection {
+                customer: &request.customer,
+                source: &request.source,
+                correction_id: &request.id,
+                target_id: original_id,
+                mode,
+                original_term_version: term_version,
+                original_period_index: period_index,
+                assigned_term_version,
+                assigned_period_index,
+                adjustment_id: adjustment_name.as_deref(),
+                signed_delta_atoms: signed_delta_atoms.as_deref(),
+            },
+        )
+        .await
+        .map_err(store_error)?;
         accepted_commit(result, tx.commit().await)
     }
 }
@@ -1073,11 +1389,67 @@ pub(super) async fn close_lines(
             .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
         bucket.source_records.push(json!({"customer":customer,"source":source,"kind":row.family,"id":value["record"]["record_id"]}));
     }
+    let mut lines = Vec::new();
+    let mut included = Vec::new();
+    let mut net = 0i128;
     for row in &rows {
         if row.family != "ledger-billing-quantity-correction-record/1" {
             continue;
         }
         let value = retained_result(&row.payload)?;
+        if value["correction_route"] == "post-close-adjustment" {
+            continue;
+        }
+        if value["mode"] == "per-work" {
+            service::require(
+                value["correction_route"] == "original-open-period",
+                "BILLING_M5_PERIOD",
+            )?;
+            let source = value["source"]
+                .as_str()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let target_id = value["target_activity_id"]
+                .as_str()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let target = tx
+                .m5_per_work_target(customer, source, target_id)
+                .await
+                .map_err(store_error)?
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let facts = per_work_facts(&target)?;
+            let calculation = value["calculation"].clone();
+            let amount = calculation["booked_atoms"]
+                .as_str()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .parse::<i128>()
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            service::require(
+                calculation["kind"] == "quantity_correction"
+                    && calculation["exact_atoms_numerator"] == amount.to_string()
+                    && calculation["exact_atoms_denominator"] == "1"
+                    && calculation["rounding"] == "none",
+                "BILLING_M5_INTEGRITY",
+            )?;
+            let source_record = json!({"customer":customer,"source":source,"kind":row.family,
+                "id":value["record"]["record_id"]});
+            included.push(source_record.clone());
+            let mut line = json!({"source_records":[source_record],"basis":"quantity_correction",
+                "agreement_id":target.agreement_id,"agreement_version":target.agreement_version.to_string(),
+                "payer":facts.payer,"recipient":facts.recipient,"currency":"USD","scale":18,
+                "amount_atoms":amount.to_string(),"calculation":calculation});
+            let identity = CanonicalBytes::from_value(&json!({"view_kind":"standard",
+                "view_identity":{"customer":customer,"period_id":period_id},"line":line}))
+            .map_err(|_| service::reject("BILLING_M5_BOUNDS"))?;
+            line["line_id"] = json!(m5::hex(&m5::hash(
+                b"bean-counter/m5/statement-line/1\0",
+                identity.as_slice()
+            )));
+            lines.push(line);
+            net = net
+                .checked_add(amount)
+                .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
+            continue;
+        }
         if value["mode"] != "cumulative" || value["correction_route"] != "original-open-period" {
             return Err(service::reject("BILLING_M5_PERIOD"));
         }
@@ -1102,9 +1474,7 @@ pub(super) async fn close_lines(
             .ok_or_else(|| service::reject("BILLING_M5_BOUNDS"))?;
         bucket.source_records.push(json!({"customer":customer,"source":source,"kind":row.family,"id":value["record"]["record_id"]}));
     }
-    let mut lines = Vec::with_capacity(buckets.len());
-    let mut included = Vec::new();
-    let mut net = 0i128;
+    lines.reserve(buckets.len());
     for ((source, agreement_id, agreement_version, basis_version), mut bucket) in buckets {
         service::require(bucket.quantity >= 0, "BILLING_M5_QUANTITY")?;
         let basis_bytes = tx
@@ -1424,10 +1794,31 @@ mod tests {
             "id":"correction-after-close","target":"activity-1","quantity_delta":"1",
             "occurred_at":"2026-11-06T11:00:00.000000Z","evidence":"late evidence"
         }));
-        assert!(
-            matches!(ledger.quantity_correct_at(&after_close,Timestamp::parse("2026-11-06T11:00:01.000000Z").unwrap()).await,
-            Err(local::LocalError::Service(ServiceError::Rejection(code))) if code=="BILLING_M5_PERIOD_CLOSED")
+        let after_close_result = ledger
+            .quantity_correct_at(
+                &after_close,
+                Timestamp::parse("2026-11-06T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(after_close_result["adjustment"]["signed_delta_atoms"], "0");
+        assert_eq!(
+            after_close_result["adjustment"]["basis"],
+            "cumulative_quantity"
         );
+        let second_after_close = wire(json!({
+            "schema":"ledger-billing-quantity-correction/1","customer":"customer-1","source":"urn:example:work",
+            "id":"correction-after-close-2","target":"activity-1","quantity_delta":"1",
+            "occurred_at":"2026-11-07T11:00:00.000000Z","evidence":"second late evidence"
+        }));
+        let second_result = ledger
+            .quantity_correct_at(
+                &second_after_close,
+                Timestamp::parse("2026-11-07T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(second_result["adjustment"]["signed_delta_atoms"], "1");
         let zero_activity = wire(json!({
             "schema":"ledger-billing-activity/1","customer":"customer-1","source":"urn:example:work",
             "id":"activity-zero","operation_id":"operation-zero","target":"run-zero","quantity":"1",
@@ -1463,15 +1854,14 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(zero_statement["net_atoms"], "0");
-        assert_eq!(
-            zero_statement["lines"][0]["calculation"]["exact_atoms_numerator"],
-            "0"
-        );
-        assert_eq!(
-            zero_statement["lines"][0]["calculation"]["exact_atoms_denominator"],
-            "1"
-        );
+        assert_eq!(zero_statement["net_atoms"], "1");
+        assert!(zero_statement["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|line| line["basis"] == "post_close_adjustment"
+                && line["calculation"]["operands"]["new_quantity"] == "5"
+                && line["amount_atoms"] == "1"));
         for (id, operation, day) in [
             ("activity-bucket-a", "operation-bucket-a", "10"),
             ("activity-bucket-b", "operation-bucket-b", "11"),
@@ -1579,5 +1969,152 @@ mod tests {
             bucket_statement
         );
         reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn per_work_corrections_route_open_then_ad_hoc_after_close() {
+        use sqlx::Connection;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../../examples/billing/usage/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let term = wire(json!({
+            "schema":"ledger-billing-term/1","customer":"customer-usage-1","change_id":"per-work-term",
+            "expected_revision":"0","effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }));
+        ledger.term_set(&term).await.unwrap();
+        ledger
+            .accept_at(
+                "customer-usage-1",
+                "urn:example:usage-work",
+                include_bytes!("../../../../examples/billing/usage/event.json"),
+                Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let open = wire(json!({"schema":"ledger-billing-quantity-correction/1",
+            "customer":"customer-usage-1","source":"urn:example:usage-work","id":"work-open",
+            "target":"usage-work-1","quantity_delta":"-1","occurred_at":"2026-10-02T11:00:00.000000Z",
+            "evidence":"verified open correction"}));
+        let open_result = ledger
+            .quantity_correct_at(
+                &open,
+                Timestamp::parse("2026-10-02T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(open_result.get("adjustment").is_none());
+        let close0 = wire(
+            json!({"schema":"ledger-billing-period-close/1","customer":"customer-usage-1",
+            "period_id":{"term_version":"1","period_index":"0"}}),
+        );
+        let statement0 = ledger
+            .period_close_at(
+                &close0,
+                Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(statement0["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|line| line["basis"] == "quantity_correction"
+                && line["amount_atoms"] == "-250000000000"));
+
+        let late = wire(json!({"schema":"ledger-billing-quantity-correction/1",
+            "customer":"customer-usage-1","source":"urn:example:usage-work","id":"work-late",
+            "target":"usage-work-1","quantity_delta":"2","occurred_at":"2026-10-06T11:00:00.000000Z",
+            "evidence":"verified late correction"}));
+        let late_result = ledger
+            .quantity_correct_at(
+                &late,
+                Timestamp::parse("2026-10-06T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            late_result["adjustment"]["signed_delta_atoms"],
+            "500000000000"
+        );
+        assert_eq!(
+            ledger
+                .quantity_correct_at(
+                    &late,
+                    Timestamp::parse("2026-10-06T11:00:01.000000Z").unwrap()
+                )
+                .await
+                .unwrap(),
+            late_result
+        );
+        let adjustment_id = late_result["adjustment"]["adjustment_id"].as_str().unwrap();
+        let issue =
+            serde_json::to_vec_pretty(&json!({"schema":"ledger-billing-ad-hoc-statement/1",
+            "customer":"customer-usage-1","command_id":"per-work-ad-hoc",
+            "adjustments":[{"source":"urn:example:usage-work","adjustment_id":adjustment_id}]}))
+            .unwrap();
+        let issued = ledger
+            .adjustment_statement_at(
+                &issue,
+                Timestamp::parse("2026-10-07T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(issued["net_atoms"], "500000000000");
+        assert_eq!(issued["lines"][0]["basis"], "post_close_adjustment");
+        let close1 = wire(
+            json!({"schema":"ledger-billing-period-close/1","customer":"customer-usage-1",
+            "period_id":{"term_version":"1","period_index":"1"}}),
+        );
+        let statement1 = ledger
+            .period_close_at(
+                &close1,
+                Timestamp::parse("2026-11-05T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(statement1["net_atoms"], "0");
+        assert_eq!(statement1["lines"], json!([]));
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        assert_eq!(
+            reopened
+                .adjustment_statement_at(
+                    &issue,
+                    Timestamp::parse("2026-10-07T12:00:00.000000Z").unwrap()
+                )
+                .await
+                .unwrap(),
+            issued
+        );
+        reopened.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        sqlx::query("DROP TRIGGER billing_m5_adjustments_no_update")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE billing_m5_adjustments SET signed_delta_atoms='1' WHERE cause_id='work-late'",
+        )
+        .execute(&mut conn)
+        .await
+        .unwrap();
+        conn.close().await.unwrap();
+        assert!(BillingLedger::open(&path).await.is_err());
     }
 }

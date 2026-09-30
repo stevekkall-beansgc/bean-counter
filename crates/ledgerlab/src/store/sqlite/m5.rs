@@ -98,6 +98,9 @@ type ClaimReconciliationRow = (
     String,
     i64,
 );
+type RecurrenceProjectionRow = (String, i64, i64, Vec<u8>, Option<i64>);
+type RecurrenceVersionVerifyRow = (String, String, String, i64, i64, i64, Vec<u8>, Vec<u8>);
+type M5AdjustmentSourceRow = (String, String, String, Vec<u8>, Vec<u8>);
 
 #[derive(Clone)]
 pub(crate) struct Child<'a> {
@@ -286,7 +289,7 @@ pub(crate) async fn recurrence_state(
     if schema != 11 {
         return Err(StoreError::BillingUpgradeRequired);
     }
-    let rows: Vec<(String,i64,i64,Vec<u8>,Option<i64>)> = sqlx::query_as(
+    let rows: Vec<RecurrenceProjectionRow> = sqlx::query_as(
         "SELECT v.agreement_id,v.agreement_version,v.recurrence_version,v.rule_bytes,c.cancelled_at_us FROM billing_m5_recurrence_versions v LEFT JOIN billing_m5_recurrence_cancellations c ON c.customer=v.customer AND c.source=v.source AND c.recurrence_version=v.recurrence_version WHERE v.customer=? AND v.source=? ORDER BY v.recurrence_version"
     ).bind(customer).bind(source).fetch_all(&mut *conn).await?;
     let mut versions = Vec::with_capacity(rows.len());
@@ -682,6 +685,7 @@ pub(crate) struct PresentableAdjustment {
     pub agreement_id: String,
     pub agreement_version: i64,
     pub prior_outcome_id: Option<String>,
+    pub recipient: Option<String>,
 }
 
 async fn prior_outcome_id(
@@ -785,14 +789,6 @@ async fn presentable_adjustments(
         if !original_closed {
             return Err(StoreError::InvalidStore("M5 unclosed adjustment origin"));
         }
-        // The M4 correction remains the authoritative monetary source. Its
-        // adjustment is only a projection and does not advance the M5 stream.
-        if source_stream != "m3" || cause_kind != "outcome-correction" {
-            return Err(StoreError::BillingPeriod);
-        }
-        let retained: Option<PresentableSourceRow> = sqlx::query_as(
-            "SELECT a.source_record_id,a.source_record_kind,e.bundle,e.ingress,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.source_stream='m3' AND a.source_sequence=? AND a.customer=? AND a.source_scope=? AND a.assignment_basis='post-close-adjustment'"
-        ).bind(source_sequence).bind(customer).bind(&source).fetch_optional(&mut *conn).await?;
         let (
             source_record_id,
             source_record_kind,
@@ -800,14 +796,85 @@ async fn presentable_adjustments(
             ingress,
             agreement_id,
             agreement_version,
-        ) = retained.ok_or(StoreError::InvalidStore("M5 adjustment source"))?;
-        let parsed_ingress = parse_bounded(&ingress, 262_144)
-            .map_err(|_| StoreError::InvalidStore("M5 adjustment ingress"))?;
-        let family = parsed_ingress["family"]
-            .as_str()
-            .ok_or(StoreError::InvalidStore("M5 adjustment family"))?;
-        let prior_outcome_id =
-            prior_outcome_id(conn, customer, &source, &target_id, source_sequence, family).await?;
+            prior_outcome_id,
+            recipient,
+        ) = if source_stream == "m3" && cause_kind == "outcome-correction" {
+            let retained: Option<PresentableSourceRow> = sqlx::query_as(
+                    "SELECT a.source_record_id,a.source_record_kind,e.bundle,e.ingress,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.source_stream='m3' AND a.source_sequence=? AND a.customer=? AND a.source_scope=? AND a.assignment_basis='post-close-adjustment'"
+                ).bind(source_sequence).bind(customer).bind(&source).fetch_optional(&mut *conn).await?;
+            let (id, kind, bundle, ingress, agreement_id, agreement_version) =
+                retained.ok_or(StoreError::InvalidStore("M5 adjustment source"))?;
+            let parsed_ingress = parse_bounded(&ingress, 262_144)
+                .map_err(|_| StoreError::InvalidStore("M5 adjustment ingress"))?;
+            let family = parsed_ingress["family"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 adjustment family"))?;
+            let prior =
+                prior_outcome_id(conn, customer, &source, &target_id, source_sequence, family)
+                    .await?;
+            (
+                id,
+                kind,
+                bundle,
+                ingress,
+                agreement_id,
+                agreement_version,
+                prior,
+                None,
+            )
+        } else if source_stream == "m5"
+            && matches!(
+                cause_kind.as_str(),
+                "per-work-quantity-correction" | "cumulative-quantity-correction"
+            )
+        {
+            let retained: Option<(String,String,Vec<u8>,Vec<u8>)> = sqlx::query_as(
+                    "SELECT r.record_id,r.family,r.payload_bytes,c.request_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE r.sequence=? AND r.family='ledger-billing-post-close-adjustment/1'"
+                ).bind(source_sequence).fetch_optional(&mut *conn).await?;
+            let (id, kind, payload, request) =
+                retained.ok_or(StoreError::InvalidStore("M5 adjustment source"))?;
+            let (agreement_id, agreement_version) =
+                if cause_kind == "cumulative-quantity-correction" {
+                    let activity = cumulative_activity_target(conn, customer, &source, &target_id)
+                        .await?
+                        .ok_or(StoreError::InvalidStore("M5 adjustment target"))?;
+                    let activity = canonical(&activity, 262_144)?;
+                    (
+                        activity["agreement_id"]
+                            .as_str()
+                            .ok_or(StoreError::InvalidStore("M5 adjustment agreement"))?
+                            .to_owned(),
+                        decimal(&activity["agreement_version"])?,
+                    )
+                } else {
+                    let target = per_work_target(conn, customer, &source, &target_id)
+                        .await?
+                        .ok_or(StoreError::InvalidStore("M5 adjustment target"))?;
+                    (target.agreement_id, target.agreement_version)
+                };
+            let setup: Option<Vec<u8>> = sqlx::query_scalar("SELECT setup_bytes FROM billing_agreements WHERE customer=? AND source=? AND agreement_id=? AND agreement_version=? AND transition IN ('start','amend') ORDER BY revision DESC LIMIT 1")
+                    .bind(customer).bind(&source).bind(&agreement_id).bind(agreement_version).fetch_optional(&mut *conn).await?;
+            let setup = canonical(
+                &setup.ok_or(StoreError::InvalidStore("M5 adjustment setup"))?,
+                262_144,
+            )?;
+            let recipient = setup["host"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 adjustment recipient"))?
+                .to_owned();
+            (
+                id,
+                kind,
+                payload,
+                request,
+                agreement_id,
+                agreement_version,
+                None,
+                Some(recipient),
+            )
+        } else {
+            return Err(StoreError::BillingPeriod);
+        };
         result.push(PresentableAdjustment {
             source,
             adjustment_id,
@@ -827,6 +894,7 @@ async fn presentable_adjustments(
             agreement_id,
             agreement_version,
             prior_outcome_id,
+            recipient,
         });
     }
     Ok(result)
@@ -2599,7 +2667,7 @@ async fn verify_recurrence_projections(
     conn: &mut SqliteConnection,
     records: &[RetainedRecord],
 ) -> Result<(), StoreError> {
-    let versions:Vec<(String,String,String,i64,i64,i64,Vec<u8>,Vec<u8>)>=sqlx::query_as(
+    let versions:Vec<RecurrenceVersionVerifyRow>=sqlx::query_as(
         "SELECT customer,source,agreement_id,agreement_version,recurrence_version,record_sequence,rule_bytes,renewal_bytes FROM billing_m5_recurrence_versions ORDER BY customer,source,recurrence_version"
     ).fetch_all(&mut *conn).await?;
     let mut prior: Option<(String, String, i64)> = None;
@@ -2714,10 +2782,11 @@ async fn verify_recurrence_projections(
         let assignment:Option<(i64,i64)>=sqlx::query_as(
             "SELECT term_version,period_index FROM billing_m5_assignments WHERE source_stream='m3' AND source_sequence=? AND customer=? AND source_scope=?"
         ).bind(ordinal).bind(customer).bind(source).fetch_optional(&mut *conn).await?;
-        if assignment.is_none_or(|(term, index)| {
-            payload["period_id"]["term_version"] != term.to_string()
-                || payload["period_id"]["period_index"] != index.to_string()
-        }) {
+        let payload_period = (
+            decimal(&payload["period_id"]["term_version"])?,
+            decimal(&payload["period_id"]["period_index"])?,
+        );
+        if assignment != Some(payload_period) {
             return Err(StoreError::InvalidStore("M5 occurrence assignment"));
         }
     }
@@ -3855,6 +3924,48 @@ async fn verify_term_projections(
         delta,
     ) in adjustments
     {
+        if stream == "m5" {
+            if !matches!(
+                cause_kind.as_str(),
+                "per-work-quantity-correction" | "cumulative-quantity-correction"
+            ) || cause_id.is_empty()
+            {
+                return Err(StoreError::InvalidStore("M5 adjustment identity"));
+            }
+            let source: Option<M5AdjustmentSourceRow> = sqlx::query_as(
+                "SELECT r.customer,r.source,r.family,r.payload_bytes,c.request_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE r.sequence=?"
+            ).bind(sequence).fetch_optional(&mut *conn).await?;
+            let (source_customer, source_scope, family, payload, request) =
+                source.ok_or(StoreError::InvalidStore("M5 adjustment source"))?;
+            let payload = canonical(&payload, 262_144)?;
+            let request = parse_bounded(&request, 262_144)
+                .map_err(|_| StoreError::InvalidStore("M5 adjustment request"))?;
+            if source_customer != customer
+                || source_scope != scope
+                || family != "ledger-billing-post-close-adjustment/1"
+                || payload["adjustment_id"] != adjustment_id
+                || payload["cause_kind"] != cause_kind
+                || payload["cause_id"] != cause_id
+                || payload["target_id"] != target
+                || payload["signed_delta_atoms"] != delta
+                || request["schema"] != "ledger-billing-quantity-correction/1"
+                || request["id"] != cause_id
+                || request["target"] != target
+                || decimal(&payload["original_period_id"]["term_version"])? != original_version
+                || decimal(&payload["original_period_id"]["period_index"])? != original_period
+                || decimal(&payload["assigned_period_id"]["term_version"])? != assigned_version
+                || decimal(&payload["assigned_period_id"]["period_index"])? != assigned_period
+                || payload["calculation"]["booked_atoms"] != delta
+            {
+                return Err(StoreError::InvalidStore("M5 adjustment projection"));
+            }
+            let close_cut: Option<i64> = sqlx::query_scalar("SELECT m5_high_water FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?")
+                .bind(&customer).bind(original_version).bind(original_period).fetch_optional(&mut *conn).await?;
+            if close_cut.is_none_or(|cut| sequence <= cut) {
+                return Err(StoreError::InvalidStore("M5 adjustment close"));
+            }
+            continue;
+        }
         if stream != "m3" {
             return Err(StoreError::InvalidStore("M5 adjustment source stream"));
         }

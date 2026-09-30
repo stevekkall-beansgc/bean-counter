@@ -316,6 +316,72 @@ pub(crate) fn adjustment_line(
     view_identity: &Value,
     adjustment: &PresentableAdjustment,
 ) -> Result<(Value, i128), &'static str> {
+    if adjustment.source_stream == "m5" {
+        if !matches!(
+            adjustment.cause_kind.as_str(),
+            "per-work-quantity-correction" | "cumulative-quantity-correction"
+        ) {
+            return Err("M5 unsupported adjustment source");
+        }
+        let payload = ledgerlab_core::canonical::parse_bounded(&adjustment.bundle, 262_144)
+            .map_err(|_| "M5 adjustment payload")?;
+        let request = ledgerlab_core::canonical::parse_bounded(&adjustment.ingress, 262_144)
+            .map_err(|_| "M5 adjustment request")?;
+        let amount = payload["signed_delta_atoms"]
+            .as_str()
+            .ok_or("M5 adjustment amount")?
+            .parse::<i128>()
+            .map_err(|_| "M5 adjustment amount")?;
+        let calculation = &payload["calculation"];
+        if payload["schema"] != "ledger-billing-post-close-adjustment/1"
+            || payload["record"]["record_id"] != adjustment.source_record_id
+            || payload["adjustment_id"] != adjustment.adjustment_id
+            || payload["cause_kind"] != adjustment.cause_kind
+            || payload["target_id"] != adjustment.target_id
+            || payload["signed_delta_atoms"] != adjustment.signed_delta_atoms
+            || payload["original_period_id"]["term_version"]
+                .as_str()
+                .and_then(|v| v.parse::<i64>().ok())
+                != Some(adjustment.original_term_version)
+            || payload["original_period_id"]["period_index"]
+                .as_str()
+                .and_then(|v| v.parse::<i64>().ok())
+                != Some(adjustment.original_period_index)
+            || payload["assigned_period_id"]["term_version"]
+                .as_str()
+                .and_then(|v| v.parse::<i64>().ok())
+                != Some(adjustment.assigned_term_version)
+            || payload["assigned_period_id"]["period_index"]
+                .as_str()
+                .and_then(|v| v.parse::<i64>().ok())
+                != Some(adjustment.assigned_period_index)
+            || request["schema"] != "ledger-billing-quantity-correction/1"
+            || request["id"] != payload["cause_id"]
+            || request["target"] != adjustment.target_id
+            || calculation["kind"] != "post_close_adjustment"
+            || calculation["booked_atoms"] != adjustment.signed_delta_atoms
+            || calculation["exact_atoms_numerator"] != adjustment.signed_delta_atoms
+            || calculation["exact_atoms_denominator"] != "1"
+            || calculation["rounding"] != "none"
+        {
+            return Err("M5 adjustment projection");
+        }
+        let source_record = json!({"customer":customer,"source":adjustment.source,
+            "kind":adjustment.source_record_kind,"id":adjustment.source_record_id});
+        let mut line = json!({"source_records":[source_record],"basis":"post_close_adjustment",
+            "agreement_id":adjustment.agreement_id,"agreement_version":adjustment.agreement_version.to_string(),
+            "payer":customer,"recipient":adjustment.recipient.as_deref().ok_or("M5 adjustment recipient")?,
+            "currency":"USD","scale":18,"amount_atoms":amount.to_string(),"calculation":calculation});
+        let identity = CanonicalBytes::from_value(
+            &json!({"view_kind":view_kind,"view_identity":view_identity,"line":line}),
+        )
+        .map_err(|_| "M5 adjustment line")?;
+        line["line_id"] = json!(m5::hex(&m5::hash(
+            b"bean-counter/m5/statement-line/1\0",
+            identity.as_slice()
+        )));
+        return Ok((line, amount));
+    }
     if adjustment.source_stream != "m3" || adjustment.cause_kind != "outcome-correction" {
         return Err("M5 unsupported adjustment source");
     }
@@ -502,6 +568,7 @@ pub(crate) fn outcome_assignment_line(
             .ok_or("M5 outcome agreement")?,
         agreement_version: assignment.agreement_version.ok_or("M5 outcome agreement")?,
         prior_outcome_id: assignment.prior_outcome_id.clone(),
+        recipient: None,
     };
     adjustment_line(customer, view_kind, view_identity, &outcome)
 }

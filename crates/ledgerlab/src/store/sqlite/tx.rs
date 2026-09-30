@@ -424,6 +424,22 @@ impl SqliteTx {
         )
         .await
     }
+    pub(crate) async fn m5_cumulative_original_period_records(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+        high_water: i64,
+    ) -> Result<Vec<super::m5::CumulativeAssignedRecord>, StoreError> {
+        super::m5::cumulative_original_period_records(
+            self.conn(),
+            customer,
+            term_version,
+            period_index,
+            high_water,
+        )
+        .await
+    }
     pub(crate) async fn m5_cumulative_activity_target(
         &mut self,
         customer: &str,
@@ -448,14 +464,28 @@ impl SqliteTx {
     ) -> Result<bool, StoreError> {
         super::m5::cumulative_period_closed(self.conn(), customer, term_version, period_index).await
     }
-    pub(crate) async fn m5_append_cumulative_correction(
+    pub(crate) async fn m5_per_work_target(
+        &mut self,
+        customer: &str,
+        source: &str,
+        target: &str,
+    ) -> Result<Option<super::m5::PerWorkTarget>, StoreError> {
+        super::m5::per_work_target(self.conn(), customer, source, target).await
+    }
+    pub(crate) async fn m5_per_work_target_deltas(
+        &mut self,
+        customer: &str,
+        source: &str,
+        target: &str,
+    ) -> Result<Vec<Vec<u8>>, StoreError> {
+        super::m5::per_work_target_deltas(self.conn(), customer, source, target).await
+    }
+    pub(crate) async fn m5_append_quantity_correction(
         &mut self,
         command: &super::m5::Command<'_>,
-        term_version: i64,
-        period_index: i64,
+        projection: &super::m5::QuantityCorrectionProjection<'_>,
     ) -> Result<(), StoreError> {
-        super::m5::append_cumulative_correction(self.conn(), command, term_version, period_index)
-            .await
+        super::m5::append_quantity_correction(self.conn(), command, projection).await
     }
     #[cfg(test)]
     pub async fn load_delivery(

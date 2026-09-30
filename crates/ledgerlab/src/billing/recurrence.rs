@@ -749,8 +749,14 @@ impl BillingLedger {
                     .is_none_or(|at| at.micros() != successor_agreement.effective_at_us)
                 || control_request["setup"]["agreement"] != wire.agreement_id
                 || control_response["agreement_id"] != wire.agreement_id
-                || control_response["agreement_version"] != next.to_string()
-                || control_response["revision"] != successor_agreement.revision.to_string()
+                || control_response["agreement_version"]
+                    .as_str()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    != Some(*next)
+                || control_response["revision"]
+                    .as_str()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    != Some(successor_agreement.revision)
             {
                 return Err(reject("BILLING_M5_RECURRENCE").into());
             }
