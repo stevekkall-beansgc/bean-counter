@@ -1147,6 +1147,12 @@
         "scheduled_local_label": {
           "type": "string"
         },
+        "agreement_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
+        "recurrence_version": {
+          "$ref": "#/$defs/positive_integer"
+        },
         "accepted_m3_receipt_id": {
           "$ref": "../../v2/schemas/canonical-records.schema.json#/$defs/base-acceptance-id",
           "description": "The exact M4 base-acceptance record envelope ID returned by the unchanged billing accept command."
@@ -1162,6 +1168,8 @@
         "source",
         "occurrence_id",
         "scheduled_local_label",
+        "agreement_version",
+        "recurrence_version",
         "accepted_m3_receipt_id",
         "period_id"
       ]

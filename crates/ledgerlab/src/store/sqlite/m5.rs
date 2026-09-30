@@ -2768,6 +2768,39 @@ async fn verify_recurrence_projections(
         {
             return Err(StoreError::InvalidStore("M5 occurrence projection"));
         }
+        let agreement_version = decimal(&payload["agreement_version"])?;
+        let recurrence_version = decimal(&payload["recurrence_version"])?;
+        let scheduled_label = payload["scheduled_local_label"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 occurrence label"))?;
+        let recurrence = versions.iter().find(|version| {
+            version.0 == *customer
+                && version.1 == *source
+                && version.3 == agreement_version
+                && version.4 == recurrence_version
+        });
+        let Some((_, _, agreement_id, _, _, _, _, _)) = recurrence else {
+            return Err(StoreError::InvalidStore("M5 occurrence recurrence"));
+        };
+        let identity = CanonicalBytes::from_value(&json!({
+            "customer":customer,
+            "source":source,
+            "agreement_id":agreement_id,
+            "agreement_version":agreement_version.to_string(),
+            "recurrence_version":recurrence_version.to_string(),
+            "scheduled_local_label":scheduled_label,
+        }))
+        .map_err(|_| StoreError::InvalidStore("M5 occurrence identity"))?;
+        let expected_id = format!(
+            "occ_{}",
+            hex(&hash(
+                b"bean-counter/m5/occurrence/1\0",
+                identity.as_slice()
+            ))
+        );
+        if expected_id != *id {
+            return Err(StoreError::InvalidStore("M5 occurrence identity"));
+        }
         let m3:Option<(i64,Vec<u8>)>=sqlx::query_as(
             "SELECT e.ordinal,e.bundle FROM billing_m3_entries e WHERE e.customer=? AND e.source=? AND e.external_id=?"
         ).bind(customer).bind(source).bind(id).fetch_optional(&mut *conn).await?;
@@ -4153,6 +4186,41 @@ mod tests {
                 .unwrap()
                 .as_bytes()
         );
+    }
+
+    #[test]
+    fn occurrence_golden_pins_versions_and_exact_hashes() {
+        let oracle: Value = serde_json::from_str(include_str!(
+            "../../../../../contracts/candidates/billing-lifecycle-m5/vectors/m5-command-goldens.json"
+        ))
+        .unwrap();
+        let command = &oracle["cases"][3]["commands"][2];
+        let child = &command["domain_children"][0];
+        assert_eq!(child["payload"]["agreement_version"], "1");
+        assert_eq!(child["payload"]["recurrence_version"], "1");
+        assert_eq!(
+            encode(&child["payload"]),
+            child["payload_canonical_utf8"].as_str().unwrap().as_bytes()
+        );
+        assert_eq!(
+            hex(&payload_hash(child["family"].as_str().unwrap(), &child["payload"]).unwrap()),
+            child["payload_hash"]
+        );
+        let response = encode(&command["result"]);
+        assert_eq!(
+            response,
+            command["result_canonical_utf8"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+        );
+        assert_eq!(
+            hex(&hash(b"bean-counter/m5/response/1\0", &response)),
+            command["response_hash_storage_only"]
+        );
+        assert!(command["result"]["receipt"]
+            .get("command_sequence")
+            .is_none());
     }
 
     #[test]

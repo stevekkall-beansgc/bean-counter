@@ -88,6 +88,25 @@ mod tests {
         let accepted = ledger.occurrence_accept(&accept_bytes).await.unwrap();
         assert_eq!(accepted["status"], "accepted");
         assert_eq!(accepted["receipt"]["kind"], "base-acceptance");
+        let identity = encode(&json!({
+            "schema":"ledger-billing-m5-command-identity/1",
+            "domain":"application",
+            "family":ACCEPT,
+            "customer":"customer-1",
+            "source":"urn:example:work",
+            "key_kind":"occurrence_id",
+            "key":occurrence_id,
+        }));
+        let mut tx = ledger
+            .store
+            .begin(Instant::now() + std::time::Duration::from_secs(5))
+            .await
+            .unwrap();
+        let saved = tx.m5_lookup(&identity).await.unwrap().unwrap();
+        let child: Value = serde_json::from_slice(&saved.records[0].3).unwrap();
+        assert_eq!(child["agreement_version"], "1");
+        assert_eq!(child["recurrence_version"], "1");
+        tx.rollback().await.unwrap();
         assert!(
             ledger.occurrences(&encode(&query)).await.unwrap()["occurrences"]
                 .as_array()
@@ -1205,6 +1224,8 @@ impl BillingLedger {
         let record_id = m5::record_id(&identity, &key);
         let mut payload = json!({"schema":ACCEPT_RECORD,"customer":wire.customer,"source":wire.source,
             "occurrence_id":wire.occurrence_id,"scheduled_local_label":scheduled_label,
+            "agreement_version":version.agreement_version.to_string(),
+            "recurrence_version":version.recurrence_version.to_string(),
             "accepted_m3_receipt_id":receipt_id,"period_id":{"term_version":assignment.term_version.to_string(),
                 "period_index":assignment.period_index.to_string()},
             "record":{"record_id":record_id,"sequence":state.first_record_sequence.to_string(),

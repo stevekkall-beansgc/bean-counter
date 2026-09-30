@@ -1721,6 +1721,8 @@
                 "source": "urn:example:usage-work",
                 "occurrence_id": "occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6",
                 "scheduled_local_label": "2026-09-01T00:00:00",
+                "agreement_version": "1",
+                "recurrence_version": "1",
                 "accepted_m3_receipt_id": "ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9",
                 "period_id": {
                   "term_version": "1",
@@ -1731,11 +1733,11 @@
                   "sequence": "5",
                   "accepted_at": "2026-09-29T15:02:13.019263Z",
                   "command_sequence": "3",
-                  "payload_hash": "ed3ec238c6ae1a78270f630dbcd3b9ebae533b708d214d74ef0e418552777344"
+                  "payload_hash": "dcb3adf6bd13537fbf8b785efd256627def67bb277b062a53ab6953626e438c8"
                 }
               },
-              "payload_canonical_utf8": "{\"accepted_m3_receipt_id\":\"ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9\",\"customer\":\"customer-usage-1\",\"occurrence_id\":\"occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6\",\"period_id\":{\"period_index\":\"0\",\"term_version\":\"1\"},\"record\":{\"accepted_at\":\"2026-09-29T15:02:13.019263Z\",\"command_sequence\":\"3\",\"payload_hash\":\"ed3ec238c6ae1a78270f630dbcd3b9ebae533b708d214d74ef0e418552777344\",\"record_id\":\"m5r_994db890548994d59b8b59b2beb390d41f6f1e77256a785909946f351f04a820\",\"sequence\":\"5\"},\"scheduled_local_label\":\"2026-09-01T00:00:00\",\"schema\":\"ledger-billing-occurrence-acceptance-record/1\",\"source\":\"urn:example:usage-work\"}",
-              "payload_hash": "ed3ec238c6ae1a78270f630dbcd3b9ebae533b708d214d74ef0e418552777344",
+              "payload_canonical_utf8": "{\"accepted_m3_receipt_id\":\"ba2_c4fcbffe33838c7f7bcd31528f51ef35fd5ad9b8a6bc9c0e213e3c72a62a00d9\",\"agreement_version\":\"1\",\"customer\":\"customer-usage-1\",\"occurrence_id\":\"occ_45e6ff2cfc19479d408c56a785c460f6e51907c8db847ae6cd44023561ac3da6\",\"period_id\":{\"period_index\":\"0\",\"term_version\":\"1\"},\"record\":{\"accepted_at\":\"2026-09-29T15:02:13.019263Z\",\"command_sequence\":\"3\",\"payload_hash\":\"dcb3adf6bd13537fbf8b785efd256627def67bb277b062a53ab6953626e438c8\",\"record_id\":\"m5r_994db890548994d59b8b59b2beb390d41f6f1e77256a785909946f351f04a820\",\"sequence\":\"5\"},\"recurrence_version\":\"1\",\"scheduled_local_label\":\"2026-09-01T00:00:00\",\"schema\":\"ledger-billing-occurrence-acceptance-record/1\",\"source\":\"urn:example:usage-work\"}",
+              "payload_hash": "dcb3adf6bd13537fbf8b785efd256627def67bb277b062a53ab6953626e438c8",
               "sequence": "5"
             }
           ],

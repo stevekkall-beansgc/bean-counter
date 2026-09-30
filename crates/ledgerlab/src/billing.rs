@@ -719,6 +719,54 @@ mod tests {
     use sqlx::Connection;
 
     #[test]
+    fn m5_result_schema_covers_runtime_rejection_codes() {
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../contracts/candidates/billing-lifecycle-m5/schemas/results.schema.json"
+        ))
+        .unwrap();
+        let codes = schema["$defs"]["error"]["properties"]["code"]["enum"]
+            .as_array()
+            .unwrap();
+        let expected = [
+            "BILLING_CLOCK_NOT_ADVANCED",
+            "BILLING_EXPORT_MAPPING",
+            "BILLING_EXPORT_SNAPSHOT",
+            "BILLING_HISTORY_LIMIT",
+            "BILLING_UPGRADE_REQUIRED",
+            "BILLING_M5_AGREEMENT",
+            "BILLING_M5_BASIS",
+            "BILLING_M5_BOUNDS",
+            "BILLING_M5_CANCELLED",
+            "BILLING_M5_CLOSED",
+            "BILLING_M5_EFFECTIVE_TIME",
+            "BILLING_M5_INTEGRITY",
+            "BILLING_M5_NOT_DUE",
+            "BILLING_M5_OCCURRENCE_CONFLICT",
+            "BILLING_M5_PERIOD",
+            "BILLING_M5_PRESENTED",
+            "BILLING_M5_QUANTITY",
+            "BILLING_M5_RECURRENCE",
+            "BILLING_M5_RECURRENCE_CANCELLED",
+            "BILLING_M5_REQUEST",
+            "BILLING_M5_SCHEMA_REQUIRED",
+            "BILLING_M5_SCOPE",
+            "BILLING_M5_STALE_REVISION",
+            "BILLING_M5_TARGET",
+            "BILLING_PERMISSION",
+            "BILLING_UNAUTHORIZED",
+            "IDENTITY_CONFLICT",
+            "SEMANTIC_CONFLICT",
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+        let actual = codes
+            .iter()
+            .map(|code| code.as_str().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn setup_summary_validates_terms_without_exposing_evidence_text() {
         let raw = include_bytes!("../../../examples/integration/setup-synthetic.json");
         let summary = BillingLedger::setup_summary(raw).unwrap();
