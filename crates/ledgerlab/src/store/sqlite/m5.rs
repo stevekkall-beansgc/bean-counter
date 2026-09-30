@@ -1101,15 +1101,19 @@ pub(crate) async fn append_fiscal_report(
     .bind(projection.snapshot_boundary_id)
     .fetch_optional(&mut *conn)
     .await?;
+    let calendar_version = projection.calendar_version.to_string();
+    let m3_high_water = projection.m3_high_water.to_string();
+    let m5_high_water = projection.m5_high_water.to_string();
+    let snapshot_boundary_id = projection.snapshot_boundary_id.to_string();
     if identity["key"] != projection.report_id
         || child_key["key"]["command_id"] != projection.report_id
         || family != "ledger-fiscal-report-run/1"
         || record_sequence <= projection.m5_high_water
         || boundary != Some((projection.m3_high_water, projection.m5_high_water))
-        || payload["calendar_version"] != projection.calendar_version.to_string()
-        || payload["m3_high_water"] != projection.m3_high_water.to_string()
-        || payload["m5_high_water"] != projection.m5_high_water.to_string()
-        || payload["snapshot_boundary_id"] != projection.snapshot_boundary_id.to_string()
+        || payload["calendar_version"].as_str() != Some(calendar_version.as_str())
+        || payload["m3_high_water"].as_str() != Some(m3_high_water.as_str())
+        || payload["m5_high_water"].as_str() != Some(m5_high_water.as_str())
+        || payload["snapshot_boundary_id"].as_str() != Some(snapshot_boundary_id.as_str())
         || payload["report_hash"] != projection.report_hash
         || result["schema"] != "ledger-fiscal-report/1"
         || result["status"] != "complete"
@@ -2440,6 +2444,11 @@ async fn verify_fiscal_projections(
                 }
             }
         }
+        let calendar_version_text = calendar_version.to_string();
+        let m3_high_water_text = m3_high_water.to_string();
+        let m5_high_water_text = m5_high_water.to_string();
+        let boundary_id_text = boundary_id.to_string();
+        let calculated_net_text = calculated_net.to_string();
         if report_id.is_empty()
             || *calendar_version < 1
             || family != "ledger-fiscal-report-run/1"
@@ -2448,15 +2457,15 @@ async fn verify_fiscal_projections(
             || identity["key"] != *report_id
             || *record_sequence <= *m5_high_water
             || boundary != Some((*m3_high_water, *m5_high_water))
-            || payload["calendar_version"] != calendar_version.to_string()
-            || payload["m3_high_water"] != m3_high_water.to_string()
-            || payload["m5_high_water"] != m5_high_water.to_string()
-            || payload["snapshot_boundary_id"] != boundary_id.to_string()
+            || payload["calendar_version"].as_str() != Some(calendar_version_text.as_str())
+            || payload["m3_high_water"].as_str() != Some(m3_high_water_text.as_str())
+            || payload["m5_high_water"].as_str() != Some(m5_high_water_text.as_str())
+            || payload["snapshot_boundary_id"].as_str() != Some(boundary_id_text.as_str())
             || payload["report_hash"] != *report_hash
             || payload["timezone"] != calendar_timezone
             || payload["timezone_rules_version"] != calendar_rules
             || !endpoints_are_boundaries
-            || payload["net_atoms"] != calculated_net.to_string()
+            || payload["net_atoms"].as_str() != Some(calculated_net_text.as_str())
             || result["schema"] != "ledger-fiscal-report/1"
             || result["status"] != "complete"
             || result["currency"] != "USD"
@@ -2931,7 +2940,8 @@ async fn verify_ad_hoc_statements(conn: &mut SqliteConnection) -> Result<(), Sto
         return Err(StoreError::InvalidStore("M5 ad hoc statement count"));
     }
     for (command_sequence, request_bytes, response_bytes) in commands {
-        let request = canonical(&request_bytes, 262_144)?;
+        let request = parse_bounded(&request_bytes, 262_144)
+            .map_err(|_| StoreError::InvalidStore("M5 ad hoc request"))?;
         let result = canonical(&response_bytes, 262_144)?;
         let customer = result["customer"]
             .as_str()

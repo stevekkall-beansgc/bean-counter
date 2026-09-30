@@ -324,15 +324,21 @@ pub(crate) fn adjustment_line(
         .map_err(|_| "M5 adjustment ingress")?;
     if ingress["id"] != adjustment.adjustment_id
         || ingress["target"] != adjustment.target_id
-        || (ingress["schema"] != "ledger-billing-correction/2"
-            && ingress["schema"] != "ledger-billing-outcome/2")
+        || ![
+            "ledger-billing-correction/1",
+            "ledger-billing-correction/2",
+            "ledger-billing-outcome/1",
+            "ledger-billing-outcome/2",
+        ]
+        .contains(&ingress["schema"].as_str().unwrap_or_default())
         || !rows.iter().any(|row| {
             row["kind"] == adjustment.source_record_kind && row["id"] == adjustment.source_record_id
         })
     {
         return Err("M5 adjustment identity");
     }
-    if ingress["schema"] == "ledger-billing-correction/2"
+    if (ingress["schema"] == "ledger-billing-correction/1"
+        || ingress["schema"] == "ledger-billing-correction/2")
         && adjustment.source_sequence > 0
         && (adjustment.original_term_version < 1
             || adjustment.original_period_index < 0
@@ -395,7 +401,9 @@ pub(crate) fn adjustment_line(
     if accepted.checked_sub(prior) != Some(amount) {
         return Err("M5 adjustment arithmetic");
     }
-    let change_kind = if ingress["schema"] == "ledger-billing-outcome/2" {
+    let change_kind = if ingress["schema"] == "ledger-billing-outcome/1"
+        || ingress["schema"] == "ledger-billing-outcome/2"
+    {
         if prior != 0 {
             return Err("M5 first outcome amount");
         }
@@ -500,6 +508,34 @@ pub(crate) fn outcome_assignment_line(
 mod tests {
     use super::*;
 
+    fn legacy_assignment(schema: &str, id: &str, actions: Vec<Value>) -> PeriodCloseM3Assignment {
+        let mut rows = vec![json!({"kind":"receipt","id":format!("receipt-{id}")})];
+        rows.extend(actions);
+        PeriodCloseM3Assignment {
+            source: "urn:example:legacy".into(),
+            kind: "receipt".into(),
+            id: format!("receipt-{id}"),
+            bundle: CanonicalBytes::from_value(&json!(rows)).unwrap().into_vec(),
+            ingress: CanonicalBytes::from_value(&json!({
+                "schema":schema,"id":id,"target":"legacy-target","family":"quality",
+                "occurred_at":"2026-01-01T00:00:00.000000Z","evidence":"retained",
+                "replacement":{"kind":"code","code":"legacy"}
+            }))
+            .unwrap()
+            .into_vec(),
+            agreement_id: Some("legacy-agreement".into()),
+            agreement_version: Some(1),
+            prior_outcome_id: (schema == "ledger-billing-correction/1")
+                .then(|| "legacy-outcome".into()),
+        }
+    }
+
+    fn legacy_action(slot: &str, atoms: &str) -> Value {
+        json!({"kind":"action","body":{"agreement_id":"legacy-agreement",
+            "roles":{"payer":"legacy-customer","recipient":"example-company"},
+            "amount":{"currency":"USD","scale":2,"atoms":atoms},"slot":slot}})
+    }
+
     #[test]
     fn standard_presentation_claim_matches_frozen_command_golden() {
         let identity = br#"{"customer":"customer-usage-1","domain":"customer-admin","family":"ledger-billing-period-close/1","key":"1:1","key_kind":"logical_period_id","schema":"ledger-billing-m5-command-identity/1"}"#;
@@ -552,6 +588,43 @@ mod tests {
         assert_eq!(
             payload["record"]["payload_hash"],
             "312ab446195e0486ed4ee68a554a113709e4aa5a2ff1837c90bf9117c5e1fd74"
+        );
+    }
+
+    #[test]
+    fn migrated_v1_outcomes_and_corrections_render_statement_lines() {
+        let view = json!({"customer":"legacy-customer","period_id":{
+            "term_version":"1","period_index":"0"}});
+        let first = legacy_assignment(
+            "ledger-billing-outcome/1",
+            "legacy-outcome",
+            vec![legacy_action("replacement", "10")],
+        );
+        let (first_line, first_amount) =
+            outcome_assignment_line("legacy-customer", "standard", &view, &first).unwrap();
+        assert_eq!(first_amount, 100_000_000_000_000_000);
+        assert_eq!(
+            first_line["calculation"]["operands"]["change_kind"],
+            "first"
+        );
+        let correction = legacy_assignment(
+            "ledger-billing-correction/1",
+            "legacy-correction",
+            vec![
+                legacy_action("inverse", "-10"),
+                legacy_action("replacement", "7"),
+            ],
+        );
+        let (correction_line, correction_amount) =
+            outcome_assignment_line("legacy-customer", "standard", &view, &correction).unwrap();
+        assert_eq!(correction_amount, -30_000_000_000_000_000);
+        assert_eq!(
+            correction_line["calculation"]["operands"]["change_kind"],
+            "replacement"
+        );
+        assert_eq!(
+            correction_line["calculation"]["operands"]["prior_outcome_id"],
+            "legacy-outcome"
         );
     }
 }

@@ -2315,10 +2315,10 @@ mod tests {
         assert_eq!(statement["net_atoms"], "500000000000000000");
         assert_eq!(statement["lines"].as_array().unwrap().len(), 1);
         assert_eq!(statement["lines"][0]["basis"], "outcome_revision");
-        let issue = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+        let issue = serde_json::to_vec_pretty(&json!({
             "schema":"ledger-billing-ad-hoc-statement/1","customer":"customer-1","command_id":"late-issue",
             "adjustments":[{"source":"urn:example:work","adjustment_id":"correction-1"}]
-        })).unwrap().into_vec();
+        })).unwrap();
         let error = ledger
             .adjustment_statement_at(&issue, at.clone())
             .await
@@ -2337,10 +2337,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().canonicalize().unwrap().join("billing");
         let ledger = post_close_m4_correction(&path).await;
-        let issue = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+        let issue = serde_json::to_vec_pretty(&json!({
             "schema":"ledger-billing-ad-hoc-statement/1","customer":"customer-1","command_id":"late-issue",
             "adjustments":[{"source":"urn:example:work","adjustment_id":"correction-1"}]
-        })).unwrap().into_vec();
+        })).unwrap();
         let at = ledgerlab_core::domain::Timestamp::parse("2026-10-07T12:00:00.000000Z").unwrap();
         let wrong_scope = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
             "schema":"ledger-billing-ad-hoc-statement/1","customer":"customer-1","command_id":"wrong-scope",

@@ -80,7 +80,7 @@ fn valid_id(value: &str) -> bool {
         && !value.chars().any(|character| character.is_control())
 }
 
-fn text<'a>(value: &'a Value) -> Result<&'a str, ServiceError> {
+fn text(value: &Value) -> Result<&str, ServiceError> {
     value
         .as_str()
         .ok_or_else(|| service::reject("BILLING_M5_INTEGRITY"))
