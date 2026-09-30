@@ -2201,6 +2201,7 @@ mod tests {
                         .await
                 });
                 pause.reached.notified().await;
+                let contender = ledger.store.test_notify_next_begin_attempt();
                 let second_ledger = Arc::clone(&ledger);
                 let second_request = close.clone();
                 let second = tokio::spawn(async move {
@@ -2211,7 +2212,7 @@ mod tests {
                         )
                         .await
                 });
-                tokio::task::yield_now().await;
+                contender.notified().await;
                 pause.release.notify_one();
                 (
                     first.await.unwrap().unwrap(),
@@ -2229,6 +2230,7 @@ mod tests {
                         .await
                 });
                 pause.reached.notified().await;
+                let contender = ledger.store.test_notify_next_begin_attempt();
                 let second_ledger = Arc::clone(&ledger);
                 let second_request = correction.clone();
                 let second = tokio::spawn(async move {
@@ -2239,7 +2241,7 @@ mod tests {
                         )
                         .await
                 });
-                tokio::task::yield_now().await;
+                contender.notified().await;
                 pause.release.notify_one();
                 (
                     second.await.unwrap().unwrap(),

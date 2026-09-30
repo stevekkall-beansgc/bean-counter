@@ -60,6 +60,8 @@ struct Inner {
     append_pause: Mutex<Option<Arc<adjudication::AppendPause>>>,
     #[cfg(test)]
     begin_pause: Mutex<Option<Arc<BeginPause>>>,
+    #[cfg(test)]
+    begin_attempt: Mutex<Option<Arc<tokio::sync::Notify>>>,
 }
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
@@ -212,6 +214,8 @@ impl SqliteStore {
                 append_pause: Mutex::new(None),
                 #[cfg(test)]
                 begin_pause: Mutex::new(None),
+                #[cfg(test)]
+                begin_attempt: Mutex::new(None),
                 _owner: owner,
             }),
             diagnostics,
@@ -249,6 +253,14 @@ impl SqliteStore {
         assert!(slot.is_none());
         *slot = Some(Arc::clone(&pause));
         pause
+    }
+    #[cfg(test)]
+    pub(crate) fn test_notify_next_begin_attempt(&self) -> Arc<tokio::sync::Notify> {
+        let reached = Arc::new(tokio::sync::Notify::new());
+        let mut slot = self.inner.begin_attempt.lock().unwrap();
+        assert!(slot.is_none());
+        *slot = Some(Arc::clone(&reached));
+        reached
     }
     #[cfg(test)]
     pub(crate) async fn test_write_locked(&self, path: &Path) -> Result<bool, StoreError> {
@@ -352,6 +364,10 @@ impl SqliteStore {
         } else {
             None
         };
+        #[cfg(test)]
+        if let Some(reached) = self.inner.begin_attempt.lock().unwrap().take() {
+            reached.notify_one();
+        }
         let mut transaction = timeout_at(wait, self.inner.writer.begin_with("BEGIN IMMEDIATE"))
             .await
             .map_err(|_| StoreError::Deadline)??;
