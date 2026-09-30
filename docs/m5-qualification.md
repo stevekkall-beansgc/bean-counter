@@ -2,7 +2,7 @@
 
 ## Qualified boundary
 
-Bean Counter v0.8.0 completes the M5 billing lifecycle for the provider-free, one-business-per-installation local SQLite profile. The qualified path is a source build from the exact released commit using the repository's locked dependencies and pinned Rust 1.98.1 toolchain. It includes the explicit schema-10 to schema-11 upgrade. It does not qualify native packages, PostgreSQL billing, multiple simultaneous writers, hosted operation, payment execution, tax/legal invoices or general performance at the admission ceilings.
+The M5 implementation targets Bean Counter v0.8.0 for the provider-free, one-business-per-installation local SQLite profile. Qualification attaches only to a source build from the exact released commit after the gates below pass, using the repository's locked dependencies and pinned Rust 1.98.1 toolchain; before publication, the checkout is a release candidate rather than a qualified release. The boundary includes the explicit schema-10 to schema-11 upgrade. It does not qualify native packages, PostgreSQL billing, multiple simultaneous writers, hosted operation, payment execution, tax/legal invoices or general performance at the admission ceilings.
 
 M5 is additive. Existing fixed-price and per-work usage acceptance, outcomes, corrections, statement/2–3 and finance-export/2–3 remain byte-compatible. Schema 11 adds an immutable sidecar for customer terms and period assignments, fiscal calendars/reports, cumulative activity and basis versions, quantity corrections and post-close adjustments, recurrence/occurrences, statement/4 presentation claims and snapshot boundaries. Ordinary schema-10 writers refuse until the explicit upgrade succeeds.
 
