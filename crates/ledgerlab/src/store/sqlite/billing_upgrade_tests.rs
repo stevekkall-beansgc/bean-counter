@@ -1046,6 +1046,34 @@ async fn billing_coordinator_upgrades_populated_schema9_history_and_retries_exac
         ledger.statement(&customer, None).await.unwrap(),
         original_statement
     );
+    // M5 close must resolve a retained logical index through its actual source
+    // tier. Period zero contains only the schema-8 decision; the schema-9
+    // decision accepted two days later belongs to period two.
+    let term = CanonicalBytes::from_value(&serde_json::json!({
+        "schema":"ledger-billing-term/1","customer":customer,
+        "change_id":"retained-tier-close","expected_revision":"0",
+        "effective":{"mode":"initial","at":FIRST_ACCEPTED_AT},
+        "term":{"interval":1,"unit":"day","alignment":"anchored",
+            "anchor":{"date":"2026-09-02","time":"00:00:00"},"timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b","proration":"none"}
+    }))
+    .unwrap()
+    .into_vec();
+    ledger.term_set(&term).await.unwrap();
+    let close = CanonicalBytes::from_value(&serde_json::json!({
+        "schema":"ledger-billing-period-close/1","customer":customer,
+        "period_id":{"term_version":"1","period_index":"0"}
+    }))
+    .unwrap()
+    .into_vec();
+    let closed = ledger.period_close(&close).await.unwrap();
+    assert_eq!(closed["net_atoms"], "2500000000000000000");
+    assert_eq!(closed["lines"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        closed["lines"][0]["source_records"][0]["id"],
+        legacy_accepted["receipt"]["id"]
+    );
     ledger.close().await;
 
     let mut conn = SqliteConnection::connect_with(&options).await.unwrap();

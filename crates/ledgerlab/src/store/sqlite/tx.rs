@@ -90,6 +90,14 @@ impl SqliteTx {
     ) -> Result<super::m5::PeriodResolveState, StoreError> {
         super::m5::period_resolve_state(self.conn(), customer, term_version, period_index).await
     }
+    pub(crate) async fn m5_period_close_state(
+        &mut self,
+        customer: &str,
+        term_version: i64,
+        period_index: i64,
+    ) -> Result<super::m5::PeriodCloseState, StoreError> {
+        super::m5::period_close_state(self.conn(), customer, term_version, period_index).await
+    }
     pub(crate) async fn m5_lookup(
         &mut self,
         identity: &[u8],
@@ -116,6 +124,27 @@ impl SqliteTx {
         projection: &super::m5::PeriodResolutionProjection<'_>,
     ) -> Result<(), StoreError> {
         super::m5::append_period_resolution(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_append_period_close(
+        &mut self,
+        command: &super::m5::Command<'_>,
+        projection: &super::m5::PeriodCloseProjection<'_>,
+    ) -> Result<(), StoreError> {
+        super::m5::append_period_close(self.conn(), command, projection).await
+    }
+    pub(crate) async fn m5_preflight_capacity(
+        &mut self,
+        additional_commands: i64,
+        additional_records: i64,
+        additional_bytes: i64,
+    ) -> Result<(), StoreError> {
+        super::m5::preflight_capacity(
+            self.conn(),
+            additional_commands,
+            additional_records,
+            additional_bytes,
+        )
+        .await
     }
     #[cfg(test)]
     pub async fn load_delivery(

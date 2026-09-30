@@ -101,6 +101,8 @@ pub struct PeriodResolveRequest {
     pub period_index: u64,
 }
 
+pub type PeriodCloseRequest = PeriodResolveRequest;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireRequest {
@@ -317,10 +319,21 @@ pub fn parse_term_change_request(bytes: &[u8]) -> Result<TermChangeRequest, Term
 }
 
 pub fn parse_period_resolve_request(bytes: &[u8]) -> Result<PeriodResolveRequest, TermPlanError> {
+    parse_period_request(bytes, "ledger-billing-period-resolve/1")
+}
+
+pub fn parse_period_close_request(bytes: &[u8]) -> Result<PeriodCloseRequest, TermPlanError> {
+    parse_period_request(bytes, "ledger-billing-period-close/1")
+}
+
+fn parse_period_request(
+    bytes: &[u8],
+    expected_schema: &str,
+) -> Result<PeriodResolveRequest, TermPlanError> {
     let value = canonical::parse(bytes).map_err(|_| TermPlanError::InvalidRequest)?;
     let wire: WirePeriodResolve =
         serde_json::from_value(value).map_err(|_| TermPlanError::InvalidRequest)?;
-    if wire.schema != "ledger-billing-period-resolve/1" {
+    if wire.schema != expected_schema {
         return Err(TermPlanError::UnsupportedSchema);
     }
     check_id(&wire.customer)?;

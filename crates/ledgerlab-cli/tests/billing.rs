@@ -105,6 +105,89 @@ fn customer_term_command_uses_exact_retry_identity() {
 }
 
 #[test]
+fn billing_close_accepts_the_frozen_period_request() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/setup.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let term = json!({
+        "schema":"ledger-billing-term/1","customer":"customer-1",
+        "change_id":"close-cli-term","expected_revision":"0",
+        "effective":{"mode":"initial","at":"2000-01-01T00:00:00.000000Z"},
+        "term":{"interval":1,"unit":"month","alignment":"anchored",
+            "anchor":{"date":"2000-01-01","time":"00:00:00"},"timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b","proration":"none"}
+    });
+    fs::write(root.join("term.json"), serde_json::to_vec(&term).unwrap()).unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "term",
+            "set",
+            "term.json",
+        ],
+        0,
+    );
+    let close = json!({
+        "schema":"ledger-billing-period-close/1","customer":"customer-1",
+        "period_id":{"term_version":"1","period_index":"0"}
+    });
+    let mut invalid = close.clone();
+    invalid["period_id"]["period_index"] = json!(0);
+    fs::write(
+        root.join("close-invalid.json"),
+        serde_json::to_vec(&invalid).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "close",
+                "close-invalid.json",
+            ],
+            3,
+        )["code"],
+        "BILLING_M5_REQUEST"
+    );
+    fs::write(root.join("close.json"), serde_json::to_vec(&close).unwrap()).unwrap();
+    let first = run(
+        root,
+        &["billing", "--directory", "store", "close", "close.json"],
+        0,
+    );
+    assert_eq!(first["schema"], "ledger-billing-statement/4");
+    assert_eq!(first["status"], "closed");
+    assert_eq!(first["period_id"], close["period_id"]);
+    assert_eq!(first["lines"], json!([]));
+    assert_eq!(
+        run(
+            root,
+            &["billing", "--directory", "store", "close", "close.json",],
+            0,
+        ),
+        first
+    );
+}
+
+#[test]
 fn configured_billing_cli_reopen_retry_statement_and_refusals() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
     fs::create_dir_all(&root).unwrap();

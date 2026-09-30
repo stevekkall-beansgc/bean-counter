@@ -546,7 +546,7 @@ impl BillingLedger {
         }
     }
 
-    async fn period_resolve_at(
+    pub(super) async fn period_resolve_at(
         &self,
         customer: &str,
         term_version: i64,
@@ -611,6 +611,12 @@ impl BillingLedger {
             .period(period_index)
             .map_err(term_service::TermPlanError::from)
             .map_err(period_error)?;
+        if state.successor_effective_at_us.is_some_and(|successor| {
+            period.start.timestamp_micros() >= successor
+                || period.end.timestamp_micros() > successor
+        }) {
+            return Err(service::reject("BILLING_M5_PERIOD").into());
+        }
         if period.start.timestamp_micros() > accepted.micros() {
             return Err(service::reject("BILLING_M5_PERIOD").into());
         }

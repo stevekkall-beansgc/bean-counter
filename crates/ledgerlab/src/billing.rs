@@ -18,6 +18,7 @@ use tokio::time::Instant;
 /// Frozen economic record profiles have their own independent versions.
 pub const CONTRACT_VERSION: &str = "v0.3";
 
+mod close;
 mod export;
 mod term;
 
@@ -497,6 +498,28 @@ impl BillingLedger {
         at: ledgerlab_core::domain::Timestamp,
     ) -> local::Result<Value> {
         self.submit(customer, source, raw, None, Some(at)).await
+    }
+    #[cfg(test)]
+    async fn outcome_at(
+        &self,
+        customer: &str,
+        source: &str,
+        raw: &[u8],
+        at: ledgerlab_core::domain::Timestamp,
+    ) -> local::Result<Value> {
+        self.submit(customer, source, raw, Some(false), Some(at))
+            .await
+    }
+    #[cfg(test)]
+    async fn correct_at(
+        &self,
+        customer: &str,
+        source: &str,
+        raw: &[u8],
+        at: ledgerlab_core::domain::Timestamp,
+    ) -> local::Result<Value> {
+        self.submit(customer, source, raw, Some(true), Some(at))
+            .await
     }
     /// Decision deadlines. A write verifies the retained-history meter, so its
     /// guard work grows with retained history even though it does not decode
@@ -1781,6 +1804,666 @@ mod tests {
         conn.close().await.unwrap();
         let reopened = BillingLedger::open(&path).await.unwrap();
         reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn empty_later_period_close_resolves_retries_and_reopens() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"close-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-01-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-01-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        let close = json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"1"}
+        });
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&close)
+            .unwrap()
+            .into_vec();
+        let close_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-03-05T12:00:00.000000Z").unwrap();
+        let result = ledger.period_close_at(&close, close_at).await.unwrap();
+        assert_eq!(result["schema"], "ledger-billing-statement/4");
+        assert_eq!(result["status"], "closed");
+        assert_eq!(result["boundary_resolution_id"], "boundary-resolution-1-1");
+        assert_eq!(result["start_utc"], "2026-02-01T00:00:00.000000Z");
+        assert_eq!(result["end_utc"], "2026-03-01T00:00:00.000000Z");
+        assert_eq!(result["m3_high_water"], "0");
+        assert_eq!(result["m5_high_water"], "3");
+        assert_eq!(result["snapshot_boundary_id"], "3");
+        assert_eq!(result["lines"], json!([]));
+        assert_eq!(result["net_atoms"], "0");
+        assert_eq!(result["direction"], "none");
+        let retry_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-04-01T00:00:00.000000Z").unwrap();
+        assert_eq!(
+            ledger.period_close_at(&close, retry_at).await.unwrap(),
+            result
+        );
+        ledger.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM billing_m5_period_resolutions),(SELECT count(*) FROM billing_m5_period_closes),(SELECT count(*) FROM billing_m5_snapshot_boundaries)",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        assert_eq!(counts, (2, 1, 4));
+        conn.close().await.unwrap();
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        sqlx::query("DROP TRIGGER billing_m5_period_closes_no_update")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE billing_m5_period_closes SET statement_hash=?")
+            .bind("0".repeat(64))
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        assert!(BillingLedger::open(&path).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn fixed_period_close_builds_immutable_line_and_retries() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"nonempty-close-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        let work_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap();
+        let accepted = ledger
+            .accept_at(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
+                work_at,
+            )
+            .await
+            .unwrap();
+        let close = json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        });
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&close)
+            .unwrap()
+            .into_vec();
+        let close_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap();
+        let result = ledger.period_close_at(&close, close_at).await.unwrap();
+        assert_eq!(result["direction"], "receivable");
+        assert_eq!(result["net_atoms"], "2500000000000000000");
+        assert_eq!(result["lines"].as_array().unwrap().len(), 1);
+        let line = &result["lines"][0];
+        assert_eq!(line["basis"], "fixed");
+        assert_eq!(line["agreement_id"], "agreement-1");
+        assert_eq!(line["amount_atoms"], "2500000000000000000");
+        assert_eq!(
+            line["calculation"]["operands"]["fixed_atoms_scale_2"],
+            "250"
+        );
+        assert_eq!(line["source_records"][0]["id"], accepted["receipt"]["id"]);
+        let retry_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-10-06T12:00:00.000000Z").unwrap();
+        assert_eq!(
+            ledger.period_close_at(&close, retry_at).await.unwrap(),
+            result
+        );
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn clock_rollback_cannot_append_new_work_to_a_closed_period() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"closed-clock-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-15T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"day","alignment":"anchored",
+                "anchor":{"date":"2026-09-15","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .accept_at(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T23:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .period_close_at(
+                &close,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-16T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let before = m5_m3_projection_counts(&path).await;
+        let mut later: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/event.json")).unwrap();
+        later["id"] = json!("closed-clock-work-2");
+        later["operation_id"] = json!("closed-clock-operation-2");
+        let later = ledgerlab_core::canonical::CanonicalBytes::from_value(&later)
+            .unwrap()
+            .into_vec();
+        let error = ledger
+            .accept_at(
+                "customer-1",
+                "urn:example:work",
+                &later,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T23:30:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error,
+                super::LocalError::Service(super::ServiceError::Rejection(ref code)) if code == "BILLING_M5_PERIOD"),
+            "unexpected error: {error:?}"
+        );
+        ledger.close().await;
+        assert_eq!(m5_m3_projection_counts(&path).await, before);
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn scale_18_per_work_period_close_builds_exact_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/usage/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = json!({
+            "schema":"ledger-billing-term/1","customer":"customer-usage-1",
+            "change_id":"usage-close-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        });
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
+            .unwrap()
+            .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        let work_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap();
+        ledger
+            .accept_at(
+                "customer-usage-1",
+                "urn:example:usage-work",
+                include_bytes!("../../../examples/billing/usage/event.json"),
+                work_at,
+            )
+            .await
+            .unwrap();
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-usage-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        }))
+        .unwrap()
+        .into_vec();
+        let close_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap();
+        let result = ledger.period_close_at(&close, close_at).await.unwrap();
+        assert_eq!(result["net_atoms"], "25000000000000");
+        assert_eq!(result["direction"], "receivable");
+        let line = &result["lines"][0];
+        assert_eq!(line["basis"], "per_work");
+        assert_eq!(line["scale"], 18);
+        assert_eq!(line["amount_atoms"], "25000000000000");
+        assert_eq!(line["calculation"]["operands"]["quantity"], "100");
+        assert_eq!(
+            line["calculation"]["operands"]["rate_atoms_per_unit"],
+            "250000000000"
+        );
+        ledger.close().await;
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        reopened.close().await;
+    }
+
+    #[tokio::test]
+    async fn period_close_refuses_m3_correction_route_without_appending() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"correction-close-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        let accepted = ledger
+            .accept_at(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../examples/billing/event.json"),
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let target = accepted["receipt"]["body"]["target"].as_str().unwrap();
+        let mut outcome: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/outcome.json"))
+                .unwrap();
+        outcome["target"] = json!(target);
+        let outcome = ledgerlab_core::canonical::CanonicalBytes::from_value(&outcome)
+            .unwrap()
+            .into_vec();
+        ledger
+            .outcome_at(
+                "customer-1",
+                "urn:example:work",
+                &outcome,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-23T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut correction: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../examples/billing/correction.json"))
+                .unwrap();
+        correction["target"] = json!(target);
+        let correction = ledgerlab_core::canonical::CanonicalBytes::from_value(&correction)
+            .unwrap()
+            .into_vec();
+        ledger
+            .correct_at(
+                "customer-1",
+                "urn:example:work",
+                &correction,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-24T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        }))
+        .unwrap()
+        .into_vec();
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let before: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_commands")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        let close_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap();
+        let error = ledger.period_close_at(&close, close_at).await.unwrap_err();
+        assert!(
+            matches!(&error,
+                super::LocalError::Service(super::ServiceError::Rejection(code)) if *code == "BILLING_M5_PERIOD"),
+            "{error:?}"
+        );
+        ledger.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let after: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_commands")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        let closes: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(after, before);
+        assert_eq!(closes, 0);
+        conn.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn unsupported_later_period_close_refuses_without_materializing_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"cumulative-close-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let source_sequence: i64 = sqlx::query_scalar(
+            "SELECT sequence FROM billing_m5_records WHERE family='ledger-billing-term-version/1'",
+        )
+        .fetch_one(&mut conn)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO billing_m5_assignments(customer,source_scope,source_record_kind,source_record_id,source_stream,source_sequence,term_version,period_index,assignment_basis,assignment_at_us) VALUES('customer-1','urn:example:work','ledger-billing-cumulative-activity/1','activity-1','m5',?,1,1,'acceptance-time',0)")
+            .bind(source_sequence)
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        let before: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM billing_m5_commands),(SELECT count(*) FROM billing_m5_period_resolutions),(SELECT count(*) FROM billing_m5_snapshot_boundaries)")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"1"}
+        }))
+        .unwrap()
+        .into_vec();
+        let close_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-11-05T12:00:00.000000Z").unwrap();
+        let error = ledger.period_close_at(&close, close_at).await.unwrap_err();
+        assert!(
+            matches!(&error,
+                super::LocalError::Service(super::ServiceError::Rejection(code)) if *code == "BILLING_M5_PERIOD"),
+            "{error:?}"
+        );
+        ledger.close().await;
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let after: (i64, i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM billing_m5_commands),(SELECT count(*) FROM billing_m5_period_resolutions),(SELECT count(*) FROM billing_m5_snapshot_boundaries)")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        let closes: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(after, before);
+        assert_eq!(closes, 0);
+        conn.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn premature_close_uses_frozen_code_without_materializing_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"not-due-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-01-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-01-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"1"}
+        }))
+        .unwrap()
+        .into_vec();
+        let before = m5_projection_counts(&path).await;
+        let close_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-02-15T12:00:00.000000Z").unwrap();
+        assert!(matches!(ledger.period_close_at(&close, close_at).await,
+            Err(super::LocalError::Service(super::ServiceError::Rejection(code))) if code == "BILLING_M5_NOT_DUE"));
+        ledger.close().await;
+        assert_eq!(m5_projection_counts(&path).await, before);
+    }
+
+    #[tokio::test]
+    async fn oversized_close_artifacts_do_not_materialize_a_resolution() {
+        for (response_limit, payload_limit) in [(1usize, 262_144usize), (262_144usize, 1usize)] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().canonicalize().unwrap().join("billing");
+            BillingLedger::init(
+                &path,
+                include_bytes!("../../../examples/billing/setup.json"),
+            )
+            .await
+            .unwrap();
+            let ledger = BillingLedger::open(&path).await.unwrap();
+            let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+                "schema":"ledger-billing-term/1","customer":"customer-1",
+                "change_id":"oversized-close-initial","expected_revision":"0",
+                "effective":{"mode":"initial","at":"2026-01-01T00:00:00.000000Z"},
+                "term":{"interval":1,"unit":"month","alignment":"anchored",
+                    "anchor":{"date":"2026-01-01","time":"00:00:00"},"timezone":"UTC",
+                    "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                    "timezone_rules_version":"IANA-2025b","proration":"none"}
+            }))
+            .unwrap()
+            .into_vec();
+            ledger.term_set(&initial).await.unwrap();
+            let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+                "schema":"ledger-billing-period-close/1","customer":"customer-1",
+                "period_id":{"term_version":"1","period_index":"1"}
+            }))
+            .unwrap()
+            .into_vec();
+            let before = m5_projection_counts(&path).await;
+            let close_at =
+                ledgerlab_core::domain::Timestamp::parse("2026-03-05T12:00:00.000000Z").unwrap();
+            assert!(matches!(
+                ledger
+                    .period_close_at_with_limits(
+                        &close,
+                        close_at,
+                        response_limit,
+                        payload_limit
+                    )
+                    .await,
+                Err(super::LocalError::Service(super::ServiceError::Rejection(code)))
+                    if code == "BILLING_M5_BOUNDS"
+            ));
+            ledger.close().await;
+            assert_eq!(m5_projection_counts(&path).await, before);
+        }
+    }
+
+    #[tokio::test]
+    async fn predecessor_period_outside_effective_interval_refuses_without_append() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"bounded-initial","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-01-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-01-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger.term_set(&initial).await.unwrap();
+        let successor = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"bounded-successor","expected_revision":"1",
+            "effective":{"mode":"immediate"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-01-15","time":"12:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .term_set_at(
+                &successor,
+                ledgerlab_core::domain::Timestamp::parse("2026-01-15T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let close = ledgerlab_core::canonical::CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-1",
+            "period_id":{"term_version":"1","period_index":"1"}
+        }))
+        .unwrap()
+        .into_vec();
+        let before = m5_projection_counts(&path).await;
+        let close_at =
+            ledgerlab_core::domain::Timestamp::parse("2026-03-05T12:00:00.000000Z").unwrap();
+        assert!(matches!(ledger.period_close_at(&close, close_at).await,
+            Err(super::LocalError::Service(super::ServiceError::Rejection(code))) if code == "BILLING_M5_PERIOD"));
+        ledger.close().await;
+        assert_eq!(m5_projection_counts(&path).await, before);
+    }
+
+    async fn m5_projection_counts(path: &std::path::Path) -> (i64, i64, i64, i64) {
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let counts = sqlx::query_as("SELECT (SELECT count(*) FROM billing_m5_commands),(SELECT count(*) FROM billing_m5_period_resolutions),(SELECT count(*) FROM billing_m5_snapshot_boundaries),(SELECT count(*) FROM billing_m5_period_closes)")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        counts
+    }
+
+    async fn m5_m3_projection_counts(path: &std::path::Path) -> (i64, i64, i64) {
+        let mut conn = sqlx::SqliteConnection::connect_with(
+            &sqlx::sqlite::SqliteConnectOptions::new()
+                .filename(path.join(".ledger/local.db"))
+                .create_if_missing(false),
+        )
+        .await
+        .unwrap();
+        let counts = sqlx::query_as("SELECT (SELECT count(*) FROM billing_m3_index),(SELECT count(*) FROM billing_m5_assignments),(SELECT count(*) FROM billing_m5_snapshot_boundaries)")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        counts
     }
 
     #[tokio::test]

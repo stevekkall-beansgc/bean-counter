@@ -45,6 +45,7 @@ Ordinary local billing (separate installation):
   billing init DIR --setup FILE        Noninteractive JSON setup
   billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema
   billing [--directory DIR] term set FILE|-  Set a customer's initial billing term
+  billing [--directory DIR] close FILE|-     Close one logical billing period
   billing [--directory DIR] accept --customer C --source S FILE|-
   billing [--directory DIR] outcome --customer C --source S FILE|-
   billing [--directory DIR] correct --customer C --source S FILE|-

@@ -2,10 +2,10 @@
 //! arithmetic and statement composition; this module owns exact retained bytes.
 use crate::store::errors::StoreError;
 use ledgerlab_core::canonical::{parse_bounded, CanonicalBytes};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::SqliteConnection;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_ROWS: i64 = 100_000;
 const MAX_BYTES: i64 = 268_435_456;
@@ -44,6 +44,27 @@ type AdjustmentProjectionRow = (
     String,
     i64,
     String,
+);
+type PeriodCloseProjectionRow = (
+    String,
+    i64,
+    i64,
+    String,
+    i64,
+    i64,
+    i64,
+    String,
+    i64,
+    Vec<u8>,
+);
+type PeriodCloseM3Row = (
+    i64,
+    String,
+    String,
+    String,
+    Vec<u8>,
+    Option<String>,
+    Option<i64>,
 );
 
 #[derive(Clone)]
@@ -190,7 +211,90 @@ pub(crate) struct PeriodResolveState {
     pub command_sequence: i64,
     pub first_record_sequence: i64,
     pub term: CurrentTerm,
+    pub successor_effective_at_us: Option<i64>,
     pub existing: Option<ResolutionHead>,
+}
+
+pub(crate) struct PeriodCloseState {
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+    pub term: CurrentTerm,
+    pub successor_effective_at_us: Option<i64>,
+    pub resolution: Option<ResolutionHead>,
+    pub snapshot_boundary_id: i64,
+    pub m3_high_water: i64,
+    pub m5_high_water: i64,
+    pub m3_assignments: Vec<PeriodCloseM3Assignment>,
+    pub unsupported_assignment_count: i64,
+}
+
+pub(crate) struct PeriodCloseM3Assignment {
+    pub source: String,
+    pub kind: String,
+    pub id: String,
+    pub bundle: Vec<u8>,
+    pub agreement_id: Option<String>,
+    pub agreement_version: Option<i64>,
+}
+
+async fn period_close_m3_assignments(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    term_version: i64,
+    period_index: i64,
+    m3_high_water: i64,
+) -> Result<Vec<PeriodCloseM3Assignment>, StoreError> {
+    let assignment_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m3' AND source_sequence<=?",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .bind(m3_high_water)
+    .fetch_one(&mut *conn)
+    .await?;
+    let rows: Vec<PeriodCloseM3Row> = sqlx::query_as(
+        "SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,g.agreement_id,g.agreement_version FROM billing_m5_assignments a JOIN billing_entries e ON e.ordinal=a.source_sequence JOIN billing_setup s ON s.singleton=1 JOIN billing_agreements g ON g.customer=a.customer AND g.source=a.source_scope AND g.revision=1 AND g.transition='start' AND g.setup_bytes=s.canonical_bytes WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.source_sequence<=? UNION ALL SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m2_entries e ON e.ordinal=a.source_sequence WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.source_sequence<=? UNION ALL SELECT a.source_sequence,a.source_scope,a.source_record_kind,a.source_record_id,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.customer=? AND a.term_version=? AND a.period_index=? AND a.source_stream='m3' AND a.source_sequence<=? ORDER BY 1,2,3,4",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .bind(m3_high_water)
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .bind(m3_high_water)
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .bind(m3_high_water)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut matches = BTreeMap::<i64, usize>::new();
+    for (source_sequence, ..) in &rows {
+        *matches.entry(*source_sequence).or_default() += 1;
+    }
+    if rows.len() != usize::try_from(assignment_count).unwrap_or(usize::MAX)
+        || matches.len() != usize::try_from(assignment_count).unwrap_or(usize::MAX)
+        || matches.values().any(|count| *count != 1)
+    {
+        return Err(StoreError::InvalidStore("M5 close assignment tier"));
+    }
+    Ok(rows
+        .into_iter()
+        .map(
+            |(_, source, kind, id, bundle, agreement_id, agreement_version)| {
+                PeriodCloseM3Assignment {
+                    source,
+                    kind,
+                    id,
+                    bundle,
+                    agreement_id,
+                    agreement_version,
+                }
+            },
+        )
+        .collect())
 }
 
 pub(crate) async fn term_state(
@@ -347,6 +451,13 @@ pub(crate) async fn period_resolve_state(
     .await?;
     let (term_version, effective_at_us, term_bytes, payload_bytes) =
         term.ok_or(StoreError::BillingPeriod)?;
+    let successor_effective_at_us: Option<i64> = sqlx::query_scalar(
+        "SELECT effective_at_us FROM billing_m5_term_versions WHERE customer=? AND term_version>? ORDER BY term_version LIMIT 1",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .fetch_optional(&mut *conn)
+    .await?;
     let existing = resolution_head(conn, customer, term_version, period_index).await?;
     Ok(PeriodResolveState {
         command_sequence,
@@ -357,7 +468,96 @@ pub(crate) async fn period_resolve_state(
             term_bytes,
             payload_bytes,
         },
+        successor_effective_at_us,
         existing,
+    })
+}
+
+pub(crate) async fn period_close_state(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    term_version: i64,
+    period_index: i64,
+) -> Result<PeriodCloseState, StoreError> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(&mut *conn)
+        .await?;
+    if version != 11 {
+        return Err(StoreError::BillingUpgradeRequired);
+    }
+    let already_closed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?)",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .fetch_one(&mut *conn)
+    .await?;
+    if already_closed {
+        return Err(StoreError::InvalidStore("M5 duplicate period close"));
+    }
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let term: Option<(i64, i64, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT t.term_version,t.effective_at_us,t.term_bytes,r.payload_bytes FROM billing_m5_term_versions t JOIN billing_m5_records r ON r.sequence=t.record_sequence WHERE t.customer=? AND t.term_version=?",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let (stored_version, effective_at_us, term_bytes, payload_bytes) =
+        term.ok_or(StoreError::BillingPeriod)?;
+    let successor_effective_at_us: Option<i64> = sqlx::query_scalar(
+        "SELECT effective_at_us FROM billing_m5_term_versions WHERE customer=? AND term_version>? ORDER BY term_version LIMIT 1",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let resolution = resolution_head(conn, customer, term_version, period_index).await?;
+    let (snapshot_boundary_id, m3_high_water, m5_high_water): (i64, i64, i64) =
+        sqlx::query_as(
+            "SELECT boundary_id,m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries ORDER BY boundary_id DESC LIMIT 1",
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+    if resolution
+        .as_ref()
+        .is_some_and(|resolution| resolution.record_sequence > m5_high_water)
+    {
+        return Err(StoreError::InvalidStore("M5 close resolution snapshot"));
+    }
+    let m3_assignments =
+        period_close_m3_assignments(conn, customer, term_version, period_index, m3_high_water)
+            .await?;
+    let unsupported_assignment_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=?",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .bind(m5_high_water)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(PeriodCloseState {
+        command_sequence,
+        first_record_sequence,
+        term: CurrentTerm {
+            term_version: stored_version,
+            effective_at_us,
+            term_bytes,
+            payload_bytes,
+        },
+        successor_effective_at_us,
+        resolution,
+        snapshot_boundary_id,
+        m3_high_water,
+        m5_high_water,
+        m3_assignments,
+        unsupported_assignment_count,
     })
 }
 
@@ -412,6 +612,129 @@ pub(crate) async fn append_period_resolution(
     sqlx::query("INSERT INTO billing_m5_period_resolutions(customer,term_version,period_index,resolution_id,record_sequence,start_at_us,end_at_us,supersedes_resolution_id) VALUES(?,?,?,?,?,?,?,NULL)")
         .bind(projection.customer).bind(projection.term_version).bind(projection.period_index)
         .bind(projection.resolution_id).bind(row.0).bind(projection.start_at_us).bind(projection.end_at_us)
+        .execute(&mut *conn).await?;
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) struct PeriodCloseProjection<'a> {
+    pub customer: &'a str,
+    pub term_version: i64,
+    pub period_index: i64,
+    pub boundary_resolution_id: &'a str,
+    pub snapshot_boundary_id: i64,
+    pub m3_high_water: i64,
+    pub m5_high_water: i64,
+    pub statement_hash: &'a str,
+    pub statement_bytes: &'a [u8],
+}
+
+pub(crate) async fn append_period_close(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    projection: &PeriodCloseProjection<'_>,
+) -> Result<(), StoreError> {
+    if projection.term_version <= 0
+        || projection.period_index < 0
+        || projection.snapshot_boundary_id <= 0
+        || projection.m3_high_water < 0
+        || projection.m5_high_water < 0
+        || projection.statement_hash.len() != 64
+    {
+        return Err(StoreError::Integrity("M5 period close projection"));
+    }
+    let boundary: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries WHERE boundary_id=?",
+    )
+    .bind(projection.snapshot_boundary_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if boundary != Some((projection.m3_high_water, projection.m5_high_water)) {
+        return Err(StoreError::Integrity("M5 period close snapshot"));
+    }
+    let head = resolution_head(
+        conn,
+        projection.customer,
+        projection.term_version,
+        projection.period_index,
+    )
+    .await?;
+    if head
+        .as_ref()
+        .is_none_or(|head| head.resolution_id != projection.boundary_resolution_id)
+    {
+        return Err(StoreError::Integrity("M5 period close resolution"));
+    }
+    let statement = canonical(projection.statement_bytes, 262_144)?;
+    let mut unsigned = statement.clone();
+    unsigned
+        .as_object_mut()
+        .ok_or(StoreError::Integrity("M5 period close statement"))?
+        .remove("statement_hash");
+    let unsigned = CanonicalBytes::from_value(&unsigned)
+        .map_err(|_| StoreError::Integrity("M5 period close statement"))?;
+    let expected_hash = hex(&hash(b"bean-counter/m5/statement/4\0", unsigned.as_slice()));
+    let (expected_lines, expected_included, expected_net) = expected_close_economics(
+        conn,
+        projection.customer,
+        projection.term_version,
+        projection.period_index,
+        projection.m3_high_water,
+        projection.m5_high_water,
+    )
+    .await
+    .map_err(|_| StoreError::Integrity("M5 period close economics"))?;
+    let expected_direction = if expected_net == "0" {
+        "none"
+    } else if expected_net.starts_with('-') {
+        "payable"
+    } else {
+        "receivable"
+    };
+    if statement["schema"] != "ledger-billing-statement/4"
+        || statement["customer"] != projection.customer
+        || decimal(&statement["period_id"]["term_version"])? != projection.term_version
+        || decimal(&statement["period_id"]["period_index"])? != projection.period_index
+        || statement["boundary_resolution_id"] != projection.boundary_resolution_id
+        || decimal(&statement["snapshot_boundary_id"])? != projection.snapshot_boundary_id
+        || decimal(&statement["m3_high_water"])? != projection.m3_high_water
+        || decimal(&statement["m5_high_water"])? != projection.m5_high_water
+        || statement["lines"] != expected_lines
+        || statement["net_atoms"] != expected_net
+        || statement["direction"] != expected_direction
+        || statement["statement_hash"] != projection.statement_hash
+        || projection.statement_hash != expected_hash
+    {
+        return Err(StoreError::Integrity("M5 period close statement"));
+    }
+    let sequence = append(conn, command).await?;
+    let row: (i64, String, Vec<u8>) = sqlx::query_as(
+        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE command_sequence=?",
+    )
+    .bind(sequence)
+    .fetch_one(&mut *conn)
+    .await?;
+    let value = canonical(&row.2, 262_144)?;
+    if row.1 != "ledger-billing-period-close-record/1"
+        || value["customer"] != projection.customer
+        || decimal(&value["period_id"]["term_version"])? != projection.term_version
+        || decimal(&value["period_id"]["period_index"])? != projection.period_index
+        || value["boundary_resolution_id"] != projection.boundary_resolution_id
+        || decimal(&value["snapshot_boundary_id"])? != projection.snapshot_boundary_id
+        || decimal(&value["m3_high_water"])? != projection.m3_high_water
+        || decimal(&value["m5_high_water"])? != projection.m5_high_water
+        || value["included_records"] != expected_included
+        || value["lines"] != expected_lines
+        || value["net_atoms"] != expected_net
+        || value["statement_hash"] != projection.statement_hash
+    {
+        return Err(StoreError::Integrity("M5 period close child"));
+    }
+    sqlx::query("INSERT INTO billing_m5_period_closes(customer,term_version,period_index,boundary_resolution_id,snapshot_boundary_id,m3_high_water,m5_high_water,statement_hash,close_sequence,statement_bytes) VALUES(?,?,?,?,?,?,?,?,?,?)")
+        .bind(projection.customer).bind(projection.term_version).bind(projection.period_index)
+        .bind(projection.boundary_resolution_id).bind(projection.snapshot_boundary_id)
+        .bind(projection.m3_high_water).bind(projection.m5_high_water)
+        .bind(projection.statement_hash).bind(row.0).bind(projection.statement_bytes)
         .execute(&mut *conn).await?;
     append_boundary(conn).await?;
     Ok(())
@@ -627,7 +950,6 @@ pub(crate) async fn assignment_for_m3(
     conn: &mut SqliteConnection,
     plan: &crate::service::billing::ValidatedEntry,
 ) -> Result<Option<M3Assignment>, StoreError> {
-    ensure_no_unverified_closes(conn).await?;
     if plan.alias().is_some() {
         return Ok(None);
     }
@@ -764,6 +1086,17 @@ pub(crate) async fn assignment_for_m3(
             });
         }
     }
+    let destination_closed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM billing_m5_period_closes WHERE customer=? AND term_version=? AND period_index=?",
+    )
+    .bind(customer)
+    .bind(assignment.term_version)
+    .bind(assignment.period_index)
+    .fetch_one(&mut *conn)
+    .await?;
+    if destination_closed != 0 {
+        return Err(StoreError::BillingPeriod);
+    }
     Ok(Some(assignment))
 }
 
@@ -853,10 +1186,10 @@ pub(crate) async fn append(
     let mut amount = bytes_len(&[command.identity_key, command.request, command.response])?;
     let mut prior_key: Option<&[u8]> = None;
     for (i, child) in command.children.iter().enumerate() {
-        if child.payload.len() > 262_144
-            || child.child_key.len() > 4096
-            || prior_key.is_some_and(|old| old >= child.child_key)
-        {
+        if child.payload.len() > 262_144 || child.child_key.len() > 4096 {
+            return Err(StoreError::BillingHistoryLimit);
+        }
+        if prior_key.is_some_and(|old| old >= child.child_key) {
             return Err(StoreError::Integrity("M5 child order"));
         }
         prior_key = Some(child.child_key);
@@ -913,9 +1246,72 @@ pub(crate) async fn append(
     Ok(sequence)
 }
 
+pub(crate) async fn preflight_capacity(
+    conn: &mut SqliteConnection,
+    additional_commands: i64,
+    additional_records: i64,
+    additional_bytes: i64,
+) -> Result<(), StoreError> {
+    if additional_commands < 0 || additional_records < 0 || additional_bytes < 0 {
+        return Err(StoreError::Integrity("M5 capacity preflight"));
+    }
+    let (record_count, canonical_bytes, identity_count, identity_bytes, next_command):
+        (i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT record_count,canonical_bytes,activity_identity_count,activity_identity_bytes,next_command_sequence FROM billing_m5_state WHERE singleton=1",
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+    let boundary: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(max(boundary_id),0) FROM billing_m5_snapshot_boundaries",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    capacity_within_limits(
+        record_count,
+        canonical_bytes,
+        identity_count,
+        identity_bytes,
+        next_command,
+        boundary,
+        additional_commands,
+        additional_records,
+        additional_bytes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capacity_within_limits(
+    record_count: i64,
+    canonical_bytes: i64,
+    identity_count: i64,
+    identity_bytes: i64,
+    next_command: i64,
+    boundary: i64,
+    additional_commands: i64,
+    additional_records: i64,
+    additional_bytes: i64,
+) -> Result<(), StoreError> {
+    let rows = record_count
+        .checked_add(next_command - 1)
+        .and_then(|value| value.checked_add(identity_count))
+        .and_then(|value| value.checked_add(additional_commands))
+        .and_then(|value| value.checked_add(additional_records))
+        .ok_or(StoreError::BillingHistoryLimit)?;
+    let bytes = canonical_bytes
+        .checked_add(identity_bytes)
+        .and_then(|value| value.checked_add(additional_bytes))
+        .ok_or(StoreError::BillingHistoryLimit)?;
+    let boundaries = boundary
+        .checked_add(additional_commands)
+        .ok_or(StoreError::BillingHistoryLimit)?;
+    if rows > MAX_ROWS || bytes > MAX_BYTES || boundaries > MAX_ROWS * 3 + 1 {
+        return Err(StoreError::BillingHistoryLimit);
+    }
+    Ok(())
+}
+
 /// Store the only complete report cut, including same-cut alias mutations.
 pub(crate) async fn append_boundary(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
-    ensure_no_unverified_closes(conn).await?;
     let (next, previous_m3, previous_m5): (i64,i64,i64) = sqlx::query_as(
         "SELECT boundary_id+1,m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries ORDER BY boundary_id DESC LIMIT 1",
     ).fetch_one(&mut *conn).await?;
@@ -936,7 +1332,6 @@ pub(crate) async fn append_boundary(conn: &mut SqliteConnection) -> Result<i64, 
 
 /// Fail closed on counters, links, hashes or a torn boundary at store open.
 pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError> {
-    ensure_no_unverified_closes(conn).await?;
     let rows: Vec<(String,i64,i64,i64,i64,i64,i64)> = sqlx::query_as(
         "SELECT migration_id,record_count,canonical_bytes,activity_identity_count,activity_identity_bytes,next_command_sequence,next_record_sequence FROM billing_m5_state",
     ).fetch_all(&mut *conn).await?;
@@ -1033,6 +1428,7 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
             return Err(StoreError::InvalidStore("M5 record integrity"));
         }
     }
+    verify_period_closes(conn).await?;
     verify_term_projections(conn, &record_rows).await?;
     let semantics: Vec<ActivityIdentityRow> = sqlx::query_as(
         "SELECT customer,source,operation_id,command_sequence,activity_sequence,facts_bytes,facts_sha256 FROM billing_m5_activity_semantics ORDER BY customer,source,operation_id",
@@ -1068,14 +1464,317 @@ pub(crate) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
     Ok(())
 }
 
-/// The close command and its statement reconciler are not present in this
-/// slice. A standalone projection row has no authoritative source to trust.
-async fn ensure_no_unverified_closes(conn: &mut SqliteConnection) -> Result<(), StoreError> {
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM billing_m5_period_closes")
-        .fetch_one(&mut *conn)
+async fn expected_close_economics(
+    conn: &mut SqliteConnection,
+    customer: &str,
+    term_version: i64,
+    period_index: i64,
+    m3_high_water: i64,
+    m5_high_water: i64,
+) -> Result<(Value, Value, String), StoreError> {
+    let unsupported: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM billing_m5_assignments WHERE customer=? AND term_version=? AND period_index=? AND source_stream='m5' AND source_sequence<=?",
+    )
+    .bind(customer)
+    .bind(term_version)
+    .bind(period_index)
+    .bind(m5_high_water)
+    .fetch_one(&mut *conn)
+    .await?;
+    if unsupported != 0 {
+        return Err(StoreError::InvalidStore("M5 unsupported closed assignment"));
+    }
+    let assignments =
+        period_close_m3_assignments(conn, customer, term_version, period_index, m3_high_water)
+            .await?;
+    let period_id = json!({
+        "term_version":term_version.to_string(),"period_index":period_index.to_string()
+    });
+    let mut lines = Vec::with_capacity(assignments.len());
+    let mut included = Vec::with_capacity(assignments.len());
+    let mut net = 0i128;
+    for assignment in assignments {
+        if assignment.kind != "base-acceptance" {
+            return Err(StoreError::InvalidStore(
+                "M5 unsupported closed M3 assignment",
+            ));
+        }
+        let agreement_id = assignment
+            .agreement_id
+            .filter(|id| !id.is_empty())
+            .ok_or(StoreError::InvalidStore("M5 close agreement"))?;
+        let agreement_version = assignment
+            .agreement_version
+            .filter(|version| *version > 0)
+            .ok_or(StoreError::InvalidStore("M5 close agreement"))?;
+        let bundle = canonical(&assignment.bundle, 8 * 1024 * 1024)?;
+        let rows = bundle
+            .as_array()
+            .ok_or(StoreError::InvalidStore("M5 close bundle"))?;
+        if !rows
+            .iter()
+            .any(|row| row["kind"] == assignment.kind && row["id"] == assignment.id)
+        {
+            return Err(StoreError::InvalidStore("M5 close receipt"));
+        }
+        let event = rows
+            .iter()
+            .find(|row| row["kind"] == "event")
+            .ok_or(StoreError::InvalidStore("M5 close event"))?;
+        let postings = rows
+            .iter()
+            .filter(|row| row["kind"] == "base-posting")
+            .collect::<Vec<_>>();
+        let first = postings
+            .first()
+            .ok_or(StoreError::InvalidStore("M5 close postings"))?;
+        let payer = first["body"]["roles"]["payer"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 close roles"))?;
+        let recipient = first["body"]["roles"]["recipient"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 close roles"))?;
+        let mut booked = 0i128;
+        let mut scale = None;
+        for posting in postings {
+            if posting["body"]["agreement_id"] != agreement_id
+                || posting["body"]["roles"]["payer"] != payer
+                || posting["body"]["roles"]["recipient"] != recipient
+                || posting["body"]["amount"]["currency"] != "USD"
+            {
+                return Err(StoreError::InvalidStore("M5 close posting"));
+            }
+            let posting_scale = posting["body"]["amount"]["scale"]
+                .as_u64()
+                .ok_or(StoreError::InvalidStore("M5 close posting"))?;
+            if scale
+                .replace(posting_scale)
+                .is_some_and(|old| old != posting_scale)
+            {
+                return Err(StoreError::InvalidStore("M5 close posting scale"));
+            }
+            let atoms = posting["body"]["amount"]["atoms"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 close posting"))?
+                .parse::<i128>()
+                .map_err(|_| StoreError::InvalidStore("M5 close posting"))?;
+            booked = booked
+                .checked_add(atoms)
+                .ok_or(StoreError::InvalidStore("M5 close amount"))?;
+        }
+        let source_record = json!({
+            "customer":customer,"source":assignment.source,
+            "kind":assignment.kind,"id":assignment.id
+        });
+        included.push(source_record.clone());
+        let (basis, amount, calculation) = if scale == Some(18) {
+            let quantity = event["body"]["data"]["quantity"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 close quantity"))?
+                .parse::<i128>()
+                .map_err(|_| StoreError::InvalidStore("M5 close quantity"))?;
+            let unit = event["body"]["data"]["unit"]
+                .as_str()
+                .ok_or(StoreError::InvalidStore("M5 close unit"))?;
+            if quantity <= 0 || booked % quantity != 0 {
+                return Err(StoreError::InvalidStore("M5 close quantity"));
+            }
+            let rate = booked / quantity;
+            (
+                "per_work",
+                booked,
+                json!({"kind":"per_work","exact_atoms_numerator":booked.to_string(),
+                    "exact_atoms_denominator":"1","booked_atoms":booked.to_string(),"rounding":"none",
+                    "operands":{"agreement_id":agreement_id,
+                        "agreement_version":agreement_version.to_string(),"unit":unit,
+                        "quantity":quantity.to_string(),"rate_atoms_per_unit":rate.to_string()}}),
+            )
+        } else if scale == Some(2) {
+            let amount = booked
+                .checked_mul(10_000_000_000_000_000)
+                .ok_or(StoreError::InvalidStore("M5 close amount"))?;
+            (
+                "fixed",
+                amount,
+                json!({"kind":"fixed","exact_atoms_numerator":amount.to_string(),
+                    "exact_atoms_denominator":"1","booked_atoms":amount.to_string(),"rounding":"none",
+                    "operands":{"agreement_id":agreement_id,
+                        "agreement_version":agreement_version.to_string(),
+                        "fixed_atoms_scale_2":booked.to_string(),
+                        "usd_scale_18_multiplier":"10000000000000000"}}),
+            )
+        } else {
+            return Err(StoreError::InvalidStore("M5 close scale"));
+        };
+        net = net
+            .checked_add(amount)
+            .ok_or(StoreError::InvalidStore("M5 close net"))?;
+        let mut line = json!({
+            "source_records":[source_record],"basis":basis,"agreement_id":agreement_id,
+            "agreement_version":agreement_version.to_string(),"payer":payer,"recipient":recipient,
+            "currency":"USD","scale":18,"amount_atoms":amount.to_string(),
+            "calculation":calculation
+        });
+        let identity = CanonicalBytes::from_value(&json!({
+            "view_kind":"standard","view_identity":{"customer":customer,"period_id":period_id},
+            "line":line
+        }))
+        .map_err(|_| StoreError::InvalidStore("M5 close line"))?;
+        line["line_id"] = json!(hex(&hash(
+            b"bean-counter/m5/statement-line/1\0",
+            identity.as_slice()
+        )));
+        lines.push(line);
+    }
+    included.sort_by(|left, right| {
+        (
+            left["customer"].as_str(),
+            left["source"].as_str(),
+            left["kind"].as_str(),
+            left["id"].as_str(),
+        )
+            .cmp(&(
+                right["customer"].as_str(),
+                right["source"].as_str(),
+                right["kind"].as_str(),
+                right["id"].as_str(),
+            ))
+    });
+    lines.sort_by(|left, right| left["line_id"].as_str().cmp(&right["line_id"].as_str()));
+    Ok((json!(lines), json!(included), net.to_string()))
+}
+
+async fn verify_period_closes(conn: &mut SqliteConnection) -> Result<(), StoreError> {
+    let rows: Vec<PeriodCloseProjectionRow> = sqlx::query_as(
+        "SELECT customer,term_version,period_index,boundary_resolution_id,snapshot_boundary_id,m3_high_water,m5_high_water,statement_hash,close_sequence,statement_bytes FROM billing_m5_period_closes ORDER BY close_sequence",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let retained: BTreeSet<i64> = sqlx::query_scalar(
+        "SELECT sequence FROM billing_m5_records WHERE family='ledger-billing-period-close-record/1' ORDER BY sequence",
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .collect();
+    if rows.len() != retained.len() {
+        return Err(StoreError::InvalidStore("M5 period close projection count"));
+    }
+    let mut projected = BTreeSet::new();
+    for (
+        customer,
+        term_version,
+        period_index,
+        resolution_id,
+        boundary_id,
+        m3_high_water,
+        m5_high_water,
+        statement_hash,
+        close_sequence,
+        statement_bytes,
+    ) in rows
+    {
+        if !retained.contains(&close_sequence) || !projected.insert(close_sequence) {
+            return Err(StoreError::InvalidStore("M5 period close record"));
+        }
+        let (command_accepted_at, response_bytes, payload_bytes): (i64, Vec<u8>, Vec<u8>) =
+            sqlx::query_as(
+                "SELECT c.accepted_at_us,c.response_bytes,r.payload_bytes FROM billing_m5_records r JOIN billing_m5_commands c ON c.command_sequence=r.command_sequence WHERE r.sequence=? AND c.family='ledger-billing-period-close/1'",
+            )
+            .bind(close_sequence)
+            .fetch_one(&mut *conn)
+            .await?;
+        if response_bytes != statement_bytes {
+            return Err(StoreError::InvalidStore("M5 period close response"));
+        }
+        let statement = canonical(&statement_bytes, 262_144)?;
+        let payload = canonical(&payload_bytes, 262_144)?;
+        let mut unsigned = statement.clone();
+        unsigned
+            .as_object_mut()
+            .ok_or(StoreError::InvalidStore("M5 period close statement"))?
+            .remove("statement_hash");
+        let unsigned = CanonicalBytes::from_value(&unsigned)
+            .map_err(|_| StoreError::InvalidStore("M5 period close statement"))?;
+        let expected_hash = hex(&hash(b"bean-counter/m5/statement/4\0", unsigned.as_slice()));
+        let snapshot: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries WHERE boundary_id=?",
+        )
+        .bind(boundary_id)
+        .fetch_optional(&mut *conn)
         .await?;
-    if count != 0 {
-        return Err(StoreError::InvalidStore("M5 unverified period close"));
+        let resolution: Option<(String, i64, i64)> = sqlx::query_as(
+            "SELECT resolution_id,start_at_us,end_at_us FROM billing_m5_period_resolutions WHERE customer=? AND term_version=? AND period_index=? AND resolution_id=?",
+        )
+        .bind(&customer)
+        .bind(term_version)
+        .bind(period_index)
+        .bind(&resolution_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some((_, start_at_us, end_at_us)) = resolution else {
+            return Err(StoreError::InvalidStore("M5 period close resolution"));
+        };
+        let net = statement["net_atoms"]
+            .as_str()
+            .ok_or(StoreError::InvalidStore("M5 period close net"))?;
+        let (expected_lines, expected_included, expected_net) = expected_close_economics(
+            conn,
+            &customer,
+            term_version,
+            period_index,
+            m3_high_water,
+            m5_high_water,
+        )
+        .await?;
+        let direction = if net == "0" {
+            "none"
+        } else if net.starts_with('-') {
+            "payable"
+        } else {
+            "receivable"
+        };
+        if statement["schema"] != "ledger-billing-statement/4"
+            || statement["status"] != "closed"
+            || statement["customer"] != customer
+            || decimal(&statement["period_id"]["term_version"])? != term_version
+            || decimal(&statement["period_id"]["period_index"])? != period_index
+            || statement["boundary_resolution_id"] != resolution_id
+            || statement["currency"] != "USD"
+            || statement["scale"] != 18
+            || statement["complete"] != true
+            || statement["direction"] != direction
+            || utc_us(&statement["start_utc"])? != start_at_us
+            || utc_us(&statement["end_utc"])? != end_at_us
+            || utc_us(&statement["close_acceptance_time"])? != command_accepted_at
+            || decimal(&statement["snapshot_boundary_id"])? != boundary_id
+            || decimal(&statement["m3_high_water"])? != m3_high_water
+            || decimal(&statement["m5_high_water"])? != m5_high_water
+            || statement["statement_hash"] != statement_hash
+            || statement_hash != expected_hash
+            || snapshot != Some((m3_high_water, m5_high_water))
+            || payload["schema"] != "ledger-billing-period-close-record/1"
+            || payload["customer"] != customer
+            || payload["period_id"] != statement["period_id"]
+            || payload["boundary_resolution_id"] != resolution_id
+            || payload["start_utc"] != statement["start_utc"]
+            || payload["end_utc"] != statement["end_utc"]
+            || payload["m3_high_water"] != statement["m3_high_water"]
+            || payload["m5_high_water"] != statement["m5_high_water"]
+            || payload["lines"] != statement["lines"]
+            || payload["net_atoms"] != statement["net_atoms"]
+            || payload["statement_hash"] != statement_hash
+            || payload["snapshot_boundary_id"] != statement["snapshot_boundary_id"]
+            || !payload["included_records"].is_array()
+            || statement["lines"] != expected_lines
+            || payload["included_records"] != expected_included
+            || net != expected_net
+        {
+            return Err(StoreError::InvalidStore("M5 period close projection"));
+        }
+    }
+    if projected != retained {
+        return Err(StoreError::InvalidStore("M5 period close projection set"));
     }
     Ok(())
 }
@@ -1553,6 +2252,16 @@ mod tests {
                 .unwrap()
                 .as_bytes()
         );
+    }
+
+    #[test]
+    fn capacity_preflight_reserves_the_resolution_and_close_together() {
+        let current_bytes = MAX_BYTES - 100;
+        assert!(capacity_within_limits(0, current_bytes, 0, 0, 1, 1, 1, 1, 100,).is_ok());
+        assert!(matches!(
+            capacity_within_limits(0, current_bytes, 0, 0, 1, 1, 2, 2, 101,),
+            Err(StoreError::BillingHistoryLimit)
+        ));
     }
 
     #[tokio::test]
