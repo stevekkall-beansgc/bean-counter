@@ -34,4 +34,4 @@ Keep the installation private and single-owner, stop applications before upgrade
 
 ## Release evidence
 
-The release candidate must pass formatting, clippy with warnings denied, workspace tests, local billing unit/e2e gates, the M5 contract gate, migration-focused tests and exact-commit GitHub CI before the annotated tag is published. The GitHub release identifies the exact qualifying commit. Focused test counts are informative only; the exact release checks and commit are the authoritative evidence.
+The release candidate must pass the Agency QA manifest's exact-checkout commands: the local billing gate (formatting, core/testkit coverage, the integrated billing slice, dedicated M5 migrations, clippy with warnings denied, no-default compilation and contract/schema checks), the billing CLI/e2e gate and exact-commit GitHub compliance CI before the annotated tag is published. The GitHub release identifies the exact qualifying commit. Unrelated workspace stress suites remain useful repository evidence but are not M5 release gates. Focused test counts are informative only; the manifest-owned release checks and commit are the authoritative evidence.

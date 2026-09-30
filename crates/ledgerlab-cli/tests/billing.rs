@@ -575,20 +575,73 @@ fn recurrence_occurrence_and_cancel_are_runnable_from_the_cli() {
         serde_json::to_vec(&cancel).unwrap(),
     )
     .unwrap();
+    let cancelled = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "recurrence",
+            "cancel",
+            "cancel.json",
+        ],
+        0,
+    );
+    assert_eq!(cancelled["status"], "recurrence_cancelled");
+
+    // Every CLI command has exited, so copying the whole installation is a
+    // quiescent restore. The restored M5 term, recurrence, occurrence receipt,
+    // cancellation and exact command identities must all reopen together.
+    assert!(Command::new("cp")
+        .current_dir(root)
+        .args(["-Rp", "store", "restored-m5"])
+        .status()
+        .unwrap()
+        .success());
     assert_eq!(
         run(
             root,
             &[
                 "billing",
                 "--directory",
-                "store",
+                "restored-m5",
+                "recurrence",
+                "set",
+                "recurrence.json",
+            ],
+            0,
+        ),
+        recurrence_result
+    );
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "restored-m5",
+                "occurrence",
+                "accept",
+                "accept.json",
+            ],
+            0,
+        ),
+        accepted
+    );
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "restored-m5",
                 "recurrence",
                 "cancel",
                 "cancel.json",
             ],
             0,
-        )["status"],
-        "recurrence_cancelled"
+        ),
+        cancelled
     );
 }
 

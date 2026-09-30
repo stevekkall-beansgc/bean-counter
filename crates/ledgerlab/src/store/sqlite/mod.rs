@@ -58,6 +58,8 @@ struct Inner {
     fence_cut: std::sync::atomic::AtomicU8,
     #[cfg(test)]
     append_pause: Mutex<Option<Arc<adjudication::AppendPause>>>,
+    #[cfg(test)]
+    begin_pause: Mutex<Option<Arc<BeginPause>>>,
 }
 #[derive(Clone)]
 pub(crate) struct SqliteStore {
@@ -208,6 +210,8 @@ impl SqliteStore {
                 fence_cut: std::sync::atomic::AtomicU8::new(0),
                 #[cfg(test)]
                 append_pause: Mutex::new(None),
+                #[cfg(test)]
+                begin_pause: Mutex::new(None),
                 _owner: owner,
             }),
             diagnostics,
@@ -233,6 +237,18 @@ impl SqliteStore {
     #[cfg(test)]
     pub(crate) async fn test_contender(&self) -> Result<Self, StoreError> {
         Self::from_owner(self.inner._owner.clone(), false).await
+    }
+    #[cfg(test)]
+    pub(crate) fn test_commit_cut(&self, cut: u8) {
+        self.inner.fence_cut.store(cut, Ordering::Release);
+    }
+    #[cfg(test)]
+    pub(crate) fn test_pause_next_begin(&self) -> Arc<BeginPause> {
+        let pause = Arc::new(BeginPause::default());
+        let mut slot = self.inner.begin_pause.lock().unwrap();
+        assert!(slot.is_none());
+        *slot = Some(Arc::clone(&pause));
+        pause
     }
     #[cfg(test)]
     pub(crate) async fn test_write_locked(&self, path: &Path) -> Result<bool, StoreError> {
@@ -343,6 +359,14 @@ impl SqliteStore {
             transaction.rollback().await?;
             return Err(StoreError::WritesDisabled);
         }
+        #[cfg(test)]
+        {
+            let pause = self.inner.begin_pause.lock().unwrap().take();
+            if let Some(pause) = pause {
+                pause.reached.notify_one();
+                pause.release.notified().await;
+            }
+        }
         let physical_start_pages = if self
             .inner
             ._owner
@@ -378,6 +402,14 @@ impl SqliteStore {
             outcome_fault: None,
         })
     }
+}
+
+/// Test-only scheduling latch placed immediately after the SQLite writer lock.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct BeginPause {
+    pub reached: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
 }
 
 #[cfg(test)]

@@ -1564,9 +1564,61 @@ pub(super) async fn close_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     fn wire(value: Value) -> Vec<u8> {
         canonical(&value).unwrap()
+    }
+
+    async fn per_work_race_fixture(
+        path: &std::path::Path,
+        suffix: &str,
+    ) -> (Arc<BillingLedger>, Vec<u8>, Vec<u8>) {
+        BillingLedger::init(
+            path,
+            include_bytes!("../../../../examples/billing/usage/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = Arc::new(BillingLedger::open(path).await.unwrap());
+        let term = wire(json!({
+            "schema":"ledger-billing-term/1","customer":"customer-usage-1",
+            "change_id":format!("race-term-{suffix}"),"expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp",
+                "boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }));
+        ledger
+            .term_set_at(
+                &term,
+                Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        ledger
+            .accept_at(
+                "customer-usage-1",
+                "urn:example:usage-work",
+                include_bytes!("../../../../examples/billing/usage/event.json"),
+                Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let close = wire(json!({
+            "schema":"ledger-billing-period-close/1","customer":"customer-usage-1",
+            "period_id":{"term_version":"1","period_index":"0"}
+        }));
+        let correction = wire(json!({
+            "schema":"ledger-billing-quantity-correction/1",
+            "customer":"customer-usage-1","source":"urn:example:usage-work",
+            "id":format!("race-correction-{suffix}"),"target":"usage-work-1",
+            "quantity_delta":"-1","occurred_at":"2026-10-02T10:00:00.000000Z",
+            "evidence":"verified close/correction writer race"
+        }));
+        (ledger, close, correction)
     }
 
     #[test]
@@ -2122,5 +2174,172 @@ mod tests {
         .unwrap();
         conn.close().await.unwrap();
         assert!(BillingLedger::open(&path).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn close_and_quantity_correction_serialize_both_writer_race_orders() {
+        for correction_first in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().canonicalize().unwrap().join("billing");
+            let suffix = if correction_first {
+                "correction-first"
+            } else {
+                "close-first"
+            };
+            let (ledger, close, correction) = per_work_race_fixture(&path, suffix).await;
+            let pause = ledger.store.test_pause_next_begin();
+
+            let (correction_result, close_result) = if correction_first {
+                let first_ledger = Arc::clone(&ledger);
+                let first_request = correction.clone();
+                let first = tokio::spawn(async move {
+                    first_ledger
+                        .quantity_correct_at(
+                            &first_request,
+                            Timestamp::parse("2026-10-02T11:00:00.000000Z").unwrap(),
+                        )
+                        .await
+                });
+                pause.reached.notified().await;
+                let second_ledger = Arc::clone(&ledger);
+                let second_request = close.clone();
+                let second = tokio::spawn(async move {
+                    second_ledger
+                        .period_close_at(
+                            &second_request,
+                            Timestamp::parse("2026-10-05T12:00:00.000000Z").unwrap(),
+                        )
+                        .await
+                });
+                tokio::task::yield_now().await;
+                pause.release.notify_one();
+                (
+                    first.await.unwrap().unwrap(),
+                    second.await.unwrap().unwrap(),
+                )
+            } else {
+                let first_ledger = Arc::clone(&ledger);
+                let first_request = close.clone();
+                let first = tokio::spawn(async move {
+                    first_ledger
+                        .period_close_at(
+                            &first_request,
+                            Timestamp::parse("2026-10-05T11:00:00.000000Z").unwrap(),
+                        )
+                        .await
+                });
+                pause.reached.notified().await;
+                let second_ledger = Arc::clone(&ledger);
+                let second_request = correction.clone();
+                let second = tokio::spawn(async move {
+                    second_ledger
+                        .quantity_correct_at(
+                            &second_request,
+                            Timestamp::parse("2026-10-06T12:00:00.000000Z").unwrap(),
+                        )
+                        .await
+                });
+                tokio::task::yield_now().await;
+                pause.release.notify_one();
+                (
+                    second.await.unwrap().unwrap(),
+                    first.await.unwrap().unwrap(),
+                )
+            };
+
+            if correction_first {
+                assert!(correction_result.get("adjustment").is_none());
+                assert!(close_result["lines"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|line| line["basis"] == "quantity_correction"));
+            } else {
+                assert!(close_result["lines"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|line| line["basis"] != "quantity_correction"));
+                assert_eq!(
+                    correction_result["adjustment"]["basis"],
+                    "per_work_quantity"
+                );
+                assert_eq!(
+                    correction_result["adjustment"]["signed_delta_atoms"],
+                    "-250000000000"
+                );
+            }
+            assert_eq!(
+                ledger
+                    .quantity_correct_at(
+                        &correction,
+                        Timestamp::parse(if correction_first {
+                            "2026-10-02T11:00:00.000000Z"
+                        } else {
+                            "2026-10-06T12:00:00.000000Z"
+                        })
+                        .unwrap(),
+                    )
+                    .await
+                    .unwrap(),
+                correction_result
+            );
+            match Arc::try_unwrap(ledger) {
+                Ok(ledger) => ledger.close().await,
+                Err(_) => panic!("race tasks retained the billing ledger"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn committed_m5_unknown_result_reopens_and_replays_exactly() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        let term = wire(json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"unknown-m5-term","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-09-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-09-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp",
+                "boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }));
+        let accepted = Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap();
+        ledger.store.test_commit_cut(2);
+        assert!(matches!(
+            ledger.term_set_at(&term, accepted.clone()).await,
+            Err(local::LocalError::Service(ServiceError::Rejection(code)))
+                if code == "BILLING_M5_OUTCOME_UNKNOWN"
+        ));
+        ledger.close().await;
+
+        let reopened = BillingLedger::open(&path).await.unwrap();
+        let recovered = reopened.term_set_at(&term, accepted.clone()).await.unwrap();
+        assert_eq!(recovered["status"], "term_updated");
+        assert_eq!(
+            reopened.term_set_at(&term, accepted).await.unwrap(),
+            recovered
+        );
+        reopened.close().await;
+        let verified = BillingLedger::open(&path).await.unwrap();
+        assert_eq!(
+            verified
+                .term_set_at(
+                    &term,
+                    Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+                )
+                .await
+                .unwrap(),
+            recovered
+        );
+        verified.close().await;
     }
 }
