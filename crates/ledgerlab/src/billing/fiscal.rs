@@ -515,7 +515,8 @@ fn fiscal_m5_effects(
                     || request["customer"] != customer
                     || request["source"] != application
                     || request["id"] != payload["correction_id"]
-                    || request["target"] != payload["target_activity_id"]
+                    || (payload["mode"] == "per-work"
+                        && request["target"] != payload["target_activity_id"])
                     || request["quantity_delta"] != payload["quantity_delta"]
                 {
                     return Err(service::reject("BILLING_M5_INTEGRITY"));
@@ -666,7 +667,8 @@ fn fiscal_m5_effects(
                     || request["customer"] != customer
                     || request["source"] != application
                     || request["id"] != payload["cause_id"]
-                    || request["target"] != payload["target_id"]
+                    || (payload["cause_kind"] == "per-work-quantity-correction"
+                        && request["target"] != payload["target_id"])
                     || request["quantity_delta"] != calculation["operands"]["quantity_delta"]
                     || payload["currency"] != "USD"
                     || payload["scale"] != 18
@@ -1221,6 +1223,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn public_writes_enforce_one_clock_across_m2_m3_and_m5() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        ledger
+            .fiscal_set_at(
+                &utc_year_calendar("clock-fiscal-1"),
+                Timestamp::parse("2026-09-02T00:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            ledger
+                .accept_at(
+                    "customer-1",
+                    "urn:example:work",
+                    include_bytes!("../../../../examples/billing/event.json"),
+                    Timestamp::parse("2026-09-01T12:00:00.000000Z").unwrap(),
+                )
+                .await,
+            Err(local::LocalError::Service(ServiceError::Rejection(code)))
+                if code == "BILLING_CLOCK_NOT_ADVANCED"
+        ));
+
+        let mut amended: Value =
+            serde_json::from_slice(include_bytes!("../../../../examples/billing/setup.json"))
+                .unwrap();
+        amended["price"] = json!("4.25");
+        let control = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-amendment/2","customer":"customer-1",
+            "source":"urn:example:work","change_id":"clock-m2-amendment",
+            "expected_revision":"1","effective_at":"2090-01-02T00:00:00.000000Z",
+            "setup":amended
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .agreement_control_at(
+                "customer-1",
+                "urn:example:work",
+                &control,
+                Timestamp::parse("2090-01-01T00:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let second = request("clock-fiscal-2", "1");
+        assert!(matches!(
+            ledger.fiscal_set(&second).await,
+            Err(local::LocalError::Service(ServiceError::Rejection(code)))
+                if code == "BILLING_CLOCK_NOT_ADVANCED"
+        ));
+        ledger.close().await;
+    }
+
+    #[tokio::test]
     async fn fiscal_calendar_command_matches_the_frozen_golden() {
         let oracle: Value = serde_json::from_str(include_str!(
             "../../../../contracts/candidates/billing-lifecycle-m5/vectors/m5-command-goldens.json"
@@ -1442,6 +1505,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fiscal_report_includes_unassigned_m3_work_before_and_after_term_backfill() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().canonicalize().unwrap().join("billing");
+        BillingLedger::init(
+            &path,
+            include_bytes!("../../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let ledger = BillingLedger::open(&path).await.unwrap();
+        ledger
+            .fiscal_set_at(
+                &utc_year_calendar("unassigned-fiscal-year"),
+                Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        ledger
+            .accept_at(
+                "customer-1",
+                "urn:example:work",
+                include_bytes!("../../../../examples/billing/event.json"),
+                Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let first = ledger
+            .fiscal_report_at(
+                &report(
+                    "unassigned-before-term",
+                    "2026-01-01T00:00:00.000000Z",
+                    "2027-01-01T00:00:00.000000Z",
+                ),
+                Timestamp::parse("2026-09-15T13:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first["monetary_lines"].as_array().unwrap().len(), 1);
+        assert_ne!(first["net_atoms"], "0");
+
+        let term = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-term/1","customer":"customer-1",
+            "change_id":"unassigned-backfill-term","expected_revision":"0",
+            "effective":{"mode":"initial","at":"2026-01-01T00:00:00.000000Z"},
+            "term":{"interval":1,"unit":"month","alignment":"anchored",
+                "anchor":{"date":"2026-01-01","time":"00:00:00"},"timezone":"UTC",
+                "month_end_rule":"preserve_anchor_and_clamp",
+                "boundary_rule_version":"billing-boundary/1",
+                "timezone_rules_version":"IANA-2025b","proration":"none"}
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .term_set_at(
+                &term,
+                Timestamp::parse("2026-09-16T00:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let pinned = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-fiscal-report-request/1","command_id":"unassigned-old-cut",
+            "calendar_version":"1","start":"2026-01-01T00:00:00.000000Z",
+            "end":"2027-01-01T00:00:00.000000Z",
+            "snapshot":{"m3_high_water":first["m3_high_water"],
+                "m5_high_water":first["m5_high_water"]}
+        }))
+        .unwrap()
+        .into_vec();
+        let after_backfill = ledger
+            .fiscal_report_at(
+                &pinned,
+                Timestamp::parse("2026-09-17T00:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(after_backfill["monetary_lines"], first["monetary_lines"]);
+        assert_eq!(after_backfill["net_atoms"], first["net_atoms"]);
+        ledger.close().await;
+    }
+
+    #[tokio::test]
     async fn fiscal_reports_include_open_and_post_close_per_work_corrections_exactly() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().canonicalize().unwrap().join("billing");
@@ -1652,7 +1796,7 @@ mod tests {
             "effective_at":"2026-10-01T00:00:00.000000Z",
             "basis":{"mode":"cumulative_period","source_unit":"token",
                 "billable_unit":"billable-token","conversion_numerator":"1",
-                "conversion_denominator":"2","rate_usd_per_billable_unit":"0.000000000000000001",
+                "conversion_denominator":"1","rate_usd_per_billable_unit":"0.000000000000000001",
                 "maximum_period_quantity":"100"}
         }))
         .unwrap()
@@ -1679,6 +1823,33 @@ mod tests {
             )
             .await
             .unwrap();
+        let mut activity_alias: Value = serde_json::from_slice(&activity).unwrap();
+        activity_alias["id"] = json!("fiscal-activity-alias");
+        let activity_alias = CanonicalBytes::from_value(&activity_alias)
+            .unwrap()
+            .into_vec();
+        ledger
+            .activity_submit_at(
+                &activity_alias,
+                Timestamp::parse("2026-10-10T10:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
+        let open_correction = CanonicalBytes::from_value(&json!({
+            "schema":"ledger-billing-quantity-correction/1","customer":"customer-1",
+            "source":"urn:example:work","id":"fiscal-cumulative-open",
+            "target":"fiscal-activity-alias","quantity_delta":"1",
+            "occurred_at":"2026-10-11T11:00:00.000000Z","evidence":"verified open quantity"
+        }))
+        .unwrap()
+        .into_vec();
+        ledger
+            .quantity_correct_at(
+                &open_correction,
+                Timestamp::parse("2026-10-11T11:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let close = CanonicalBytes::from_value(&json!({
             "schema":"ledger-billing-period-close/1","customer":"customer-1",
             "period_id":{"term_version":"1","period_index":"0"}
@@ -1695,7 +1866,7 @@ mod tests {
         let correction = CanonicalBytes::from_value(&json!({
             "schema":"ledger-billing-quantity-correction/1","customer":"customer-1",
             "source":"urn:example:work","id":"fiscal-cumulative-late",
-            "target":"fiscal-activity","quantity_delta":"1",
+            "target":"fiscal-activity-alias","quantity_delta":"1",
             "occurred_at":"2026-11-06T11:00:00.000000Z","evidence":"verified late quantity"
         }))
         .unwrap()
@@ -1726,7 +1897,7 @@ mod tests {
             .iter()
             .find(|line| line["basis"] == "cumulative_close")
             .unwrap();
-        assert_eq!(cumulative["amount_atoms"], "1");
+        assert_eq!(cumulative["amount_atoms"], "3");
         assert!(cumulative["source_records"].as_array().unwrap().len() >= 2);
         let adjustment = result["monetary_lines"]
             .as_array()
@@ -1738,10 +1909,10 @@ mod tests {
         assert_eq!(adjustment["agreement_id"], "agreement-1");
         assert_eq!(adjustment["payer"], "customer-1");
         assert_eq!(adjustment["recipient"], "example-company");
-        assert_eq!(result["net_atoms"], "2");
+        assert_eq!(result["net_atoms"], "4");
         assert_eq!(
             result["nonmonetary_quantities"].as_array().unwrap().len(),
-            2
+            3
         );
         assert_eq!(ledger.fiscal_report(&request).await.unwrap(), result);
         ledger.close().await;

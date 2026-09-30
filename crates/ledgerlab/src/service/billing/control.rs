@@ -163,7 +163,10 @@ pub(super) fn ensure_new_ledger_time(
     ledger_time_max: Option<i64>,
     at: &Timestamp,
 ) -> Result<()> {
-    let mut maximum = ledger_time_max;
+    let mut maximum = match (ledger_time_max, snapshot.cross_stream_time_max) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (left, right) => left.or(right),
+    };
     let mut observe = |value: i64| {
         maximum = Some(maximum.map_or(value, |prior| prior.max(value)));
     };

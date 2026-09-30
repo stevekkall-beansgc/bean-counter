@@ -462,12 +462,35 @@ impl BillingLedger {
         source: &str,
         raw: &[u8],
     ) -> local::Result<Value> {
+        self.agreement_control_inner(customer, source, raw, None)
+            .await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn agreement_control_at(
+        &self,
+        customer: &str,
+        source: &str,
+        raw: &[u8],
+        at: ledgerlab_core::domain::Timestamp,
+    ) -> local::Result<Value> {
+        self.agreement_control_inner(customer, source, raw, Some(at))
+            .await
+    }
+
+    async fn agreement_control_inner(
+        &self,
+        customer: &str,
+        source: &str,
+        raw: &[u8],
+        accepted_override: Option<ledgerlab_core::domain::Timestamp>,
+    ) -> local::Result<Value> {
         let mut tx = self
             .store
             .begin(Instant::now() + Duration::from_secs(5))
             .await
             .map_err(store_error)?;
-        let at = local::now()?;
+        let at = accepted_override.map_or_else(local::now, Ok)?;
         let snapshot = tx.billing_snapshot().await.map_err(store_error)?;
         let (result, plan) = service::control::prepare(&snapshot, raw, &at, customer, source)?;
         if let Some(plan) = plan {
@@ -1788,7 +1811,7 @@ mod tests {
                 "customer-1",
                 "urn:example:work",
                 include_bytes!("../../../examples/billing/event.json"),
-                transition_at,
+                ledgerlab_core::domain::Timestamp::parse("2026-10-02T12:00:00.000001Z").unwrap(),
             )
             .await
             .unwrap();
@@ -2128,7 +2151,7 @@ mod tests {
             .unwrap_err();
         assert!(
             matches!(error,
-                super::LocalError::Service(super::ServiceError::Rejection(ref code)) if code == "BILLING_M5_PERIOD"),
+                super::LocalError::Service(super::ServiceError::Rejection(ref code)) if code == "BILLING_CLOCK_NOT_ADVANCED"),
             "unexpected error: {error:?}"
         );
         ledger.close().await;
@@ -2160,7 +2183,13 @@ mod tests {
         let initial = ledgerlab_core::canonical::CanonicalBytes::from_value(&initial)
             .unwrap()
             .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let work_at =
             ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap();
         ledger
@@ -2219,7 +2248,13 @@ mod tests {
         }))
         .unwrap()
         .into_vec();
-        ledger.term_set(&initial).await.unwrap();
+        ledger
+            .term_set_at(
+                &initial,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let accepted = ledger
             .accept_at(
                 "customer-1",

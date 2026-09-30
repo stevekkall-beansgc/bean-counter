@@ -522,14 +522,59 @@ pub(crate) async fn fiscal_report_state(
         Option<String>,
         Option<i64>,
     );
-    let rows: Vec<FiscalSourceRow> = sqlx::query_as(
-        "SELECT a.source_sequence,a.customer,a.source_scope,a.source_record_kind,a.source_record_id,i.accepted_at_us,e.ingress,e.bundle,g.agreement_id,g.agreement_version FROM billing_m5_assignments a JOIN billing_m3_index i ON i.ordinal=a.source_sequence JOIN billing_entries e ON e.ordinal=a.source_sequence JOIN billing_setup s ON s.singleton=1 JOIN billing_agreements g ON g.customer=a.customer AND g.source=a.source_scope AND g.revision=1 AND g.transition='start' AND g.setup_bytes=s.canonical_bytes WHERE a.source_stream='m3' AND a.source_sequence<=? AND i.accepted_at_us<? UNION ALL SELECT a.source_sequence,a.customer,a.source_scope,a.source_record_kind,a.source_record_id,i.accepted_at_us,e.ingress,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_index i ON i.ordinal=a.source_sequence JOIN billing_m2_entries e ON e.ordinal=a.source_sequence WHERE a.source_stream='m3' AND a.source_sequence<=? AND i.accepted_at_us<? UNION ALL SELECT a.source_sequence,a.customer,a.source_scope,a.source_record_kind,a.source_record_id,i.accepted_at_us,e.ingress,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_index i ON i.ordinal=a.source_sequence JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.source_stream='m3' AND a.source_sequence<=? AND i.accepted_at_us<? ORDER BY 1",
+    let raw_rows: Vec<FiscalSourceRow> = sqlx::query_as(
+        "SELECT i.ordinal,i.customer,i.source,i.kind,i.external_id,i.accepted_at_us,e.ingress,e.bundle,g.agreement_id,g.agreement_version FROM billing_m3_index i JOIN billing_entries e ON e.ordinal=i.ordinal JOIN billing_setup s ON s.singleton=1 JOIN billing_agreements g ON g.customer=i.customer AND g.source=i.source AND g.revision=1 AND g.transition='start' AND g.setup_bytes=s.canonical_bytes WHERE i.ordinal<=? AND i.accepted_at_us<? UNION ALL SELECT i.ordinal,i.customer,i.source,i.kind,i.external_id,i.accepted_at_us,e.ingress,e.bundle,e.agreement_id,e.agreement_version FROM billing_m3_index i JOIN billing_m2_entries e ON e.ordinal=i.ordinal WHERE i.ordinal<=? AND i.accepted_at_us<? UNION ALL SELECT i.ordinal,i.customer,i.source,i.kind,i.external_id,i.accepted_at_us,e.ingress,e.bundle,e.agreement_id,e.agreement_version FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal WHERE i.ordinal<=? AND i.accepted_at_us<? ORDER BY 1",
     )
     .bind(m3_high_water).bind(end_at_us)
     .bind(m3_high_water).bind(end_at_us)
     .bind(m3_high_water).bind(end_at_us)
     .fetch_all(&mut *conn)
     .await?;
+    let mut rows = Vec::with_capacity(raw_rows.len());
+    for (
+        ordinal,
+        customer,
+        source,
+        index_kind,
+        _external_id,
+        accepted_at_us,
+        ingress,
+        bundle,
+        agreement_id,
+        agreement_version,
+    ) in raw_rows
+    {
+        let receipt_kind = if index_kind == "base" {
+            "base-acceptance"
+        } else if index_kind == "outcome" || index_kind == "correction" {
+            "receipt"
+        } else {
+            return Err(StoreError::InvalidStore("M5 fiscal source kind"));
+        };
+        let bundle_value = canonical(&bundle, 8 * 1024 * 1024)?;
+        let record_id = bundle_value
+            .as_array()
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item["kind"] == receipt_kind)
+                    .and_then(|item| item["id"].as_str())
+            })
+            .ok_or(StoreError::InvalidStore("M5 fiscal source receipt"))?
+            .to_owned();
+        rows.push((
+            ordinal,
+            customer,
+            source,
+            receipt_kind.to_owned(),
+            record_id,
+            accepted_at_us,
+            ingress,
+            bundle,
+            agreement_id,
+            agreement_version,
+        ));
+    }
     let mut ordinals = BTreeSet::new();
     if rows.iter().any(|row| !ordinals.insert(row.0)) {
         return Err(StoreError::InvalidStore("M5 fiscal source tier"));
@@ -594,6 +639,8 @@ pub(crate) async fn fiscal_report_state(
                 value["target_id"].as_str()
             }
             .ok_or(StoreError::InvalidStore("M5 fiscal correction target"))?;
+            let request_value = parse_bounded(&request, 262_144)
+                .map_err(|_| StoreError::InvalidStore("M5 fiscal correction request"))?;
             let mode = if kind == "ledger-billing-quantity-correction-record/1" {
                 value["mode"].as_str()
             } else {
@@ -606,7 +653,7 @@ pub(crate) async fn fiscal_report_state(
             .ok_or(StoreError::InvalidStore("M5 fiscal correction mode"))?;
             let (target, agreement_id, agreement_version) = if mode == "per-work" {
                 let target: Option<(i64, Vec<u8>, String, i64)> = sqlx::query_as(
-                    "SELECT i.ordinal,e.bundle,e.agreement_id,e.agreement_version FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal JOIN billing_m5_assignments a ON a.source_stream='m3' AND a.source_sequence=i.ordinal WHERE i.customer=? AND i.source=? AND i.kind='base' AND i.external_id=?",
+                    "SELECT i.ordinal,e.bundle,e.agreement_id,e.agreement_version FROM billing_m3_index i JOIN billing_m3_entries e ON e.ordinal=i.ordinal WHERE i.customer=? AND i.source=? AND i.kind='base' AND i.external_id=?",
                 )
                 .bind(customer)
                 .bind(source)
@@ -620,12 +667,18 @@ pub(crate) async fn fiscal_report_state(
                 }
                 (target, agreement_id, agreement_version)
             } else if mode == "cumulative" {
+                let requested_target =
+                    request_value["target"]
+                        .as_str()
+                        .ok_or(StoreError::InvalidStore(
+                            "M5 fiscal correction request target",
+                        ))?;
                 let target: Option<(i64, Vec<u8>)> = sqlx::query_as(
                     "SELECT r.sequence,r.payload_bytes FROM billing_m5_activity_deliveries d JOIN billing_m5_records r ON r.sequence=d.activity_sequence WHERE d.customer=? AND d.source=? AND d.external_id=?",
                 )
                 .bind(customer)
                 .bind(source)
-                .bind(target_id)
+                .bind(requested_target)
                 .fetch_optional(&mut *conn)
                 .await?;
                 let (target_ordinal, target) =
@@ -634,6 +687,11 @@ pub(crate) async fn fiscal_report_state(
                     return Err(StoreError::InvalidStore("M5 fiscal cumulative cut"));
                 }
                 let target_value = canonical(&target, 262_144)?;
+                if target_value["activity_id"] != target_id {
+                    return Err(StoreError::InvalidStore(
+                        "M5 fiscal cumulative target alias",
+                    ));
+                }
                 let agreement_id = target_value["agreement_id"]
                     .as_str()
                     .ok_or(StoreError::InvalidStore("M5 fiscal cumulative agreement"))?
@@ -2461,6 +2519,11 @@ pub(crate) async fn append(
         sqlx::query_scalar("SELECT max(accepted_at_us) FROM billing_m5_commands")
             .fetch_one(&mut *conn)
             .await?;
+    let maximum_m2: Option<i64> = sqlx::query_scalar(
+        "SELECT max(value) FROM (SELECT max(recorded_at_us) AS value FROM billing_agreements UNION ALL SELECT max(recorded_at_us) FROM billing_m2_changes UNION ALL SELECT max(recorded_at_us) FROM billing_m2_permissions)",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
     let latest_m3: Option<(i64, i64)> = sqlx::query_as(
         "SELECT ordinal,accepted_at_us FROM billing_m3_index ORDER BY ordinal DESC LIMIT 1",
     )
@@ -2474,6 +2537,7 @@ pub(crate) async fn append(
     .unwrap_or(0);
     if command.enforce_clock
         && (maximum_m5.is_some_and(|prior| command.accepted_at_us <= prior)
+            || maximum_m2.is_some_and(|prior| command.accepted_at_us <= prior)
             || latest_m3.is_some_and(|(ordinal, prior)| {
                 command.accepted_at_us < prior
                     || (command.accepted_at_us == prior && ordinal <= boundary_m3)
@@ -4131,6 +4195,24 @@ async fn verify_term_projections(
             let payload = canonical(&payload, 262_144)?;
             let request = parse_bounded(&request, 262_144)
                 .map_err(|_| StoreError::InvalidStore("M5 adjustment request"))?;
+            let request_target_matches = if request["target"] == target {
+                true
+            } else if cause_kind == "cumulative-quantity-correction" {
+                let resolved: Option<Vec<u8>> = sqlx::query_scalar(
+                    "SELECT r.payload_bytes FROM billing_m5_activity_deliveries d JOIN billing_m5_records r ON r.sequence=d.activity_sequence WHERE d.customer=? AND d.source=? AND d.external_id=?",
+                )
+                .bind(&customer)
+                .bind(&scope)
+                .bind(request["target"].as_str().unwrap_or(""))
+                .fetch_optional(&mut *conn)
+                .await?;
+                match resolved {
+                    Some(raw) => canonical(&raw, 262_144)?["activity_id"] == target,
+                    None => false,
+                }
+            } else {
+                false
+            };
             if source_customer != customer
                 || source_scope != scope
                 || family != "ledger-billing-post-close-adjustment/1"
@@ -4141,7 +4223,7 @@ async fn verify_term_projections(
                 || payload["signed_delta_atoms"] != delta
                 || request["schema"] != "ledger-billing-quantity-correction/1"
                 || request["id"] != cause_id
-                || request["target"] != target
+                || !request_target_matches
                 || decimal(&payload["original_period_id"]["term_version"])? != original_version
                 || decimal(&payload["original_period_id"]["period_index"])? != original_period
                 || decimal(&payload["assigned_period_id"]["term_version"])? != assigned_version

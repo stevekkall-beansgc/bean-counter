@@ -440,6 +440,159 @@ fn cumulative_activity_and_quantity_correction_are_runnable_from_the_cli() {
 }
 
 #[test]
+fn recurrence_occurrence_and_cancel_are_runnable_from_the_cli() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
+    fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap();
+    let root = temp.path();
+    fs::write(
+        root.join("setup.json"),
+        include_bytes!("../../../examples/billing/setup.json"),
+    )
+    .unwrap();
+    run(
+        root,
+        &["billing", "init", "store", "--setup", "setup.json"],
+        0,
+    );
+    let term = json!({
+        "schema":"ledger-billing-term/1","customer":"customer-1",
+        "change_id":"recurrence-cli-term","expected_revision":"0",
+        "effective":{"mode":"initial","at":"2000-01-01T00:00:00.000000Z"},
+        "term":{"interval":1,"unit":"month","alignment":"anchored",
+            "anchor":{"date":"2000-01-01","time":"00:00:00"},"timezone":"UTC",
+            "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
+            "timezone_rules_version":"IANA-2025b","proration":"none"}
+    });
+    fs::write(root.join("term.json"), serde_json::to_vec(&term).unwrap()).unwrap();
+    run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "term",
+            "set",
+            "term.json",
+        ],
+        0,
+    );
+    let recurrence = json!({
+        "schema":"ledger-billing-recurrence/1","customer":"customer-1",
+        "source":"urn:example:work","change_id":"recurrence-cli-1",
+        "expected_revision":"0","agreement_id":"agreement-1","agreement_version":"1",
+        "rule":{"interval":1,"unit":"month","anchor":{"date":"2026-09-01","time":"00:00:00"},
+            "timezone":"UTC","effective_from":"2026-09-01T00:00:00.000000Z",
+            "boundary_rule_version":"billing-boundary/1","timezone_rules_version":"IANA-2025b",
+            "proration":"none"},"renewal":{"mode":"manual"}
+    });
+    fs::write(
+        root.join("recurrence.json"),
+        serde_json::to_vec(&recurrence).unwrap(),
+    )
+    .unwrap();
+    let recurrence_result = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "recurrence",
+            "set",
+            "recurrence.json",
+        ],
+        0,
+    );
+    assert_eq!(recurrence_result["recurrence_version"], "1");
+    let query = json!({
+        "schema":"ledger-billing-occurrence-query/1","customer":"customer-1",
+        "source":"urn:example:work","recurrence_version":"1",
+        "due_through":"2026-09-30T00:00:00.000000Z","limit":10
+    });
+    fs::write(root.join("query.json"), serde_json::to_vec(&query).unwrap()).unwrap();
+    let due = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "occurrences",
+            "query.json",
+        ],
+        0,
+    );
+    assert_eq!(due["occurrences"].as_array().unwrap().len(), 1);
+    let occurrence_id = due["occurrences"][0]["occurrence_id"].as_str().unwrap();
+    let accept = json!({
+        "schema":"ledger-billing-occurrence-acceptance/1","customer":"customer-1",
+        "source":"urn:example:work","occurrence_id":occurrence_id,
+        "event":{"schema":"ledger-event/1","id":occurrence_id,
+            "operation_id":"recurrence-cli-operation","type":"content.generated",
+            "customer":"customer-1","occurred_at":"2026-09-01T00:00:00.000000Z",
+            "status":"succeeded"}
+    });
+    fs::write(
+        root.join("accept.json"),
+        serde_json::to_vec(&accept).unwrap(),
+    )
+    .unwrap();
+    let accepted = run(
+        root,
+        &[
+            "billing",
+            "--directory",
+            "store",
+            "occurrence",
+            "accept",
+            "accept.json",
+        ],
+        0,
+    );
+    assert_eq!(accepted["status"], "accepted");
+    assert_eq!(accepted["receipt"]["kind"], "base-acceptance");
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "occurrence",
+                "accept",
+                "accept.json",
+            ],
+            0,
+        ),
+        accepted
+    );
+    let cancel = json!({
+        "schema":"ledger-billing-recurrence-cancel/1","customer":"customer-1",
+        "source":"urn:example:work","change_id":"recurrence-cli-cancel",
+        "expected_revision":"1","recurrence_version":"1"
+    });
+    fs::write(
+        root.join("cancel.json"),
+        serde_json::to_vec(&cancel).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            root,
+            &[
+                "billing",
+                "--directory",
+                "store",
+                "recurrence",
+                "cancel",
+                "cancel.json",
+            ],
+            0,
+        )["status"],
+        "recurrence_cancelled"
+    );
+}
+
+#[test]
 fn configured_billing_cli_reopen_retry_statement_and_refusals() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
     fs::create_dir_all(&root).unwrap();

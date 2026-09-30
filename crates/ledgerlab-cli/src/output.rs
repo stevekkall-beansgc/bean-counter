@@ -128,7 +128,7 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
             if code == "BILLING_M5_OUTCOME_UNKNOWN" =>
         {
             (
-                json!({"schema":"ledger-cli/1","status":"outcome_unknown","code":code,"message":"Term change may have committed. Reopen the installation and retry the identical request bytes with the same customer and change_id; do not choose a new identity."}),
+                json!({"schema":"ledger-cli/1","status":"outcome_unknown","code":code,"message":"The M5 command may have committed. Reopen the installation and retry the identical command with its original identity and request bytes; do not choose a new identity."}),
                 8,
             )
         }
@@ -355,7 +355,7 @@ mod tests {
         assert!(unknown["message"]
             .as_str()
             .unwrap()
-            .contains("identical request bytes"));
+            .contains("original identity and request bytes"));
         let (integrity, integrity_exit) = local_error(LocalError::Service(
             ServiceError::Rejection("BILLING_M5_INTEGRITY".into()),
         ));

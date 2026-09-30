@@ -44,8 +44,18 @@ Ordinary local billing (separate installation):
   billing setup DIR [--setup FILE]     Guided, confirmed private setup
   billing init DIR --setup FILE        Noninteractive JSON setup
   billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema
-  billing [--directory DIR] term set FILE|-  Set a customer's initial billing term
-  billing [--directory DIR] close FILE|-     Close one logical billing period
+  billing [--directory DIR] term set FILE|-  Set a customer's billing term
+  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar
+  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report
+  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis
+  billing [--directory DIR] activity FILE|-   Submit cumulative activity
+  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction
+  billing [--directory DIR] close FILE|-      Close one logical billing period
+  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement
+  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule
+  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule
+  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences
+  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence
   billing [--directory DIR] accept --customer C --source S FILE|-
   billing [--directory DIR] outcome --customer C --source S FILE|-
   billing [--directory DIR] correct --customer C --source S FILE|-

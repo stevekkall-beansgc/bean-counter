@@ -733,6 +733,7 @@ async fn legacy_billing_snapshot(
             entry_count,
             alias_count,
             ledger_time_max: None,
+            cross_stream_time_max: None,
             // A pre-M3 store has no durable index yet.
             index: vec![],
         },
@@ -1052,6 +1053,7 @@ async fn schema9_snapshot(
             entry_count: entry_count + m2_count,
             alias_count: alias_count + m2_alias_count,
             ledger_time_max: None,
+            cross_stream_time_max: None,
             // A pre-M3 store has no durable index yet.
             index: vec![],
             entries: entries

@@ -8,6 +8,7 @@ esac
 cargo fmt --all -- --check
 cargo test -p ledgerlab-core --all-targets --all-features --locked --offline
 cargo test -p ledgerlab --lib --all-features --locked --offline billing
+cargo test -p ledgerlab --lib --all-features --locked --offline m5_upgrade_tests
 cargo test -p ledgerlab-testkit --all-targets --all-features --locked --offline
 cargo clippy --workspace --all-targets --all-features --locked --offline -- -D warnings
 cargo check --workspace --all-targets --no-default-features --locked --offline

@@ -89,6 +89,10 @@ pub(crate) struct BillingSnapshot {
     pub alias_count: i64,
     /// Latest accepted ledger time over every retained decision.
     pub ledger_time_max: Option<i64>,
+    /// Latest accepted time across retained M3 decisions and M5 lifecycle
+    /// commands. M2 control clocks are carried by their decoded rows and are
+    /// folded in by the service before every public write.
+    pub cross_stream_time_max: Option<i64>,
     /// The durable index rows a complete retained snapshot carries, in ordinal
     /// order. Only the fields the entry row cannot prove are kept: identity,
     /// scope and semantic key are cross-checked against the retained entry
@@ -296,6 +300,23 @@ impl SqliteTx {
         ))
     }
 
+    async fn cross_stream_time_max(&mut self, m3: Option<i64>) -> Result<Option<i64>, StoreError> {
+        let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+            .fetch_one(self.conn())
+            .await?;
+        if version < 11 {
+            return Ok(m3);
+        }
+        let m5: Option<i64> =
+            sqlx::query_scalar("SELECT max(accepted_at_us) FROM billing_m5_commands")
+                .fetch_one(self.conn())
+                .await?;
+        Ok(match (m3, m5) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (left, right) => left.or(right),
+        })
+    }
+
     /// Metadata for a write decision. It never decodes retained bundles, but
     /// verifies the retained-history meter against stored rows, so this check
     /// grows with history size.
@@ -309,6 +330,7 @@ impl SqliteTx {
                     .fetch_one(self.conn())
                     .await?;
             let (entry_count, alias_count, _, _, _, clock, _) = self.billing_bounds().await?;
+            let cross_stream_time_max = self.cross_stream_time_max(clock).await?;
             let (permissions, scoped) = self.billing_rights().await?;
             let (customers, agreements, controls) = self.billing_controls().await?;
             // A metadata snapshot carries no retained row and no index row, so
@@ -327,6 +349,7 @@ impl SqliteTx {
                 entry_count,
                 alias_count,
                 ledger_time_max: clock,
+                cross_stream_time_max,
                 index: vec![],
             })
         })
@@ -828,6 +851,7 @@ impl SqliteTx {
                 entry_count,
                 alias_count,
                 ledger_time_max: clock,
+                cross_stream_time_max: self.cross_stream_time_max(clock).await?,
                 index: derived,
             })
         }).await.map_err(|_|StoreError::Deadline)?;

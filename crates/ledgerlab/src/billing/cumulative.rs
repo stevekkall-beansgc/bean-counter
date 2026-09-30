@@ -337,7 +337,7 @@ async fn require_new_time(
     snapshot: &crate::store::sqlite::BillingSnapshot,
     at: &Timestamp,
 ) -> Result<(), ServiceError> {
-    let mut maximum = snapshot.ledger_time_max;
+    let mut maximum = snapshot.cross_stream_time_max;
     for time in snapshot
         .agreements
         .iter()
@@ -1991,7 +1991,13 @@ mod tests {
                 "month_end_rule":"preserve_anchor_and_clamp","boundary_rule_version":"billing-boundary/1",
                 "timezone_rules_version":"IANA-2025b","proration":"none"}
         }));
-        ledger.term_set(&term).await.unwrap();
+        ledger
+            .term_set_at(
+                &term,
+                Timestamp::parse("2026-09-01T00:00:01.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         ledger
             .accept_at(
                 "customer-usage-1",

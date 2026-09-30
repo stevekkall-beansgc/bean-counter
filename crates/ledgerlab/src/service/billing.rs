@@ -1431,6 +1431,7 @@ mod tests {
             entry_count: 0,
             alias_count: 0,
             ledger_time_max: None,
+            cross_stream_time_max: None,
             index: vec![],
         }
     }

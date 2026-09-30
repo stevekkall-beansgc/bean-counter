@@ -28,7 +28,7 @@ The SQLite qualification covers fresh schema 11 creation, exact schema-10 prefli
 
 ## Limits and operator obligations
 
-M5 retains at most 100,000 commands, 100,000 domain records and 256 MiB of exact command/record/identity material, plus separately bounded activity delivery/semantic identities. The limits are refusal ceilings, not reserved capacity or throughput guarantees. There is no automatic pruning, payment status, collection or background recurrence runner.
+M5 retains at most 100,000 combined command, domain-record, semantic-identity and delivery-identity rows, with 256 MiB shared by their exact canonical material. The limits are refusal ceilings, not reserved capacity or throughput guarantees. There is no automatic pruning, payment status, collection or background recurrence runner.
 
 Keep the installation private and single-owner, stop applications before upgrade or backup, preserve the whole installation directory, verify restored history before admitting writes and retain the exact source commit and binary hash. An unknown outcome is not a rollback: reopen and retry the identical original request. Do not bypass an integrity refusal or invent a replacement identity.
 
