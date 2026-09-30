@@ -1,6 +1,6 @@
 # M5 decision register
 
-**Status (2026-09-30): Package 0 is complete, owner defaults are approved, the architecture baseline passed independent Astra review, and Package 3 is frozen after independent Sol and Astra reviews. Implementation is underway in `codex/m5-integration`; initial-term activation, calendar foundations, and the schema-11 upgrade path have focused evidence. M5 is not fully qualified and has no release candidate.** The [billing roadmap](billing-roadmap.md) is canonical. This register records the approved M5 direction and defaults implementation must preserve.
+**Status (2026-09-30): Owner defaults, the independently reviewed architecture and frozen Package 3 contracts are implemented in the v0.8.0 source-built local SQLite profile. The [M5 qualification](m5-qualification.md) records the release boundary and evidence.** The [billing roadmap](billing-roadmap.md) is canonical. This register remains the approved M5 direction and defaults the implementation preserves.
 
 ## 1. Owner-approved constraints
 
