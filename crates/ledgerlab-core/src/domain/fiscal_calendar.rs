@@ -227,6 +227,13 @@ impl FiscalCalendarConfig {
             }
         }
     }
+
+    /// Resolve from the repository's retained UTC-microsecond representation.
+    pub fn period_for_micros(&self, micros: i64) -> Result<FiscalPeriod, CalendarError> {
+        let instant =
+            DateTime::<Utc>::from_timestamp_micros(micros).ok_or(CalendarError::OutOfRange)?;
+        self.period_for(instant)
+    }
     fn fiscal_year_bounds(
         &self,
         d: NaiveDate,

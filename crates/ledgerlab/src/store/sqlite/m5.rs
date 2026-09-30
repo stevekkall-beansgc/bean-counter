@@ -190,6 +190,31 @@ pub(crate) struct FiscalState {
     pub first_record_sequence: i64,
 }
 
+pub(crate) struct FiscalReportSource {
+    pub ordinal: i64,
+    pub customer: String,
+    pub source: String,
+    pub kind: String,
+    pub id: String,
+    pub accepted_at_us: i64,
+    pub ingress: Vec<u8>,
+    pub bundle: Vec<u8>,
+    pub agreement_id: Option<String>,
+    pub agreement_version: Option<i64>,
+}
+
+pub(crate) struct FiscalReportState {
+    pub command_sequence: i64,
+    pub first_record_sequence: i64,
+    pub timezone: String,
+    pub timezone_rules_version: String,
+    pub calendar_bytes: Vec<u8>,
+    pub snapshot_boundary_id: i64,
+    pub m3_high_water: i64,
+    pub m5_high_water: i64,
+    pub sources: Vec<FiscalReportSource>,
+}
+
 pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalState, StoreError> {
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
@@ -215,6 +240,117 @@ pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalSt
         next_calendar_version: maximum + 1,
         command_sequence,
         first_record_sequence,
+    })
+}
+
+pub(crate) async fn fiscal_report_state(
+    conn: &mut SqliteConnection,
+    calendar_version: i64,
+    requested_snapshot: Option<(i64, i64)>,
+    start_at_us: i64,
+    end_at_us: i64,
+) -> Result<FiscalReportState, StoreError> {
+    if calendar_version < 1 || end_at_us <= start_at_us {
+        return Err(StoreError::BillingPeriod);
+    }
+    let (timezone, timezone_rules_version, calendar_bytes): (String, String, Vec<u8>) =
+        sqlx::query_as("SELECT timezone,timezone_rules_version,calendar_bytes FROM billing_m5_fiscal_versions WHERE calendar_version=?")
+            .bind(calendar_version)
+            .fetch_optional(&mut *conn)
+            .await?
+            .ok_or(StoreError::BillingPeriod)?;
+    if requested_snapshot.is_none() {
+        let active: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(max(calendar_version),0) FROM billing_m5_fiscal_versions",
+        )
+        .fetch_one(&mut *conn)
+        .await?;
+        if active != calendar_version {
+            return Err(StoreError::BillingPeriod);
+        }
+    }
+    let boundary: Option<(i64, i64, i64)> = match requested_snapshot {
+        Some((m3, m5)) => sqlx::query_as(
+            "SELECT boundary_id,m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries WHERE m3_high_water=? AND m5_high_water=? ORDER BY boundary_id DESC LIMIT 1",
+        )
+        .bind(m3)
+        .bind(m5)
+        .fetch_optional(&mut *conn)
+        .await?,
+        None => sqlx::query_as(
+            "SELECT boundary_id,m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries ORDER BY boundary_id DESC LIMIT 1",
+        )
+        .fetch_optional(&mut *conn)
+        .await?,
+    };
+    let (snapshot_boundary_id, m3_high_water, m5_high_water) =
+        boundary.ok_or(StoreError::BillingPeriod)?;
+    type FiscalSourceRow = (
+        i64,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        Vec<u8>,
+        Vec<u8>,
+        Option<String>,
+        Option<i64>,
+    );
+    let rows: Vec<FiscalSourceRow> = sqlx::query_as(
+        "SELECT a.source_sequence,a.customer,a.source_scope,a.source_record_kind,a.source_record_id,i.accepted_at_us,e.ingress,e.bundle,g.agreement_id,g.agreement_version FROM billing_m5_assignments a JOIN billing_m3_index i ON i.ordinal=a.source_sequence JOIN billing_entries e ON e.ordinal=a.source_sequence JOIN billing_setup s ON s.singleton=1 JOIN billing_agreements g ON g.customer=a.customer AND g.source=a.source_scope AND g.revision=1 AND g.transition='start' AND g.setup_bytes=s.canonical_bytes WHERE a.source_stream='m3' AND a.source_sequence<=? AND i.accepted_at_us<? UNION ALL SELECT a.source_sequence,a.customer,a.source_scope,a.source_record_kind,a.source_record_id,i.accepted_at_us,e.ingress,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_index i ON i.ordinal=a.source_sequence JOIN billing_m2_entries e ON e.ordinal=a.source_sequence WHERE a.source_stream='m3' AND a.source_sequence<=? AND i.accepted_at_us<? UNION ALL SELECT a.source_sequence,a.customer,a.source_scope,a.source_record_kind,a.source_record_id,i.accepted_at_us,e.ingress,e.bundle,e.agreement_id,e.agreement_version FROM billing_m5_assignments a JOIN billing_m3_index i ON i.ordinal=a.source_sequence JOIN billing_m3_entries e ON e.ordinal=a.source_sequence WHERE a.source_stream='m3' AND a.source_sequence<=? AND i.accepted_at_us<? ORDER BY 1",
+    )
+    .bind(m3_high_water).bind(end_at_us)
+    .bind(m3_high_water).bind(end_at_us)
+    .bind(m3_high_water).bind(end_at_us)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut ordinals = BTreeSet::new();
+    if rows.iter().any(|row| !ordinals.insert(row.0)) {
+        return Err(StoreError::InvalidStore("M5 fiscal source tier"));
+    }
+    let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
+        "SELECT next_command_sequence,next_record_sequence FROM billing_m5_state WHERE singleton=1",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(FiscalReportState {
+        command_sequence,
+        first_record_sequence,
+        timezone,
+        timezone_rules_version,
+        calendar_bytes,
+        snapshot_boundary_id,
+        m3_high_water,
+        m5_high_water,
+        sources: rows
+            .into_iter()
+            .map(
+                |(
+                    ordinal,
+                    customer,
+                    source,
+                    kind,
+                    id,
+                    accepted_at_us,
+                    ingress,
+                    bundle,
+                    agreement_id,
+                    agreement_version,
+                )| FiscalReportSource {
+                    ordinal,
+                    customer,
+                    source,
+                    kind,
+                    id,
+                    accepted_at_us,
+                    ingress,
+                    bundle,
+                    agreement_id,
+                    agreement_version,
+                },
+            )
+            .collect(),
     })
 }
 
@@ -632,6 +768,105 @@ pub(crate) async fn append_fiscal_version(
         .bind(projection.timezone)
         .bind(projection.timezone_rules_version)
         .bind(projection.calendar_bytes)
+        .execute(&mut *conn)
+        .await?;
+    append_boundary(conn).await?;
+    Ok(())
+}
+
+pub(crate) struct FiscalReportProjection<'a> {
+    pub report_id: &'a str,
+    pub calendar_version: i64,
+    pub m3_high_water: i64,
+    pub m5_high_water: i64,
+    pub snapshot_boundary_id: i64,
+    pub report_hash: &'a str,
+    pub report_bytes: &'a [u8],
+}
+
+pub(crate) async fn append_fiscal_report(
+    conn: &mut SqliteConnection,
+    command: &Command<'_>,
+    projection: &FiscalReportProjection<'_>,
+) -> Result<(), StoreError> {
+    if command.children.len() != 1
+        || projection.report_id.is_empty()
+        || projection.calendar_version < 1
+        || projection.m3_high_water < 0
+        || projection.m5_high_water < 0
+        || projection.snapshot_boundary_id < 1
+        || projection.report_hash.len() != 64
+        || projection.report_bytes != command.response
+    {
+        return Err(StoreError::Integrity("M5 fiscal report append"));
+    }
+    let sequence = append(conn, command).await?;
+    let (record_sequence, family, payload_bytes): (i64, String, Vec<u8>) = sqlx::query_as(
+        "SELECT sequence,family,payload_bytes FROM billing_m5_records WHERE command_sequence=?",
+    )
+    .bind(sequence)
+    .fetch_one(&mut *conn)
+    .await?;
+    let payload = canonical(&payload_bytes, 262_144)?;
+    let result = canonical(projection.report_bytes, 262_144)?;
+    let identity = canonical(command.identity_key, 4096)?;
+    let child_key = canonical(command.children[0].child_key, 4096)?;
+    let mut unsigned = result.clone();
+    unsigned
+        .as_object_mut()
+        .ok_or(StoreError::Integrity("M5 fiscal report result"))?
+        .remove("report_hash");
+    let unsigned = CanonicalBytes::from_value(&unsigned)
+        .map_err(|_| StoreError::Integrity("M5 fiscal report hash"))?;
+    let boundary: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries WHERE boundary_id=?",
+    )
+    .bind(projection.snapshot_boundary_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if identity["key"] != projection.report_id
+        || child_key["key"]["command_id"] != projection.report_id
+        || family != "ledger-fiscal-report-run/1"
+        || record_sequence <= projection.m5_high_water
+        || boundary != Some((projection.m3_high_water, projection.m5_high_water))
+        || payload["calendar_version"] != projection.calendar_version.to_string()
+        || payload["m3_high_water"] != projection.m3_high_water.to_string()
+        || payload["m5_high_water"] != projection.m5_high_water.to_string()
+        || payload["snapshot_boundary_id"] != projection.snapshot_boundary_id.to_string()
+        || payload["report_hash"] != projection.report_hash
+        || result["schema"] != "ledger-fiscal-report/1"
+        || result["status"] != "complete"
+        || result["currency"] != "USD"
+        || result["scale"] != 18
+        || result["complete"] != true
+        || result["report_hash"] != projection.report_hash
+        || result["calendar_version"] != payload["calendar_version"]
+        || result["timezone"] != payload["timezone"]
+        || result["timezone_rules_version"] != payload["timezone_rules_version"]
+        || result["start_utc"] != payload["start_utc"]
+        || result["end_utc"] != payload["end_utc"]
+        || result["m3_high_water"] != payload["m3_high_water"]
+        || result["m5_high_water"] != payload["m5_high_water"]
+        || result["monetary_lines"] != payload["monetary_lines"]
+        || result["nonmonetary_quantities"] != payload["nonmonetary_quantities"]
+        || result["net_atoms"] != payload["net_atoms"]
+        || result["snapshot_boundary_id"] != payload["snapshot_boundary_id"]
+        || hex(&hash(
+            b"bean-counter/m5/fiscal-report/1\0",
+            unsigned.as_slice(),
+        )) != projection.report_hash
+    {
+        return Err(StoreError::Integrity("M5 fiscal report projection"));
+    }
+    sqlx::query("INSERT INTO billing_m5_fiscal_reports(report_id,calendar_version,m3_high_water,m5_high_water,snapshot_boundary_id,report_hash,record_sequence,report_bytes) VALUES(?,?,?,?,?,?,?,?)")
+        .bind(projection.report_id)
+        .bind(projection.calendar_version)
+        .bind(projection.m3_high_water)
+        .bind(projection.m5_high_water)
+        .bind(projection.snapshot_boundary_id)
+        .bind(projection.report_hash)
+        .bind(record_sequence)
+        .bind(projection.report_bytes)
         .execute(&mut *conn)
         .await?;
     append_boundary(conn).await?;
@@ -1569,6 +1804,98 @@ async fn verify_fiscal_projections(
         .count();
     if child_count != rows.len() {
         return Err(StoreError::InvalidStore("M5 fiscal projection count"));
+    }
+    type ReportRow = (String, i64, i64, i64, i64, String, i64, Vec<u8>);
+    let reports: Vec<ReportRow> = sqlx::query_as(
+        "SELECT report_id,calendar_version,m3_high_water,m5_high_water,snapshot_boundary_id,report_hash,record_sequence,report_bytes FROM billing_m5_fiscal_reports ORDER BY record_sequence",
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    for (
+        report_id,
+        calendar_version,
+        m3_high_water,
+        m5_high_water,
+        boundary_id,
+        report_hash,
+        record_sequence,
+        report_bytes,
+    ) in &reports
+    {
+        let (_, _, family, command_sequence, payload_bytes, _) = records
+            .iter()
+            .find(|record| record.0 == *record_sequence)
+            .ok_or(StoreError::InvalidStore("M5 fiscal report record"))?;
+        let command: Option<(String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT family,identity_key,response_bytes FROM billing_m5_commands WHERE command_sequence=?",
+        )
+        .bind(command_sequence)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let (command_family, identity_bytes, response_bytes) =
+            command.ok_or(StoreError::InvalidStore("M5 fiscal report command"))?;
+        let identity = canonical(&identity_bytes, 4096)?;
+        let payload = canonical(payload_bytes, 262_144)?;
+        let result = canonical(report_bytes, 262_144)?;
+        let mut unsigned = result.clone();
+        unsigned
+            .as_object_mut()
+            .ok_or(StoreError::InvalidStore("M5 fiscal report result"))?
+            .remove("report_hash");
+        let unsigned = CanonicalBytes::from_value(&unsigned)
+            .map_err(|_| StoreError::InvalidStore("M5 fiscal report hash"))?;
+        let boundary: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT m3_high_water,m5_high_water FROM billing_m5_snapshot_boundaries WHERE boundary_id=?",
+        )
+        .bind(boundary_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        if report_id.is_empty()
+            || *calendar_version < 1
+            || family != "ledger-fiscal-report-run/1"
+            || command_family != "ledger-fiscal-report-request/1"
+            || response_bytes != *report_bytes
+            || identity["key"] != *report_id
+            || *record_sequence <= *m5_high_water
+            || boundary != Some((*m3_high_water, *m5_high_water))
+            || payload["calendar_version"] != calendar_version.to_string()
+            || payload["m3_high_water"] != m3_high_water.to_string()
+            || payload["m5_high_water"] != m5_high_water.to_string()
+            || payload["snapshot_boundary_id"] != boundary_id.to_string()
+            || payload["report_hash"] != *report_hash
+            || result["schema"] != "ledger-fiscal-report/1"
+            || result["status"] != "complete"
+            || result["currency"] != "USD"
+            || result["scale"] != 18
+            || result["complete"] != true
+            || result["report_hash"] != *report_hash
+            || result["calendar_version"] != payload["calendar_version"]
+            || result["timezone"] != payload["timezone"]
+            || result["timezone_rules_version"] != payload["timezone_rules_version"]
+            || result["start_utc"] != payload["start_utc"]
+            || result["end_utc"] != payload["end_utc"]
+            || result["m3_high_water"] != payload["m3_high_water"]
+            || result["m5_high_water"] != payload["m5_high_water"]
+            || result["monetary_lines"] != payload["monetary_lines"]
+            || result["nonmonetary_quantities"] != payload["nonmonetary_quantities"]
+            || result["net_atoms"] != payload["net_atoms"]
+            || result["snapshot_boundary_id"] != payload["snapshot_boundary_id"]
+            || hex(&hash(
+                b"bean-counter/m5/fiscal-report/1\0",
+                unsigned.as_slice(),
+            )) != *report_hash
+        {
+            return Err(StoreError::InvalidStore("M5 fiscal report projection"));
+        }
+    }
+    let report_child_count = records
+        .iter()
+        .filter(|record| record.2 == "ledger-fiscal-report-run/1")
+        .count();
+    if report_child_count != reports.len() {
+        return Err(StoreError::InvalidStore(
+            "M5 fiscal report projection count",
+        ));
     }
     Ok(())
 }
