@@ -1,12 +1,12 @@
 # Run the local finance CSV end to end
 
-This walkthrough uses **synthetic** customer and agreement data and the helper/fixtures bundled in the native package. First install the current candidate or release with the [strict native installer](../examples/integration/README.md). v0.9.0 is the released M8 native distribution; both target installed journeys and all release gates passed. See [M8 qualification](m8-native-package-qualification.md). The historical v0.3.0 native archives do not contain the M5 journey.
+This walkthrough uses **synthetic** customer and agreement data and the helper/fixtures bundled in the native package. First install the current candidate or release with the [strict native installer](../examples/integration/README.md). Use the v0.9.1 native distribution and its exact release qualification evidence. The [M8 qualification](m8-native-package-qualification.md) records the v0.9.0 predecessor. The historical v0.3.0 native archives do not contain the M5 journey.
 
 Set `LEDGER` to the installed executable; keep using that same binary throughout this walkthrough:
 
 ```sh
 set -e
-LEDGER="$HOME/bean-counter-v0.9.0/ledger"
+LEDGER="$HOME/bean-counter-v0.9.1/ledger"
 PACKAGE_DIR="$(dirname "$LEDGER")"
 "$LEDGER" --version
 "$LEDGER" billing --help

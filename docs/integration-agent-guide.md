@@ -2,7 +2,7 @@
 
 Start at [START-HERE.md](../START-HERE.md). This route is for application integration with the local billing CLI. Repository implementation work follows the separate contributor contract in AGENTS.md.
 
-Read [the capability record](integration-capabilities.json), [current requirements](../CURRENT-REQUIREMENTS.md), the [caller contract](billing-m2-cli-contract.md) and [operations/recovery](billing-operations.md). The current native baseline is v0.9.0 for macOS 26.6.2 arm64 and Ubuntu 24.04.5 x86-64/glibc 2.39. The pending source helper correction is not yet in those released archives.
+Read [the capability record](integration-capabilities.json), [current requirements](../CURRENT-REQUIREMENTS.md), the [caller contract](billing-m2-cli-contract.md) and [operations/recovery](billing-operations.md). The current native distribution is v0.9.1 for macOS 26.6.2 arm64 and Ubuntu 24.04.5 x86-64/glibc 2.39. Its helpers include the bounded history `/2` plus `/3` correction; verify exact source/archive/binary identity against the release evidence.
 
 Before a write, identify one business installation, explicit customer/source, immutable agreed terms, current authority and retained assent evidence. Read [agreement choices, validation and two product mappings](agreement-and-integration.md). Generate application-owned stable delivery and semantic operation IDs and persist the exact request bytes privately. Application events assert work; they cannot choose authoritative prices or grant permissions. Synthetic examples are not real consent or authority.
 

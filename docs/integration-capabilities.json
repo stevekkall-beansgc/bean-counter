@@ -1,11 +1,11 @@
 {
   "schema": "bean-counter-cli-capabilities/1",
-  "status": "source-readiness-candidate",
+  "status": "release-distribution",
   "authority": "descriptive-only",
   "native_baseline": {
-    "version": "0.9.0",
-    "source_commit": "2487dcfa9333b54c8622fd826e289fcaccb7ee22",
-    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.0",
+    "version": "0.9.1",
+    "source_commit_evidence": "MANIFEST.json source_commit; confirm against exact release evidence",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.1",
     "tested_targets": [
       {"target": "aarch64-apple-darwin", "host": "macOS 26.6.2 arm64"},
       {"target": "x86_64-unknown-linux-gnu", "host": "Ubuntu 24.04.5 x86-64", "libc": "glibc 2.39"}
@@ -14,10 +14,11 @@
     "notarized": false,
     "clean_account_downloaded_launch_qualified": false
   },
-  "candidate_changes": {
+  "qualified_predecessor": {"version": "0.9.0", "source_commit": "2487dcfa9333b54c8622fd826e289fcaccb7ee22"},
+  "caller_compatibility": {
     "caller_history_formats": ["ledger-billing-statement/2", "ledger-billing-statement/3"],
     "released_0_9_0_caller_history_formats": ["ledger-billing-statement/2"],
-    "helper_fix_published": false,
+    "helper_fix_included": true,
     "engine_economic_contract_changed": false
   },
   "transport": {"kind": "local-cli-process", "input": "strict-json-file-or-stdin", "output": "json-and-process-exit-code"},

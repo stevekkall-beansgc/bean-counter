@@ -53,7 +53,7 @@ def main():
     if destination.exists() or destination.is_symlink():
         raise SystemExit(f"refusing existing destination: {destination}")
     # The verifier validates checksum, members, hashes, modes and all release identities first.
-    report = verify(archive_path, sums_path, commit, "0.9.0", target)
+    report = verify(archive_path, sums_path, commit, "0.9.1", target)
     data = archive_path.read_bytes()
     if hashlib.sha256(data).hexdigest() != report["archive_sha256"]:
         raise SystemExit("archive changed after verification")

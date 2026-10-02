@@ -1,6 +1,6 @@
 # Connect product facts to agreed billing
 
-Use [START-HERE](../START-HERE.md) to install the supported local CLI. This guide explains configuration choices before you connect a product. All bundled parties, evidence and prices are synthetic; they cannot authorize real billing. The current native baseline is v0.9.0. The Python/Node history `/3` helper correction in this source candidate awaits publication.
+Use [START-HERE](../START-HERE.md) to install the supported local CLI. This guide explains configuration choices before you connect a product. All bundled parties, evidence and prices are synthetic; they cannot authorize real billing. The v0.9.1 native distribution includes the Python/Node history `/3` helper correction; obtain exact qualification and source/archive/binary identities from its release evidence.
 
 ## Read the agreement before configuring it
 
@@ -35,7 +35,7 @@ Registration of a second customer/source uses the [registration `/2` contract](b
 
 Use [Python](../examples/integration/billing_outbox.py) or [Node](../examples/integration/billing_outbox.mjs) with `LEDGER BILLING_DIR CUSTOMER SOURCE EVENT_JSON NEW_OUTBOX_DIR`. Run one process per durable private outbox. These helpers demonstrate ordinary base acceptance; the product still owns instrumentation, customer mapping, truthful evidence and downstream delivery.
 
-Record the returned receipt target, then run `"$LEDGER" billing --directory "$BILLING_DIR" explain --customer "$CUSTOMER" "$TARGET" --json` and the complete customer `statement`. Match original request, agreement version, accepted quantity/rate, postings and receipt identity. History `/2` is scale 2; `/3` is scale 18. On a lost response/exit 8, preserve pending bytes and retry identically; an exact retry books nothing. Changed content under the same ID must refuse, not acknowledge. Period `/4` is not a target-history acknowledgement. Existing v0.9.0 bundled helpers cannot acknowledge `/3`; a pending request is not proof of rollback.
+Record the returned receipt target, then run `"$LEDGER" billing --directory "$BILLING_DIR" explain --customer "$CUSTOMER" "$TARGET" --json` and the complete customer `statement`. Match original request, agreement version, accepted quantity/rate, postings and receipt identity. History `/2` is scale 2; `/3` is scale 18. On a lost response/exit 8, preserve pending bytes and retry identically; an exact retry books nothing. Changed content under the same ID must refuse, not acknowledge. Period `/4` is not a target-history acknowledgement. Older v0.9.0 bundled helpers cannot acknowledge `/3`; update to v0.9.1 before retrying the original pending request. Pending is not proof of rollback.
 
 ## Follow the amount through its lifecycle
 

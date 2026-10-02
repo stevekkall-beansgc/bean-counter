@@ -19,7 +19,7 @@ Preserve exit status and JSON output. Require the complete history result, the i
 
 The application persists exact bytes, customer/source, delivery ID and semantic operation ID before submitting work. Exit 8 or an absent response leaves the result unknown. Reopen the same installation and retry that identical request; an exact duplicate returns the original receipt. A new identity can create another charge and is not recovery. Do not label an unresolved request accepted or rolled back.
 
-The [Python and Node examples](../examples/integration/README.md) acknowledge only after a complete target explanation contains that original receipt and operation. Usage needs explanation `/3`; the v0.9.0 bundled helpers' `/2` restriction is corrected in the pending source change. Period statement `/4` has a different purpose and is not an interchangeable target-history acknowledgement.
+The [Python and Node examples](../examples/integration/README.md) acknowledge only after a complete target explanation contains that original receipt and operation. Usage needs explanation `/3`; the older v0.9.0 bundled helpers' `/2` restriction is corrected in v0.9.1. Period statement `/4` has a different purpose and is not an interchangeable target-history acknowledgement.
 
 Permission-control uncertainty is reconciled with the immutable change ID and permission revision/history. A changed request under an old identity is a conflict. A refusal, incomplete explanation or integrity failure is not an acknowledgement.
 

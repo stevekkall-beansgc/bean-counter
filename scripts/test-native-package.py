@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 
 VERIFY = Path(__file__).with_name("verify-native-package.py")
-ROOT = "bean-counter-v0.9.0-x86_64-unknown-linux-gnu"
+ROOT = "bean-counter-v0.9.1-x86_64-unknown-linux-gnu"
 ARCHIVE_NAME = ROOT + ".tar.gz"
 COMMIT = "a" * 40
 TREE = "b" * 40
@@ -25,7 +25,7 @@ def digest(data):
 def fixture(extra_members=(), duplicate_manifest_key=False, mutate=None):
     files = {
         "ledger": b"synthetic executable payload",
-        "BUILD-INFO.txt": (f"source_commit={COMMIT}\nsource_tree={TREE}\nsource_clean=true\nversion=0.9.0\n"
+        "BUILD-INFO.txt": (f"source_commit={COMMIT}\nsource_tree={TREE}\nsource_clean=true\nversion=0.9.1\n"
                            "target=x86_64-unknown-linux-gnu\nbuild_origin=local\nrunner_environment=local\n"
                            "binary_sha256=" + digest(b"synthetic executable payload") + "\n"
                            "sqlite_version=3.51.3\nsqlite_source_id=2026-03-13 10:38:09 abcdef\n"
@@ -35,13 +35,13 @@ def fixture(extra_members=(), duplicate_manifest_key=False, mutate=None):
     sbom = {"spdxVersion": "SPDX-2.3", "packages": [{"name": "SQLite", "versionInfo": "3.51.3",
             "comment": SQLITE_COMMENT}] , "documentNamespace": f"urn:test:/{COMMIT}/x86_64-unknown-linux-gnu"}
     prov = {"schema": "bean-counter-native-build-provenance/3", "source_commit": COMMIT, "source_tree": TREE,
-            "source_clean": True, "version": "0.9.0", "target": "x86_64-unknown-linux-gnu",
+            "source_clean": True, "version": "0.9.1", "target": "x86_64-unknown-linux-gnu",
             "binary_sha256": digest(files["ledger"]),
             "sqlite": {"version": "3.51.3", "source_id": "2026-03-13 10:38:09 abcdef", "amalgamation_sha256": "c" * 64}}
     files["SBOM.spdx.json"] = json.dumps(sbom).encode()
     files["PROVENANCE.json"] = json.dumps(prov).encode()
     manifest = {"schema": "bean-counter-native-artifact/3", "source_commit": COMMIT, "source_tree": TREE,
-                "source_clean": True, "version": "0.9.0", "target": "x86_64-unknown-linux-gnu",
+                "source_clean": True, "version": "0.9.1", "target": "x86_64-unknown-linux-gnu",
                 "binary_sha256": digest(files["ledger"]), "files": {name: digest(data) for name, data in files.items()}}
     if duplicate_manifest_key:
         files["MANIFEST.json"] = b'{"schema":"bean-counter-native-artifact/3","schema":"bean-counter-native-artifact/3"}'

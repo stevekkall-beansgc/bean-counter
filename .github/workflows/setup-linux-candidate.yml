@@ -50,7 +50,7 @@ jobs:
           artifact_dir="$PWD/work/m8-linux/artifacts"
           mkdir -p "$PWD/work/m8-linux"
           sh scripts/package-linux-x86_64.sh "$artifact_dir"
-          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.9.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
+          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.9.1-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
           cp scripts/verify-native-package.py scripts/install-native-package.py scripts/install-linux-x86_64.sh "$artifact_dir/"
       - name: Check out exact schema-10 legacy source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -69,7 +69,7 @@ jobs:
           set -euo pipefail
           artifact_dir="$PWD/work/m8-linux/artifacts"
           install_dir="$PWD/work/m8-linux/installed"
-          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.9.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
+          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.9.1-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
           file "$install_dir/ledger"
           ldd "$install_dir/ledger"
           python3 "$install_dir/scripts/check-package-docs.py" "$install_dir"
@@ -84,7 +84,7 @@ jobs:
       - name: Retain exact tested archive and qualification evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bean-counter-v0.9.0-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          name: bean-counter-v0.9.1-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
           path: work/m8-linux/artifacts/
           if-no-files-found: error
           retention-days: 14
