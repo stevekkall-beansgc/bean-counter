@@ -40,7 +40,9 @@ jobs:
           cargo --version
           git rev-parse HEAD
       - name: Reject malformed archive regressions
-        run: python3 scripts/test-native-package.py
+        run: |
+          python3 scripts/test-native-package.py
+          python3 -m unittest scripts/test_native_package_journey_hashes.py
       - name: Build and strictly verify exact candidate archive
         shell: bash
         run: |
