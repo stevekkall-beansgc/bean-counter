@@ -21,7 +21,7 @@ OSS 1.0 targets a practical billing lifecycle: fixed and quantity-based work, ex
 | **M6 — External collection** | Deferred beyond OSS 1.0 | No provider adapter, payment execution or provider refund workflow is required for the provider-free 1.0 journey. Reopen only by separate owner decision. |
 | **M7 — Operations and recovery** | Partial | Extend health, backup/restore, reconciliation and period operations alongside the lifecycle features they support. |
 | **M8 — Distribution and first use** | **Complete in v0.9.0 for the two named native targets** | Both exact archives passed installed M5, schema-10 upgrade, older-writer refusal, whole-installation recovery and normal release gates. See [M8 qualification](m8-native-package-qualification.md). Clean-account launch and outside adoption remain separate. |
-| **M9 — Outside adoption and OSS 1.0** | Not started | Have two owner-approved unfamiliar developers complete the documented final journey, one on Mac and one on Linux, with two caller languages represented. |
+| **M9 — Outside adoption and OSS 1.0** | Not started | Have two owner-approved unfamiliar human developers complete the documented final journey, one on Mac and one on Linux, with two caller languages represented. BEANA-led agent trials supplement those human trials under the owner's 2026-10-02 decision; record their results separately. |
 
 The [OSS 1.0 readiness plan](oss1-readiness.md) records the remaining M7 operator/readiness audit and M9 outside-adoption evidence. Pursuit is owner-approved; OSS 1.0 completion is not yet established. The fixed-fee follow-on remains a separate scope decision.
 
