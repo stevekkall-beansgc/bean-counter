@@ -2,6 +2,7 @@
 """Negative archive-security tests for verify-native-package.py, including -O mode."""
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -84,9 +85,44 @@ def rejected(directory, name, diagnostic, **kwargs):
         raise RuntimeError(f"negative test {name} did not reach {diagnostic!r}: exit={result.returncode}, stderr={result.stderr!r}")
 
 
+def check_committed_example_isolation(directory):
+    spec = importlib.util.spec_from_file_location("native_packager", VERIFY.with_name("package-native.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    repo = directory / "source"
+    repo.mkdir()
+    def git(*args):
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=Synthetic Test",
+                        "-c", "user.email=test@example.invalid", *args], check=True, capture_output=True)
+    git("init", "-q")
+    examples = repo / "examples" / "billing"
+    examples.mkdir(parents=True)
+    (examples / "setup.json").write_text("synthetic fixture")
+    (repo / ".gitignore").write_text(".env\n*.db\n")
+    git("add", ".")
+    git("commit", "-qm", "synthetic fixture")
+    (examples / ".env").write_text("SYNTHETIC PRIVATE SENTINEL")
+    (examples / "private.db").write_text("SYNTHETIC PRIVATE SENTINEL")
+    output = directory / "committed-only"
+    module.copy_committed_examples(repo, "HEAD", "billing", output)
+    if sorted(path.name for path in output.iterdir()) != ["setup.json"]:
+        raise RuntimeError("packager included ignored operational data")
+    (examples / "link").symlink_to("/synthetic-outside-target")
+    git("add", "examples")
+    git("commit", "-qm", "synthetic tracked link")
+    try:
+        module.copy_committed_examples(repo, "HEAD", "billing", directory / "reject-link")
+    except SystemExit as error:
+        if "not a committed regular file" not in str(error):
+            raise
+    else:
+        raise RuntimeError("packager accepted a tracked example symlink")
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="native-package-security-") as temporary:
         directory = Path(temporary)
+        check_committed_example_isolation(directory)
         good, sums = write_case(directory, ARCHIVE_NAME[:-len(".tar.gz")])
         positive = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(sums), COMMIT],
                                   text=True, capture_output=True)
@@ -121,7 +157,7 @@ def main():
         result = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(wrong_sums), COMMIT], capture_output=True, text=True)
         if result.returncode == 0 or "archive SHA-256 mismatch" not in result.stderr:
             raise RuntimeError(f"bad checksum did not reach checksum validation: {result.stderr!r}")
-    print("native package verifier: optimized positive case and 11 negative security cases passed")
+    print("native package verifier: optimized positive case, 11 negative security cases and committed-example isolation passed")
 
 
 if __name__ == "__main__":

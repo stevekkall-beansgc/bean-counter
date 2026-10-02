@@ -6,7 +6,7 @@ The reduced local SQLite Phase 4 is complete. Its author checks and owner accept
 
 ## Install
 
-The tested native environments are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39. The [v0.3.0 native package guide](../examples/integration/README.md) covers downloaded installs. For a source install, use the repository's pinned Rust 1.98.1 development toolchain and native C/linker tools:
+The tested native environments are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39. The [native package guide](../examples/integration/README.md) covers downloaded installs. For a source install, use the repository's pinned Rust 1.98.1 development toolchain and native C/linker tools:
 
 ```sh
 cargo install --path crates/ledgerlab-cli --locked --root ./work/billing-install
@@ -18,7 +18,7 @@ The first build may download locked dependencies. Add `--offline` only after pop
 
 For machine callers, use the [M2 billing CLI contract](billing-m2-cli-contract.md) and its durable Python or Node.js outbox examples. The [historical v0.3.0/v0.4.0 contract](billing-cli-contract.md) records the older single-customer CLI behavior.
 
-For v0.3.0 Mac and Linux archive checks, guided setup and machine-readable product examples, see [local product integration](../examples/integration/README.md). The packages are unsigned. Other OS versions and Linux distributions remain unverified; Windows is deferred.
+For current Mac and Linux candidate/release archive checks, guided setup and machine-readable product examples, see [local product integration](../examples/integration/README.md). The packages are unsigned. Other OS versions and Linux distributions remain unverified; Windows is deferred.
 
 ## Set up explicit terms
 

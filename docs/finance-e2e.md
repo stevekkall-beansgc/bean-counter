@@ -1,21 +1,15 @@
 # Run the local finance CSV end to end
 
-This walkthrough uses **synthetic** customer and agreement data. It runs on the tested Apple-silicon macOS environment; the separate Linux x86-64 package includes the same helper and fixtures. Download `bean-counter-v0.3.0-aarch64-apple-darwin.tar.gz` and `SHA256SUMS` from the [v0.3.0 release](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.3.0). In the download directory, verify the archive before extracting it:
+This walkthrough uses **synthetic** customer and agreement data and the helper/fixtures bundled in the native package. First install the current candidate or release with the [strict native installer](../examples/integration/README.md). v0.9.0 is an unreleased M8 candidate until both target evidence and all release gates pass. The historical v0.3.0 native archives do not contain the M5 journey.
+
+Set `LEDGER` to the installed executable; keep using that same binary throughout this walkthrough:
 
 ```sh
 set -e
-python3 - <<'PY'
-import hashlib
-from pathlib import Path
-name = 'bean-counter-v0.3.0-aarch64-apple-darwin.tar.gz'
-entries = dict(line.split(maxsplit=1) for line in Path('SHA256SUMS').read_text().splitlines())
-actual = hashlib.sha256(Path(name).read_bytes()).hexdigest()
-assert entries[actual].lstrip('*') == name, 'archive checksum does not match SHA256SUMS'
-print('Archive SHA-256 verified:', actual)
-PY
-tar -xzf bean-counter-v0.3.0-aarch64-apple-darwin.tar.gz
-cd bean-counter-v0.3.0-aarch64-apple-darwin
-./ledger billing --help
+LEDGER="$HOME/bean-counter-v0.9.0/ledger"
+PACKAGE_DIR="$(dirname "$LEDGER")"
+"$LEDGER" --version
+"$LEDGER" billing --help
 ```
 
 Use a new private output directory outside the downloaded package:
@@ -23,8 +17,8 @@ Use a new private output directory outside the downloaded package:
 ```sh
 set -e
 E2E_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bean-counter-e2e.XXXXXX")"
-python3 scripts/demo-finance.py --ledger ./ledger --output "$E2E_DIR/example"
-python3 scripts/demo-finance.py --ledger ./ledger --output "$E2E_DIR/extended" --checks
+python3 "$PACKAGE_DIR/scripts/demo-finance.py" --ledger "$LEDGER" --output "$E2E_DIR/example"
+python3 "$PACKAGE_DIR/scripts/demo-finance.py" --ledger "$LEDGER" --output "$E2E_DIR/extended" --checks
 ```
 
 The first run initializes explicit terms, accepts two $2.50 work items, retries the first with its exact and renamed identity, refuses a different customer, applies a 50-cent rebate, replaces that rebate with an authorized correction, reverses the current rebate, explains retained work and exports a complete JSON statement and two finance CSVs. Every command reopens the SQLite installation. The second run adds refusal, output failure, empty-history, revocation, incremental-export and outcome-pricing examples. The script records actual command results in `RESULT.json` under each output directory.
@@ -61,7 +55,7 @@ The first demonstration leaves a usable installation. Once its commands have exi
 set -e
 cp -Rp "$E2E_DIR/example/store" "$E2E_DIR/store-backup"
 cp -Rp "$E2E_DIR/store-backup" "$E2E_DIR/store-verify"
-./ledger billing --directory "$E2E_DIR/store-verify" statement --customer customer-1 --json > "$E2E_DIR/restored-statement.json"
+"$LEDGER" billing --directory "$E2E_DIR/store-verify" statement --customer customer-1 --json > "$E2E_DIR/restored-statement.json"
 python3 - "$E2E_DIR/example/statement.json" "$E2E_DIR/restored-statement.json" <<'PY'
 import json, sys
 original, restored = (json.load(open(path)) for path in sys.argv[1:])
