@@ -139,7 +139,7 @@
       "status": "In progress separately",
       "scope": "Native archives, checksums, supported-platform matrix and one consistent installation path. Reuse existing native-packages issue #5.",
       "acceptance": "A clean supported machine runs the version and synthetic walkthrough without compiling Rust; failure explains the supported alternative.",
-      "evidence_limit": "The product owner\u2019s local session owns native packages. Do not duplicate its work.",
+      "evidence_limit": "The product owner’s local session owns native packages. Do not duplicate its work.",
       "required_evidence": "Published artifact provenance; clean-machine qualification"
     },
     {
@@ -186,7 +186,7 @@
       "priority": "P1",
       "status": "Not available",
       "scope": "Authenticated API, business isolation, least-privilege access, single-writer control, local storage ownership, exports and bounded capacity.",
-      "acceptance": "One business cannot read or write another\u2019s records; concurrent requests are safely serialized; capacity limits are explicit and observable.",
+      "acceptance": "One business cannot read or write another’s records; concurrent requests are safely serialized; capacity limits are explicit and observable.",
       "evidence_limit": "The reviewed engine is a local SQLite CLI. A hosted multi-customer service is new work.",
       "required_evidence": "Isolation and authorization tests; failure handling; capacity evidence"
     },
@@ -310,7 +310,7 @@
     ]
   },
   "logo": {
-    "asset": "bean-mark-v2.png",
+    "asset": "bean-mark.svg",
     "description": "Simplified bean accountant brand mark with green visor",
     "animation": "CSS nod, two 1.6-second cycles; disabled for reduced motion"
   },
