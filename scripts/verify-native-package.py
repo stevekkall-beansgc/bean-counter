@@ -137,6 +137,7 @@ def verify(archive_path, sums_path, expected_commit, expected_version, expected_
     match = re.fullmatch(r"bean-counter-v([0-9]+\.[0-9]+\.[0-9]+)-([a-z0-9_]+-[a-z0-9_-]+)", root_name)
     require(match is not None, "archive filename does not identify a supported Bean Counter package")
     filename_version, filename_target = match.groups()
+    require(filename_target in ("aarch64-apple-darwin", "x86_64-unknown-linux-gnu"), "unsupported package target")
     require(filename_version == expected_version, f"unexpected package version: {filename_version}")
     if expected_target:
         require(filename_target == expected_target, f"unexpected package target: {filename_target}")
