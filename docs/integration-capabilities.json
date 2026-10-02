@@ -47,6 +47,6 @@
   ],
   "supported": ["fixed-and-quantity-work", "multiple-customers-and-sources", "immutable-effective-dated-terms", "authorized-outcomes-and-corrections", "customer-periods-and-immutable-close", "cumulative-conversion", "explicit-recurrence", "linked-post-close-adjustments", "separate-fiscal-reporting", "finance-csv", "quiescent-whole-installation-recovery"],
   "deferred": ["payment-execution", "tax-legal-invoice-status", "remote-api", "managed-hosting", "postgresql-billing", "multi-host-writers", "automatic-recurrence-charges", "arbitrary-linked-event-pricing", "multiple-units-per-agreement", "general-fee-formulas", "resource-reservations", "signed-provenance"],
-  "entry_points": ["START-HERE.md", "docs/integration-agent-guide.md", "docs/billing-operations.md", "docs/oss1-readiness.md", "docs/agreement-and-integration.md", "docs/beana-adoption-packet.md"],
+  "entry_points": ["START-HERE.md", "docs/integration-agent-guide.md", "docs/billing-operations.md", "docs/oss1-readiness.md", "docs/agreement-and-integration.md", "docs/beana-adoption-packet.md", "docs/participant-adoption-tasks.md"],
   "unfamiliar_developer_usability": "not-yet-measured"
 }

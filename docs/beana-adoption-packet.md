@@ -1,8 +1,8 @@
-# BEANA-led adoption trial packet
+# BEANA-led adoption trial observer packet
 
 Status: preparation only, no participants or measured results. Steve requested trials through BEANA; whether BEANA coordinates unfamiliar humans or runs developer agents is awaiting clarification on [Core #350](https://github.com/stevekkall-beansgc/legume-labs-core/issues/350). The existing M9 criterion remains two owner-approved unfamiliar humans unless explicitly amended. Agent orientation is a separate check.
 
-BEANA coordinates the packet and collects observations. Codex Local supplies the reviewed, qualified candidate and resolves demonstrated implementation defects. Give participants only the starting link and tasks below; retain observer expectations separately so they do not become hidden assistance.
+BEANA coordinates the packet and collects observations. Codex Local supplies the reviewed, qualified candidate and resolves demonstrated implementation defects. This file is for the coordinator/observer. Give participants the [separate task sheet](participant-adoption-tasks.md), exact candidate metadata and starting link; do not provide this observer answer table as their task instructions. The publicly documented product examples remain available to them.
 
 Before starting, fill in full source SHA, package version, archive SHA-256, binary SHA-256, documentation commit, actual OS/architecture/glibc, participant familiarity and caller language, installed Python/Node versions, observer and consent. Pin the same trusted verifier/installer/checksum provenance. Use macOS 26.6.2 Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39 with Python and Node represented. Use fresh private synthetic data only. The final candidate is not yet selected; v0.9.0's bundled usage helper limitation makes it unsuitable for claiming the corrected helper path.
 

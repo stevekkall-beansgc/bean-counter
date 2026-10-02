@@ -64,6 +64,24 @@ def copy_committed_examples(repo, commit, section, destination):
         raise SystemExit(f"committed example section is empty: {section}")
 
 
+def copy_committed_contracts(repo, commit, stage):
+    entries = subprocess.check_output(
+        ["git", "ls-tree", "-rz", commit, "--",
+         "contracts/candidates/billing-lifecycle-m5/",
+         "contracts/candidates/v2/schemas/canonical-records.schema.json"], cwd=repo)
+    for entry in entries.split(b"\0"):
+        if not entry:
+            continue
+        header, raw_path = entry.split(b"\t", 1)
+        mode, kind, object_id = header.decode("ascii").split()
+        path = Path(raw_path.decode("utf-8"))
+        if mode not in ("100644", "100755") or kind != "blob" or path.is_absolute() or ".." in path.parts:
+            raise SystemExit(f"contract is not a committed regular file: {path}")
+        target = stage / path
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target.write_bytes(subprocess.check_output(["git", "cat-file", "blob", object_id], cwd=repo))
+
+
 def main():
     if len(sys.argv) != 4:
         raise SystemExit("usage: package-native.py REPO ARTIFACT_DIRECTORY TARGET")
@@ -94,16 +112,35 @@ def main():
         stage.mkdir(mode=0o700)
         shutil.copyfile(target_dir, stage / "ledger")
         (stage / "ledger").chmod(0o700)
-        for filename in ("LICENSE", "NOTICE", "README.md", "STATUS.md", "CURRENT-REQUIREMENTS.md", "WORKFLOW.md"):
+        for filename in ("LICENSE", "NOTICE", "STATUS.md", "CURRENT-REQUIREMENTS.md", "WORKFLOW.md"):
             shutil.copyfile(repo / filename, stage / filename)
+        (stage / "README.md").write_text(
+            f"# Bean Counter native package\n\nVersion `{version}`, source `{commit}`, target `{target}`.\n\n"
+            "Start with [START-HERE](START-HERE.md) for installation, first use and supported scope. "
+            "Read [agreement and integration](docs/agreement-and-integration.md), "
+            "[operator checks](docs/billing-operations.md) and "
+            "[finance walkthrough](docs/finance-e2e.md) before adapting synthetic examples. "
+            "Agent callers use [the integration guide](docs/integration-agent-guide.md).\n\n"
+            "BUILD-INFO.txt, PROVENANCE.json, MANIFEST.json and SBOM.spdx.json identify these exact bytes. "
+            "A locally built or CI candidate is not a published release or outside-adoption acceptance. "
+            "Historical qualification and frozen contract documents retain their original dated status; "
+            "[current readiness](docs/oss1-readiness.md) distinguishes current evidence and remaining work.\n\n"
+            f"Repository development and historical phase notes are in the "
+            f"[source README](https://github.com/stevekkall-beansgc/bean-counter/blob/{commit}/README.md).\n",
+            encoding="utf-8")
         docs = stage / "docs"
         docs.mkdir(mode=0o700)
         for filename in ("billing-quickstart.md", "billing-recovery.md", "m5-qualification.md", "m5-contracts.md",
                          "finance-e2e.md", "finance-csv.md", "resources-and-costs.md", "billing-m2-cli-contract.md",
                          "compatibility.md", "billing-roadmap.md", "m8-native-package-qualification.md",
                          "billing-operations.md", "integration-agent-guide.md", "integration-capabilities.json",
-                         "oss1-readiness.md", "agreement-and-integration.md", "beana-adoption-packet.md"):
+                         "oss1-readiness.md", "agreement-and-integration.md", "beana-adoption-packet.md",
+                         "participant-adoption-tasks.md", "billing-cli-contract.md", "m1-current-format-qualification.md",
+                         "m2-migration-qualification.md", "m2-implementation-design.md", "m3-qualification.md",
+                         "m4-qualification.md", "m5-decision-register.md", "m5-architecture.md",
+                         "m5-contract-traceability.md", "m5-execution-plan.md"):
             shutil.copyfile(repo / "docs" / filename, docs / filename)
+        copy_committed_contracts(repo, commit, stage)
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")
         shutil.copyfile(repo / "START-HERE.md", stage / "START-HERE.md")
@@ -122,13 +159,15 @@ def main():
         scripts = stage / "scripts"
         scripts.mkdir(mode=0o700)
         required_scripts = ["demo-finance.py", "check-native-package-journey.py", "verify-native-package.py",
-                            "install-native-package.py", "install-linux-x86_64.sh", "install-macos-arm64.sh"]
+                            "install-native-package.py", "install-linux-x86_64.sh", "install-macos-arm64.sh",
+                            "check-package-docs.py"]
         for filename in required_scripts:
             source = repo / "scripts" / filename
             if not source.is_file():
                 raise SystemExit(f"required standalone package tool is missing: {source}")
             shutil.copyfile(source, scripts / filename)
             (scripts / filename).chmod(0o600)
+        subprocess.run([sys.executable, str(stage / "scripts/check-package-docs.py"), str(stage)], check=True)
         try:
             if platform.system() == "Linux":
                 linkage = output("ldd", str(stage / "ledger"))
