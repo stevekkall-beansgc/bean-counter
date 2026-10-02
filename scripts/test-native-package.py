@@ -54,7 +54,9 @@ def fixture(extra_members=(), duplicate_manifest_key=False, mutate=None):
 
 
 def write_case(directory, case_name, *, extra_members=(), duplicate_manifest_key=False, mutate=None):
-    archive_path = directory / (case_name + ".tar.gz")
+    directory = directory / case_name
+    directory.mkdir()
+    archive_path = directory / ARCHIVE_NAME
     root_name = ARCHIVE_NAME[:-len(".tar.gz")]
     files, extras = fixture(extra_members, duplicate_manifest_key, mutate)
     with tarfile.open(archive_path, "w:gz", format=tarfile.PAX_FORMAT) as archive:
@@ -74,12 +76,12 @@ def write_case(directory, case_name, *, extra_members=(), duplicate_manifest_key
     return archive_path, sums
 
 
-def rejected(directory, name, **kwargs):
+def rejected(directory, name, diagnostic, **kwargs):
     archive, sums = write_case(directory, name, **kwargs)
     result = subprocess.run([sys.executable, "-O", str(VERIFY), str(archive), str(sums), COMMIT],
                             text=True, capture_output=True)
-    if result.returncode == 0:
-        raise RuntimeError(f"verifier accepted negative test {name}: {result.stdout}")
+    if result.returncode == 0 or diagnostic not in result.stderr:
+        raise RuntimeError(f"negative test {name} did not reach {diagnostic!r}: exit={result.returncode}, stderr={result.stderr!r}")
 
 
 def main():
@@ -90,35 +92,35 @@ def main():
                                   text=True, capture_output=True)
         if positive.returncode != 0:
             raise RuntimeError(f"optimized verifier rejected valid fixture: {positive.stderr}")
-        rejected(directory, "duplicate-json-key", duplicate_manifest_key=True)
-        rejected(directory, "mismatched-target", mutate=lambda _files, manifest: manifest.update(target="aarch64-apple-darwin"))
-        rejected(directory, "missing-manifest-file", mutate=lambda _files, manifest: manifest["files"].update({"absent": "d" * 64}))
-        rejected(directory, "noncanonical-manifest-path", mutate=lambda _files, manifest: manifest["files"].update({"./ledger": digest(b"x")}))
+        rejected(directory, "duplicate-json-key", "duplicate JSON key", duplicate_manifest_key=True)
+        rejected(directory, "mismatched-target", "manifest target disagrees", mutate=lambda _files, manifest: manifest.update(target="aarch64-apple-darwin"))
+        rejected(directory, "missing-manifest-file", "manifest file set differs", mutate=lambda _files, manifest: manifest["files"].update({"absent": "d" * 64}))
+        rejected(directory, "noncanonical-manifest-path", "noncanonical archive path", mutate=lambda _files, manifest: manifest["files"].update({"./ledger": digest(b"x")}))
         duplicate = tarfile.TarInfo(ROOT + "/ledger")
         duplicate.size = 1
-        rejected(directory, "duplicate-member", extra_members=[(duplicate, __import__("io").BytesIO(b"x"))])
+        rejected(directory, "duplicate-member", "duplicate archive member", extra_members=[(duplicate, __import__("io").BytesIO(b"x"))])
         traversal = tarfile.TarInfo(ROOT + "/../escape")
         traversal.size = 1
-        rejected(directory, "traversal", extra_members=[(traversal, __import__("io").BytesIO(b"x"))])
+        rejected(directory, "traversal", "noncanonical archive path", extra_members=[(traversal, __import__("io").BytesIO(b"x"))])
         absolute = tarfile.TarInfo("/escape")
         absolute.size = 1
-        rejected(directory, "absolute-path", extra_members=[(absolute, __import__("io").BytesIO(b"x"))])
+        rejected(directory, "absolute-path", "absolute or empty archive path", extra_members=[(absolute, __import__("io").BytesIO(b"x"))])
         symlink = tarfile.TarInfo(ROOT + "/link")
         symlink.type = tarfile.SYMTYPE
         symlink.linkname = "ledger"
-        rejected(directory, "symlink", extra_members=[(symlink, None)])
+        rejected(directory, "symlink", "special archive member rejected", extra_members=[(symlink, None)])
         device = tarfile.TarInfo(ROOT + "/device")
         device.type = tarfile.CHRTYPE
-        rejected(directory, "device", extra_members=[(device, None)])
+        rejected(directory, "device", "special archive member rejected", extra_members=[(device, None)])
         bad_mode = tarfile.TarInfo(ROOT + "/unsafe")
         bad_mode.size = 1
         bad_mode.mode = 0o4755
-        rejected(directory, "mode", extra_members=[(bad_mode, __import__("io").BytesIO(b"x"))])
+        rejected(directory, "mode", "unsafe or unexpected mode", extra_members=[(bad_mode, __import__("io").BytesIO(b"x"))])
         wrong_sums = directory / "wrong.sums"
         wrong_sums.write_text("0" * 64 + "  " + good.name + "\n")
-        result = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(wrong_sums), COMMIT], capture_output=True)
-        if result.returncode == 0:
-            raise RuntimeError("verifier accepted a bad archive checksum")
+        result = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(wrong_sums), COMMIT], capture_output=True, text=True)
+        if result.returncode == 0 or "archive SHA-256 mismatch" not in result.stderr:
+            raise RuntimeError(f"bad checksum did not reach checksum validation: {result.stderr!r}")
     print("native package verifier: optimized positive case and 11 negative security cases passed")
 
 
