@@ -66,7 +66,7 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
                 .and_then(|o| String::from_utf8(o.stdout).ok())
                 .unwrap_or_default();
             if host_version.trim() == "26.6.2" {
-                eprintln!("Host: macOS 26.6.2 / Apple silicon (previously tested host; this guided wizard still requires its focused behavior check).");
+                eprintln!("Host: macOS 26.6.2 / Apple silicon. The v0.9.0 native release is qualified on this named target; retain the exact source and binary identity of the executable used here.");
             } else {
                 eprintln!("Host: macOS {} / Apple silicon. This version is untested; this warning is not a compatibility verdict. The running binary has passed the OS loader, but storage durability and other host behavior are not certified.", host_version.trim());
             }
@@ -78,7 +78,7 @@ pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
                 .find_map(|line| line.strip_prefix("PRETTY_NAME="))
                 .unwrap_or("distribution/version unknown")
                 .trim_matches('"');
-            eprintln!("Host: {profile}, {pretty}. This Linux host is untested until the approved Ubuntu x86-64 package and installation path pass on the standard runner. The running binary has passed the loader; other ABI and storage behavior are not yet certified.");
+            eprintln!("Host: {profile}, {pretty}. The v0.9.0 native release is qualified on Ubuntu 24.04.5 x86-64/glibc 2.39. Compare this host and executable with that exact qualification; other distributions, versions and binaries are unverified. A successful loader check alone does not certify storage durability.");
         }
         eprintln!("Source build version: {}", env!("CARGO_PKG_VERSION"));
         eprintln!("Destination: {dir}");

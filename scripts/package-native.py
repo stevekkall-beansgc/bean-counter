@@ -102,7 +102,7 @@ def main():
                          "finance-e2e.md", "finance-csv.md", "resources-and-costs.md", "billing-m2-cli-contract.md",
                          "compatibility.md", "billing-roadmap.md", "m8-native-package-qualification.md",
                          "billing-operations.md", "integration-agent-guide.md", "integration-capabilities.json",
-                         "oss1-readiness.md"):
+                         "oss1-readiness.md", "agreement-and-integration.md", "beana-adoption-packet.md"):
             shutil.copyfile(repo / "docs" / filename, docs / filename)
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")

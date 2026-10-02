@@ -1,0 +1,48 @@
+# Connect product facts to agreed billing
+
+Use [START-HERE](../START-HERE.md) to install the supported local CLI. This guide explains configuration choices before you connect a product. All bundled parties, evidence and prices are synthetic; they cannot authorize real billing. The current native baseline is v0.9.0. The Python/Node history `/3` helper correction in this source candidate awaits publication.
+
+## Read the agreement before configuring it
+
+The customer agrees to terms outside Bean Counter. Your operator retains that assent and truthfully attests to the acceptor's authority and when completed work becomes final for billing. Bean Counter validates and retains supplied terms and assertions; it does not contact the customer or authenticate that evidence.
+
+| Choice | Meaning and example | Required decision |
+| --- | --- | --- |
+| Business and parties | One private installation belongs to one business. Each customer/source pair has its own agreement and permissions. | Supply business/store/operator/host identities and the actual customer and absolute source URI. Keep customer/source identities consistent in every request. |
+| Fixed price | Setup `/1`: `price: "2.50"` means USD 2.50 per accepted completed generated-work event, or 250 scale-2 atoms. | Agree what completed report is billable. A request or job start is not completion. |
+| Quantity price | Setup `/2`: `price: "0.00000025"`, `unit: "token"`, quantity `100` means USD 0.000025, or 25000000000000 scale-18 atoms. | Agree one unit, its exact USD rate and positive integer maximum quantity. Input and output tokens cannot silently become two rates in one agreement. |
+| Effective terms | Initial `accepted_at` and later effective-dated registration/amendment controls identify the terms used. Pricing selects the agreement at engine acceptance time. | Decide the effective timeline; do not use an event's earlier occurrence time to backdate a new price. Accepted history keeps its original agreement version. |
+| Permissions | `read`, `submit`, optional `correct`; later controls can only restore the original ceiling. | Grant only the intended source rights. Retain current revisions and immutable control IDs. Account/database control is the local administrative boundary. |
+| Outcomes | One fixed-amount family with explicit codes, evidence, premium ceiling and reporting window. The fixed example's `rebate` is -50 atoms. | Decide what evidence supports each outcome and its cutoffs. No outcome leaves the base charge unchanged. Percentage adjustments and unsupported families refuse. |
+| Corrections | Explicit replacement codes, reversal permission and a separate window. A claim correction appends inverse/replacement postings. | Decide who may correct and what is allowed. Reversing an outcome does not reverse the base charge. M5 quantity corrections have their own strict contract. |
+
+For both reporting windows, `starts_at < occurs_before <= received_by <= accepted_by`; the base event's `occurred_at` must be no later than both window starts. Outcomes/corrections must meet their own occurrence, receipt and acceptance bounds. These are agreed absolute UTC timestamps, not sliding deadlines. See [the exact setup rules](billing-quickstart.md#set-up-explicit-terms).
+
+## Review and validate before using real terms
+
+For fixed-price interactive setup, run `"$LEDGER" billing setup NEW_PRIVATE_DIRECTORY` in a terminal. It asks for explicit terms, validates them, displays the configuration summary and supplied attestations, then requires `CREATE`. Read price, parties, permissions, windows, adjustment codes and evidence before confirming. Any other final answer cancels. Cancellation, invalid terms and an existing destination do not initialize a store. The summary is structured JSON; this guide supplies its plain-language interpretation. An observed novice setup check is still required.
+
+For prepared fixed or usage JSON, start from [fixed setup](../examples/billing/setup.json) or [usage setup](../examples/billing/usage/setup.json). Replace synthetic fields with truthful agreed values; editing a file does not amend an existing installation. Validate synthetic copies with `"$LEDGER" billing init NEW_PRIVATE_DIRECTORY --setup SETUP_FILE --json`. This creates configuration when valid but books no work. It is not a read-only preview or consent check. There is no separate public billing dry-run validator. Test bad/missing price, mismatched source/binding, invalid window and unknown fields in separate fresh synthetic destinations; inspect exit status and diagnostics rather than accepting a plausible summary. Do not experiment on a real installation.
+
+Registration of a second customer/source uses the [registration `/2` contract](billing-m2-cli-contract.md), with stable `change_id`, `expected_revision: "0"`, explicit `effective_at` and the complete setup. Share the business installation identity; keep customer, source, agreement and binding distinct. The engine derives the new customer's scope. The [real-engine shared-installation regression](https://github.com/stevekkall-beansgc/bean-counter/blob/724cb18d4a1ba211d2ccfb65dc5543218680ad0e/scripts/test-caller-outbox.py) demonstrates this, including cross-customer refusal; it is author evidence rather than a new user's integration result.
+
+## Two honest callers sharing one engine
+
+| Caller | Product supplies | Engine supplies | Expected unchanged example |
+| --- | --- | --- | --- |
+| Python report service | Truthful successful report completion; customer/source; stable delivery `id` and semantic `operation_id`; observed time/evidence; durable original request bytes. | Fixed agreed rate, authority validation, committed charge, retained receipt and complete explanation. | One report → 250 atoms at scale 2 → USD 2.50. Exact retry returns the original receipt. |
+| Node drafting service | Truthful successful draft completion; its separate customer/source; one agreed token quantity; matching unit; stable IDs and durable request. | Exact scale-18 rate calculation, quantity bound, authority validation, retained receipt and history. | 100 tokens × USD 0.00000025 → 25000000000000 atoms → USD 0.000025. Failed generation refuses before charge. |
+
+Use [Python](../examples/integration/billing_outbox.py) or [Node](../examples/integration/billing_outbox.mjs) with `LEDGER BILLING_DIR CUSTOMER SOURCE EVENT_JSON NEW_OUTBOX_DIR`. Run one process per durable private outbox. These helpers demonstrate ordinary base acceptance; the product still owns instrumentation, customer mapping, truthful evidence and downstream delivery.
+
+Record the returned receipt target, then run `"$LEDGER" billing --directory "$BILLING_DIR" explain --customer "$CUSTOMER" "$TARGET" --json` and the complete customer `statement`. Match original request, agreement version, accepted quantity/rate, postings and receipt identity. History `/2` is scale 2; `/3` is scale 18. On a lost response/exit 8, preserve pending bytes and retry identically; an exact retry books nothing. Changed content under the same ID must refuse, not acknowledge. Period `/4` is not a target-history acknowledgement. Existing v0.9.0 bundled helpers cannot acknowledge `/3`; a pending request is not proof of rollback.
+
+## Follow the amount through its lifecycle
+
+Start with [the finance walkthrough](finance-e2e.md): two USD 2.50 work items, outcome and authorized corrections retain six postings totaling 500 scale-2 atoms (USD 5.00), with matching repeated CSV bytes. It shows input → agreed calculation → receipt → optional outcome → linked correction. Optional outcome pricing is separately demonstrated: completed work alone +2 atoms; observed success +98; correction retains the inverse and replacement. Evidence is supplied by the operator, not inferred by the engine.
+
+Then follow [M5 lifecycle commands](billing-quickstart.md#billing-lifecycle-m5), [M5 contracts](m5-contracts.md) and [native qualification](m8-native-package-qualification.md). A customer term assigns billing periods independently from the fiscal calendar. Pre-close quantity deltas append to the open bucket; close pins an immutable `/4` statement; a later correction creates a linked adjustment presented once through a standard or ad hoc statement. Fiscal reports pin their own calendar/snapshot. Export uses the chosen history `snapshot_hash` or period `statement_hash` and must reconcile exact integers and the complete CSV trailer.
+
+The packaged [native journey](../scripts/check-native-package-journey.py) exercises this with a real UTC period boundary. Its close total is 2500000000000000008 scale-18 atoms (USD 2.50 plus 8 atoms), its later adjustment is 2 atoms, and fiscal net is 2500000000000000010. These are separate synthetic stores from the two-caller example. Running that automated journey is technical verification; a participant must independently explain/configure the workflow for usability acceptance. Calendar month-end, timezone/DST and 4-4-5 scope are documented in the M5 qualification/contracts, not proved by this single UTC example.
+
+Duplicate/conflict guards prevent repeat economic acceptance or changed identity reuse; scope/revision guards prevent unauthorized or stale commands; exact atoms avoid per-work rounding; append-only history and immutable close preserve prior decisions. They do not prove real-world facts, customer assent, external exactly-once delivery, payment or a tax/legal invoice. Follow [operations and recovery](billing-operations.md). Arbitrary generation → publication → acquisition charges, several billable milestones/units per agreement and managed services remain explicit future decisions.
