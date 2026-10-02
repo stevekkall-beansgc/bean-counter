@@ -42,8 +42,11 @@ def sqlite_source(repo):
         raise SystemExit("bundled SQLite version/source identity could not be derived")
     version = version_line.split('"', 2)[1]
     source_id = source_line.split('"', 2)[1]
+    notice_at = text.index("The author disclaims copyright")
+    notice_start = text.rfind("/*", 0, notice_at)
+    notice_end = text.index("*/", notice_at) + 2
     return {"version": version, "source_id": source_id, "amalgamation_sha256": digest(amalgamation),
-            "license": root / "sqlite3" / "LICENSE.md"}
+            "notice": text[notice_start:notice_end] + "\n"}
 
 
 def main():
@@ -80,15 +83,30 @@ def main():
         if meta and source and "crates.io" in source:
             source_dir = Path(meta["manifest_path"]).parent
             dest = licenses / f"{name}-{dep_version}"
+            notice_files = set()
             for path in source_dir.iterdir():
-                if path.is_file() and path.name.upper().startswith(("LICENSE", "LICENCE", "COPYING", "NOTICE")):
-                    dest.mkdir(exist_ok=True)
-                    shutil.copyfile(path, dest / path.name)
-    sqlite_license = sqlite["license"]
-    if sqlite_license.is_file():
-        dest = licenses / f"sqlite-{sqlite['version']}"
-        dest.mkdir()
-        shutil.copyfile(sqlite_license, dest / sqlite_license.name)
+                if path.name.upper().startswith(("LICENSE", "LICENCE", "COPYING", "NOTICE")):
+                    if path.is_file():
+                        notice_files.add(path)
+                    elif path.is_dir() and not path.is_symlink():
+                        notice_files.update(child for child in path.rglob("*") if child.is_file())
+            if meta.get("license_file"):
+                declared_file = Path(meta["license_file"])
+                notice_files.add(declared_file if declared_file.is_absolute() else source_dir / declared_file)
+            bundled = []
+            for path in sorted(notice_files):
+                if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(source_dir.resolve()):
+                    raise SystemExit(f"crate license file is missing, linked or outside its source: {path}")
+                relative = path.relative_to(source_dir)
+                output = dest / relative
+                output.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, output)
+                bundled.append(str(output.relative_to(package)))
+            entry["comment"] = ("Bundled source-package license/notice files: " + ", ".join(bundled)
+                                if bundled else "No license/notice text was present in the locked crate source package; licenseDeclared is its Cargo metadata expression.")
+    dest = licenses / f"sqlite-{sqlite['version']}"
+    dest.mkdir()
+    (dest / "NOTICE.txt").write_text(sqlite["notice"], encoding="utf-8")
     sqlite_package = {
         "SPDXID": "SPDXRef-SQLite-" + sqlite["version"].replace(".", "-"),
         "name": "SQLite", "versionInfo": sqlite["version"],
@@ -104,7 +122,7 @@ def main():
         "name": f"Bean Counter {version} {target} Cargo.lock inventory",
         "documentNamespace": f"https://github.com/stevekkall-beansgc/bean-counter/spdx/{commit}/{target}",
         "creationInfo": {"creators": ["Tool: Bean Counter release-inventory.py"], "created": created,
-                         "comment": "All locked Cargo packages, including build-only and other-target dependencies; not a vulnerability audit or signed attestation."},
+                         "comment": "All locked Cargo packages, including build-only and other-target dependencies; Includes available source-package license texts; missing texts are disclosed per package. Not a vulnerability audit or signed attestation."},
         "packages": inventory,
         "relationships": [{"spdxElementId": "SPDXRef-DOCUMENT", "relatedSpdxElement": item["SPDXID"], "relationshipType": "DESCRIBES"} for item in inventory],
     })
