@@ -163,9 +163,19 @@ mod tests {
         let rule = json!({"interval":1,"unit":"month","anchor":{"date":"2026-09-01","time":"00:00:00"},
             "timezone":"UTC","effective_from":"2026-09-01T00:00:00.000000Z","boundary_rule_version":"billing-boundary/1",
             "timezone_rules_version":"IANA-2025b","proration":"none"});
+        // Keep the successor boundary ahead of the real acceptance clock so
+        // this test remains about preaccepted renewal, not a stale fixture date.
+        let accepted_today = local::now().unwrap();
+        let mut successor_date =
+            NaiveDate::parse_from_str(&accepted_today.as_str()[..10], "%Y-%m-%d").unwrap();
+        for _ in 0..7 {
+            successor_date = successor_date.succ_opt().unwrap();
+        }
+        let successor_date = successor_date.to_string();
+        let successor_at = format!("{successor_date}T00:00:00.000000Z");
         let mut next_rule = rule.clone();
-        next_rule["anchor"]["date"] = json!("2026-10-01");
-        next_rule["effective_from"] = json!("2026-10-01T00:00:00.000000Z");
+        next_rule["anchor"]["date"] = json!(successor_date.clone());
+        next_rule["effective_from"] = json!(successor_at.clone());
         let request = json!({"schema":SET,"customer":"customer-1","source":"urn:example:work","change_id":"auto-1",
             "expected_revision":"0","agreement_id":"agreement-1","agreement_version":"1","rule":rule,
             "renewal":{"mode":"automatic_opt_in","m2_change_id":"m2-renewal-2","next_agreement_version":"2","next_rule":next_rule}});
@@ -175,7 +185,7 @@ mod tests {
             serde_json::from_slice(include_bytes!("../../../../examples/billing/setup.json"))
                 .unwrap();
         let amendment = json!({"schema":"ledger-billing-amendment/2","customer":"customer-1","source":"urn:example:work",
-            "change_id":"m2-renewal-2","expected_revision":"1","effective_at":"2026-10-01T00:00:00.000000Z","setup":setup});
+            "change_id":"m2-renewal-2","expected_revision":"1","effective_at":successor_at.clone(),"setup":setup});
         ledger
             .agreement_control("customer-1", "urn:example:work", &encode(&amendment))
             .await
@@ -191,11 +201,11 @@ mod tests {
             "agreement-1",
             2,
             2,
-            "2026-10-01T00:00:00",
+            &format!("{successor_date}T00:00:00"),
         )
         .unwrap();
         let event = json!({"schema":"ledger-event/1","id":future_id,"operation_id":"future-op",
-            "type":"content.generated","customer":"customer-1","occurred_at":"2026-10-01T00:00:00.000000Z","status":"succeeded"});
+            "type":"content.generated","customer":"customer-1","occurred_at":successor_at,"status":"succeeded"});
         let accept = json!({"schema":ACCEPT,"customer":"customer-1","source":"urn:example:work","occurrence_id":future_id,"event":event});
         assert!(ledger.occurrence_accept(&encode(&accept)).await.is_err());
         ledger.close().await;

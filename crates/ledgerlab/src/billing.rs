@@ -866,12 +866,19 @@ mod tests {
         let term = ledgerlab_core::canonical::CanonicalBytes::from_value(&term)
             .unwrap()
             .into_vec();
-        ledger.term_set(&term).await.unwrap();
+        ledger
+            .term_set_at(
+                &term,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-14T12:00:00.000000Z").unwrap(),
+            )
+            .await
+            .unwrap();
         let accepted = ledger
-            .accept(
+            .accept_at(
                 "customer-1",
                 "urn:example:work",
                 include_bytes!("../../../examples/billing/event.json"),
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
             )
             .await
             .unwrap();
@@ -884,7 +891,12 @@ mod tests {
             .unwrap()
             .into_vec();
         ledger
-            .outcome("customer-1", "urn:example:work", &outcome)
+            .outcome_at(
+                "customer-1",
+                "urn:example:work",
+                &outcome,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-23T12:00:00.000000Z").unwrap(),
+            )
             .await
             .unwrap();
         let mut correction: serde_json::Value =
@@ -895,7 +907,12 @@ mod tests {
             .unwrap()
             .into_vec();
         ledger
-            .correct("customer-1", "urn:example:work", &correction)
+            .correct_at(
+                "customer-1",
+                "urn:example:work",
+                &correction,
+                ledgerlab_core::domain::Timestamp::parse("2026-09-24T12:00:00.000000Z").unwrap(),
+            )
             .await
             .unwrap();
         ledger.close().await;
@@ -1324,10 +1341,11 @@ mod tests {
         .unwrap();
         let ledger = BillingLedger::open(&path).await.unwrap();
         let accepted = ledger
-            .accept(
+            .accept_at(
                 "customer-1",
                 "urn:example:work",
                 include_bytes!("../../../examples/billing/event.json"),
+                ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z").unwrap(),
             )
             .await
             .unwrap();
@@ -2860,10 +2878,12 @@ mod tests {
             .unwrap();
             let ledger = BillingLedger::open(&path).await.unwrap();
             ledger
-                .accept(
+                .accept_at(
                     "customer-1",
                     "urn:example:work",
                     include_bytes!("../../../examples/billing/event.json"),
+                    ledgerlab_core::domain::Timestamp::parse("2026-09-15T12:00:00.000000Z")
+                        .unwrap(),
                 )
                 .await
                 .unwrap();
