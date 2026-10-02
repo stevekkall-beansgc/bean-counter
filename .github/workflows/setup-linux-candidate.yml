@@ -1,65 +1,87 @@
-name: setup-native-linux
+name: m8-native-linux
 
 on:
   push:
-    branches:
-      - codex/setup-v030-release
-      - main
+    branches: [main, codex/m8-native-package-qualification]
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: setup-native-linux-${{ github.ref }}
+  group: m8-native-linux-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   packaged-path:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - name: Check out exact branch commit
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5, resolved from official action tag
+      - name: Check out exact candidate source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Record runner and install pinned Rust
+      - name: Require the named Ubuntu runtime and pinned compiler
         shell: bash
         run: |
           set -euo pipefail
+          . /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION" = '24.04.5 LTS (Noble Numbat)'
+          test "$(uname -m)" = x86_64
+          test "$(getconf GNU_LIBC_VERSION)" = 'glibc 2.39'
           uname -a
           cat /etc/os-release
-          ldd --version | head -n 1
           python3 --version
           rustup toolchain install 1.98.1 --profile minimal
           rustc --version
           cargo --version
           git rev-parse HEAD
-      - name: Build and verify candidate archive
+      - name: Reject malformed archive regressions
+        run: python3 scripts/test-native-package.py
+      - name: Build and strictly verify exact candidate archive
         shell: bash
         run: |
           set -euo pipefail
-          artifact_dir="$PWD/work/setup-linux/artifacts"
-          mkdir -p "$PWD/work/setup-linux"
+          artifact_dir="$PWD/work/m8-linux/artifacts"
+          mkdir -p "$PWD/work/m8-linux"
           sh scripts/package-linux-x86_64.sh "$artifact_dir"
-          sha256sum "$artifact_dir"/*
-          python3 scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.3.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
-      - name: Install and exercise packaged product
+          python3 -O scripts/verify-native-package.py "$artifact_dir/bean-counter-v0.9.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)"
+          cp scripts/verify-native-package.py scripts/install-native-package.py scripts/install-linux-x86_64.sh "$artifact_dir/"
+      - name: Check out exact schema-10 legacy source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: 48d76ae249fbfcb79a5012b265da51a71cb996e3 # v0.7.0
+          path: work/schema10-source
+          persist-credentials: false
+      - name: Build legacy writer for upgrade and refusal evidence
         shell: bash
         run: |
           set -euo pipefail
-          artifact_dir="$PWD/work/setup-linux/artifacts"
-          archive="$(find "$artifact_dir" -maxdepth 1 -type f -name '*x86_64-unknown-linux-gnu.tar.gz' -print -quit)"
-          test -n "$archive"
-          install_dir="$PWD/work/setup-linux/installed"
-          sh scripts/install-linux-x86_64.sh "$archive" "$artifact_dir/SHA256SUMS" "$install_dir"
+          CARGO_TARGET_DIR="$RUNNER_TEMP/schema10-target" cargo build --locked --manifest-path work/schema10-source/Cargo.toml -p ledgerlab-cli --bin ledger
+      - name: Install and exercise only the archived binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_dir="$PWD/work/m8-linux/artifacts"
+          install_dir="$PWD/work/m8-linux/installed"
+          sh "$artifact_dir/install-linux-x86_64.sh" "$artifact_dir/bean-counter-v0.9.0-x86_64-unknown-linux-gnu.tar.gz" "$artifact_dir/SHA256SUMS" "$(git rev-parse HEAD)" "$install_dir"
           file "$install_dir/ledger"
           ldd "$install_dir/ledger"
           python3 scripts/check-guided-billing-setup.py "$install_dir/ledger"
-          sh "$install_dir/examples/integration/run-synthetic.sh" "$install_dir/ledger" "$PWD/work/setup-linux/store" "$PWD/work/setup-linux/results"
-      - name: Retain tested Linux release package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4, resolved from official action tag
+          cd "$RUNNER_TEMP"
+          python3 "$install_dir/scripts/check-native-package-journey.py" "$install_dir/ledger" --old-binary "$RUNNER_TEMP/schema10-target/debug/ledger" > "$artifact_dir/QUALIFICATION.json"
+      - name: Run retained CLI regressions against installed artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          LEDGER_BINARY="$PWD/work/m8-linux/installed/ledger" cargo test --locked -p ledgerlab-cli --test billing --test finance_csv --test local
+      - name: Retain exact tested archive and qualification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: bean-counter-v0.3.0-linux-x86_64
-          path: work/setup-linux/artifacts/
+          name: bean-counter-v0.9.0-linux-x86_64-${{ github.event.pull_request.head.sha || github.sha }}
+          path: work/m8-linux/artifacts/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14

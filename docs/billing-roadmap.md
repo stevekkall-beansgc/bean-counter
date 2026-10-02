@@ -23,6 +23,8 @@ OSS 1.0 targets a practical billing lifecycle: fixed and quantity-based work, ex
 | **M8 — Distribution and first use** | Partial | Qualify the exact advertised packages and fresh-install journey on each supported platform. Native artifact conformance is not established by the M1, M2, or M3 source-built evidence. |
 | **M9 — Outside adoption and OSS 1.0** | Not started | Have two owner-approved unfamiliar developers complete the documented final journey, one on Mac and one on Linux, with two caller languages represented. |
 
+The unreleased v0.9.0 [M8 package candidate](m8-native-package-qualification.md) repairs distribution tooling. It does not change this status until both target walkthroughs and all release gates pass.
+
 ## Approved M2 rules
 
 - The agreement and price for a work record are selected by the ledger timestamp of its first successful acceptance. Caller-reported work time remains separate evidence and does not backdate pricing. An exact retry returns the original result and price selection.

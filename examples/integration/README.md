@@ -1,26 +1,23 @@
-# Local product integration — Bean Counter M2 source contract
+# Local product integration — Bean Counter
 
-For the M2 command and data contract, see [Billing M2 CLI contract](../../docs/billing-m2-cli-contract.md). For caller-owned request persistence, original receipt verification and recovery after an unknown commit result, use the [Python](billing_outbox.py) or [Node.js](billing_outbox.mjs) synthetic example. Both take an explicit customer and source, and require an already initialized installation plus a strict event JSON file.
+The current M5 local SQLite source profile includes customers and sources, fixed-price and scale-18 usage, explicit billing periods, recurrence and finance exports. Read the [billing quickstart](../../docs/billing-quickstart.md), [M2 caller contract](../../docs/billing-m2-cli-contract.md) and [M5 qualification](../../docs/m5-qualification.md). The [Python](billing_outbox.py) and [Node.js](billing_outbox.mjs) examples persist original requests and reconcile uncertain results. Their inputs are synthetic.
 
-M2 is being prepared as the next 0.x minor interface. Its implementation and schema-9 migration are not yet release-qualified. The v0.3.0 native packages below document the older single-customer interface; they do not accept the M2 commands or request formats. Use the matching M2 source build for the current helper scripts.
+## Native candidate and installation
 
-The historical v0.3.0 release provides a language-neutral `ledger` CLI with a guided terminal setup command and a strict JSON interface for unattended products. Its native packages are unsigned. The tested hosts are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64 with glibc 2.39. Other OS versions and Linux distributions remain unverified; Windows is deferred. The archive's deployment minimum or target triple is not a broader compatibility guarantee.
+v0.9.0 is the M8 native-package candidate. It is not released or qualified by these instructions. The latest published native archives remain v0.3.0 and do not contain the M5 journey. M8 stays Partial until the exact archives pass both installed walkthroughs and all release gates. The bounded qualification targets are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
 
-## Install a release package
-
-Download the matching archive and `SHA256SUMS` from the [v0.3.0 release](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.3.0). Verify the archive digest against `SHA256SUMS` and the digest in the release notes, then extract it into a new private directory. On Apple-silicon macOS, the checked-in helper performs the download, checksum check, extraction, executable version check and private install:
+Use the archive, `SHA256SUMS`, expected source commit, verifier and installer from the same trusted release/candidate distribution. The installer and verifier must be obtained separately before extracting an unverified archive. Python 3.11+ is required for verification and installation; Rust and Node are unnecessary for ordinary installed billing. Do not treat the checksum or unsigned provenance as a signature.
 
 ```sh
-sh examples/integration/install-v0.3.0-macos.sh "$HOME/bean-counter-v0.3.0"
+# SOURCE_COMMIT is the full source SHA recorded in the trusted release evidence.
+sh install-macos-arm64.sh bean-counter-v0.9.0-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$HOME/bean-counter-v0.9.0"
+# Or on the named Ubuntu host:
+sh install-linux-x86_64.sh bean-counter-v0.9.0-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$HOME/bean-counter-v0.9.0"
+export LEDGER="$HOME/bean-counter-v0.9.0/ledger"
+"$LEDGER" --version
 ```
 
-The Linux archive is `bean-counter-v0.3.0-x86_64-unknown-linux-gnu.tar.gz`. On a tested Linux x86-64 host, after downloading that archive and `SHA256SUMS` into the same directory, run the installer from a v0.3.0 source checkout:
-
-```sh
-sh scripts/install-linux-x86_64.sh bean-counter-v0.3.0-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$HOME/bean-counter-v0.3.0"
-```
-
-The Linux binary is dynamically linked; its build metadata and release notes identify the actual runner and glibc environment. The native binary needs no Rust, Node or hosted account for local billing. Python 3 is needed only for the bundled synthetic integration helper.
+The installers strictly verify the archive and its manifest before extraction or executing its binary, refuse an existing destination, and create a private installation. Keep `install-native-package.py` and `verify-native-package.py` beside the shell installer. Inspect `BUILD-INFO.txt`, `PROVENANCE.json`, `MANIFEST.json` and `SBOM.spdx.json` for the exact version, source, target, toolchain, binary hash and runtime linkage. Native packages are unsigned; macOS signing/notarization and clean-account downloaded launch remain unverified.
 
 ## Configure real terms
 
@@ -34,16 +31,15 @@ For a product or agent with a prepared setup file, use the noninteractive interf
 "$LEDGER" billing init "$BILLING_DIR" --setup "$SETUP_JSON" --json
 ```
 
-For M2, send strict JSON by regular file or stdin (`accept --customer C --source S -`, `outcome --customer C --source S -`, `correct --customer C --source S -`), request `--json`, and parse returned JSON in the product's own language. Keep event `id` and `operation_id` stable, pass explicit customer/source scope, and retain the receipt target. Preserve exit codes and reconcile an unknown result by reopening the same installation and retrying the identical input and IDs.
+Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `outcome --customer C --source S -`, `correct --customer C --source S -`), request `--json`, and parse returned JSON in the product's own language. Keep event `id` and `operation_id` stable, pass explicit customer/source scope, and retain the receipt target. Preserve exit codes and reconcile an unknown result by reopening the same installation and retrying the identical input and IDs.
 
 ## Synthetic product journey
 
-The bundled setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Build the matching M2 source and run its helper with fresh private paths:
+The bundled setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Use the matching v0.9.0 candidate binary and run its helper with fresh private paths:
 
 ```sh
-cargo build --locked --bin ledger
 sh examples/integration/run-synthetic.sh \
-  target/debug/ledger \
+  "$LEDGER" \
   "$HOME/bean-counter-demo-store" \
   "$HOME/bean-counter-demo-results"
 ```

@@ -24,8 +24,8 @@ if [ "$host_version" != "26.6.2" ]; then
     echo "warning: macOS $host_version is untested; the binary declares minos 11.0, which does not certify behavior on this version" >&2
 fi
 case "$("$ledger" --version)" in
-    "ledger 0.3.0 (local development)") ;;
-    *) echo "expected the matching 0.3.0 M2 source build" >&2; exit 2 ;;
+    "ledger 0.9.0 (local development)") ;;
+    *) echo "expected the matching 0.9.0 native candidate or source build" >&2; exit 2 ;;
 esac
 if [ -e "$installation" ] || [ -L "$installation" ]; then
     echo "refusing existing installation path: $installation" >&2
