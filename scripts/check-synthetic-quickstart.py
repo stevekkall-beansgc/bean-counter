@@ -98,9 +98,10 @@ def check(package, ledger, evidence):
     # as a version refusal. Spaces also exercise quoting of executable paths.
     rejected = []
     for index, version in enumerate(("ledger 0.9.0 (local development)",
-                                     "ledger 0.9.2 (local development)",
+                                     "ledger 0.9.1 (local development)",
+                                     "ledger 0.9.3 (local development)",
                                      "ledger 1.0.0 (local development)",
-                                     "ledger 0.9.1 (unexpected build)")):
+                                     "ledger 0.9.2 (unexpected build)")):
         probe = evidence / f"unsupported ledger {index}"
         calls = evidence / f"probe-{index}.jsonl"
         probe.write_text(

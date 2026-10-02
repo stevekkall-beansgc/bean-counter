@@ -16,7 +16,7 @@ The frozen first slice shows demo-customer owing demo-host USD 0.80 for generati
 
 The `ledger billing` profile accepts operator-configured fixed-price retail work, outcome adjustments and authorized corrections, with durable receipts, duplicate protection, revocable local permissions and complete JSON statements. Start with the [billing quickstart](docs/billing-quickstart.md), [recovery procedure](docs/billing-recovery.md) and [resource/cost manifest](docs/resources-and-costs.md). It uses a separate installation with explicit terms. The repository includes illustrative inputs, never customer assent obtained by the program. No payment is collected and a statement is not a tax/legal invoice.
 
-The [v0.9.1 native packages and integration guide](examples/integration/README.md) provide `ledger billing setup DIR`, a guided terminal setup without hand-authored JSON, and a strict JSON interface for products. The published native packages are unsigned and have only the tested platform coverage stated above.
+The [v0.9.2 native package instructions and integration guide](examples/integration/README.md) provide `ledger billing setup DIR`, a guided terminal setup without hand-authored JSON, and a strict JSON interface for products. Confirm publication and exact source/native qualification against the linked release before acquiring the package. Native packages are unsigned and have only the tested platform coverage stated above.
 
 ```sh
 cargo build --release --locked -p ledgerlab-cli
