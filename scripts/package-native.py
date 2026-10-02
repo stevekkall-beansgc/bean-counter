@@ -12,7 +12,6 @@ import sys
 import tarfile
 import tempfile
 import tomllib
-import hashlib
 
 
 def output(*args, cwd=None):
