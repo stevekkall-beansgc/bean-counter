@@ -82,7 +82,7 @@ def verified_receipt(ledger, installation, customer, operation_id, receipt):
     if not isinstance(target, str) or not target or not isinstance(receipt.get("id"), str):
         stop("receipt ID or target is missing")
     code, history = run_json([ledger, "billing", "--directory", installation, "explain", "--customer", customer, target, "--json"])
-    if code != 0 or history.get("schema") != "ledger-billing-statement/2" or history.get("complete") is not True:
+    if code != 0 or history.get("schema") not in ("ledger-billing-statement/2", "ledger-billing-statement/3") or history.get("complete") is not True:
         stop("complete target explanation unavailable; request remains unacknowledged")
     matches = [entry for entry in history.get("entries", [])
                if entry.get("target") == target and entry.get("receipt") == receipt

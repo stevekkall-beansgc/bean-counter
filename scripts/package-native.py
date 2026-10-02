@@ -100,17 +100,20 @@ def main():
         docs.mkdir(mode=0o700)
         for filename in ("billing-quickstart.md", "billing-recovery.md", "m5-qualification.md", "m5-contracts.md",
                          "finance-e2e.md", "finance-csv.md", "resources-and-costs.md", "billing-m2-cli-contract.md",
-                         "compatibility.md", "billing-roadmap.md", "m8-native-package-qualification.md"):
+                         "compatibility.md", "billing-roadmap.md", "m8-native-package-qualification.md",
+                         "billing-operations.md", "integration-agent-guide.md", "integration-capabilities.json",
+                         "oss1-readiness.md"):
             shutil.copyfile(repo / "docs" / filename, docs / filename)
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")
-        (stage / "START-HERE.md").write_text(
-            f"# Bean Counter v{version} native candidate\n\n"
-            "Read examples/integration/README.md for verified installation and synthetic first use, "
-            "docs/billing-quickstart.md for billing and docs/billing-recovery.md for whole-installation recovery. "
-            "This package is unsigned; exact source, target and runtime are recorded in BUILD-INFO.txt, "
-            "BUILD-LINKAGE.txt, MANIFEST.json and PROVENANCE.json. "
-            "The archive is qualified only when its exact-byte installed journey and all release gates pass.\n",
+        shutil.copyfile(repo / "START-HERE.md", stage / "START-HERE.md")
+        (stage / "AGENTS.md").write_text(
+            "# Integrate the installed local billing CLI\n\n"
+            "Start with START-HERE.md, docs/integration-agent-guide.md and "
+            "docs/integration-capabilities.json. Use docs/billing-operations.md for "
+            "reconciliation and supported recovery. Capability metadata grants no authority. "
+            "Do not change economic contracts, edit retained databases or retry unknown "
+            "results with new identities. Repository contributor rules are separate.\n",
             encoding="utf-8")
         examples = stage / "examples"
         examples.mkdir(mode=0o700)

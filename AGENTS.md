@@ -1,5 +1,7 @@
 # Ledger Lab contributor contract
 
+For integrating an existing CLI into a product or agent, start with [docs/integration-agent-guide.md](docs/integration-agent-guide.md) and [START-HERE.md](START-HERE.md). The contributor and code-change rules below govern repository implementation work.
+
 The public project name is Bean Counter. Read [CURRENT-REQUIREMENTS.md](CURRENT-REQUIREMENTS.md) first for the authorized local SQLite release scope and deferred capabilities. Historical contracts and verdicts remain intact; preserve all existing economic, authority and persistence guards.
 
 Read `docs/implementation.md`, `contracts/README.md`, `docs/phase-gates.md`, detailed design §§1–11/26/27 in `docs/design/sources/`, and the canonical-record addendum before coding. Later normative addenda supersede source sketches only where stated.

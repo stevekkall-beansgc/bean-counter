@@ -1,0 +1,52 @@
+{
+  "schema": "bean-counter-cli-capabilities/1",
+  "status": "source-readiness-candidate",
+  "authority": "descriptive-only",
+  "native_baseline": {
+    "version": "0.9.0",
+    "source_commit": "2487dcfa9333b54c8622fd826e289fcaccb7ee22",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.0",
+    "tested_targets": [
+      {"target": "aarch64-apple-darwin", "host": "macOS 26.6.2 arm64"},
+      {"target": "x86_64-unknown-linux-gnu", "host": "Ubuntu 24.04.5 x86-64", "libc": "glibc 2.39"}
+    ],
+    "signed": false,
+    "notarized": false,
+    "clean_account_downloaded_launch_qualified": false
+  },
+  "candidate_changes": {
+    "caller_history_formats": ["ledger-billing-statement/2", "ledger-billing-statement/3"],
+    "released_0_9_0_caller_history_formats": ["ledger-billing-statement/2"],
+    "helper_fix_published": false,
+    "engine_economic_contract_changed": false
+  },
+  "transport": {"kind": "local-cli-process", "input": "strict-json-file-or-stdin", "output": "json-and-process-exit-code"},
+  "storage": {"backend": "local-sqlite", "schema": 11, "businesses_per_installation": 1, "writer": "exclusive-local-owner"},
+  "billing_contract": "v0.3",
+  "profile": {
+    "work_event": "content.generated",
+    "event_schema": "ledger-event/1",
+    "fixed_setup": "ledger-local-billing/1",
+    "quantity_setup": "ledger-local-billing/2",
+    "quantity": "one-configured-unit-and-positive-bounded-integer-quantity",
+    "money": "USD-integer-atoms-at-scale-2-or-18",
+    "failed_usage_work": "refused-before-charge"
+  },
+  "responses_by_operation": {
+    "base_accept": "base-acceptance-receipt-on-accepted-or-duplicate-response",
+    "history_explain_and_statement": ["ledger-billing-statement/2", "ledger-billing-statement/3"],
+    "period_close": "ledger-billing-statement/4",
+    "finance_export": ["ledger-finance-export/2", "ledger-finance-export/3", "ledger-finance-export/4"]
+  },
+  "required_operator_inputs": ["private-canonical-installation", "business-customer-source-identities", "agreed-price-or-unit-rate", "retained-assent-and-authority-evidence", "explicit-outcome-windows", "permissions", "host-storage-resources-and-backups"],
+  "retry": {"persist_before_write": ["exact-request-bytes", "customer", "source", "delivery-id", "operation-id"], "unknown_result": "reopen-same-installation-and-retry-identical-request", "replacement_identity_recovery": false, "acknowledge": "complete-target-history-matches-original-receipt-and-operation"},
+  "exit_codes": {"0": "success-or-duplicate", "2": "usage-config-input-file", "3": "refused-or-not-found", "4": "identity-conflict", "5": "waiting", "6": "unauthorized", "7": "busy-or-unavailable", "8": "outcome-unknown", "9": "integrity-failure"},
+  "examples": [
+    {"caller": "python", "product": "completed-generated-report", "profile": "fixed-price", "helper": "examples/integration/billing_outbox.py", "setup": "examples/billing/setup.json", "event": "examples/billing/event.json"},
+    {"caller": "node", "product": "completed-generated-draft", "profile": "one-unit-quantity", "helper": "examples/integration/billing_outbox.mjs", "setup": "examples/billing/usage/setup.json", "event": "examples/billing/usage/event.json"}
+  ],
+  "supported": ["fixed-and-quantity-work", "multiple-customers-and-sources", "immutable-effective-dated-terms", "authorized-outcomes-and-corrections", "customer-periods-and-immutable-close", "cumulative-conversion", "explicit-recurrence", "linked-post-close-adjustments", "separate-fiscal-reporting", "finance-csv", "quiescent-whole-installation-recovery"],
+  "deferred": ["payment-execution", "tax-legal-invoice-status", "remote-api", "managed-hosting", "postgresql-billing", "multi-host-writers", "automatic-recurrence-charges", "arbitrary-linked-event-pricing", "multiple-units-per-agreement", "general-fee-formulas", "resource-reservations", "signed-provenance"],
+  "entry_points": ["START-HERE.md", "docs/integration-agent-guide.md", "docs/billing-operations.md", "docs/oss1-readiness.md"],
+  "unfamiliar_developer_usability": "not-yet-measured"
+}

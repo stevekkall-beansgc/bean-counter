@@ -1,6 +1,6 @@
 # Bean Counter: current local SQLite requirements
 
-Amended 2026-09-23 by the project owner; current status is summarized in [STATUS.md](STATUS.md). Bean Counter is the public project name for the Ledger Lab implementation; the `ledger` command, `ledgerlab*` crates and existing schema identifiers retain their names for compatibility. The initial local-profile amendment started from `7af0e502aec31078f45260223ce32cf6476b2b47`; the current native release is v0.3.0.
+Amended 2026-09-23 by the project owner; current status is summarized in [STATUS.md](STATUS.md). Bean Counter is the public project name for the Ledger Lab implementation; the `ledger` command, `ledgerlab*` crates and existing schema identifiers retain their names for compatibility. The initial local-profile amendment started from `7af0e502aec31078f45260223ce32cf6476b2b47`; the current native release is [v0.9.0](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.0), qualified for the named M5 local SQLite journey. See [M8 qualification](docs/m8-native-package-qualification.md).
 
 This is the current acceptance and publication scope for `ledger billing`. It supersedes conflicting full-platform publication prerequisites in the historical phase gates, design sources, roadmap and release matrix. Historical specifications, frozen contracts, failures and review verdicts remain intact. A deferred requirement has not passed. Existing pricing, authority, storage-integrity and unsupported-capability guards remain mandatory.
 

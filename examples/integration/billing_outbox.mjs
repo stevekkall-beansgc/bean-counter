@@ -90,7 +90,7 @@ const target = receipt?.body?.target;
 if (receipt?.kind !== 'base-acceptance' || typeof receipt.id !== 'string' || !receipt.id ||
     typeof target !== 'string' || !target) fail('receipt ID or target is missing');
 const [explainCode, history] = runJson([ledger, 'billing', '--directory', installation, 'explain', '--customer', customer, target, '--json']);
-if (explainCode !== 0 || history?.schema !== 'ledger-billing-statement/2' || history.complete !== true)
+if (explainCode !== 0 || !['ledger-billing-statement/2', 'ledger-billing-statement/3'].includes(history?.schema) || history.complete !== true)
   fail('complete target explanation unavailable; request remains unacknowledged');
 const matches = history.entries?.filter(entry => entry.target === target &&
   same(entry.receipt, receipt) && entry.receipt.id === receipt.id &&

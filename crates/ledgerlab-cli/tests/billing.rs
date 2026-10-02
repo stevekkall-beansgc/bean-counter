@@ -23,6 +23,27 @@ fn run(root: &Path, args: &[&str], expected: i32) -> Value {
 }
 
 #[test]
+fn caller_outbox_examples_preserve_fixed_and_usage_acknowledgements() {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/test-caller-outbox.py")
+        .canonicalize()
+        .unwrap();
+    let outside_checkout = tempfile::tempdir().unwrap();
+    let result = Command::new("python3")
+        .arg(script)
+        .env("LEDGER_BINARY", ledger_binary())
+        .current_dir(outside_checkout.path())
+        .output()
+        .expect("Python and Node are required by the local billing E2E gate");
+    assert!(
+        result.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
 fn customer_term_command_uses_exact_retry_identity() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/billing-cli-tests");
     fs::create_dir_all(&root).unwrap();

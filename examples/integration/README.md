@@ -1,10 +1,10 @@
 # Local product integration — Bean Counter
 
-The current M5 local SQLite source profile includes customers and sources, fixed-price and scale-18 usage, explicit billing periods, recurrence and finance exports. Read the [billing quickstart](../../docs/billing-quickstart.md), [M2 caller contract](../../docs/billing-m2-cli-contract.md) and [M5 qualification](../../docs/m5-qualification.md). The [Python](billing_outbox.py) and [Node.js](billing_outbox.mjs) examples persist original requests and reconcile uncertain results. Their inputs are synthetic.
+The current M5 local SQLite source profile includes customers and sources, fixed-price and scale-18 usage, explicit billing periods, recurrence and finance exports. Read the [billing quickstart](../../docs/billing-quickstart.md), [M2 caller contract](../../docs/billing-m2-cli-contract.md) and [M5 qualification](../../docs/m5-qualification.md). The [Python](billing_outbox.py) and [Node.js](billing_outbox.mjs) examples persist original requests and reconcile uncertain results. Their inputs are synthetic. The patched helpers in this checkout recognize complete history explanations `/2` and `/3`, while rejecting period statement `/4` and unknown versions. The helpers bundled in v0.9.0 still require `/2` and cannot acknowledge usage `/3`; use the patched source helpers for that case until a release packages the correction. A pending acknowledgement does not mean the charge failed: preserve the original request and retry it after updating the helper.
 
-## Native candidate and installation
+## Native release and installation
 
-v0.9.0 is the M8 native-package candidate. It is not released or qualified by these instructions. The latest published native archives remain v0.3.0 and do not contain the M5 journey. M8 stays Partial until the exact archives pass both installed walkthroughs and all release gates. The bounded qualification targets are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
+[v0.9.0](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.0) is the released M8 native package from source `2487dcfa9333b54c8622fd826e289fcaccb7ee22`. Both exact archives passed installed M5, schema-10 upgrade, older-writer refusal, recovery and all release gates; downloaded assets match the qualified bytes. See [M8 qualification](../../docs/m8-native-package-qualification.md). The bounded qualification targets are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
 
 Use the archive, `SHA256SUMS`, expected source commit, verifier and installer from the same trusted release/candidate distribution. The installer and verifier must be obtained separately before extracting an unverified archive. Python 3.11+ is required for verification and installation; Rust and Node are unnecessary for ordinary installed billing. Do not treat the checksum or unsigned provenance as a signature.
 
@@ -35,7 +35,7 @@ Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `
 
 ## Synthetic product journey
 
-The bundled setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Use the matching v0.9.0 candidate binary and run its helper with fresh private paths:
+The bundled setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Use the matching v0.9.0 released binary and run its helper with fresh private paths:
 
 ```sh
 sh examples/integration/run-synthetic.sh \
