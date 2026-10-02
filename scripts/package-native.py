@@ -36,9 +36,33 @@ def sqlite_evidence(repo):
             "sqlite_amalgamation_sha256": sha(amalgamation)}
 
 
-def copy_tree(source, destination):
-    shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=False,
-                    ignore=shutil.ignore_patterns("install-v0.3.0-macos.sh"))
+def copy_committed_examples(repo, commit, section, destination):
+    prefix = f"examples/{section}/"
+    entries = subprocess.check_output(
+        ["git", "ls-tree", "-rz", commit, "--", prefix], cwd=repo)
+    destination.mkdir(mode=0o700)
+    copied = 0
+    for entry in entries.split(b"\0"):
+        if not entry:
+            continue
+        header, raw_path = entry.split(b"\t", 1)
+        mode, kind, object_id = header.decode("ascii").split()
+        path = raw_path.decode("utf-8")
+        if section == "integration" and path == prefix + "install-v0.3.0-macos.sh":
+            continue
+        if mode not in ("100644", "100755") or kind != "blob":
+            raise SystemExit(f"example is not a committed regular file: {path}")
+        if not path.startswith(prefix):
+            raise SystemExit(f"example lies outside its committed section: {path}")
+        relative = Path(path[len(prefix):])
+        if relative.is_absolute() or any(part in (".", "..") for part in relative.parts):
+            raise SystemExit(f"noncanonical committed example path: {path}")
+        target = destination / relative
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target.write_bytes(subprocess.check_output(["git", "cat-file", "blob", object_id], cwd=repo))
+        copied += 1
+    if not copied:
+        raise SystemExit(f"committed example section is empty: {section}")
 
 
 def main():
@@ -88,7 +112,7 @@ def main():
         examples = stage / "examples"
         examples.mkdir(mode=0o700)
         for section in ("billing", "finance", "integration"):
-            copy_tree(repo / "examples" / section, examples / section)
+            copy_committed_examples(repo, commit, section, examples / section)
         scripts = stage / "scripts"
         scripts.mkdir(mode=0o700)
         required_scripts = ["demo-finance.py", "check-native-package-journey.py", "verify-native-package.py",
