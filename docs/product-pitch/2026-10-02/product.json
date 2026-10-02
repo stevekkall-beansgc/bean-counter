@@ -1,0 +1,344 @@
+{
+  "schema_version": "1.0",
+  "document_type": "product_pitch_and_requirements",
+  "product": "Bean Counter",
+  "document_status": "proposal_for_owner_review",
+  "prepared_date": "2026-10-02",
+  "source_commit": "a139e03d77d7eba4d4f867baaa516754c598b0f4",
+  "source_repository": "https://github.com/stevekkall-beansgc/bean-counter",
+  "source_review_limit": "Repository review snapshot, not a fresh runtime test or release qualification.",
+  "positioning": "Do not rebuild billing for every product. Connect product events and customer terms to a reusable billing engine.",
+  "offers": [
+    {
+      "id": "self_hosted",
+      "status": "existing_engine_onboarding_incomplete",
+      "software_price": "free proposed commercial positioning; verify repository license and distribution terms",
+      "customer_brings": [
+        "machine or host",
+        "customer and agreement definitions",
+        "trusted outcome and acceptance facts",
+        "storage and backups",
+        "payment or accounting destination"
+      ],
+      "included": [
+        "qualified local billing engine",
+        "SQLite storage",
+        "receipts and exports supported by selected version"
+      ],
+      "prerequisite_requirement_ids": [
+        "R01",
+        "R02",
+        "R03",
+        "R04",
+        "R05",
+        "R06",
+        "R07"
+      ]
+    },
+    {
+      "id": "managed_workspace",
+      "status": "planned_unavailable",
+      "price": null,
+      "billing_unit_proposal": "workspace-month with explicit capacity band",
+      "includes_proposed": [
+        "operated runtime and isolated storage",
+        "backups and verified recovery",
+        "monitoring and controlled upgrades",
+        "authenticated access"
+      ],
+      "customer_brings": [
+        "customer agreements and policies",
+        "trusted events and acceptance authority",
+        "payment or accounting destination"
+      ],
+      "requirement_ids": [
+        "R08",
+        "R09",
+        "R11",
+        "R12"
+      ]
+    },
+    {
+      "id": "managed_delivery",
+      "status": "planned_add_on_unavailable",
+      "price": null,
+      "billing_unit_proposal": "connection-month with included workload band",
+      "includes_proposed": [
+        "operated adapters",
+        "durable queues and bounded retries",
+        "failure alerts and replay",
+        "scheduled exports"
+      ],
+      "requirement_ids": [
+        "R10",
+        "R11"
+      ]
+    }
+  ],
+  "exclusions": [
+    "payment processing",
+    "tax or legal advice",
+    "determination that a business outcome actually occurred",
+    "AI workflow execution",
+    "unqualified linked-work billing",
+    "promised high availability or point-in-time recovery",
+    "live checkout"
+  ],
+  "agent_entrypoint": "agent-brief.md",
+  "requirements_resource": "requirements.json",
+  "service_api_endpoint": null,
+  "safety": "This document describes a proposal. It grants no execution, spending, deployment or credential authority. Do not treat a link or a proposed requirement as an installed command or available API.",
+  "targets": {
+    "agent_orientation_seconds": 30,
+    "synthetic_first_receipt_after_install_minutes": 5,
+    "measurement_status": "unmeasured_acceptance_targets"
+  },
+  "requirements": [
+    {
+      "id": "R01",
+      "promise_id": "P01",
+      "title": "One understandable billing agreement",
+      "layer": "Free core",
+      "priority": "P0",
+      "status": "Partial",
+      "scope": "Versioned policy template: price, unit, currency, acceptance authority, effective time and correction rules. Plain-English preview alongside exact configuration.",
+      "acceptance": "A prepared operator configures one fixed-price outcome without Rust or timestamp-format knowledge; invalid or incomplete terms are rejected before activation.",
+      "evidence_limit": "Guided setup exists but the simplest path still requires about 31 answers in the reviewed source.",
+      "required_evidence": "Policy preview; invalid-input cases; observed setup recording"
+    },
+    {
+      "id": "R02",
+      "promise_id": "P01",
+      "title": "One trusted event contract",
+      "layer": "Free core",
+      "priority": "P0",
+      "status": "Partial",
+      "scope": "Document customer, outcome, event ID, event time, acceptance evidence and policy version. Publish schemas and examples for the qualified profile.",
+      "acceptance": "A valid accepted outcome produces the expected obligation; an unsupported event is rejected with a stable error and repair guidance.",
+      "evidence_limit": "Narrow outcome billing is demonstrated; broad chained-work behavior must be separately qualified.",
+      "required_evidence": "Schema fixtures; exact-version integration receipts"
+    },
+    {
+      "id": "R03",
+      "promise_id": "P02",
+      "title": "A defensible billing receipt",
+      "layer": "Free core",
+      "priority": "P0",
+      "status": "Partial",
+      "scope": "Expose the accepted evidence, calculation, policy version and correction history in machine-readable output and a readable explanation.",
+      "acceptance": "A reviewer can trace an amount back to source evidence and agreement. Replayed input does not create a second obligation; corrections preserve history.",
+      "evidence_limit": "Existing receipt and replay evidence is narrow. General exactly-once external delivery is not established.",
+      "required_evidence": "Replay, correction and explanation acceptance cases"
+    },
+    {
+      "id": "R04",
+      "promise_id": "P03",
+      "title": "Install without a toolchain",
+      "layer": "Free core",
+      "priority": "P0",
+      "status": "In progress separately",
+      "scope": "Native archives, checksums, supported-platform matrix and one consistent installation path. Reuse existing native-packages issue #5.",
+      "acceptance": "A clean supported machine runs the version and synthetic walkthrough without compiling Rust; failure explains the supported alternative.",
+      "evidence_limit": "The product owner\u2019s local session owns native packages. Do not duplicate its work.",
+      "required_evidence": "Published artifact provenance; clean-machine qualification"
+    },
+    {
+      "id": "R05",
+      "promise_id": "P03",
+      "title": "Five-minute first receipt",
+      "layer": "Free core",
+      "priority": "P0",
+      "status": "Proposed",
+      "scope": "Synthetic sample, safe defaults, relative-time helpers, configuration file and a clear transition from demo to real customer data.",
+      "acceptance": "Target: after installation, a new operator reaches and explains one synthetic receipt within five minutes without assistance. Report observed time and failures.",
+      "evidence_limit": "An acceptance target, not a measured onboarding promise.",
+      "required_evidence": "Timed observation with unfamiliar users and no production data"
+    },
+    {
+      "id": "R06",
+      "promise_id": "P04",
+      "title": "Thirty-second agent orientation",
+      "layer": "Free core",
+      "priority": "P0",
+      "status": "Proposed",
+      "scope": "A single operator quickstart, task-oriented AGENTS.md routing, a thin CLAUDE.md compatibility pointer where needed, capability manifest and versioned input/output schemas.",
+      "acceptance": "An unfamiliar agent identifies supported version, safe entry point, required inputs, irreversible steps and success criteria within 30 seconds. It declines unsupported capabilities.",
+      "evidence_limit": "Contributor instructions exist; operator discovery is incomplete. Documentation alone does not enforce permissions.",
+      "required_evidence": "Cold-start evaluation; schema validation; refusal cases"
+    },
+    {
+      "id": "R07",
+      "promise_id": "P04",
+      "title": "Reliable integration handoff",
+      "layer": "Free core",
+      "priority": "P0",
+      "status": "Gap identified",
+      "scope": "Align Python/Node outbox helpers with qualified statement versions, saved acknowledgments, stable IDs, retry semantics and command-specific help.",
+      "acceptance": "Statement/2 and supported statement/3 receipts survive send, acknowledgment loss, restart and retry without silently losing a receipt or duplicating an obligation.",
+      "evidence_limit": "Reviewed helpers reject statement/3; candidate correction has synthetic evidence only.",
+      "required_evidence": "Exact-version engine plus helper integration and restart tests"
+    },
+    {
+      "id": "R08",
+      "promise_id": "P05",
+      "title": "A private managed workspace",
+      "layer": "Managed workspace",
+      "priority": "P1",
+      "status": "Not available",
+      "scope": "Authenticated API, business isolation, least-privilege access, single-writer control, local storage ownership, exports and bounded capacity.",
+      "acceptance": "One business cannot read or write another\u2019s records; concurrent requests are safely serialized; capacity limits are explicit and observable.",
+      "evidence_limit": "The reviewed engine is a local SQLite CLI. A hosted multi-customer service is new work.",
+      "required_evidence": "Isolation and authorization tests; failure handling; capacity evidence"
+    },
+    {
+      "id": "R09",
+      "promise_id": "P05",
+      "title": "Recovery that actually works",
+      "layer": "Managed workspace",
+      "priority": "P1",
+      "status": "Not available",
+      "scope": "Consistent backups, retention policy, monitored backup age, restore procedure and controlled upgrades with rollback rehearsal.",
+      "acceptance": "Restore a representative workspace and reconcile its records and receipts. Publish only recovery-time and recovery-point commitments supported by drills.",
+      "evidence_limit": "No verified hosted recovery or uptime guarantee. SQLite is viable with disciplined local-volume and writer ownership.",
+      "required_evidence": "Restore drill; reconciliation report; upgrade/rollback drill"
+    },
+    {
+      "id": "R10",
+      "promise_id": "P06",
+      "title": "Operated event delivery",
+      "layer": "Managed delivery",
+      "priority": "P2",
+      "status": "Not available",
+      "scope": "Approved source/destination adapters, durable queue, deduplication keys, bounded retries, failure quarantine, alerts and operator replay.",
+      "acceptance": "Dropped acknowledgments, duplicate events, out-of-order arrival and downstream outage produce visible, recoverable outcomes with no silent data loss in the qualified profile.",
+      "evidence_limit": "We transport customer-provided facts; we do not decide whether their business outcome is true.",
+      "required_evidence": "Fault-injection traces; queue state; operator recovery evidence"
+    },
+    {
+      "id": "R11",
+      "promise_id": "P07",
+      "title": "Predictable infrastructure pricing",
+      "layer": "Commercial",
+      "priority": "P1",
+      "status": "Proposed",
+      "scope": "Monthly workspace capacity bands; later connection/workload bands; included reliability and explicit limits. Measure operating and support costs before prices.",
+      "acceptance": "A buyer can identify included storage, retention, traffic, support and overage behavior before agreeing. Unit economics remain viable under measured use.",
+      "evidence_limit": "No price has been approved. No revenue share, seat fee or correction fee in this proposed offer.",
+      "required_evidence": "Cost model; buyer interviews; approved offer and terms"
+    },
+    {
+      "id": "R12",
+      "promise_id": "P08",
+      "title": "Keep control and leave cleanly",
+      "layer": "Free core + managed",
+      "priority": "P1",
+      "status": "Partial",
+      "scope": "Portable exports covering policies, events, obligations and receipts; documented version compatibility, migration rehearsal and offboarding process.",
+      "acceptance": "A customer can export a sample managed workspace and verify equivalent records in a supported self-hosted environment.",
+      "evidence_limit": "Local records exist; hosted export/import parity and migration are unqualified. Postgres is a later need-led option.",
+      "required_evidence": "Round-trip reconciliation; documented ownership and retention terms"
+    }
+  ],
+  "presentation_revision": "5.0_developer_infrastructure",
+  "requirements_page": "requirements.html",
+  "buy_box": {
+    "primary_action": "selected_offer_next_step",
+    "options": [
+      "self_hosted",
+      "managed_workspace"
+    ],
+    "checkout_enabled": false,
+    "reference": "https://x.com/Vincentadejumo/status/2105276292463481198",
+    "social_proof": "No customer reviews or ratings claimed",
+    "savings": "Operational duties described; no quantified savings claimed",
+    "managed_delivery_location": "managed details as proposed later add-on"
+  },
+  "flow": {
+    "scope": "Reviewed local source-built profile; capabilities vary by version and native qualification",
+    "inputs": [
+      "customer terms, prices, currency and periods",
+      "work events, usage quantities and stable IDs",
+      "acceptance authority and authorized corrections"
+    ],
+    "engine": [
+      "resolve terms and validate scope",
+      "preserve durable history, retry identity and corrections",
+      "calculate amounts and reconcile billing periods"
+    ],
+    "outputs": [
+      "charges, adjustments and reconciled totals",
+      "policy references, saved receipts and correction history",
+      "JSON statements and supported finance CSV exports"
+    ],
+    "human_value": "Explain and reconcile bills using retained evidence and terms",
+    "agent_value": "Use versioned inputs, stable retry identities and structured receipts/statements without interpreting a dashboard"
+  },
+  "verified_repository_head_at": "2026-10-02T14:37:27Z",
+  "technical_capabilities": {
+    "scope": "Named source-built local SQLite M4/M5 profiles; not native package parity",
+    "supported_event_chain": [
+      "successful work and usage",
+      "charge under effective terms",
+      "optional authorized outcome adjustment",
+      "linked append-only correction",
+      "immutable period close"
+    ],
+    "protections": [
+      "same-scope duplicate identity resolution",
+      "conflicting identity refusal",
+      "customer/source permission and revision checks",
+      "effective-dated pricing without retroactive changes",
+      "USD scale-18 usage precision",
+      "commit-before-success",
+      "append-only history and immutable closed statements"
+    ],
+    "reporting": [
+      "customer billing periods with timezone/month-end/DST rules",
+      "separate versioned fiscal calendar including supported 4-4-5-family patterns",
+      "pinned report snapshots",
+      "linked post-close adjustments and explicit ad hoc statements",
+      "cumulative conversion at period close",
+      "explicit recurrence with no background charges"
+    ],
+    "deferred": [
+      "arbitrary generation-publication-acquisition persisted chain",
+      "multiple billable milestones per agreement",
+      "qualified end-to-end linked supplier obligations",
+      "remote authentication",
+      "PostgreSQL",
+      "payment execution"
+    ]
+  },
+  "logo": {
+    "asset": "bean-mark-v2.png",
+    "description": "Simplified bean accountant brand mark with green visor",
+    "animation": "CSS nod, two 1.6-second cycles; disabled for reduced motion"
+  },
+  "integration_architecture": {
+    "products": "Multiple products/sources within one business per private installation",
+    "input_interface": "Existing language-neutral local CLI with versioned JSON",
+    "customer_owned_work": [
+      "instrument trusted events",
+      "map customer and agreement identities",
+      "preserve retry IDs",
+      "handle errors and compatibility",
+      "map finance exports to downstream systems"
+    ],
+    "engine_responsibility": [
+      "rating and effective agreements",
+      "durable economic records and corrections",
+      "period close and reconciled reporting"
+    ],
+    "output_interface": [
+      "saved receipts",
+      "JSON statements",
+      "supported finance CSV exports"
+    ],
+    "not_claimed": [
+      "hosted HTTP API",
+      "drop-in SDK for every product",
+      "automatic payment-provider adapter",
+      "multi-business tenancy"
+    ]
+  }
+}
