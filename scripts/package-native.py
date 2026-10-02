@@ -15,7 +15,7 @@ import tomllib
 
 
 def output(*args, cwd=None):
-    return subprocess.check_output(args, cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
+    return subprocess.check_output(args, cwd=cwd, text=True).strip()
 
 
 def sha(path):
