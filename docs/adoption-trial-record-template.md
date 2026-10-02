@@ -18,9 +18,10 @@ An empty form is preparation, not evidence. Default every case to `unrun`; use `
 | Fresh installation and synthetic scope; writer ownership | Pending |
 | Agent model, executor, tools and actual access, if applicable | Pending |
 | Exact initial prompt/inputs and context isolation, if applicable | Pending |
+| Predeclared orientation timing policy, including model/tool latency | Pending |
 | Executor/package/environment readiness result | Unrun |
 
-Keep private paths and participant details in the private record. Before observing an agent, verify its access to the package and a fresh supported environment. Do not start a clock during an unavailable-executor check. Do not provide prior observer answers or author trial history to an unfamiliar agent.
+Keep private paths and participant details in the private record. Before observing an agent, confirm a dedicated, user-started Bean Counter executor on a named supported platform with package acquisition/installation access, Python verification and the assigned caller runtime. Verify its access to a fresh supported environment; do not reuse another product's task. Do not start a clock during an unavailable-executor check. Do not provide prior observer answers or author trial history to an unfamiliar agent.
 
 ## Separate timing records
 
@@ -34,6 +35,8 @@ Record actual timestamps and elapsed seconds, every detour and assistance. Blank
 | Installation | Pending | Pending | Unrun |
 | First-use instructions through understood receipt (target: five minutes) | Pending | Pending | Unrun |
 | Remaining journey | Pending | Pending | Unrun |
+| Lifecycle hands-on work | Pending | Pending | Unrun |
+| Lifecycle boundary waits (separate from hands-on work) | Pending | Pending | Unrun |
 
 ## Observed task results
 
@@ -58,4 +61,4 @@ For the separate agent orientation case, save its actual answers about version/s
 
 Record demonstrated defects with reproduction, affected release identity, expected/actual behavior and supporting synthetic evidence. Record proposed changes separately from observations; preserve published files and propose any new patch release separately. Describe which cases require repeating after a fix.
 
-Share only consented synthetic findings and aggregate results on [Core #350](https://github.com/stevekkall-beansgc/legume-labs-core/issues/350). Include passed/failed/unrun counts and independent-review limits. BEANA coordinates observations; Codex Local resolves demonstrated defects; Steve selects human participants and accepts M7/M9 evidence. Supplementary agent results do not complete either required human case or establish OSS 1.0 acceptance.
+Share only consented synthetic findings and aggregate results on [Core #350](https://github.com/stevekkall-beansgc/legume-labs-core/issues/350). Include passed/failed/unrun counts and independent-review limits. BEANA reviews the packet and evidence; record the actual trial coordinator/observer before execution. Codex Local owns the packet and resolves demonstrated defects; Steve selects human participants, starts the separately scoped executor and accepts M7/M9 evidence. Supplementary agent results do not complete either required human case or establish OSS 1.0 acceptance.
