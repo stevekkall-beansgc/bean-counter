@@ -48,7 +48,7 @@ def copy_committed_examples(repo, commit, section, destination):
         header, raw_path = entry.split(b"\t", 1)
         mode, kind, object_id = header.decode("ascii").split()
         path = raw_path.decode("utf-8")
-        if section == "integration" and path == prefix + "install-v0.3.0-macos.sh":
+        if section == "integration" and path in (prefix + "install-v0.2.1-macos.sh", prefix + "install-v0.3.0-macos.sh"):
             continue
         if mode not in ("100644", "100755") or kind != "blob":
             raise SystemExit(f"example is not a committed regular file: {path}")
