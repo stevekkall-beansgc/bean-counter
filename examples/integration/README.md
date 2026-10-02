@@ -40,13 +40,14 @@ Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `
 
 The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. For a corrected candidate, keep `PACKAGE_ROOT` set to its absolute installed directory and `LEDGER` to its executable as above. To test this unreleased source correction with the verified installed v0.9.1 binary, keep `LEDGER` pointing to that binary and set `PACKAGE_ROOT` to the absolute corrected checkout directory. This is a source-correction test, not a successful run of the unchanged published helper.
 
-Open a new private working directory outside the installation or checkout, then run this command there. The helper finds its fixtures beside itself, independent of your current directory. Python 3.11+ is required for this synthetic check; Node and Rust are unnecessary. The two paths under the working directory must not exist; choose another fresh directory when repeating:
+Open a new private working directory outside the installation or checkout, then run this command there. `pwd -P` resolves the physical directory so symlink aliases such as macOS `/tmp` or `/var` do not reach the engine's path guard. The helper finds its fixtures beside itself, independent of your current directory. Python 3.11+ is required for this synthetic check; Node and Rust are unnecessary. The two paths under the working directory must not exist; choose another fresh directory when repeating:
 
 ```sh
+demo_working_dir=$(pwd -P)
 sh "$PACKAGE_ROOT/examples/integration/run-synthetic.sh" \
   "$LEDGER" \
-  "$PWD/bean-counter-demo-store" \
-  "$PWD/bean-counter-demo-results"
+  "$demo_working_dir/bean-counter-demo-store" \
+  "$demo_working_dir/bean-counter-demo-results"
 ```
 
 The helper checks completed-work charges, explicit success and unsuccessful outcomes, stable identical retries, an authorized correction with exact inverse/replacement postings, a complete statement, permission history, restart and a quiescent copy/reopen whose statement is unchanged. The correction reconciles to zero atoms. It saves receipts and results in the new private results directory.

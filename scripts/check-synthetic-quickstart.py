@@ -38,14 +38,16 @@ def check(package, ledger, evidence):
     helper = package / "examples/integration/run-synthetic.sh"
     readme = package / "examples/integration/README.md"
     command = documented_command(readme)
-    working = evidence / "fresh working directory"
-    working.mkdir(mode=0o700)
+    working_alias = evidence / "fresh working directory"
+    working_alias.mkdir(mode=0o700)
+    working = working_alias.resolve(strict=True)
     require(not any(working.iterdir()), "working directory must start empty")
     env = dict(os.environ, PACKAGE_ROOT=str(package), LEDGER=str(ledger))
-    env["PWD"] = str(working)
+    # Preserve a legitimate logical cwd alias to exercise the README's pwd -P.
+    env["PWD"] = str(working_alias)
     before_binary = sha256(ledger)
     started = time.monotonic()
-    result = subprocess.run(["sh", "-eu", "-c", command], cwd=working, env=env,
+    result = subprocess.run(["sh", "-eu", "-c", command], cwd=working_alias, env=env,
                             text=True, capture_output=True, timeout=120)
     duration = time.monotonic() - started
     (evidence / "stdout.txt").write_text(result.stdout, encoding="utf-8")
