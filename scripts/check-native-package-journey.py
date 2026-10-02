@@ -75,13 +75,55 @@ def store_command(binary: Path, root: Path, store: str, *args: str, expected: in
     return run(binary, root, ["billing", "--directory", store, *args], expected)
 
 
+SQLITE_WAL_PATH = ".ledger/local.db-wal"
+
+
 def file_hashes(root: Path, *, exclude_sqlite_shm: bool = False) -> dict[str, str]:
     return {
         str(path.relative_to(root)): digest(path)
         for path in sorted(root.rglob("*"))
         if path.is_file() and not path.is_symlink()
-        and not (exclude_sqlite_shm and str(path.relative_to(root)) == ".ledger/local.db-shm")
+        and not (exclude_sqlite_shm
+                 and str(path.relative_to(root)) == ".ledger/local.db-shm")
     }
+
+
+def sqlite_sidecar_snapshot(path: Path) -> dict[str, Any]:
+    require(not path.is_symlink(), f"SQLite sidecar is a symlink: {path}")
+    if not path.exists():
+        return {"present": False, "size_bytes": None, "sha256": None, "zero_byte": False}
+    require(path.is_file() and not path.is_symlink(), f"SQLite sidecar is not a regular file: {path}")
+    size = path.stat().st_size
+    return {"present": True, "size_bytes": size, "sha256": digest(path), "zero_byte": size == 0}
+
+
+def require_same_durable_files(
+    before_hashes: dict[str, str], after_hashes: dict[str, str],
+    before_wal: dict[str, Any], after_wal: dict[str, Any], phase: str,
+    *, exclude_empty_sqlite_wal: bool = False,
+) -> bool:
+    if before_hashes == after_hashes:
+        return False
+    wal_states = (before_wal, after_wal)
+    empty_wal_lifecycle = (
+        exclude_empty_sqlite_wal
+        and
+        before_wal != after_wal
+        and all(not state["present"] or state["size_bytes"] == 0 for state in wal_states)
+    )
+    if empty_wal_lifecycle:
+        before_without_wal = dict(before_hashes)
+        after_without_wal = dict(after_hashes)
+        before_without_wal.pop(SQLITE_WAL_PATH, None)
+        after_without_wal.pop(SQLITE_WAL_PATH, None)
+        if before_without_wal == after_without_wal:
+            return True
+    changed_paths = sorted(set(before_hashes) | set(after_hashes))
+    changed_paths = [path for path in changed_paths if before_hashes.get(path) != after_hashes.get(path)]
+    fail(
+        f"{phase} changed durable installation files: {changed_paths}; "
+        f"SQLite WAL before={before_wal}, after={after_wal}"
+    )
 
 
 def sqlite_user_version(store: Path) -> int:
@@ -647,8 +689,8 @@ def run_journey(binary: Path, package_root: Path, old_binary: Path | None) -> di
             # writer mutation.
             schema11_hashes = file_hashes(root / "schema10-store", exclude_sqlite_shm=True)
             schema11_database_hash = digest(root / "schema10-store/.ledger/local.db")
-            schema11_shm_path = root / "schema10-store/.ledger/local.db-shm"
-            schema11_shm_present = schema11_shm_path.exists()
+            schema11_wal = sqlite_sidecar_snapshot(root / "schema10-store/.ledger/local.db-wal")
+            schema11_shm = sqlite_sidecar_snapshot(root / "schema10-store/.ledger/local.db-shm")
             unsupported_event = dict(legacy_event, id="native-journey-unsupported-old-write",
                                      operation_id="native-journey-unsupported-old-operation")
             write_json(root / "unsupported-old-event.json", unsupported_event)
@@ -657,12 +699,12 @@ def run_journey(binary: Path, package_root: Path, old_binary: Path | None) -> di
             require(old_write.get("code") == "INTEGRITY_FAILURE",
                     f"pinned schema-10 writer returned an unexpected upgraded-store refusal: {old_write}")
             after_old_writer_hashes = file_hashes(root / "schema10-store", exclude_sqlite_shm=True)
-            after_old_writer_shm = (root / "schema10-store/.ledger/local.db-shm").exists()
-            if after_old_writer_hashes != schema11_hashes:
-                changed_paths = sorted(set(after_old_writer_hashes) | set(schema11_hashes))
-                changed_paths = [path for path in changed_paths
-                                 if after_old_writer_hashes.get(path) != schema11_hashes.get(path)]
-                fail(f"old schema-10 writer changed durable installation files before refusing: {changed_paths}")
+            after_old_writer_wal = sqlite_sidecar_snapshot(root / "schema10-store/.ledger/local.db-wal")
+            after_old_writer_shm = sqlite_sidecar_snapshot(root / "schema10-store/.ledger/local.db-shm")
+            old_refusal_empty_wal_lifecycle = require_same_durable_files(
+                schema11_hashes, after_old_writer_hashes, schema11_wal, after_old_writer_wal,
+                "old schema-10 writer refusal", exclude_empty_sqlite_wal=True,
+            )
             require(digest(root / "schema10-store/.ledger/local.db") == schema11_database_hash,
                     "old writer changed the schema-11 SQLite database before refusing")
             post_refusal_retry = store_command(binary, root, "schema10-store", "accept", "--customer",
@@ -670,8 +712,13 @@ def run_journey(binary: Path, package_root: Path, old_binary: Path | None) -> di
             require(post_refusal_retry.get("status") == "duplicate"
                     and post_refusal_retry.get("receipt") == legacy_accepted.get("receipt"),
                     "current writer did not reopen the installation and preserve its original receipt after old-writer refusal")
-            require(file_hashes(root / "schema10-store", exclude_sqlite_shm=True) == schema11_hashes,
-                    "current writer changed durable files while replaying the retained legacy receipt")
+            after_current_hashes = file_hashes(root / "schema10-store", exclude_sqlite_shm=True)
+            after_current_wal = sqlite_sidecar_snapshot(root / "schema10-store/.ledger/local.db-wal")
+            after_current_shm = sqlite_sidecar_snapshot(root / "schema10-store/.ledger/local.db-shm")
+            current_reopen_empty_wal_lifecycle = require_same_durable_files(
+                after_old_writer_hashes, after_current_hashes, after_old_writer_wal, after_current_wal,
+                "current writer reopen and exact receipt replay", exclude_empty_sqlite_wal=True,
+            )
             require(digest(root / "schema10-store/.ledger/local.db") == schema11_database_hash,
                     "current writer changed the SQLite database while replaying the retained legacy receipt")
             require(before_upgrade_hashes != schema11_hashes,
@@ -691,10 +738,22 @@ def run_journey(binary: Path, package_root: Path, old_binary: Path | None) -> di
                 "old_writer_error": old_write.get("code"), "old_writer_exit": 9,
                 "durable_installation_files_unchanged_on_refusal": True,
                 "sqlite_database_sha256_unchanged_on_refusal": True,
-                "transient_sqlite_shm_sidecar": {
-                    "path": ".ledger/local.db-shm", "present_before_old_writer": schema11_shm_present,
-                    "present_after_old_writer": after_old_writer_shm,
-                    "classified_as": "SQLite WAL shared-memory coordination metadata; excluded from durable-file equality",
+                "sqlite_wal_sidecar_observations": {
+                    "path": SQLITE_WAL_PATH,
+                    "before_old_writer_refusal": schema11_wal,
+                    "after_old_writer_refusal": after_old_writer_wal,
+                    "after_current_reopen_and_replay": after_current_wal,
+                    "empty_lifecycle_allowed_on_refusal_comparison": old_refusal_empty_wal_lifecycle,
+                    "empty_lifecycle_allowed_on_current_reopen_comparison": current_reopen_empty_wal_lifecycle,
+                    "policy": "only an observed absent/zero-byte lifecycle may be omitted from refusal file-map equality",
+                },
+                "sqlite_shm_sidecar_observations": {
+                    "path": ".ledger/local.db-shm",
+                    "before_old_writer_refusal": schema11_shm,
+                    "after_old_writer_refusal": after_old_writer_shm,
+                    "after_current_reopen_and_replay": after_current_shm,
+                    "excluded_only_from_refusal_comparison": True,
+                    "classification": "SQLite WAL shared-memory coordination metadata; exact size and SHA-256 observed at each phase",
                 },
                 "current_writer_reopened_after_refusal": True,
             }
