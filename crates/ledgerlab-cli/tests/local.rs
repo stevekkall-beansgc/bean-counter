@@ -1,17 +1,23 @@
 use serde_json::{json, Value};
 use std::{
-    fs,
+    env, fs,
     io::Write,
     path::Path,
+    path::PathBuf,
     process::{Command, Output, Stdio},
 };
+fn ledger_binary() -> PathBuf {
+    let configured =
+        env::var_os("LEDGER_BINARY").unwrap_or_else(|| env!("CARGO_BIN_EXE_ledger").into());
+    fs::canonicalize(configured).expect("configured ledger binary must exist")
+}
 fn temp() -> tempfile::TempDir {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../work/cli-tests");
     fs::create_dir_all(&root).unwrap();
     tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap()
 }
 fn invoke(dir: &Path, args: &[&str], input: Option<&[u8]>) -> Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ledger"));
+    let mut cmd = Command::new(ledger_binary());
     cmd.current_dir(dir)
         .args(args)
         .stdout(Stdio::piped())

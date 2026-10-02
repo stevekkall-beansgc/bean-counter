@@ -1,7 +1,12 @@
 use serde_json::{json, Value};
-use std::{fs, path::Path, process::Command};
+use std::{env, fs, path::Path, path::PathBuf, process::Command};
+fn ledger_binary() -> PathBuf {
+    let configured =
+        env::var_os("LEDGER_BINARY").unwrap_or_else(|| env!("CARGO_BIN_EXE_ledger").into());
+    fs::canonicalize(configured).expect("configured ledger binary must exist")
+}
 fn run(root: &Path, args: &[&str], expected: i32) -> Value {
-    let out = Command::new(env!("CARGO_BIN_EXE_ledger"))
+    let out = Command::new(ledger_binary())
         .current_dir(root)
         .args(args)
         .arg("--json")
