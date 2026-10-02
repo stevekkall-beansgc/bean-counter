@@ -1,9 +1,9 @@
 # Bean Counter adoption tasks
 
-Your coordinator supplies the exact candidate source/documentation revision, archive and binary checksums, supported platform and download starting link. Use only fresh private installations and synthetic parties, evidence and work. Record your actions, errors, help and time; ask the coordinator when you cannot proceed safely. There is no real payment or customer billing in this trial.
+Your coordinator supplies the published v0.9.2 source/documentation revision, archive and binary checksums, supported platform and download starting link. Use only fresh private installations and synthetic parties, evidence and work. Record your actions, errors, help and time; ask the coordinator when you cannot proceed safely. There is no real payment or customer billing in this trial. The coordinator records human and supplementary agent observations separately.
 
 1. Starting from the supplied link, find the supported version, platform, install path and what you must provide as the operator. Explain what the product does.
-2. Download, verify and install the supplied candidate. Record these stages separately. Confirm which executable you are using.
+2. Download, verify and install the supplied release. Record these stages separately. Confirm which executable you are using.
 3. After installation, follow the first-use instructions to obtain one synthetic receipt. Explain the amount and the evidence supporting it. Record time from starting those instructions through understanding the receipt, including every detour and request for help.
 4. Configure a fresh synthetic customer agreement with choices you understand, rather than reuse the canned configuration unchanged. Explain price/unit, effective terms, authority/assent, outcome windows and correction rules. Safely try an invalid term in another fresh destination, then demonstrate its refusal and your correction.
 5. Connect the assigned Python report or Node drafting caller. Explain what your application must supply and what the engine decides. Keep the original request and identifiers, obtain the receipt and show its complete explanation/statement.
