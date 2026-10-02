@@ -23,6 +23,29 @@ fn run(root: &Path, args: &[&str], expected: i32) -> Value {
 }
 
 #[test]
+fn documented_synthetic_quickstart_uses_fresh_working_directory() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .unwrap();
+    let outside_checkout = tempfile::tempdir().unwrap();
+    let result = Command::new("python3")
+        .arg(source.join("scripts/check-synthetic-quickstart.py"))
+        .arg(source)
+        .arg("--ledger")
+        .arg(ledger_binary())
+        .current_dir(outside_checkout.path())
+        .output()
+        .expect("Python is required by the documented synthetic quickstart");
+    assert!(
+        result.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
 fn caller_outbox_examples_preserve_fixed_and_usage_acknowledgements() {
     let script = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/test-caller-outbox.py")

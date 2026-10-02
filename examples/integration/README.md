@@ -10,10 +10,11 @@ Use the archive, `SHA256SUMS`, expected source commit, verifier and installer fr
 
 ```sh
 # SOURCE_COMMIT is the full source SHA recorded in the trusted release evidence.
-sh install-macos-arm64.sh bean-counter-v0.9.1-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$HOME/bean-counter-v0.9.1"
+export PACKAGE_ROOT="$HOME/bean-counter-v0.9.1"
+sh install-macos-arm64.sh bean-counter-v0.9.1-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 # Or on the named Ubuntu host:
-sh install-linux-x86_64.sh bean-counter-v0.9.1-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$HOME/bean-counter-v0.9.1"
-export LEDGER="$HOME/bean-counter-v0.9.1/ledger"
+sh install-linux-x86_64.sh bean-counter-v0.9.1-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
+export LEDGER="$PACKAGE_ROOT/ledger"
 "$LEDGER" --version
 ```
 
@@ -35,13 +36,17 @@ Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `
 
 ## Synthetic product journey
 
-The bundled setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Use the matching v0.9.1 binary and run its helper with fresh private paths:
+**Unreleased first-use correction:** the published v0.9.1 archive still bundles a helper that requires v0.9.0 and refuses its own binary. The corrected helper in this checkout accepts only the exact v0.9.1 identity; older distributions retain their own helpers, and future versions require fresh qualification. Delivering this correction requires a separately qualified patch release. Preserve published archives and checksums.
+
+The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. For a corrected candidate, keep `PACKAGE_ROOT` set to its absolute installed directory and `LEDGER` to its executable as above. To test this unreleased source correction with the verified installed v0.9.1 binary, keep `LEDGER` pointing to that binary and set `PACKAGE_ROOT` to the absolute corrected checkout directory. This is a source-correction test, not a successful run of the unchanged published helper.
+
+Open a new private working directory outside the installation or checkout, then run this command there. The helper finds its fixtures beside itself, independent of your current directory. Python 3.11+ is required for this synthetic check; Node and Rust are unnecessary. The two paths under the working directory must not exist; choose another fresh directory when repeating:
 
 ```sh
-sh examples/integration/run-synthetic.sh \
+sh "$PACKAGE_ROOT/examples/integration/run-synthetic.sh" \
   "$LEDGER" \
-  "$HOME/bean-counter-demo-store" \
-  "$HOME/bean-counter-demo-results"
+  "$PWD/bean-counter-demo-store" \
+  "$PWD/bean-counter-demo-results"
 ```
 
 The helper checks completed-work charges, explicit success and unsuccessful outcomes, stable identical retries, an authorized correction with exact inverse/replacement postings, a complete statement, permission history, restart and a quiescent copy/reopen whose statement is unchanged. The correction reconciles to zero atoms. It saves receipts and results in the new private results directory.

@@ -160,7 +160,7 @@ def main():
         scripts.mkdir(mode=0o700)
         required_scripts = ["demo-finance.py", "check-native-package-journey.py", "verify-native-package.py",
                             "install-native-package.py", "install-linux-x86_64.sh", "install-macos-arm64.sh",
-                            "check-package-docs.py"]
+                            "check-package-docs.py", "check-synthetic-quickstart.py"]
         for filename in required_scripts:
             source = repo / "scripts" / filename
             if not source.is_file():
