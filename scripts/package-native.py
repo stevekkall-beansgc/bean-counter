@@ -69,6 +69,10 @@ def main():
     if len(sys.argv) != 4:
         raise SystemExit("usage: package-native.py REPO ARTIFACT_DIRECTORY TARGET")
     repo, artifacts, target = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(), sys.argv[3]
+    native_targets = {("Darwin", "arm64"): "aarch64-apple-darwin",
+                      ("Linux", "x86_64"): "x86_64-unknown-linux-gnu"}
+    if native_targets.get((platform.system(), platform.machine())) != target:
+        raise SystemExit("package target does not match a supported native build host")
     version = tomllib.loads((repo / "Cargo.toml").read_text())["workspace"]["package"]["version"]
     commit = output("git", "rev-parse", "HEAD", cwd=repo)
     tree = output("git", "rev-parse", "HEAD^{tree}", cwd=repo)
