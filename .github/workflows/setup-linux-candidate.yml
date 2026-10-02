@@ -2,7 +2,7 @@ name: m8-native-linux
 
 on:
   push:
-    branches: [main, codex/m8-native-package-qualification]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
