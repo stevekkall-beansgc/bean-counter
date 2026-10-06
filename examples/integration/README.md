@@ -4,16 +4,16 @@ The current M5 local SQLite source profile includes customers and sources, fixed
 
 ## Native release and installation
 
-The [v0.9.2 release evidence](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.2) identifies the package profile with the corrected synthetic first-use helper and working-directory-independent command. Verify that this release is published and obtain its exact source, native qualification and checksum evidence before using these installation instructions. A local or CI candidate is not a published release. Published v0.9.1 remains preserved; its synthetic helper rejects its own binary, although its Python/Node outbox compatibility correction is retained in v0.9.2. The [M8 qualification](../../docs/m8-native-package-qualification.md) preserves the original v0.9.0 predecessor at source `2487dcfa9333b54c8622fd826e289fcaccb7ee22`. The bounded qualification targets are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
+These instructions target the **v0.9.3 Open Beta candidate**, including optimized-Python-safe synthetic verification. Use them only with matching v0.9.3 assets from one trusted candidate distribution, or after the exact release is published with its own source, native qualification and checksum evidence. The published [v0.9.2 baseline](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.2) corrected the helper version and working-directory-independent command; use its own instructions, verifier and installer for its immutable assets. Its synthetic helper must run without `PYTHONOPTIMIZE`. A local or CI candidate is not a published release. Published v0.9.1 remains preserved; its synthetic helper rejects its own binary, although its Python/Node outbox compatibility correction is retained in v0.9.2. The [M8 qualification](../../docs/m8-native-package-qualification.md) preserves the original v0.9.0 predecessor at source `2487dcfa9333b54c8622fd826e289fcaccb7ee22`. The bounded qualification targets are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
 
 Use the archive, `SHA256SUMS`, expected source commit, verifier and installer from the same trusted release/candidate distribution. The installer and verifier must be obtained separately before extracting an unverified archive. Python 3.11+ is required for verification and installation; Rust and Node are unnecessary for ordinary installed billing. Do not treat the checksum or unsigned provenance as a signature.
 
 ```sh
-# SOURCE_COMMIT is the full source SHA recorded in the trusted release evidence.
-export PACKAGE_ROOT="$HOME/bean-counter-v0.9.2"
-sh install-macos-arm64.sh bean-counter-v0.9.2-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
+# SOURCE_COMMIT is the full source SHA recorded in the trusted candidate/release evidence.
+export PACKAGE_ROOT="$HOME/bean-counter-v0.9.3"
+sh install-macos-arm64.sh bean-counter-v0.9.3-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 # Or on the named Ubuntu host:
-sh install-linux-x86_64.sh bean-counter-v0.9.2-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
+sh install-linux-x86_64.sh bean-counter-v0.9.3-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 export LEDGER="$PACKAGE_ROOT/ledger"
 "$LEDGER" --version
 ```
@@ -36,9 +36,9 @@ Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `
 
 ## Synthetic product journey
 
-The v0.9.2 helper accepts only exact `ledger 0.9.2 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. Use the matching v0.9.2 package instead; preserve prior archives and checksums.
+The v0.9.3 helper accepts only exact `ledger 0.9.3 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. Use the matching v0.9.3 candidate/package for these instructions; preserve prior archives and checksums.
 
-The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Keep `PACKAGE_ROOT` set to the absolute installed v0.9.2 directory and `LEDGER` to its executable as above. Before running, confirm `"$LEDGER" --version` reports the matching identity.
+The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Keep `PACKAGE_ROOT` set to the absolute installed v0.9.3 directory and `LEDGER` to its executable as above. Before running, confirm `"$LEDGER" --version` reports the matching identity.
 
 Open a new private working directory outside the installation or checkout, then run this command there. `pwd -P` resolves the physical directory so symlink aliases such as macOS `/tmp` or `/var` do not reach the engine's path guard. The helper finds its fixtures beside itself, independent of your current directory. Python 3.11+ is required for this synthetic check; Node and Rust are unnecessary. The two paths under the working directory must not exist; choose another fresh directory when repeating:
 

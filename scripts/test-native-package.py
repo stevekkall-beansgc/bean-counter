@@ -79,7 +79,7 @@ def write_case(directory, case_name, *, extra_members=(), duplicate_manifest_key
 
 def rejected(directory, name, diagnostic, **kwargs):
     archive, sums = write_case(directory, name, **kwargs)
-    result = subprocess.run([sys.executable, "-O", str(VERIFY), str(archive), str(sums), COMMIT],
+    result = subprocess.run([sys.executable, "-O", str(VERIFY), str(archive), str(sums), COMMIT, "--version", "0.9.2"],
                             text=True, capture_output=True)
     if result.returncode == 0 or diagnostic not in result.stderr:
         raise RuntimeError(f"negative test {name} did not reach {diagnostic!r}: exit={result.returncode}, stderr={result.stderr!r}")
@@ -124,7 +124,7 @@ def main():
         directory = Path(temporary)
         check_committed_example_isolation(directory)
         good, sums = write_case(directory, ARCHIVE_NAME[:-len(".tar.gz")])
-        positive = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(sums), COMMIT],
+        positive = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(sums), COMMIT, "--version", "0.9.2"],
                                   text=True, capture_output=True)
         if positive.returncode != 0:
             raise RuntimeError(f"optimized verifier rejected valid fixture: {positive.stderr}")
@@ -154,7 +154,7 @@ def main():
         rejected(directory, "mode", "unsafe or unexpected mode", extra_members=[(bad_mode, __import__("io").BytesIO(b"x"))])
         wrong_sums = directory / "wrong.sums"
         wrong_sums.write_text("0" * 64 + "  " + good.name + "\n")
-        result = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(wrong_sums), COMMIT], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, "-O", str(VERIFY), str(good), str(wrong_sums), COMMIT, "--version", "0.9.2"], capture_output=True, text=True)
         if result.returncode == 0 or "archive SHA-256 mismatch" not in result.stderr:
             raise RuntimeError(f"bad checksum did not reach checksum validation: {result.stderr!r}")
     print("native package verifier: optimized positive case, 11 negative security cases and committed-example isolation passed")

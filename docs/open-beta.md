@@ -12,6 +12,8 @@ Native evidence covers macOS 26.6.2 Apple silicon and Ubuntu 24.04.5 x86-64/glib
 
 Hosted ChatGPT OAuth, remote authentication/backend/storage, PostgreSQL billing, multi-host writers, payments and tax/legal invoice claims remain outside the beta. Marketing the local beta does not certify those integrations or declare v1 complete.
 
+The v0.9.3 candidate prepares this Open Beta distribution, including optimized-Python-safe synthetic verification and this bundled scope page. Its source QA/CI and exact native archive qualification must be completed for its own identity; no new public download is claimed here.
+
 Before publishing a new version, identify its exact source/version, pass manifest-owned local QA and exact-SHA CI, verify each newly built native archive and installed journey, and follow the governed release procedure. Published v0.9.2 remains a separate immutable baseline. Its synthetic helper must run without PYTHONOPTIMIZE; the later helper fix requires its own qualified release. Beta positioning does not waive failed checks or authorize changing published tags/assets.
 
 Optional feedback tasks: install and follow [first use](billing-quickstart.md), try a [Python or Node caller](agreement-and-integration.md), retry an original identity, inspect a correction and statement/export, and follow [backup/recovery](billing-recovery.md). Record observed failures, interventions and actual platform/runtime versions. Names and advance nomination are optional; production records should remain private.
