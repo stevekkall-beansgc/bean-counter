@@ -1,10 +1,8 @@
 # Integrate an existing Bean Counter CLI
 
-This checkout is the v0.9.4 candidate. Its matching package qualification and publication are pending; the v0.9.3 release evidence below applies only to that immutable version. Follow the candidate [START-HERE](../START-HERE.md) only with its matching published assets.
+The **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** is released from `e897ef108753447371282cb5253fc88634e5977d`, with unchanged billing contract v0.3 and schema 11. Exact-source QA/CI and both native installed journeys passed; matching public downloads were verified. See the [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). These live docs and the new bounded-cohort example are separate from the frozen release package.
 
-Start at [START-HERE.md](../START-HERE.md). This route is for application integration with the local billing CLI. Repository implementation work follows the separate contributor contract in AGENTS.md.
-
-Read [the capability record](integration-capabilities.json), [current requirements](../CURRENT-REQUIREMENTS.md), the [caller contract](billing-m2-cli-contract.md) and [operations/recovery](billing-operations.md). The [released v0.9.3 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3) is source `d9de6e2e50e846b2210c8c889f8d7493e127d5f7`, qualified on macOS 26.6.2 arm64 and Ubuntu 24.04.5 x86-64/glibc 2.39. Its helpers support bounded history `/2` and `/3`, with optimized-Python-safe synthetic verification. For that historical release, use its [immutable v0.9.3 installation instructions](https://github.com/stevekkall-beansgc/bean-counter/blob/d686c8e5cc73df7e296aad53dab9e1572dd529b0/START-HERE.md) and verify against the v0.9.3 SHA above. For the v0.9.4 candidate, follow [START-HERE.md](../START-HERE.md) after publication and use the source SHA from its matching trusted qualification record and release notes; the v0.9.3 SHA does not identify a v0.9.4 archive. [Qualification](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.3/QUALIFICATION.json) distinguishes native tests from emulated supplements and records limits. Older releases retain their own version-matched instructions.
+Start at [START-HERE.md](../START-HERE.md). Read [the capability record](integration-capabilities.json), [current requirements](../CURRENT-REQUIREMENTS.md), [caller contract](billing-m2-cli-contract.md) and [operations/recovery](billing-operations.md). Older releases retain their own version-matched instructions. Repository implementation follows AGENTS.md.
 
 Before a write, identify one business installation, explicit customer/source, immutable agreed terms, current authority and retained assent evidence. Read [agreement choices, validation and two product mappings](agreement-and-integration.md). Generate application-owned stable delivery and semantic operation IDs and persist the exact request bytes privately. Application events assert work; they cannot choose authoritative prices or grant permissions. Synthetic examples are not real consent or authority.
 
@@ -16,15 +14,31 @@ After an unknown response or exit 8, retain the original customer/source, reques
 
 No remote API, payment provider, hosted setup, general linked-event pricing, arbitrary fee calculation, multi-host writer replacement, PostgreSQL billing or background recurrence execution is available in this profile. Capability metadata is descriptive and grants no execution or authority.
 
+## Use private physical paths
+
+The engine rejects symlink components in installation, store and JSON input paths. On macOS, familiar `/tmp` and `/var` paths are aliases; obtain the physical directory before passing any child path to the CLI. Use this literal recipe for a fresh synthetic trial:
+
+```sh
+umask 077
+BC_TRIAL_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bean-counter-trial.XXXXXX")
+cd -P "$BC_TRIAL_DIR"
+export BC_TRIAL_ROOT="$(pwd -P)"
+printf '%s\n' "$BC_TRIAL_ROOT"
+```
+
+Pass children such as `"$BC_TRIAL_ROOT/cohort"`. This temporary trial directory is not a business backup plan. For durable installation, choose an operator-owned private durable parent, obtain its physical path with `cd -P`/`pwd -P`, then select a new child. Resolve only paths deliberately chosen and trusted by the operator. Do not follow arbitrary input symlinks or relax the guard: JSON inputs must be regular files under physical paths, or use supported stdin. Keep `LEDGER` bound to the verified executable and preserve its SHA-256.
+
 ## Respect the fixed timing profile
 
 Setup requires exactly one fixed outcome family with separate ordinary and correction windows. Base acceptance freezes that family even if you never submit an outcome. The factual base `occurred_at` must be no later than **both** `starts_at` values. For each window, `starts_at < occurs_before <= received_by <= accepted_by`; each adjustment must satisfy `starts_at <= occurred_at < occurs_before`, `occurred_at <= received_at <= accepted_at`, `received_at <= received_by` and `accepted_at <= accepted_by`. Starts and receipt/acceptance deadlines are inclusive; occurrence ends are exclusive. Receipt and acceptance use engine timestamps, not caller-selected deadlines.
 
 Establish active terms with future starts, complete a bounded cohort no later than the earlier start, then report factual outcomes and corrections in their respective windows. Work can occur after setup and before the starts. A base occurrence after either start refuses; a base submitted later with an earlier factual occurrence still needs active terms, authority, evidence and valid clocks at acceptance. One static agreement does not support indefinite continuously arriving work. Do not backdate work, remove guards, recreate business stores, cycle agreements per request or skip outcomes to bypass this rule. See [the synthetic timing illustration and exact setup rules](billing-quickstart.md#set-up-explicit-terms). A future timing profile requires a separate contract decision.
 
+Run the [offline bounded-cohort example](../examples/integration/bounded-cohort/README.md) for five completed local artifacts and a new assessment after the ordinary start. It preserves complete base/outcome requests, receipts, histories and exact retries against released v0.9.4; it makes no provider calls.
+
 ## Reconcile each operation
 
-The Python/Node outboxes bundled with v0.9.3 acknowledge **base acceptance only**. Their `body.target` extraction and base `operation_id` lookup are not generic outcome/correction verification. Dispatch by the submitted command and request schema, and retain the original base target throughout its history.
+The Python/Node outboxes bundled with v0.9.4 acknowledge **base acceptance only**. Their `body.target` extraction and base `operation_id` lookup are not generic outcome/correction verification. Dispatch by the submitted command and request schema, and retain the original base target throughout its history.
 
 | Submitted operation | Returned retained receipt | Target and original request identity |
 | --- | --- | --- |
@@ -40,6 +54,12 @@ Apply this recipe in your application's language before saving an acknowledgemen
 4. Require exactly one entry with `entry.target == TARGET`, the original source, and an exact match of the complete returned receipt object **and** ID. Reconcile its agreement/version against the base's original terms. Require the retained base entry/receipt too when acknowledging an adjustment; its target and scope must agree. Do not acknowledge missing, ambiguous, wrong-scope or substituted evidence.
 5. In that entry, require exactly one retained event for the expected operation. For a base, compare `body.data.type == "base"`, customer/source, semantic `operation_id`, original delivery `external_id`, factual occurrence, work type, status, quantity/unit and supplied evidence as represented by the retained records, including permitted defaults/absence for the selected setup profile. For an outcome/correction, require the event record ID to match `receipt.body.event_id`, then compare source, `body.data.target == TARGET`, original delivery `external_id`, `family_id`, occurrence and the appropriate `code` or `expected_revision_number` plus `replacement`. Follow the event's evidence references to the retained evidence record; parse its `body.utf8` and compare the original request's evidence text and target/family/source/occurrence. Retained events are canonical engine records, not literal copies of input JSON: compare the defined representation of the original request facts, not raw request bytes to an event body. Never apply a base `operation_id` test to an adjustment.
 6. For a semantic duplicate, history retains the **first** delivery's event and `external_id`, not a new alias entry. Match that retained original request and its receipt, and compare the saved alias's equivalent facts: base semantic `operation_id` and work facts, or ordinary outcome target/family/code/occurrence/evidence. A correction retry retains its own original `id`. A changed request under an existing identity is a conflict, not an acknowledgement. If you cannot establish the original request relationship, keep the request pending.
-7. Reconcile exact signed postings and the receipt's referenced records before downstream acknowledgement. Durably save the verified receipt and compare every later retry to it. A correction's historical receipt remains valid after a newer revision: it need not be the latest claim revision. A fresh correction still must name the current revision and pass its window/authority checks.
+7. Reconcile exact signed postings and the receipt's referenced records across the complete target history before downstream acknowledgement. Adjustment manifests can reference original-base records retained in earlier entries; verify their exact kind, ID and hash, rejecting conflicting repeated projections. Durably save the verified receipt and compare every later retry to it. A correction's historical receipt remains valid after a newer revision: it need not be the latest claim revision. A fresh correction still must name the current revision and pass its window/authority checks.
 
 A successful engine write followed by an application crash remains committed; absence of an application acknowledgement is not rollback. Retry identical bytes and identities with the same command and installation, then run the recipe against the original receipt. An engine unknown response or exit 8 also leaves the request pending; it is a separate failure case, not demonstrated by a crash after success. Preserve refusal/error output and follow [recovery](billing-recovery.md) for integrity failures. These checks verify retained billing evidence, not the real-world truth of work, consent or payment.
+
+## Separate base, adjustment and net amounts
+
+An outcome adds its agreed adjustment to the completed-work base. In the explicit bounded-cohort fixture, five bases at +2 atoms give 10 base atoms; two `success` adjustments at +2 and three `criteria-not-met` adjustments at 0 give 4 adjustment atoms. The net is **14 scale-2 USD atoms (USD 0.14)** with **10 retained entries**, `complete: true`. These codes and amounts are illustrative operator choices under the existing fixed-code contract. A zero adjustment retains an entry without a monetary posting; entry count is not posting count. No payment collection is demonstrated.
+
+Show base atoms, adjustment atoms, net atoms, retained entry count, completion status and pending/refused/failed counts separately. Unknown outcomes do not become zero adjustments to reach an expected count. Reconcile every retained posting with integer arithmetic and preserve the exact receipt for each operation.

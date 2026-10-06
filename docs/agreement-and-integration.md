@@ -48,3 +48,21 @@ Then follow [M5 lifecycle commands](billing-quickstart.md#billing-lifecycle-m5),
 The packaged [native journey](../scripts/check-native-package-journey.py) exercises this with a real UTC period boundary. Its close total is 2500000000000000008 scale-18 atoms (USD 2.50 plus 8 atoms), its later adjustment is 2 atoms, and fiscal net is 2500000000000000010. These are separate synthetic stores from the two-caller example. Running that automated journey is technical verification; a participant must independently explain/configure the workflow for usability acceptance. Calendar month-end, timezone/DST and 4-4-5 scope are documented in the M5 qualification/contracts, not proved by this single UTC example.
 
 Duplicate/conflict guards prevent repeat economic acceptance or changed identity reuse; scope/revision guards prevent unauthorized or stale commands; exact atoms avoid per-work rounding; append-only history and immutable close preserve prior decisions. They do not prove real-world facts, customer assent, external exactly-once delivery, payment or a tax/legal invoice. Follow [operations and recovery](billing-operations.md). Arbitrary generation → publication → acquisition charges, several billable milestones/units per agreement and managed services remain explicit future decisions.
+
+## Evidence conventions and outcome meanings
+
+Retain application evidence outside the frozen ledger request schemas: actual `attempt_started_at`, `completed_at` when work completes, `assessment_at`, transport/HTTP and parse status, a verified count or unknown, explicit assessment cutoff/reached status, classification and artifact/evidence digests. Strict billing request JSON still uses its supported fields; an outcome's evidence string may refer to this retained record. The engine does not independently authenticate a provider response or observe work.
+
+| Observed fact | Accurate classification | Default disposition |
+| --- | --- | --- |
+| Valid parsed successful response with qualifying results | `verified-success` | Eligible only under the explicitly agreed criterion and factual window occurrence. |
+| Valid successful response conclusively containing zero results | `verified-zero-results` | Record zero; choose a zero-adjustment code only under explicit agreed mapping. |
+| HTTP block, challenge or authorization refusal | `provider-blocked` | Unknown count; pending and unacknowledged. |
+| Timeout, DNS or transport failure | `transport-error` | Unknown count; not evidence of zero or elapsed cutoff. |
+| Malformed/unrecognized response or failed parsing | `parse-error` | Unknown count; missing regex matches are not verified zero. |
+| Time before the agreed assessment cutoff K | `pending-before-cutoff` | No `unsuccessful-by-cutoff` assertion. |
+| K actually reached and the stipulated condition evaluated | `cutoff-assessed` | Let the agreed condition control the code; preserve underlying uncertainty separately. |
+
+An `unsuccessful-by-cutoff` claim needs an explicit K within the ordinary occurrence window (`starts_at <= K < occurs_before`), actual arrival at K and retained evaluation of the stated condition. The exclusive occurrence end is not an eligible occurrence. A provider block alone does not establish arrival at K or the agreed negative condition. A business may explicitly agree “no verified success by K, including provider failures,” but this is a different meaning from verified no results and requires explicit terms/assent. No such commercial rule is implied here.
+
+The [offline bounded-cohort example](../examples/integration/bounded-cohort/README.md) uses completed local reports and a genuinely later quality assessment, not a cutoff claim. Its explicit synthetic mapping is `success` (+2 atoms) when the newly checked report total matches its values, otherwise `criteria-not-met` (0) for a valid report. With base +2, two passes and three failures give base 10/adjustment 4/net 14 atoms and 10 retained entries. Unknown/blocked/parse-error probes remain a separate pending evidence exercise, so outcomes are never selected to force those totals.

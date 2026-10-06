@@ -1,15 +1,48 @@
 {
   "schema": "bean-counter-cli-capabilities/1",
-  "status": "open-beta-patch-candidate",
-  "source_candidate": {
+  "status": "open-beta-released",
+  "released_source": {
     "version": "0.9.4",
-    "qualification_status": "pending-exact-source-qa-ci-and-native-package-qualification",
-    "publication_status": "unpublished",
-    "source_commit_evidence": "matching release notes and QUALIFICATION.json after qualification/publication; no candidate self-SHA embedded",
+    "qualification_status": "exact-source-qa-ci-and-native-package-qualification-passed",
+    "publication_status": "published",
+    "source_commit_evidence": "published v0.9.4 release notes and QUALIFICATION.json; later live documentation revisions are separate from binary identity",
     "billing_semantics_changed": false
   },
   "authority": "descriptive-only",
   "native_baseline": {
+    "version": "0.9.4",
+    "qualification_status": "exact-source-and-installed-archive-qualified",
+    "source_commit_evidence": "published v0.9.4 release, QUALIFICATION.json and archive MANIFEST.json; later documentation commits are not binary identity",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4",
+    "tested_targets": [
+      {
+        "target": "aarch64-apple-darwin",
+        "host": "macOS 26.6.2 arm64"
+      },
+      {
+        "target": "x86_64-unknown-linux-gnu",
+        "host": "Ubuntu 24.04.5 x86-64",
+        "libc": "glibc 2.39"
+      }
+    ],
+    "qualification_targets": [
+      {
+        "target": "aarch64-apple-darwin",
+        "host": "macOS 26.6.2 arm64"
+      },
+      {
+        "target": "x86_64-unknown-linux-gnu",
+        "host": "Ubuntu 24.04.5 x86-64",
+        "libc": "glibc 2.39"
+      }
+    ],
+    "signed": false,
+    "notarized": false,
+    "clean_account_downloaded_launch_qualified": false,
+    "source_commit": "e897ef108753447371282cb5253fc88634e5977d",
+    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json"
+  },
+  "historical_native_baseline_v093": {
     "version": "0.9.3",
     "qualification_status": "exact-source-and-installed-archive-qualified",
     "source_commit_evidence": "published v0.9.3 release, QUALIFICATION.json and archive MANIFEST.json; later documentation commits are not binary identity",

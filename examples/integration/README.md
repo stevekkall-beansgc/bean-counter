@@ -4,14 +4,15 @@ The current M5 local SQLite source profile includes customers and sources, fixed
 
 ## Native release and installation
 
-These instructions prepare the [v0.9.4 Open Beta candidate](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4). Candidate qualification and publication are pending; run these download/install instructions only once the matching release exists. The published v0.9.3 remains separately qualified and immutable. For the complete public download → verified installation → synthetic receipt sequence, start at [START-HERE.md](../../START-HERE.md). The qualification targets are macOS 26.6.2 Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified. [Qualification evidence](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json) records the exact archives and native/emulated distinction. Older published archives remain immutable; use each release's own instructions and tools.
+The **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** is released from `e897ef108753447371282cb5253fc88634e5977d`, with unchanged billing contract v0.3 and schema 11. Exact-source QA/CI and both native installed journeys passed; matching public downloads were verified. See the [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). For the complete public download → verified installation → synthetic receipt sequence, start at [START-HERE.md](../../START-HERE.md). Qualification covers macOS 26.6.2 Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified. Older archives remain immutable; use their own instructions and tools.
 
 Use the archive, `SHA256SUMS`, expected source commit, verifier and installer from the same trusted release. The installer and verifier must be obtained separately before extracting an unverified archive. Python 3.11+ is required for verification and installation; Rust and Node are unnecessary for ordinary installed billing. Do not treat the checksum or unsigned provenance as a signature.
 
 ```sh
 # Obtain QUALIFICATION.json from the trusted matching release and compare its SHA with the release notes.
 SOURCE_COMMIT=$(python3 -c 'import json,re,sys; q=json.load(open("QUALIFICATION.json")); s=q["source_commit"]; sys.exit("wrong qualification identity") if q["version"]!="0.9.4" or not re.fullmatch("[0-9a-f]{40}",s) else None; print(s)')
-export PACKAGE_ROOT="$HOME/bean-counter-v0.9.4"
+INSTALL_PARENT=$(cd -P "$HOME" && pwd -P)
+export PACKAGE_ROOT="$INSTALL_PARENT/bean-counter-v0.9.4"
 sh install-macos-arm64.sh bean-counter-v0.9.4-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 # Or on the named Ubuntu host:
 sh install-linux-x86_64.sh bean-counter-v0.9.4-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
@@ -20,6 +21,20 @@ export LEDGER="$PACKAGE_ROOT/ledger"
 ```
 
 The installers strictly verify the archive and its manifest before extraction or executing its binary, refuse an existing destination, and create a private installation. Keep `install-native-package.py` and `verify-native-package.py` beside the shell installer. Inspect `BUILD-INFO.txt`, `PROVENANCE.json`, `MANIFEST.json` and `SBOM.spdx.json` for the exact version, source, target, toolchain, binary hash and runtime linkage. Native packages are unsigned; macOS signing/notarization and clean-account downloaded launch remain unverified.
+
+## Use private physical paths
+
+The engine rejects symlink components in installation, store and JSON input paths. On macOS, familiar `/tmp` and `/var` paths are aliases; obtain the physical directory before passing any child path to the CLI. Use this literal recipe for a fresh synthetic trial:
+
+```sh
+umask 077
+BC_TRIAL_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bean-counter-trial.XXXXXX")
+cd -P "$BC_TRIAL_DIR"
+export BC_TRIAL_ROOT="$(pwd -P)"
+printf '%s\n' "$BC_TRIAL_ROOT"
+```
+
+Pass children such as `"$BC_TRIAL_ROOT/cohort"`. This temporary trial directory is not a business backup plan. For durable installation, choose an operator-owned private durable parent, obtain its physical path with `cd -P`/`pwd -P`, then select a new child. Resolve only paths deliberately chosen and trusted by the operator. Do not follow arbitrary input symlinks or relax the guard: JSON inputs must be regular files under physical paths, or use supported stdin. Keep `LEDGER` bound to the verified executable and preserve its SHA-256.
 
 ## Configure real terms
 
@@ -39,7 +54,7 @@ Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `
 
 ## Synthetic product journey
 
-The v0.9.4 helper accepts only exact `ledger 0.9.4 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. After qualification and publication, use the matching v0.9.4 package for these instructions; preserve prior archives and checksums.
+The v0.9.4 helper accepts only exact `ledger 0.9.4 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. Use the matching released v0.9.4 package for these instructions; preserve prior archives and checksums.
 
 The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Keep `PACKAGE_ROOT` set to the absolute installed v0.9.4 directory and `LEDGER` to its executable as above. Before running, confirm `"$LEDGER" --version` reports the matching identity.
 
@@ -56,3 +71,8 @@ sh "$PACKAGE_ROOT/examples/integration/run-synthetic.sh" \
 The helper checks completed-work charges, explicit success and unsuccessful outcomes, stable identical retries, an authorized correction with exact inverse/replacement postings, a complete statement, permission history, restart and a quiescent copy/reopen whose statement is unchanged. The correction reconciles to zero atoms. It saves receipts and results in the new private results directory.
 
 Use one process at a time on durable local storage. Stop every writer before copying the complete installation, preserve `.ledger` sidecars and reopen a separate verification copy with the matching binary. See [billing recovery](../../docs/billing-recovery.md). Shared/network storage, online backup, cross-host recovery and rollback detection are not guaranteed. The admission ceilings are 100,000 accepted decisions, 100,000 aliases, 1,000 permission changes, 256 MiB economic payloads and a separate 64 MiB alias ingress. These are limits, not capacity guarantees; M3 measured one synthetic workload of 3,499 retained decisions.
+
+
+## Completed work and later assessment
+
+The new [offline bounded-cohort example](bounded-cohort/README.md) is a separate example revision used with the verified released v0.9.4 executable. It is not present in immutable v0.9.4 archives. It records five actually generated local reports before both starts, a new later quality assessment, complete operation-specific receipts and exact retries. The separate evidence-classification scenario keeps verified zero, blocked, transport and parse errors distinct. No provider, account or network access is needed.

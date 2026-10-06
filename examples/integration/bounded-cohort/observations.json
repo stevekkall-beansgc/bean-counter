@@ -1,0 +1,7 @@
+[
+  {"name":"success","http_status":200,"transport":"ok","body":"{\"results\":[\"synthetic result\"]}"},
+  {"name":"zero","http_status":200,"transport":"ok","body":"{\"results\":[]}"},
+  {"name":"blocked","http_status":403,"transport":"ok","body":"challenge"},
+  {"name":"timeout","http_status":null,"transport":"timeout","body":""},
+  {"name":"malformed","http_status":200,"transport":"ok","body":"{\"unexpected\":[]}"}
+]
