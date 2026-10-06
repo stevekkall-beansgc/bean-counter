@@ -4,9 +4,11 @@
 
 Bean Counter is an Apache-2.0 billing engine for applications that produce completed generated work. Configure an agreed fixed price or quantity rate, record the completed work, and retain an exact receipt. It helps your application reconcile retries and corrections without rebuilding billing history for every product.
 
-**[Download v0.9.3 Open Beta and get your first synthetic receipt →](START-HERE.md)**
+**[Prepare the v0.9.4 Open Beta candidate and first synthetic receipt →](START-HERE.md)**
 
-The release includes the `ledger` executable, verification/install tools, documentation and examples. Native qualification covers Apple-silicon macOS 26.6.2 and Ubuntu 24.04.5 x86-64/glibc 2.39. Install/example prerequisites are Python 3.11+ and curl; no hosted account, model API, runtime subscription, Rust compiler or payment processor is needed. Packages are unsigned/unnotarized; other platforms and clean-account launch remain unverified.
+Candidate qualification and publication are pending. The [published v0.9.3 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3) retains its own matching assets and instructions.
+
+The native package includes the `ledger` executable, verification/install tools, documentation and examples. Published v0.9.3 native qualification covers Apple-silicon macOS 26.6.2 and Ubuntu 24.04.5 x86-64/glibc 2.39. Install/example prerequisites are Python 3.11+ and curl; no hosted account, model API, runtime subscription, Rust compiler or payment processor is needed. Packages are unsigned/unnotarized; other platforms and clean-account launch remain unverified.
 
 One business owns each private local SQLite installation, with multiple customers and sources. Supported operations include fixed and exact scale-18 usage, explicit effective agreements, authorized corrections, immutable close statements, recurrence records, fiscal reports and finance CSV. You supply customer assent/authority evidence and operate the computer, storage and backups. Hosted APIs, payment collection, PostgreSQL billing and multi-host guarantees remain outside this beta.
 

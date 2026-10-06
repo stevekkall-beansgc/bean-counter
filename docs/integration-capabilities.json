@@ -1,6 +1,13 @@
 {
   "schema": "bean-counter-cli-capabilities/1",
-  "status": "released-open-beta",
+  "status": "open-beta-patch-candidate",
+  "source_candidate": {
+    "version": "0.9.4",
+    "qualification_status": "pending-exact-source-qa-ci-and-native-package-qualification",
+    "publication_status": "unpublished",
+    "source_commit_evidence": "matching release notes and QUALIFICATION.json after qualification/publication; no candidate self-SHA embedded",
+    "billing_semantics_changed": false
+  },
   "authority": "descriptive-only",
   "native_baseline": {
     "version": "0.9.3",

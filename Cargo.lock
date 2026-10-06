@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "ledgerlab-core",
  "ledgerlab-testkit",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab-cli"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "ledgerlab",
  "serde_json",
@@ -717,7 +717,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "ledgerlab-testkit"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "ledgerlab",
  "ledgerlab-core",
