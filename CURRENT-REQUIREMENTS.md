@@ -31,6 +31,12 @@ Admission ceilings are 100,000 accepted decisions, 100,000 aliases, 1,000 permis
 
 ## Release acceptance
 
+### Open beta decision (2026-10-06)
+
+The owner approved marketing the supported local SQLite product as an **open beta**, without requiring named trial participants before beta release. M9's two unfamiliar-human Mac/Linux trials are not a beta prerequisite. Their status remains unrun; this decision does not count them as passed or declare OSS 1.0 complete. Optional beta feedback can use the existing adoption tasks without advance participant nomination. No automatic person-directed outreach is authorized by this decision.
+
+Beta retains the source, QA/CI, native-package verification and release gates below, together with all economic, authority, integrity and recovery requirements. The beta is the local CLI/package; hosted ChatGPT authentication, hosted storage and production payments remain deferred. See [open-beta scope](docs/open-beta.md).
+
 The release must identify one exact source commit, pass manifest-owned local QA and exact-commit compliance CI, preserve frozen contract checks and meet the Bean release standard. The local profile's unit entrypoint is `sh scripts/check-local-billing.sh`; its end-to-end entrypoint is `sh scripts/check-local-billing-e2e.sh`. The broader historical `scripts/check.sh` remains available unchanged. New profile checks do not certify deferred PostgreSQL, multi-host or resource-proof requirements.
 
 Publish source, license, examples, these requirements and truthful release notes. Any native artifact additionally needs a checksum, exact source/build identity, dependency/license inventory, provenance and a successful installed-artifact walkthrough. Do not claim an MSRV, reproducible build, signed provenance, notarization or untested platform support without evidence. A native artifact may be withheld while the source is prepared; missing mandatory release QA/CI still blocks a tag.

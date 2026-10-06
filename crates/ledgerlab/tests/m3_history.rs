@@ -21,7 +21,7 @@
 //! - Concurrency is proved with a `tokio::sync::Barrier` that releases every
 //!   racer before any racer can enter the store, and with a channel that
 //!   announces each snapshot call to a snapshot task parked before a live write
-//!   stream starts, one announcement per write. `tokio::join!` alone is not
+//!   stream starts, one announcement per snapshot call. `tokio::join!` alone is not
 //!   treated as evidence of a race: it does not prevent the joined futures from
 //!   running one after one on a single-threaded runtime, which is exactly what
 //!   happened before this slice was reviewed.
@@ -55,7 +55,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
@@ -95,12 +95,13 @@ const RACERS: usize = 4;
 /// statement call and one public CSV projection call, and each of them is
 /// witnessed separately.
 const SNAPSHOT_ROUNDS: usize = 3;
-/// Unique decisions written by the live stream while snapshots are taken: two
-/// per round, one for each public snapshot call slot. Before each write the
-/// writer announces the slot it is about to make runnable, so round `r`'s
-/// statement call is witnessed by the write for slot `2r` and round `r`'s
-/// projection call by the write for slot `2r + 1`.
-const LIVE_WRITES: usize = 2 * SNAPSHOT_ROUNDS;
+/// One announcement per public snapshot call. Announcements can queue while an
+/// earlier snapshot waits for storage, so six writes alone do not guarantee
+/// that the later calls overlap a live attempt.
+const SNAPSHOT_CALLS: usize = 2 * SNAPSHOT_ROUNDS;
+/// The stream keeps submitting unique decisions until every capture finishes.
+/// This ceiling bounds a starved/failed harness; hitting it fails the test.
+const MAX_LIVE_WRITES: usize = 64;
 
 /// One public call's own budget. A busy writer is retried under the same
 /// identity within this budget; a call that spends it all still returns its busy
@@ -843,16 +844,13 @@ fn csv_totals(published: &str) -> (usize, usize, i128) {
 ///
 /// - The snapshot task is spawned first and parks on a channel, so it is
 ///   registered before any write exists.
-/// - Before each of its writes the writer task announces that write's
-///   snapshot-call slot on that channel and, without yielding, calls the public
-///   `accept` API. A public write call has to await real storage I/O, so the
-///   writer yields with an attempt of its own call open, and only then can the
-///   snapshot task run at all. The snapshot task waits for its own slot before
-///   each of its two calls and records the instant it entered the API as its
-///   first action, so that instant falls inside a real attempt of the
-///   announcing write. Each round therefore has its own engineered witness twice
-///   over: its statement call is witnessed by the write for slot `2r`, and its
-///   projection call by the write for slot `2r + 1`.
+/// - Before its first six writes the writer announces each snapshot-call slot
+///   and enters `accept` without yielding. A notification may queue while an
+///   earlier snapshot call awaits storage, so it is readiness, not evidence of
+///   overlap. The writer continues submitting unique writes until all captures
+///   finish, without parking or waiting for them. A 64-write ceiling fails the
+///   harness if they cannot finish. Every overlap is still measured below;
+///   no notification or completion flag is credited as an attempt witness.
 /// - The writer's busy retries are retried with no yield between attempts
 ///   (`call_in_line`), so the writer task has no scheduling point at which it is
 ///   inside no attempt. A span that covered the retries as well would be open
@@ -897,9 +895,6 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
     let ledger = Arc::new(install(path).await);
     let exports = path.join("exports");
     let base = 3;
-    // The quiescent base, the live stream, the two raced writers, then one
-    // trailing decision committed after every capture.
-    let final_expected = base + LIVE_WRITES + 2 + 1;
     fs::create_dir(&exports).unwrap();
 
     // A quiescent base, so no capture can observe an empty customer history.
@@ -913,15 +908,18 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
     // The snapshot task exists and is parked before the first write does.
     let (armed, mut armed_rx) = mpsc::unbounded_channel::<usize>();
     let first = base + 1;
+    let captures_finished = Arc::new(AtomicBool::new(false));
     let snapshots = {
+        let captures_finished = Arc::clone(&captures_finished);
         let ledger = Arc::clone(&ledger);
         let exports = exports.clone();
         tokio::spawn(async move {
             let mut captures = Vec::with_capacity(SNAPSHOT_ROUNDS);
             // Take one capture per round: one public statement call, then one
             // public CSV projection call. Each of those calls waits for the
-            // writer's announcement of its own slot first, so each one starts
-            // while an attempt of the write for that slot is inside the store.
+            // writer's announcement of its own slot first. The continuous
+            // stream keeps running after queued announcements; the measured
+            // attempt table, not this notification, proves each overlap.
             for round in 0..SNAPSHOT_ROUNDS {
                 announced(&mut armed_rx, round * 2, "statement", round).await?;
                 let answered = call(&ledger, Call::Read).await;
@@ -951,24 +949,28 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
                     projection_busy_retries: projected.busy_retries,
                 });
             }
+            captures_finished.store(true, Ordering::SeqCst);
             Ok::<_, String>(captures)
         })
     };
     let writer = {
         let ledger = Arc::clone(&ledger);
+        let captures_finished = Arc::clone(&captures_finished);
         tokio::spawn(async move {
-            let mut writes = Vec::with_capacity(LIVE_WRITES);
-            for offset in 0..LIVE_WRITES {
-                // Announce the snapshot-call slot this write makes runnable,
-                // then enter the store without yielding. The snapshot task can
-                // only enter the API once this task has yielded inside a real
-                // write, so that call starts inside an attempt of the write this
-                // announcement belongs to. Retries are made in line, without a
-                // yield between attempts, so no scheduling point of this task
-                // falls between two attempts either.
-                armed
-                    .send(offset)
-                    .map_err(|_| String::from("the snapshot task stopped before it read"))?;
+            let mut writes = Vec::with_capacity(MAX_LIVE_WRITES);
+            for offset in 0..MAX_LIVE_WRITES {
+                // Never park or wait for the snapshot task. Keep real writes in
+                // flight until the captures finish, including after the six
+                // announcements have queued. On this current-thread runtime,
+                // no await separates this check from entering the next attempt.
+                if offset >= SNAPSHOT_CALLS && captures_finished.load(Ordering::SeqCst) {
+                    break;
+                }
+                if offset < SNAPSHOT_CALLS {
+                    armed
+                        .send(offset)
+                        .map_err(|_| String::from("the snapshot task stopped before it read"))?;
+                }
                 let index = first + offset;
                 let answered = call_in_line(&ledger, Call::Write(&work_event(index))).await;
                 let status = match answered.result {
@@ -990,6 +992,11 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
                     attempts: answered.attempts,
                 });
             }
+            if !captures_finished.load(Ordering::SeqCst) {
+                return Err(format!(
+                    "snapshot captures did not finish within {MAX_LIVE_WRITES} live writes"
+                ));
+            }
             Ok::<_, String>(writes)
         })
     };
@@ -1004,7 +1011,10 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
 
     // The stream is a run of unique, consecutive, accepted decisions that ran
     // through every capture without waiting for one.
-    assert_eq!(writes.len(), LIVE_WRITES);
+    let live_writes = writes.len();
+    assert!((SNAPSHOT_CALLS..=MAX_LIVE_WRITES).contains(&live_writes));
+    // Base, measured live stream, two raced writes, then one trailing write.
+    let final_expected = base + live_writes + 2 + 1;
     assert_eq!(captures.len(), SNAPSHOT_ROUNDS);
     for write in &writes {
         assert_eq!(
@@ -1023,7 +1033,7 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
     let unique: BTreeSet<usize> = writes.iter().map(|write| write.index).collect();
     assert_eq!(
         unique.len(),
-        LIVE_WRITES,
+        live_writes,
         "every stream write must be its own decision"
     );
 
@@ -1073,7 +1083,7 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
         }
     }
     assert!(
-        attempts_recorded >= LIVE_WRITES,
+        attempts_recorded >= live_writes,
         "every write of the stream recorded at least its answering attempt"
     );
 
@@ -1132,7 +1142,7 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
     // Either outcome is verified, so the assertion never depends on timing.
     let pinned = ledger.statement(CUSTOMER, None).await.unwrap();
     let pinned_cutoff = expect_self_consistent(&pinned);
-    assert_eq!(pinned_cutoff, base + LIVE_WRITES);
+    assert_eq!(pinned_cutoff, base + live_writes);
     let pinned_hash = pinned["snapshot_hash"]
         .as_str()
         .expect("pinned snapshot_hash")
@@ -1142,8 +1152,8 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
         "during-writes-{serial:04}-cutoff-{pinned_cutoff:06}.csv"
     ));
     let raced = (
-        work_event(base + LIVE_WRITES + 1),
-        work_event(base + LIVE_WRITES + 2),
+        work_event(base + live_writes + 1),
+        work_event(base + live_writes + 2),
     );
     let start = Arc::new(Barrier::new(4));
     let spawn_writer = |raw: Vec<u8>| {
@@ -1239,11 +1249,11 @@ async fn live_write_stream_and_snapshot_calls_overlap_and_reconcile_to_their_cut
         // Every capture reconciles to the cutoff it declared...
         assert_eq!(shot.receipt_ids.len(), shot.cutoff);
         assert!(
-            shot.cutoff >= base && shot.cutoff <= base + LIVE_WRITES,
+            shot.cutoff >= base && shot.cutoff <= base + live_writes,
             "cutoff {} is outside the range the stream had committed by the time every capture \
              had finished, {base}..={}",
             shot.cutoff,
-            base + LIVE_WRITES
+            base + live_writes
         );
         // ... and that cutoff is still an exact, unchanged prefix whose total
         // grew by exactly the entries accepted after it.

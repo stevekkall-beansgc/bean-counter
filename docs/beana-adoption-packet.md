@@ -1,6 +1,6 @@
 # BEANA-led adoption trial observer packet
 
-Status: preparation only, no participants or measured results. Steve requested trials through BEANA; whether BEANA coordinates unfamiliar humans or runs developer agents is awaiting clarification on [Core #350](https://github.com/stevekkall-beansgc/legume-labs-core/issues/350). The existing M9 criterion remains two owner-approved unfamiliar humans unless explicitly amended. Agent orientation is a separate check.
+Status: optional adoption evidence, with no measured participant results. On October 6, 2026 Steve approved an open beta without named trial participants as a release prerequisite; see [open-beta scope](open-beta.md). The M9 unfamiliar-human criterion remains unrun for eventual OSS 1.0 acceptance, and does not block the beta. Agent orientation is a separate check.
 
 BEANA coordinates the packet and collects observations. Codex Local supplies the reviewed, qualified candidate and resolves demonstrated implementation defects. This file is for the coordinator/observer. Give participants the [separate task sheet](participant-adoption-tasks.md), exact candidate metadata and starting link; do not provide this observer answer table as their task instructions. The publicly documented product examples remain available to them.
 
