@@ -1,14 +1,102 @@
-# Start with Bean Counter local billing
+# Download Bean Counter and get your first receipt
 
-Bean Counter records agreed fixed-price or exact quantity-based charges for completed generated work, with retained receipts and explicit customer/source scope. One business owns and operates each private local installation. It does not obtain customer consent, collect payment or provide a hosted API.
+Bean Counter is an Apache-2.0 **local billing engine** for applications that produce completed generated work. Record an agreed fixed fee or quantity-based charge, keep a durable receipt, reconcile retries and make explained corrections. You run it on your computer and manage its storage and backups.
 
-These instructions target the **v0.9.3 Open Beta candidate**. Until its matching release is published and qualified, use the published [v0.9.2 baseline](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.2) with that release's own version-matched instructions, verifier and installer. Local/CI candidates are not public downloads or release evidence.
+The current release is [v0.9.3 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3). This page installs those released bytes and runs a synthetic example; no account, paid API, Rust compiler or Node installation is needed.
 
-1. Choose a matching v0.9.3 distribution for **macOS 26.6.2 Apple silicon** or **Ubuntu 24.04.5 x86-64/glibc 2.39**. Verify publication and follow [verify/install](examples/integration/README.md#native-release-and-installation), using the archive, checksum, full source commit, verifier and installer from the same trusted release. Python 3.11+ is required to verify/install; the installed billing binary does not require Python, Node or Rust.
-2. Set `PACKAGE_ROOT` to the absolute installation directory and `LEDGER` to `"$PACKAGE_ROOT/ledger"`; confirm `"$LEDGER" --version` reports `ledger 0.9.3 (local development)`. Run [the exact synthetic first-use command](examples/integration/README.md#synthetic-product-journey) from a new private working directory with fresh store/results paths. The command resolves physical paths and finds fixtures beside the installed helper. The older published v0.9.1 synthetic helper refuses its own binary; this route requires the matching v0.9.3 package. Keep its clearly synthetic terms and evidence out of real billing. Save the returned receipts and complete statement.
-3. To connect your application, use [the integration agent guide](docs/integration-agent-guide.md) and [CLI/JSON contract](docs/billing-m2-cli-contract.md). A Python caller can submit a completed report at fixed price; a Node caller can submit a completed generated draft at one agreed quantity rate. Preserve stable identities and exact request bytes across retries. The v0.9.3 bundled helpers acknowledge complete history `/2` and `/3`; period `/4` and unknown formats refuse. Preserve any request left pending by older helpers and retry its original bytes and IDs after updating.
-4. Before real use, read [agreement choices and the two product mappings](docs/agreement-and-integration.md), then configure truthful parties, terms, unit/rate, authority and assent evidence with [operator setup](docs/billing-quickstart.md#set-up-explicit-terms). Operate and recover using [the checklist](docs/billing-operations.md). Users own host security, local storage, resources and verified backups.
+## 1. Check your computer
 
-For first-use failures: wrong platform or source identity → obtain the matching qualified assets; missing verifier prerequisite → satisfy the documented Python requirement; existing installation path → choose a fresh path without overwriting it; scope refusal → reconcile customer/source and current authority; unknown result → retry original bytes and IDs; incomplete/unsupported explanation → retain the pending request and inspect the helper/profile; integrity error → stop writes and preserve evidence for recovery. Never erase locks or reset identities to make a failed step look successful.
+Native qualification covers **macOS 26.6.2 on Apple silicon** and **Ubuntu 24.04.5 x86-64 with glibc 2.39**. Other systems are unverified; Windows is unsupported. You need a terminal, `curl` and **Python 3.11 or newer** to verify/install and run the example. The installed billing executable itself does not need Python.
 
-Historical native conformance is measured for the named predecessors; v0.9.3 requires its own exact-source and installed-archive qualification. Unfamiliar-developer usability remains unmeasured: 30-second orientation and a first synthetic receipt within five minutes after installation are [M9 targets](docs/oss1-readiness.md), not promises.
+```sh
+uname -sm
+python3 --version
+```
+
+If Python is missing or older than 3.11, install a supported Python before continuing. Packages are unsigned/unnotarized. Clean-account downloaded launch is not yet qualified: if your OS blocks launch, record the exact message rather than disabling protection to force a pass.
+
+## 2. Choose your download
+
+Run **one** matching block in your terminal, then continue below in that same terminal.
+
+For Apple-silicon Mac (`Darwin arm64`):
+
+```sh
+ARCHIVE=bean-counter-v0.9.3-aarch64-apple-darwin.tar.gz
+INSTALLER=install-macos-arm64.sh
+```
+
+For the named Ubuntu x86-64 host (`Linux x86_64`):
+
+```sh
+ARCHIVE=bean-counter-v0.9.3-x86_64-unknown-linux-gnu.tar.gz
+INSTALLER=install-linux-x86_64.sh
+```
+
+Download the archive and its matching verification/install files into a new private directory:
+
+```sh
+umask 077
+DOWNLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bean-counter-download.XXXXXX")
+cd "$DOWNLOAD_DIR"
+RELEASE_URL=https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.3
+(
+  for asset in "$ARCHIVE" "$INSTALLER" install-native-package.py verify-native-package.py SHA256SUMS QUALIFICATION.json; do
+    curl --fail --location --remote-name "$RELEASE_URL/$asset" || exit 1
+  done
+)
+```
+
+All six downloads must succeed. Stop if a download fails; rerun the block in a fresh directory after resolving the error. You can instead save those same six files together from the [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3). Obtain the tools from that trusted release before extracting the archive. Checksums and unsigned provenance are not signatures.
+
+## 3. Verify and install
+
+The full source commit below identifies the **released executable**, even if the repository's documentation has since advanced. Choose an installation path that does not already exist; the installer refuses to overwrite one.
+
+```sh
+SOURCE_COMMIT=d9de6e2e50e846b2210c8c889f8d7493e127d5f7
+export PACKAGE_ROOT="$HOME/bean-counter-v0.9.3"
+sh "$INSTALLER" "$ARCHIVE" SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
+export LEDGER="$PACKAGE_ROOT/ledger"
+"$LEDGER" --version
+```
+
+Continue only after installation succeeds and the version reports `ledger 0.9.3 (local development)`. That is the released binary's exact version string. The installer verifies archive identity, file hashes, modes and inventory before running the binary, and creates a private installation.
+
+## 4. Run the synthetic receipt journey
+
+Use a fresh working directory. This example records completed work, success/unsuccessful outcomes, an authorized correction, identical retries and a quiescent backup/reopen. Its terms and evidence are synthetic, not real customer consent or authority.
+
+```sh
+DEMO_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bean-counter-demo.XXXXXX")
+cd "$DEMO_DIR"
+demo_working_dir=$(pwd -P)
+sh "$PACKAGE_ROOT/examples/integration/run-synthetic.sh" \
+  "$LEDGER" \
+  "$demo_working_dir/bean-counter-demo-store" \
+  "$demo_working_dir/bean-counter-demo-results"
+```
+
+Success prints **`Synthetic full-path check passed`** and identifies the results directory. The final statement has **five retained entries and zero net atoms** after correction; original retry receipts and the recovered statement agree. Inspect the saved receipts and statement:
+
+```sh
+python3 -m json.tool "$demo_working_dir/bean-counter-demo-results/accept-success.json"
+python3 -m json.tool "$demo_working_dir/bean-counter-demo-results/statement.json"
+```
+
+This is a correctness example, not measured unfamiliar-user timing. Keep its synthetic records separate from any business installation.
+
+## 5. Connect your application
+
+Start with the [integration guide](docs/integration-agent-guide.md) and [Python/Node examples](examples/integration/README.md#configure-real-terms). Configure your actual parties, agreed price/unit rate, assent evidence and permissions using [guided setup](docs/billing-quickstart.md#set-up-explicit-terms). Preserve exact request bytes and original identities when retrying an unknown result. Read the [operator and recovery checklist](docs/billing-operations.md) before business use.
+
+One operator-controlled business owns each private local SQLite installation. Supported operations include multiple customers/sources, fixed and scale-18 usage, effective agreements, immutable close statements, linked corrections, recurrence records, fiscal reporting and finance CSV. There is no hosted API, payment collection, automatic recurrence charging, tax/legal invoice certification, PostgreSQL billing or multi-host guarantee. See [scope and limitations](CURRENT-REQUIREMENTS.md).
+
+## If something fails
+
+- Download or verifier error: keep the message; check the platform, Python version and matching release files. Do not extract or execute an unverified archive.
+- Existing installation path: choose a new `PACKAGE_ROOT`; do not overwrite or delete a business installation.
+- Synthetic failure: preserve stdout/stderr and the reported results path. Retry the journey in a new private working directory.
+- Unknown business write: retry its original bytes and IDs against the same installation. Integrity failure: stop writes and follow [recovery](docs/billing-recovery.md); do not erase locks or edit the database.
+
+For beta feedback, record your OS/Python versions, the step and exact error, whether you needed help, and redacted synthetic results in a [GitHub issue](https://github.com/stevekkall-beansgc/bean-counter/issues). Never upload business records or credentials. No nominated participant list is required. [Release evidence](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.3/QUALIFICATION.json) records actual qualification; unfamiliar-user adoption remains unmeasured.
