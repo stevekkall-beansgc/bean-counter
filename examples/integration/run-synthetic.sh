@@ -98,19 +98,22 @@ root = sys.argv[1]
 def load(name):
     with open(os.path.join(root, name), encoding="utf-8") as f:
         return json.load(f)
-def assert_same_receipt(first, second):
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+def same_receipt(first, second):
     a, b = load(first)["receipt"], load(second)["receipt"]
-    assert a == b, f"receipt changed across identical retry: {first} / {second}"
+    require(a == b, f"receipt changed across identical retry: {first} / {second}")
     return a
-success = assert_same_receipt("accept-success.json", "retry-success.json")
-assert_same_receipt("accept-unsuccessful.json", "retry-unsuccessful.json")
-assert_same_receipt("outcome-success-result.json", "retry-outcome-success.json")
-assert_same_receipt("correction-result.json", "retry-correction.json")
+success = same_receipt("accept-success.json", "retry-success.json")
+same_receipt("accept-unsuccessful.json", "retry-unsuccessful.json")
+same_receipt("outcome-success-result.json", "retry-outcome-success.json")
+same_receipt("correction-result.json", "retry-correction.json")
 success_target = success["body"]["target"]
-assert load("outcome-success.json")["target"] == success_target
-assert load("correction.json")["target"] == success_target
+require(load("outcome-success.json")["target"] == success_target, "outcome target differs from accepted work")
+require(load("correction.json")["target"] == success_target, "correction target differs from accepted work")
 statement = load("statement.json")
-assert statement["complete"] is True and statement["net_atoms"] == "0"
+require(statement["complete"] is True and statement["net_atoms"] == "0", "statement is incomplete or has a nonzero net")
 entries = {entry["external_id"]: entry for entry in statement["entries"]}
 expected = {
     "product-work-success-1": [("2", "base-posting")],
@@ -119,18 +122,18 @@ expected = {
     "product-outcome-unsuccessful-1": [("-2", "replacement")],
     "product-correction-1": [("-2", "replacement"), ("-98", "inverse")],
 }
-assert set(entries) == set(expected), sorted(entries)
+require(set(entries) == set(expected), f"unexpected retained entry set: {sorted(entries)}")
 for external_id, wanted in expected.items():
     postings = entries[external_id]["postings"]
     actual = [(p["body"]["amount"]["atoms"], p["body"].get("slot", "base-posting")) for p in postings]
-    assert actual == wanted, f"{external_id}: expected {wanted}, got {actual}"
+    require(actual == wanted, f"{external_id}: expected {wanted}, got {actual}")
 backup_statement = load("backup-statement.json")
 after_retry = load("backup-statement-after-retry.json")
-assert backup_statement["complete"] is True and after_retry["complete"] is True
-assert backup_statement["net_atoms"] == after_retry["net_atoms"] == "0"
-assert backup_statement["snapshot_hash"] == after_retry["snapshot_hash"] == statement["snapshot_hash"]
+require(backup_statement["complete"] is True and after_retry["complete"] is True, "backup statement is incomplete")
+require(backup_statement["net_atoms"] == after_retry["net_atoms"] == "0", "backup net changed")
+require(backup_statement["snapshot_hash"] == after_retry["snapshot_hash"] == statement["snapshot_hash"], "backup snapshot changed")
 backup_receipt = load("backup-retry.json")["receipt"]
-assert backup_receipt == success, "quiescent copy did not preserve the original acceptance receipt"
+require(backup_receipt == success, "quiescent copy did not preserve the original acceptance receipt")
 print("verified exact signed postings, correction inverse/replacement, stable retry receipts/targets, and complete unchanged backup statement")
 PY
 

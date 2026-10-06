@@ -13,4 +13,6 @@ Your coordinator supplies the exact candidate source/documentation revision, arc
 9. Follow the supported outcome/correction and billing-period journey. Explain the closed statement, later linked adjustment, fiscal report and CSV totals. Use actual time boundaries; keep your exact requests and resulting evidence.
 10. Stop and exclude writers, make a complete backup, verify a separate copy, and choose one active installation. Show how you reconcile saved statements and original retries with the backup cutoff.
 
+Also exercise a synthetic agreement amendment and end at actual effective times using the supported agreement controls. Record which terms price fresh work, confirm an original-identity retry retains its original price/receipt, and show that fresh work after the effective end refuses. Explain why caller-reported occurrence time cannot backdate the selected terms. Keep all immutable agreement versions and before/after statements.
+
 Use the installed [starting guide](../START-HERE.md), [agreement guide](agreement-and-integration.md) and [operator checklist](billing-operations.md). Report tasks you could not finish and describe what information or help was missing. The coordinator keeps the observer expectations and scoring separately.
