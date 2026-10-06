@@ -1,67 +1,41 @@
-Ledger Lab — chain events, compose pricing, explain the result locally.
+Bean Counter — local SQLite billing with retained receipts and explanations.
 
-Usage: ledger [--config PATH] [--format text|json] COMMAND
+Usage: ledger [--format text|json] COMMAND
 
-  init [DIR] --demo          Create a new/empty local sandbox (default: .)
-  accept FILE|-             Accept one event from a JSON file or stdin
-  preview FILE|-            Estimate without journal writes or commit
-  explain EVENT_ID          Read a stored event (external or canonical ID)
-  explain --chain CHAIN_ID  Read accepted decisions in chain order
+Current billing profile:
+  billing --help            Setup, work, outcomes, corrections and reports
+  billing setup DIR         Guided private setup
+  billing init DIR --setup FILE
+                            Noninteractive setup with explicit terms
+  billing accept --help     Record completed work
+  billing outcome --help    Record an authorized outcome
+  billing correct --help    Correct an outcome or cumulative quantity
+  billing explain --help    Read retained target history
+  billing statement --help  Read a reconciled customer statement
+
+Legacy synthetic generation profile (separate installation):
+  init [DIR] --demo          Create the Phase 1 generation demo
+  accept FILE|-             Accept a legacy generation event
+  preview FILE|-            Estimate a legacy generation event
+  explain EVENT_ID          Read legacy stored history
+  explain --chain CHAIN_ID  Read legacy chain history
+  Use ledger COMMAND --help for that legacy command's limitations.
 
 Global options may appear before or after the command:
-  --config PATH             Config file (default: ./ledger.json)
-  --format text|json        Human output or one stable ledger-cli/1 JSON object
+  --format text|json        Output format; billing results are JSON in either mode
   --json                    Alias for --format json
+  --config PATH             Legacy profile config (default: ./ledger.json)
   --no-color                Accepted; output is always plain text
-  --help, -h                Show help, including after a command
+  --help, -h                Show help for the named command, or root help
   --version                 Show internal development version
 
-Start: ledger init ledger-demo --demo
-Then: cd ledger-demo
-      ledger preview examples/generated.json
-      ledger accept examples/generated.json
-      ledger explain --chain demo-slice
-
-Local commands support only the synthetic Phase 1 generation demo:
-demo-customer owes demo-host USD 0.80 for generation (USD 1.00 charge
-less USD 0.20 customer discount). Dispatch is held; no payment is executed.
-Upcoming story (documentation only): generation -> publication -> acquisition,
-a separate customer discount, paid tools and BYOK/platform-funded responsibility.
-Linked events, outcomes and reversals cannot yet be saved or previewed.
-
-No Docker, Node, cloud account, provider key, or server is required.
-Config uses strict JSON in ledger.json. Legacy JSON-in-YAML files require
---config ledger.yaml explicitly. Building requires Rust and a native C toolchain;
-offline builds require dependencies already cached. See docs/quickstart.md.
-Preview is an estimate, never a receipt; opening/locking may touch SQLite
-sidecars. File inputs are regular files, at most 256 KiB.
+Help is plain text and does not open or create an installation. Known commands
+may omit their required arguments when requesting help. Unknown command paths
+and malformed global options return USAGE, exit 2 (JSON when requested).
+Billing --directory DIR may appear anywhere after billing; default: .
+See START-HERE.md and docs/billing-quickstart.md for current billing.
+No payment collection, tax invoice, hosted service or remote authentication.
 
 Exit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;
 4 conflict; 5 waiting; 6 unauthorized; 7 busy/unavailable; 8 outcome unknown;
-9 integrity failure. Retry unknown outcomes with the same event identity.
-
-Ordinary local billing (separate installation):
-  billing setup DIR [--setup FILE]     Guided, confirmed private setup
-  billing init DIR --setup FILE        Noninteractive JSON setup
-  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema
-  billing [--directory DIR] term set FILE|-  Set a customer's billing term
-  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar
-  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report
-  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis
-  billing [--directory DIR] activity FILE|-   Submit cumulative activity
-  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction
-  billing [--directory DIR] close FILE|-      Close one logical billing period
-  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement
-  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule
-  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule
-  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences
-  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence
-  billing [--directory DIR] accept --customer C --source S FILE|-
-  billing [--directory DIR] outcome --customer C --source S FILE|-
-  billing [--directory DIR] correct --customer C --source S FILE|-
-  billing [--directory DIR] agreement --customer C --source S FILE|-
-  billing [--directory DIR] permissions --customer C --source S [FILE|-]
-  billing [--directory DIR] explain --customer C TARGET_ID
-  billing [--directory DIR] statement --customer C
-  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE
-Work writes require an explicit customer and source. Billing output is JSON; no payment or tax invoice.
+9 integrity failure. Retry unknown outcomes with the original identity/input.

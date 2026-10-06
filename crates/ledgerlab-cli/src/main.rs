@@ -12,17 +12,85 @@ use std::{
     process::ExitCode,
 };
 
-const HELP: &str = "Ledger Lab — chain events, compose pricing, explain the result locally.\n\nUsage: ledger [--config PATH] [--format text|json] COMMAND\n\n  init [DIR] --demo          Create a new/empty local sandbox (default: .)\n  accept FILE|-             Accept one event from a JSON file or stdin\n  preview FILE|-            Estimate without journal writes or commit\n  explain EVENT_ID          Read a stored event (external or canonical ID)\n  explain --chain CHAIN_ID  Read accepted decisions in chain order\n\nGlobal options may appear before or after the command:\n  --config PATH             Config file (default: ./ledger.json)\n  --format text|json        Human output or one stable ledger-cli/1 JSON object\n  --json                    Alias for --format json\n  --no-color                Accepted; output is always plain text\n  --help, -h                Show help, including after a command\n  --version                 Show internal development version\n\nStart: ledger init ledger-demo --demo\nThen: cd ledger-demo\n      ledger preview examples/generated.json\n      ledger accept examples/generated.json\n      ledger explain --chain demo-slice\n\nLocal commands support only the synthetic Phase 1 generation demo:\ndemo-customer owes demo-host USD 0.80 for generation (USD 1.00 charge\nless USD 0.20 customer discount). Dispatch is held; no payment is executed.\nUpcoming story (documentation only): generation -> publication -> acquisition,\na separate customer discount, paid tools and BYOK/platform-funded responsibility.\nLinked events, outcomes and reversals cannot yet be saved or previewed.\n\nNo Docker, Node, cloud account, provider key, or server is required.\nConfig uses strict JSON in ledger.json. Legacy JSON-in-YAML files require\n--config ledger.yaml explicitly. Building requires Rust and a native C toolchain;\noffline builds require dependencies already cached. See docs/quickstart.md.\nPreview is an estimate, never a receipt; opening/locking may touch SQLite\nsidecars. File inputs are regular files, at most 256 KiB.\n\nExit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;\n4 conflict; 5 waiting; 6 unauthorized; 7 busy/unavailable; 8 outcome unknown;\n9 integrity failure. Retry unknown outcomes with the same event identity.\n";
+const HELP: &str = "Bean Counter — local SQLite billing with retained receipts and explanations.
+
+Usage: ledger [--format text|json] COMMAND
+
+Current billing profile:
+  billing --help            Setup, work, outcomes, corrections and reports
+  billing setup DIR         Guided private setup
+  billing init DIR --setup FILE
+                            Noninteractive setup with explicit terms
+  billing accept --help     Record completed work
+  billing outcome --help    Record an authorized outcome
+  billing correct --help    Correct an outcome or cumulative quantity
+  billing explain --help    Read retained target history
+  billing statement --help  Read a reconciled customer statement
+
+Legacy synthetic generation profile (separate installation):
+  init [DIR] --demo          Create the Phase 1 generation demo
+  accept FILE|-             Accept a legacy generation event
+  preview FILE|-            Estimate a legacy generation event
+  explain EVENT_ID          Read legacy stored history
+  explain --chain CHAIN_ID  Read legacy chain history
+  Use ledger COMMAND --help for that legacy command's limitations.
+
+Global options may appear before or after the command:
+  --format text|json        Output format; billing results are JSON in either mode
+  --json                    Alias for --format json
+  --config PATH             Legacy profile config (default: ./ledger.json)
+  --no-color                Accepted; output is always plain text
+  --help, -h                Show help for the named command, or root help
+  --version                 Show internal development version
+
+Help is plain text and does not open or create an installation. Known commands
+may omit their required arguments when requesting help. Unknown command paths
+and malformed global options return USAGE, exit 2 (JSON when requested).
+Billing --directory DIR may appear anywhere after billing; default: .
+See START-HERE.md and docs/billing-quickstart.md for current billing.
+No payment collection, tax invoice, hosted service or remote authentication.
+
+Exit codes: 0 success; 2 usage/config/input-file; 3 rejected/not found;
+4 conflict; 5 waiting; 6 unauthorized; 7 busy/unavailable; 8 outcome unknown;
+9 integrity failure. Retry unknown outcomes with the original identity/input.
+";
+const LEGACY_NOTES: &str =
+    "Legacy synthetic Phase 1 generation profile only; separate from ledger billing.
+The demo records demo-customer -> demo-host USD 0.80 (1.00 charge - 0.20 discount).
+Linked events, outcomes and reversals cannot be saved or previewed in this profile.
+Dispatch is held; no payment is executed. See docs/quickstart.md.
+";
+fn help(a: &Args) -> Result<String, &'static str> {
+    if a.command == "billing" {
+        if a.config != Path::new("ledger.json") {
+            return Err("billing uses --directory DIR, not --config");
+        }
+        return billing::help(&a.rest);
+    }
+    let usage = match a.command.as_str() {
+        "" => return Ok(HELP.into()),
+        "init" => "Usage: ledger init [DIR] --demo\nCreate a new or empty legacy demo directory; default: .\n",
+        "accept" => "Usage: ledger [--config PATH] accept FILE|-\nAccept one legacy generation event from a regular JSON file or stdin.\n",
+        "preview" => "Usage: ledger [--config PATH] preview FILE|-\nEstimate one legacy generation event; no journal writes or committed receipt.\nOpening or locking for a preview may touch SQLite sidecars.\n",
+        "explain" => "Usage: ledger [--config PATH] explain EVENT_ID\n       ledger [--config PATH] explain --chain CHAIN_ID\nRead retained legacy history without repricing.\n",
+        #[cfg(feature = "zen-charge-candidate")]
+        "zen-charge-candidate" => return Ok("Usage: ledger zen-charge-candidate init|submit DIR FILE --json\n       ledger zen-charge-candidate statement DIR --json\nExperimental candidate profile; DIR must be absolute.\n".into()),
+        _ => return Err("unknown command; use ledger --help"),
+    };
+    Ok(format!("{usage}\n{LEGACY_NOTES}\nGlobal options: --config PATH, --format text|json, --json, --no-color, --help, -h.\nFile inputs are regular files of at most 256 KiB; legacy config is strict JSON.\n"))
+}
 struct Args {
     command: String,
     rest: Vec<String>,
     config: PathBuf,
     json: bool,
+    help: bool,
 }
 fn parse(raw: &[String]) -> Result<Args, &'static str> {
     let mut rest = Vec::new();
     let mut config = PathBuf::from("ledger.json");
     let mut json = false;
+    let mut help = false;
     let mut i = 0;
     let mut seen_config = false;
     let mut seen_format = false;
@@ -60,19 +128,25 @@ fn parse(raw: &[String]) -> Result<Args, &'static str> {
                 json = true;
             }
             "--no-color" => (),
+            "--help" | "-h" => help = true,
             _ => rest.push(raw[i].clone()),
         }
         i += 1;
     }
-    if rest.is_empty() {
+    if rest.is_empty() && !help {
         return Err("a command is required; use ledger --help");
     }
-    let command = rest.remove(0);
+    let command = if rest.is_empty() {
+        String::new()
+    } else {
+        rest.remove(0)
+    };
     Ok(Args {
         command,
         rest,
         config,
         json,
+        help,
     })
 }
 fn error(code: &str, message: &str, exit: u8) -> (Value, u8) {
@@ -203,10 +277,6 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
 }
 fn main() -> ExitCode {
     let raw: Vec<String> = env::args().skip(1).collect();
-    if raw.iter().any(|s| matches!(s.as_str(), "--help" | "-h")) {
-        print!("{HELP}{}", billing::HELP);
-        return ExitCode::SUCCESS;
-    }
     if raw == ["--version"] {
         println!("ledger {} (local development)", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
@@ -218,6 +288,16 @@ fn main() -> ExitCode {
             let (v, c) = error("USAGE", message, 2);
             (v, c, wants_json, false)
         }
+        Ok(a) if a.help => match help(&a) {
+            Ok(text) => {
+                print!("{text}");
+                return ExitCode::SUCCESS;
+            }
+            Err(message) => {
+                let (v, c) = error("USAGE", message, 2);
+                (v, c, a.json, false)
+            }
+        },
         Ok(a) => {
             let result = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()

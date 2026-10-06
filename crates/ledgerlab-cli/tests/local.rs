@@ -413,6 +413,28 @@ fn sql(dir: &Path, statement: &'static str) {
         });
 }
 #[test]
+fn help_ignores_the_store_owner_lock_and_preserves_legacy_history() {
+    let d = init();
+    let dir = d.path();
+    let before = db(dir);
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.join(".ledger/owner.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    for command in ["init", "accept", "preview", "explain"] {
+        let output = invoke(dir, &[command, "--help"], None);
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+    }
+    // Negative control: an operation that opens the store sees its owner lock.
+    run(dir, &["accept", "examples/generated.json"], None, 7);
+    lock.unlock().unwrap();
+    assert_eq!(db(dir), before);
+}
+
+#[test]
 fn preview_does_not_even_attempt_journal_or_alias_writes() {
     let d = init();
     let dir = d.path();

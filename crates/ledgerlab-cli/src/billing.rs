@@ -1,7 +1,136 @@
 use super::*;
 use ledgerlab::billing::BillingLedger;
 use std::io::{self, IsTerminal, Write};
-pub const HELP: &str = "\nOrdinary local billing (separate installation):\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema\n  billing [--directory DIR] term set FILE|-  Set a customer's billing term\n  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar\n  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report\n  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis\n  billing [--directory DIR] activity FILE|-   Submit cumulative activity\n  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction\n  billing [--directory DIR] close FILE|-      Close one logical billing period\n  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement\n  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule\n  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule\n  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences\n  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nWork writes require an explicit customer and source. Billing output is JSON; no payment or tax invoice.\n";
+pub const HELP: &str = "Bean Counter local SQLite billing\n\nUsage: ledger billing [--directory DIR] COMMAND\n\n  billing setup DIR [--setup FILE]     Guided, confirmed private setup\n  billing init DIR --setup FILE        Noninteractive JSON setup\n  billing [--directory DIR] upgrade    Explicit storage upgrade to the current billing schema\n  billing [--directory DIR] term set FILE|-  Set a customer's billing term\n  billing [--directory DIR] fiscal set FILE|- Set the organization fiscal calendar\n  billing [--directory DIR] fiscal report FILE|- Run a pinned internal fiscal report\n  billing [--directory DIR] cumulative setup FILE|- Set a cumulative billing basis\n  billing [--directory DIR] activity FILE|-   Submit cumulative activity\n  billing [--directory DIR] correct FILE|-    Apply an M5 quantity correction\n  billing [--directory DIR] close FILE|-      Close one logical billing period\n  billing [--directory DIR] adjustment statement FILE|- Issue an ad hoc adjustment statement\n  billing [--directory DIR] recurrence set FILE|- Set a recurrence rule\n  billing [--directory DIR] recurrence cancel FILE|- Cancel a recurrence rule\n  billing [--directory DIR] occurrences FILE|- Enumerate due occurrences\n  billing [--directory DIR] occurrence accept FILE|- Accept one due occurrence\n  billing [--directory DIR] accept --customer C --source S FILE|-\n  billing [--directory DIR] outcome --customer C --source S FILE|-\n  billing [--directory DIR] correct --customer C --source S FILE|-\n  billing [--directory DIR] agreement --customer C --source S FILE|-\n  billing [--directory DIR] permissions --customer C --source S [FILE|-]\n  billing [--directory DIR] explain --customer C TARGET_ID\n  billing [--directory DIR] statement --customer C\n  billing [--directory DIR] export-csv --customer C --snapshot HASH --mapping FILE --output FILE\nWork and outcome writes require an explicit customer and source; cumulative requests name them in JSON.\nBilling output is JSON; no payment or tax invoice. Use COMMAND --help for usage.\n--directory DIR may appear anywhere after billing; default: .\nGlobal --format text|json, --json, --no-color and --help/-h may appear before or after commands.\nHelp is plain text and never opens or creates an installation. Unknown command/subcommand paths\nreturn USAGE, exit 2 (JSON when requested); required command arguments may be omitted for help.\nSee docs/billing-quickstart.md and docs/billing-recovery.md.\n";
+// Resolve only the command path. Help deliberately does not read input files,
+// inspect an installation, or require complete operation arguments.
+pub fn help(raw: &[String]) -> Result<String, &'static str> {
+    let mut args = Vec::new();
+    let mut i = 0;
+    let mut seen_directory = false;
+    while i < raw.len() {
+        if raw[i] == "--directory" {
+            if seen_directory {
+                return Err("--directory supplied twice");
+            }
+            seen_directory = true;
+            i += 1;
+            raw.get(i)
+                .filter(|value| !value.starts_with('-'))
+                .ok_or("--directory requires DIR")?;
+        } else {
+            args.push(raw[i].as_str());
+        }
+        i += 1;
+    }
+    let command = args.first().copied().unwrap_or("");
+    let subcommand = args.get(1).copied();
+    let (usage, description) = match (command, subcommand) {
+        ("", _) => return Ok(HELP.into()),
+        ("setup", _) => (
+            "setup DIR [--setup FILE]",
+            "Guided, confirmed setup in a new private directory; requires an interactive terminal.\nSupplied terms, assent and operator authority are retained assertions.",
+        ),
+        ("init", _) => (
+            "init DIR --setup FILE",
+            "Noninteractive setup from strict JSON in a new or empty private directory.",
+        ),
+        ("upgrade", _) => (
+            "upgrade",
+            "Explicitly upgrade an existing billing installation's storage schema.\nFollow docs/billing-recovery.md and preserve a quiescent whole-installation backup.",
+        ),
+        ("accept", _) => (
+            "accept --customer C --source S FILE|-",
+            "Record completed work under the selected agreed terms and retain its receipt.\nThe work occurrence must be no later than both configured outcome-window starts.\nRetry uncertain results with identical original input and identifiers.",
+        ),
+        ("outcome", _) => (
+            "outcome --customer C --source S FILE|-",
+            "Record an authorized outcome for a retained target in its agreed ordinary window.\nThe receipt describes the adjustment; use explain with the original target for history.",
+        ),
+        ("correct", _) => (
+            "correct --customer C --source S FILE|-\n       ledger billing [--directory DIR] correct FILE|-",
+            "Correct an outcome using the target's expected revision and correction authority/window,\nor apply a cumulative quantity correction using the scope in its JSON request.\nCorrections append history; they do not overwrite accepted records.",
+        ),
+        ("agreement", _) => (
+            "agreement --customer C --source S FILE|-",
+            "Apply an explicit agreement lifecycle request with retained assent and authority evidence.\nExisting accepted targets retain their original terms.",
+        ),
+        ("permissions", _) => (
+            "permissions --customer C --source S [FILE|-]",
+            "Read current permissions when FILE is omitted; otherwise apply a permission change.\nChanges remain bounded by the original authority ceiling.",
+        ),
+        ("explain", _) => (
+            "explain --customer C TARGET_ID",
+            "Read the original target's complete retained history without repricing.\nUse it to reconcile base, outcome and correction receipts after an uncertain result.",
+        ),
+        ("statement", _) => (
+            "statement --customer C",
+            "Read a complete reconciled customer snapshot with exact integer totals and a snapshot hash.",
+        ),
+        ("export-csv", _) => (
+            "export-csv --customer C --snapshot HASH --mapping FILE --output FILE",
+            "Export a pinned complete snapshot using an explicit finance account mapping.\nThe output is a generic finance CSV; it does not collect payment or issue a tax invoice.",
+        ),
+        ("activity", _) => (
+            "activity FILE|-",
+            "Submit cumulative activity with customer and source specified in the JSON request.",
+        ),
+        ("close", _) => (
+            "close FILE|-",
+            "Close one logical billing period and retain its immutable period statement.",
+        ),
+        ("occurrences", _) => (
+            "occurrences FILE|-",
+            "Enumerate due occurrences for an explicitly configured recurrence.",
+        ),
+        ("term", None) => (
+            "term set FILE|-",
+            "Customer billing term commands; use ledger billing term set --help.",
+        ),
+        ("term", Some("set")) => (
+            "term set FILE|-",
+            "Set an explicit customer billing term using the request's retry identity and expected revision.",
+        ),
+        ("fiscal", None) => (
+            "fiscal set FILE|-\n       ledger billing [--directory DIR] fiscal report FILE|-",
+            "Fiscal calendar and pinned internal report commands.",
+        ),
+        ("fiscal", Some("set")) => (
+            "fiscal set FILE|-",
+            "Set the organization's fiscal calendar using an explicit revision-checked request.",
+        ),
+        ("fiscal", Some("report")) => (
+            "fiscal report FILE|-",
+            "Run a pinned internal fiscal report from a bounded JSON request.",
+        ),
+        ("cumulative", None | Some("setup")) => (
+            "cumulative setup FILE|-",
+            "Set a cumulative billing basis from explicit customer terms and authority evidence.",
+        ),
+        ("adjustment", None | Some("statement")) => (
+            "adjustment statement FILE|-",
+            "Issue an explicitly requested ad hoc adjustment statement; present each adjustment once.",
+        ),
+        ("recurrence", None) => (
+            "recurrence set FILE|-\n       ledger billing [--directory DIR] recurrence cancel FILE|-",
+            "Explicit recurrence lifecycle commands; occurrences are not accepted automatically.",
+        ),
+        ("recurrence", Some("set")) => (
+            "recurrence set FILE|-",
+            "Set an explicit recurrence rule from a revision-checked JSON request.",
+        ),
+        ("recurrence", Some("cancel")) => (
+            "recurrence cancel FILE|-",
+            "Cancel an explicit recurrence rule using its expected revision.",
+        ),
+        ("occurrence", None | Some("accept")) => (
+            "occurrence accept FILE|-",
+            "Accept one due occurrence with its original recurrence identity and agreed terms.",
+        ),
+        _ => return Err("unknown billing command or subcommand; use ledger billing --help"),
+    };
+    Ok(format!("Bean Counter local SQLite billing\n\nUsage: ledger billing [--directory DIR] {usage}\n\n{description}\n\n--directory DIR may appear anywhere after billing; default: .\nGlobal options: --format text|json, --json, --no-color, --help, -h.\nHelp is plain text; operation output is JSON. FILE|- means a regular JSON file\nor stdin. Help does not read input or open or create an installation.\nSee docs/billing-quickstart.md and docs/billing-recovery.md.\n"))
+}
 pub async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
     if a.config != Path::new("ledger.json") {
         return Ok(error(
