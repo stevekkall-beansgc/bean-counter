@@ -1,23 +1,24 @@
 # Bean Counter
 
-Local billing with durable receipts, explained corrections and complete statements.
+**Local billing with durable receipts, explained corrections and reconciled statements.**
 
-**[Start here](START-HERE.md)** for verified native installation, a synthetic first receipt and the product/agent integration route.
+Bean Counter is an Apache-2.0 billing engine for applications that produce completed generated work. Configure an agreed fixed price or quantity rate, record the completed work, and retain an exact receipt. It helps your application reconcile retries and corrections without rebuilding billing history for every product.
 
-Bean Counter is an Apache-2.0 local SQLite billing CLI, developed as Ledger Lab. The command remains `ledger` and the Rust crates remain `ledgerlab*`. Configure explicit customer terms, record fixed-price work, apply authorized adjustments and corrections, and export reconciled JSON statements. No hosted account, model API, runtime subscription or payment processor is required.
+**[Download v0.9.3 Open Beta and get your first synthetic receipt →](START-HERE.md)**
 
-**Current scope:** one business per private installation with multiple customers; multi-business tenancy and Bean-operated infrastructure are deferred. Operators administer the host, storage and backups. The M5 source-built v0.8.0 profile adds the explicit schema-10 to schema-11 lifecycle path, customer billing periods, cumulative usage, recurrence, fiscal reporting, immutable statement/4 close and finance export/4; see the [M5 qualification](docs/m5-qualification.md). Earlier M2 and M3 source-built transitions remain qualified only for their named paths. The v0.9.0 native packages passed the installed M5 journey on macOS 26.6.2/Apple silicon and Ubuntu 24.04.5/x86-64/glibc 2.39; see [M8 qualification](docs/m8-native-package-qualification.md). Resource reservations and completion guarantees, PostgreSQL product support, multi-host writer replacement and advanced comparison are deferred. Read the [public status](STATUS.md), [supported/deferred matrix](CURRENT-REQUIREMENTS.md), and the [billing product roadmap](docs/billing-roadmap.md).
+The release includes the `ledger` executable, verification/install tools, documentation and examples. Native qualification covers Apple-silicon macOS 26.6.2 and Ubuntu 24.04.5 x86-64/glibc 2.39. Install/example prerequisites are Python 3.11+ and curl; no hosted account, model API, runtime subscription, Rust compiler or payment processor is needed. Packages are unsigned/unnotarized; other platforms and clean-account launch remain unverified.
 
-The repository also contains frozen contracts, the bounded first acceptance slice, a typed pure core, reference histories, bounded outbox primitives and a local SQLite developer CLI. `ledger init --demo`, `accept`, `preview`, and `explain` run without Docker, Node, a cloud account, or a paid provider. Those commands still save and preview only the original generation slice; they do not expose the new outcome lifecycle. No HTTP service or payment execution is included. See the [local quickstart](docs/quickstart.md) for the runnable CLI workflow.
+One business owns each private local SQLite installation, with multiple customers and sources. Supported operations include fixed and exact scale-18 usage, explicit effective agreements, authorized corrections, immutable close statements, recurrence records, fiscal reports and finance CSV. You supply customer assent/authority evidence and operate the computer, storage and backups. Hosted APIs, payment collection, PostgreSQL billing and multi-host guarantees remain outside this beta.
 
-The frozen first slice shows demo-customer owing demo-host USD 0.80 for generation: USD 1.00 charge less USD 0.20 customer discount, with dispatch held. Supplier obligations and provider cost observations are separate; neither is recorded in this demo. The separate design onboarding chain totals 120 atoms. The [upcoming linked-work story](docs/upcoming-story.md) is documentation only; it creates no ledger history.
+[Release/downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3) · [Supported scope](CURRENT-REQUIREMENTS.md) · [Operator checklist](docs/billing-operations.md) · [Integration guide](docs/integration-agent-guide.md)
 
 ## Ordinary local billing
 
 The `ledger billing` profile accepts operator-configured fixed-price retail work, outcome adjustments and authorized corrections, with durable receipts, duplicate protection, revocable local permissions and complete JSON statements. Start with the [billing quickstart](docs/billing-quickstart.md), [recovery procedure](docs/billing-recovery.md) and [resource/cost manifest](docs/resources-and-costs.md). It uses a separate installation with explicit terms. The repository includes illustrative inputs, never customer assent obtained by the program. No payment is collected and a statement is not a tax/legal invoice.
 
-The [v0.9.3 candidate package instructions and integration guide](examples/integration/README.md) provide `ledger billing setup DIR`, a guided terminal setup without hand-authored JSON, and a strict JSON interface for products. This checkout prepares the [Open Beta](docs/open-beta.md) candidate; acquire v0.9.3 only after its matching release is published with exact source/native qualification. Published [v0.9.2](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.2) remains a separate baseline with its own instructions and immutable assets. Native packages are unsigned and have only the tested platform coverage stated above.
+The [released package and integration guide](examples/integration/README.md) describe guided terminal setup and the strict CLI/JSON interface. Use [START-HERE.md](START-HERE.md) for the complete download/install/example path. Published v0.9.2 and earlier releases retain their own immutable bytes and version-matched instructions. No Rust crates are published by the native release.
 
+For a source build:
 ```sh
 cargo build --release --locked -p ledgerlab-cli
 ./target/release/ledger billing --help

@@ -4,12 +4,13 @@ The current M5 local SQLite source profile includes customers and sources, fixed
 
 ## Native release and installation
 
-These instructions target the **v0.9.3 Open Beta candidate**, including optimized-Python-safe synthetic verification. Use them only with matching v0.9.3 assets from one trusted candidate distribution, or after the exact release is published with its own source, native qualification and checksum evidence. The published [v0.9.2 baseline](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.2) corrected the helper version and working-directory-independent command; use its own instructions, verifier and installer for its immutable assets. Its synthetic helper must run without `PYTHONOPTIMIZE`. A local or CI candidate is not a published release. Published v0.9.1 remains preserved; its synthetic helper rejects its own binary, although its Python/Node outbox compatibility correction is retained in v0.9.2. The [M8 qualification](../../docs/m8-native-package-qualification.md) preserves the original v0.9.0 predecessor at source `2487dcfa9333b54c8622fd826e289fcaccb7ee22`. The bounded qualification targets are macOS 26.6.2 on Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
+These instructions apply to the [released v0.9.3 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3), source `d9de6e2e50e846b2210c8c889f8d7493e127d5f7`. For the complete public download → verified installation → synthetic receipt sequence, start at [START-HERE.md](../../START-HERE.md). The qualification targets are macOS 26.6.2 Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified. [Qualification evidence](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.3/QUALIFICATION.json) records the exact archives and native/emulated distinction. Older published archives remain immutable; use each release's own instructions and tools.
 
-Use the archive, `SHA256SUMS`, expected source commit, verifier and installer from the same trusted release/candidate distribution. The installer and verifier must be obtained separately before extracting an unverified archive. Python 3.11+ is required for verification and installation; Rust and Node are unnecessary for ordinary installed billing. Do not treat the checksum or unsigned provenance as a signature.
+Use the archive, `SHA256SUMS`, expected source commit, verifier and installer from the same trusted release. The installer and verifier must be obtained separately before extracting an unverified archive. Python 3.11+ is required for verification and installation; Rust and Node are unnecessary for ordinary installed billing. Do not treat the checksum or unsigned provenance as a signature.
 
 ```sh
-# SOURCE_COMMIT is the full source SHA recorded in the trusted candidate/release evidence.
+# Exact source of the released v0.9.3 binary, independent of later docs changes.
+SOURCE_COMMIT=d9de6e2e50e846b2210c8c889f8d7493e127d5f7
 export PACKAGE_ROOT="$HOME/bean-counter-v0.9.3"
 sh install-macos-arm64.sh bean-counter-v0.9.3-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 # Or on the named Ubuntu host:
@@ -36,7 +37,7 @@ Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `
 
 ## Synthetic product journey
 
-The v0.9.3 helper accepts only exact `ledger 0.9.3 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. Use the matching v0.9.3 candidate/package for these instructions; preserve prior archives and checksums.
+The v0.9.3 helper accepts only exact `ledger 0.9.3 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. Use the matching released v0.9.3 package for these instructions; preserve prior archives and checksums.
 
 The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Keep `PACKAGE_ROOT` set to the absolute installed v0.9.3 directory and `LEDGER` to its executable as above. Before running, confirm `"$LEDGER" --version` reports the matching identity.
 

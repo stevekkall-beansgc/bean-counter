@@ -1,14 +1,23 @@
 {
   "schema": "bean-counter-cli-capabilities/1",
-  "status": "candidate-distribution",
+  "status": "released-open-beta",
   "authority": "descriptive-only",
   "native_baseline": {
     "version": "0.9.3",
-    "qualification_status": "requires-fresh-exact-source-and-installed-archive-qualification",
-    "source_commit_evidence": "candidate MANIFEST.json source_commit; confirm exact QA/CI, native qualification and publication before treating it as a release",
-    "release": null,
-    "intended_release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3",
-    "tested_targets": [],
+    "qualification_status": "exact-source-and-installed-archive-qualified",
+    "source_commit_evidence": "published v0.9.3 release, QUALIFICATION.json and archive MANIFEST.json; later documentation commits are not binary identity",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.3",
+    "tested_targets": [
+      {
+        "target": "aarch64-apple-darwin",
+        "host": "macOS 26.6.2 arm64"
+      },
+      {
+        "target": "x86_64-unknown-linux-gnu",
+        "host": "Ubuntu 24.04.5 x86-64",
+        "libc": "glibc 2.39"
+      }
+    ],
     "qualification_targets": [
       {
         "target": "aarch64-apple-darwin",
@@ -22,7 +31,9 @@
     ],
     "signed": false,
     "notarized": false,
-    "clean_account_downloaded_launch_qualified": false
+    "clean_account_downloaded_launch_qualified": false,
+    "source_commit": "d9de6e2e50e846b2210c8c889f8d7493e127d5f7",
+    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.3/QUALIFICATION.json"
   },
   "historical_native_baseline": {
     "version": "0.9.2",
