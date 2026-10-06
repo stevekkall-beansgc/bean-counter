@@ -90,6 +90,8 @@ This is a correctness example, not measured unfamiliar-user timing. Keep its syn
 
 Start with the [integration guide](docs/integration-agent-guide.md) and [Python/Node examples](examples/integration/README.md#configure-real-terms). Configure your actual parties, agreed price/unit rate, assent evidence and permissions using [guided setup](docs/billing-quickstart.md#set-up-explicit-terms). Preserve exact request bytes and original identities when retrying an unknown result. Read the [operator and recovery checklist](docs/billing-operations.md) before business use.
 
+The current fixed outcome policy supports **bounded cohorts**, not indefinite continuously arriving work under one static agreement. Complete work no later than both ordinary/correction window starts, then report each outcome within its window. Setup requires a family and freezes its timing bounds on every base acceptance even if you submit no outcome. Read [the exact timing rules](docs/billing-quickstart.md#set-up-explicit-terms) before choosing real terms. Retain the original base target: outcome/correction receipts have a different shape. Follow [operation-specific reconciliation](docs/integration-agent-guide.md#reconcile-each-operation).
+
 One operator-controlled business owns each private local SQLite installation. Supported operations include multiple customers/sources, fixed and scale-18 usage, effective agreements, immutable close statements, linked corrections, recurrence records, fiscal reporting and finance CSV. There is no hosted API, payment collection, automatic recurrence charging, tax/legal invoice certification, PostgreSQL billing or multi-host guarantee. See [scope and limitations](CURRENT-REQUIREMENTS.md).
 
 ## If something fails

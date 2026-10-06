@@ -60,7 +60,8 @@
     "caller_history_formats": ["ledger-billing-statement/2", "ledger-billing-statement/3"],
     "released_0_9_0_caller_history_formats": ["ledger-billing-statement/2"],
     "helper_fix_included": true,
-    "engine_economic_contract_changed": false
+    "engine_economic_contract_changed": false,
+    "bundled_outbox_operations": ["base-accept"]
   },
   "transport": {"kind": "local-cli-process", "input": "strict-json-file-or-stdin", "output": "json-and-process-exit-code"},
   "storage": {"backend": "local-sqlite", "schema": 11, "businesses_per_installation": 1, "writer": "exclusive-local-owner"},
@@ -72,23 +73,36 @@
     "quantity_setup": "ledger-local-billing/2",
     "quantity": "one-configured-unit-and-positive-bounded-integer-quantity",
     "money": "USD-integer-atoms-at-scale-2-or-18",
-    "failed_usage_work": "refused-before-charge"
+    "failed_usage_work": "refused-before-charge",
+    "outcome_timing": {
+      "required_families": 1,
+      "policy": "immutable-absolute-ordinary-and-correction-windows",
+      "base_freeze": "base.occurred_at <= ordinary.starts_at and base.occurred_at <= corrections.starts_at",
+      "window_order": "starts_at < occurs_before <= received_by <= accepted_by",
+      "adjustment_occurrence": "starts_at <= occurred_at < occurs_before",
+      "clock_order": "occurred_at <= received_at <= accepted_at",
+      "deadlines": "received_at <= received_by and accepted_at <= accepted_by",
+      "supported_flow": "bounded-cohort-completed-no-later-than-both-starts",
+      "skip_outcomes_bypasses_base_freeze": false,
+      "continuously_arriving_work_under_static_agreement": false
+    }
   },
   "responses_by_operation": {
     "base_accept": "base-acceptance-receipt-on-accepted-or-duplicate-response",
+    "outcome_and_correction": {"receipt_kind": "receipt", "body_target": false, "target_history": "retain-original-base-target-and-match-entry.target-and-retained-event.data.target", "verification": "docs/integration-agent-guide.md#reconcile-each-operation"},
     "history_explain_and_statement": ["ledger-billing-statement/2", "ledger-billing-statement/3"],
     "period_close": "ledger-billing-statement/4",
     "finance_export": ["ledger-finance-export/2", "ledger-finance-export/3", "ledger-finance-export/4"]
   },
   "required_operator_inputs": ["private-canonical-installation", "business-customer-source-identities", "agreed-price-or-unit-rate", "retained-assent-and-authority-evidence", "explicit-outcome-windows", "permissions", "host-storage-resources-and-backups"],
-  "retry": {"persist_before_write": ["exact-request-bytes", "customer", "source", "delivery-id", "operation-id"], "unknown_result": "reopen-same-installation-and-retry-identical-request", "replacement_identity_recovery": false, "acknowledge": "complete-target-history-matches-original-receipt-and-operation"},
+  "retry": {"persist_before_write": ["exact-request-bytes", "command-kind", "canonical-installation", "customer", "source", "delivery-id", "base-operation-id-for-accept", "original-base-target-for-adjustments"], "unknown_result": "reopen-same-installation-and-retry-identical-request", "replacement_identity_recovery": false, "acknowledge": "complete-original-base-target-history-matches-exact-receipt-scope-and-operation-specific-original-request-facts"},
   "exit_codes": {"0": "success-or-duplicate", "2": "usage-config-input-file", "3": "refused-or-not-found", "4": "identity-conflict", "5": "waiting", "6": "unauthorized", "7": "busy-or-unavailable", "8": "outcome-unknown", "9": "integrity-failure"},
   "examples": [
     {"caller": "python", "product": "completed-generated-report", "profile": "fixed-price", "helper": "examples/integration/billing_outbox.py", "setup": "examples/billing/setup.json", "event": "examples/billing/event.json"},
     {"caller": "node", "product": "completed-generated-draft", "profile": "one-unit-quantity", "helper": "examples/integration/billing_outbox.mjs", "setup": "examples/billing/usage/setup.json", "event": "examples/billing/usage/event.json"}
   ],
   "supported": ["fixed-and-quantity-work", "multiple-customers-and-sources", "immutable-effective-dated-terms", "authorized-outcomes-and-corrections", "customer-periods-and-immutable-close", "cumulative-conversion", "explicit-recurrence", "linked-post-close-adjustments", "separate-fiscal-reporting", "finance-csv", "quiescent-whole-installation-recovery"],
-  "deferred": ["payment-execution", "tax-legal-invoice-status", "remote-api", "managed-hosting", "postgresql-billing", "multi-host-writers", "automatic-recurrence-charges", "arbitrary-linked-event-pricing", "multiple-units-per-agreement", "general-fee-formulas", "resource-reservations", "signed-provenance"],
+  "deferred": ["payment-execution", "tax-legal-invoice-status", "remote-api", "managed-hosting", "postgresql-billing", "multi-host-writers", "automatic-recurrence-charges", "arbitrary-linked-event-pricing", "multiple-units-per-agreement", "general-fee-formulas", "resource-reservations", "signed-provenance", "general-continuously-arriving-work-under-one-static-outcome-policy"],
   "entry_points": ["START-HERE.md", "docs/integration-agent-guide.md", "docs/billing-operations.md", "docs/oss1-readiness.md", "docs/agreement-and-integration.md", "docs/beana-adoption-packet.md", "docs/participant-adoption-tasks.md"],
   "unfamiliar_developer_usability": "not-yet-measured"
 }
