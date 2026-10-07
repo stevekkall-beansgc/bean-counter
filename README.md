@@ -1,5 +1,7 @@
 # Bean Counter
 
+<img src="docs/assets/bean-counter.svg" alt="Bean Counter: an orange bean wearing an accountant’s green visor" width="180" height="180">
+
 **Local billing with durable receipts, explained corrections and reconciled statements.**
 
 Bean Counter is an Apache-2.0 billing engine for applications that produce completed generated work. Configure an agreed fixed price or quantity rate, record the completed work, and retain an exact receipt. It helps your application reconcile retries and corrections without rebuilding billing history for every product.
