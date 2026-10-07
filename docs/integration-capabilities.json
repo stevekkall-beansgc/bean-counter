@@ -2,20 +2,21 @@
   "schema": "bean-counter-cli-capabilities/1",
   "status": "open-beta-version-matched-instructions",
   "released_source": {
-    "version": "0.9.4",
+    "version": "0.9.5",
     "qualification_status": "exact-source-qa-ci-and-native-package-qualification-passed",
     "publication_status": "published",
-    "source_commit_evidence": "historical published v0.9.4 release notes and QUALIFICATION.json; applies only to those immutable assets",
+    "source_commit": "3406c1782b45a28ef39b974bf23978c72b44764e",
+    "source_commit_evidence": "historical published v0.9.5 release notes and QUALIFICATION.json; applies only to those immutable assets",
     "billing_semantics_changed": false
   },
   "authority": "descriptive-only",
   "current_package": {
-    "version": "0.9.5",
+    "version": "0.9.6",
     "qualification_status": "consult-matching-release-qualification",
     "publication_status": "consult-matching-release-page",
     "source_commit_evidence": "matching published release notes, QUALIFICATION.json and archive MANIFEST.json; checkout or candidate alone does not establish qualification or publication",
-    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5",
-    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6",
+    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json",
     "billing_semantics_changed": false,
     "bundled_bounded_cohort": true,
     "qualification_checker": "scripts/check-bounded-cohort.py",
@@ -27,9 +28,30 @@
     ]
   },
   "native_baseline": {
-    "version": "0.9.5",
+    "version": "0.9.6",
     "qualification_status": "consult-matching-release-qualification",
     "source_commit_evidence": "matching published release notes, QUALIFICATION.json and archive MANIFEST.json; checkout or candidate alone does not establish qualification or publication",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6",
+    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json",
+    "qualification_targets": [
+      {
+        "target": "aarch64-apple-darwin",
+        "host": "macOS 26.6.2 arm64"
+      },
+      {
+        "target": "x86_64-unknown-linux-gnu",
+        "host": "Ubuntu 24.04.5 x86-64",
+        "libc": "glibc 2.39"
+      }
+    ],
+    "signed": false,
+    "notarized": false,
+    "clean_account_downloaded_launch_qualified": false
+  },
+  "historical_native_baseline_v095": {
+    "version": "0.9.5",
+    "qualification_status": "exact-source-and-installed-archive-qualified",
+    "source_commit_evidence": "historical published v0.9.5 release, QUALIFICATION.json and archive MANIFEST.json; applies only to those immutable assets",
     "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5",
     "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json",
     "qualification_targets": [
@@ -45,7 +67,19 @@
     ],
     "signed": false,
     "notarized": false,
-    "clean_account_downloaded_launch_qualified": false
+    "clean_account_downloaded_launch_qualified": false,
+    "source_commit": "3406c1782b45a28ef39b974bf23978c72b44764e",
+    "tested_targets": [
+      {
+        "target": "aarch64-apple-darwin",
+        "host": "macOS 26.6.2 arm64"
+      },
+      {
+        "target": "x86_64-unknown-linux-gnu",
+        "host": "Ubuntu 24.04.5 x86-64",
+        "libc": "glibc 2.39"
+      }
+    ]
   },
   "historical_native_baseline_v094": {
     "version": "0.9.4",

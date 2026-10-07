@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -41,7 +42,17 @@ def main():
         evidence = Path(tempfile.mkdtemp(prefix="bean-bounded-check-")).resolve()
     results = []
 
-    def run(label, work, scenario="evidence-classification", optimized=False, example=EXAMPLE, extra=(), error=None):
+    def snapshot(path):
+        paths = [path, *sorted(path.rglob("*"))] if path.is_dir() else [path]
+        return {str(item.relative_to(path.parent)): {
+            "mode": stat.S_IMODE(item.lstat().st_mode),
+            "type": "symlink" if item.is_symlink() else "file" if item.is_file() else "directory",
+            "sha256": hashlib.sha256(item.read_bytes()).hexdigest() if item.is_file() and not item.is_symlink() else None,
+        } for item in paths}
+
+    def run(label, work, scenario="evidence-classification", optimized=False, example=EXAMPLE, extra=(), error=None,
+            preserve_existing=False):
+        before = snapshot(work) if preserve_existing else None
         argv = [sys.executable, *(["-O"] if optimized else []), str(example), "--ledger", str(ledger),
                 "--work-dir", str(work), "--scenario", scenario, *map(str, extra)]
         outcome = subprocess.run(argv, capture_output=True)
@@ -53,7 +64,15 @@ def main():
         (evidence / "results.json").write_text(json.dumps(results, indent=2) + "\n")
         require(outcome.returncode == result["expected_exit"], f"{label}: unexpected exit; preserve {evidence}")
         if error:
-            require(error in outcome.stderr.decode() and not work.exists(), f"{label}: diagnostic or before-write refusal missing")
+            require(error in outcome.stderr.decode(), f"{label}: diagnostic missing")
+            if preserve_existing:
+                after = snapshot(work)
+                (evidence / (label + ".preservation.json")).write_text(json.dumps({"before": before, "after": after}, indent=2) + "\n")
+                require(before == after, f"{label}: existing path or evidence changed")
+                require(str(work) in outcome.stderr.decode() and "Create only the parent" in outcome.stderr.decode(),
+                        f"{label}: existing path remedy missing")
+            else:
+                require(not work.exists(), f"{label}: before-write refusal missing")
         print(f"PASS {label} (exit {outcome.returncode})", flush=True)
 
     version = subprocess.run([str(ledger), "--version"], capture_output=True)
@@ -75,6 +94,15 @@ def main():
         for scenario in SCENARIOS:
             label = scenario + "-" + suffix
             run(label, evidence / label, scenario, optimized)
+        existing = evidence / ("existing-directory-" + suffix)
+        existing.mkdir(mode=0o700)
+        (existing / "original-evidence.json").write_text('{"preserve":"original evidence"}\n')
+        run("existing-directory-" + suffix, existing, optimized=optimized,
+            error="Trial work path already exists:", preserve_existing=True)
+        existing_file = evidence / ("existing-file-" + suffix)
+        existing_file.write_text("preserve original file\n")
+        run("existing-file-" + suffix, existing_file, optimized=optimized,
+            error="Trial work path already exists:", preserve_existing=True)
         public = evidence / ("public-parent-" + suffix)
         public.mkdir(mode=0o755)
         public.chmod(0o755)

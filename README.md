@@ -4,9 +4,11 @@
 
 Bean Counter is an Apache-2.0 billing engine for applications that produce completed generated work. Configure an agreed fixed price or quantity rate, record the completed work, and retain an exact receipt. It helps your application reconcile retries and corrections without rebuilding billing history for every product.
 
-**[Install v0.9.5 Open Beta and get a first synthetic receipt →](START-HERE.md)**
+**[Install v0.9.6 Open Beta and get a first synthetic receipt →](START-HERE.md)**
 
-These instructions match **v0.9.5 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. The package includes the executable, verification/install tools, documentation, examples, full bounded-cohort fixtures and checker.
+These instructions match **v0.9.6 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. The package includes the executable, verification/install tools, documentation, examples, full bounded-cohort fixtures and checker.
+
+Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5)** was released from `3406c1782b45a28ef39b974bf23978c72b44764e`. Its [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) identifies that release's actual checks and immutable assets. Use its matching instructions for those bytes; the v0.9.6 fixes require their own qualification.
 
 Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
 
@@ -14,7 +16,7 @@ The native package includes the `ledger` executable, verification/install tools,
 
 One business owns each private local SQLite installation, with multiple customers and sources. Supported operations include fixed and exact scale-18 usage, explicit effective agreements, authorized corrections, immutable close statements, recurrence records, fiscal reports and finance CSV. You supply customer assent/authority evidence and operate the computer, storage and backups. Hosted APIs, payment collection, PostgreSQL billing and multi-host guarantees remain outside this beta.
 
-[Release/downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5) · [Supported scope](CURRENT-REQUIREMENTS.md) · [Operator checklist](docs/billing-operations.md) · [Integration guide](docs/integration-agent-guide.md)
+[Release/downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) · [Supported scope](CURRENT-REQUIREMENTS.md) · [Operator checklist](docs/billing-operations.md) · [Integration guide](docs/integration-agent-guide.md)
 
 ## Ordinary local billing
 
