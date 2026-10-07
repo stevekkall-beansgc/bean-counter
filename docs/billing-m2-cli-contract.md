@@ -35,7 +35,7 @@ Base acceptance resolves the agreement active at the first successful serialized
 
 ## Storage and upgrade
 
-The schema-8/9 procedure below records the historical M2 qualification, not the current native installation path. The v0.9.4 candidate retains schema 11; the historical native schema-10-to-11 upgrade and older-writer refusal are recorded in [M8 qualification](m8-native-package-qualification.md). Follow [current requirements](../CURRENT-REQUIREMENTS.md) and the exact release's installed instructions. Earlier multi-step upgrades are not qualified by the native M8 result.
+The schema-8/9 procedure below records the historical M2 qualification, not the current native installation path. The v0.9.5 package retains schema 11; the historical native schema-10-to-11 upgrade and older-writer refusal are recorded in [M8 qualification](m8-native-package-qualification.md). Follow [current requirements](../CURRENT-REQUIREMENTS.md) and the exact release's installed instructions. Earlier multi-step upgrades are not qualified by the native M8 result.
 
 New installations are created at SQLite schema 9. Opening schema 8 refuses without migration. Run `billing upgrade` explicitly against a v0.4.3 schema-8 installation. The coordinator validates the complete retained setup, permission history, receipts, entries, and aliases before mutation; the migration then rechecks a digest of the exact schema-8 rows under the exclusive owner lock and commits schema 9 and its initial customer/agreement mapping in one transaction. An unknown result is reconciled by reopening: schema 9 with its exact mapping is already current; schema 8 is eligible for the same explicit retry. Never replace a nonempty installation with a new store.
 

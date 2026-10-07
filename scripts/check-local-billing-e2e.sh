@@ -8,3 +8,4 @@ esac
 cargo test -p ledgerlab-cli --all-targets --all-features --locked --offline
 cargo build -p ledgerlab-cli --all-features --locked --offline
 python3 scripts/test-synthetic-verification.py "${CARGO_TARGET_DIR:-target}/debug/ledger"
+python3 scripts/check-bounded-cohort.py "${CARGO_TARGET_DIR:-target}/debug/ledger"

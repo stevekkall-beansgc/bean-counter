@@ -1,6 +1,8 @@
 # Bean Counter open beta
 
-This checkout is the v0.9.4 candidate. Its matching package qualification and publication are pending; the v0.9.3 release evidence below applies only to that immutable version. Follow the candidate [START-HERE](../START-HERE.md) only with its matching published assets.
+These instructions match **v0.9.5 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes.
+
+Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
 
 Owner decision, October 6, 2026: market the supported local SQLite product as an open beta. Named trial participants and completed M9 unfamiliar-human trials are not prerequisites for the beta. Feedback is welcome after users choose to participate; no one is contacted automatically. M9 remains unrun for eventual OSS 1.0 acceptance.
 

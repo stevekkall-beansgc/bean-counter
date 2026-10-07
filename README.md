@@ -4,21 +4,23 @@
 
 Bean Counter is an Apache-2.0 billing engine for applications that produce completed generated work. Configure an agreed fixed price or quantity rate, record the completed work, and retain an exact receipt. It helps your application reconcile retries and corrections without rebuilding billing history for every product.
 
-**[Download v0.9.4 Open Beta and get a first synthetic receipt →](START-HERE.md)**
+**[Install v0.9.5 Open Beta and get a first synthetic receipt →](START-HERE.md)**
 
-The **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** is released from `e897ef108753447371282cb5253fc88634e5977d`, with unchanged billing contract v0.3 and schema 11. Exact-source QA/CI and both native installed journeys passed; matching public downloads were verified. See the [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Older releases retain their own matching assets and instructions.
+These instructions match **v0.9.5 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. The package includes the executable, verification/install tools, documentation, examples, full bounded-cohort fixtures and checker.
 
-The native package includes the `ledger` executable, verification/install tools, documentation and examples. Published v0.9.4 native qualification covers Apple-silicon macOS 26.6.2 and Ubuntu 24.04.5 x86-64/glibc 2.39. Install/example prerequisites are Python 3.11+ and curl; no hosted account, model API, runtime subscription, Rust compiler or payment processor is needed. Packages are unsigned/unnotarized; other platforms and clean-account launch remain unverified.
+Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
+
+The native package includes the `ledger` executable, verification/install tools, documentation and examples. Historical v0.9.4 native qualification covered Apple-silicon macOS 26.6.2 and Ubuntu 24.04.5 x86-64/glibc 2.39. Install/example prerequisites are Python 3.11+ and curl; no hosted account, model API, runtime subscription, Rust compiler or payment processor is needed. Packages are unsigned/unnotarized; other platforms and clean-account launch remain unverified.
 
 One business owns each private local SQLite installation, with multiple customers and sources. Supported operations include fixed and exact scale-18 usage, explicit effective agreements, authorized corrections, immutable close statements, recurrence records, fiscal reports and finance CSV. You supply customer assent/authority evidence and operate the computer, storage and backups. Hosted APIs, payment collection, PostgreSQL billing and multi-host guarantees remain outside this beta.
 
-[Release/downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4) · [Supported scope](CURRENT-REQUIREMENTS.md) · [Operator checklist](docs/billing-operations.md) · [Integration guide](docs/integration-agent-guide.md)
+[Release/downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5) · [Supported scope](CURRENT-REQUIREMENTS.md) · [Operator checklist](docs/billing-operations.md) · [Integration guide](docs/integration-agent-guide.md)
 
 ## Ordinary local billing
 
 The `ledger billing` profile accepts operator-configured fixed-price retail work, outcome adjustments and authorized corrections, with durable receipts, duplicate protection, revocable local permissions and complete JSON statements. Start with the [billing quickstart](docs/billing-quickstart.md), [recovery procedure](docs/billing-recovery.md) and [resource/cost manifest](docs/resources-and-costs.md). It uses a separate installation with explicit terms. The repository includes illustrative inputs, never customer assent obtained by the program. No payment is collected and a statement is not a tax/legal invoice.
 
-The [released package and integration guide](examples/integration/README.md) describe guided terminal setup and the strict CLI/JSON interface. Use [START-HERE.md](START-HERE.md) for the complete download/install/example path. Published v0.9.2 and earlier releases retain their own immutable bytes and version-matched instructions. No Rust crates are published by the native release.
+The [version-matched package and integration guide](examples/integration/README.md) describe guided terminal setup and the strict CLI/JSON interface. Use [START-HERE.md](START-HERE.md) for the complete download/install/example path. Published v0.9.2 and earlier releases retain their own immutable bytes and version-matched instructions. No Rust crates are published by the native release.
 
 For a source build:
 ```sh

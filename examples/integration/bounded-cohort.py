@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline bounded-cohort demonstration against the released v0.9.4 CLI.
+"""Offline bounded-cohort demonstration against the matching v0.9.5 CLI.
 
 Synthetic terms and evidence only. This is a fresh-trial example, not a resumable
 outbox or a production outcome SDK. Preserve its directory after any failure.
@@ -9,8 +9,11 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
+import shlex
+import stat
 import sys
 import time
 
@@ -55,6 +58,27 @@ def physical(path):
     return path
 
 
+def validate_inputs(root, fixtures):
+    require(root.parent.is_dir(), f"Missing trial parent: {root.parent}; create a deliberately chosen private directory first")
+    mode = stat.S_IMODE(root.parent.stat().st_mode)
+    quoted = shlex.quote(str(root.parent))
+    require(mode & 0o077 == 0,
+            f"Trial parent {root.parent} has mode {mode:04o}; require no group/other access (normally 0700). "
+            f"For this deliberately chosen trial parent, run: mkdir -p {quoted} && chmod 700 {quoted}; "
+            "then retry with a new child. Never change a business directory automatically")
+    names = ("setup-synthetic.json", "artifacts.json", "failed-work.json", "observations.json")
+    missing = [name for name in names if not (fixtures / name).is_file()]
+    require(not missing,
+            f"Missing bounded-cohort fixtures in {fixtures}: {', '.join(missing)}. "
+            "Copy bounded-cohort.py together with the entire bounded-cohort directory, "
+            "or pass --fixtures-dir /absolute/physical/path/to/bounded-cohort")
+    for name in names:
+        physical(fixtures / name)
+        require((fixtures / name).is_file(), f"Fixture must be a regular file: {fixtures / name}")
+    # Parse every dependency before creating a trial or invoking the ledger.
+    return {name: json.loads((fixtures / name).read_bytes()) for name in names}
+
+
 def wait_until(boundary):
     while True:
         remaining = (boundary - now()).total_seconds()
@@ -64,8 +88,8 @@ def wait_until(boundary):
 
 
 class Trial:
-    def __init__(self, ledger, root):
-        self.ledger, self.root = str(ledger), root
+    def __init__(self, ledger, root, fixtures):
+        self.ledger, self.root, self.fixtures = str(ledger), root, fixtures
         self.store = root / "store"
         self.sequence = 0
 
@@ -132,12 +156,13 @@ class Trial:
                 "occurred_at": request["occurred_at"], "retained_evidence": request["evidence"]},
                 "Retained outcome facts differ")
         require(all(data.get(k) == v for k, v in common.items()), "Retained event facts differ")
-        expected_atoms = 2 if operation == "accept" or request["code"] == "success" else 0
         postings = entry["postings"]
+        require(all(isinstance(v, str) and re.fullmatch(r"0|-?[1-9][0-9]*", v)
+                    for v in [entry["net_atoms"], *(p["body"]["amount"]["atoms"] for p in postings)]),
+                "Noncanonical integer atoms in retained history")
         require(all(p["body"]["amount"]["currency"] == "USD" and p["body"]["amount"]["scale"] == 2
                     for p in postings), "Wrong posting money")
-        require(sum(int(p["body"]["amount"]["atoms"]) for p in postings) == expected_atoms
-                and int(entry["net_atoms"]) == expected_atoms, "Posting/entry totals differ")
+        require(sum(int(p["body"]["amount"]["atoms"]) for p in postings) == int(entry["net_atoms"]), "Posting/entry totals differ")
         # Every receipt member/reference must be retained with its exact hash.
         if operation == "accept":
             refs = receipt["body"]["members"]
@@ -161,10 +186,52 @@ class Trial:
         return response["receipt"]
 
 
-def cohort(trial):
+def failed_work(trial, fixture):
+    begun = now()
+    try:
+        # Deterministic offline stand-in for failure before the agreed completed save.
+        raise TimeoutError("Deliberate synthetic transport timeout before report generation")
+    except TimeoutError as error:
+        record = {"name": fixture["name"], "operation_id": fixture["name"] + "-generation",
+                  "attempt_started_at": stamp(begun), "failed_at": stamp(now()),
+                  "classification": "transport-error", "transport": "timeout", "http_status": None,
+                  "parse_status": "not-attempted", "verified_count": None,
+                  "error_type": type(error).__name__, "error": str(error),
+                  "work_completed": False, "base_acknowledged": False,
+                  "outcome_acknowledged": False, "synthetic": True}
+        save(trial.root / (fixture["name"] + ".work-error.json"), record)
+        return record
+
+
+def fixture_expectations(scenario, summary, history):
+    # These expectations belong only to the unchanged synthetic terms and fixtures.
+    expected = {"five-completed-artifacts": (10, 4, 14, 10, 10, 2),
+                "failed-work": (8, 8, 16, 8, 8, 4),
+                "completed-work-assessment-error": (2, 0, 2, 1, 1, 0)}[scenario]
+    observed = tuple(summary[k] for k in ("base_atoms", "adjustment_atoms", "net_atoms",
+                                          "retained_entries", "identical_retries"))
+    require(observed == expected[:5] and
+            sum(e["classification"] == "criteria-met" for e in summary["assessments"]) == expected[5],
+            "Observed totals/counts differ from the named synthetic fixture; preserve actual evidence")
+    expected_work = {"five-completed-artifacts": (5, 5, 5, 0, 0, 0),
+                     "failed-work": (5, 4, 4, 1, 0, 0),
+                     "completed-work-assessment-error": (1, 1, 1, 0, 1, 1)}[scenario]
+    require(tuple(summary[k] for k in ("attempted_work", "completed_work", "billable_work",
+                                       "unacknowledged_work_failures", "pending_outcomes",
+                                       "assessment_error_count")) == expected_work,
+            "Work/error/pending counts differ from the named synthetic fixture")
+    for entry in history["entries"]:
+        event = next(r for r in entry["records"] if r["kind"] == "event")
+        facts = event["body"]["data"]
+        expected_atoms = 2 if facts["type"] == "base" or facts["code"] == "success" else 0
+        require(int(entry["net_atoms"]) == expected_atoms,
+                "Per-entry amount differs from the fixed synthetic base/outcome terms")
+
+
+def cohort(trial, scenario):
     created = now()
     start = created + timedelta(seconds=12)
-    setup = json.loads((FIXTURES.parent / "setup-synthetic.json").read_bytes())
+    setup = trial.fixtures["setup-synthetic.json"]
     setup["accepted_at"] = stamp(created)
     setup["assent_evidence"] = (
         "SYNTHETIC ONLY. Base USD 0.02 per completed local report. The agreed outcome is a NEW "
@@ -183,8 +250,16 @@ def cohort(trial):
     save(trial.root / "setup.json", setup)
     print("Illustrative synthetic terms/windows:\n" + json.dumps(setup, indent=2), flush=True)
     trial.call("init", ["billing", "init", trial.store, "--setup", trial.root / "setup.json", "--json"])
-    artifacts = []
-    for fixture in json.loads((FIXTURES / "artifacts.json").read_bytes()):
+    artifacts, work_errors = [], []
+    fixtures = trial.fixtures["artifacts.json"]
+    if scenario == "failed-work":
+        fixtures = trial.fixtures["failed-work.json"]
+    elif scenario == "completed-work-assessment-error":
+        fixtures = fixtures[:1]
+    for fixture in fixtures:
+        if fixture.get("fail_before_completion"):
+            work_errors.append(failed_work(trial, fixture))
+            continue
         begun = now()
         artifact = trial.root / (fixture["name"] + ".artifact.json")
         save(artifact, fixture)
@@ -204,11 +279,22 @@ def cohort(trial):
         target = receipt["body"]["target"]
         trial.verify("accept", request, receipt, target, receipt, fixture["name"] + "-base-explain")
         artifacts.append((artifact, record, path, receipt, target))
-    print("Five reports completed and base receipts reconciled; waiting for ordinary start.", flush=True)
+    print(f"{len(artifacts)} reports completed and base receipts reconciled; waiting for ordinary start.", flush=True)
+    bases_only = trial.history("bases-before-assessment")
     wait_until(start)
     operations = [("accept", p, r, t, r) for _, _, p, r, t in artifacts]
-    assessed = []
+    assessed, assessment_errors = [], []
     for artifact, record, _, base, target in artifacts:
+        if scenario == "completed-work-assessment-error":
+            observation = trial.fixtures["observations.json"][3]
+            label, count, parse = classify(observation)
+            evidence = {**record, "observation": observation, "assessment_at": stamp(now()),
+                        "classification": label, "verified_count": count, "parse_status": parse,
+                        "outcome_acknowledged": False, "existing_base_target": target, "synthetic": True}
+            require(start <= now() < start + timedelta(seconds=60), "Unknown assessment outside ordinary window")
+            save(trial.root / (record["name"] + ".assessment-error.json"), evidence)
+            assessment_errors.append(evidence)
+            continue
         raw = artifact.read_bytes()
         require(hashlib.sha256(raw).hexdigest() == record["artifact_sha256"], "Artifact changed; keep outcome pending")
         report = json.loads(raw)
@@ -238,13 +324,27 @@ def cohort(trial):
     entries = after["entries"]
     base_atoms = sum(int(e["net_atoms"]) for e in entries if e["receipt"]["kind"] == "base-acceptance")
     adjustment_atoms = sum(int(e["net_atoms"]) for e in entries if e["receipt"]["kind"] == "receipt")
-    require(sum(e["classification"] == "criteria-met" for e in assessed) == 2
-            and (base_atoms, adjustment_atoms, int(after["net_atoms"]), len(entries)) == (10, 4, 14, 10),
-            "Observed outcomes/history differ from fixture; preserve actual evidence")
-    return {"base_atoms": base_atoms, "adjustment_atoms": adjustment_atoms, "net_atoms": int(after["net_atoms"]),
-            "currency": "USD", "scale": 2, "retained_entries": len(entries), "complete": after["complete"],
-            "pending_outcomes": 0, "refused_operations": 0, "failed_operations": 0, "identical_retries": 10,
-            "payment_collected": False, "assessments": assessed}
+    require(base_atoms + adjustment_atoms == int(after["net_atoms"]), "Complete history totals differ")
+    # Failed attempts never acquire a completion, request, target or retained economic identity.
+    for error in work_errors:
+        name = error["name"]
+        require(sorted(p.name for p in trial.root.glob(name + ".*")) == [name + ".work-error.json"],
+                "Failed work unexpectedly has completion or billing files")
+        require(name not in json.dumps(after, sort_keys=True), "Failed identity appears in economic history")
+    if assessment_errors:
+        require(after == bases_only and all(e["receipt"]["kind"] == "base-acceptance" for e in entries),
+                "Unknown later assessment changed the existing base or wrote an adjustment")
+    summary = {"base_atoms": base_atoms, "adjustment_atoms": adjustment_atoms, "net_atoms": int(after["net_atoms"]),
+               "currency": "USD", "scale": 2, "retained_entries": len(entries), "complete": after["complete"],
+               "complete_history_note": "complete:true describes authorized retained billing history at this snapshot, not successful completion of every attempted job.",
+               "attempted_work": len(fixtures), "completed_work": len(artifacts), "billable_work": len(artifacts),
+               "unacknowledged_work_failures": len(work_errors), "work_error_count": len(work_errors),
+               "pending_outcomes": len(assessment_errors), "assessment_error_count": len(assessment_errors),
+               "ledger_refusals": 0, "ledger_errors": 0, "refused_operations": 0, "failed_operations": 0,
+               "identical_retries": len(operations), "payment_collected": False,
+               "assessments": assessed, "work_errors": work_errors, "assessment_errors": assessment_errors}
+    fixture_expectations(scenario, summary, after)
+    return summary
 
 
 def classify(observation):
@@ -262,7 +362,7 @@ def classify(observation):
 
 
 def classification(trial):
-    observations = json.loads((FIXTURES / "observations.json").read_bytes())
+    observations = trial.fixtures["observations.json"]
     records = []
     for observation in observations:
         label, count, parse = classify(observation)
@@ -289,25 +389,31 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--work-dir", type=Path, required=True, help="new directory under a private physical parent")
-    parser.add_argument("--scenario", choices=("five-completed-artifacts", "evidence-classification"), required=True)
+    parser.add_argument("--fixtures-dir", type=Path, default=FIXTURES,
+                        help="physical directory containing all four bundled JSON fixtures")
+    parser.add_argument("--scenario", choices=("five-completed-artifacts", "failed-work",
+                                               "completed-work-assessment-error", "evidence-classification"), required=True)
     args = parser.parse_args()
     os.umask(0o077)
     ledger, root = physical(args.ledger), physical(args.work_dir)
     require(ledger.is_file(), "Missing verified released executable")
-    require(root.parent.is_dir() and root.parent.stat().st_mode & 0o077 == 0, "Parent must be private")
+    fixtures_dir = physical(args.fixtures_dir)
+    fixtures = validate_inputs(root, fixtures_dir)
     root.mkdir(mode=0o700)  # refuse every existing trial; never reset or rewrite its evidence
-    trial = Trial(ledger, root)
+    trial = Trial(ledger, root, fixtures)
     version = subprocess.run([str(ledger), "--version"], capture_output=True)
     save(root / "version.command.json", [str(ledger), "--version"])
     save(root / "version.exit.json", {"exit_code": version.returncode})
     save(root / "version.stdout", version.stdout)
     save(root / "version.stderr", version.stderr)
-    require(version.returncode == 0 and version.stdout.strip() == b"ledger 0.9.4 (local development)", "Requires released v0.9.4")
+    require(version.returncode == 0 and version.stdout.strip() == b"ledger 0.9.5 (local development)", "Requires matching v0.9.5")
     identity = {"ledger": str(ledger), "ledger_sha256": hashlib.sha256(ledger.read_bytes()).hexdigest(),
                 "example_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                "scenario": args.scenario, "synthetic": True, "work_dir": str(root)}
+                "scenario": args.scenario, "synthetic": True, "work_dir": str(root),
+                "fixtures_dir": str(fixtures_dir), "fixture_sha256": {
+                    name: hashlib.sha256((fixtures_dir / name).read_bytes()).hexdigest() for name in fixtures}}
     save(root / "identity.json", identity)
-    summary = cohort(trial) if args.scenario == "five-completed-artifacts" else classification(trial)
+    summary = classification(trial) if args.scenario == "evidence-classification" else cohort(trial, args.scenario)
     save(root / "summary.json", summary)
     print(json.dumps(summary, indent=2))
     print(f"Complete synthetic evidence: {root}")
