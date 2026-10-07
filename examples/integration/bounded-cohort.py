@@ -399,7 +399,14 @@ def main():
     require(ledger.is_file(), "Missing verified released executable")
     fixtures_dir = physical(args.fixtures_dir)
     fixtures = validate_inputs(root, fixtures_dir)
-    root.mkdir(mode=0o700)  # refuse every existing trial; never reset or rewrite its evidence
+    try:
+        root.mkdir(mode=0o700)  # refuse every existing trial; never reset or rewrite its evidence
+    except FileExistsError as error:
+        raise RuntimeError(
+            f"Trial work path already exists: {root}. --work-dir must name a new, nonexistent child "
+            "under a private physical parent. Create only the parent, then choose a fresh child. "
+            "Preserve the existing path and its evidence"
+        ) from error
     trial = Trial(ledger, root, fixtures)
     version = subprocess.run([str(ledger), "--version"], capture_output=True)
     save(root / "version.command.json", [str(ledger), "--version"])

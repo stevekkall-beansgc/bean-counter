@@ -98,7 +98,20 @@ python3 -m json.tool "$demo_working_dir/bean-counter-demo-results/statement.json
 
 This is a correctness example, not measured unfamiliar-user timing. Keep its synthetic records separate from any business installation.
 
-## 5. Connect your application
+## 5. Run the bounded-cohort qualification checker
+
+The bundled checker is [scripts/check-bounded-cohort.py](scripts/check-bounded-cohort.py). From the private physical trial parent created in step 4, run:
+
+```sh
+python3 "$PACKAGE_ROOT/scripts/check-bounded-cohort.py" "$LEDGER" \
+  --evidence "$BC_TRIAL_ROOT/bounded-qualification"
+```
+
+Choose an evidence path that does not already exist; the checker creates it. It exercises all four bounded-cohort scenarios normally and with optimized Python, checks exact retries, and deliberately tests path/permission and missing-fixture refusals. Success prints `PASS all 26 bounded checks` and identifies the retained evidence directory. Allow roughly two minutes, with deliberate outcome-window waits; slower computers may take longer. Keep the evidence after failures.
+
+When running `bounded-cohort.py` yourself, create only its private parent. `--work-dir` must name a new, nonexistent child; the example creates that child and refuses to overwrite an earlier trial. See the [bounded-cohort instructions](examples/integration/bounded-cohort/README.md).
+
+## 6. Connect your application
 
 Start with the [integration guide](docs/integration-agent-guide.md) and [Python/Node examples](examples/integration/README.md#configure-real-terms). Configure your actual parties, agreed price/unit rate, assent evidence and permissions using [guided setup](docs/billing-quickstart.md#set-up-explicit-terms). Preserve exact request bytes and original identities when retrying an unknown result. Read the [operator and recovery checklist](docs/billing-operations.md) before business use.
 
