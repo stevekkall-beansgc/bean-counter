@@ -134,6 +134,7 @@ def main():
                          "finance-e2e.md", "finance-csv.md", "resources-and-costs.md", "billing-m2-cli-contract.md",
                          "compatibility.md", "billing-roadmap.md", "m8-native-package-qualification.md",
                          "billing-operations.md", "integration-agent-guide.md", "integration-capabilities.json",
+                         "live-app-integration.md",
                          "oss1-readiness.md", "open-beta.md", "agreement-and-integration.md", "beana-adoption-packet.md",
                          "participant-adoption-tasks.md", "billing-cli-contract.md", "m1-current-format-qualification.md",
                          "m2-migration-qualification.md", "m2-implementation-design.md", "m3-qualification.md",
