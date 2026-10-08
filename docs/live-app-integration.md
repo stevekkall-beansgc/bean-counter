@@ -4,6 +4,20 @@ Use this recipe when your application can separate **completed work** from a **g
 
 If the promised outcome happens during the work itself, delaying its submission does not turn it into a later assessment. One static agreement does not support indefinitely arriving work. These limitations need a separate contract decision; do not backdate facts or rebuild a business store to fit them.
 
+## Read this before adapting an app
+
+**The outcome rule did not change in v0.9.7.** The guide makes the existing distinction explicit: `sleep` after a known result is delayed reporting; a later assessment is an agreed new evaluation performed after the ordinary window starts. Record the true completion and assessment times.
+
+**Terms → work → base → later assessment → outcome.** Keep these three branches separate at the point of failure:
+
+- Work error before completion: evidence only, no base or outcome.
+- Unknown later assessment: preserve the completed-work base, save evidence, no outcome.
+- Verified negative assessment: submit the explicitly agreed negative code only if eligible.
+
+Do not map an exception to `unsuccessful-by-cutoff`. Check transport, HTTP status, response schema and parsing before treating a result as known. A provider block is not verified zero results or an elapsed cutoff.
+
+Before the commands below, select the trusted installed `PACKAGE_ROOT`. They rebind both installation variables to physical paths and create a fresh private (0700) trial parent. If you supply your own parent, it must also be physical and 0700; the work children must not already exist.
+
 ## Run the reference before adapting it
 
 The [bounded-cohort example](../examples/integration/bounded-cohort/README.md) is the runnable reference. It uses actual local file completion times, a new later assessment and synthetic report inputs. It makes no provider requests. Its existing generation step is where your adapter would perform the agreed work; keep the timing, evidence and reconciliation around it.
