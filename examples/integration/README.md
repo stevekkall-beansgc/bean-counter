@@ -4,9 +4,9 @@ The current M5 local SQLite source profile includes customers and sources, fixed
 
 ## Native release and installation
 
-These instructions match **v0.9.6 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. For the complete public download → verified installation → synthetic receipt sequence, start at [START-HERE.md](../../START-HERE.md). The qualification targets are macOS 26.6.2 Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
+These instructions match **v0.9.7 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. For the complete public download → verified installation → synthetic receipt sequence, start at [START-HERE.md](../../START-HERE.md). The qualification targets are macOS 26.6.2 Apple silicon and Ubuntu 24.04.5 x86-64/glibc 2.39; other versions and distributions remain unverified.
 
-Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5)** was released from `3406c1782b45a28ef39b974bf23978c72b44764e`. Its [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) identifies that release's actual checks and immutable assets. Use its matching instructions for those bytes; the v0.9.6 fixes require their own qualification.
+Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5)** was released from `3406c1782b45a28ef39b974bf23978c72b44764e`. Its [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) identifies that release's actual checks and immutable assets. Use its matching instructions for those bytes; the v0.9.7 fixes require their own qualification.
 
 Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
 
@@ -14,12 +14,12 @@ Use the archive, `SHA256SUMS`, expected source commit, verifier and installer fr
 
 ```sh
 # Obtain QUALIFICATION.json from the trusted matching release and compare its SHA with the release notes.
-SOURCE_COMMIT=$(python3 -c 'import json,re,sys; q=json.load(open("QUALIFICATION.json")); s=q["source_commit"]; sys.exit("wrong qualification identity") if q["version"]!="0.9.6" or not re.fullmatch("[0-9a-f]{40}",s) else None; print(s)')
+SOURCE_COMMIT=$(python3 -c 'import json,re,sys; q=json.load(open("QUALIFICATION.json")); s=q["source_commit"]; sys.exit("wrong qualification identity") if q["version"]!="0.9.7" or not re.fullmatch("[0-9a-f]{40}",s) else None; print(s)')
 INSTALL_PARENT=$(cd -P "$HOME" && pwd -P)
-export PACKAGE_ROOT="$INSTALL_PARENT/bean-counter-v0.9.6"
-sh install-macos-arm64.sh bean-counter-v0.9.6-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
+export PACKAGE_ROOT="$INSTALL_PARENT/bean-counter-v0.9.7"
+sh install-macos-arm64.sh bean-counter-v0.9.7-aarch64-apple-darwin.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 # Or on the named Ubuntu host:
-sh install-linux-x86_64.sh bean-counter-v0.9.6-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
+sh install-linux-x86_64.sh bean-counter-v0.9.7-x86_64-unknown-linux-gnu.tar.gz SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 export LEDGER="$PACKAGE_ROOT/ledger"
 "$LEDGER" --version
 ```
@@ -58,9 +58,9 @@ Send strict JSON by regular file or stdin (`accept --customer C --source S -`, `
 
 ## Synthetic product journey
 
-The v0.9.6 helper accepts only exact `ledger 0.9.6 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. Use the matching published v0.9.6 package for these instructions; preserve prior archives and checksums.
+The v0.9.7 helper accepts only exact `ledger 0.9.7 (local development)`. Older distributions retain their own helpers; future versions require fresh qualification. The published v0.9.1 archive still bundles a synthetic helper requiring v0.9.0 and cannot run this route. Use the matching published v0.9.7 package for these instructions; preserve prior archives and checksums.
 
-The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Keep `PACKAGE_ROOT` set to the absolute installed v0.9.6 directory and `LEDGER` to its executable as above. Before running, confirm `"$LEDGER" --version` reports the matching identity.
+The setup, events and evidence are **synthetic only**. They are not customer assent, real operator authority or proof of a real model outcome. Keep `PACKAGE_ROOT` set to the absolute installed v0.9.7 directory and `LEDGER` to its executable as above. Before running, confirm `"$LEDGER" --version` reports the matching identity.
 
 Open a new private working directory outside the installation or checkout, then run this command there. `pwd -P` resolves the physical directory so symlink aliases such as macOS `/tmp` or `/var` do not reach the engine's path guard. The helper finds its fixtures beside itself, independent of your current directory. Python 3.11+ is required for this synthetic check; Node and Rust are unnecessary. The two paths under the working directory must not exist; choose another fresh directory when repeating:
 
@@ -79,8 +79,8 @@ Use one process at a time on durable local storage. Stop every writer before cop
 
 ## Completed work and later assessment
 
-The [offline bounded-cohort example](bounded-cohort/README.md), its full fixtures and qualification checker are bundled with the matching v0.9.6 executable. It records five actually generated local reports before both starts, a new later quality assessment, complete operation-specific receipts and exact retries. The separate evidence-classification scenario keeps verified zero, blocked, transport and parse errors distinct. No provider, account or network access is needed.
+The [offline bounded-cohort example](bounded-cohort/README.md), its full fixtures and qualification checker are bundled with the matching v0.9.7 executable. It records five actually generated local reports before both starts, a new later quality assessment, complete operation-specific receipts and exact retries. The separate evidence-classification scenario keeps verified zero, blocked, transport and parse errors distinct. No provider, account or network access is needed.
 
 Keep `bounded-cohort.py` beside the entire `bounded-cohort/` fixture directory, including its four JSON files; copying just the Python file is incomplete. Use `--fixtures-dir "/absolute/physical/path/to/bounded-cohort"` for a deliberate separate copy. Missing fixtures are diagnosed before any write. Its fixed synthetic expectations remain separate from generic integer receipt/history reconciliation.
 
-The distinct `failed-work` scenario retains four genuinely completed qualifying reports plus one offline exception before completion: 8 base + 8 adjustment = 16 atoms (USD 0.16), eight entries/retries, with no completion/base/target/outcome for the failed identity. `completed-work-assessment-error` retains the existing 2-atom base and unknown assessment without an adjustment. The original five-completed-artifacts quality-negative case remains 14 atoms/10 entries. A complete authorized history is not a claim that every attempt completed; summaries explicitly distinguish work counts, pending outcomes and ledger errors. Run all scenarios and path/dependency guards with `python3 "$PACKAGE_ROOT/scripts/check-bounded-cohort.py" "$LEDGER" --evidence "$BC_TRIAL_ROOT/qualification"` from the matching installed package, or use the checkout's script with the verified v0.9.6 executable for this candidate.
+The distinct `failed-work` scenario retains four genuinely completed qualifying reports plus one offline exception before completion: 8 base + 8 adjustment = 16 atoms (USD 0.16), eight entries/retries, with no completion/base/target/outcome for the failed identity. `completed-work-assessment-error` retains the existing 2-atom base and unknown assessment without an adjustment. The original five-completed-artifacts quality-negative case remains 14 atoms/10 entries. A complete authorized history is not a claim that every attempt completed; summaries explicitly distinguish work counts, pending outcomes and ledger errors. Run all scenarios and path/dependency guards with `python3 "$PACKAGE_ROOT/scripts/check-bounded-cohort.py" "$LEDGER" --evidence "$BC_TRIAL_ROOT/qualification"` from the matching installed package, or use the checkout's script with the verified v0.9.7 executable for this candidate.

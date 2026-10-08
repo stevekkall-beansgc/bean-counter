@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline bounded-cohort demonstration against the matching v0.9.6 CLI.
+"""Offline bounded-cohort demonstration against the matching v0.9.7 CLI.
 
 Synthetic terms and evidence only. This is a fresh-trial example, not a resumable
 outbox or a production outcome SDK. Preserve its directory after any failure.
@@ -413,7 +413,7 @@ def main():
     save(root / "version.exit.json", {"exit_code": version.returncode})
     save(root / "version.stdout", version.stdout)
     save(root / "version.stderr", version.stderr)
-    require(version.returncode == 0 and version.stdout.strip() == b"ledger 0.9.6 (local development)", "Requires matching v0.9.6")
+    require(version.returncode == 0 and version.stdout.strip() == b"ledger 0.9.7 (local development)", "Requires matching v0.9.7")
     identity = {"ledger": str(ledger), "ledger_sha256": hashlib.sha256(ledger.read_bytes()).hexdigest(),
                 "example_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                 "scenario": args.scenario, "synthetic": True, "work_dir": str(root),

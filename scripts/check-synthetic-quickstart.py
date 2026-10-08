@@ -105,7 +105,7 @@ def check(package, ledger, evidence):
                                      "ledger 0.9.5 (local development)",
                                      "ledger 0.9.7 (local development)",
                                      "ledger 1.0.0 (local development)",
-                                     "ledger 0.9.6 (unexpected build)")):
+                                     "ledger 0.9.7 (unexpected build)")):
         probe = evidence / f"unsupported ledger {index}"
         calls = evidence / f"probe-{index}.jsonl"
         probe.write_text(

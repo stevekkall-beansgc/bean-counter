@@ -10,13 +10,13 @@ For example, an application can charge for a completed report, record an agreed 
 
 ## Try the open beta
 
-**[Download v0.9.6 and get your first synthetic receipt →](START-HERE.md)**
+**[Download v0.9.7 and get your first synthetic receipt →](START-HERE.md)**
 
 The native kit includes the `ledger` executable, installation and verification tools, documentation, examples, fixtures and a 30-check bounded-cohort checker. You need **Python 3.11+ and curl** for installation and examples. No Rust compiler, Node, hosted account or model API is required.
 
 Qualification covers **Apple-silicon macOS 26.6.2** and **Ubuntu 24.04.5 x86-64/glibc 2.39**. Packages are unsigned and unnotarized; other platforms and unfamiliar-user/clean-account launch remain unverified. Start with synthetic records in a fresh private directory.
 
-[Release and downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) · [What is supported](CURRENT-REQUIREMENTS.md) · [Qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json)
+[Release and downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) · [What is supported](CURRENT-REQUIREMENTS.md) · [Qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json)
 
 ## What you can do
 
@@ -68,7 +68,7 @@ sh scripts/check-local-billing-e2e.sh
 
 ## Release evidence and history
 
-The current published package is **v0.9.6 Open Beta**, with billing contract v0.3 and SQLite schema 11. Its [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) and [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) identify the exact source, archives and actual qualification. A newer documentation checkout does not replace the instructions or evidence shipped in an older package. Earlier releases retain their immutable bytes and matching instructions.
+The current published package is **v0.9.7 Open Beta**, with billing contract v0.3 and SQLite schema 11. Its [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) and [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json) identify the exact source, archives and actual qualification. A newer documentation checkout does not replace the instructions or evidence shipped in an older package. Earlier releases retain their immutable bytes and matching instructions.
 
 [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog. The [current requirements](CURRENT-REQUIREMENTS.md) retain version history; [STATUS.md](STATUS.md) distinguishes current support, historical owner acceptance and the historical independent-review waiver. Source and native publication do not publish Rust crates.
 

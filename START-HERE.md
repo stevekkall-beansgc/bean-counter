@@ -2,9 +2,11 @@
 
 Bean Counter is an Apache-2.0 **local billing engine** for applications that produce completed generated work. Record an agreed fixed fee or quantity-based charge, keep a durable receipt, reconcile retries and make explained corrections. You run it on your computer and manage its storage and backups.
 
-These instructions match **v0.9.6 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. This page installs those version-matched bytes and runs a synthetic example; no account, paid API, Rust compiler or Node installation is needed. The package includes the [bounded-cohort example](examples/integration/bounded-cohort/README.md), its full fixtures and qualification checker.
+These instructions match **v0.9.7 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. This page installs those version-matched bytes and runs a synthetic example; no account, paid API, Rust compiler or Node installation is needed. The package includes the [bounded-cohort example](examples/integration/bounded-cohort/README.md), its full fixtures and qualification checker.
 
-Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5)** was released from `3406c1782b45a28ef39b974bf23978c72b44764e`. Its [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) identifies that release's actual checks and immutable assets. Use its matching instructions for those bytes; the v0.9.6 fixes require their own qualification.
+Historical **[v0.9.6 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6)** was released from `4014764fee92239fb32558e60fb1379a3bd00071`. Its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) remains evidence for those immutable bytes. The v0.9.7 documentation/package changes require their own qualification.
+
+Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5)** was released from `3406c1782b45a28ef39b974bf23978c72b44764e`. Its [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) identifies that release's actual checks and immutable assets. Use its matching instructions for those bytes; the v0.9.7 fixes require their own qualification.
 
 Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
 
@@ -26,14 +28,14 @@ Run **one** matching block in your terminal, then continue below in that same te
 For Apple-silicon Mac (`Darwin arm64`):
 
 ```sh
-ARCHIVE=bean-counter-v0.9.6-aarch64-apple-darwin.tar.gz
+ARCHIVE=bean-counter-v0.9.7-aarch64-apple-darwin.tar.gz
 INSTALLER=install-macos-arm64.sh
 ```
 
 For the named Ubuntu x86-64 host (`Linux x86_64`):
 
 ```sh
-ARCHIVE=bean-counter-v0.9.6-x86_64-unknown-linux-gnu.tar.gz
+ARCHIVE=bean-counter-v0.9.7-x86_64-unknown-linux-gnu.tar.gz
 INSTALLER=install-linux-x86_64.sh
 ```
 
@@ -43,7 +45,7 @@ Download the archive and its matching verification/install files into a new priv
 umask 077
 DOWNLOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/bean-counter-download.XXXXXX")
 cd -P "$DOWNLOAD_DIR"
-RELEASE_URL=https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6
+RELEASE_URL=https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7
 (
   for asset in "$ARCHIVE" "$INSTALLER" install-native-package.py verify-native-package.py SHA256SUMS QUALIFICATION.json; do
     curl --fail --location --remote-name "$RELEASE_URL/$asset" || exit 1
@@ -51,7 +53,7 @@ RELEASE_URL=https://github.com/stevekkall-beansgc/bean-counter/releases/download
 )
 ```
 
-All six downloads must succeed. Stop if a download fails; rerun the block in a fresh directory after resolving the error. You can instead save those same six files together from the [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6). Obtain the tools from that trusted release before extracting the archive. Checksums and unsigned provenance are not signatures.
+All six downloads must succeed. Stop if a download fails; rerun the block in a fresh directory after resolving the error. You can instead save those same six files together from the [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7). Obtain the tools from that trusted release before extracting the archive. Checksums and unsigned provenance are not signatures.
 
 ## Use private physical paths
 
@@ -73,15 +75,15 @@ Do this only after installation exists. Keep the CLI's symlink guards for store 
 The source commit comes from the matching qualification record downloaded from the trusted release. It identifies the executable independently of later documentation commits. Compare it with the full source SHA in the trusted release notes; stop if they differ. The archive manifest alone is not a trusted source for this expected identity. Choose an installation path that does not already exist; the installer refuses to overwrite one.
 
 ```sh
-SOURCE_COMMIT=$(python3 -c 'import json,re,sys; q=json.load(open("QUALIFICATION.json")); s=q["source_commit"]; sys.exit("wrong qualification identity") if q["version"]!="0.9.6" or not re.fullmatch("[0-9a-f]{40}",s) else None; print(s)')
+SOURCE_COMMIT=$(python3 -c 'import json,re,sys; q=json.load(open("QUALIFICATION.json")); s=q["source_commit"]; sys.exit("wrong qualification identity") if q["version"]!="0.9.7" or not re.fullmatch("[0-9a-f]{40}",s) else None; print(s)')
 INSTALL_PARENT=$(cd -P "$HOME" && pwd -P)
-export PACKAGE_ROOT="$INSTALL_PARENT/bean-counter-v0.9.6"
+export PACKAGE_ROOT="$INSTALL_PARENT/bean-counter-v0.9.7"
 sh "$INSTALLER" "$ARCHIVE" SHA256SUMS "$SOURCE_COMMIT" "$PACKAGE_ROOT"
 export LEDGER="$PACKAGE_ROOT/ledger"
 "$LEDGER" --version
 ```
 
-Continue only after installation succeeds and the version reports `ledger 0.9.6 (local development)`. That is the matching binary's exact version string. The installer verifies archive identity, file hashes, modes and inventory before running the binary, and creates a private installation.
+Continue only after installation succeeds and the version reports `ledger 0.9.7 (local development)`. That is the matching binary's exact version string. The installer verifies archive identity, file hashes, modes and inventory before running the binary, and creates a private installation.
 
 ## 4. Run the synthetic receipt journey
 
@@ -139,4 +141,4 @@ One operator-controlled business owns each private local SQLite installation. Su
 - Synthetic failure: preserve stdout/stderr and the reported results path. Retry the journey in a new private working directory.
 - Unknown business write: retry its original bytes and IDs against the same installation. Integrity failure: stop writes and follow [recovery](docs/billing-recovery.md); do not erase locks or edit the database.
 
-For beta feedback, record your OS/Python versions, the step and exact error, whether you needed help, and redacted synthetic results in a [GitHub issue](https://github.com/stevekkall-beansgc/bean-counter/issues). Never upload business records or credentials. No nominated participant list is required. [Release evidence](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) records the released archives' actual qualification; unfamiliar-user adoption remains unmeasured.
+For beta feedback, record your OS/Python versions, the step and exact error, whether you needed help, and redacted synthetic results in a [GitHub issue](https://github.com/stevekkall-beansgc/bean-counter/issues). Never upload business records or credentials. No nominated participant list is required. [Release evidence](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json) records the released archives' actual qualification; unfamiliar-user adoption remains unmeasured.

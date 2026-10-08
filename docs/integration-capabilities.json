@@ -11,12 +11,12 @@
   },
   "authority": "descriptive-only",
   "current_package": {
-    "version": "0.9.6",
+    "version": "0.9.7",
     "qualification_status": "consult-matching-release-qualification",
     "publication_status": "consult-matching-release-page",
     "source_commit_evidence": "matching published release notes, QUALIFICATION.json and archive MANIFEST.json; checkout or candidate alone does not establish qualification or publication",
-    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6",
-    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7",
+    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json",
     "billing_semantics_changed": false,
     "bundled_bounded_cohort": true,
     "qualification_checker": "scripts/check-bounded-cohort.py",
@@ -28,11 +28,11 @@
     ]
   },
   "native_baseline": {
-    "version": "0.9.6",
+    "version": "0.9.7",
     "qualification_status": "consult-matching-release-qualification",
     "source_commit_evidence": "matching published release notes, QUALIFICATION.json and archive MANIFEST.json; checkout or candidate alone does not establish qualification or publication",
-    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6",
-    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json",
+    "release": "https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.7",
+    "qualification": "https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.7/QUALIFICATION.json",
     "qualification_targets": [
       {
         "target": "aarch64-apple-darwin",
