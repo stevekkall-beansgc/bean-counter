@@ -59,6 +59,15 @@ The engine rejects symlink components in installation, store and JSON input path
 
 Pass new children under the physical parent to the engine. A temporary trial directory is not a business backup plan. For durable installation, choose an operator-owned private durable parent, obtain its physical path with `cd -P`/`pwd -P`, then select a new child. Resolve only paths deliberately chosen and trusted by the operator. Do not follow arbitrary input symlinks or relax the guard: JSON inputs must be regular files under physical paths, or use supported stdin. Keep `LEDGER` bound to the verified executable and preserve its SHA-256. A trial parent must have no group/other access, normally mode 0700. For a deliberately chosen trial directory, use the quoted commands `mkdir -p "$BC_TRIAL_ROOT"` and `chmod 700 "$BC_TRIAL_ROOT"`, obtain its physical path again, then choose a fresh child. The bounded example reports the actual parent path and mode before writing; it never chmods an existing business directory.
 
+If you selected an existing installed directory through an alias such as `/tmp`, changing directories with `cd -P` does **not** rewrite `PACKAGE_ROOT` or `LEDGER`. For that deliberately chosen trusted installation, bind both variables to its physical path before running helpers:
+
+```sh
+export PACKAGE_ROOT="$(cd -P "$PACKAGE_ROOT" && pwd -P)"
+export LEDGER="$PACKAGE_ROOT/ledger"
+```
+
+Do this only after installation exists. Keep the CLI's symlink guards for store and input paths; derive new children under your trusted physical parent.
+
 ## 3. Verify and install
 
 The source commit comes from the matching qualification record downloaded from the trusted release. It identifies the executable independently of later documentation commits. Compare it with the full source SHA in the trusted release notes; stop if they differ. The archive manifest alone is not a trusted source for this expected identity. Choose an installation path that does not already exist; the installer refuses to overwrite one.
@@ -114,6 +123,8 @@ Choose an evidence path that does not already exist; the checker creates it. It 
 When running `bounded-cohort.py` yourself, create only its private parent. `--work-dir` must name a new, nonexistent child; the example creates that child and refuses to overwrite an earlier trial. See the [bounded-cohort instructions](examples/integration/bounded-cohort/README.md).
 
 ## 6. Connect your application
+
+Read the [live-app integration recipe](docs/live-app-integration.md) before adapting the bounded example. Establish terms before work, save a genuine completed artifact with its actual completion time, and perform a new later assessment. Sleeping until a window opens does not change the time of an already-known outcome. A transport/provider/parse error remains unknown; it must not automatically select a negative billing code.
 
 Start with the [integration guide](docs/integration-agent-guide.md) and [Python/Node examples](examples/integration/README.md#configure-real-terms). Configure your actual parties, agreed price/unit rate, assent evidence and permissions using [guided setup](docs/billing-quickstart.md#set-up-explicit-terms). Preserve exact request bytes and original identities when retrying an unknown result. Read the [operator and recovery checklist](docs/billing-operations.md) before business use.
 

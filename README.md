@@ -2,45 +2,59 @@
 
 <img src="docs/assets/bean-counter.svg" alt="Bean Counter: an orange bean wearing an accountant’s green visor" width="180" height="180">
 
-**Local billing with durable receipts, explained corrections and reconciled statements.**
+**Give your application a billing history you can explain.**
 
-Bean Counter is an Apache-2.0 billing engine for applications that produce completed generated work. Configure an agreed fixed price or quantity rate, record the completed work, and retain an exact receipt. It helps your application reconcile retries and corrections without rebuilding billing history for every product.
+Bean Counter is an Apache-2.0 local billing engine for applications that produce completed work. Set an agreed price or quantity rate, record the work, and keep a durable receipt. When a request is retried or a charge needs correcting, the earlier records stay intact and the statement explains what changed.
 
-**[Install v0.9.6 Open Beta and get a first synthetic receipt →](START-HERE.md)**
+For example, an application can charge for a completed report, record an agreed later quality assessment, and reconcile the resulting base charge and adjustment. Your application supplies the facts and authority; Bean Counter preserves and checks the billing records.
 
-These instructions match **v0.9.6 Open Beta** with unchanged billing contract v0.3 and schema 11. The [matching release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) and [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) determine actual publication, exact source and qualified archive identities. A source checkout or native candidate alone does not establish qualification or publication. Use these instructions with matching published assets; older releases retain their own instructions and immutable bytes. The package includes the executable, verification/install tools, documentation, examples, full bounded-cohort fixtures and checker.
+## Try the open beta
 
-Historical **[v0.9.5 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.5)** was released from `3406c1782b45a28ef39b974bf23978c72b44764e`. Its [version-bound qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.5/QUALIFICATION.json) identifies that release's actual checks and immutable assets. Use its matching instructions for those bytes; the v0.9.6 fixes require their own qualification.
+**[Download v0.9.6 and get your first synthetic receipt →](START-HERE.md)**
 
-Historical **[v0.9.4 Open Beta](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.4)** was released from `e897ef108753447371282cb5253fc88634e5977d`. Exact-source QA/CI, both native installed journeys and matching public-download checks passed for that version; see its [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.4/QUALIFICATION.json). Its evidence applies only to those immutable assets.
+The native kit includes the `ledger` executable, installation and verification tools, documentation, examples, fixtures and a 30-check bounded-cohort checker. You need **Python 3.11+ and curl** for installation and examples. No Rust compiler, Node, hosted account or model API is required.
 
-The native package includes the `ledger` executable, verification/install tools, documentation and examples. Historical v0.9.4 native qualification covered Apple-silicon macOS 26.6.2 and Ubuntu 24.04.5 x86-64/glibc 2.39. Install/example prerequisites are Python 3.11+ and curl; no hosted account, model API, runtime subscription, Rust compiler or payment processor is needed. Packages are unsigned/unnotarized; other platforms and clean-account launch remain unverified.
+Qualification covers **Apple-silicon macOS 26.6.2** and **Ubuntu 24.04.5 x86-64/glibc 2.39**. Packages are unsigned and unnotarized; other platforms and unfamiliar-user/clean-account launch remain unverified. Start with synthetic records in a fresh private directory.
 
-One business owns each private local SQLite installation, with multiple customers and sources. Supported operations include fixed and exact scale-18 usage, explicit effective agreements, authorized corrections, immutable close statements, recurrence records, fiscal reports and finance CSV. You supply customer assent/authority evidence and operate the computer, storage and backups. Hosted APIs, payment collection, PostgreSQL billing and multi-host guarantees remain outside this beta.
+[Release and downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) · [What is supported](CURRENT-REQUIREMENTS.md) · [Qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json)
 
-[Release/downloads](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) · [Supported scope](CURRENT-REQUIREMENTS.md) · [Operator checklist](docs/billing-operations.md) · [Integration guide](docs/integration-agent-guide.md)
+## What you can do
 
-## Ordinary local billing
+- **Record fixed-price or usage charges.** Work with exact integer amounts, including the released scale-18 usage profile.
+- **Retry safely.** Reconcile original requests and receipts after a dropped response or restart; changed requests under an existing identity refuse.
+- **Explain adjustments.** Record agreed outcomes and authorized corrections while retaining the original charge and history.
+- **Close and export.** Produce immutable period statements, fiscal reports and finance CSV with explicit account mapping.
+- **Operate locally.** One business owns a private SQLite installation, with multiple customers and sources. You manage the computer, storage, permissions and backups.
 
-The `ledger billing` profile accepts operator-configured fixed-price retail work, outcome adjustments and authorized corrections, with durable receipts, duplicate protection, revocable local permissions and complete JSON statements. Start with the [billing quickstart](docs/billing-quickstart.md), [recovery procedure](docs/billing-recovery.md) and [resource/cost manifest](docs/resources-and-costs.md). It uses a separate installation with explicit terms. The repository includes illustrative inputs, never customer assent obtained by the program. No payment is collected and a statement is not a tax/legal invoice.
+The engine does not collect payments, obtain customer assent, authenticate provider evidence or produce certified tax/legal invoices. Hosted APIs, PostgreSQL billing, multi-host guarantees and resource guarantees are deferred. The [current requirements](CURRENT-REQUIREMENTS.md) define the supported scope.
 
-The [version-matched package and integration guide](examples/integration/README.md) describe guided terminal setup and the strict CLI/JSON interface. Use [START-HERE.md](START-HERE.md) for the complete download/install/example path. Published v0.9.2 and earlier releases retain their own immutable bytes and version-matched instructions. No Rust crates are published by the native release.
+## Connect an application
 
-For a source build:
+| What you want to do | Start here |
+| --- | --- |
+| Install and verify the kit | [First receipt walkthrough](START-HERE.md) |
+| Adapt a live application to completed work and later assessment | [Live-app integration recipe](docs/live-app-integration.md) and [runnable bounded-cohort example](examples/integration/bounded-cohort/README.md) |
+| Call the CLI and reconcile each operation | [Integration guide](docs/integration-agent-guide.md) |
+| Configure parties, prices, terms and permissions | [Billing quickstart](docs/billing-quickstart.md) |
+| Run and recover a business installation | [Operator checklist](docs/billing-operations.md) and [recovery procedure](docs/billing-recovery.md) |
+| Export a statement to finance CSV | [Workflow](WORKFLOW.md) and [CSV contract](docs/finance-csv.md) |
+
+The outcome profile uses **bounded cohorts**: agree terms before work, finish work by both window starts, then perform the agreed later assessment inside its window. It does not cover indefinitely arriving work under one static agreement. Use actual completion and assessment times. A provider error is unknown evidence, not automatically a negative billing result. See the [live-app recipe](docs/live-app-integration.md) before adapting the example.
+
+On macOS, `/tmp` and `/var` are symlink aliases. Use a private physical directory and set installation and input paths from it; changing the working directory alone does not rewrite an existing path variable. [START-HERE](START-HERE.md#use-private-physical-paths) gives the commands.
+
+## Develop and contribute
+
+Read [AGENTS.md](AGENTS.md) and [CURRENT-REQUIREMENTS.md](CURRENT-REQUIREMENTS.md) before changing implementation or contracts. For a source build, use the pinned **Rust 1.98.1** development compiler and native C/linker tools:
+
 ```sh
 cargo build --release --locked -p ledgerlab-cli
 ./target/release/ledger billing --help
 ```
 
-Build with the pinned Rust 1.98.1 development compiler and native C/linker tools. Build dependencies need an initial download; an installed binary does not need Rust, Python or Node. No minimum supported Rust version or untested OS support is claimed.
+Build dependencies need an initial download. No minimum supported Rust version is declared. An installed executable does not need Rust, Python or Node; installation and example scripts do need Python.
 
-## Local finance CSV
-
-[WORKFLOW.md](WORKFLOW.md) provides the installed synthetic billing-to-finance example, explicit account mapping, stable repeat export and reconciliation. See the [CSV contract](docs/finance-csv.md) and [owner end-to-end walkthrough](docs/finance-e2e.md). The [public status](STATUS.md) distinguishes owner acceptance from the waived independent-review gate.
-
-## Validate locally
-
-Use Rust 1.98.1 with rustfmt/Clippy, Python 3.11+ and Node. The Python minimum is for test tooling only; no product MSRV is declared. Install the pinned document-test requirements into a local virtual environment if they are not already present:
+To validate source, install Python 3.11+, Node and Rust 1.98.1 with rustfmt/Clippy. Populate the locked Cargo dependency cache before the offline checks, then run:
 
 ```sh
 python3 -m venv work/check-venv
@@ -50,23 +64,14 @@ sh scripts/check-local-billing.sh
 sh scripts/check-local-billing-e2e.sh
 ```
 
-The Rust workspace uses pinned dependencies and builds offline once its dependency cache is populated. Python packages may need an initial download; subsequent contract checks do not use the network. On the prepared development machine, source `work/toolchain/activate.sh` and select the installed verified compiler alias with `export RUSTUP_TOOLCHAIN=stable`; checks require its actual version to match 1.98.1. The `work/` toolchain/cache is intentionally untracked and is not a portable repository prerequisite.
+[Implementation boundaries](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/docs/implementation.md) · [Frozen contracts](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/contracts/README.md) · [Canonical records](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/docs/design/CANONICAL-RECORDS-V1.md) · [Resources and costs](docs/resources-and-costs.md) · [Release profile](release/local-sqlite.md)
 
-## Start contributing
+## Release evidence and history
 
-- [Contributor rules and exact test commands](AGENTS.md)
-- [Current local SQLite requirements](CURRENT-REQUIREMENTS.md)
-- [Implementation boundaries and Phase 1 lanes](docs/implementation.md)
-- [Frozen contract guide](contracts/README.md)
-- [Canonical record addendum](docs/design/CANONICAL-RECORDS-V1.md)
-- [Phase gates](docs/phase-gates.md)
-- [Release support contract](release/README.md)
-- [Validation evidence](docs/PHASE-0-VALIDATION.md)
+The current published package is **v0.9.6 Open Beta**, with billing contract v0.3 and SQLite schema 11. Its [release page](https://github.com/stevekkall-beansgc/bean-counter/releases/tag/v0.9.6) and [qualification record](https://github.com/stevekkall-beansgc/bean-counter/releases/download/v0.9.6/QUALIFICATION.json) identify the exact source, archives and actual qualification. A newer documentation checkout does not replace the instructions or evidence shipped in an older package. Earlier releases retain their immutable bytes and matching instructions.
 
-One coordinated release train: `ledgerlab-core` → `ledgerlab` → `ledgerlab-cli` (binary `ledger`). `ledgerlab-testkit` is unpublished and never a production dependency. [GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog; source and native-archive publication do not publish Rust crates. See the [local release profile](release/local-sqlite.md). Project owner: Legume Labs.
+[GitHub Releases](https://github.com/stevekkall-beansgc/bean-counter/releases) are the changelog. The [current requirements](CURRENT-REQUIREMENTS.md) retain version history; [STATUS.md](STATUS.md) distinguishes current support, historical owner acceptance and the historical independent-review waiver. Source and native publication do not publish Rust crates.
 
-For the finance CSV workflow and expected $5.00 synthetic result, see [WORKFLOW.md](WORKFLOW.md) and the [owner end-to-end walkthrough](docs/finance-e2e.md).
+The [Phase 3 status](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/PRODUCT-PHASE-3-STATUS.md), [Phase 4 foundation](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/PRODUCT-PHASE-4-FOUNDATION.md), [phase gates](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/docs/phase-gates.md), [validation record](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/docs/PHASE-0-VALIDATION.md) and [roadmap](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/ROADMAP.md) preserve historical scope and verdicts. Historical local evidence links are not bundled public acceptance evidence.
 
-## Historical development evidence
-
-The [Phase 3 status](PRODUCT-PHASE-3-STATUS.md), incomplete [Phase 4 foundation](PRODUCT-PHASE-4-FOUNDATION.md), design sources and frozen [roadmap](ROADMAP.md) preserve their original scope and verdicts. The bounded Phase 3 persistence review does not certify the current billing profile or full Phase 4. Historical documents can contain local evidence links unavailable in this public checkout; private evidence files and session transcripts are not bundled. Current support is defined by [CURRENT-REQUIREMENTS.md](CURRENT-REQUIREMENTS.md).
+One coordinated release train: `ledgerlab-core` → `ledgerlab` → `ledgerlab-cli` (the `ledger` command); `ledgerlab-testkit` stays unpublished. [Release support](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/release/README.md). Project owner: Legume Labs.

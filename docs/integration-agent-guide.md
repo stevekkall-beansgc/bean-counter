@@ -40,6 +40,8 @@ Establish active terms with future starts, complete a bounded cohort no later th
 
 Run the [offline bounded-cohort example](../examples/integration/bounded-cohort/README.md) for completed local artifacts and a new assessment after the ordinary start. Its distinct synthetic cases preserve five completed reports with quality negatives (14 atoms/10 entries), four qualifying reports plus one pre-completion failure (16 atoms/8 entries), and a completed report whose later assessment is unknown (unchanged 2-atom base, no adjustment). Keep the Python file beside its complete fixture directory, or pass explicit `--fixtures-dir`; missing fixtures refuse before writes. It preserves complete base/outcome requests, receipts, histories and exact retries against the matching v0.9.6 executable; it makes no provider calls.
 
+For adaptation, follow the [live-app integration recipe](live-app-integration.md). Initialize agreed terms before work, capture durable completion rather than attempt start, and perform a genuinely new assessment after ordinary start. Do not delay or relabel an earlier known outcome to make it eligible. Validate HTTP status and response schema; unexpected shapes and provider/parse errors remain unknown rather than verified zero results or automatic cutoff outcomes.
+
 ## Reconcile each operation
 
 The Python/Node outboxes bundled with v0.9.6 acknowledge **base acceptance only**. Their `body.target` extraction and base `operation_id` lookup are not generic outcome/correction verification. Dispatch by the submitted command and request schema, and retain the original base target throughout its history.

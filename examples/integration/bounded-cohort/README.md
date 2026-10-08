@@ -8,6 +8,8 @@ The **five-completed-artifacts synthetic fixture** in [artifacts.json](artifacts
 
 After actually reaching the ordinary start, it reads each unchanged artifact and performs a new sum comparison, then captures the assessment time. It does not merely delay submitting an earlier known outcome. This later assessment is eligible because it is the explicitly agreed outcome event in this fixture. An application that cannot separate completed work from a later outcome fact needs a separate contract decision; a new setup per batch does not remove ordering requirements.
 
+For a provider adapter, use the [live-app integration recipe](../../../docs/live-app-integration.md). Do not construct terms after fetching, use attempt start as a completed-work timestamp, or classify a known response before the window and merely sleep before submitting it. Transport errors and unexpected response shapes remain unknown. The reference already demonstrates the separate work-failure and later-assessment-failure paths below.
+
 ## Run a fresh trial
 
 Set `PACKAGE_ROOT` to the absolute physical installed v0.9.6 directory, and `LEDGER` to its verified executable, as in START-HERE. Preserve the source identity and executable/example hashes from that matching package. Use the [physical-path guidance](../../../START-HERE.md#use-private-physical-paths); macOS `/tmp` and `/var` aliases must not reach the engine.
