@@ -1,10 +1,12 @@
 # Bean Counter
 
-<img src="docs/assets/bean-counter.png" alt="Bean Counter: an orange bean wearing an accountant’s green visor" width="280" height="280">
-
 **Give your application a billing history you can explain.**
 
 Bean Counter is an Apache-2.0 local billing engine for applications that produce completed work. Set an agreed price or quantity rate, record the work, and keep a durable receipt. When a request is retried or a charge needs correcting, the earlier records stay intact and the statement explains what changed.
+
+![Your products. One billing layer: a web product, AI workflow and backend job send product events to Bean Counter for terms and rating, events and corrections, periods and statements; the outputs are charges with amounts and evidence, statements with periods and adjustments, and JSON and finance CSV exports.](docs/assets/billing-layer.png)
+
+Connect through the local CLI/JSON interface within one business. Your application supplies authorized events; you operate the engine and connect its exports to your finance tools.
 
 ## A small billing story
 
