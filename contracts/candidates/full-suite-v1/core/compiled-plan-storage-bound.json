@@ -1,0 +1,11 @@
+{
+  "schema": "ledger-workflow-storage-kind-bounds/1",
+  "canonical_body_bytes": {
+    "workflow-compiled-plan": 4194304
+  },
+  "other_document_storage_ceiling": 1048576,
+  "preserve_stricter_semantic_limits": true,
+  "resolved_bytes": 8388608,
+  "capacity_profile": "workflow-dual-legacy-capacity/1",
+  "no_new_capacity_pool": true
+}

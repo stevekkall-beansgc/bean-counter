@@ -1,0 +1,14 @@
+{
+  "status": "production counterexample INPUT and measured counts; NOT an independent expected plan",
+  "implementation_checkpoint": "02ee1dc",
+  "files": {
+    "input.json": {
+      "source": "/private/tmp/waves12-large-publication-input.json",
+      "sha256": "04a40aa7f67a8e8fa4297787d6e570fecfe8068a3b45ea99a1e77a94c4053f09"
+    },
+    "measured-count.json": {
+      "source": "/private/tmp/waves12-large-publication-byte-count.json",
+      "sha256": "56b9084bbbaa38b92821cf86dbb99aafe18aa2ce9640038b428e43b272c63652"
+    }
+  }
+}
