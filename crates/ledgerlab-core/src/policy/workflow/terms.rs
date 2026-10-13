@@ -21,9 +21,13 @@ struct Amount {
 }
 impl Amount {
     fn validate(&self) -> Result<()> {
-        if self.currency != "USD" || self.scale != 18 || crate::money::parse_atoms(&self.atoms)? < 0
-        {
-            return Err(fail("nonnegative USD18 amount"));
+        if self.currency != "USD" || self.scale != 18 {
+            return Err(Error::new("INVALID_SCALAR", "nonnegative USD18 amount"));
+        }
+        let atoms = crate::money::parse_atoms(&self.atoms)
+            .map_err(|_| Error::new("INVALID_SCALAR", "canonical bounded amount"))?;
+        if atoms < 0 {
+            return Err(Error::new("INVALID_SCALAR", "nonnegative amount"));
         }
         Ok(())
     }
@@ -286,6 +290,23 @@ struct Exposure {
     binding_slot: String,
     maximum: Amount,
 }
+fn exposures(rows: &mut Vec<Exposure>) -> Result<()> {
+    if rows.len() > 16 {
+        return Err(Error::new("INVALID_SHAPE", "exposure ceiling count"));
+    }
+    let mut slots = BTreeSet::new();
+    for row in rows.iter() {
+        name(&row.binding_slot).map_err(|_| Error::new("INVALID_SHAPE", "exposure slot name"))?;
+        if !slots.insert(&row.binding_slot) {
+            return Err(Error::new(
+                "INVALID_SHAPE",
+                "duplicate exposure binding slot",
+            ));
+        }
+        row.maximum.validate()?;
+    }
+    canonical::sort_set(rows)
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Projection {
@@ -412,24 +433,15 @@ impl Projection {
             return Err(fail("nonempty half-open binding interval"));
         }
         quantities(&mut self.quantity_ceilings)?;
-        if self.exposure_ceilings.len() > 16 {
-            return Err(fail("exposure ceiling count"));
-        }
-        let mut exposure_slots = BTreeSet::new();
+        exposures(&mut self.exposure_ceilings)?;
         for row in &self.exposure_ceilings {
-            if !exposure_slots.insert(&row.binding_slot) {
+            if !self.bindings.iter().any(|b| b.slot == row.binding_slot) {
                 return Err(Error::new(
-                    "UNSUPPORTED_SCHEMA_PROFILE",
-                    "same-slot exposure semantics await clarification",
+                    "INVALID_REFERENCE",
+                    "exposure references bound slot",
                 ));
             }
-            name(&row.binding_slot)?;
-            row.maximum.validate()?;
-            if !self.bindings.iter().any(|b| b.slot == row.binding_slot) {
-                return Err(fail("exposure references bound slot"));
-            }
         }
-        canonical::sort_set(&mut self.exposure_ceilings)?;
         Ok(())
     }
 }

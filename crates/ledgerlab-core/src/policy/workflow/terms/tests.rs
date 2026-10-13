@@ -238,6 +238,43 @@ fn terms_enforce_raw_and_quantity_count_bounds_and_normalize_counters() {
         AcceptanceTerms::parse(&serde_json::to_vec(&body).unwrap(), &context())
             .unwrap_err()
             .code,
-        "UNSUPPORTED_SCHEMA_PROFILE"
+        "INVALID_SHAPE"
     );
+}
+
+#[test]
+fn eight_reviewed_exposure_cases_keep_exact_bounded_amounts_and_jcs_order() {
+    fn entry(slot: &str, atoms: &str) -> Value {
+        json!({"binding_slot":slot,"maximum":{"currency":"USD","scale":18,"atoms":atoms}})
+    }
+    let a = entry("fixture:a", "10");
+    let b = entry("fixture:b", "10");
+    let cases = vec![
+        (json!([]), Ok(json!([]))),
+        (json!([b, a]), Ok(json!([a, b]))),
+        (json!([a, a]), Err("INVALID_SHAPE")),
+        (json!([a, entry("fixture:a", "11")]), Err("INVALID_SHAPE")),
+        (json!([entry("fixture:a", "-1")]), Err("INVALID_SCALAR")),
+        (json!([entry("fixture:a", "01")]), Err("INVALID_SCALAR")),
+        (
+            json!([entry("fixture:a", &"9".repeat(30))]),
+            Ok(json!([entry("fixture:a", &"9".repeat(30))])),
+        ),
+        (
+            json!([entry("fixture:a", &format!("1{}", "0".repeat(30)))]),
+            Err("INVALID_SCALAR"),
+        ),
+    ];
+    assert_eq!(cases.len(), 8);
+    for (raw, expected) in cases {
+        let mut entries: Vec<Exposure> = serde_json::from_value(raw).unwrap();
+        let result = exposures(&mut entries);
+        match expected {
+            Ok(normalized) => {
+                result.unwrap();
+                assert_eq!(serde_json::to_value(entries).unwrap(), normalized);
+            }
+            Err(error) => assert_eq!(result.unwrap_err().code, error),
+        }
+    }
 }
