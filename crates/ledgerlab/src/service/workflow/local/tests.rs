@@ -303,71 +303,64 @@ async fn captured_workflow_publication_reply_loss_retry_alias_read_and_reopen() 
     reopened.close().await;
 }
 
-fn threaded<F: std::future::Future + Send + 'static>(
-    future: F,
-) -> tokio::task::JoinHandle<F::Output>
-where
-    F::Output: Send + 'static,
-{
-    tokio::task::spawn_blocking(move || {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(future)
-    })
+async fn joined_race(
+    a: tokio::task::JoinHandle<Result<Value>>,
+    b: tokio::task::JoinHandle<Result<Value>>,
+) -> (Result<Value>, Result<Value>) {
+    let (a, b) = tokio::time::timeout(Duration::from_secs(20), async { tokio::join!(a, b) })
+        .await
+        .expect("both concurrent publication results must finish within twenty seconds");
+    (
+        a.expect("first publication task panic"),
+        b.expect("second publication task panic"),
+    )
+}
+fn preparation_gate(
+    ledger: &LocalWorkflowLedger,
+    wait_for_commit: Option<(String, std::sync::Arc<tokio::sync::Notify>)>,
+) {
+    *ledger.preparation_gate.lock().unwrap() = Some(TestPreparationGate {
+        barrier: std::sync::Arc::new(tokio::sync::Barrier::new(2)),
+        wait_for_commit,
+    });
 }
 
 #[tokio::test]
 #[ignore = "requires trusted captured build inputs; ordinary Cargo cannot publish"]
 async fn captured_workflow_locked_duplicate_alias_and_changed_payload_races() {
-    use std::sync::{Arc, Barrier};
+    use std::sync::Arc;
     assert!(crate::build_identity::embedded_inputs().is_ok());
     let (_dir, path) = installation("captured-race-test").await;
     let ledger = Arc::new(LocalWorkflowLedger::open_local(&path).await.unwrap());
     ledger.enable_profile_b().await.unwrap();
     let request = publication_request("captured-race-test");
     let raw = records::bytes(&request).unwrap();
-    let barrier = Arc::new(Barrier::new(2));
+    preparation_gate(&ledger, None);
     let mut tasks = vec![];
     for _ in 0..2 {
         let ledger = ledger.clone();
-        let barrier = barrier.clone();
         let raw = raw.clone();
-        tasks.push(threaded(async move {
-            ledger
-                .publish_with(&raw, || {
-                    barrier.wait();
-                    ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
-                        .map_err(|_| ServiceError::Unavailable)
-                })
-                .await
-        }));
+        tasks.push(tokio::spawn(async move { ledger.publish(&raw).await }));
     }
-    let first = tasks.remove(0).await.unwrap().unwrap();
-    let second = tasks.remove(0).await.unwrap().unwrap();
+    let (first, second) = joined_race(tasks.remove(0), tasks.remove(0)).await;
+    let first = first.unwrap();
+    let second = second.unwrap();
     assert_eq!(first["receipt"], second["receipt"]);
     assert_eq!(first["request_evidence"], second["request_evidence"]);
     assert!(first["duplicate_kind"] == "identity" || second["duplicate_kind"] == "identity");
-    let barrier = Arc::new(Barrier::new(2));
+    preparation_gate(&ledger, None);
     let mut tasks = vec![];
     for name in ["racing-alias-a", "racing-alias-b"] {
         let ledger = ledger.clone();
-        let barrier = barrier.clone();
         let mut request = request.clone();
         request["key"]["operation_id"] = json!(name);
-        tasks.push(threaded(async move {
-            ledger
-                .publish_with(&records::bytes(&request).unwrap(), || {
-                    barrier.wait();
-                    ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
-                        .map_err(|_| ServiceError::Unavailable)
-                })
-                .await
+        tasks.push(tokio::spawn(async move {
+            ledger.publish(&records::bytes(&request).unwrap()).await
         }));
     }
-    let a = tasks.remove(0).await.unwrap().unwrap();
-    let b = tasks.remove(0).await.unwrap().unwrap();
+    let (a, b) = joined_race(tasks.remove(0), tasks.remove(0)).await;
+    let a = a.unwrap();
+    let b = b.unwrap();
     assert_eq!(a["duplicate_kind"], "semantic");
     assert_eq!(b["duplicate_kind"], "semantic");
     assert_ne!(
@@ -379,42 +372,66 @@ async fn captured_workflow_locked_duplicate_alias_and_changed_payload_races() {
     let mut valid = request.clone();
     valid["key"]["operation_id"] = json!("racing-changed-payload");
     let mut changed = valid.clone();
-    changed["payload"]["expected_plan_digest"] = json!(format!("sha256:{}", "0".repeat(64)));
-    let barrier = Arc::new(Barrier::new(2));
-    let (committed, wait) = std::sync::mpsc::channel();
+    let changed_digest = format!("sha256:{}", "0".repeat(64));
+    changed["payload"]["expected_plan_digest"] = json!(changed_digest);
+    let committed = Arc::new(tokio::sync::Notify::new());
+    preparation_gate(&ledger, Some((changed_digest, committed.clone())));
     let valid_ledger = ledger.clone();
-    let valid_barrier = barrier.clone();
-    let valid_task = threaded(async move {
-        let result = valid_ledger
-            .publish_with(&records::bytes(&valid).unwrap(), || {
-                valid_barrier.wait();
-                ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
-                    .map_err(|_| ServiceError::Unavailable)
-            })
-            .await;
-        committed.send(result.is_ok()).unwrap();
+    let valid_task = tokio::spawn(async move {
+        let result = valid_ledger.publish(&records::bytes(&valid).unwrap()).await;
+        eprintln!(
+            "workflow race: valid changed-payload-key attempt completed: {:?}",
+            result.as_ref().map(|_| ())
+        );
+        committed.notify_one();
         result
     });
     let invalid_ledger = ledger.clone();
-    let invalid_task = threaded(async move {
+    let invalid_task = tokio::spawn(async move {
         invalid_ledger
-            .publish_with(&records::bytes(&changed).unwrap(), move || {
-                barrier.wait();
-                assert!(wait.recv().unwrap());
-                ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
-                    .map_err(|_| ServiceError::Unavailable)
-            })
+            .publish(&records::bytes(&changed).unwrap())
             .await
     });
-    assert_eq!(
-        valid_task.await.unwrap().unwrap()["duplicate_kind"],
-        "semantic"
-    );
-    assert!(
-        matches!(invalid_task.await.unwrap(),Err(ServiceError::Rejection(code)) if code=="IDENTITY_CONFLICT")
-    );
+    let (valid, invalid) = joined_race(valid_task, invalid_task).await;
+    assert_eq!(valid.unwrap()["duplicate_kind"], "semantic");
+    assert!(matches!(invalid,Err(ServiceError::Rejection(code)) if code=="IDENTITY_CONFLICT"));
+    *ledger.preparation_gate.lock().unwrap() = None;
     let mut tx = ledger.store.begin(deadline()).await.unwrap();
     assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 4);
     tx.rollback().await.unwrap();
     Arc::try_unwrap(ledger).ok().unwrap().close().await;
+}
+
+#[tokio::test]
+async fn workflow_async_preparation_gate_drives_pool_return_and_both_absent_lookups() {
+    // Ordinary source build: exercise real rollback/pool scheduling and async
+    // rendezvous, then require the genuine missing-build refusal on both paths.
+    if crate::build_identity::embedded_inputs().is_ok() {
+        return;
+    }
+    let (_dir, path) = installation("async-gate-test").await;
+    let ledger = std::sync::Arc::new(LocalWorkflowLedger::open_local(&path).await.unwrap());
+    ledger.enable_profile_b().await.unwrap();
+    preparation_gate(&ledger, None);
+    let raw = records::bytes(&publication_request("async-gate-test")).unwrap();
+    let a = ledger.clone();
+    let ar = raw.clone();
+    let b = ledger.clone();
+    let br = raw;
+    let (a, b) = joined_race(
+        tokio::spawn(async move { a.publish(&ar).await }),
+        tokio::spawn(async move { b.publish(&br).await }),
+    )
+    .await;
+    assert_eq!(a, Err(ServiceError::Unavailable));
+    assert_eq!(b, Err(ServiceError::Unavailable));
+    *ledger.preparation_gate.lock().unwrap() = None;
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 0);
+    tx.rollback().await.unwrap();
+    std::sync::Arc::try_unwrap(ledger)
+        .ok()
+        .unwrap()
+        .close()
+        .await;
 }

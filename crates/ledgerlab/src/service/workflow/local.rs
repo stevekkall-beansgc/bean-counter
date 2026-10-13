@@ -19,12 +19,20 @@ pub(super) struct LocalOwnerAdmin {
     scope: [String; 2],
     operator: String,
 }
+#[cfg(test)]
+#[derive(Clone)]
+struct TestPreparationGate {
+    barrier: std::sync::Arc<tokio::sync::Barrier>,
+    wait_for_commit: Option<(String, std::sync::Arc<tokio::sync::Notify>)>,
+}
 /// Local-only installation access. No remote source token is accepted.
 pub struct LocalWorkflowLedger {
     store: SqliteStore,
     admin: LocalOwnerAdmin,
     #[cfg(test)]
     lose_reply: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    preparation_gate: std::sync::Mutex<Option<TestPreparationGate>>,
 }
 impl LocalWorkflowLedger {
     /// Publish through the journal using only the implemented builtin compiler
@@ -87,6 +95,8 @@ impl LocalWorkflowLedger {
                 admin,
                 #[cfg(test)]
                 lose_reply: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(test)]
+                preparation_gate: std::sync::Mutex::new(None),
             }),
             Err(e) => {
                 store.close().await;
@@ -260,6 +270,31 @@ impl LocalWorkflowLedger {
             return Ok(operation_result(result, Some("identity")));
         }
         let raw_documents = raw_documents.ok_or(ServiceError::IntegrityFailure)?;
+        #[cfg(test)]
+        {
+            let gate = { self.preparation_gate.lock().unwrap().clone() };
+            if let Some(gate) = gate {
+                eprintln!(
+                    "workflow race: {} original absent; initial rollback returned; async gate entered",
+                    key.operation_id
+                );
+                tokio::time::timeout(Duration::from_secs(10), gate.barrier.wait())
+                    .await
+                    .map_err(|_| ServiceError::Injected)?;
+                if let Some((digest, committed)) = gate.wait_for_commit {
+                    if req.expected_digest() == digest {
+                        tokio::time::timeout(Duration::from_secs(10), committed.notified())
+                            .await
+                            .map_err(|_| ServiceError::Injected)?;
+                    }
+                }
+                eprintln!(
+                    "workflow race: {} async preparation gate released",
+                    key.operation_id
+                );
+            }
+        }
+
         let fresh_prepared: Result<(
             core::PreparedPublication,
             Value,
