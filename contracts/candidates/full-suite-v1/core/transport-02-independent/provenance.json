@@ -1,0 +1,26 @@
+{
+  "schema": "independent-oracle-provenance/1",
+  "boundary": "PUB-TRANSPORT-02",
+  "reviewer": "Astra adversarial_money; independent of this transcription and code, previously authored financial architecture",
+  "source_commit": "5f5e0e749995b9679044aa9b84d125728dc7a621",
+  "copy_authorized_by_reviewer": true,
+  "originals": {
+    "generator-original.py": {
+      "source_path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/review-fixtures/derive_publication_transport_02.py",
+      "sha256": "a98d8ba52b32da1d8f45f69cf4b4b34505c7c4cafd1fdeb06793e9a716df3468"
+    },
+    "expected.json": {
+      "source_path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/review-fixtures/publication-transport-02-expected.json",
+      "sha256": "fa2ebceb2150961275e740e3c9d360b1944975d794bbbda3c8e5dc79bbcc672b"
+    }
+  },
+  "adaptation": {
+    "file": "verify.py",
+    "changes": [
+      "Replace absolute candidate path with parent directory",
+      "Compare generated exact bytes with expected.json without writing any file"
+    ],
+    "sha256": "466bb64f0f420e88d55fd66c07bcc6d46a52aa476e279a24eb6115240940cd2d"
+  },
+  "excluded_historical_invalid": "Reviewer publication-transport-02-initial-invalid-request.json remains diagnostic only; neither copied nor frozen."
+}

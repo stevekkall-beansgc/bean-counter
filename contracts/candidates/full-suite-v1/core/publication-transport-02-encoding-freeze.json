@@ -1,0 +1,53 @@
+{
+  "schema": "named-selected-encoding-freeze/1",
+  "boundary": "PUB-TRANSPORT-02",
+  "status": "SELECTED_ENCODING_FREEZE_AFTER_INDEPENDENT_ACCEPTANCE; manifest/adaptation verification requested",
+  "reviewed_candidate_commit": "5f5e0e749995b9679044aa9b84d125728dc7a621",
+  "review_basis": "CONTRACT-REVIEW.md section PUB-TRANSPORT-02 complete independent selected derivation; bounded ACCEPT",
+  "independence_limit": "Reviewer authored earlier financial architecture but not this transcription or implementation. Author and reviewer separately assembled before comparing.",
+  "included": [
+    "Closed source-specific DescriptorPrepare and derived immutable source/fragment locator recipes for selected variants",
+    "Selected normalized direct/fragment/finalize records plus source/local-authority/build/compiled-plan/publication/operation/manifest/receipt families",
+    "Literal isolated-synthetic27-operation history: source retention,2aliases,complete21-source retained publication,2 canonical-byte reads,original retry/status",
+    "Exact135 envelopes/Refs/canonical bodies,request evidence,manifest memberships,receipts and per-operation ProfileB deltas",
+    "Selected unit/true expanded plan1089536 bytes; code support itself is not implied by its encoding"
+  ],
+  "excluded": [
+    "Whole copied schema or every representable variant",
+    "Real actor/source/build authenticity, production authority resolver or source-retention implementation",
+    "Runtime facade/SQL/failure/concurrency/reopen/migration/capacity/read-revocation qualification",
+    "Full fragment lifecycle and maximum4MiB response qualification",
+    "New compiler primitive/mode support and complete worst-case proof",
+    "Work/link/outcome/correction and full Waves1\u20132 completion",
+    "Historical01 partial oracle and reviewer initial invalid request candidate as corrected/frozen full evidence"
+  ],
+  "hash_scope_note": "Whole-file hashes identify exact snapshots only; copied auxiliary definitions and explanatory unrun gates are not broader semantic/runtime certification. Historical frozen artifacts remain unchanged.",
+  "source_inputs_only": false,
+  "independent_expected_sha256": "fa2ebceb2150961275e740e3c9d360b1944975d794bbbda3c8e5dc79bbcc672b",
+  "sha256": {
+    "PUBLICATION-SOURCE-TRANSPORT.md": "f1d2101cad2edd8153835e354a1b5c963fe9b2f812395b0ca488c82034fb691c",
+    "PUBLICATION-TRANSPORT-02-REPAIR.md": "ac57151f57c26e067ec856017b50f081e7ae759bc9bee39d73adf5c575fc4cab",
+    "publication-transport-02.schema.json": "3b0dd01db46f426ae2943a4d73f1176cf781c7c4eeef80cb74902f7ef2d540c9",
+    "publication-transport-02-registry.json": "ce1b5c6ba35f3b59305f750d7b85e505db499aef7e399f631b183121055d5d6f",
+    "publication-transport-02-fixture-input.json": "7e7a8808856b9cdd51a9037e5ddcc93d4a115ed8f3aa4cc76f2b79438029b656",
+    "publication-transport-02-author.json": "1abd24d363b75a1cb9bc079b3c86f4ce2eb28957efd985e06fd501df7320bad4",
+    "derive_publication_transport_02_author.py": "06dd5532b54e284f6658fe3d667d3d41f1cdb08ec2fd5963e3f53cc41ee5db8a",
+    "validate_publication_transport_02.py": "aeb63ec2e93750a1132f8cbd7504371acd5354a763cb7d238374b8e68d5b7882",
+    "compare_publication_transport_02.py": "e513d574ad344ef816d69c60368866d8fd440aa9b66f13cc44eb52c07a83c27d",
+    "compare_publication_transport_known.py": "6d03a28a01d86e21c1eef223c4f0cf8af2bb09625f29b401a5db355955540900",
+    "publication-transport-02-author-checks.json": "7b0abaa613b01f898cca0cb483c1afb29adbcd306e9244399d513dda7f96508c",
+    "plan-size-counterexample/input.json": "04a40aa7f67a8e8fa4297787d6e570fecfe8068a3b45ea99a1e77a94c4053f09",
+    "build-provenance-fixture-input.json": "480270d3e4eb5da68e4e0c2b0e8f3f349041edd140b33ea13093cd594b33e594",
+    "registry-contract.json": "e3845b3a16656e776591b41cdf1046a6da9f38dfa77d8fb8657f2ca01e55ad55",
+    "transport-02-independent/generator-original.py": "a98d8ba52b32da1d8f45f69cf4b4b34505c7c4cafd1fdeb06793e9a716df3468",
+    "transport-02-independent/expected.json": "fa2ebceb2150961275e740e3c9d360b1944975d794bbbda3c8e5dc79bbcc672b",
+    "transport-02-independent/verify.py": "466bb64f0f420e88d55fd66c07bcc6d46a52aa476e279a24eb6115240940cd2d",
+    "transport-02-independent/provenance.json": "1e01c06b2e02c6feed3abe2d96b4e21a223e887236549375696ee977ce7c56b8",
+    "check_publication_transport_02_freeze.py": "c8aa1cfcd9ac089a1d214f85f287e244f608e2e0992ac05e0fe4f9571db5b10e"
+  },
+  "read_only_gates": [
+    "python3 contracts/candidates/full-suite-v1/core/transport-02-independent/verify.py",
+    "python3 contracts/candidates/full-suite-v1/core/compare_publication_transport_02.py",
+    "python3 contracts/candidates/full-suite-v1/core/check_publication_transport_02_freeze.py"
+  ]
+}
