@@ -13,6 +13,10 @@ pub(in crate::service::workflow::agreement) struct PublicationInputs {
     pub(in crate::service::workflow::agreement) fact_schema_refs: Vec<RecordRef>,
 }
 impl PublicationInputs {
+    #[cfg(test)]
+    pub(super) fn fixture(body: &Value, sources: &[&Document]) -> Result<Self> {
+        Self::from_documents(body, sources)
+    }
     pub(in crate::service::workflow::agreement) fn original(
         publication: &context::ObservedPublication,
     ) -> Result<Self> {
