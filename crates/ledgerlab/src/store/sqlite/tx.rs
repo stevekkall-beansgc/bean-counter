@@ -54,7 +54,7 @@ pub(crate) struct SqliteTx {
     pub(super) adjudication: Option<super::adjudication::tx::Context>,
     pub(super) physical_start_pages: Option<u32>,
     pub(super) fence_start_changes: Option<i64>,
-    pub(super) start_changes: i64,
+    pub(super) start_changes: Option<i64>,
     #[cfg(test)]
     pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
@@ -616,15 +616,30 @@ impl AcceptanceTx for SqliteTx {
                 self.failed = false;
             }
         }
-        if !self.failed && Instant::now() < self.deadline {
+        if !self.failed
+            && Instant::now() < self.deadline
+            && self.store.workflow_guard_enabled.load(Ordering::Acquire)
+        {
             self.failed = true;
             let before = self.start_changes;
             let result = timeout_at(self.deadline, async {
                 let after: i64 = sqlx::query_scalar("SELECT total_changes()")
                     .fetch_one(self.conn())
                     .await?;
-                if after != before && self.billing_schema_version().await? == 12 {
-                    super::workflow::capacity::check(self.conn(), 0, 0).await?;
+                let before =
+                    before.ok_or(StoreError::Integrity("workflow mutation origin missing"))?;
+                if after != before {
+                    match self.billing_schema_version().await? {
+                        12 => {
+                            super::workflow::capacity::check(self.conn(), 0, 0).await?;
+                        }
+                        11 => {} // A verified opt-in attempt rolled back.
+                        _ => {
+                            return Err(StoreError::InvalidStore(
+                                "unsupported guarded workflow schema",
+                            ))
+                        }
+                    }
                 }
                 Ok::<_, StoreError>(())
             })

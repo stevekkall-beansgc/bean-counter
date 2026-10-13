@@ -48,6 +48,9 @@ struct Inner {
     queue: Arc<Semaphore>,
     comparison_queue: Arc<Semaphore>,
     disabled: AtomicBool,
+    // Optimization only: verified schema12 or an explicit opt-in attempt. Once
+    // set it stays conservative across rollback/cancellation/unknown commit.
+    workflow_guard_enabled: AtomicBool,
     commit_task: Mutex<Option<JoinHandle<()>>>,
     _owner: Arc<owner::Owner>,
     adjudication_enabled: Arc<AtomicBool>,
@@ -204,6 +207,7 @@ impl SqliteStore {
                 comparison_queue: Arc::new(Semaphore::new(1)),
                 disabled: AtomicBool::new(false),
                 commit_task: Mutex::new(None),
+                workflow_guard_enabled: AtomicBool::new(schema_version == 12),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),
                 #[cfg(test)]
@@ -394,10 +398,22 @@ impl SqliteStore {
         } else {
             None
         };
-        let start_changes: i64 = sqlx::query_scalar("SELECT total_changes()")
-            .fetch_one(&mut *transaction)
-            .await?;
-        let fence_start_changes = self.inner._owner.fence.as_ref().map(|_| start_changes);
+        let start_changes = if self.inner._owner.fence.is_some()
+            || self.inner.workflow_guard_enabled.load(Ordering::Acquire)
+        {
+            Some(
+                sqlx::query_scalar("SELECT total_changes()")
+                    .fetch_one(&mut *transaction)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        let fence_start_changes = if self.inner._owner.fence.is_some() {
+            start_changes
+        } else {
+            None
+        };
         Ok(SqliteTx {
             transaction: Some(transaction),
             store: Arc::clone(&self.inner),

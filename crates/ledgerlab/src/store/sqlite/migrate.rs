@@ -1476,6 +1476,10 @@ impl super::SqliteTx {
             let before = retained_source_digest(self.conn(), b"bean-counter/workflow/schema-11-source/1\0", "workflow_").await?;
             let collision: i64 = sqlx::query_scalar("SELECT count(*) FROM sqlite_schema WHERE name LIKE 'workflow_%'").fetch_one(self.conn()).await?;
             if collision != 0 { return Err(StoreError::InvalidStore("workflow sidecar name collision")); }
+            self.store.workflow_guard_enabled.store(true, std::sync::atomic::Ordering::Release);
+            if self.start_changes.is_none() {
+                self.start_changes = Some(sqlx::query_scalar("SELECT total_changes()").fetch_one(self.conn()).await?);
+            }
             let migration = workflow_migration();
             sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref())).execute(self.conn()).await?;
             sqlx::query("INSERT INTO _sqlx_migrations(version,description,success,checksum,execution_time) VALUES(?,?,TRUE,?,0)")
