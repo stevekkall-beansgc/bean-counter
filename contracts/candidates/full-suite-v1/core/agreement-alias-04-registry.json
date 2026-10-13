@@ -1,0 +1,166 @@
+{
+  "schema": "ledger-workflow-registry-contract/1",
+  "contract": "workflow/1",
+  "operation_envelope": "ledger-operation/1",
+  "receipt_profile": "ledger-operation-receipt/2",
+  "evidence_profile": "ledger-operation-request-evidence/2",
+  "normalization_profile": "ledger-operation-normalization/2",
+  "entries": [
+    {
+      "kind": "agreement.accept",
+      "payload_schemas": [
+        "ledger-workflow-agreement-accept/2"
+      ],
+      "recipe_id": "agreement.accept/2",
+      "exposure": "external",
+      "head_kind": "agreement_acceptance"
+    },
+    {
+      "kind": "agreement.activate",
+      "payload_schemas": [
+        "ledger-workflow-activation-replace/1",
+        "ledger-workflow-activation/1"
+      ],
+      "recipe_id": "agreement.activate/2",
+      "exposure": "external",
+      "head_kind": "agreement_activation"
+    },
+    {
+      "kind": "agreement.revoke",
+      "payload_schemas": [
+        "ledger-workflow-agreement-revoke/1"
+      ],
+      "recipe_id": "agreement.revoke/2",
+      "exposure": "external",
+      "head_kind": "agreement_activation"
+    },
+    {
+      "kind": "authority.change",
+      "payload_schemas": [
+        "ledger-workflow-customer-register/1",
+        "ledger-workflow-source-enroll/1",
+        "ledger-workflow-source-restrict/1",
+        "ledger-workflow-source-revoke/1"
+      ],
+      "recipe_id": "authority.change/2",
+      "exposure": "external"
+    },
+    {
+      "kind": "evidence.retain",
+      "payload_schemas": [
+        "ledger-workflow-evidence-retain/1"
+      ],
+      "recipe_id": "evidence.retain/2",
+      "exposure": "external"
+    },
+    {
+      "kind": "policy.publish",
+      "payload_schemas": [
+        "ledger-workflow-policy-publication/1"
+      ],
+      "recipe_id": "policy.publish/1",
+      "exposure": "external"
+    }
+  ],
+  "record_kinds": [
+    "workflow-acceptance-terms",
+    "workflow-accepted-agreement",
+    "workflow-activation",
+    "workflow-agreement-intent",
+    "workflow-assent",
+    "workflow-authority",
+    "workflow-binding",
+    "workflow-build-manifest",
+    "workflow-compiled-plan",
+    "workflow-compiler-descriptor",
+    "workflow-customer",
+    "workflow-evidence",
+    "workflow-fact-schema",
+    "workflow-head-transition",
+    "workflow-manifest",
+    "workflow-operation",
+    "workflow-policy",
+    "workflow-product",
+    "workflow-publication",
+    "workflow-receipt",
+    "workflow-roles",
+    "workflow-slot-catalog",
+    "workflow-slot-instantiation",
+    "workflow-slot-template",
+    "workflow-slot-terms",
+    "workflow-source-enrollment",
+    "workflow-source-grant",
+    "workflow-source-state"
+  ],
+  "errors": [
+    "ACTIVATION_SCHEDULE_CONFLICT",
+    "AGREEMENT_OWNERSHIP_CONFLICT",
+    "ASSENT_TERMS_MISMATCH",
+    "AUTHORITY_REQUIRED",
+    "BASIS_NOT_TOTAL",
+    "CAPACITY_EXCEEDED",
+    "CORRECTION_CAPACITY_EXCEEDED",
+    "DESCRIPTOR_DEPENDENCY_MISSING",
+    "DESCRIPTOR_SCOPE_MISMATCH",
+    "DOCUMENT_DIGEST_MISMATCH",
+    "IDENTITY_CONFLICT",
+    "INSTALLATION_MODE_MISMATCH",
+    "INTEGRITY_FAILURE",
+    "INVALID_REFERENCE",
+    "INVALID_SCALAR",
+    "INVALID_SHAPE",
+    "PLAN_DIGEST_MISMATCH",
+    "PREDICATE_ANALYSIS_LIMIT",
+    "PROGRAM_BUDGET_EXCEEDED",
+    "REQUEST_EVIDENCE_MISMATCH",
+    "REVERSAL_DEPENDENTS_REQUIRED",
+    "SEMANTIC_CONFLICT",
+    "SLOT_SEMANTICS_CHANGED",
+    "SOURCE_CEILING_EXCEEDED",
+    "STALE_REVISION",
+    "UNSUPPORTED_COMPOSITION",
+    "UNSUPPORTED_SCHEMA_PROFILE"
+  ],
+  "status_input": "OperationKey",
+  "status_output": "OperationStatus",
+  "read_inputs": [
+    "AgreementHeadRead",
+    "DescriptorPrepare",
+    "PublicationRead",
+    "OperationKey"
+  ],
+  "read_outputs": [
+    "AgreementHeadResult",
+    "DescriptorResolution",
+    "PublicationReadResult",
+    "OperationStatus",
+    "ReadError"
+  ],
+  "result_kinds": [
+    "administrative",
+    "semantic_alias"
+  ],
+  "agreement_authority_schema": "ledger-workflow-agreement-authority/2",
+  "agreement_authority_purposes": {
+    "agreement.accept": "admit",
+    "agreement.activate": "admit",
+    "agreement.revoke": "stop"
+  },
+  "evidence_purposes": [
+    "admission_stop",
+    "assent",
+    "customer_registration",
+    "funding",
+    "operator_attestation",
+    "source_enrollment"
+  ],
+  "agreement_alias_authority_schema": "ledger-workflow-agreement-authority/3",
+  "agreement_alias_operation_schema": "ledger-workflow-agreement-alias-operation/1",
+  "agreement_alias_manifest_schema": "ledger-workflow-agreement-alias-manifest/1",
+  "agreement_alias_purposes": {
+    "agreement.accept": "semantic_alias",
+    "agreement.activate": "semantic_alias",
+    "agreement.revoke": "semantic_alias"
+  },
+  "agreement_alias_recipe": "agreement.semantic-alias/1"
+}

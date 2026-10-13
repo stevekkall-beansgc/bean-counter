@@ -1,0 +1,110 @@
+{
+  "schema": "synthetic-agreement-alias-04-input/1",
+  "status": "LITERAL_INPUT_NOT_ORACLE_OR_RUNTIME_AUTHORITY",
+  "base_input_files": [
+    "agreement-boundary-fixture-input.json",
+    "agreement-ready-fixture-input.json",
+    "agreement-stop-fixture-input.json"
+  ],
+  "raw_request_encoding": "canonical JCS of complete new normalized OperationEnvelope, no LF; agreement.accept documents=[] after exact retained private closure resolution",
+  "original_semantic_intent": "original normalized payload excluding documents only for acceptance; exact original expected_revision and effective input retained",
+  "trusted_actor": {
+    "actor": "fixture-admin",
+    "source": "urn:fixture:publisher",
+    "installation_mode": "isolated_synthetic",
+    "private_local_owner_admin": "explicit synthetic harness capability; never a request field",
+    "current_read": true,
+    "current_administrative_submit": true,
+    "mapping_matches": true
+  },
+  "scenarios": [
+    {
+      "name": "revoked",
+      "base_scenario": "primary",
+      "current_source_state_name": "A.revoked_source_state",
+      "expected_source_status": "revoked",
+      "expected_grant_time_status": null,
+      "heads_before_and_after": {
+        "A_acceptance": "1",
+        "A_activation": "2",
+        "A_selection": "stopped",
+        "B_acceptance": "1",
+        "B_activation": "1"
+      },
+      "operations": [
+        {
+          "name": "revoked.A.accept.alias",
+          "original_name": "A.accept",
+          "operation_id": "revoked-A-accept-alias",
+          "accepted_at": "2026-10-13T00:00:23.000000Z",
+          "commit_sequence": "23"
+        },
+        {
+          "name": "revoked.A.activate.alias",
+          "original_name": "A.activate",
+          "operation_id": "revoked-A-activate-alias",
+          "accepted_at": "2026-10-13T00:00:24.000000Z",
+          "commit_sequence": "24"
+        },
+        {
+          "name": "revoked.A.stop.alias",
+          "original_name": "A.stop",
+          "operation_id": "revoked-A-stop-alias",
+          "accepted_at": "2026-10-13T00:00:25.000000Z",
+          "commit_sequence": "25"
+        }
+      ]
+    },
+    {
+      "name": "expired",
+      "base_scenario": "expiry",
+      "current_source_state_name": "A.initial_source_state",
+      "expected_source_status": "active",
+      "expected_grant_time_status": "expired",
+      "heads_before_and_after": {
+        "A_acceptance": "1",
+        "A_activation": "2",
+        "A_selection": "stopped",
+        "B_acceptance": "1",
+        "B_activation": "1"
+      },
+      "operations": [
+        {
+          "name": "expired.A.accept.alias",
+          "original_name": "A.accept",
+          "operation_id": "expired-A-accept-alias",
+          "accepted_at": "2027-01-01T00:00:22.000000Z",
+          "commit_sequence": "22"
+        },
+        {
+          "name": "expired.A.activate.alias",
+          "original_name": "A.activate",
+          "operation_id": "expired-A-activate-alias",
+          "accepted_at": "2027-01-01T00:00:23.000000Z",
+          "commit_sequence": "23"
+        },
+        {
+          "name": "expired.A.stop.alias",
+          "original_name": "A.expiry_stop",
+          "operation_id": "expired-A-stop-alias",
+          "accepted_at": "2027-01-01T00:00:24.000000Z",
+          "commit_sequence": "24"
+        }
+      ]
+    }
+  ],
+  "negative_cases": [
+    "current_local_admin_read_denied",
+    "current_local_admin_submit_denied",
+    "current_source_mapping_mismatch",
+    "same_key_different_normalized_request",
+    "changed_terms_same_acceptance_version",
+    "changed_effective_input_same_activation_revision",
+    "alias_authority_used_for_fresh_admission",
+    "revoked_state_with_current_grant",
+    "active_state_without_grant",
+    "original_operation_is_itself_alias",
+    "original_result_or_head_changed",
+    "current_expired_grant_mislabeled_valid"
+  ]
+}
