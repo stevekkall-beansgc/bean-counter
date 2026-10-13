@@ -9,6 +9,28 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::time::Instant;
 
+#[tokio::test]
+async fn per_kind_sql_byte_guard_accepts_four_mib_only_for_compiled_plan() {
+    let (_dir, store) = create().await;
+    let mut tx = store.begin(deadline()).await.unwrap();
+    // Isolate the table's mechanical byte constraint, without claiming these
+    // diagnostic blobs are authenticated semantic documents or journal rows.
+    for (index, (kind, size, accepted)) in [
+        ("workflow-compiled-plan", 4194304, true),
+        ("workflow-compiled-plan", 4194305, false),
+        ("workflow-policy", 1048576, true),
+        ("workflow-policy", 1048577, false),
+        ("workflow-build-manifest", 1048577, false),
+    ].into_iter().enumerate() {
+        let result = sqlx::query("INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?)")
+            .bind(kind).bind(format!("mechanical-byte-bound-{index}")).bind("diagnostic-only")
+            .bind("diagnostic-only").bind(vec![b'a'; size]).execute(tx.conn()).await;
+        assert_eq!(result.is_ok(), accepted, "{kind} size {size}: {result:?}");
+    }
+    tx.rollback().await.unwrap();
+    store.close().await;
+}
+
 pub(crate) fn fixture() -> PublicationAppend {
     let fixture:Value=serde_json::from_str(include_str!("../../../../../../contracts/candidates/full-suite-v1/core/publication-independent-expected.json")).unwrap();
     let vector = |name: &str| {

@@ -23,142 +23,7 @@ pub(super) fn hash(domain: &str, version: u8, v: &Value) -> Result<String> {
     Ok(format!("sha256:{}", canonical::hex(&h.finalize())))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::{
-        ports::{AcceptanceStore, AcceptanceTx},
-        sqlite::workflow::tests::{create, deadline, fixture},
-    };
-    #[tokio::test]
-    async fn rehashed_forged_normalization_and_descriptor_dependency_refuse() {
-        for omit_descriptor in [false, true] {
-            let (_dir, store) = create().await;
-            let mut p = fixture();
-            let key = request::OperationKey::parse(&p.operation.identity).unwrap();
-            let mut op: Value = serde_json::from_slice(&p.operation.operation_bytes).unwrap();
-            let evidence = &mut op["request_evidence"];
-            if omit_descriptor {
-                let resolution = &mut evidence["descriptor_resolution"];
-                let descriptors = resolution["descriptors"].as_array_mut().unwrap();
-                let removed = descriptors.remove(0);
-                for anchor in resolution["anchors"].as_array_mut().unwrap() {
-                    anchor["descriptor_refs"]
-                        .as_array_mut()
-                        .unwrap()
-                        .retain(|r| r != &removed);
-                }
-                let mut closure = resolution.clone();
-                closure.as_object_mut().unwrap().remove("closure_digest");
-                resolution["closure_digest"] =
-                    json!(hash("descriptor-closure", 1, &closure).unwrap());
-                evidence["schema_bundle_digest"] = json!(
-                    hash(
-                        "schema-bundle",
-                        1,
-                        &evidence["descriptor_resolution"]["descriptors"]
-                    )
-                    .unwrap()
-                );
-            } else {
-                evidence["normalized_request"]["payload"]["expected_plan_digest"] =
-                    json!(format!("sha256:{}", "0".repeat(64)));
-            }
-            evidence["request_hash"] = json!(
-                hash(
-                    "operation-request",
-                    2,
-                    &json!([
-                        evidence["descriptor_resolution"]["closure_digest"],
-                        evidence["normalized_request"]
-                    ])
-                )
-                .unwrap()
-            );
-            let old_ref = p.operation.operation_ref.clone();
-            p.operation.operation_ref =
-                record_reference("workflow-operation", &key.scope, &op).unwrap();
-            p.operation.operation_bytes = bytes(&op).unwrap();
-            p.operation.request_hash = op["request_evidence"]["request_hash"]
-                .as_str()
-                .unwrap()
-                .into();
-            let mut manifest: Value = serde_json::from_slice(&p.operation.manifest_bytes).unwrap();
-            let mut members = p.operation.members.clone();
-            *members.iter_mut().find(|r| **r == old_ref).unwrap() =
-                p.operation.operation_ref.clone();
-            sort_refs(&mut members).unwrap();
-            manifest["members"] = json!(members);
-            p.operation.members = members;
-            p.operation.manifest_ref =
-                record_reference("workflow-manifest", &key.scope, &manifest).unwrap();
-            p.operation.manifest_bytes = bytes(&manifest).unwrap();
-            let mut receipt: Value = serde_json::from_slice(&p.operation.receipt_bytes).unwrap();
-            receipt["request_hash"] = op["request_evidence"]["request_hash"].clone();
-            receipt["schema_bundle_digest"] =
-                op["request_evidence"]["schema_bundle_digest"].clone();
-            receipt["descriptor_closure_digest"] =
-                op["request_evidence"]["descriptor_resolution"]["closure_digest"].clone();
-            receipt["manifest_hash"] = json!(p.operation.manifest_ref.digest);
-            receipt.as_object_mut().unwrap().remove("receipt_hash");
-            receipt["receipt_hash"] = json!(hash("operation-receipt", 2, &receipt).unwrap());
-            p.operation.receipt_ref =
-                record_reference("workflow-receipt", &key.scope, &receipt).unwrap();
-            p.operation.receipt_bytes = bytes(&receipt).unwrap();
-            // All enclosing canonical hashes/index copies are coherent; original
-            // raw bytes remain untouched. Refusal must establish their meaning.
-            assert_eq!(
-                p.operation.operation_ref,
-                record_reference("workflow-operation", &key.scope, &op).unwrap()
-            );
-            assert_eq!(
-                p.operation.manifest_ref,
-                record_reference("workflow-manifest", &key.scope, &manifest).unwrap()
-            );
-            assert_eq!(
-                p.operation.receipt_ref,
-                record_reference("workflow-receipt", &key.scope, &receipt).unwrap()
-            );
-            let mut tx = store.begin(deadline()).await.unwrap();
-            tx.workflow_append(&p).await.unwrap();
-            assert_eq!(
-                verify_retained(&mut tx, &key, &p.operation).await,
-                Err(ServiceError::IntegrityFailure)
-            );
-            tx.rollback().await.unwrap();
-            store.close().await;
-        }
-    }
-    #[tokio::test]
-    async fn exact_original_status_verifies_independent_retained_closure() {
-        let (_dir, store) = create().await;
-        let p = fixture();
-        let key = request::OperationKey::parse(&p.operation.identity).unwrap();
-        let mut tx = store.begin(deadline()).await.unwrap();
-        tx.workflow_append(&p).await.unwrap();
-        tx.commit().await.unwrap();
-        let mut tx = store.begin(deadline()).await.unwrap();
-        let original = tx
-            .workflow_lookup(&key.bytes().unwrap())
-            .await
-            .unwrap()
-            .unwrap();
-        let result = verify_retained(&mut tx, &key, &original).await.unwrap();
-        assert_eq!(
-            result["receipt"],
-            canonical::parse_bounded(&p.operation.receipt_bytes, 1024 * 1024).unwrap()
-        );
-        assert_eq!(
-            result["request_evidence"],
-            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()["request_evidence"]
-        );
-        let mut tampered = original.clone();
-        tampered.receipt_bytes[8] = b'x';
-        assert!(verify_retained(&mut tx, &key, &tampered).await.is_err());
-        tx.rollback().await.unwrap();
-        store.close().await;
-    }
-}
+
 fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
     v[key].as_str().ok_or(ServiceError::IntegrityFailure)
 }
@@ -177,6 +42,13 @@ fn checked(raw: &[u8], max: usize) -> Result<Value> {
         return Err(ServiceError::IntegrityFailure);
     }
     Ok(v)
+}
+fn document_byte_limit(kind: &str) -> usize {
+    if kind == "workflow-compiled-plan" {
+        canonical::BUNDLE_LIMIT
+    } else {
+        1024 * 1024
+    }
 }
 pub(super) fn sort_refs(refs: &mut Vec<RecordRef>) -> Result<()> {
     canonical::sort_set(refs).map_err(|_| ServiceError::IntegrityFailure)
@@ -370,6 +242,7 @@ pub(super) async fn verify_retained(
     {
         return Err(ServiceError::IntegrityFailure);
     }
+    let expected_sequence = o.sequence.to_string();
     if receipt["request_hash"] != evidence["request_hash"]
         || receipt["request_hash_profile"] != "bean-counter/operation-request/2"
         || receipt["normalization_profile"] != evidence["normalization_profile"]
@@ -379,7 +252,7 @@ pub(super) async fn verify_retained(
         || receipt["manifest_hash"] != o.manifest_ref.digest
         || receipt["accepted_at"] != op["accepted_at"]
         || receipt["commit_sequence"] != op["commit_sequence"]
-        || op["commit_sequence"] != o.sequence.to_string()
+        || op["commit_sequence"] != expected_sequence
         || ledgerlab_core::domain::Timestamp::parse(text(&op, "accepted_at")?)
             .map_err(|_| ServiceError::IntegrityFailure)?
             .micros()
@@ -398,7 +271,7 @@ pub(super) async fn verify_retained(
             .await
             .map_err(super::super::store_error)?
             .ok_or(ServiceError::IntegrityFailure)?;
-        let body = checked(&d.bytes, 1024 * 1024)?;
+        let body = checked(&d.bytes, document_byte_limit(&r.kind))?;
         let expected = match r.kind.as_str() {
             "workflow-publication" => publication_ref(&key.logical_store_id, &key.scope, &body)?,
             "workflow-compiled-plan" => {
@@ -639,4 +512,153 @@ pub(super) async fn verify_retained(
     Ok(
         json!({"schema":"ledger-operation-status/1","status":"committed","receipt":receipt,"request_evidence":evidence}),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn retained_plan_limit_matches_canonical_bundle_without_widening_source_kinds() {
+        let body = format!("{{\"pad\":\"{}\"}}", "a".repeat(canonical::BUNDLE_LIMIT - 10));
+        assert_eq!(body.len(), canonical::BUNDLE_LIMIT);
+        assert!(checked(body.as_bytes(), document_byte_limit("workflow-compiled-plan")).is_ok());
+        let too_large = format!("{{\"pad\":\"{}\"}}", "a".repeat(canonical::BUNDLE_LIMIT - 9));
+        assert!(checked(too_large.as_bytes(), document_byte_limit("workflow-compiled-plan")).is_err());
+        for kind in ["workflow-product", "workflow-fact-schema", "workflow-slot-template", "workflow-policy", "workflow-compiler-descriptor", "workflow-authority", "workflow-publication", "workflow-build-manifest"] {
+            assert_eq!(document_byte_limit(kind), 1024 * 1024);
+            assert!(checked(body.as_bytes(), document_byte_limit(kind)).is_err());
+        }
+    }
+    use crate::store::{
+        ports::{AcceptanceStore, AcceptanceTx},
+        sqlite::workflow::tests::{create, deadline, fixture},
+    };
+    #[tokio::test]
+    async fn rehashed_forged_normalization_and_descriptor_dependency_refuse() {
+        for omit_descriptor in [false, true] {
+            let (_dir, store) = create().await;
+            let mut p = fixture();
+            let key = request::OperationKey::parse(&p.operation.identity).unwrap();
+            let mut op: Value = serde_json::from_slice(&p.operation.operation_bytes).unwrap();
+            let evidence = &mut op["request_evidence"];
+            if omit_descriptor {
+                let resolution = &mut evidence["descriptor_resolution"];
+                let descriptors = resolution["descriptors"].as_array_mut().unwrap();
+                let removed = descriptors.remove(0);
+                for anchor in resolution["anchors"].as_array_mut().unwrap() {
+                    anchor["descriptor_refs"]
+                        .as_array_mut()
+                        .unwrap()
+                        .retain(|r| r != &removed);
+                }
+                let mut closure = resolution.clone();
+                closure.as_object_mut().unwrap().remove("closure_digest");
+                resolution["closure_digest"] =
+                    json!(hash("descriptor-closure", 1, &closure).unwrap());
+                evidence["schema_bundle_digest"] = json!(
+                    hash(
+                        "schema-bundle",
+                        1,
+                        &evidence["descriptor_resolution"]["descriptors"]
+                    )
+                    .unwrap()
+                );
+            } else {
+                evidence["normalized_request"]["payload"]["expected_plan_digest"] =
+                    json!(format!("sha256:{}", "0".repeat(64)));
+            }
+            evidence["request_hash"] = json!(
+                hash(
+                    "operation-request",
+                    2,
+                    &json!([
+                        evidence["descriptor_resolution"]["closure_digest"],
+                        evidence["normalized_request"]
+                    ])
+                )
+                .unwrap()
+            );
+            let old_ref = p.operation.operation_ref.clone();
+            p.operation.operation_ref =
+                record_reference("workflow-operation", &key.scope, &op).unwrap();
+            p.operation.operation_bytes = bytes(&op).unwrap();
+            p.operation.request_hash = op["request_evidence"]["request_hash"]
+                .as_str()
+                .unwrap()
+                .into();
+            let mut manifest: Value = serde_json::from_slice(&p.operation.manifest_bytes).unwrap();
+            let mut members = p.operation.members.clone();
+            *members.iter_mut().find(|r| **r == old_ref).unwrap() =
+                p.operation.operation_ref.clone();
+            sort_refs(&mut members).unwrap();
+            manifest["members"] = json!(members);
+            p.operation.members = members;
+            p.operation.manifest_ref =
+                record_reference("workflow-manifest", &key.scope, &manifest).unwrap();
+            p.operation.manifest_bytes = bytes(&manifest).unwrap();
+            let mut receipt: Value = serde_json::from_slice(&p.operation.receipt_bytes).unwrap();
+            receipt["request_hash"] = op["request_evidence"]["request_hash"].clone();
+            receipt["schema_bundle_digest"] =
+                op["request_evidence"]["schema_bundle_digest"].clone();
+            receipt["descriptor_closure_digest"] =
+                op["request_evidence"]["descriptor_resolution"]["closure_digest"].clone();
+            receipt["manifest_hash"] = json!(p.operation.manifest_ref.digest);
+            receipt.as_object_mut().unwrap().remove("receipt_hash");
+            receipt["receipt_hash"] = json!(hash("operation-receipt", 2, &receipt).unwrap());
+            p.operation.receipt_ref =
+                record_reference("workflow-receipt", &key.scope, &receipt).unwrap();
+            p.operation.receipt_bytes = bytes(&receipt).unwrap();
+            // All enclosing canonical hashes/index copies are coherent; original
+            // raw bytes remain untouched. Refusal must establish their meaning.
+            assert_eq!(
+                p.operation.operation_ref,
+                record_reference("workflow-operation", &key.scope, &op).unwrap()
+            );
+            assert_eq!(
+                p.operation.manifest_ref,
+                record_reference("workflow-manifest", &key.scope, &manifest).unwrap()
+            );
+            assert_eq!(
+                p.operation.receipt_ref,
+                record_reference("workflow-receipt", &key.scope, &receipt).unwrap()
+            );
+            let mut tx = store.begin(deadline()).await.unwrap();
+            tx.workflow_append(&p).await.unwrap();
+            assert_eq!(
+                verify_retained(&mut tx, &key, &p.operation).await,
+                Err(ServiceError::IntegrityFailure)
+            );
+            tx.rollback().await.unwrap();
+            store.close().await;
+        }
+    }
+    #[tokio::test]
+    async fn exact_original_status_verifies_independent_retained_closure() {
+        let (_dir, store) = create().await;
+        let p = fixture();
+        let key = request::OperationKey::parse(&p.operation.identity).unwrap();
+        let mut tx = store.begin(deadline()).await.unwrap();
+        tx.workflow_append(&p).await.unwrap();
+        tx.commit().await.unwrap();
+        let mut tx = store.begin(deadline()).await.unwrap();
+        let original = tx
+            .workflow_lookup(&key.bytes().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        let result = verify_retained(&mut tx, &key, &original).await.unwrap();
+        assert_eq!(
+            result["receipt"],
+            canonical::parse_bounded(&p.operation.receipt_bytes, 1024 * 1024).unwrap()
+        );
+        assert_eq!(
+            result["request_evidence"],
+            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()["request_evidence"]
+        );
+        let mut tampered = original.clone();
+        tampered.receipt_bytes[8] = b'x';
+        assert!(verify_retained(&mut tx, &key, &tampered).await.is_err());
+        tx.rollback().await.unwrap();
+        store.close().await;
+    }
 }
