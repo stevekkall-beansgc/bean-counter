@@ -168,6 +168,42 @@ pub fn normalize_definition(
     dependencies: &[DefinitionDocument],
     supported: &VerifiedCompilerSupport,
 ) -> Result<NormalizedDefinition> {
+    let normalized = normalize_retained_definition(raw, dependencies)?;
+    let compiler = match normalized.document.kind() {
+        "workflow-compiler-descriptor" => Some(&normalized.document),
+        "workflow-policy" => {
+            let reference: DefinitionRef =
+                canonical::dto(normalized.document.body["compiler_ref"].clone())?;
+            Some(
+                normalized
+                    .dependencies
+                    .iter()
+                    .find(|d| d.reference() == &reference)
+                    .ok_or_else(|| fail("DEFINITION_MISSING", "compiler dependency"))?,
+            )
+        }
+        _ => None,
+    };
+    if compiler.is_some_and(|d| {
+        d.reference() != supported.descriptor.reference()
+            || d.canonical_bytes() != supported.descriptor.canonical_bytes()
+    }) {
+        return Err(fail(
+            "UNSUPPORTED_COMPILER_DESCRIPTOR",
+            "binary-owned descriptor mismatch",
+        ));
+    }
+    Ok(normalized)
+}
+
+/// Reconstruct selected saved definition data using its typed exact dependency
+/// closure, without current compiler support/build or fresh authority. The host
+/// must authenticate the original saved recipe and each origin, then compare
+/// returned bytes/ref with the retained record. This never creates support.
+pub fn normalize_retained_definition(
+    raw: &[u8],
+    dependencies: &[DefinitionDocument],
+) -> Result<NormalizedDefinition> {
     let value = canonical::parse_bounded(raw, 262144)?;
     reject_null(&value)?;
     if dependencies.len() > 127 {
@@ -201,14 +237,6 @@ pub fn normalize_definition(
         )?,
         Some("ledger-workflow-compiler-descriptor/1") => {
             let descriptor = CompilerDescriptor::parse(raw)?;
-            if descriptor.reference() != supported.descriptor.reference()
-                || descriptor.canonical_bytes() != supported.descriptor.canonical_bytes()
-            {
-                return Err(fail(
-                    "UNSUPPORTED_COMPILER_DESCRIPTOR",
-                    "binary-owned descriptor mismatch",
-                ));
-            }
             descriptor.document
         }
         Some("ledger-workflow-slot-template/1") => {
@@ -242,7 +270,7 @@ pub fn normalize_definition(
                 .collect();
             closure.push(root.canonical_bytes().to_vec());
             let sources = normalize_publication_sources(&closure, root.reference())?;
-            validate_policy_definition(&sources, supported)?;
+            validate_policy_definition(&sources)?;
             root
         }
         _ => {
@@ -326,18 +354,7 @@ fn source_dependencies(document: &DefinitionDocument) -> Result<Vec<DefinitionRe
     canonical::sort_set(&mut refs)?;
     Ok(refs)
 }
-fn validate_policy_definition(
-    sources: &NormalizedPublicationSources,
-    supported: &VerifiedCompilerSupport,
-) -> Result<()> {
-    if sources.compiler.reference() != supported.descriptor.reference()
-        || sources.compiler.canonical_bytes() != supported.descriptor.canonical_bytes()
-    {
-        return Err(fail(
-            "UNSUPPORTED_COMPILER_DESCRIPTOR",
-            "binary-owned descriptor mismatch",
-        ));
-    }
+fn validate_policy_definition(sources: &NormalizedPublicationSources) -> Result<()> {
     let product = &sources.product;
     let policy = &sources.policy;
     let slot = &policy.binding_slots[0];
@@ -422,6 +439,57 @@ fn validate_policy_definition(
         }
     }
     Ok(())
+}
+
+/// Extract exact typed direct dependencies from closed candidate syntax before
+/// storage resolution. These locators are untrusted discovery hints: complete
+/// type/closure validation still requires normalize_retained_definition, and
+/// fresh retention additionally requires normalize_definition/code support.
+pub fn candidate_dependency_refs(raw: &[u8]) -> Result<Vec<DefinitionRef>> {
+    let value = canonical::parse_bounded(raw, 262144)?;
+    reject_null(&value)?;
+    match value["schema"].as_str() {
+        Some("ledger-workflow-product/1") => super::product::candidate_fact_schema_refs(raw),
+        Some("ledger-workflow-policy/1") => {
+            let policy: PolicyDto = canonical::dto(normalize_policy(value)?)?;
+            let mut refs = Vec::new();
+            for (r, kind) in [
+                (policy.product_ref, "workflow-product"),
+                (policy.context_schema_ref, "workflow-fact-schema"),
+                (policy.slot_template_ref, "workflow-slot-template"),
+                (policy.compiler_ref, "workflow-compiler-descriptor"),
+            ] {
+                if r.kind() != kind {
+                    return Err(fail("DEFINITION_KIND", "candidate dependency family"));
+                }
+                refs.push(r);
+            }
+            canonical::sort_set(&mut refs)?;
+            Ok(refs)
+        }
+        Some("ledger-workflow-fact-schema/1") => {
+            FactSchema::parse(raw)?;
+            Ok(Vec::new())
+        }
+        Some("ledger-workflow-slot-template/1") => {
+            if value.get("previous").is_some() {
+                return Err(fail(
+                    "PROGRAM_UNSUPPORTED_PRIMITIVE",
+                    "source ancestry not implemented",
+                ));
+            }
+            SlotTemplate::parse(raw, None)?;
+            Ok(Vec::new())
+        }
+        Some("ledger-workflow-compiler-descriptor/1") => {
+            CompilerDescriptor::parse(raw)?;
+            Ok(Vec::new())
+        }
+        _ => Err(fail(
+            "UNSUPPORTED_SCHEMA_PROFILE",
+            "candidate source family/private data",
+        )),
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

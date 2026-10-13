@@ -204,6 +204,25 @@ pub struct Product {
     links: BTreeMap<String, LinkDefinition>,
     schemas: BTreeMap<String, FactSchema>,
 }
+/// Closed syntax for bounded dependency discovery only. This does not establish
+/// a normalized Product or authenticate any referenced schema.
+pub(super) fn candidate_fact_schema_refs(raw: &[u8]) -> Result<Vec<super::DefinitionRef>> {
+    let value = canonical::parse_bounded(raw, 262144)?;
+    reject_null(&value)?;
+    let dto: ProductDto = canonical::dto(value)?;
+    if dto.schema != SCHEMA || dto.fact_schemas.is_empty() || dto.fact_schemas.len() > 16 {
+        return Err(fail("PRODUCT_SCHEMA", "candidate schema/dependency count"));
+    }
+    let mut refs = Vec::new();
+    for r in dto.fact_schemas {
+        if r.kind != "workflow-fact-schema" {
+            return Err(fail("PRODUCT_SCHEMA", "candidate dependency family"));
+        }
+        refs.push(super::DefinitionRef::new(&r.kind, &r.id, &r.digest)?);
+    }
+    canonical::sort_set(&mut refs)?;
+    Ok(refs)
+}
 impl Product {
     /// Resolve definitions only from supplied validated immutable schemas.
     /// Source-closure admission and current authority remain compiler/coordinator

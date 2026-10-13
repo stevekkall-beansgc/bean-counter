@@ -726,3 +726,88 @@ fn canonical_definition_closure_budget_does_not_charge_root_wire_whitespace() {
         canonical.document().reference()
     );
 }
+
+#[test]
+fn dependency_discovery_is_closed_typed_and_exact_before_storage_resolution() {
+    let fixture = runtime_fixture();
+    let vectors = fixture["vectors"].as_array().unwrap();
+    for source in &vectors[..6] {
+        let raw = source["canonical_body_utf8"].as_str().unwrap().as_bytes();
+        let refs = candidate_dependency_refs(raw).unwrap();
+        match source["ref"]["kind"].as_str().unwrap() {
+            "workflow-product" => assert_eq!(
+                serde_json::to_value(refs).unwrap(),
+                json!([vectors[0]["ref"]])
+            ),
+            "workflow-policy" => {
+                let mut expected: Vec<DefinitionRef> = [1, 2, 3, 4]
+                    .iter()
+                    .map(|i| canonical::dto(vectors[*i]["ref"].clone()).unwrap())
+                    .collect();
+                canonical::sort_set(&mut expected).unwrap();
+                assert_eq!(refs, expected);
+            }
+            _ => assert!(refs.is_empty()),
+        }
+    }
+    let mut product: Value = canonical::parse(
+        vectors[4]["canonical_body_utf8"]
+            .as_str()
+            .unwrap()
+            .as_bytes(),
+    )
+    .unwrap();
+    product["units"][0]["unknown"] = json!(true);
+    assert!(
+        candidate_dependency_refs(CanonicalBytes::from_value(&product).unwrap().as_slice())
+            .is_err()
+    );
+    product["units"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("unknown");
+    product["fact_schemas"] = json!([vectors[4]["ref"]]);
+    assert!(
+        candidate_dependency_refs(CanonicalBytes::from_value(&product).unwrap().as_slice())
+            .is_err()
+    );
+    let raw = vectors[4]["canonical_body_utf8"]
+        .as_str()
+        .unwrap()
+        .replacen("{", "{\"fact\\u005fschemas\":[],", 1);
+    assert!(candidate_dependency_refs(raw.as_bytes()).is_err());
+}
+#[test]
+fn retained_definition_data_replays_old_descriptor_without_current_support() {
+    let (raw, root, _) = input();
+    let source = normalize_publication_sources(&raw, &root).unwrap();
+    let builtin = VerifiedCompilerSupport::builtin().unwrap();
+    let deps: Vec<_> = source
+        .source_documents()
+        .iter()
+        .filter(|d| d.reference() != &root)
+        .cloned()
+        .collect();
+    let historical = normalize_retained_definition(&raw[5], &deps).unwrap();
+    assert_eq!(historical.document().canonical_bytes(), raw[5]);
+    assert_eq!(historical.document().reference(), &root);
+    let descriptor = normalize_retained_definition(&raw[3], &[]).unwrap();
+    assert_eq!(
+        descriptor.document().reference(),
+        source.compiler_descriptor().reference()
+    );
+    error(
+        normalize_definition(&raw[3], &[], &builtin),
+        "UNSUPPORTED_COMPILER_DESCRIPTOR",
+    );
+    error(
+        normalize_definition(&raw[5], &deps, &builtin),
+        "UNSUPPORTED_COMPILER_DESCRIPTOR",
+    );
+    error(
+        compile_publication(&raw, &root, &plan_digest(), &builtin),
+        "UNSUPPORTED_COMPILER_DESCRIPTOR",
+    );
+    // Reassembly/typed data construction makes no claim of executable support,
+    // original retention or authority. The coordinator still verifies origin.
+}

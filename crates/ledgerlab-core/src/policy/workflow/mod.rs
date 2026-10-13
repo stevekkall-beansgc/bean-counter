@@ -12,7 +12,8 @@ pub use product::{
 };
 mod compiler;
 pub use compiler::{
-    compile_publication, normalize_definition, normalize_publication_sources, CompilerDescriptor,
+    candidate_dependency_refs, compile_publication, normalize_definition,
+    normalize_publication_sources, normalize_retained_definition, CompilerDescriptor,
     DefinitionDocument, DefinitionRef, NormalizedDefinition, NormalizedPublicationSources,
     PreparedPublication, VerifiedCompilerSupport,
 };
