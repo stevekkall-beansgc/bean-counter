@@ -1,0 +1,319 @@
+{
+  "schema": "ledger-quantity-ceilings-fixture/1",
+  "status": "AUTHOR_CANDIDATE_NOT_AUTHORITY_OR_RUNTIME",
+  "original_units": [
+    "fixture:item",
+    "fixture:other",
+    "fixture:terminal"
+  ],
+  "activity_fields": {
+    "fixture:a": {
+      "fixture:q": {
+        "required": true,
+        "kind": "integer",
+        "unit": "fixture:item",
+        "min": "0",
+        "max": "100"
+      },
+      "fixture:decimal": {
+        "required": true,
+        "kind": "decimal",
+        "unit": "fixture:item",
+        "min": "0",
+        "max": "100",
+        "max_scale": 1
+      },
+      "fixture:optional": {
+        "required": false,
+        "kind": "integer",
+        "unit": "fixture:item",
+        "min": "0",
+        "max": "100"
+      }
+    },
+    "fixture:b": {
+      "fixture:q": {
+        "required": true,
+        "kind": "integer",
+        "unit": "fixture:item",
+        "min": "0",
+        "max": "100"
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "canonical-set-and-decimal",
+      "entries": [
+        {
+          "activity": "fixture:b",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "02.00"
+        },
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "004.000"
+        }
+      ],
+      "normalized": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        },
+        {
+          "activity": "fixture:b",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "2"
+        }
+      ]
+    },
+    {
+      "name": "empty",
+      "entries": [],
+      "normalized": []
+    },
+    {
+      "name": "same-exact-entry",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        },
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        }
+      ],
+      "error": "INVALID_SHAPE"
+    },
+    {
+      "name": "same-normalized-maximum",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        },
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4.00"
+        }
+      ],
+      "error": "INVALID_SHAPE"
+    },
+    {
+      "name": "same-pair-different-maximum",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        },
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "5"
+        }
+      ],
+      "error": "INVALID_SHAPE"
+    },
+    {
+      "name": "same-pair-different-unit",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        },
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:other",
+          "maximum": "4"
+        }
+      ],
+      "error": "INVALID_SHAPE"
+    },
+    {
+      "name": "wrong-unit",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:other",
+          "maximum": "4"
+        }
+      ],
+      "error": "INVALID_REFERENCE"
+    },
+    {
+      "name": "terminal-unit-substitution",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:terminal",
+          "maximum": "4"
+        }
+      ],
+      "error": "INVALID_REFERENCE"
+    },
+    {
+      "name": "unknown-activity",
+      "entries": [
+        {
+          "activity": "fixture:missing",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        }
+      ],
+      "error": "INVALID_REFERENCE"
+    },
+    {
+      "name": "unknown-field",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:missing",
+          "unit": "fixture:item",
+          "maximum": "4"
+        }
+      ],
+      "error": "INVALID_REFERENCE"
+    },
+    {
+      "name": "nonintegral-ceiling",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4.5"
+        }
+      ],
+      "error": "INVALID_SCALAR"
+    },
+    {
+      "name": "above-original-max",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "101"
+        }
+      ],
+      "error": "INVALID_SCALAR"
+    },
+    {
+      "name": "negative",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "-1"
+        }
+      ],
+      "error": "INVALID_SCALAR"
+    },
+    {
+      "name": "integer-numeric-representability",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4.00"
+        }
+      ],
+      "normalized": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "4"
+        }
+      ]
+    },
+    {
+      "name": "decimal-representable",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:decimal",
+          "unit": "fixture:item",
+          "maximum": "4.50"
+        }
+      ],
+      "normalized": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:decimal",
+          "unit": "fixture:item",
+          "maximum": "4.5"
+        }
+      ]
+    },
+    {
+      "name": "decimal-too-fine",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:decimal",
+          "unit": "fixture:item",
+          "maximum": "4.55"
+        }
+      ],
+      "error": "INVALID_SCALAR"
+    },
+    {
+      "name": "zero-where-type-permits",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "0"
+        }
+      ],
+      "normalized": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:q",
+          "unit": "fixture:item",
+          "maximum": "0"
+        }
+      ]
+    },
+    {
+      "name": "optional-not-quantity",
+      "entries": [
+        {
+          "activity": "fixture:a",
+          "field": "fixture:optional",
+          "unit": "fixture:item",
+          "maximum": "4"
+        }
+      ],
+      "error": "INVALID_REFERENCE"
+    }
+  ]
+}
