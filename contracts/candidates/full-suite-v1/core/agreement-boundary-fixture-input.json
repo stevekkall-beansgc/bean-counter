@@ -87,7 +87,11 @@
             "maximum": "100"
           }
         ],
-        "exposure_ceiling": "37000000000000000000",
+        "exposure_ceiling": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "37000000000000000000"
+        },
         "source_grant_refs": [
           {
             "fixture_ref": "A.verified_grant"
@@ -169,7 +173,11 @@
         "exposure_ceilings": [
           {
             "binding_slot": "fixture.report:retail",
-            "maximum": "37000000000000000000"
+            "maximum": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "37000000000000000000"
+            }
           }
         ]
       },
@@ -262,7 +270,11 @@
             "maximum": "100"
           }
         ],
-        "exposure_ceiling": "37000000000000000000",
+        "exposure_ceiling": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "37000000000000000000"
+        },
         "source_grant_refs": [
           {
             "fixture_ref": "B.verified_grant"
@@ -344,7 +356,11 @@
         "exposure_ceilings": [
           {
             "binding_slot": "fixture.report:retail",
-            "maximum": "37000000000000000000"
+            "maximum": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "37000000000000000000"
+            }
           }
         ]
       },

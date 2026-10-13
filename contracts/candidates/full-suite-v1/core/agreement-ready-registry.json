@@ -139,5 +139,19 @@
   "result_kinds": [
     "administrative",
     "semantic_alias"
+  ],
+  "agreement_authority_schema": "ledger-workflow-agreement-authority/2",
+  "agreement_authority_purposes": {
+    "agreement.accept": "admit",
+    "agreement.activate": "admit",
+    "agreement.revoke": "stop"
+  },
+  "evidence_purposes": [
+    "admission_stop",
+    "assent",
+    "customer_registration",
+    "funding",
+    "operator_attestation",
+    "source_enrollment"
   ]
 }

@@ -49,7 +49,72 @@ if len(sys.argv)>1:
  known_path=Path(sys.argv[1]);raw=known_path.read_bytes()
  assert hashlib.sha256(raw).hexdigest()=='dbc66fa8f5464a2f82b0b6f6c77992670ef49bfb8d5bd9f90660abc38eb1aa6c'
  known=json.loads(raw)
- assert hashlib.sha256((P/'agreement-boundary-fixture-input.json').read_bytes()).hexdigest()==known['source_input_sha256']
+ # Input amount correction changes historical source SHA, not the six sealed document bodies.
+ base=json.loads((P/'agreement-boundary-fixture-input.json').read_text())
+ by_name={v['name']:v for v in known['documents']}
+ for entry in base['customers']:
+  tag=entry['tag']
+  assert entry['role']==by_name[tag+'.role']['body']
+  assert entry['catalog']==by_name[tag+'.catalog']['body']
+  inst=dict(entry['instantiation'])
+  inst['template_ref']=by_name[tag+'.instantiation']['body']['template_ref']
+  inst['catalog_ref']=by_name[tag+'.catalog']['ref']
+  assert inst==by_name[tag+'.instantiation']['body']
  for doc in known['documents']:
   validate({'workflow-roles':'RoleAssignment','workflow-slot-catalog':'SlotCatalog','workflow-slot-instantiation':'SlotInstantiation'}[doc['ref']['kind']],doc['body'])
- print('Sealed prior input/oracle hashes unchanged; all six known document shapes still validate.')
+ print('Sealed oracle hash unchanged; corrected source preserves all six known document bodies.')
+
+# Targeted AGR-03 tests: check original authoritative amount object, never relax type.
+base=json.loads((P/'agreement-boundary-fixture-input.json').read_text())
+expected_amount={'currency':'USD','scale':18,'atoms':'37000000000000000000'}
+for entry in base['customers']:
+ assert entry['slot_terms']['exposure_ceiling']==expected_amount
+ validate('NonnegativeAmount',entry['slot_terms']['exposure_ceiling'])
+ for cap in entry['binding_inputs']['exposure_ceilings']:
+  assert cap['maximum']==expected_amount
+  validate('NonnegativeAmount',cap['maximum'])
+for op in fixture['operations']:
+ if op['kind']=='agreement.accept':
+  for cap in op['payload']['binding_inputs']['exposure_ceilings']:
+   assert cap['maximum']==expected_amount
+   validate('NonnegativeAmount',cap['maximum'])
+amount_validator=Draft202012Validator({'$defs':schema['$defs'],'$ref':'#/$defs/NonnegativeAmount'})
+assert list(amount_validator.iter_errors('37000000000000000000'))
+# Replace fixture assembly refs only with explicitly fake shape-test refs. No authentication claim.
+stop_input=json.loads((P/'agreement-stop-fixture-input.json').read_text())
+def shape_refs(v):
+ if isinstance(v,dict):
+  if 'fixture_ref' in v:return {'kind':'workflow-authority','id':'shape-only','digest':'sha256:'+'0'*64}
+  return {k:shape_refs(z) for k,z in v.items()}
+ if isinstance(v,list):return [shape_refs(z) for z in v]
+ return v
+stop=shape_refs(stop_input['operations'][-1]['authority_snapshot'])
+validate('AgreementStopAuthority',stop)
+assert not stop['source_observation'].get('grant_ref')
+admit_validator=Draft202012Validator({'$defs':schema['$defs'],'$ref':'#/$defs/AgreementAdmissionAuthority'})
+assert list(admit_validator.iter_errors(stop))
+active_expired=dict(stop)
+active_expired['source_observation']={**stop['source_observation'],'status':'active','revision':'1','grant_ref':{'kind':'workflow-source-grant','id':'shape-only','digest':'sha256:'+'0'*64},'grant_time_status':'expired'}
+validate('AgreementStopAuthority',active_expired)
+stop_validator=Draft202012Validator({'$defs':schema['$defs'],'$ref':'#/$defs/AgreementStopAuthority'})
+missing_admin=dict(stop);missing_admin.pop('local_admin_ref')
+assert list(stop_validator.iter_errors(missing_admin))
+wrong_purpose=dict(stop,operation='agreement.activate')
+assert list(stop_validator.iter_errors(wrong_purpose))
+false_revoked=dict(stop)
+false_revoked['source_observation']={**stop['source_observation'],'grant_ref':active_expired['source_observation']['grant_ref']}
+assert list(stop_validator.iter_errors(false_revoked))
+for entry in base['customers']:
+ validate('SlotBindingTerms',shape_refs(entry['slot_terms']))
+ validate('BindingInputs',shape_refs(entry['binding_inputs']))
+ projected={k:v for k,v in entry['binding_inputs'].items() if k not in ['assent_refs','authority_refs']}
+ validate('AssentBindingInputs',shape_refs(projected))
+validate('EvidenceRetain',shape_refs(stop_input['operations'][1]['payload']))
+print('AGR03 exact amount positive/string-negative and revoked/expired stop-authority shape examples PASS; runtime UNRUN.')
+for op in stop_input['expiry_alternative_operations']:
+ if op['kind']=='agreement.revoke':validate('AgreementStopAuthority',shape_refs(op['authority_snapshot']))
+ if op['kind']=='evidence.retain':
+  validate('EvidenceRetain',shape_refs(op['payload']))
+  raw=base64.b64decode(op['payload']['content_base64'],validate=True)
+  assert hashlib.sha256(raw).hexdigest()==op['payload']['content_sha256']
+print('Literal source-expiry alternative evidence/stop shapes and raw digest PASS.')

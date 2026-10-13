@@ -1,0 +1,246 @@
+{
+  "schema": "synthetic-agreement-stop-input/1",
+  "status": "source inputs for independent review; no expected hashes/runtime claim",
+  "base_fixture": "agreement-ready-fixture-input.json",
+  "operations": [
+    {
+      "name": "A.revoke_source",
+      "operation_id": "A-revoke-source",
+      "kind": "authority.change",
+      "commit_sequence": "20",
+      "accepted_at": "2026-10-13T00:00:20.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-source-revoke/1",
+        "action": "source.revoke",
+        "enrollment_ref": {
+          "fixture_ref": "A.enrollment"
+        },
+        "expected_revision": "1",
+        "reason": "Synthetic source permission revoked."
+      }
+    },
+    {
+      "name": "A.stop_evidence",
+      "operation_id": "A-stop-evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "21",
+      "accepted_at": "2026-10-13T00:00:21.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "admission_stop",
+        "subject": {
+          "customer": "customer-A",
+          "agreement_id": "agreement-A"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3RvcCBuZXcgYWRtaXNzaW9ucyBhZnRlciBzb3VyY2UgYWNjZXNzIHdhcyByZXZva2VkLg==",
+        "content_sha256": "a2f413e56ec85a00e7468686c506a5d397ac08fa0f4ce4730cb1570f29a8a34d",
+        "metadata": {
+          "binding_ref": {
+            "fixture_ref": "A.binding"
+          },
+          "target_transition_ref": {
+            "fixture_ref": "A.activation"
+          },
+          "reason": "Stop new admissions after source access was revoked."
+        }
+      }
+    },
+    {
+      "name": "A.stop",
+      "operation_id": "A-stop",
+      "kind": "agreement.revoke",
+      "commit_sequence": "22",
+      "accepted_at": "2026-10-13T00:00:22.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-agreement-revoke/1",
+        "agreement_id": "agreement-A",
+        "accepted_binding_ref": {
+          "fixture_ref": "A.binding"
+        },
+        "expected_revision": "1",
+        "transition_ref": {
+          "fixture_ref": "A.activation"
+        },
+        "evidence_refs": [
+          {
+            "fixture_ref": "A.stop_evidence"
+          }
+        ],
+        "reason": "Stop new admissions after source access was revoked."
+      },
+      "authority_snapshot": {
+        "schema": "ledger-workflow-agreement-authority/2",
+        "purpose": "stop",
+        "operation": "agreement.revoke",
+        "actor": "fixture-admin",
+        "source": "urn:fixture:publisher",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "customer": "customer-A",
+        "agreement_id": "agreement-A",
+        "local_admin_ref": {
+          "fixture_ref": "P1.authority"
+        },
+        "accepted_agreement_ref": {
+          "fixture_ref": "A.accepted"
+        },
+        "binding_ref": {
+          "fixture_ref": "A.binding"
+        },
+        "target_transition_ref": {
+          "fixture_ref": "A.activation"
+        },
+        "expected_activation_revision": "1",
+        "binding_source_namespace": "urn:fixture:publisher",
+        "source_observation": {
+          "enrollment_ref": {
+            "fixture_ref": "A.enrollment"
+          },
+          "state_ref": {
+            "fixture_ref": "A.revoked_source_state"
+          },
+          "revision": "2",
+          "status": "revoked"
+        },
+        "evidence_refs": [
+          {
+            "fixture_ref": "A.stop_evidence"
+          }
+        ],
+        "observed_at": "2026-10-13T00:00:22.000000Z"
+      }
+    }
+  ],
+  "assembly": "SourceState revision2 revoked has prior_state_ref A.initial SourceState and no current_grant_ref. A.stop EvidenceRecord local root fields as original evidence recipe. Stop gives activation head1\u21922 and revoke ActivationTransition at22; acceptance head stays1; B stays acceptance1/activation1. Retain original A accepted/binding/assent/grant lineage as history, never assert original grant is current. Operation/manifest/receipt use exact next registry.",
+  "alternate_cases": [
+    {
+      "name": "source_expired",
+      "changes": "No source-revoke operation. Trusted stop time2027-01-01T00:00:00.000000Z equals source grant ends_at. source_observation active,state_ref A.initial SourceState,revision1,grant_ref A.initial grant,grant_time_status expired. Local stop succeeds; admit refuses. Evidence time immediately before stop, after source expiry allowed."
+    },
+    {
+      "name": "pending_binding",
+      "changes": "Select a separately accepted future binding; stop occurs before starts_at with current activation CAS. No starts/ends validity test for stop. All target refs must be that exact pending transition."
+    },
+    {
+      "name": "expired_binding",
+      "changes": "Selected binding already past ends_at; stop still succeeds and appends stop boundary; no fallback to prior binding."
+    },
+    {
+      "name": "wrong_actor_or_stale_head",
+      "changes": "Missing local capability or stale expected_activation_revision refuses with no writes, even if source is revoked."
+    }
+  ],
+  "expiry_alternative_operations": [
+    {
+      "name": "A.expiry_stop_evidence",
+      "operation_id": "A-expiry-stop-evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "20",
+      "accepted_at": "2027-01-01T00:00:00.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "admission_stop",
+        "subject": {
+          "customer": "customer-A",
+          "agreement_id": "agreement-A"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3RvcCBuZXcgYWRtaXNzaW9ucyBhZnRlciBzb3VyY2UgZ3JhbnQgZXhwaXJlZC4=",
+        "content_sha256": "4ce29da73e397e0fbf17b23f497dd8923979afa5ce09e190d37d5222cc2c1e8a",
+        "metadata": {
+          "binding_ref": {
+            "fixture_ref": "A.binding"
+          },
+          "target_transition_ref": {
+            "fixture_ref": "A.activation"
+          },
+          "reason": "Stop new admissions after source grant expired."
+        }
+      }
+    },
+    {
+      "name": "A.expiry_stop",
+      "operation_id": "A-expiry-stop",
+      "kind": "agreement.revoke",
+      "commit_sequence": "21",
+      "accepted_at": "2027-01-01T00:00:00.000001Z",
+      "payload": {
+        "schema": "ledger-workflow-agreement-revoke/1",
+        "agreement_id": "agreement-A",
+        "accepted_binding_ref": {
+          "fixture_ref": "A.binding"
+        },
+        "expected_revision": "1",
+        "transition_ref": {
+          "fixture_ref": "A.activation"
+        },
+        "evidence_refs": [
+          {
+            "fixture_ref": "A.expiry_stop_evidence"
+          }
+        ],
+        "reason": "Stop new admissions after source grant expired."
+      },
+      "authority_snapshot": {
+        "schema": "ledger-workflow-agreement-authority/2",
+        "purpose": "stop",
+        "operation": "agreement.revoke",
+        "actor": "fixture-admin",
+        "source": "urn:fixture:publisher",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "customer": "customer-A",
+        "agreement_id": "agreement-A",
+        "local_admin_ref": {
+          "fixture_ref": "P1.authority"
+        },
+        "accepted_agreement_ref": {
+          "fixture_ref": "A.accepted"
+        },
+        "binding_ref": {
+          "fixture_ref": "A.binding"
+        },
+        "target_transition_ref": {
+          "fixture_ref": "A.activation"
+        },
+        "expected_activation_revision": "1",
+        "binding_source_namespace": "urn:fixture:publisher",
+        "source_observation": {
+          "enrollment_ref": {
+            "fixture_ref": "A.enrollment"
+          },
+          "state_ref": {
+            "fixture_ref": "A.initial_source_state"
+          },
+          "revision": "1",
+          "status": "active",
+          "grant_ref": {
+            "fixture_ref": "A.verified_grant"
+          },
+          "grant_time_status": "expired"
+        },
+        "evidence_refs": [
+          {
+            "fixture_ref": "A.expiry_stop_evidence"
+          }
+        ],
+        "observed_at": "2027-01-01T00:00:00.000001Z"
+      }
+    }
+  ],
+  "expiry_alternative_assembly": "Alternative continuation from base sequence19, not appended after primary revoked-source scenario. Source grant ends exactly2027-01-01T00:00:00Z. It remains latest active SourceState revision1, with expired time status; neither authority nor source record rewritten. Exact authority and evidence bodies above supply the oracle inputs.",
+  "token_aliases": {
+    "A.initial_source_state": "SourceState result of base A.enrollment operation",
+    "A.verified_grant": "SourceGrant result of base A.enrollment operation",
+    "A.revoked_source_state": "SourceState result of primary A.revoke_source operation",
+    "A.accepted": "AcceptedAgreement result of base A.accept operation",
+    "A.binding": "Binding referenced by A.accepted",
+    "A.activation": "ActivationTransition result of base A.activate operation",
+    "A.enrollment": "SourceEnrollment result of base A.enrollment operation"
+  }
+}

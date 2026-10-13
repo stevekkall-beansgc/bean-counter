@@ -5053,8 +5053,7 @@
             "kind": {
               "enum": [
                 "agreement.accept",
-                "agreement.activate",
-                "agreement.revoke"
+                "agreement.activate"
               ]
             },
             "contract": {
@@ -5064,7 +5063,57 @@
               "$ref": "#/$defs/RequestEvidence"
             },
             "authority_snapshot": {
-              "$ref": "#/$defs/AgreementAuthorityObservation"
+              "$ref": "#/$defs/AgreementAdmissionAuthority"
+            },
+            "accepted_at": {
+              "$ref": "#/$defs/Time"
+            },
+            "commit_sequence": {
+              "$ref": "#/$defs/Counter"
+            },
+            "result_refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              },
+              "minItems": 1,
+              "maxItems": 4096,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "request_evidence",
+            "authority_snapshot",
+            "accepted_at",
+            "commit_sequence",
+            "result_refs"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-workflow-operation-record/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "agreement.revoke"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "request_evidence": {
+              "$ref": "#/$defs/RequestEvidence"
+            },
+            "authority_snapshot": {
+              "$ref": "#/$defs/AgreementStopAuthority"
             },
             "accepted_at": {
               "$ref": "#/$defs/Time"
@@ -6038,88 +6087,14 @@
       "additionalProperties": false
     },
     "AgreementAuthorityObservation": {
-      "type": "object",
-      "properties": {
-        "schema": {
-          "const": "ledger-workflow-agreement-authority/1"
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AgreementAdmissionAuthority"
         },
-        "actor": {
-          "$ref": "#/$defs/Id"
-        },
-        "source": {
-          "$ref": "#/$defs/SourceId"
-        },
-        "canonical_economic_namespace": {
-          "$ref": "#/$defs/SourceId"
-        },
-        "operation": {
-          "enum": [
-            "agreement.accept",
-            "agreement.activate",
-            "agreement.revoke"
-          ]
-        },
-        "scope": {
-          "$ref": "#/$defs/Scope"
-        },
-        "customer": {
-          "$ref": "#/$defs/Id"
-        },
-        "agreement_id": {
-          "$ref": "#/$defs/Id"
-        },
-        "local_admin_ref": {
-          "$ref": "#/$defs/Ref"
-        },
-        "source_grant_refs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Ref"
-          },
-          "maxItems": 32,
-          "minItems": 1
-        },
-        "assent_refs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Ref"
-          },
-          "maxItems": 16,
-          "minItems": 1
-        },
-        "observed_at": {
-          "$ref": "#/$defs/Time"
-        },
-        "source_revision": {
-          "$ref": "#/$defs/Counter"
-        },
-        "source_state_refs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/Ref"
-          },
-          "minItems": 1,
-          "maxItems": 1,
-          "uniqueItems": true
+        {
+          "$ref": "#/$defs/AgreementStopAuthority"
         }
-      },
-      "required": [
-        "schema",
-        "actor",
-        "source",
-        "canonical_economic_namespace",
-        "operation",
-        "scope",
-        "customer",
-        "agreement_id",
-        "local_admin_ref",
-        "source_grant_refs",
-        "assent_refs",
-        "observed_at",
-        "source_revision",
-        "source_state_refs"
-      ],
-      "additionalProperties": false
+      ]
     },
     "AcceptedAgreement": {
       "type": "object",
@@ -6749,6 +6724,66 @@
             "metadata"
           ],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-workflow-evidence-retain/1"
+            },
+            "purpose": {
+              "const": "admission_stop"
+            },
+            "subject": {
+              "$ref": "#/$defs/EvidenceSubject"
+            },
+            "media_type": {
+              "enum": [
+                "text/plain;charset=utf-8",
+                "application/octet-stream"
+              ]
+            },
+            "content_base64": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 5464
+            },
+            "content_sha256": {
+              "$ref": "#/$defs/RawSha256"
+            },
+            "metadata": {
+              "type": "object",
+              "properties": {
+                "binding_ref": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "target_transition_ref": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                }
+              },
+              "required": [
+                "binding_ref",
+                "target_transition_ref",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema",
+            "purpose",
+            "subject",
+            "media_type",
+            "content_base64",
+            "content_sha256",
+            "metadata"
+          ],
+          "additionalProperties": false
         }
       ]
     },
@@ -7097,6 +7132,85 @@
                 "resource_owner",
                 "payer",
                 "mode"
+              ],
+              "additionalProperties": false
+            },
+            "retained_by": {
+              "$ref": "#/$defs/Id"
+            },
+            "retained_at": {
+              "$ref": "#/$defs/Time"
+            },
+            "installation_mode": {
+              "enum": [
+                "real_local",
+                "isolated_synthetic"
+              ]
+            },
+            "authority_ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [
+            "schema",
+            "purpose",
+            "subject",
+            "media_type",
+            "content_base64",
+            "content_sha256",
+            "metadata",
+            "retained_by",
+            "retained_at",
+            "installation_mode",
+            "authority_ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-workflow-retained-evidence/1"
+            },
+            "purpose": {
+              "const": "admission_stop"
+            },
+            "subject": {
+              "$ref": "#/$defs/EvidenceSubject"
+            },
+            "media_type": {
+              "enum": [
+                "text/plain;charset=utf-8",
+                "application/octet-stream"
+              ]
+            },
+            "content_base64": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 5464
+            },
+            "content_sha256": {
+              "$ref": "#/$defs/RawSha256"
+            },
+            "metadata": {
+              "type": "object",
+              "properties": {
+                "binding_ref": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "target_transition_ref": {
+                  "$ref": "#/$defs/Ref"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                }
+              },
+              "required": [
+                "binding_ref",
+                "target_transition_ref",
+                "reason"
               ],
               "additionalProperties": false
             },
@@ -9238,6 +9352,239 @@
           }
         }
       }
+    },
+    "StopSourceObservation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "enrollment_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "state_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "revision": {
+              "$ref": "#/$defs/Counter"
+            },
+            "status": {
+              "const": "revoked"
+            }
+          },
+          "required": [
+            "enrollment_ref",
+            "state_ref",
+            "revision",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "enrollment_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "state_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "revision": {
+              "$ref": "#/$defs/Counter"
+            },
+            "status": {
+              "const": "active"
+            },
+            "grant_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "grant_time_status": {
+              "enum": [
+                "valid",
+                "not_started",
+                "expired"
+              ]
+            }
+          },
+          "required": [
+            "enrollment_ref",
+            "state_ref",
+            "revision",
+            "status",
+            "grant_ref",
+            "grant_time_status"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "AgreementAdmissionAuthority": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-agreement-authority/2"
+        },
+        "actor": {
+          "$ref": "#/$defs/Id"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "canonical_economic_namespace": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "operation": {
+          "enum": [
+            "agreement.accept",
+            "agreement.activate"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "customer": {
+          "$ref": "#/$defs/Id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "local_admin_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "source_grant_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "maxItems": 32,
+          "minItems": 1
+        },
+        "assent_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "maxItems": 16,
+          "minItems": 1
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "source_state_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "purpose": {
+          "const": "admit"
+        }
+      },
+      "required": [
+        "schema",
+        "actor",
+        "source",
+        "canonical_economic_namespace",
+        "operation",
+        "scope",
+        "customer",
+        "agreement_id",
+        "local_admin_ref",
+        "source_grant_refs",
+        "assent_refs",
+        "observed_at",
+        "source_revision",
+        "source_state_refs",
+        "purpose"
+      ],
+      "additionalProperties": false
+    },
+    "AgreementStopAuthority": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-agreement-authority/2"
+        },
+        "purpose": {
+          "const": "stop"
+        },
+        "operation": {
+          "const": "agreement.revoke"
+        },
+        "actor": {
+          "$ref": "#/$defs/Id"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "customer": {
+          "$ref": "#/$defs/Id"
+        },
+        "agreement_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "local_admin_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "accepted_agreement_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "target_transition_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "expected_activation_revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "binding_source_namespace": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "source_observation": {
+          "$ref": "#/$defs/StopSourceObservation"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "purpose",
+        "operation",
+        "actor",
+        "source",
+        "scope",
+        "customer",
+        "agreement_id",
+        "local_admin_ref",
+        "accepted_agreement_ref",
+        "binding_ref",
+        "target_transition_ref",
+        "expected_activation_revision",
+        "binding_source_namespace",
+        "source_observation",
+        "evidence_refs",
+        "observed_at"
+      ],
+      "additionalProperties": false
     }
   },
   "anyOf": [

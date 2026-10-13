@@ -31,7 +31,7 @@
     "assent": "Per customer schema ledger-workflow-assent/1, scope fixture/sandbox, agreement/customer as base, terms digest derived, mode synthetic, acceptor customer, accepted_at00:00:00Z, operator fixture-admin, refs to exact retained assent/operator evidence.",
     "source_mapping": "A/B verified_grant tokens resolve separately derived grants; source_revision1. Registered customer exact evidence/acceptor, no reviewer-defined ceiling.",
     "root_authority": "Each prerequisite PublicationAuthority: principal_id fixture-admin,source urn:fixture:publisher,authority_refs[P1.authority],rights[admin],validated_at timeline time. Evidence/customer/enrollment authority_ref=P1.authority. This uses retained verified root plus current trusted local capability; current local authority observation revalidates unchanged root mapping under lock without pretending old root verified_at is current.",
-    "agreement_records": "Binding fields and accepted metadata are the exact AGR-01 projection. AgreementAuthorityObservation actor fixture-admin/source+namespace urn:fixture:publisher/operation current kind/scope fixture,sandbox/customer+agreement matching/local_admin_ref P1.authority/source_grant_refs [customer initial grant]/assent_refs [customer assent]/observed_at operation time/source_revision1. Intent body schema ledger-workflow-agreement-intent/1 with kind+normalized payload including documents. AcceptedAgreement/head/activation fields derive exact schemas; first heads old0/new1 omit prior, activation effective_at operation time. result_refs exact lists in AGR-02. Binding starts_at remains base00:00:00Z; no ends_at. AGR-02 authority snapshot additionally includes source_state_refs [customer initial SourceState Ref].",
+    "agreement_records": "Binding fields and accepted metadata are the exact AGR-01 projection. AgreementAuthorityObservation actor fixture-admin/source+namespace urn:fixture:publisher/operation current kind/scope fixture,sandbox/customer+agreement matching/local_admin_ref P1.authority/source_grant_refs [customer initial grant]/assent_refs [customer assent]/observed_at operation time/source_revision1. Intent body schema ledger-workflow-agreement-intent/1 with kind+normalized payload including documents. AcceptedAgreement/head/activation fields derive exact schemas; first heads old0/new1 omit prior, activation effective_at operation time. result_refs exact lists in AGR-02. Binding starts_at remains base00:00:00Z; no ends_at. AGR-02 authority snapshot additionally includes source_state_refs [customer initial SourceState Ref]. AGR-03 supersedes authority shape: schema ledger-workflow-agreement-authority/2 and purpose admit for these initial accept/activate operations; all original admit source/assent fields remain.",
     "normalization": "All DocRefs derive normalized full bodies. Named sets use existing key sorting; document array canonical JCS-body order; other sets JCS order. Original raw operation is canonical outer envelope(schema ledger-operation/1,key(store fixture-store,scope fixture/sandbox,source urn:fixture:publisher,operation_id timeline),kind,contract workflow/1,payload). verified_grant token aliases exact initial customer SourceGrant. Evidence subject/metadata bytes are literal; fixture_digest token only applies typed terms_digest fields."
   },
   "operations": [
@@ -512,7 +512,11 @@
           "exposure_ceilings": [
             {
               "binding_slot": "fixture.report:retail",
-              "maximum": "37000000000000000000"
+              "maximum": {
+                "currency": "USD",
+                "scale": 18,
+                "atoms": "37000000000000000000"
+              }
             }
           ]
         },
@@ -641,7 +645,11 @@
           "exposure_ceilings": [
             {
               "binding_slot": "fixture.report:retail",
-              "maximum": "37000000000000000000"
+              "maximum": {
+                "currency": "USD",
+                "scale": 18,
+                "atoms": "37000000000000000000"
+              }
             }
           ]
         },
