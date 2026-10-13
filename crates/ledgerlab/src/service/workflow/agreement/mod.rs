@@ -2,6 +2,7 @@
 mod acceptance;
 mod context;
 mod journal;
+mod record;
 mod request;
 mod service;
 mod source;
