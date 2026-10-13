@@ -10,6 +10,9 @@ mod resolve;
 pub(super) use payload::AcceptInput;
 pub(super) use resolve::PublicationInputs;
 
+#[cfg(test)]
+mod runtime_tests;
+
 impl crate::service::workflow::local::LocalWorkflowLedger {
     /// Accept explicit terms against earlier enrolled sources and local proof
     /// material. The held owner capability authorizes administration, not assent.

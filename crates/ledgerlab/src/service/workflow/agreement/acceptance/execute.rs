@@ -7,6 +7,15 @@ use crate::{
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
 
+#[cfg(test)]
+static LOST_REPLY_KEY: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+pub(super) fn inject_committed_reply_loss(key: Vec<u8>) {
+    let mut selected = LOST_REPLY_KEY.lock().unwrap();
+    assert!(selected.is_none());
+    *selected = Some(key);
+}
+
 pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value> {
     let req = request::Request::parse_agreement(raw)?;
     require(
@@ -90,6 +99,14 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                     external_id: key.operation_id.clone(),
                 },
             })?;
+            #[cfg(test)]
+            {
+                let mut selected = LOST_REPLY_KEY.lock().unwrap();
+                if selected.as_ref() == Some(&key.bytes()?) {
+                    *selected = None;
+                    return Err(ServiceError::ResponseLost);
+                }
+            }
             result["schema"] = json!("ledger-operation-result/1");
             Ok(result)
         }
