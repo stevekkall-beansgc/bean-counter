@@ -1,0 +1,749 @@
+{
+  "schema": "synthetic-agreement-ready-input/1",
+  "status": "literal source input extension; no expected hashes or runtime authority claim",
+  "base_fixture": "agreement-boundary-fixture-input.json",
+  "preserve_known_documents": [
+    "A.role",
+    "A.catalog",
+    "A.instantiation",
+    "B.role",
+    "B.catalog",
+    "B.instantiation"
+  ],
+  "root": {
+    "installation_mode": "isolated_synthetic",
+    "logical_store_id": "fixture-store",
+    "scope": [
+      "fixture",
+      "sandbox"
+    ],
+    "actor": "fixture-admin",
+    "source": "urn:fixture:publisher",
+    "canonical_economic_namespace": "urn:fixture:publisher",
+    "local_admin_ref": {
+      "fixture_ref": "P1.authority"
+    },
+    "trust": "Explicit synthetic trusted local test context only; not inferred from root document shape. Root is exact prior independent PUB-ENC-01 authority envelope. No source/customer authority inferred before operations below."
+  },
+  "assembly": {
+    "terms": "As AGR-01 exact projection before assent refs; fixture_digest resolves H_workflow-acceptance-terms(body).",
+    "records": "EvidenceRecord derives trusted fields from timeline/root. Registration and enrollment records derive payload+trusted fields; initial SourceGrant is ceiling plus schema ledger-workflow-source-grant/1, grant_id=enrollment_id, revision1, original_ceiling_ref=enrollment Ref. SourceState has revision1 active/no prior.",
+    "assent": "Per customer schema ledger-workflow-assent/1, scope fixture/sandbox, agreement/customer as base, terms digest derived, mode synthetic, acceptor customer, accepted_at00:00:00Z, operator fixture-admin, refs to exact retained assent/operator evidence.",
+    "source_mapping": "A/B verified_grant tokens resolve separately derived grants; source_revision1. Registered customer exact evidence/acceptor, no reviewer-defined ceiling.",
+    "root_authority": "Each prerequisite PublicationAuthority: principal_id fixture-admin,source urn:fixture:publisher,authority_refs[P1.authority],rights[admin],validated_at timeline time. Evidence/customer/enrollment authority_ref=P1.authority. This uses retained verified root plus current trusted local capability; current local authority observation revalidates unchanged root mapping under lock without pretending old root verified_at is current.",
+    "agreement_records": "Binding fields and accepted metadata are the exact AGR-01 projection. AgreementAuthorityObservation actor fixture-admin/source+namespace urn:fixture:publisher/operation current kind/scope fixture,sandbox/customer+agreement matching/local_admin_ref P1.authority/source_grant_refs [customer initial grant]/assent_refs [customer assent]/observed_at operation time/source_revision1. Intent body schema ledger-workflow-agreement-intent/1 with kind+normalized payload including documents. AcceptedAgreement/head/activation fields derive exact schemas; first heads old0/new1 omit prior, activation effective_at operation time. result_refs exact lists in AGR-02. Binding starts_at remains base00:00:00Z; no ends_at. AGR-02 authority snapshot additionally includes source_state_refs [customer initial SourceState Ref].",
+    "normalization": "All DocRefs derive normalized full bodies. Named sets use existing key sorting; document array canonical JCS-body order; other sets JCS order. Original raw operation is canonical outer envelope(schema ledger-operation/1,key(store fixture-store,scope fixture/sandbox,source urn:fixture:publisher,operation_id timeline),kind,contract workflow/1,payload). verified_grant token aliases exact initial customer SourceGrant. Evidence subject/metadata bytes are literal; fixture_digest token only applies typed terms_digest fields."
+  },
+  "operations": [
+    {
+      "name": "A.registration_evidence",
+      "operation_id": "A-registration_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "2",
+      "accepted_at": "2026-10-13T00:00:02.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "customer_registration",
+        "subject": {
+          "customer": "customer-A"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIGxvY2FsIG9wZXJhdG9yIHZlcmlmaWVkIGN1c3RvbWVyIEEgaWRlbnRpdHkgYW5kIGFjY2VwdG9yLg==",
+        "content_sha256": "60262b3f57d693f9d1faa6fbe289083e6f6372ff627b30906f0de7a4b3712f43",
+        "metadata": {
+          "acceptor": "customer-A"
+        }
+      }
+    },
+    {
+      "name": "A.customer",
+      "operation_id": "A-customer",
+      "kind": "authority.change",
+      "commit_sequence": "3",
+      "accepted_at": "2026-10-13T00:00:03.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-customer-register/1",
+        "action": "customer.register",
+        "expected_revision": "0",
+        "customer": "customer-A",
+        "acceptor": "customer-A",
+        "registration_evidence_ref": {
+          "fixture_ref": "A.registration_evidence"
+        }
+      }
+    },
+    {
+      "name": "A.enrollment_evidence",
+      "operation_id": "A-enrollment_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "4",
+      "accepted_at": "2026-10-13T00:00:04.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "source_enrollment",
+        "subject": {
+          "customer": "customer-A"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIG9wZXJhdG9yIGF1dGhvcml6ZXMgZml4dHVyZSBwdWJsaXNoZXIgZm9yIGN1c3RvbWVyIEEu",
+        "content_sha256": "f20236e215743d0e1449fe79c7d9c3271d9f5c3c18066c903148e9d5277ff005",
+        "metadata": {
+          "source": "urn:fixture:publisher",
+          "principal_id": "fixture-admin"
+        }
+      }
+    },
+    {
+      "name": "A.enrollment",
+      "operation_id": "A-enrollment",
+      "kind": "authority.change",
+      "commit_sequence": "5",
+      "accepted_at": "2026-10-13T00:00:05.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-source-enroll/1",
+        "action": "source.enroll",
+        "expected_revision": "0",
+        "enrollment_id": "enrollment-A",
+        "customer_refs": [
+          {
+            "fixture_ref": "A.customer"
+          }
+        ],
+        "ceiling": {
+          "principal_id": "fixture-admin",
+          "source": "urn:fixture:publisher",
+          "canonical_economic_namespace": "urn:fixture:publisher",
+          "customer_scope": [
+            "customer-A"
+          ],
+          "operations": [
+            "quantity.correct",
+            "work.accept"
+          ],
+          "product_selectors": [
+            {
+              "names": [
+                "fixture.report:product"
+              ]
+            }
+          ],
+          "activity_selectors": [
+            {
+              "names": [
+                "fixture.report:completed"
+              ]
+            }
+          ],
+          "link_selectors": [],
+          "source_slots": [
+            "fixture.report:worker"
+          ],
+          "permissions": [
+            "correct",
+            "read",
+            "submit"
+          ],
+          "starts_at": "2026-10-12T00:00:00.000000Z",
+          "ends_at": "2027-01-01T00:00:00.000000Z"
+        },
+        "evidence_ref": {
+          "fixture_ref": "A.enrollment_evidence"
+        }
+      }
+    },
+    {
+      "name": "A.funding_evidence",
+      "operation_id": "A-funding_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "6",
+      "accepted_at": "2026-10-13T00:00:06.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "funding",
+        "subject": {
+          "customer": "customer-A",
+          "agreement_id": "agreement-A"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIGN1c3RvbWVyIEEgb3ducyBhbmQgcGF5cyBmb3IgdGhlIGxvY2FsIHJlc291cmNlLg==",
+        "content_sha256": "18c9a348801f552b3ec46474f84b613bf1420de7fb84baa6fd40c58798ecbc95",
+        "metadata": {
+          "resource_owner": "customer-A",
+          "payer": "customer-A",
+          "mode": "customer_local"
+        }
+      }
+    },
+    {
+      "name": "A.assent_evidence",
+      "operation_id": "A-assent_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "7",
+      "accepted_at": "2026-10-13T00:00:07.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "assent",
+        "subject": {
+          "customer": "customer-A",
+          "agreement_id": "agreement-A"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIEEgYWNjZXB0cyB0aGUgZXhhY3QgdHlwZWQgdGVybXMgaWRlbnRpZmllZCBpbiBtZXRhZGF0YS4=",
+        "content_sha256": "bcaca99deedecc618d2e903d7be71db4214dbc52bd6f66f7e63c4a5ba5995b07",
+        "metadata": {
+          "terms_digest": {
+            "fixture_digest": "A.terms"
+          },
+          "acceptor": "customer-A",
+          "accepted_at": "2026-10-13T00:00:00.000000Z"
+        }
+      }
+    },
+    {
+      "name": "A.operator_attestation",
+      "operation_id": "A-operator_attestation",
+      "kind": "evidence.retain",
+      "commit_sequence": "8",
+      "accepted_at": "2026-10-13T00:00:08.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "operator_attestation",
+        "subject": {
+          "customer": "customer-A",
+          "agreement_id": "agreement-A"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIG9wZXJhdG9yIHZlcmlmaWVkIEEgZXhhY3QgdGVybXMgYWNjZXB0YW5jZS4=",
+        "content_sha256": "b4160f95c5b824139e37a15d67e63274a2589372945447a78b647d2d02b03a09",
+        "metadata": {
+          "terms_digest": {
+            "fixture_digest": "A.terms"
+          },
+          "acceptor": "customer-A",
+          "assent_evidence_ref": {
+            "fixture_ref": "A.assent_evidence"
+          },
+          "statement": "operator_verified_exact_terms_acceptance"
+        }
+      }
+    },
+    {
+      "name": "B.registration_evidence",
+      "operation_id": "B-registration_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "9",
+      "accepted_at": "2026-10-13T00:00:09.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "customer_registration",
+        "subject": {
+          "customer": "customer-B"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIGxvY2FsIG9wZXJhdG9yIHZlcmlmaWVkIGN1c3RvbWVyIEIgaWRlbnRpdHkgYW5kIGFjY2VwdG9yLg==",
+        "content_sha256": "58cc10dbbbd3d1716428558703e5bcacbb008d5202720f6ff6d5d89a82f4aff3",
+        "metadata": {
+          "acceptor": "customer-B"
+        }
+      }
+    },
+    {
+      "name": "B.customer",
+      "operation_id": "B-customer",
+      "kind": "authority.change",
+      "commit_sequence": "10",
+      "accepted_at": "2026-10-13T00:00:10.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-customer-register/1",
+        "action": "customer.register",
+        "expected_revision": "0",
+        "customer": "customer-B",
+        "acceptor": "customer-B",
+        "registration_evidence_ref": {
+          "fixture_ref": "B.registration_evidence"
+        }
+      }
+    },
+    {
+      "name": "B.enrollment_evidence",
+      "operation_id": "B-enrollment_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "11",
+      "accepted_at": "2026-10-13T00:00:11.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "source_enrollment",
+        "subject": {
+          "customer": "customer-B"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIG9wZXJhdG9yIGF1dGhvcml6ZXMgZml4dHVyZSBwdWJsaXNoZXIgZm9yIGN1c3RvbWVyIEIu",
+        "content_sha256": "7f9b9aa9caa10f2a1065cdd3b84219873eebbb59965de9272f3729090e271411",
+        "metadata": {
+          "source": "urn:fixture:publisher",
+          "principal_id": "fixture-admin"
+        }
+      }
+    },
+    {
+      "name": "B.enrollment",
+      "operation_id": "B-enrollment",
+      "kind": "authority.change",
+      "commit_sequence": "12",
+      "accepted_at": "2026-10-13T00:00:12.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-source-enroll/1",
+        "action": "source.enroll",
+        "expected_revision": "0",
+        "enrollment_id": "enrollment-B",
+        "customer_refs": [
+          {
+            "fixture_ref": "B.customer"
+          }
+        ],
+        "ceiling": {
+          "principal_id": "fixture-admin",
+          "source": "urn:fixture:publisher",
+          "canonical_economic_namespace": "urn:fixture:publisher",
+          "customer_scope": [
+            "customer-B"
+          ],
+          "operations": [
+            "quantity.correct",
+            "work.accept"
+          ],
+          "product_selectors": [
+            {
+              "names": [
+                "fixture.report:product"
+              ]
+            }
+          ],
+          "activity_selectors": [
+            {
+              "names": [
+                "fixture.report:completed"
+              ]
+            }
+          ],
+          "link_selectors": [],
+          "source_slots": [
+            "fixture.report:worker"
+          ],
+          "permissions": [
+            "correct",
+            "read",
+            "submit"
+          ],
+          "starts_at": "2026-10-12T00:00:00.000000Z",
+          "ends_at": "2027-01-01T00:00:00.000000Z"
+        },
+        "evidence_ref": {
+          "fixture_ref": "B.enrollment_evidence"
+        }
+      }
+    },
+    {
+      "name": "B.funding_evidence",
+      "operation_id": "B-funding_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "13",
+      "accepted_at": "2026-10-13T00:00:13.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "funding",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "agreement-B"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIGN1c3RvbWVyIEIgb3ducyBhbmQgcGF5cyBmb3IgdGhlIGxvY2FsIHJlc291cmNlLg==",
+        "content_sha256": "367c1654e7bb4059e115225b1ade2a0d0caa2b8727b70d48fa885b629cb345b6",
+        "metadata": {
+          "resource_owner": "customer-B",
+          "payer": "customer-B",
+          "mode": "customer_local"
+        }
+      }
+    },
+    {
+      "name": "B.assent_evidence",
+      "operation_id": "B-assent_evidence",
+      "kind": "evidence.retain",
+      "commit_sequence": "14",
+      "accepted_at": "2026-10-13T00:00:14.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "assent",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "agreement-B"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIEIgYWNjZXB0cyB0aGUgZXhhY3QgdHlwZWQgdGVybXMgaWRlbnRpZmllZCBpbiBtZXRhZGF0YS4=",
+        "content_sha256": "698d04e56574012a93fc450f50080d585448b8ccf2b6dfc71b6a427f32bc12c4",
+        "metadata": {
+          "terms_digest": {
+            "fixture_digest": "B.terms"
+          },
+          "acceptor": "customer-B",
+          "accepted_at": "2026-10-13T00:00:00.000000Z"
+        }
+      }
+    },
+    {
+      "name": "B.operator_attestation",
+      "operation_id": "B-operator_attestation",
+      "kind": "evidence.retain",
+      "commit_sequence": "15",
+      "accepted_at": "2026-10-13T00:00:15.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-evidence-retain/1",
+        "purpose": "operator_attestation",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "agreement-B"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U3ludGhldGljIG9wZXJhdG9yIHZlcmlmaWVkIEIgZXhhY3QgdGVybXMgYWNjZXB0YW5jZS4=",
+        "content_sha256": "dafdc05c86a8e3dc0ed81ac7a0ddd4f092e819e4c58800bff59fdf563d272707",
+        "metadata": {
+          "terms_digest": {
+            "fixture_digest": "B.terms"
+          },
+          "acceptor": "customer-B",
+          "assent_evidence_ref": {
+            "fixture_ref": "B.assent_evidence"
+          },
+          "statement": "operator_verified_exact_terms_acceptance"
+        }
+      }
+    },
+    {
+      "name": "A.accept",
+      "operation_id": "accept-A-1",
+      "kind": "agreement.accept",
+      "commit_sequence": "16",
+      "accepted_at": "2026-10-13T00:00:16.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-agreement-accept/2",
+        "agreement_id": "agreement-A",
+        "expected_revision": "0",
+        "publication_ref": {
+          "fixture_ref": "P1.publication"
+        },
+        "slot_catalog_ref": {
+          "fixture_ref": "A.catalog"
+        },
+        "slot_instantiation_ref": {
+          "fixture_ref": "A.instantiation"
+        },
+        "binding_inputs": {
+          "agreement_id": "agreement-A",
+          "version": "1",
+          "customer": "customer-A",
+          "source_namespace": "urn:fixture:publisher",
+          "slot_catalog_ref": {
+            "fixture_ref": "A.catalog"
+          },
+          "slot_instantiation_ref": {
+            "fixture_ref": "A.instantiation"
+          },
+          "roles_refs": [
+            {
+              "fixture_ref": "A.role"
+            }
+          ],
+          "assent_refs": [
+            {
+              "fixture_ref": "A.assent"
+            }
+          ],
+          "authority_refs": [
+            {
+              "fixture_ref": "A.verified_grant"
+            }
+          ],
+          "source_slots": [
+            {
+              "name": "fixture.report:worker",
+              "sources": [
+                "urn:fixture:publisher"
+              ],
+              "evidence_kinds": []
+            }
+          ],
+          "accepted_context": {
+            "fact_schema_ref": {
+              "fixture_ref": "P1.context"
+            },
+            "facts": {}
+          },
+          "bindings": [
+            {
+              "slot": "fixture.report:retail",
+              "binding_ref": {
+                "fixture_ref": "A.slot_terms"
+              }
+            }
+          ],
+          "funding_legs": [
+            {
+              "name": "fixture.report:customer",
+              "mode": "customer_local",
+              "resource_owner": "customer-A",
+              "payer": "customer-A",
+              "evidence_refs": [
+                {
+                  "fixture_ref": "A.funding_evidence"
+                }
+              ]
+            }
+          ],
+          "starts_at": "2026-10-13T00:00:00.000000Z",
+          "quantity_ceilings": [
+            {
+              "activity": "fixture.report:completed",
+              "field": "fixture.report:pages",
+              "unit": "fixture.report:page",
+              "maximum": "100"
+            }
+          ],
+          "exposure_ceilings": [
+            {
+              "binding_slot": "fixture.report:retail",
+              "maximum": "37000000000000000000"
+            }
+          ]
+        },
+        "assent_refs": [
+          {
+            "fixture_ref": "A.assent"
+          }
+        ],
+        "authority_refs": [
+          {
+            "fixture_ref": "A.verified_grant"
+          }
+        ],
+        "documents": [
+          {
+            "fixture_document": "A.role"
+          },
+          {
+            "fixture_document": "A.catalog"
+          },
+          {
+            "fixture_document": "A.instantiation"
+          },
+          {
+            "fixture_document": "A.slot_terms"
+          },
+          {
+            "fixture_document": "A.terms"
+          },
+          {
+            "fixture_document": "A.assent"
+          }
+        ]
+      }
+    },
+    {
+      "name": "B.accept",
+      "operation_id": "accept-B-1",
+      "kind": "agreement.accept",
+      "commit_sequence": "17",
+      "accepted_at": "2026-10-13T00:00:17.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-agreement-accept/2",
+        "agreement_id": "agreement-B",
+        "expected_revision": "0",
+        "publication_ref": {
+          "fixture_ref": "P1.publication"
+        },
+        "slot_catalog_ref": {
+          "fixture_ref": "B.catalog"
+        },
+        "slot_instantiation_ref": {
+          "fixture_ref": "B.instantiation"
+        },
+        "binding_inputs": {
+          "agreement_id": "agreement-B",
+          "version": "1",
+          "customer": "customer-B",
+          "source_namespace": "urn:fixture:publisher",
+          "slot_catalog_ref": {
+            "fixture_ref": "B.catalog"
+          },
+          "slot_instantiation_ref": {
+            "fixture_ref": "B.instantiation"
+          },
+          "roles_refs": [
+            {
+              "fixture_ref": "B.role"
+            }
+          ],
+          "assent_refs": [
+            {
+              "fixture_ref": "B.assent"
+            }
+          ],
+          "authority_refs": [
+            {
+              "fixture_ref": "B.verified_grant"
+            }
+          ],
+          "source_slots": [
+            {
+              "name": "fixture.report:worker",
+              "sources": [
+                "urn:fixture:publisher"
+              ],
+              "evidence_kinds": []
+            }
+          ],
+          "accepted_context": {
+            "fact_schema_ref": {
+              "fixture_ref": "P1.context"
+            },
+            "facts": {}
+          },
+          "bindings": [
+            {
+              "slot": "fixture.report:retail",
+              "binding_ref": {
+                "fixture_ref": "B.slot_terms"
+              }
+            }
+          ],
+          "funding_legs": [
+            {
+              "name": "fixture.report:customer",
+              "mode": "customer_local",
+              "resource_owner": "customer-B",
+              "payer": "customer-B",
+              "evidence_refs": [
+                {
+                  "fixture_ref": "B.funding_evidence"
+                }
+              ]
+            }
+          ],
+          "starts_at": "2026-10-13T00:00:00.000000Z",
+          "quantity_ceilings": [
+            {
+              "activity": "fixture.report:completed",
+              "field": "fixture.report:pages",
+              "unit": "fixture.report:page",
+              "maximum": "100"
+            }
+          ],
+          "exposure_ceilings": [
+            {
+              "binding_slot": "fixture.report:retail",
+              "maximum": "37000000000000000000"
+            }
+          ]
+        },
+        "assent_refs": [
+          {
+            "fixture_ref": "B.assent"
+          }
+        ],
+        "authority_refs": [
+          {
+            "fixture_ref": "B.verified_grant"
+          }
+        ],
+        "documents": [
+          {
+            "fixture_document": "B.role"
+          },
+          {
+            "fixture_document": "B.catalog"
+          },
+          {
+            "fixture_document": "B.instantiation"
+          },
+          {
+            "fixture_document": "B.slot_terms"
+          },
+          {
+            "fixture_document": "B.terms"
+          },
+          {
+            "fixture_document": "B.assent"
+          }
+        ]
+      }
+    },
+    {
+      "name": "A.activate",
+      "operation_id": "activate-A-1",
+      "kind": "agreement.activate",
+      "commit_sequence": "18",
+      "accepted_at": "2026-10-13T00:00:18.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-activation/1",
+        "agreement_id": "agreement-A",
+        "expected_revision": "0",
+        "accepted_binding_ref": {
+          "fixture_ref": "A.binding"
+        },
+        "policy_ref": {
+          "fixture_ref": "P1.policy"
+        },
+        "product_ref": {
+          "fixture_ref": "P1.product"
+        },
+        "fact_schema_refs": [
+          {
+            "fixture_ref": "P1.facts"
+          }
+        ],
+        "compiled_plan_ref": {
+          "fixture_ref": "P1.plan"
+        },
+        "effective": {
+          "kind": "at_commit"
+        },
+        "evidence_refs": []
+      }
+    },
+    {
+      "name": "B.activate",
+      "operation_id": "activate-B-1",
+      "kind": "agreement.activate",
+      "commit_sequence": "19",
+      "accepted_at": "2026-10-13T00:00:19.000000Z",
+      "payload": {
+        "schema": "ledger-workflow-activation/1",
+        "agreement_id": "agreement-B",
+        "expected_revision": "0",
+        "accepted_binding_ref": {
+          "fixture_ref": "B.binding"
+        },
+        "policy_ref": {
+          "fixture_ref": "P1.policy"
+        },
+        "product_ref": {
+          "fixture_ref": "P1.product"
+        },
+        "fact_schema_refs": [
+          {
+            "fixture_ref": "P1.facts"
+          }
+        ],
+        "compiled_plan_ref": {
+          "fixture_ref": "P1.plan"
+        },
+        "effective": {
+          "kind": "at_commit"
+        },
+        "evidence_refs": []
+      }
+    }
+  ],
+  "raw_request": "JCS normalized outer OperationEnvelope with no LF",
+  "registry": "agreement-ready-registry.json"
+}
