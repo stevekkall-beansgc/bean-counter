@@ -25,12 +25,25 @@ impl CanonicalBytes {
         work: &mut dyn ValidationWork,
     ) -> Result<Self> {
         let value = serde_json::to_value(value).map_err(|e| Error::new("JSON", e.to_string()))?;
-        let mut bytes = Vec::new();
-        emit(&value, &mut bytes, 0, work)?;
-        if vw::compare(work, bytes.len(), BUNDLE_LIMIT)? == Ordering::Greater {
+        let mut destination = Destination::legacy();
+        emit(&value, &mut destination, 0, work)?;
+        if vw::compare(work, destination.bytes.len(), BUNDLE_LIMIT)? == Ordering::Greater {
             return Err(Error::new("LIMIT", "canonical bundle bytes"));
         }
-        Ok(Self(bytes))
+        Ok(Self(destination.bytes))
+    }
+    /// Selected output uses the same paid emitter once. The supplied value is
+    /// already decoded; no count walk or serde clone precedes emission. This
+    /// path retains the selected body's null prohibition and cannot widen the
+    /// existing bundle ceiling. Destination bounds exclude integer scratch.
+    pub fn from_value_with_work_bounded(
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        maximum: usize,
+    ) -> Result<Self> {
+        let mut destination = Destination::bounded(maximum.min(BUNDLE_LIMIT));
+        emit(value, &mut destination, 0, work)?;
+        Ok(Self(destination.bytes))
     }
     pub fn as_slice(&self) -> &[u8] {
         &self.0
@@ -196,12 +209,55 @@ impl Parser<'_> {
         Ok(value)
     }
 }
-fn append(out: &mut Vec<u8>, bytes: &[u8], work: &mut dyn ValidationWork) -> Result<()> {
-    work.write_bytes(bytes.len())?;
-    out.extend(bytes);
+struct Destination {
+    bytes: Vec<u8>,
+    maximum: Option<usize>,
+}
+impl Destination {
+    fn legacy() -> Self {
+        Self {
+            bytes: Vec::new(),
+            maximum: None,
+        }
+    }
+    fn bounded(maximum: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            maximum: Some(maximum),
+        }
+    }
+    fn prepare(&mut self, n: usize, work: &mut dyn ValidationWork) -> Result<()> {
+        if let Some(maximum) = self.maximum {
+            let next = self
+                .bytes
+                .len()
+                .checked_add(n)
+                .ok_or_else(destination_limit)?;
+            if next > maximum {
+                return Err(destination_limit());
+            }
+            work.write_bytes(n)?;
+            // Avoid Vec's geometric growth crossing the requested destination
+            // allowance. The requested capacity is checked before any reserve;
+            // allocator bookkeeping is not an installation memory-cap claim.
+            if next > self.bytes.capacity() {
+                self.bytes.reserve_exact(n);
+            }
+        } else {
+            work.write_bytes(n)?;
+        }
+        Ok(())
+    }
+}
+fn destination_limit() -> Error {
+    Error::new("PROGRAM_BUDGET_EXCEEDED", "canonical destination bound")
+}
+fn append(out: &mut Destination, bytes: &[u8], work: &mut dyn ValidationWork) -> Result<()> {
+    out.prepare(bytes.len(), work)?;
+    out.bytes.extend(bytes);
     Ok(())
 }
-fn emit_string(s: &str, out: &mut Vec<u8>, work: &mut dyn ValidationWork) -> Result<()> {
+fn emit_string(s: &str, out: &mut Destination, work: &mut dyn ValidationWork) -> Result<()> {
     append(out, b"\"", work)?;
     for character in s.chars() {
         work.scan_bytes(character.len_utf8())?;
@@ -216,8 +272,9 @@ fn emit_string(s: &str, out: &mut Vec<u8>, work: &mut dyn ValidationWork) -> Res
             '\t' => append(out, b"\\t", work)?,
             '\u{00}'..='\u{1f}' => {
                 // The escape has exactly six ASCII bytes.
-                work.write_bytes(6)?;
-                out.extend(format!("\\u{:04x}", u32::from(character)).as_bytes());
+                out.prepare(6, work)?;
+                out.bytes
+                    .extend(format!("\\u{:04x}", u32::from(character)).as_bytes());
             }
             _ => {
                 let mut encoded = [0; 4];
@@ -227,7 +284,7 @@ fn emit_string(s: &str, out: &mut Vec<u8>, work: &mut dyn ValidationWork) -> Res
     }
     append(out, b"\"", work)
 }
-fn emit_integer(i: i64, out: &mut Vec<u8>, work: &mut dyn ValidationWork) -> Result<()> {
+fn emit_integer(i: i64, out: &mut Destination, work: &mut dyn ValidationWork) -> Result<()> {
     let negative = vw::compare(work, i, 0)? == Ordering::Less;
     let mut value = if negative {
         work.arithmetic(Op::Negate, &[&num_bigint::BigInt::from(i)])?;
@@ -254,20 +311,41 @@ fn emit_integer(i: i64, out: &mut Vec<u8>, work: &mut dyn ValidationWork) -> Res
     }
     Ok(())
 }
-fn emit(v: &Value, out: &mut Vec<u8>, depth: usize, work: &mut dyn ValidationWork) -> Result<()> {
+fn emit(
+    v: &Value,
+    out: &mut Destination,
+    depth: usize,
+    work: &mut dyn ValidationWork,
+) -> Result<()> {
     work.visit(Visit::Value)?;
     if vw::compare(work, depth, 32usize)? == Ordering::Greater {
+        if out.maximum.is_some() {
+            return Err(destination_limit());
+        }
         return Err(Error::new("LIMIT", "JSON depth"));
     }
     match v {
-        Value::Null => append(out, b"null", work)?,
+        Value::Null => {
+            if out.maximum.is_some() {
+                return Err(Error::new("INVALID_SHAPE", "null selected body"));
+            }
+            append(out, b"null", work)?;
+        }
         Value::Bool(true) => append(out, b"true", work)?,
         Value::Bool(false) => append(out, b"false", work)?,
         Value::Number(n) => {
             work.visit(Visit::Constraint)?;
-            let i = n
-                .as_i64()
-                .ok_or_else(|| Error::new("JSON_NUMBER", "unsafe integer"))?;
+            let i = if let Some(i) = n.as_i64() {
+                i
+            } else {
+                if out.maximum.is_some() {
+                    work.visit(Visit::Constraint)?;
+                    if !n.is_u64() {
+                        return Err(Error::new("INVALID_SCALAR", "noninteger JSON"));
+                    }
+                }
+                return Err(Error::new("JSON_NUMBER", "unsafe integer"));
+            };
             if vw::compare(work, i, -SAFE)? == Ordering::Less
                 || vw::compare(work, i, SAFE)? == Ordering::Greater
             {
@@ -511,6 +589,145 @@ mod executing_work_tests {
     use super::*;
     use crate::validation_work::tests::CountingWork;
     use num_bigint::BigInt;
+
+    #[test]
+    fn capped_single_pass_preserves_bytes_callbacks_and_exact_budgets() {
+        let value = serde_json::json!({"\u{e000}":["\u{000b}","\"","\\","é"],"😀":-123});
+        let expected = r#"{"😀":-123,"":["\u000b","\"","\\","é"]}"#;
+        let n = expected.len();
+        let mut legacy = CountingWork::new(usize::MAX);
+        let old = CanonicalBytes::from_value_with_work(&value, &mut legacy).unwrap();
+        let mut paid = CountingWork::new(usize::MAX);
+        let bytes = CanonicalBytes::from_value_with_work_bounded(&value, &mut paid, n).unwrap();
+        assert_eq!(bytes.as_slice(), expected.as_bytes());
+        assert_eq!(bytes, old);
+        assert_eq!(
+            paid.operations,
+            legacy.operations[..legacy.operations.len() - 1]
+        );
+        assert_eq!(paid.visits, legacy.visits);
+        assert_eq!(paid.scanned, legacy.scanned);
+        assert_eq!(paid.written, legacy.written);
+        let mut exact = CountingWork::new(paid.used);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&value, &mut exact, n).unwrap(),
+            bytes
+        );
+        let mut short_work = CountingWork::new(paid.used - 1);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&value, &mut short_work, n)
+                .unwrap_err()
+                .code,
+            "TEST_EXHAUSTED"
+        );
+        let mut short_bytes = CountingWork::new(usize::MAX);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&value, &mut short_bytes, n - 1)
+                .unwrap_err(),
+            destination_limit()
+        );
+    }
+
+    #[test]
+    fn destination_refuses_before_reserve_escape_and_final_integer_append() {
+        let value = Value::String("\u{000b}".repeat(1_048_576));
+        let mut destination = Destination::bounded(2);
+        let mut work = CountingWork::new(usize::MAX);
+        assert_eq!(
+            emit(&value, &mut destination, 0, &mut work).unwrap_err(),
+            destination_limit()
+        );
+        assert_eq!(destination.bytes, b"\"");
+        assert!(destination.bytes.capacity() <= 2);
+        assert_eq!(work.written, 1); // No six-byte escape allocation/write was attempted.
+        assert_eq!(work.scanned, 1); // No sizing traversal over the large tail.
+        let mut destination = Destination::bounded(0);
+        let mut work = CountingWork::new(usize::MAX);
+        assert_eq!(
+            emit(&Value::from(-123), &mut destination, 0, &mut work).unwrap_err(),
+            destination_limit()
+        );
+        assert_eq!(destination.bytes.capacity(), 0);
+        assert!(destination.bytes.is_empty());
+        assert_eq!(work.written, 3); // Actual scratch digits are paid, not destination bytes.
+        let mut destination = Destination::bounded(4);
+        emit(&Value::from(-123), &mut destination, 0, &mut work).unwrap();
+        assert_eq!(destination.bytes, b"-123");
+        assert!(destination.bytes.capacity() <= 4);
+        let mut destination = Destination::bounded(3);
+        assert_eq!(
+            emit(&Value::from(-123), &mut destination, 0, &mut work).unwrap_err(),
+            destination_limit()
+        );
+        assert_eq!(destination.bytes, b"-12");
+        assert!(destination.bytes.capacity() <= 3);
+    }
+
+    #[test]
+    fn selected_refusals_and_callback_error_leave_legacy_policy_unchanged() {
+        let mut work = NoopValidationWork;
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&Value::Null, &mut work, 4).unwrap_err(),
+            Error::new("INVALID_SHAPE", "null selected body")
+        );
+        assert_eq!(
+            CanonicalBytes::from_value(&Value::Null).unwrap().as_slice(),
+            b"null"
+        );
+        let float = Value::from(0.5);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&float, &mut work, 32).unwrap_err(),
+            Error::new("INVALID_SCALAR", "noninteger JSON")
+        );
+        assert_eq!(
+            CanonicalBytes::from_value(&float).unwrap_err().code,
+            "JSON_NUMBER"
+        );
+        let mut deep = Value::Bool(true);
+        for _ in 0..33 {
+            deep = Value::Array(vec![deep]);
+        }
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&deep, &mut work, 1024).unwrap_err(),
+            destination_limit()
+        );
+        assert_eq!(
+            CanonicalBytes::from_value(&deep).unwrap_err(),
+            Error::new("LIMIT", "JSON depth")
+        );
+        let mut bytes = Destination::bounded(1);
+        let callback = Error::new("INVALID_SHAPE", "distinct callback failure");
+        struct FailedWrite(Error);
+        impl ValidationWork for FailedWrite {
+            fn visit(&mut self, _: Visit) -> Result<()> {
+                Ok(())
+            }
+            fn arithmetic(&mut self, _: Op, _: &[&BigInt]) -> Result<()> {
+                Ok(())
+            }
+            fn scan_bytes(&mut self, _: usize) -> Result<()> {
+                Ok(())
+            }
+            fn hash_bytes(&mut self, _: usize) -> Result<()> {
+                Ok(())
+            }
+            fn write_bytes(&mut self, _: usize) -> Result<()> {
+                Err(self.0.clone())
+            }
+        }
+        assert_eq!(
+            emit(
+                &Value::String("x".into()),
+                &mut bytes,
+                0,
+                &mut FailedWrite(callback.clone())
+            )
+            .unwrap_err(),
+            callback
+        );
+        assert_eq!(bytes.bytes.capacity(), 0);
+        assert!(bytes.bytes.is_empty());
+    }
 
     #[test]
     fn executing_jcs_preserves_utf16_escapes_integer_and_set_order() {
