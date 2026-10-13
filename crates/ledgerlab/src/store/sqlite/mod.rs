@@ -394,15 +394,10 @@ impl SqliteStore {
         } else {
             None
         };
-        let fence_start_changes = if self.inner._owner.fence.is_some() {
-            Some(
-                sqlx::query_scalar("SELECT total_changes()")
-                    .fetch_one(&mut *transaction)
-                    .await?,
-            )
-        } else {
-            None
-        };
+        let start_changes: i64 = sqlx::query_scalar("SELECT total_changes()")
+            .fetch_one(&mut *transaction)
+            .await?;
+        let fence_start_changes = self.inner._owner.fence.as_ref().map(|_| start_changes);
         Ok(SqliteTx {
             transaction: Some(transaction),
             store: Arc::clone(&self.inner),
@@ -414,6 +409,7 @@ impl SqliteStore {
             adjudication: None,
             physical_start_pages,
             fence_start_changes,
+            start_changes,
             #[cfg(test)]
             outcome_fault: None,
         })
@@ -430,3 +426,8 @@ pub(crate) struct BeginPause {
 
 #[cfg(test)]
 mod adjudication_tests;
+
+pub(crate) mod workflow;
+
+#[cfg(test)]
+mod workflow_integration_tests;

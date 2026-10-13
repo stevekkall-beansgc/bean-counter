@@ -15,6 +15,16 @@ const BILLING_ALIASES: &str = include_str!("../../../migrations/sqlite/0008_bill
 const CUSTOMERS: &str = include_str!("../../../migrations/sqlite/0009_customer_agreements.sql");
 const M3_HISTORY: &str = include_str!("../../../migrations/sqlite/0010_m3_history.sql");
 const M5_LIFECYCLE: &str = include_str!("../../../migrations/sqlite/0011_m5_lifecycle.sql");
+const WORKFLOW: &str = include_str!("workflow/schema.sql");
+fn workflow_migration() -> Migration {
+    Migration::new(
+        12,
+        "generic workflow Profile B".into(),
+        MigrationType::Simple,
+        WORKFLOW.into_sql_str(),
+        false,
+    )
+}
 const M5_MIGRATION_ID: &str = "bean-counter/m5/schema-11/1";
 fn m5_migration() -> Migration {
     Migration::new(
@@ -114,12 +124,15 @@ pub(super) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         .await?;
     // Ordinary open never upgrades. The M5 coordinator owns schema-11 billing
     // writes; the historical schema-10 billing writer still refuses version 11.
-    if current != 9 && current != 10 && current != 11 {
+    if current != 9 && current != 10 && current != 11 && current != 12 {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     version(conn).await?;
-    if current == 11 {
+    if current == 11 || current == 12 {
         super::m5::verify(conn).await?;
+    }
+    if current == 12 {
+        super::workflow::capacity::check(conn, 0, 0).await?;
     }
     Ok(())
 }
@@ -127,7 +140,7 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
     let v: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if !(1..=11).contains(&v) {
+    if !(1..=12).contains(&v) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     let migrations = migrator();
@@ -137,7 +150,9 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
             .await?;
     if rows.len() != v as usize
         || rows.iter().enumerate().any(|(i, row)| {
-            let expected = if i == 10 {
+            let expected = if i == 11 {
+                workflow_migration()
+            } else if i == 10 {
                 m5_migration()
             } else {
                 migrations.migrations[i].clone()
@@ -413,12 +428,19 @@ fn hash_number(hash: &mut Sha256, value: i64) {
 /// This covers every existing SQL object and retained row, including tiers that
 /// the M3 billing validator reads through its original schema-8/9 adapters.
 async fn m5_source_digest(conn: &mut SqliteConnection) -> Result<[u8; 32], StoreError> {
+    retained_source_digest(conn, b"bean-counter/m5/schema-10-source/1\0", "billing_m5_").await
+}
+async fn retained_source_digest(
+    conn: &mut SqliteConnection,
+    domain: &[u8],
+    excluded: &str,
+) -> Result<[u8; 32], StoreError> {
     use sqlx::{Row, TypeInfo, ValueRef};
     let objects: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT type,name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations' AND substr(name,1,11) <> 'billing_m5_' ORDER BY type,name",
-    ).fetch_all(&mut *conn).await?;
+        "SELECT type,name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' AND name <> '_sqlx_migrations' AND substr(name,1,length(?)) <> ? ORDER BY type,name",
+    ).bind(excluded).bind(excluded).fetch_all(&mut *conn).await?;
     let mut hash = Sha256::new();
-    hash.update(b"bean-counter/m5/schema-10-source/1\0");
+    hash.update(domain);
     for (kind, name, sql) in &objects {
         hash_bytes(&mut hash, kind.as_bytes());
         hash_bytes(&mut hash, name.as_bytes());
@@ -1426,3 +1448,50 @@ mod billing_upgrade_tests;
 #[cfg(test)]
 #[path = "m5_upgrade_tests.rs"]
 mod m5_upgrade_tests;
+
+impl super::SqliteTx {
+    /// Mechanical opt-in only. The trusted coordinator must validate the entire
+    /// billing snapshot and its local actor in this same writer transaction.
+    pub(crate) async fn workflow_enable_profile_b(&mut self) -> Result<(), StoreError> {
+        if self.failed {
+            return Err(StoreError::InvalidStore("poisoned workflow upgrade"));
+        }
+        self.failed = true;
+        let deadline = self.deadline;
+        let result = tokio::time::timeout_at(deadline, async {
+            let from = version(self.conn()).await?;
+            if from == 12 {
+                super::m5::verify(self.conn()).await?;
+                super::workflow::capacity::check(self.conn(), 0, 0).await?;
+                return Ok(());
+            }
+            if from != 11 { return Err(StoreError::BillingUpgradeRequired); }
+            let installation = super::read::installation(self.conn()).await?;
+            if installation.mode != "real" || installation.admission != "open"
+                || !installation.dispatch_hold || installation.dispatch_enabled {
+                return Err(StoreError::InvalidStore("workflow upgrade requires held real installation"));
+            }
+            super::m5::verify(self.conn()).await?;
+            super::connect::integrity(self.conn()).await?;
+            let before = retained_source_digest(self.conn(), b"bean-counter/workflow/schema-11-source/1\0", "workflow_").await?;
+            let collision: i64 = sqlx::query_scalar("SELECT count(*) FROM sqlite_schema WHERE name LIKE 'workflow_%'").fetch_one(self.conn()).await?;
+            if collision != 0 { return Err(StoreError::InvalidStore("workflow sidecar name collision")); }
+            let migration = workflow_migration();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref())).execute(self.conn()).await?;
+            sqlx::query("INSERT INTO _sqlx_migrations(version,description,success,checksum,execution_time) VALUES(?,?,TRUE,?,0)")
+                .bind(migration.version).bind(migration.description.as_ref()).bind(migration.checksum.as_ref()).execute(self.conn()).await?;
+            sqlx::query("PRAGMA user_version=12").execute(self.conn()).await?;
+            version(self.conn()).await?;
+            super::workflow::capacity::check(self.conn(), 0, 0).await?;
+            if before != retained_source_digest(self.conn(), b"bean-counter/workflow/schema-11-source/1\0", "workflow_").await? {
+                return Err(StoreError::Integrity("workflow migration changed legacy history"));
+            }
+            super::connect::integrity(self.conn()).await?;
+            Ok::<_, StoreError>(())
+        }).await.map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = false;
+        }
+        result
+    }
+}

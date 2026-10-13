@@ -102,7 +102,7 @@ pub(super) async fn pool(owner: Arc<Owner>, reader: bool) -> Result<SqlitePool, 
                     let id = NEXT
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                         .to_string();
-                    sqlx::query("CREATE TEMP TABLE test_connection_id (id TEXT NOT NULL)")
+                    sqlx::query("CREATE TEMP TABLE test_connection_id (id TEXT NOT NULL) STRICT")
                         .execute(&mut *conn)
                         .await?;
                     sqlx::query("INSERT INTO test_connection_id VALUES (?)")

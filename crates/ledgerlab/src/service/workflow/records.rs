@@ -1,8 +1,8 @@
 //! Reviewed publication record encoding and immutable retained verification.
 use super::*;
 use crate::store::sqlite::{
-    SqliteTx,
     workflow::{Document, RecordRef, StoredOperation},
+    SqliteTx,
 };
 use ledgerlab_core::canonical::{self, CanonicalBytes};
 use serde_json::json;
@@ -51,7 +51,8 @@ mod tests {
         );
         assert_eq!(
             result["request_evidence"],
-            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()["request_evidence"]
+            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()
+                ["request_evidence"]
         );
         let mut tampered = original.clone();
         tampered.receipt_bytes[8] = b'x';
