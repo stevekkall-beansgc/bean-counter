@@ -10,6 +10,11 @@ pub use product::{
     Activity, BindingRelation, LinkDefinition, MissingDependency, Primitive, Product,
     UnitDefinition,
 };
+mod compiler;
+pub use compiler::{
+    compile_publication, normalize_publication_sources, CompilerDescriptor, DefinitionDocument,
+    DefinitionRef, NormalizedPublicationSources, PreparedPublication, VerifiedCompilerSupport,
+};
 
 fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<String> {
     use sha2::{Digest, Sha256};

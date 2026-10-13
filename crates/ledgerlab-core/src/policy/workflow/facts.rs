@@ -364,6 +364,10 @@ impl FactSchema {
     /// Binding context syntax uses only required caller facts. This does not
     /// establish assent, bind a customer or select an accepted policy.
     pub fn normalize_context(&self, bytes: &[u8]) -> Result<NormalizedFacts> {
+        self.validate_context_schema()?;
+        self.normalize(bytes)
+    }
+    pub fn validate_context_schema(&self) -> Result<()> {
         if self
             .fields
             .iter()
@@ -374,7 +378,7 @@ impl FactSchema {
                 "binding context fields must be required caller facts",
             ));
         }
-        self.normalize(bytes)
+        Ok(())
     }
     /// Quantity corrections and formula typechecking use the original schema.
     pub fn quantity_unit(&self, field: &str) -> Result<&str> {
