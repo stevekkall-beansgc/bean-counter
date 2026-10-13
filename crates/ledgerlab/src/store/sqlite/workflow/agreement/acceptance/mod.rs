@@ -214,7 +214,7 @@ impl SqliteTx {
     ) -> Result<Option<AgreementHead>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT h.revision,d.kind AS head_kind,d.id AS head_id,d.digest AS head_digest FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).bind(agreement).bind(kind.as_str()).fetch_optional(self.conn()).await?;row.map(|r|Ok::<_,StoreError>(AgreementHead{revision:r.try_get("revision")?,transition:row_ref(&r,"head")?})).transpose().map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT h.revision,d.kind AS head_kind,d.id AS head_id,d.digest AS head_digest FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).bind(agreement).bind(kind.as_str()).fetch_optional(self.conn()).await?;row.map(|r|Ok::<_,StoreError>(AgreementHead{revision:r.try_get("revision")?,transition:row_ref(&r,"head")?})).transpose()}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -228,7 +228,7 @@ impl SqliteTx {
     ) -> Result<Option<RecordRef>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT d.kind AS accepted_kind,d.id AS accepted_id,d.digest AS accepted_digest FROM workflow_agreement_acceptances a JOIN workflow_documents b ON b.id=a.binding_id JOIN workflow_documents d ON d.id=a.accepted_id WHERE a.logical_store_id=? AND a.tenant=? AND a.environment=? AND b.kind=? AND b.id=? AND b.digest=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(&binding.kind).bind(&binding.id).bind(&binding.digest).fetch_optional(self.conn()).await?;row.map(|r|row_ref(&r,"accepted")).transpose().map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT d.kind AS accepted_kind,d.id AS accepted_id,d.digest AS accepted_digest FROM workflow_agreement_acceptances a JOIN workflow_documents b ON b.id=a.binding_id JOIN workflow_documents d ON d.id=a.accepted_id WHERE a.logical_store_id=? AND a.tenant=? AND a.environment=? AND b.kind=? AND b.id=? AND b.digest=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(&binding.kind).bind(&binding.id).bind(&binding.digest).fetch_optional(self.conn()).await?;row.map(|r|row_ref(&r,"accepted")).transpose()}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }

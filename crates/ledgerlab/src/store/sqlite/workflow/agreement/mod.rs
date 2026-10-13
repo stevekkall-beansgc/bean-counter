@@ -501,6 +501,29 @@ impl SqliteTx {
             if expected != actual {
                 return Err(StoreError::Integrity("alias04 members mismatch"));
             }
+            let observed = &body["authority_snapshot"]["source_observation"];
+            let enrollment = observed["enrollment_ref"]["id"]
+                .as_str()
+                .ok_or(StoreError::Integrity("alias04 missing enrollment"))?;
+            let state = observed["state_ref"]["id"]
+                .as_str()
+                .ok_or(StoreError::Integrity("alias04 missing state"))?;
+            let revision = observed["revision"]
+                .as_str()
+                .ok_or(StoreError::Integrity("alias04 missing revision"))?;
+            let selected:Option<(i64,String,Option<String>,String)>=sqlx::query_as("SELECT h.revision,h.state_id,h.grant_id,h.status FROM workflow_source_heads h JOIN workflow_source_enrollments e ON e.logical_store_id=h.logical_store_id AND e.tenant=h.tenant AND e.environment=h.environment AND e.enrollment_id=h.enrollment_id WHERE e.logical_store_id=? AND e.tenant=? AND e.environment=? AND e.document_id=?")
+                .bind(&p.store).bind(&p.tenant).bind(&p.environment).bind(enrollment).fetch_optional(self.conn()).await?;
+            let (current_revision, current_state, current_grant, current_status) =
+                selected.ok_or(StoreError::ExpectedCurrent)?;
+            let current_revision = current_revision.to_string();
+            if current_revision != revision
+                || current_state != state
+                || observed["status"] != current_status
+                || observed.get("grant_ref").and_then(|r| r["id"].as_str())
+                    != current_grant.as_deref()
+            {
+                return Err(StoreError::ExpectedCurrent);
+            }
             // Original BLOB remains in workflow_operations, already charged.
             // It is never inserted into workflow_documents or new-byte delta.
         }
