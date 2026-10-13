@@ -1,0 +1,73 @@
+{
+  "schema": "ledger-operation-registry-contract/1",
+  "contract": "workflow/1",
+  "operation_envelope": "ledger-operation/1",
+  "receipt_profile": "ledger-operation-receipt/2",
+  "evidence_profile": "ledger-operation-request-evidence/2",
+  "normalization_profile": "ledger-operation-normalization/2",
+  "entries": [
+    {
+      "kind": "evidence.retain",
+      "payload_schemas": [
+        "ledger-workflow-definition-finalize/1",
+        "ledger-workflow-definition-fragment/1",
+        "ledger-workflow-definition-retain/1"
+      ],
+      "recipe_id": "evidence.retain/source-definition-1",
+      "exposure": "external"
+    }
+  ],
+  "record_kinds": [
+    "workflow-definition-fragment",
+    "workflow-manifest",
+    "workflow-operation",
+    "workflow-receipt"
+  ],
+  "errors": [
+    "ACTIVATION_SCHEDULE_CONFLICT",
+    "AGREEMENT_OWNERSHIP_CONFLICT",
+    "ASSENT_TERMS_MISMATCH",
+    "AUTHORITY_REQUIRED",
+    "BASIS_NOT_TOTAL",
+    "CAPACITY_EXCEEDED",
+    "CORRECTION_CAPACITY_EXCEEDED",
+    "DESCRIPTOR_DEPENDENCY_MISSING",
+    "DESCRIPTOR_SCOPE_MISMATCH",
+    "DOCUMENT_DIGEST_MISMATCH",
+    "IDENTITY_CONFLICT",
+    "INSTALLATION_MODE_MISMATCH",
+    "INTEGRITY_FAILURE",
+    "INVALID_REFERENCE",
+    "INVALID_SCALAR",
+    "INVALID_SHAPE",
+    "PLAN_DIGEST_MISMATCH",
+    "PREDICATE_ANALYSIS_LIMIT",
+    "PROGRAM_BUDGET_EXCEEDED",
+    "REQUEST_EVIDENCE_MISMATCH",
+    "RESPONSE_BUDGET_EXCEEDED",
+    "REVERSAL_DEPENDENTS_REQUIRED",
+    "SEMANTIC_CONFLICT",
+    "SLOT_SEMANTICS_CHANGED",
+    "SOURCE_CEILING_EXCEEDED",
+    "SOURCE_FRAGMENT_INCOMPLETE",
+    "SOURCE_FRAGMENT_MISMATCH",
+    "STALE_REVISION",
+    "UNSUPPORTED_COMPOSITION",
+    "UNSUPPORTED_SCHEMA_PROFILE"
+  ],
+  "read_inputs": [
+    "CanonicalRead",
+    "DescriptorPrepare"
+  ],
+  "read_outputs": [
+    "CanonicalReadResult",
+    "DescriptorResolution",
+    "ReadError"
+  ],
+  "status_input": "OperationKey",
+  "status_output": "OperationStatus",
+  "result_kinds": [
+    "administrative",
+    "semantic_alias"
+  ]
+}
