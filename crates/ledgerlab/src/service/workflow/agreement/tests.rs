@@ -847,3 +847,222 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
     tx.rollback().await.unwrap();
     reopened.close().await;
 }
+
+async fn change_test_trigger(path: &std::path::Path, statement: &str) {
+    use sqlx::Connection;
+    let mut c = sqlx::SqliteConnection::connect_with(
+        &sqlx::sqlite::SqliteConnectOptions::new().filename(path.join(".ledger/local.db")),
+    )
+    .await
+    .unwrap();
+    // Test-only statements are constructed below from closed literal table/
+    // kind sets; no request/customer/source string enters this SQL.
+    sqlx::query(sqlx::AssertSqlSafe(statement))
+        .execute(&mut c)
+        .await
+        .unwrap();
+    c.close().await.unwrap();
+}
+async fn retained_projection_counts(path: &std::path::Path) -> Vec<i64> {
+    use sqlx::Connection;
+    let mut c = sqlx::SqliteConnection::connect_with(
+        &sqlx::sqlite::SqliteConnectOptions::new().filename(path.join(".ledger/local.db")),
+    )
+    .await
+    .unwrap();
+    let mut counts = vec![];
+    for table in [
+        "workflow_documents",
+        "workflow_operations",
+        "workflow_manifest_members",
+        "workflow_agreement_semantics",
+        "workflow_customer_registrations",
+        "workflow_source_namespaces",
+        "workflow_source_enrollments",
+        "workflow_source_heads",
+        "workflow_feed",
+    ] {
+        counts.push(
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&mut c)
+                .await
+                .unwrap(),
+        );
+    }
+    c.close().await.unwrap();
+    counts
+}
+#[tokio::test]
+async fn agreement_source_enrollment_each_insert_boundary_rolls_back_all_projections() {
+    let (_dir, path) = installation().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let (customer, evidence) = source_inputs(&ledger, "test-source-cut-customer").await;
+    let request = envelope(
+        "source-enrollment-insert-cuts",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"source-cut-enrollment","customer_refs":[customer],"ceiling":source_ceiling("test-source-cut-customer"),"evidence_ref":evidence}),
+    );
+    let raw = records::bytes(&request).unwrap();
+    let key = super::super::request::OperationKey::parse(&records::bytes(&request["key"]).unwrap())
+        .unwrap();
+    let baseline = retained_projection_counts(&path).await;
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let baseline_meter = tx.workflow_test_meter().await.unwrap();
+    tx.rollback().await.unwrap();
+    let mut cuts = vec![];
+    for kind in [
+        "workflow-source-enrollment",
+        "workflow-source-grant",
+        "workflow-source-state",
+    ] {
+        cuts.push(format!("CREATE TRIGGER test_prerequisite_cut BEFORE INSERT ON workflow_documents WHEN NEW.kind='{kind}' BEGIN SELECT RAISE(ABORT,'injected new document cut'); END"));
+    }
+    for table in [
+        "workflow_source_namespaces",
+        "workflow_source_enrollments",
+        "workflow_source_heads",
+        "workflow_operations",
+        "workflow_agreement_semantics",
+        "workflow_feed",
+    ] {
+        cuts.push(format!("CREATE TRIGGER test_prerequisite_cut BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT,'injected projection or journal cut'); END"));
+    }
+    for kind in [
+        "workflow-operation",
+        "workflow-authority",
+        "workflow-customer",
+        "workflow-evidence",
+        "workflow-source-enrollment",
+        "workflow-source-grant",
+        "workflow-source-state",
+    ] {
+        cuts.push(format!("CREATE TRIGGER test_prerequisite_cut BEFORE INSERT ON workflow_manifest_members WHEN NEW.kind='{kind}' BEGIN SELECT RAISE(ABORT,'injected closure member cut'); END"));
+    }
+    cuts.push("CREATE TRIGGER test_prerequisite_cut BEFORE UPDATE ON workflow_state BEGIN SELECT RAISE(ABORT,'injected final meter cut'); END".into());
+    for (index, cut) in cuts.iter().enumerate() {
+        change_test_trigger(&path, cut).await;
+        assert!(ledger.prerequisite(&raw).await.is_err(), "cut {index}");
+        change_test_trigger(&path, "DROP TRIGGER test_prerequisite_cut").await;
+        assert_eq!(
+            retained_projection_counts(&path).await,
+            baseline,
+            "cut {index}"
+        );
+        assert_eq!(
+            ledger.status(&key.bytes().unwrap()).await.unwrap()["status"],
+            "not_observed",
+            "cut {index}"
+        );
+        let mut tx = ledger
+            .store
+            .begin(crate::service::workflow::local::deadline())
+            .await
+            .unwrap();
+        assert_eq!(
+            tx.workflow_test_meter().await.unwrap(),
+            baseline_meter,
+            "cut {index}"
+        );
+        tx.rollback().await.unwrap();
+    }
+    ledger.prerequisite(&raw).await.unwrap();
+    ledger.close().await;
+    let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(
+        reopened.status(&key.bytes().unwrap()).await.unwrap()["status"],
+        "committed"
+    );
+    reopened.close().await;
+}
+
+#[tokio::test]
+async fn agreement_source_append_failure_poison_prevents_partial_commit() {
+    let (_dir, path) = installation().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let (customer, evidence) = source_inputs(&ledger, "test-source-poison-customer").await;
+    let outer = envelope(
+        "source-poison",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"source-poison-enrollment","customer_refs":[customer],"ceiling":source_ceiling("test-source-poison-customer"),"evidence_ref":evidence}),
+    );
+    let raw = records::bytes(&outer).unwrap();
+    let request = request::Request::parse(&raw).unwrap();
+    let key = request.key();
+    let baseline = retained_projection_counts(&path).await;
+    for cut in [
+        "CREATE TRIGGER test_prerequisite_poison BEFORE INSERT ON workflow_source_heads BEGIN SELECT RAISE(ABORT,'late projection poison'); END",
+        "CREATE TRIGGER test_prerequisite_poison BEFORE UPDATE ON workflow_state BEGIN SELECT RAISE(ABORT,'final meter poison'); END",
+    ] {
+        change_test_trigger(&path, cut).await;
+        let mut tx = ledger
+            .store
+            .begin(crate::service::workflow::local::deadline())
+            .await
+            .unwrap();
+        let setup = ledger
+            .admin
+            .fresh(&ledger.store, &mut tx, key)
+            .await
+            .unwrap();
+        assert_eq!(tx.load_installation().await.unwrap().mode, "real");
+        let root = tx
+            .workflow_agreement_root_candidate(&key.logical_store_id, &key.scope)
+            .await
+            .unwrap()
+            .unwrap();
+        verify::document_origin(&mut tx, key, &root.reference)
+            .await
+            .unwrap();
+        assert_eq!(
+            canonical_body(&root).unwrap()["basis"],
+            journal::basis(&setup)
+        );
+        let at = crate::local::now().unwrap();
+        let payload = service::normalize_payload(&request).unwrap();
+        let prepared = source::prepare(
+            &mut tx,
+            key,
+            &payload,
+            &setup,
+            &at,
+            "real_local",
+            &root.reference,
+        )
+        .await
+        .unwrap();
+        let sequence = tx.workflow_sequence().await.unwrap();
+        let append = journal::assemble(
+            &request,
+            journal::evidence(&request, &payload).unwrap(),
+            &setup,
+            &at,
+            sequence,
+            root,
+            prepared.documents,
+            prepared.results,
+            source::semantic(&payload, "source-poison-enrollment").unwrap(),
+            None,
+            prepared.projection,
+        )
+        .unwrap();
+        assert!(tx.workflow_agreement_append(&append).await.is_err());
+        assert!(matches!(
+            tx.commit().await,
+            Err(crate::store::errors::CommitError::RolledBack(_))
+        ));
+        change_test_trigger(&path, "DROP TRIGGER test_prerequisite_poison").await;
+        assert_eq!(retained_projection_counts(&path).await, baseline);
+        assert_eq!(
+            ledger.status(&key.bytes().unwrap()).await.unwrap()["status"],
+            "not_observed"
+        );
+    }
+    ledger.prerequisite(&raw).await.unwrap();
+    ledger.close().await;
+}
