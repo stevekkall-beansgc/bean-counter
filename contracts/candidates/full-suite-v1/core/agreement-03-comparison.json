@@ -1,0 +1,53 @@
+{
+  "schema": "ledger-contract-byte-comparison/1",
+  "name": "AGR-03 author versus independent reviewer selected chains",
+  "status": "reviewer-accepted selected byte/meter comparison; not runtime or whole-Wave qualification",
+  "author": "GPT-6 Astra /root/astra_s12_technical_plan",
+  "reviewer": "GPT-6 Astra /root/adversarial_money",
+  "independence": "Author derived source-only outputs using own original P1 source recipe before reading reviewer outputs. No production or reviewer generators imported. Reviewer previously authored financial architecture; independent review here covers new transcription/implementation only.",
+  "first_author_outputs_before_oracle_inspection": {
+    "primary": "e067f1e9b0620a0f77b33c8a6c1fa287cd16a70e549fd6dcbe2d4b4cc52daca6",
+    "expiry": "12d0d9abcdb0f02891f4c1e38306583823e967df81fc9bf116a6e9b9d303ecc0"
+  },
+  "author_assembly_correction": "All body/ref/canonicalhex values agreed on first comparison. Two admission_stop evidence manifest/receipt chains differed because author traversed implicit AcceptedAgreement from every Binding. Restricted that extra root to agreement.activate/revoke; evidence retention follows actual Ref edges with earlier membership verified independently. No normative source or sealed oracle was changed.",
+  "sealed_independent_artifacts": {
+    "agreement-03-primary-expected.json": "d5aa41165ae16d6f98d8a483247b1ee178ed1808fc3fef4ea591515c03de48a4",
+    "agreement-03-expiry-expected.json": "0af178a661fe98f1520b33c5f4e5d3169618bd57f006e62deaf8b8798d936907"
+  },
+  "matched_dimensions": [
+    "75 primary/73 expiry complete record bodies, IDs, content digests, canonical hex/UTF8",
+    "21 primary/20 expiry locators, descriptor closure, raw/normalized requests, request evidence",
+    "all exact manifest members/body/ref/bytes and receipt body/ref/bytes",
+    "all per-operation Profile B units, new-doc count/bytes, wrapper/key bytes and payload delta"
+  ],
+  "validation": {
+    "primary_shape_count": 159,
+    "expiry_shape_count": 153,
+    "jsonschema": "4.26.0 Draft202012Validator",
+    "economic_actions": 0,
+    "runtime": "UNRUN"
+  },
+  "file_sha256": {
+    "agreement-boundary-fixture-input.json": "3ebfd032d18fac3ab7ab22d2442428b583c388a2786826a92066d1c206ec509e",
+    "agreement-ready-fixture-input.json": "11118d617a1c8110cdc63ac6a4ab8fd4c4dbabd9661e35428bb09e575cb42df3",
+    "agreement-stop-fixture-input.json": "2b8d87f631bb875c3fc834bdb5781339c578a97f85fc4d6077c098afebfb24e3",
+    "AGREEMENT-BOUNDARY.md": "35005a0065b80e2f18add548e67e43d45fb43fc1b611a60b8e568dd732c65391",
+    "AGREEMENT-READY-AMENDMENT.md": "2e99c1dc27e597c4c6a5c416d9e448b714827d463a43bfd323ea06b769373aa6",
+    "AGREEMENT-STOP-REPAIR.md": "5d1dbdaaf48db62ec6aef02f61e682c960a68c72d9097fb43a05734bd6de9cd1",
+    "agreement-ready.schema.json": "1f5764768505214a2b5c143b87a198d56671eef1363f9ed574b4b15c71c4943b",
+    "agreement-ready-registry.json": "c1a0225d0fa737dfbeb4fc674a01d560200080e0b7063ba138bd30005cc3a872",
+    "derive_agreement_03_author.py": "fa64ebedf3aecc11be06dcf36e31b75aad957302dea5bdc4d853e2f139b8f426",
+    "compare_agreement_03.py": "b421c373743f116e6b42e2ce6942c13341d1fa8ed9adf5c916feaabddf21b708",
+    "agreement-03-primary-author.json": "95f17d7d317b99a4d73dcbc7a9e4dc7b4c274198c48d554f1c88b2c9bf5b7062",
+    "agreement-03-expiry-author.json": "dd74b1bc6b02aa1091266026a248eaa674591938ca14568f08f9988206954ae2"
+  },
+  "exclusions": [
+    "real customer/source enrollment and operator evidence authentication",
+    "actual local actor/permission enforcement",
+    "persistent heads/aliases/CAS/unknown commit/reopen",
+    "work/link/outcome/correction economics",
+    "all-mode compiler proof",
+    "full Wave1/Wave2 completion"
+  ],
+  "reviewer_disposition": "Reviewer independently executed author default reproduction and read-only comparison, inspected generators, and accepted exact selected equality plus actual-Ref evidence closure interpretation. No normative or sealed-oracle edit was required."
+}

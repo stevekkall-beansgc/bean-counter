@@ -1,0 +1,48 @@
+{
+  "schema": "ledger-workflow-selected-encoding-freeze/1",
+  "name": "AGR-ENC-03",
+  "status": "reviewed-selected-synthetic-encoding-freeze",
+  "author": "GPT-6 Astra /root/astra_s12_technical_plan",
+  "reviewer": "GPT-6 Astra /root/adversarial_money",
+  "reviewer_scope": "Independent of this transcription/code; reviewer previously authored financial/recovery architecture.",
+  "included": [
+    "Exact corrected A/B literal source inputs sharing original P1, six known documents and eight semantic identities",
+    "Selected isolated-synthetic local evidence/customer/source enrollment and initial SourceGrant/State encoding",
+    "Selected initial customer acceptance and at-commit activation encoding with separate heads",
+    "Selected SourceState revocation followed by explicit administrative agreement stop",
+    "Selected expired-source administrative agreement stop continuation",
+    "Complete75primary/73expiry bodies,21/20 request/descriptor/operation/manifest/receipt chains and exact ProfileB deltas",
+    "Exact stop/admit discriminator and reviewed actual-Ref verification membership for these recipes"
+  ],
+  "schema_scope": "Whole file hash binds source snapshot; only selected definitions/variants exercised by these fixtures have encoding freeze. All other schema definitions and source prose are not implicitly qualified.",
+  "excluded": [
+    "Real customer consent/source authentication/local actor and installed enrollment resolver",
+    "Actual SQLite/CLI/service implementation and authority locks",
+    "Source.restrict and broader enrollment/delegation/multi-grant semantics not exercised by selected chains",
+    "Future scheduling/replacement/pending expiry lifecycle receipt histories beyond author examples",
+    "Semantic aliases/CAS/lost-reply/unknown commit/fault/reopen/recovery execution",
+    "All economic work/link/outcome/correction/supplier/cap/share operations",
+    "All-mode compiler/resource proof",
+    "SDK/connector/hosting/wholeWave1/wholeWave2/launch qualification"
+  ],
+  "independent_artifacts": {
+    "agreement-03-primary-expected.json": "d5aa41165ae16d6f98d8a483247b1ee178ed1808fc3fef4ea591515c03de48a4",
+    "agreement-03-expiry-expected.json": "0af178a661fe98f1520b33c5f4e5d3169618bd57f006e62deaf8b8798d936907"
+  },
+  "file_sha256": {
+    "agreement-boundary-fixture-input.json": "3ebfd032d18fac3ab7ab22d2442428b583c388a2786826a92066d1c206ec509e",
+    "agreement-ready-fixture-input.json": "11118d617a1c8110cdc63ac6a4ab8fd4c4dbabd9661e35428bb09e575cb42df3",
+    "agreement-stop-fixture-input.json": "2b8d87f631bb875c3fc834bdb5781339c578a97f85fc4d6077c098afebfb24e3",
+    "AGREEMENT-BOUNDARY.md": "35005a0065b80e2f18add548e67e43d45fb43fc1b611a60b8e568dd732c65391",
+    "AGREEMENT-READY-AMENDMENT.md": "2e99c1dc27e597c4c6a5c416d9e448b714827d463a43bfd323ea06b769373aa6",
+    "AGREEMENT-STOP-REPAIR.md": "5d1dbdaaf48db62ec6aef02f61e682c960a68c72d9097fb43a05734bd6de9cd1",
+    "agreement-ready.schema.json": "1f5764768505214a2b5c143b87a198d56671eef1363f9ed574b4b15c71c4943b",
+    "agreement-ready-registry.json": "c1a0225d0fa737dfbeb4fc674a01d560200080e0b7063ba138bd30005cc3a872",
+    "derive_agreement_03_author.py": "fa64ebedf3aecc11be06dcf36e31b75aad957302dea5bdc4d853e2f139b8f426",
+    "compare_agreement_03.py": "b421c373743f116e6b42e2ce6942c13341d1fa8ed9adf5c916feaabddf21b708",
+    "agreement-03-primary-author.json": "95f17d7d317b99a4d73dcbc7a9e4dc7b4c274198c48d554f1c88b2c9bf5b7062",
+    "agreement-03-expiry-author.json": "dd74b1bc6b02aa1091266026a248eaa674591938ca14568f08f9988206954ae2",
+    "agreement-03-comparison.json": "94212fd212fdbae0e02ad211e9b2b70d21dc00e268d8f5044ab45a1215aa4335"
+  },
+  "future_changes": "Preserve this named snapshot and selected fixture bytes. Further normative/schema evolution requires an explicit additive reviewed handoff; do not rewrite a fixture to pass runtime."
+}
