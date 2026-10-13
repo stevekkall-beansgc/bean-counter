@@ -58,7 +58,10 @@ pub(super) async fn resolve(
     };
     let mut pending = core::candidate_dependency_refs(&raw).map_err(transport_error)?;
     let mut documents = std::collections::BTreeMap::<String, Document>::new();
-    let mut total = raw.len();
+    // Raw/root ingress keeps its independent 256-KiB ceiling. Only canonical
+    // retained dependencies are counted here; the pure normalizer applies the
+    // aggregate ceiling with the typed normalized root, which may be smaller.
+    let mut total = 0usize;
     while let Some(reference) = pending.pop() {
         let r = record_ref(&reference)?;
         require(source_kind(&r.kind), "INVALID_REFERENCE")?;

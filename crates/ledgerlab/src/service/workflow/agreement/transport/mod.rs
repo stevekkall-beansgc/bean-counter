@@ -12,6 +12,8 @@ use crate::store::sqlite::workflow::{
     agreement::transport::{Part, Upload},
 };
 use ledgerlab_core::policy::workflow as core;
+#[cfg(test)]
+mod tests;
 pub(in super::super) use read::read;
 pub(super) fn selected(payload: &Value) -> bool {
     matches!(
