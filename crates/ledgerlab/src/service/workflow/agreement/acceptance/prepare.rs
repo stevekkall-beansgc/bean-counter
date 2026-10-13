@@ -101,7 +101,7 @@ pub(super) async fn fresh(
         require(intent == input.semantic_intent()?, "SEMANTIC_CONFLICT")?;
         // This branch must use the reviewed authority/3 alias recipe, not
         // fresh grant/time eligibility or old authority/2 wrappers.
-        return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+        return alias04::prepare(ledger, tx, req, &old, &payload).await;
     }
     if let Some(owner) = tx
         .workflow_agreement_owner(&key.logical_store_id, &key.scope, input.agreement_id())

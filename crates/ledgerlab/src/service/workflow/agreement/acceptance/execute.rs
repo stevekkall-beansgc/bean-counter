@@ -57,6 +57,9 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                     .ok_or(ServiceError::IntegrityFailure)?;
                 let original = verify::retained(tx, key, &old).await?;
                 let saved = &original["request_evidence"];
+                let alias = canonical::parse_bounded(&old.operation_bytes, 8388608)
+                    .map_err(|_| ServiceError::IntegrityFailure)?["schema"]
+                    == "ledger-workflow-agreement-alias-operation/1";
                 if saved["original_request_bytes_sha256"] != records::raw_hash(req.raw()) {
                     let evidence = if req.kind() == "agreement.accept" {
                         require(
@@ -71,7 +74,11 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                                     ServiceError::Rejection(_) => reject("IDENTITY_CONFLICT"),
                                     e => e,
                                 })?;
-                        descriptor::evidence(&req, &data.input.value()?, &data.descriptors)?
+                        if alias {
+                            alias04::evidence(&req, &data.input.value()?, &data.descriptors)?
+                        } else {
+                            descriptor::evidence(&req, &data.input.value()?, &data.descriptors)?
+                        }
                     } else {
                         require(
                             req.payload()["accepted_binding_ref"]
@@ -89,7 +96,11 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                                 ServiceError::Rejection(_) => reject("IDENTITY_CONFLICT"),
                                 e => e,
                             })?;
-                        descriptor::evidence(&req, &payload, &accepted.acceptance.descriptors)?
+                        if alias {
+                            alias04::evidence(&req, &payload, &accepted.acceptance.descriptors)?
+                        } else {
+                            descriptor::evidence(&req, &payload, &accepted.acceptance.descriptors)?
+                        }
                     };
                     require(
                         evidence["request_hash"] == saved["request_hash"]

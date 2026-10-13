@@ -56,7 +56,7 @@ pub(super) async fn fresh(
             "SEMANTIC_CONFLICT",
         )?;
         // Dedicated alias/3 constructor is required; no fresh eligibility/CAS here.
-        return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+        return alias04::prepare(ledger, tx, req, &original, &payload).await;
     }
     let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
     let installation = tx

@@ -723,7 +723,9 @@ async fn retained_in_scope(
         count_origin(&operation.identity);
         let parsed = checked(&operation.operation_bytes, 8 * 1024 * 1024)?;
         let certificate =
-            if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
+            if parsed["schema"]=="ledger-workflow-agreement-alias-operation/1" {
+                Box::pin(alias04::retained_local(tx,&saved_key,&operation)).await?
+            } else if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
                 transport::certificate::retained_local(tx, &saved_key, &operation).await?
             } else if matches!(
                 operation.kind.as_str(),
