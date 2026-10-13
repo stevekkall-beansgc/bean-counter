@@ -4,6 +4,7 @@ mod provenance;
 mod publication;
 mod records;
 mod request;
+mod agreement;
 use crate::ServiceError;
 pub use local::LocalWorkflowLedger;
 use serde_json::Value;

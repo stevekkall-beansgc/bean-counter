@@ -29,8 +29,8 @@ struct TestPreparationGate {
 }
 /// Local-only installation access. No remote source token is accepted.
 pub struct LocalWorkflowLedger {
-    store: SqliteStore,
-    admin: LocalOwnerAdmin,
+    pub(super) store: SqliteStore,
+    pub(super) admin: LocalOwnerAdmin,
     #[cfg(test)]
     lose_reply: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -180,11 +180,16 @@ impl LocalWorkflowLedger {
         let result = async {
             self.admin.read(&self.store, &mut tx, &key).await?;
             match tx
-                .workflow_lookup(&key.bytes()?)
+                .workflow_operation_kind(&key.bytes()?)
                 .await
                 .map_err(super::super::store_error)?
             {
-                Some(o) => records::verify_retained(&mut tx, &key, &o).await,
+                Some(kind) if kind == "policy.publish" => {
+                    let original = tx.workflow_lookup(&key.bytes()?).await
+                        .map_err(super::super::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+                    records::verify_retained(&mut tx, &key, &original).await
+                }
+                Some(_) => agreement::status(&mut tx, &key).await,
                 None => Ok(
                     json!({"schema":"ledger-operation-status/1","status":"not_observed","key":key}),
                 ),
@@ -255,6 +260,9 @@ impl LocalWorkflowLedger {
             .map_err(super::super::store_error)?;
         let preparation: Result<PublicationPreparation> = async {
             self.admin.read(&self.store, &mut tx, key).await?;
+            if let Some(kind) = tx.workflow_operation_kind(&key.bytes()?).await.map_err(super::super::store_error)? {
+                require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
+            }
             if let Some(original) = tx
                 .workflow_lookup(&key.bytes()?)
                 .await
@@ -322,6 +330,9 @@ impl LocalWorkflowLedger {
             .map_err(super::super::store_error)?;
         let written: Result<(Value, bool)> = async {
             self.admin.read(&self.store, &mut tx, key).await?;
+            if let Some(kind) = tx.workflow_operation_kind(&key.bytes()?).await.map_err(super::super::store_error)? {
+                require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
+            }
             // A racing commit wins before mutable fresh configuration/support.
             if let Some(original) = tx
                 .workflow_lookup(&key.bytes()?)

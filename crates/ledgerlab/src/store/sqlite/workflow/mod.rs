@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::time::timeout_at;
 pub(crate) mod capacity;
+pub(crate) mod agreement;
 
 impl super::SqliteStore {
     /// Mechanical instance binding; this confers no caller authority.
@@ -157,6 +158,35 @@ impl SqliteTx {
         Ok(())
     }
 
+    /// Global original identity classification precedes kind-specific decoding.
+    /// Do not filter a different operation kind into false absence.
+    pub(crate) async fn workflow_operation_kind(
+        &mut self,
+        identity: &[u8],
+    ) -> Result<Option<String>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result = timeout_at(self.deadline, async {
+            self.workflow_schema().await?;
+            let row: Option<(String, Vec<u8>)> = sqlx::query_as(
+                "SELECT operation_kind,operation_bytes FROM workflow_operations WHERE identity_key=?",
+            ).bind(identity).fetch_optional(self.conn()).await?;
+            let Some((kind, raw)) = row else { return Ok(None); };
+            let body = ledgerlab_core::canonical::parse_bounded(&raw, 8 * 1024 * 1024)
+                .map_err(|_| StoreError::Integrity("original operation shape"))?;
+            let bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&body)
+                .map_err(|_| StoreError::Integrity("original operation canonical bytes"))?;
+            let key = ledgerlab_core::canonical::CanonicalBytes::from_value(&body["key"])
+                .map_err(|_| StoreError::Integrity("original operation key"))?;
+            if bytes.as_slice() != raw || body["kind"].as_str() != Some(&kind)
+                || key.as_slice() != identity {
+                return Err(StoreError::Integrity("original kind/key column mismatch"));
+            }
+            Ok(Some(kind))
+        }).await.map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() { self.failed = prior; }
+        result
+    }
     pub(crate) async fn workflow_lookup(
         &mut self,
         identity: &[u8],
@@ -168,6 +198,9 @@ impl SqliteTx {
             let row = sqlx::query("SELECT * FROM workflow_operations WHERE identity_key=?")
                 .bind(identity).fetch_optional(self.conn()).await?;
             let Some(r) = row else { return Ok(None); };
+            if r.try_get::<String, _>("operation_kind")? != "policy.publish" {
+                return Err(StoreError::Integrity("nonpublication cannot decode as publication"));
+            }
             let members = sqlx::query_as::<_, (String,String,String)>("SELECT kind,id,digest FROM workflow_manifest_members WHERE identity_key=? ORDER BY kind,id,digest")
                 .bind(identity).fetch_all(self.conn()).await?.into_iter()
                 .map(|(kind,id,digest)| RecordRef{kind,id,digest}).collect();
@@ -382,7 +415,7 @@ impl SqliteTx {
                 .await?;
         }
         sqlx::query(
-            "INSERT INTO workflow_operations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO workflow_operations(identity_key,logical_store_id,tenant,environment,source,operation_id,operation_record_id,operation_digest,operation_bytes,normalized_request_hash,manifest_id,manifest_digest,manifest_bytes,receipt_id,receipt_digest,receipt_bytes,publication_id,plan_id,commit_sequence,accepted_at_us,operation_kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'policy.publish')",
         )
         .bind(&o.identity)
         .bind(&p.store_id)

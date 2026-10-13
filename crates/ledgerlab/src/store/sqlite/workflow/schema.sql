@@ -14,7 +14,7 @@ BEGIN SELECT RAISE(ABORT,'workflow meter must be monotone'); END;
 CREATE TRIGGER workflow_state_no_delete BEFORE DELETE ON workflow_state
 BEGIN SELECT RAISE(ABORT,'immutable workflow capacity profile'); END;
 CREATE TABLE workflow_documents (
- kind TEXT NOT NULL CHECK(kind IN ('workflow-product','workflow-fact-schema','workflow-slot-template','workflow-policy','workflow-compiler-descriptor','workflow-compiled-plan','workflow-authority','workflow-publication','workflow-build-manifest')),
+ kind TEXT NOT NULL CHECK(kind IN ('workflow-product','workflow-fact-schema','workflow-slot-template','workflow-policy','workflow-compiler-descriptor','workflow-compiled-plan','workflow-authority','workflow-publication','workflow-build-manifest','workflow-evidence','workflow-customer')),
  id TEXT PRIMARY KEY, digest TEXT NOT NULL, schema_name TEXT NOT NULL,
  canonical_bytes BLOB NOT NULL CHECK(length(canonical_bytes) BETWEEN 1 AND
    CASE WHEN kind='workflow-compiled-plan' THEN 4194304 ELSE 1048576 END),
@@ -41,10 +41,13 @@ CREATE TABLE workflow_operations (
  manifest_bytes BLOB NOT NULL CHECK(length(manifest_bytes) BETWEEN 1 AND 4194304),
  receipt_id TEXT NOT NULL UNIQUE, receipt_digest TEXT NOT NULL,
  receipt_bytes BLOB NOT NULL CHECK(length(receipt_bytes) BETWEEN 1 AND 1048576),
- publication_id TEXT NOT NULL REFERENCES workflow_documents(id),
- plan_id TEXT NOT NULL REFERENCES workflow_documents(id),
+ publication_id TEXT REFERENCES workflow_documents(id),
+ plan_id TEXT REFERENCES workflow_documents(id),
  commit_sequence INTEGER NOT NULL UNIQUE CHECK(commit_sequence BETWEEN 1 AND 100000),
  accepted_at_us INTEGER NOT NULL,
+ operation_kind TEXT NOT NULL CHECK(operation_kind IN ('policy.publish','evidence.retain','authority.change','agreement.accept','agreement.activate','agreement.revoke')),
+ CHECK((operation_kind='policy.publish' AND publication_id IS NOT NULL AND plan_id IS NOT NULL)
+    OR (operation_kind<>'policy.publish' AND publication_id IS NULL AND plan_id IS NULL)),
  UNIQUE(logical_store_id,tenant,environment,source,operation_id)
 ) STRICT;
 CREATE TABLE workflow_manifest_members (
