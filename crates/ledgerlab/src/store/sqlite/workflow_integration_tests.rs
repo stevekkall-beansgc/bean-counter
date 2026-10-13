@@ -151,10 +151,14 @@ async fn common_commit_capacity_guard_refuses_legacy_pool_growth_after_workflow(
         .execute(tx.conn()).await.unwrap();
     sqlx::raw_sql("INSERT INTO billing_m3_index SELECT ordinal,customer,source,external_id,semantic_key,external_id,'base',accepted_at_us FROM billing_m3_entries;")
         .execute(tx.conn()).await.unwrap();
-    assert!(matches!(
-        tx.commit().await,
-        Err(CommitError::RolledBack(StoreError::BillingHistoryLimit))
-    ));
+    let commit_result = tx.commit().await;
+    assert!(
+        matches!(
+            commit_result,
+            Err(CommitError::RolledBack(StoreError::BillingHistoryLimit))
+        ),
+        "unexpected post-mutation capacity result: {commit_result:?}"
+    );
     let mut tx = store.begin(deadline()).await.unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM billing_m3_entries")
