@@ -2,6 +2,7 @@
 //! blocked pending reviewed owner-admin/source-revocation contract disposition.
 //! There is no publish, pricing or raw append endpoint in this increment.
 mod request;
+mod records;
 use crate::ServiceError;
 use serde_json::Value;
 type Result<T> = std::result::Result<T, ServiceError>;

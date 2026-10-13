@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::time::Instant;
 
-fn fixture() -> PublicationAppend {
+pub(crate) fn fixture() -> PublicationAppend {
     let fixture:Value=serde_json::from_str(include_str!("../../../../../../contracts/candidates/full-suite-v1/core/publication-independent-expected.json")).unwrap();
     let vector = |name: &str| {
         fixture["vectors"]
@@ -96,7 +96,7 @@ fn fixture() -> PublicationAppend {
         },
     }
 }
-async fn create() -> (tempfile::TempDir, SqliteStore) {
+pub(crate) async fn create() -> (tempfile::TempDir, SqliteStore) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::create(dir.path(), installation())
         .await
@@ -116,7 +116,7 @@ async fn create() -> (tempfile::TempDir, SqliteStore) {
     tx.commit().await.unwrap();
     (dir, store)
 }
-fn deadline() -> Instant {
+pub(crate) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(20)
 }
 
@@ -133,6 +133,13 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
     );
     assert_eq!(tx.workflow_sequence().await.unwrap(), 1);
     tx.workflow_append(&p).await.unwrap();
+    assert_eq!(
+        capacity::check(tx.conn(), 0, 0).await.unwrap(),
+        capacity::WorkflowMeter {
+            operations: 1,
+            payload_bytes: 30258
+        }
+    );
     tx.commit().await.unwrap();
     // Simulate a response lost after real durable commit. Lookup returns the
     // original retained bytes without any compiler or current policy selection.
@@ -274,8 +281,91 @@ async fn every_insert_failure_rolls_back_all_records_indexes_and_feed() {
         let mut tx = store.begin(deadline()).await.unwrap();
         let counts:Value=json!(sqlx::query_as::<_,(i64,i64,i64,i64,i64,i64)>("SELECT (SELECT count(*) FROM workflow_documents),(SELECT count(*) FROM workflow_definition_registry),(SELECT count(*) FROM workflow_publications),(SELECT count(*) FROM workflow_operations),(SELECT count(*) FROM workflow_manifest_members),(SELECT count(*) FROM workflow_feed)").fetch_one(tx.conn()).await.unwrap());
         assert_eq!(counts, json!([0, 0, 0, 0, 0, 0]), "cut {cut}");
+        assert_eq!(
+            capacity::check(tx.conn(), 0, 0).await.unwrap(),
+            capacity::WorkflowMeter {
+                operations: 0,
+                payload_bytes: 0
+            }
+        );
         tx.rollback().await.unwrap();
     }
+    store.close().await;
+}
+
+#[tokio::test]
+async fn independent_alias_meter_charges_one_unit_only_new_document_bytes() {
+    let (_dir, store) = create().await;
+    let p = fixture();
+    let mut tx = store.begin(deadline()).await.unwrap();
+    tx.workflow_append(&p).await.unwrap();
+    tx.commit().await.unwrap();
+    let expected:Value=serde_json::from_str(include_str!("../../../../../../contracts/candidates/full-suite-v1/core/admission-independent-expected.json")).unwrap();
+    let v = |name: &str| {
+        expected["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == name)
+            .unwrap()
+    };
+    let reference =
+        |name: &str| serde_json::from_value::<RecordRef>(v(name)["ref"].clone()).unwrap();
+    let bytes = |name: &str| {
+        v(name)["canonical_utf8"]
+            .as_str()
+            .unwrap()
+            .as_bytes()
+            .to_vec()
+    };
+    let mut alias = fixture();
+    alias.documents[8] = Document {
+        reference: reference("authority-snapshot"),
+        schema: v("authority-snapshot")["body"]["schema"]
+            .as_str()
+            .unwrap()
+            .into(),
+        bytes: bytes("authority-snapshot"),
+    };
+    let body = &v("operation")["body"];
+    alias.operation_id = body["key"]["operation_id"].as_str().unwrap().into();
+    alias.operation = StoredOperation {
+        identity: CanonicalBytes::from_value(&body["key"]).unwrap().into_vec(),
+        operation_ref: reference("operation"),
+        operation_bytes: bytes("operation"),
+        request_hash: body["request_evidence"]["request_hash"]
+            .as_str()
+            .unwrap()
+            .into(),
+        manifest_ref: reference("manifest"),
+        manifest_bytes: bytes("manifest"),
+        receipt_ref: reference("receipt"),
+        receipt_bytes: bytes("receipt"),
+        publication_id: p.operation.publication_id.clone(),
+        plan_id: p.operation.plan_id.clone(),
+        sequence: 2,
+        accepted_at_us: ledgerlab_core::domain::Timestamp::parse(
+            body["accepted_at"].as_str().unwrap(),
+        )
+        .unwrap()
+        .micros(),
+        members: serde_json::from_value(v("manifest")["body"]["members"].clone()).unwrap(),
+    };
+    let mut tx = store.begin(deadline()).await.unwrap();
+    tx.workflow_append(&alias).await.unwrap();
+    assert_eq!(
+        capacity::check(tx.conn(), 0, 0).await.unwrap(),
+        capacity::WorkflowMeter {
+            operations: 2,
+            payload_bytes: 30258 + 19996
+        }
+    );
+    let document_count: i64 = sqlx::query_scalar("SELECT count(*) FROM workflow_documents")
+        .fetch_one(tx.conn())
+        .await
+        .unwrap();
+    assert_eq!(document_count, 10);
+    tx.commit().await.unwrap();
     store.close().await;
 }
 

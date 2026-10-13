@@ -5,6 +5,7 @@ use crate::store::errors::StoreError;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::time::timeout_at;
+pub(crate) mod capacity;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -190,32 +191,65 @@ impl SqliteTx {
         if exists {
             return Err(StoreError::ExpectedCurrent);
         }
-        let (count,bytes):(i64,i64)=sqlx::query_as("SELECT count(*),COALESCE(sum(length(operation_bytes)+length(receipt_bytes)+length(manifest_bytes)),0)+(SELECT COALESCE(sum(length(canonical_bytes)),0) FROM workflow_documents) FROM workflow_operations")
-            .fetch_one(self.conn()).await?;
-        let additional = p
-            .documents
-            .iter()
-            .map(|d| d.bytes.len())
-            .chain([
-                o.operation_bytes.len(),
-                o.receipt_bytes.len(),
-                o.manifest_bytes.len(),
-            ])
-            .try_fold(0_i64, |total, n| {
-                i64::try_from(n).ok().and_then(|n| total.checked_add(n))
-            })
-            .ok_or(StoreError::BillingHistoryLimit)?;
-        if o.sequence != count + 1 {
-            return Err(StoreError::Integrity("workflow sequence gap"));
-        }
-        if count >= 100000
-            || bytes
-                .checked_add(additional)
-                .is_none_or(|n| n > 256 * 1024 * 1024)
-            || p.documents.len() > 147
-            || o.members.len() > 147
-        {
+        if p.documents.len() > 147 || o.members.len() > 147 {
             return Err(StoreError::BillingHistoryLimit);
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut new_ids = std::collections::BTreeSet::new();
+        let mut additional = [
+            o.identity.len(),
+            o.operation_bytes.len(),
+            o.manifest_bytes.len(),
+            o.receipt_bytes.len(),
+        ]
+        .into_iter()
+        .try_fold(0_i64, |n, len| {
+            i64::try_from(len).ok().and_then(|len| n.checked_add(len))
+        })
+        .ok_or(StoreError::BillingHistoryLimit)?;
+        for d in &p.documents {
+            if !seen.insert(&d.reference.id) {
+                return Err(StoreError::Integrity("duplicate prepared document"));
+            }
+            let existing: Option<(String, String, String, Vec<u8>)> = sqlx::query_as(
+                "SELECT kind,digest,schema_name,canonical_bytes FROM workflow_documents WHERE id=?",
+            )
+            .bind(&d.reference.id)
+            .fetch_optional(self.conn())
+            .await?;
+            match existing {
+                Some((kind, digest, schema, bytes))
+                    if (
+                        kind.as_str(),
+                        digest.as_str(),
+                        schema.as_str(),
+                        bytes.as_slice(),
+                    ) != (
+                        d.reference.kind.as_str(),
+                        d.reference.digest.as_str(),
+                        d.schema.as_str(),
+                        d.bytes.as_slice(),
+                    ) =>
+                {
+                    return Err(StoreError::Integrity(
+                        "immutable workflow document conflict",
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    new_ids.insert(&d.reference.id);
+                    additional = additional
+                        .checked_add(
+                            i64::try_from(d.bytes.len())
+                                .map_err(|_| StoreError::BillingHistoryLimit)?,
+                        )
+                        .ok_or(StoreError::BillingHistoryLimit)?;
+                }
+            }
+        }
+        let meter = capacity::check(self.conn(), 1, additional).await?;
+        if o.sequence != meter.operations + 1 {
+            return Err(StoreError::Integrity("workflow sequence gap"));
         }
         // Detect all immutable registry conflicts before the first insertion.
         for r in &p.registry {
@@ -226,26 +260,7 @@ impl SqliteTx {
             }
         }
         for d in &p.documents {
-            let existing: Option<(String, String, String, Vec<u8>)> = sqlx::query_as(
-                "SELECT kind,digest,schema_name,canonical_bytes FROM workflow_documents WHERE id=?",
-            )
-            .bind(&d.reference.id)
-            .fetch_optional(self.conn())
-            .await?;
-            if let Some((kind, digest, schema, bytes)) = existing {
-                if (kind, digest, schema, bytes)
-                    != (
-                        d.reference.kind.clone(),
-                        d.reference.digest.clone(),
-                        d.schema.clone(),
-                        d.bytes.clone(),
-                    )
-                {
-                    return Err(StoreError::Integrity(
-                        "immutable workflow document conflict",
-                    ));
-                }
-            } else {
+            if new_ids.contains(&d.reference.id) {
                 sqlx::query("INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?)")
                     .bind(&d.reference.kind).bind(&d.reference.id).bind(&d.reference.digest).bind(&d.schema).bind(&d.bytes).execute(self.conn()).await?;
             }
@@ -314,9 +329,11 @@ impl SqliteTx {
             .bind(&o.identity)
             .execute(self.conn())
             .await?;
+        sqlx::query("UPDATE workflow_state SET operation_count=operation_count+1,payload_bytes=payload_bytes+? WHERE singleton=1").bind(additional).execute(self.conn()).await?;
+        capacity::check(self.conn(), 0, 0).await?;
         Ok(())
     }
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

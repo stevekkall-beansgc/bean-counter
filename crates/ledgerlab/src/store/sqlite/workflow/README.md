@@ -56,3 +56,20 @@ Admission currently counts retained payload/history and conservatively includes
 reused prepared documents in additional bytes. It does not establish indexed
 constant-work admission or resource guarantees; exact reusable-byte deltas and
 verified durable counters must be qualified before such a claim.
+
+## Resumed Profile B checkpoint
+
+Steve approved `workflow-dual-legacy-capacity/1` in the root session. The new
+capacity adapter verifies both raw legacy meters and the workflow meter,
+requires E+W and L+W at most100000 plus EB+WB and MB+WB at most268435456,
+and charges canonical operation-key bytes. New document bytes count only after
+full existing-row equality comparison; reused documents contribute zero delta.
+Independent selected fresh/alias deltas30258/19996 and exact meter rollback pass.
+Nine targeted tests currently pass in the same disposable registration copy.
+
+The earlier scan/conservative-delta limitation is repaired for byte precision;
+full retained row verification still costs O(history). Shared legacy writer
+hooks, schema12 migration/reopen fencing, actual trusted LocalOwnerAdmin entry,
+builtin support/artifact provenance and authoritative publication facade remain
+integration gates. The original authority hold was resolved by reviewed
+PUB-RUNTIME-SEAMS-01; no legacy source permission is promoted.

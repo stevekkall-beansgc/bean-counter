@@ -1,5 +1,18 @@
 -- Additive generic workflow records; no product-specific table or price column.
 -- The owning migration must apply this under an explicit dispatch-held upgrade.
+CREATE TABLE workflow_state (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ profile TEXT NOT NULL CHECK(profile='workflow-dual-legacy-capacity/1'),
+ operation_count INTEGER NOT NULL CHECK(operation_count BETWEEN 0 AND 100000),
+ payload_bytes INTEGER NOT NULL CHECK(payload_bytes BETWEEN 0 AND 268435456)
+) STRICT;
+INSERT INTO workflow_state VALUES(1,'workflow-dual-legacy-capacity/1',0,0);
+CREATE TRIGGER workflow_state_monotone BEFORE UPDATE ON workflow_state
+WHEN NEW.singleton<>OLD.singleton OR NEW.profile<>OLD.profile
+ OR NEW.operation_count<OLD.operation_count OR NEW.payload_bytes<OLD.payload_bytes
+BEGIN SELECT RAISE(ABORT,'workflow meter must be monotone'); END;
+CREATE TRIGGER workflow_state_no_delete BEFORE DELETE ON workflow_state
+BEGIN SELECT RAISE(ABORT,'immutable workflow capacity profile'); END;
 CREATE TABLE workflow_documents (
  kind TEXT NOT NULL CHECK(kind IN ('workflow-product','workflow-fact-schema','workflow-slot-template','workflow-policy','workflow-compiler-descriptor','workflow-compiled-plan','workflow-authority','workflow-publication')),
  id TEXT PRIMARY KEY, digest TEXT NOT NULL, schema_name TEXT NOT NULL,
