@@ -781,6 +781,12 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
     assert_eq!(observed.state().revision(), 3);
     assert_eq!(observed.state().status(), "revoked");
     assert!(observed.grant().is_none());
+    let original_source = context::observe_source_at(&mut observed_tx, &key, &e, &initial_state)
+        .await
+        .unwrap();
+    assert_eq!(original_source.state().revision(), 1);
+    assert_eq!(original_source.state().status(), "active");
+    assert_eq!(original_source.grant().unwrap().revision(), 1);
     // Prior active grants remain verification history, never a fake current
     // grant when the actual latest source state is revoked.
     assert!(

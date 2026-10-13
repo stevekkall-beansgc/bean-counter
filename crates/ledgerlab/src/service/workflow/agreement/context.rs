@@ -51,25 +51,43 @@ pub(super) async fn observe_source(
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
     let state_document = by_id(tx, key, &head.state).await?;
+    let observed = observe_source_at(tx, key, reference, &state_document.reference).await?;
+    if observed.state.revision()
+        != u64::try_from(head.revision).map_err(|_| ServiceError::IntegrityFailure)?
+        || observed.state.status() != head.status
+        || observed.state.current_grant_ref().map(|r| r.id()) != head.grant.as_deref()
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(observed)
+}
+/// Pinned historical data for a retained observation. It cannot be presented
+/// as the latest source state or reauthorize current admission.
+pub(super) async fn observe_source_at(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    enrollment_ref: &RecordRef,
+    state_ref: &RecordRef,
+) -> Result<ObservedSource> {
+    require(
+        enrollment_ref.kind == "workflow-source-enrollment"
+            && state_ref.kind == "workflow-source-state",
+        "INVALID_REFERENCE",
+    )?;
+    let enrollment = source::enrollment(tx, key, enrollment_ref).await?;
+    let state_document = loaded(tx, key, state_ref).await?;
     verify::document_origin(tx, key, &state_document.reference).await?;
     let state = SourceState::parse(&state_document.bytes, &enrollment)
         .map_err(|_| ServiceError::IntegrityFailure)?;
     if state.logical_store_id() != key.logical_store_id
-        || state.revision()
-            != u64::try_from(head.revision).map_err(|_| ServiceError::IntegrityFailure)?
-        || state.status() != head.status
         || json!(state.reference()) != json!(state_document.reference)
     {
         return Err(ServiceError::IntegrityFailure);
     }
-    let grant = match (
-        head.status.as_str(),
-        head.grant.as_deref(),
-        state.current_grant_ref(),
-    ) {
-        ("revoked", None, None) => None,
-        ("active", Some(id), Some(reference)) => {
-            let d = by_id(tx, key, id).await?;
+    let grant = match (state.status(), state.current_grant_ref()) {
+        ("revoked", None) => None,
+        ("active", Some(reference)) => {
+            let d = by_id(tx, key, reference.id()).await?;
             verify::document_origin(tx, key, &d.reference).await?;
             if json!(reference) != json!(d.reference) {
                 return Err(ServiceError::IntegrityFailure);
