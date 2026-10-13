@@ -32,9 +32,11 @@
     "outcome.submit",
     "outcome.correct"
   ],
-  "semantic_freeze": false,
-  "full_draft202012_validation": "passed jsonschema4.26.0 metaschema and7 shape fixtures; semantic freeze pending",
-  "full_canonical_journal": "missing",
-  "all_mode_compiler_fixture": "missing",
-  "remaining_required": "See normative-amendment.md Remaining blockers; no Wave2 completion claim."
+  "semantic_freeze": "partial publication encoding only; fullsuite semantic freeze false",
+  "full_draft202012_validation": "passed jsonschema4.26.0 metaschema and25 structural fixtures",
+  "full_canonical_journal": "publication administrative case concrete; economic work/outcome/correction journals still incomplete",
+  "all_mode_compiler_fixture": "missing; selected unit-only plan independently reproduced",
+  "remaining_required": "publication-boundary.md Freeze boundary and inventory plus original S12 requirements; no wholeWave1/Wave2 pass",
+  "shape_definition_count": 98,
+  "publication_encoding": "PUB-ENC-01 reviewed partial encoding freeze; selected12 synthetic envelopes independently reproduced"
 }

@@ -130,6 +130,8 @@
         "workflow-source-grant",
         "workflow-operation",
         "workflow-head-transition",
+        "workflow-manifest",
+        "workflow-receipt",
         "legacy-event",
         "legacy-document"
       ]
@@ -4389,7 +4391,7 @@
       "type": "object",
       "properties": {
         "fields": {
-          "const": "1024"
+          "const": "1088"
         },
         "nodes": {
           "const": "256"
@@ -4474,7 +4476,7 @@
             "$ref": "#/$defs/PlanFactSlot"
           },
           "minItems": 0,
-          "maxItems": 1024
+          "maxItems": 1088
         },
         "link_paths": {
           "type": "array",
@@ -4906,6 +4908,677 @@
         "PLAN_DIGEST_MISMATCH",
         "INTEGRITY_FAILURE"
       ]
+    },
+    "LocalAuthorityBasis": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-local-authority-basis/1"
+        },
+        "logical_store_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "canonical_economic_namespace": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "rights": {
+          "const": [
+            "admin",
+            "read"
+          ]
+        },
+        "source_grant_revision": {
+          "$ref": "#/$defs/Counter"
+        }
+      },
+      "required": [
+        "schema",
+        "logical_store_id",
+        "scope",
+        "principal_id",
+        "source",
+        "canonical_economic_namespace",
+        "rights",
+        "source_grant_revision"
+      ],
+      "additionalProperties": false
+    },
+    "LocalAuthoritySnapshot": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-local-authority-snapshot/1"
+        },
+        "basis": {
+          "$ref": "#/$defs/LocalAuthorityBasis"
+        },
+        "basis_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "verification_profile": {
+          "const": "local-private-directory-owner/1"
+        },
+        "verified_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "basis",
+        "basis_digest",
+        "verification_profile",
+        "verified_at"
+      ],
+      "additionalProperties": false
+    },
+    "PublicationAuthority": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-publication-authority/1"
+        },
+        "principal_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "authority_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "rights": {
+          "const": [
+            "admin"
+          ]
+        },
+        "validated_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "principal_id",
+        "source",
+        "authority_refs",
+        "rights",
+        "validated_at"
+      ],
+      "additionalProperties": false
+    },
+    "OperationRecord": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-operation-record/1"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "kind": {
+          "const": "policy.publish"
+        },
+        "contract": {
+          "const": "workflow/1"
+        },
+        "request_evidence": {
+          "$ref": "#/$defs/RequestEvidence"
+        },
+        "authority_snapshot": {
+          "$ref": "#/$defs/PublicationAuthority"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "commit_sequence": {
+          "$ref": "#/$defs/Counter"
+        },
+        "result_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "kind",
+        "contract",
+        "request_evidence",
+        "authority_snapshot",
+        "accepted_at",
+        "commit_sequence",
+        "result_refs"
+      ],
+      "additionalProperties": false
+    },
+    "PublicationManifest": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-publication-manifest/1"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 5,
+          "maxItems": 147,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "members"
+      ],
+      "additionalProperties": false
+    },
+    "PublicationBoundaryEnvelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-authority"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/LocalAuthoritySnapshot"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-product"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/Product"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-fact-schema"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/FactSchema"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-policy"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/Policy"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-slot-template"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/SlotTemplate"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-compiler-descriptor"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/CompilerDescriptor"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-compiled-plan"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/CompiledPlan"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-publication"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/Publication"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-operation"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/OperationRecord"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-manifest"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/PublicationManifest"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "workflow-receipt"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "id": {
+              "$ref": "#/$defs/Id"
+            },
+            "digest": {
+              "$ref": "#/$defs/Digest"
+            },
+            "body": {
+              "$ref": "#/$defs/OperationReceipt"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "id",
+            "digest",
+            "body"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PublicationRead": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-read/1"
+            },
+            "kind": {
+              "const": "policy.document"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "$ref": "#/$defs/Ref"
+                }
+              },
+              "required": [
+                "ref"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema",
+            "kind",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-read/1"
+            },
+            "kind": {
+              "const": "operation.descriptors"
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "contract": {
+                  "const": "workflow/1"
+                },
+                "operation_kind": {
+                  "const": "policy.publish"
+                },
+                "payload_schema": {
+                  "const": "ledger-workflow-policy-publication/1"
+                },
+                "locators": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/DescriptorLocator"
+                  },
+                  "minItems": 1,
+                  "maxItems": 128,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "contract",
+                "operation_kind",
+                "payload_schema",
+                "locators"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema",
+            "kind",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PublicationReadResult": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-document-read/1"
+        },
+        "record": {
+          "$ref": "#/$defs/PublicationBoundaryEnvelope"
+        },
+        "canonical_bytes_base64": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5592408
+        },
+        "canonical_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "schema",
+        "record",
+        "canonical_bytes_base64",
+        "canonical_digest"
+      ],
+      "additionalProperties": false
+    },
+    "ReadError": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-read-error/1"
+        },
+        "code": {
+          "enum": [
+            "AUTHORITY_REQUIRED",
+            "INVALID_REFERENCE",
+            "INTEGRITY_FAILURE",
+            "UNAVAILABLE",
+            "UNSUPPORTED_SCHEMA_PROFILE"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "code"
+      ],
+      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -4938,6 +5611,24 @@
     },
     {
       "$ref": "#/$defs/HeadTransition"
+    },
+    {
+      "$ref": "#/$defs/OperationRecord"
+    },
+    {
+      "$ref": "#/$defs/PublicationManifest"
+    },
+    {
+      "$ref": "#/$defs/PublicationBoundaryEnvelope"
+    },
+    {
+      "$ref": "#/$defs/PublicationRead"
+    },
+    {
+      "$ref": "#/$defs/PublicationReadResult"
+    },
+    {
+      "$ref": "#/$defs/ReadError"
     }
   ]
 }

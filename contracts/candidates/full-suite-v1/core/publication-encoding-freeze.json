@@ -1,0 +1,99 @@
+{
+  "schema": "ledger-workflow-publication-encoding-freeze/1",
+  "name": "PUB-ENC-01",
+  "status": "reviewed-partial-encoding-freeze",
+  "author": "GPT-6 Astra contract lane",
+  "independent_reviewer": "GPT-6 Astra /root/adversarial_money",
+  "review_scope": "New transcription/byte derivation; reviewer previously authored financial architecture, not claiming independent approval of that architecture.",
+  "accepted": "2026-10-12",
+  "source_commit": "369caa2afc25b66c7d0b478e54fb64ac5eabeb6f",
+  "frozen_dimensions": [
+    "Exact selected six source documents and unit-rule compiled plan",
+    "Publication/local-admin authority snapshot/operation/manifest/receipt field dictionaries and domain/hash encodings for policy.publish",
+    "Original-key retry-first descriptor/evidence/status rule and named unrun history expectations",
+    "Independent selected synthetic12-envelope10-member byte fixture and portable read-only reproduction"
+  ],
+  "schema_scope": {
+    "whole_file": "Hash binds inspected snapshot, not semantic approval of all definitions/variants. Changes need explicit candidate review while preserving selected frozen fixture bytes.",
+    "definitions": [
+      "Name",
+      "Id",
+      "Counter",
+      "Version",
+      "Digest",
+      "RawSha256",
+      "SourceId",
+      "Scope",
+      "FactSchema",
+      "Product",
+      "SlotTemplate",
+      "Policy",
+      "CompilerDescriptor",
+      "CompiledPlan",
+      "LocalAuthorityBasis",
+      "LocalAuthoritySnapshot",
+      "PublicationAuthority",
+      "Publication",
+      "OperationRecord",
+      "PublicationManifest",
+      "OperationReceipt",
+      "DescriptorResolution",
+      "RequestEvidence",
+      "PublicationBoundaryEnvelope",
+      "PublicationRead",
+      "PublicationReadResult",
+      "ReadError"
+    ],
+    "variant_restrictions": [
+      "Selected source fixture uses integer fact/unit formula/true predicate/component_workflow only; other shapes remain candidate semantics",
+      "OperationEnvelope.kind and evidence/status path policy.publish only",
+      "Compiler typed_instruction evaluate_rule unit case; broader compiler proof and variants not certified"
+    ]
+  },
+  "not_qualified": [
+    "FullWave1 or Wave2",
+    "All-mode compiler correctness/resource proof",
+    "Real or delegated authority implementation",
+    "Customer assent/acquired rights",
+    "ActualSQLite atomicity/unknown/reopen/history execution",
+    "Economic work/outcome/correction journal completeness",
+    "SDK or hosted/provider/recovery qualification"
+  ],
+  "validation": [
+    "jsonschema4.26.0 Draft202012 metaschema",
+    "25structural cases",
+    "12 independent envelope shapes and committed status",
+    "Independent source-only full-byte derivation matches author comparator",
+    "Read-only independent reproduction passes"
+  ],
+  "files": [
+    {
+      "path": "workflow.schema.json",
+      "sha256": "b25f2efe301f2c78b3655daa770e9a075e74837d01aeb4658be823270be6052a"
+    },
+    {
+      "path": "publication-boundary.md",
+      "sha256": "b9c0fbc6d37cc7c8d0225621fca19915d935a2ec67f5203dacc9e5c9312b2a8e"
+    },
+    {
+      "path": "registry-contract.json",
+      "sha256": "e3845b3a16656e776591b41cdf1046a6da9f38dfa77d8fb8657f2ca01e55ad55"
+    },
+    {
+      "path": "publication-fixture-input.json",
+      "sha256": "6e7f6ff3c5071fc05c8ce71df197f414d6285232a2f575cb5ca773681ee0932a"
+    },
+    {
+      "path": "publication-independent-expected.json",
+      "sha256": "6c78618fb689d0122ca5245c58464f3a27b1919bf013dea11a1a1f36dbde0599"
+    },
+    {
+      "path": "verify_publication_independent.py",
+      "sha256": "6cfec391330352663c499d242606c343ab0bb59a0ab7d79879ac379d3a0a9b8e"
+    },
+    {
+      "path": "publication-history-cases.json",
+      "sha256": "64bd2498e304b7074f3fbfefdf0abaebb86a8c20d8217b7a890f737a2a931fc5"
+    }
+  ]
+}

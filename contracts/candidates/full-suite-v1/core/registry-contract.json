@@ -1,0 +1,103 @@
+{
+  "schema": "ledger-workflow-registry-contract/1",
+  "contract": "workflow/1",
+  "operation_envelope": "ledger-operation/1",
+  "receipt_profile": "ledger-operation-receipt/2",
+  "evidence_profile": "ledger-operation-request-evidence/2",
+  "normalization_profile": "ledger-operation-normalization/2",
+  "entries": [
+    {
+      "kind": "agreement.accept",
+      "payload_schemas": [
+        "ledger-workflow-agreement-accept/1"
+      ],
+      "recipe_id": "agreement.accept/1",
+      "exposure": "external",
+      "head_kind": "agreement_acceptance"
+    },
+    {
+      "kind": "agreement.activate",
+      "payload_schemas": [
+        "ledger-workflow-activation-replace/1",
+        "ledger-workflow-activation/1"
+      ],
+      "recipe_id": "agreement.activate/1",
+      "exposure": "external",
+      "head_kind": "agreement_activation"
+    },
+    {
+      "kind": "agreement.revoke",
+      "payload_schemas": [
+        "ledger-workflow-agreement-revoke/1"
+      ],
+      "recipe_id": "agreement.revoke/1",
+      "exposure": "external",
+      "head_kind": "agreement_activation"
+    },
+    {
+      "kind": "outcome.correct",
+      "payload_schemas": [
+        "ledger-workflow-outcome-correction/1"
+      ],
+      "recipe_id": "outcome.correct/1",
+      "exposure": "external"
+    },
+    {
+      "kind": "outcome.submit",
+      "payload_schemas": [
+        "ledger-workflow-outcome/1"
+      ],
+      "recipe_id": "outcome.submit/1",
+      "exposure": "external"
+    },
+    {
+      "kind": "policy.publish",
+      "payload_schemas": [
+        "ledger-workflow-policy-publication/1"
+      ],
+      "recipe_id": "policy.publish/1",
+      "exposure": "external"
+    },
+    {
+      "kind": "quantity.correct",
+      "payload_schemas": [
+        "ledger-workflow-quantity-correction/1"
+      ],
+      "recipe_id": "quantity.correct/1",
+      "exposure": "external"
+    },
+    {
+      "kind": "work.accept",
+      "payload_schemas": [
+        "ledger-workflow-work/1"
+      ],
+      "recipe_id": "work.accept/1",
+      "exposure": "external"
+    }
+  ],
+  "status_input": "OperationKey",
+  "status_output": "OperationStatus",
+  "errors": [
+    "AUTHORITY_REQUIRED",
+    "BASIS_NOT_TOTAL",
+    "CORRECTION_CAPACITY_EXCEEDED",
+    "DESCRIPTOR_DEPENDENCY_MISSING",
+    "DESCRIPTOR_SCOPE_MISMATCH",
+    "DOCUMENT_DIGEST_MISMATCH",
+    "IDENTITY_CONFLICT",
+    "INTEGRITY_FAILURE",
+    "INVALID_REFERENCE",
+    "INVALID_SCALAR",
+    "INVALID_SHAPE",
+    "PLAN_DIGEST_MISMATCH",
+    "PREDICATE_ANALYSIS_LIMIT",
+    "PROGRAM_BUDGET_EXCEEDED",
+    "REQUEST_EVIDENCE_MISMATCH",
+    "REVERSAL_DEPENDENTS_REQUIRED",
+    "SEMANTIC_CONFLICT",
+    "SLOT_SEMANTICS_CHANGED",
+    "STALE_REVISION",
+    "UNSUPPORTED_COMPOSITION",
+    "UNSUPPORTED_SCHEMA_PROFILE"
+  ]
+}

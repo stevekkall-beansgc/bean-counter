@@ -1,0 +1,109 @@
+{
+  "schema": "ledger-workflow-publication-history-expectations/1",
+  "status": "contract scenarios; runtime UNRUN",
+  "cases": [
+    {
+      "id": "PUB-01",
+      "steps": [
+        "publish original inline request",
+        "lose reply",
+        "reopen",
+        "status original key"
+      ],
+      "expected": "byte-identical original receipt/evidence; exactly one publication/operation; complete10-member manifest and12 retained envelopes"
+    },
+    {
+      "id": "PUB-02",
+      "steps": [
+        "PUB-01 committed",
+        "revoke publisher write; preserve read",
+        "remove old compiler/cache",
+        "retry same semantic request with whitespace changes"
+      ],
+      "expected": "committed original before compile/write checks; original rawdigest retained; attempt echo digest may differ"
+    },
+    {
+      "id": "PUB-03",
+      "steps": [
+        "PUB-01 committed",
+        "submit same key with changed root or expectedplan"
+      ],
+      "expected": "IDENTITY_CONFLICT; no new canonical records"
+    },
+    {
+      "id": "PUB-04",
+      "steps": [
+        "PUB-01 committed",
+        "revoke current read",
+        "status key"
+      ],
+      "expected": "ReadError AUTHORITY_REQUIRED; no receipt disclosure and no reinterpretation as not_observed"
+    },
+    {
+      "id": "PUB-05",
+      "steps": [
+        "fresh key precheck absent",
+        "another writer commits same key",
+        "fresh caller reaches locked recheck with now revoked publish grant"
+      ],
+      "expected": "original-key branch first; original receipt if read remains; no fresh current compile assumptions"
+    },
+    {
+      "id": "PUB-06",
+      "steps": [
+        "new key root and closure equal existing publication",
+        "current valid publish authority and compiler",
+        "execute"
+      ],
+      "expected": "new operation/manifest/receipt semantic_alias, original publication+plan/provenance unchanged; no activation"
+    },
+    {
+      "id": "PUB-07",
+      "steps": [
+        "fresh key",
+        "wrong expected plan digest"
+      ],
+      "expected": "PLAN_DIGEST_MISMATCH no canonical writes"
+    },
+    {
+      "id": "PUB-08",
+      "steps": [
+        "fresh inline source",
+        "valid shape but caller supplies self-issued authority document"
+      ],
+      "expected": "reject authority; source document list cannot grant rights"
+    },
+    {
+      "id": "PUB-09",
+      "steps": [
+        "retain valid publication",
+        "alter any retained authority/source/plan/manifest bytes and recompute only local projection hash",
+        "reopen verify"
+      ],
+      "expected": "INTEGRITY_FAILURE; verify original closure references, not cache success"
+    },
+    {
+      "id": "PUB-10",
+      "steps": [
+        "fail before/after each insert and commit boundary",
+        "reopen original key"
+      ],
+      "expected": "complete original commit or no accepted operation; unknown remains same key; no partial publication receipt"
+    },
+    {
+      "id": "PUB-11",
+      "steps": [
+        "publish same policy ID/version with different normalized source bytes under new key"
+      ],
+      "expected": "SEMANTIC_CONFLICT; old publication immutable"
+    },
+    {
+      "id": "PUB-12",
+      "steps": [
+        "read document by exact ref",
+        "read same ref wrong scope or unreadable"
+      ],
+      "expected": "first exact canonicalbody/digest; second safe AUTHORITY_REQUIRED without existence distinction"
+    }
+  ]
+}

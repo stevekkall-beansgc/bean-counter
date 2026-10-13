@@ -1,0 +1,212 @@
+{
+  "schema": "synthetic-publication-fixture-input/1",
+  "status": "source inputs only; not a wire envelope or expected hash oracle",
+  "assembly": "Resolve fixture_ref tokens into exact derived DocRefs bottom-up. No fixture_ref token is admitted by runtime. Normalize named sets and JCS bytes using publication-boundary.md. Descriptor digests below derive raw UTF8 strings using SHA256, tagged sha256; provenance binary likewise raw SHA256.",
+  "store": "fixture-store",
+  "scope": [
+    "fixture",
+    "sandbox"
+  ],
+  "source": "urn:fixture:publisher",
+  "principal": "fixture-admin",
+  "operation_id": "publish-001",
+  "accepted_at": "2026-10-12T20:00:00.000000Z",
+  "commit_sequence": "1",
+  "descriptor_digest_inputs": {
+    "limits_digest": "synthetic workflow-limits/1 publication fixture",
+    "mode_matrix_digest": "synthetic unit-only compiler fixture capabilities",
+    "contract_manifest_digest": "synthetic contract test identity, not a freeze manifest"
+  },
+  "provenance_inputs": {
+    "source_sha": "369caa2afc25b66c7d0b478e54fb64ac5eabeb6f",
+    "binary_sha256_utf8": "synthetic compiler binary, not installed artifact proof",
+    "build_manifest_digest_utf8": "synthetic build manifest, not release evidence"
+  },
+  "trusted_authority_fixture": {
+    "schema": "ledger-workflow-local-authority-basis/1",
+    "logical_store_id": "fixture-store",
+    "scope": [
+      "fixture",
+      "sandbox"
+    ],
+    "principal_id": "fixture-admin",
+    "source": "urn:fixture:publisher",
+    "canonical_economic_namespace": "urn:fixture:publisher",
+    "rights": [
+      "admin",
+      "read"
+    ],
+    "source_grant_revision": "1"
+  },
+  "definitions": {
+    "facts": {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "fixture.report:facts",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "fixture.report:pages",
+          "required": true,
+          "type": {
+            "kind": "integer",
+            "min": "0",
+            "max": "100",
+            "unit": "fixture.report:page"
+          },
+          "provenance": {
+            "kind": "caller"
+          }
+        }
+      ]
+    },
+    "context": {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "fixture.report:context",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": []
+    },
+    "template": {
+      "schema": "ledger-workflow-slot-template/1",
+      "template_id": "fixture.report:template",
+      "version": "1",
+      "components": [
+        {
+          "key": "fixture.report:base",
+          "book": "retail",
+          "root_key": "fixture.report:base",
+          "role_slot": "fixture.report:retail",
+          "aliases": [
+            "fixture.report:base"
+          ]
+        }
+      ],
+      "families": []
+    },
+    "compiler": {
+      "schema": "ledger-workflow-compiler-descriptor/1",
+      "compiler_semantics": "ledger-policy-compiler/1",
+      "evaluator": "ledger-workflow-evaluator/1",
+      "grammar": "ledger-policy-grammar/1",
+      "facts_normalization": "ledger-facts-normalization/1",
+      "operation_normalization": "ledger-operation-normalization/2",
+      "limits_profile": "workflow-limits/1",
+      "primitive_versions": [
+        "unit/1"
+      ],
+      "fact_types": [
+        "integer/1"
+      ],
+      "predicate_ops": [
+        "true/1"
+      ],
+      "formula_kinds": [
+        "unit/1"
+      ],
+      "plan_schema": "ledger-workflow-compiled-plan/1"
+    },
+    "product": {
+      "schema": "ledger-workflow-product/1",
+      "product_id": "fixture.report:product",
+      "version": "1",
+      "labels": {
+        "title": "Synthetic report"
+      },
+      "profile": "workflow/1",
+      "evaluator": "ledger-workflow-evaluator/1",
+      "grammar": "ledger-policy-grammar/1",
+      "limits_profile": "workflow-limits/1",
+      "units": [
+        {
+          "name": "fixture.report:page",
+          "labels": {
+            "title": "Page"
+          },
+          "dimension": "fixture.report:count"
+        }
+      ],
+      "activities": [
+        {
+          "name": "fixture.report:completed",
+          "labels": {
+            "title": "Completed report"
+          },
+          "primitive": "work",
+          "fact_schema": {
+            "fixture_ref": "facts"
+          },
+          "source_slot": "fixture.report:worker",
+          "funding_leg": "fixture.report:customer"
+        }
+      ],
+      "fact_schemas": [
+        {
+          "fixture_ref": "facts"
+        }
+      ],
+      "links": []
+    },
+    "policy": {
+      "schema": "ledger-workflow-policy/1",
+      "policy_id": "fixture.report:policy",
+      "version": "1",
+      "product_ref": {
+        "fixture_ref": "product"
+      },
+      "context_schema_ref": {
+        "fixture_ref": "context"
+      },
+      "slot_template_ref": {
+        "fixture_ref": "template"
+      },
+      "compiler_ref": {
+        "fixture_ref": "compiler"
+      },
+      "currency": "USD",
+      "scale": 18,
+      "rounding": "nearest_ties_away",
+      "mode": "component_workflow",
+      "binding_slots": [
+        {
+          "name": "fixture.report:retail",
+          "book": "retail",
+          "funding_leg": "fixture.report:customer",
+          "allowed_activities": [
+            "fixture.report:completed"
+          ],
+          "correction_source_slot": "fixture.report:worker"
+        }
+      ],
+      "rules": [
+        {
+          "rule_id": "fixture.report:charge",
+          "activity": "fixture.report:completed",
+          "component_name": "fixture.report:base",
+          "component_key": "fixture.report:base",
+          "binding_slot": "fixture.report:retail",
+          "phase": "base",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "unit",
+            "quantity_field": "fixture.report:pages",
+            "unit": "fixture.report:page",
+            "rate": "0.37"
+          },
+          "dependency": "on_missing_refuse"
+        }
+      ],
+      "families": [],
+      "stages": [],
+      "delayed_costs": []
+    }
+  },
+  "authority_fixture_note": "Synthetic already verified local test owner basis only; construct snapshot using this basis, H_local-authority-basis and accepted_at. No operation grants real rights.",
+  "request_fixture_encoding": {
+    "mode": "inline",
+    "original_request_bytes": "exact JCS(normalized OperationEnvelope), no trailing LF",
+    "source_document_order": "canonical JCS body byte sort"
+  }
+}
