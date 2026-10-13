@@ -15,7 +15,7 @@ const BILLING_ALIASES: &str = include_str!("../../../migrations/sqlite/0008_bill
 const CUSTOMERS: &str = include_str!("../../../migrations/sqlite/0009_customer_agreements.sql");
 const M3_HISTORY: &str = include_str!("../../../migrations/sqlite/0010_m3_history.sql");
 const M5_LIFECYCLE: &str = include_str!("../../../migrations/sqlite/0011_m5_lifecycle.sql");
-const WORKFLOW: &str = concat!(include_str!("workflow/schema.sql"), "\n", include_str!("workflow/agreement/schema.sql"));
+const WORKFLOW: &str = concat!(include_str!("workflow/schema.sql"), "\n", include_str!("workflow/agreement/schema.sql"), "\n", include_str!("workflow/agreement/transport/schema.sql"));
 fn workflow_migration() -> Migration {
     Migration::new(
         12,

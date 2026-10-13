@@ -122,6 +122,11 @@ impl LocalWorkflowLedger {
         }
         let v = ledgerlab_core::canonical::parse_bounded(raw, 262_144)
             .map_err(|_| reject("INVALID_SHAPE"))?;
+        if v["kind"] == "operation.descriptors"
+            || v.get("payload").and_then(|p| p.get("representation")).is_some()
+        {
+            return agreement::transport::read(self, raw).await;
+        }
         let read: Read = serde_json::from_value(v).map_err(|_| reject("INVALID_SHAPE"))?;
         require(
             read.schema == "ledger-read/1" && read.kind == "policy.document",
