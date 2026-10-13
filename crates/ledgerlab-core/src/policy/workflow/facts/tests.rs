@@ -434,3 +434,75 @@ fn executing_scalar_comparison_and_reduction_use_actual_operands() {
         "TEST_EXHAUSTED"
     );
 }
+
+#[test]
+fn executing_schema_and_facts_cover_selected_types_without_redecoding() {
+    use crate::validation_work::tests::CountingWork;
+    let raw=serde_json::to_vec(&json!({
+        "schema":"ledger-workflow-fact-schema/1","schema_id":"example:metered","version":"0001",
+        "normalization":"ledger-facts-normalization/1","fields":[
+            field("example:z",true,json!({"kind":"timestamp","min":"2000-01-01T00:00:00Z","max":"2001-01-01T00:00:00Z"})),
+            {"name":"example:m","required":true,"type":{"kind":"enum","values":["example:z","example:a"]},"provenance":{"kind":"attested","source_slot":"example:source","evidence_kind":"outcome"}},
+            field("example:a",true,json!({"kind":"integer","min":"0000","max":"00010","unit":"example:unit"}))
+        ]
+    })).unwrap();
+    let mut work = CountingWork::new(usize::MAX);
+    let schema = FactSchema::parse_with_work(&raw, &mut work).unwrap();
+    assert_eq!(schema.body["version"], "1");
+    assert_eq!(schema.body["fields"][0]["type"]["max"], "10");
+    assert_eq!(
+        schema.body["fields"][1]["type"]["values"],
+        json!(["example:a", "example:z"])
+    );
+    assert!(work.visits.contains(&Visit::SortMove));
+    assert!(work
+        .operations
+        .iter()
+        .any(|(op, _)| *op == Op::DivideRemainder));
+    let mut exact = CountingWork::new(work.used);
+    assert_eq!(
+        FactSchema::parse_with_work(&raw, &mut exact).unwrap().body,
+        schema.body
+    );
+    let mut short = CountingWork::new(work.used - 1);
+    error(
+        FactSchema::parse_with_work(&raw, &mut short),
+        "TEST_EXHAUSTED",
+    );
+    let mut decoded_work = CountingWork::new(usize::MAX);
+    let decoded =
+        FactSchema::from_value_with_work(canonical::parse(&raw).unwrap(), &mut decoded_work)
+            .unwrap();
+    assert_eq!(decoded.body, schema.body);
+    assert_eq!(decoded_work.used, work.used);
+    assert_eq!(decoded_work.scanned + raw.len(), work.scanned);
+    let input =
+        json!({"example:a":"0002","example:m":"example:z","example:z":"2000-02-29T01:00:00+01:00"});
+    let bytes = serde_json::to_vec(&input).unwrap();
+    let mut facts_work = CountingWork::new(usize::MAX);
+    let facts = schema.normalize_with_work(&bytes, &mut facts_work).unwrap();
+    assert_eq!(
+        facts.body,
+        json!({"example:a":"2","example:m":"example:z","example:z":"2000-02-29T00:00:00.000000Z"})
+    );
+    assert_eq!(facts.required_proofs, ["example:m"]);
+    let mut exact = CountingWork::new(facts_work.used);
+    assert_eq!(
+        schema.normalize_with_work(&bytes, &mut exact).unwrap().body,
+        facts.body
+    );
+    let mut short = CountingWork::new(facts_work.used - 1);
+    error(
+        schema.normalize_with_work(&bytes, &mut short),
+        "TEST_EXHAUSTED",
+    );
+    let mut no_work = CountingWork::new(0);
+    error(
+        schema.normalize_with_work(br#"{"unknown:field":"x"}"#, &mut no_work),
+        "TEST_EXHAUSTED",
+    );
+    error(
+        schema.normalize(br#"{"unknown:field":"x"}"#),
+        "FACT_UNKNOWN",
+    );
+}

@@ -137,6 +137,36 @@ pub(crate) fn power_ten(work: &mut dyn ValidationWork, scale: u8) -> Result<BigI
     Ok(value)
 }
 
+/// Decimal text construction without an opaque numeric formatter.
+pub(crate) fn unsigned_string(mut value: u128, work: &mut dyn ValidationWork) -> Result<String> {
+    let mut digits = Vec::new();
+    loop {
+        work.arithmetic(
+            ArithmeticOperation::DivideRemainder,
+            &[&BigInt::from(value), &BigInt::from(10)],
+        )?;
+        let digit = value % 10;
+        work.arithmetic(
+            ArithmeticOperation::Add,
+            &[&BigInt::from(digit), &BigInt::from(b'0')],
+        )?;
+        let byte = digit as u8 + b'0';
+        work.write_bytes(1)?;
+        digits.push(byte);
+        work.arithmetic(
+            ArithmeticOperation::DivideRemainder,
+            &[&BigInt::from(value), &BigInt::from(10)],
+        )?;
+        value /= 10;
+        if compare(work, value, 0u128)? == Ordering::Equal {
+            break;
+        }
+    }
+    work.write_bytes(digits.len())?;
+    let bytes = digits.into_iter().rev().collect();
+    Ok(String::from_utf8(bytes).expect("decimal ASCII digits"))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -149,6 +179,7 @@ pub(crate) mod tests {
         pub visits: Vec<ValidationVisit>,
         pub scanned: usize,
         pub written: usize,
+        pub hashed: usize,
     }
     impl CountingWork {
         pub fn new(maximum: usize) -> Self {
@@ -159,6 +190,7 @@ pub(crate) mod tests {
                 visits: Vec::new(),
                 scanned: 0,
                 written: 0,
+                hashed: 0,
             }
         }
         fn charge(&mut self, amount: usize) -> Result<()> {
@@ -193,7 +225,8 @@ pub(crate) mod tests {
             self.written += n;
             Ok(())
         }
-        fn hash_bytes(&mut self, _: usize) -> Result<()> {
+        fn hash_bytes(&mut self, bytes: usize) -> Result<()> {
+            self.hashed += bytes;
             Ok(())
         }
     }

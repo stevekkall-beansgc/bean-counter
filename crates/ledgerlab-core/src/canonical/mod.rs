@@ -1,9 +1,14 @@
 //! The integer-only ledger-canonical-v1 profile of RFC 8785.
 //! Strings are JSON escaped; object keys compare UTF-16 code units, not UTF-8.
+use crate::validation_work::{
+    self as vw, ArithmeticOperation as Op, NoopValidationWork, ValidationVisit as Visit,
+    ValidationWork,
+};
 use crate::{Error, Result};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
+use std::cmp::Ordering;
 
 const SAFE: i64 = 9_007_199_254_740_991;
 pub const CANDIDATE_LIMIT: usize = 262_144;
@@ -13,10 +18,16 @@ pub const BUNDLE_LIMIT: usize = 4 * 1024 * 1024;
 pub struct CanonicalBytes(Vec<u8>);
 impl CanonicalBytes {
     pub fn from_value(value: &impl Serialize) -> Result<Self> {
+        Self::from_value_with_work(value, &mut NoopValidationWork)
+    }
+    pub fn from_value_with_work(
+        value: &impl Serialize,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
         let value = serde_json::to_value(value).map_err(|e| Error::new("JSON", e.to_string()))?;
         let mut bytes = Vec::new();
-        emit(&value, &mut bytes, 0)?;
-        if bytes.len() > BUNDLE_LIMIT {
+        emit(&value, &mut bytes, 0, work)?;
+        if vw::compare(work, bytes.len(), BUNDLE_LIMIT)? == Ordering::Greater {
             return Err(Error::new("LIMIT", "canonical bundle bytes"));
         }
         Ok(Self(bytes))
@@ -185,47 +196,117 @@ impl Parser<'_> {
         Ok(value)
     }
 }
-fn emit(v: &Value, out: &mut Vec<u8>, depth: usize) -> Result<()> {
-    if depth > 32 {
+fn append(out: &mut Vec<u8>, bytes: &[u8], work: &mut dyn ValidationWork) -> Result<()> {
+    work.write_bytes(bytes.len())?;
+    out.extend(bytes);
+    Ok(())
+}
+fn emit_string(s: &str, out: &mut Vec<u8>, work: &mut dyn ValidationWork) -> Result<()> {
+    append(out, b"\"", work)?;
+    for character in s.chars() {
+        work.scan_bytes(character.len_utf8())?;
+        work.visit(Visit::Value)?;
+        match character {
+            '"' => append(out, b"\\\"", work)?,
+            '\\' => append(out, b"\\\\", work)?,
+            '\u{08}' => append(out, b"\\b", work)?,
+            '\u{0c}' => append(out, b"\\f", work)?,
+            '\n' => append(out, b"\\n", work)?,
+            '\r' => append(out, b"\\r", work)?,
+            '\t' => append(out, b"\\t", work)?,
+            '\u{00}'..='\u{1f}' => {
+                // The escape has exactly six ASCII bytes.
+                work.write_bytes(6)?;
+                out.extend(format!("\\u{:04x}", u32::from(character)).as_bytes());
+            }
+            _ => {
+                let mut encoded = [0; 4];
+                append(out, character.encode_utf8(&mut encoded).as_bytes(), work)?;
+            }
+        }
+    }
+    append(out, b"\"", work)
+}
+fn emit_integer(i: i64, out: &mut Vec<u8>, work: &mut dyn ValidationWork) -> Result<()> {
+    let negative = vw::compare(work, i, 0)? == Ordering::Less;
+    let mut value = if negative {
+        work.arithmetic(Op::Negate, &[&num_bigint::BigInt::from(i)])?;
+        -i
+    } else {
+        i
+    };
+    let mut digits = Vec::new();
+    loop {
+        let digit = vw::i64_remainder(work, value, 10)?;
+        let digit = vw::i64_operation(work, Op::Add, digit, i64::from(b'0'))?;
+        work.write_bytes(1)?;
+        digits.push(digit as u8);
+        value = vw::i64_operation(work, Op::DivideRemainder, value, 10)?;
+        if vw::compare(work, value, 0)? == Ordering::Equal {
+            break;
+        }
+    }
+    if negative {
+        append(out, b"-", work)?;
+    }
+    for digit in digits.into_iter().rev() {
+        append(out, &[digit], work)?;
+    }
+    Ok(())
+}
+fn emit(v: &Value, out: &mut Vec<u8>, depth: usize, work: &mut dyn ValidationWork) -> Result<()> {
+    work.visit(Visit::Value)?;
+    if vw::compare(work, depth, 32usize)? == Ordering::Greater {
         return Err(Error::new("LIMIT", "JSON depth"));
     }
     match v {
-        Value::Null => out.extend(b"null"),
-        Value::Bool(true) => out.extend(b"true"),
-        Value::Bool(false) => out.extend(b"false"),
+        Value::Null => append(out, b"null", work)?,
+        Value::Bool(true) => append(out, b"true", work)?,
+        Value::Bool(false) => append(out, b"false", work)?,
         Value::Number(n) => {
+            work.visit(Visit::Constraint)?;
             let i = n
                 .as_i64()
-                .filter(|i| (-SAFE..=SAFE).contains(i))
                 .ok_or_else(|| Error::new("JSON_NUMBER", "unsafe integer"))?;
-            out.extend(i.to_string().as_bytes());
-        }
-        Value::String(s) => {
-            out.extend(serde_json::to_vec(s).map_err(|e| Error::new("JSON", e.to_string()))?)
-        }
-        Value::Array(items) => {
-            out.push(b'[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(b',');
-                }
-                emit(item, out, depth + 1)?;
+            if vw::compare(work, i, -SAFE)? == Ordering::Less
+                || vw::compare(work, i, SAFE)? == Ordering::Greater
+            {
+                return Err(Error::new("JSON_NUMBER", "unsafe integer"));
             }
-            out.push(b']');
+            emit_integer(i, out, work)?;
+        }
+        Value::String(s) => emit_string(s, out, work)?,
+        Value::Array(items) => {
+            append(out, b"[", work)?;
+            for (i, item) in items.iter().enumerate() {
+                work.visit(Visit::Element)?;
+                if i > 0 {
+                    append(out, b",", work)?;
+                }
+                let next = vw::usize_add(work, depth, 1)?;
+                emit(item, out, next, work)?;
+            }
+            append(out, b"]", work)?;
         }
         Value::Object(map) => {
             let mut keys: Vec<_> = map.keys().collect();
-            keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-            out.push(b'{');
+            vw::try_sort_by(&mut keys, work, |a, b, w| {
+                w.visit(Visit::MemberCompare)?;
+                Ok(a.encode_utf16().cmp(b.encode_utf16()))
+            })?;
+            append(out, b"{", work)?;
             for (i, key) in keys.into_iter().enumerate() {
+                work.visit(Visit::Field)?;
                 if i > 0 {
-                    out.push(b',');
+                    append(out, b",", work)?;
                 }
-                emit(&Value::String(key.clone()), out, depth + 1)?;
-                out.push(b':');
-                emit(&map[key], out, depth + 1)?;
+                emit_string(key, out, work)?;
+                append(out, b":", work)?;
+                work.visit(Visit::RefLookup)?;
+                let next = vw::usize_add(work, depth, 1)?;
+                emit(&map[key], out, next, work)?;
             }
-            out.push(b'}');
+            append(out, b"}", work)?;
         }
     }
     Ok(())
@@ -253,13 +334,27 @@ pub(crate) fn dto<T: serde::de::DeserializeOwned>(v: Value) -> Result<T> {
     serde_json::from_value(v).map_err(|e| Error::new("SCHEMA", e.to_string()))
 }
 pub fn sort_set<T: Serialize>(values: &mut Vec<T>) -> Result<()> {
-    let mut keyed: Vec<_> = values
-        .drain(..)
-        .map(|v| Ok((CanonicalBytes::from_value(&v)?.into_vec(), v)))
-        .collect::<Result<_>>()?;
-    keyed.sort_by(|a, b| a.0.cmp(&b.0));
-    if keyed.windows(2).any(|p| p[0].0 == p[1].0) {
-        return Err(Error::new("DUPLICATE", "set member"));
+    sort_set_with_work(values, &mut NoopValidationWork)
+}
+pub fn sort_set_with_work<T: Serialize>(
+    values: &mut Vec<T>,
+    work: &mut dyn ValidationWork,
+) -> Result<()> {
+    let mut keyed = Vec::new();
+    for value in values.drain(..) {
+        work.visit(Visit::Element)?;
+        let key = CanonicalBytes::from_value_with_work(&value, work)?.into_vec();
+        keyed.push((key, value));
+    }
+    vw::try_sort_by(&mut keyed, work, |a, b, w| {
+        w.visit(Visit::MemberCompare)?;
+        Ok(a.0.cmp(&b.0))
+    })?;
+    for pair in keyed.windows(2) {
+        work.visit(Visit::MemberCompare)?;
+        if pair[0].0 == pair[1].0 {
+            return Err(Error::new("DUPLICATE", "set member"));
+        }
     }
     *values = keyed.into_iter().map(|(_, v)| v).collect();
     Ok(())
@@ -374,6 +469,17 @@ pub fn hash_input(domain: Domain, value: &impl Serialize) -> Result<Vec<u8>> {
 pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
+pub(crate) fn hex_with_work(bytes: &[u8], work: &mut dyn ValidationWork) -> Result<String> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = Vec::new();
+    for byte in bytes {
+        work.scan_bytes(1)?;
+        work.write_bytes(2)?;
+        out.push(HEX[usize::from(byte >> 4)]);
+        out.push(HEX[usize::from(byte & 15)]);
+    }
+    Ok(String::from_utf8(out).expect("ASCII hexadecimal"))
+}
 pub fn hash(domain: Domain, value: &impl Serialize) -> Result<String> {
     Ok(hex(&Sha256::digest(hash_input(domain, value)?)))
 }
@@ -399,3 +505,79 @@ pub fn outcome_digest(profile: &str, domain: &str, value: &impl Serialize) -> Re
 }
 
 pub mod outcome;
+
+#[cfg(test)]
+mod executing_work_tests {
+    use super::*;
+    use crate::validation_work::tests::CountingWork;
+    use num_bigint::BigInt;
+
+    #[test]
+    fn executing_jcs_preserves_utf16_escapes_integer_and_set_order() {
+        let value = serde_json::json!({"\u{e000}":["\u{000b}","\u{0008}","\t","\n","\u{000c}","\r","\"","\\","é"],"😀":-42});
+        let expected = r#"{"😀":-42,"":["\u000b","\b","\t","\n","\f","\r","\"","\\","é"]}"#;
+        let mut work = CountingWork::new(usize::MAX);
+        let bytes = CanonicalBytes::from_value_with_work(&value, &mut work).unwrap();
+        assert_eq!(bytes.as_slice(), expected.as_bytes());
+        assert_eq!(bytes, CanonicalBytes::from_value(&value).unwrap());
+        assert!(work.visits.contains(&Visit::SortMove));
+        let mut exact = CountingWork::new(work.used);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work(&value, &mut exact).unwrap(),
+            bytes
+        );
+        let mut short = CountingWork::new(work.used - 1);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work(&value, &mut short)
+                .unwrap_err()
+                .code,
+            "TEST_EXHAUSTED"
+        );
+        let mut members = vec![
+            serde_json::json!({"b":"a","a":"z"}),
+            serde_json::json!({"b":"z","a":"a"}),
+        ];
+        sort_set_with_work(&mut members, &mut exact).unwrap_err();
+        let mut enough = CountingWork::new(usize::MAX);
+        // Failed sort_set drains its local work buffer, as its legacy API did.
+        // The meaningful successful sort uses a fresh input.
+        let mut members = vec![
+            serde_json::json!({"b":"a","a":"z"}),
+            serde_json::json!({"b":"z","a":"a"}),
+        ];
+        sort_set_with_work(&mut members, &mut enough).unwrap();
+        assert_eq!(members[0], serde_json::json!({"a":"a","b":"z"}));
+    }
+
+    #[test]
+    fn callback_byte_error_is_returned_unchanged_before_emission() {
+        struct ByteLimit {
+            written: usize,
+        }
+        impl ValidationWork for ByteLimit {
+            fn visit(&mut self, _: Visit) -> Result<()> {
+                Ok(())
+            }
+            fn arithmetic(&mut self, _: Op, _: &[&BigInt]) -> Result<()> {
+                Ok(())
+            }
+            fn scan_bytes(&mut self, _: usize) -> Result<()> {
+                Ok(())
+            }
+            fn hash_bytes(&mut self, _: usize) -> Result<()> {
+                Ok(())
+            }
+            fn write_bytes(&mut self, n: usize) -> Result<()> {
+                if n > 2 - self.written {
+                    return Err(Error::new("JSON", "distinct callback exhaustion"));
+                }
+                self.written += n;
+                Ok(())
+            }
+        }
+        let mut work = ByteLimit { written: 0 };
+        let error = CanonicalBytes::from_value_with_work(&"\n", &mut work).unwrap_err();
+        assert_eq!(error, Error::new("JSON", "distinct callback exhaustion"));
+        assert_eq!(work.written, 1);
+    }
+}

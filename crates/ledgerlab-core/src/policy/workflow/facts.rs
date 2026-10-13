@@ -122,8 +122,7 @@ impl SignedScalar {
             return Err(fail("FACT_PRECISION", "negative zero"));
         }
         let scale = if zero { 0 } else { fraction.len() as u8 };
-        work.write_bytes(if zero { 1 } else { digits.len() })?;
-        let mut canonical = coefficient.to_string();
+        let mut canonical = vw::unsigned_string(coefficient as u128, work)?;
         if vw::compare(work, scale, 0u8)? == Ordering::Greater {
             let scale = usize::from(scale);
             if vw::compare(work, canonical.len(), scale)? != Ordering::Greater {
@@ -296,17 +295,32 @@ pub struct FactSchema {
 }
 impl FactSchema {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
-        let value = canonical::parse(bytes)?;
-        reject_null(&value)?;
+        Self::parse_with_work(bytes, &mut NoopValidationWork)
+    }
+    pub fn parse_with_work(bytes: &[u8], work: &mut dyn ValidationWork) -> Result<Self> {
+        work.scan_bytes(bytes.len())?;
+        Self::from_value_with_work(canonical::parse(bytes)?, work)
+    }
+    pub(crate) fn from_value_with_work(
+        value: Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        reject_null_with_work(&value, work)?;
         // Serde unit variants can ignore extra fields even with
         // deny_unknown_fields. Enforce their closed object dictionaries first.
+        work.visit(Visit::RefLookup)?;
         if let Some(fields) = value.get("fields").and_then(Value::as_array) {
             for field in fields {
-                closed_variant(field.get("type"), false)?;
-                closed_variant(field.get("provenance"), true)?;
+                work.visit(Visit::Field)?;
+                work.visit(Visit::RefLookup)?;
+                closed_variant_with_work(field.get("type"), false, work)?;
+                work.visit(Visit::RefLookup)?;
+                closed_variant_with_work(field.get("provenance"), true, work)?;
             }
         }
-        let mut dto: SchemaDto = canonical::dto(value)?;
+        let mut dto: SchemaDto =
+            serde_json::from_value(value).map_err(|error| fail("SCHEMA", &error.to_string()))?;
+        work.visit(Visit::Constraint)?;
         if dto.schema != "ledger-workflow-fact-schema/1"
             || dto.normalization != "ledger-facts-normalization/1"
         {
@@ -315,39 +329,48 @@ impl FactSchema {
                 "fact schema/normalization",
             ));
         }
-        name(&dto.schema_id)?;
-        let version = counter(&dto.version)?;
-        if version == 0 {
+        name_with_work(&dto.schema_id, work)?;
+        let version = counter_with_work(&dto.version, work)?;
+        if vw::compare(work, version, 0u64)? == Ordering::Equal {
             return Err(fail("FACT_SCHEMA", "version starts at one"));
         }
-        dto.version = version.to_string();
-        if dto.fields.len() > 64 {
+        dto.version = vw::unsigned_string(u128::from(version), work)?;
+        if vw::compare(work, dto.fields.len(), 64usize)? == Ordering::Greater {
             return Err(fail("FACT_LIMIT", "schema fields"));
         }
-        dto.fields.sort_by(|a, b| a.name.cmp(&b.name));
-        let mut names = BTreeSet::new();
+        vw::try_sort_by(&mut dto.fields, work, |a, b, w| {
+            member_compare(&a.name, &b.name, w)
+        })?;
+        let mut names: Vec<String> = Vec::new();
         let mut fields = Vec::with_capacity(dto.fields.len());
         for field in &mut dto.fields {
-            name(&field.name)?;
-            if !names.insert(field.name.clone()) {
-                return Err(fail("FACT_SCHEMA", "duplicate field name"));
+            work.visit(Visit::Field)?;
+            name_with_work(&field.name, work)?;
+            work.visit(Visit::RefLookup)?;
+            if let Some(previous) = names.last() {
+                if member_compare(previous, &field.name, work)? == Ordering::Equal {
+                    return Err(fail("FACT_SCHEMA", "duplicate field name"));
+                }
             }
+            names.push(field.name.clone());
             let attested = match &field.provenance {
                 ProvenanceDto::Caller => false,
                 ProvenanceDto::Attested {
                     source_slot,
                     evidence_kind,
                 } => {
-                    name(source_slot)?;
-                    if ![
-                        "occurrence",
-                        "outcome",
-                        "supplier_final_cost",
-                        "meter_quantity",
-                        "allocation_input",
-                    ]
-                    .contains(&evidence_kind.as_str())
-                    {
+                    name_with_work(source_slot, work)?;
+                    if !contains_name(
+                        &[
+                            "occurrence",
+                            "outcome",
+                            "supplier_final_cost",
+                            "meter_quantity",
+                            "allocation_input",
+                        ],
+                        evidence_kind,
+                        work,
+                    )? {
                         return Err(fail("FACT_SCHEMA", "unsupported evidence kind"));
                     }
                     true
@@ -359,46 +382,53 @@ impl FactSchema {
                     min_bytes,
                     max_bytes,
                 } => {
-                    let min = counter(min_bytes)?;
-                    let max = counter(max_bytes)?;
-                    if min > max || max > 1024 {
+                    let min = counter_with_work(min_bytes, work)?;
+                    let max = counter_with_work(max_bytes, work)?;
+                    if vw::compare(work, min, max)? == Ordering::Greater
+                        || vw::compare(work, max, 1024u64)? == Ordering::Greater
+                    {
                         return Err(fail("FACT_SCHEMA", "string byte bounds"));
                     }
-                    *min_bytes = min.to_string();
-                    *max_bytes = max.to_string();
+                    *min_bytes = vw::unsigned_string(u128::from(min), work)?;
+                    *max_bytes = vw::unsigned_string(u128::from(max), work)?;
                     FactType::String {
                         min: min as usize,
                         max: max as usize,
                     }
                 }
                 TypeDto::Enum { values } => {
-                    if values.is_empty() || values.len() > 32 {
+                    if vw::compare(work, values.len(), 0usize)? == Ordering::Equal
+                        || vw::compare(work, values.len(), 32usize)? == Ordering::Greater
+                    {
                         return Err(fail("FACT_LIMIT", "enum values"));
                     }
                     for value in values.iter() {
-                        name(value)?;
+                        work.visit(Visit::Element)?;
+                        name_with_work(value, work)?;
                     }
-                    canonical::sort_set(values)?;
+                    canonical::sort_set_with_work(values, work)?;
                     FactType::Enum(values.iter().cloned().collect())
                 }
-                TypeDto::Integer { min, max, unit } => number_type(min, max, unit, 0, true)?,
+                TypeDto::Integer { min, max, unit } => {
+                    number_type_with_work(min, max, unit, 0, true, work)?
+                }
                 TypeDto::Decimal {
                     min,
                     max,
                     max_scale,
                     unit,
                 } => {
-                    let scale = counter(max_scale)?;
-                    if scale > 18 {
+                    let scale = counter_with_work(max_scale, work)?;
+                    if vw::compare(work, scale, 18u64)? == Ordering::Greater {
                         return Err(fail("FACT_SCHEMA", "decimal maximum scale"));
                     }
-                    *max_scale = scale.to_string();
-                    number_type(min, max, unit, scale as u8, false)?
+                    *max_scale = vw::unsigned_string(u128::from(scale), work)?;
+                    number_type_with_work(min, max, unit, scale as u8, false, work)?
                 }
                 TypeDto::Timestamp { min, max } => {
-                    let low = Timestamp::parse(min)?;
-                    let high = Timestamp::parse(max)?;
-                    if low.micros() > high.micros() {
+                    let low = Timestamp::parse_with_work(min, work)?;
+                    let high = Timestamp::parse_with_work(max, work)?;
+                    if vw::compare(work, low.micros(), high.micros())? == Ordering::Greater {
                         return Err(fail("FACT_SCHEMA", "timestamp bounds"));
                     }
                     *min = low.as_str().to_owned();
@@ -431,23 +461,60 @@ impl FactSchema {
         &self.body
     }
     pub fn canonical_bytes(&self) -> Result<CanonicalBytes> {
-        CanonicalBytes::from_value(&self.body)
+        self.canonical_bytes_with_work(&mut NoopValidationWork)
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<CanonicalBytes> {
+        CanonicalBytes::from_value_with_work(&self.body, work)
     }
     /// S12 workflow-document framing; legacy domains remain unchanged.
     pub fn content_digest(&self) -> Result<String> {
-        super::document_digest("ledger-workflow-fact-schema/1", &self.body)
+        self.content_digest_with_work(&mut NoopValidationWork)
+    }
+    pub fn content_digest_with_work(&self, work: &mut dyn ValidationWork) -> Result<String> {
+        super::document_digest_with_work("ledger-workflow-fact-schema/1", &self.body, work)
     }
     pub fn document_id(&self) -> Result<String> {
-        Ok(format!("wdoc_{}", &self.content_digest()?[7..]))
+        self.document_id_with_work(&mut NoopValidationWork)
+    }
+    pub fn document_id_with_work(&self, work: &mut dyn ValidationWork) -> Result<String> {
+        let digest = self.content_digest_with_work(work)?;
+        work.write_bytes(69)?;
+        Ok(format!("wdoc_{}", &digest[7..]))
     }
     /// Syntax normalization supplies no provenance/authority attestation.
     pub fn normalize(&self, bytes: &[u8]) -> Result<NormalizedFacts> {
-        let value = canonical::parse(bytes)?;
+        self.normalize_with_work(bytes, &mut NoopValidationWork)
+    }
+    pub fn normalize_with_work(
+        &self,
+        bytes: &[u8],
+        work: &mut dyn ValidationWork,
+    ) -> Result<NormalizedFacts> {
+        work.scan_bytes(bytes.len())?;
+        self.normalize_value_with_work(&canonical::parse(bytes)?, work)
+    }
+    pub(crate) fn normalize_value_with_work(
+        &self,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<NormalizedFacts> {
+        work.visit(Visit::Value)?;
         let object = value
             .as_object()
             .ok_or_else(|| fail("FACT_TYPE", "facts object required"))?;
         for key in object.keys() {
-            if !self.fields.iter().any(|field| &field.name == key) {
+            work.visit(Visit::Field)?;
+            let mut known = false;
+            for field in &self.fields {
+                if member_compare(&field.name, key, work)? == Ordering::Equal {
+                    known = true;
+                    break;
+                }
+            }
+            if !known {
                 return Err(fail("FACT_UNKNOWN", key));
             }
         }
@@ -455,6 +522,8 @@ impl FactSchema {
         let mut canonical = serde_json::Map::new();
         let mut required_proofs = Vec::new();
         for field in &self.fields {
+            work.visit(Visit::Field)?;
+            work.visit(Visit::RefLookup)?;
             let fact = match object.get(&field.name) {
                 None if field.required => return Err(fail("FACT_REQUIRED", &field.name)),
                 None => FactValue::Missing,
@@ -462,7 +531,7 @@ impl FactSchema {
                     if field.attested {
                         required_proofs.push(field.name.clone());
                     }
-                    normalize_value(&field.field_type, value)?
+                    normalize_value_with_work(&field.field_type, value, work)?
                 }
             };
             if let Some(value) = fact.canonical_value() {
@@ -479,35 +548,66 @@ impl FactSchema {
     /// Binding context syntax uses only required caller facts. This does not
     /// establish assent, bind a customer or select an accepted policy.
     pub fn normalize_context(&self, bytes: &[u8]) -> Result<NormalizedFacts> {
-        self.validate_context_schema()?;
-        self.normalize(bytes)
+        self.normalize_context_with_work(bytes, &mut NoopValidationWork)
+    }
+    pub fn normalize_context_with_work(
+        &self,
+        bytes: &[u8],
+        work: &mut dyn ValidationWork,
+    ) -> Result<NormalizedFacts> {
+        self.validate_context_schema_with_work(work)?;
+        self.normalize_with_work(bytes, work)
     }
     pub fn validate_context_schema(&self) -> Result<()> {
-        if self
-            .fields
-            .iter()
-            .any(|field| !field.required || field.attested)
-        {
-            return Err(fail(
-                "CONTEXT_SCHEMA",
-                "binding context fields must be required caller facts",
-            ));
+        self.validate_context_schema_with_work(&mut NoopValidationWork)
+    }
+    pub fn validate_context_schema_with_work(&self, work: &mut dyn ValidationWork) -> Result<()> {
+        for field in &self.fields {
+            work.visit(Visit::Field)?;
+            work.visit(Visit::Constraint)?;
+            if !field.required {
+                return Err(fail(
+                    "CONTEXT_SCHEMA",
+                    "binding context fields must be required caller facts",
+                ));
+            }
+            work.visit(Visit::Constraint)?;
+            if field.attested {
+                return Err(fail(
+                    "CONTEXT_SCHEMA",
+                    "binding context fields must be required caller facts",
+                ));
+            }
         }
         Ok(())
     }
     /// Quantity corrections and formula typechecking use the original schema.
     pub fn quantity_unit(&self, field: &str) -> Result<&str> {
-        let field = self
-            .fields
-            .iter()
-            .find(|f| f.name == field)
-            .ok_or_else(|| fail("FACT_UNKNOWN", field))?;
+        self.quantity_unit_with_work(field, &mut NoopValidationWork)
+    }
+    pub fn quantity_unit_with_work(
+        &self,
+        field: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<&str> {
+        let field = self.field_with_work(field, work)?;
+        work.visit(Visit::Constraint)?;
         match &field.field_type {
             FactType::Number {
                 min,
                 unit: Some(unit),
                 ..
-            } if field.required && min.coefficient >= 0 => Ok(unit),
+            } => {
+                work.visit(Visit::Constraint)?;
+                if field.required && vw::compare(work, min.coefficient, 0)? != Ordering::Less {
+                    Ok(unit)
+                } else {
+                    Err(fail(
+                        "QUANTITY_TYPE",
+                        "quantity requires required nonnegative numeric field and unit",
+                    ))
+                }
+            }
             _ => Err(fail(
                 "QUANTITY_TYPE",
                 "quantity requires required nonnegative numeric field and unit",
@@ -517,13 +617,27 @@ impl FactSchema {
     /// Validate a correction against this immutable descriptor, without any
     /// current policy lookup. Runtime authority/lineage checks remain separate.
     pub fn normalize_quantity(&self, field: &str, bytes: &[u8]) -> Result<FactValue> {
-        self.quantity_unit(field)?;
-        let definition = self
-            .fields
-            .iter()
-            .find(|f| f.name == field)
-            .expect("validated field");
-        normalize_value(&definition.field_type, &canonical::parse(bytes)?)
+        self.normalize_quantity_with_work(field, bytes, &mut NoopValidationWork)
+    }
+    pub fn normalize_quantity_with_work(
+        &self,
+        field: &str,
+        bytes: &[u8],
+        work: &mut dyn ValidationWork,
+    ) -> Result<FactValue> {
+        self.quantity_unit_with_work(field, work)?;
+        let definition = self.field_with_work(field, work)?;
+        work.scan_bytes(bytes.len())?;
+        normalize_value_with_work(&definition.field_type, &canonical::parse(bytes)?, work)
+    }
+    fn field_with_work(&self, name: &str, work: &mut dyn ValidationWork) -> Result<&Field> {
+        work.visit(Visit::RefLookup)?;
+        for field in &self.fields {
+            if member_compare(&field.name, name, work)? == Ordering::Equal {
+                return Ok(field);
+            }
+        }
+        Err(fail("FACT_UNKNOWN", name))
     }
 }
 
@@ -556,7 +670,15 @@ pub struct NormalizedFacts {
 }
 impl NormalizedFacts {
     pub fn get(&self, field: &str) -> Option<&FactValue> {
-        self.values.get(field)
+        self.get_with_work(field, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
+    }
+    pub fn get_with_work(
+        &self,
+        field: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<&FactValue>> {
+        map_lookup(&self.values, field, work)
     }
     pub fn canonical_value(&self) -> &Value {
         &self.body
@@ -566,7 +688,12 @@ impl NormalizedFacts {
         &self.required_proofs
     }
 }
-fn normalize_value(kind: &FactType, value: &Value) -> Result<FactValue> {
+fn normalize_value_with_work(
+    kind: &FactType,
+    value: &Value,
+    work: &mut dyn ValidationWork,
+) -> Result<FactValue> {
+    work.visit(Visit::Value)?;
     let text = || {
         value
             .as_str()
@@ -580,14 +707,25 @@ fn normalize_value(kind: &FactType, value: &Value) -> Result<FactValue> {
         ),
         FactType::String { min, max } => {
             let s = text()?;
-            if s.len() < *min || s.len() > *max || s.chars().any(char::is_control) {
+            if vw::compare(work, s.len(), *min)? == Ordering::Less
+                || vw::compare(work, s.len(), *max)? == Ordering::Greater
+                || has_control(s, work)?
+            {
                 return Err(fail("FACT_RANGE", "string bytes/controls"));
             }
             FactValue::String(s.to_owned())
         }
         FactType::Enum(values) => {
             let s = text()?;
-            if !values.contains(s) {
+            work.visit(Visit::RefLookup)?;
+            let mut found = false;
+            for candidate in values {
+                if member_compare(candidate, s, work)? == Ordering::Equal {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
                 return Err(fail("FACT_RANGE", "enum value"));
             }
             FactValue::Enum(s.to_owned())
@@ -600,11 +738,14 @@ fn normalize_value(kind: &FactType, value: &Value) -> Result<FactValue> {
             ..
         } => {
             let raw = text()?;
-            if *integer && raw.contains('.') {
+            work.visit(Visit::Constraint)?;
+            if *integer && contains_byte(raw, b'.', work)? {
                 return Err(fail("FACT_PRECISION", "integer syntax"));
             }
-            let scalar = SignedScalar::parse(raw, *scale)?;
-            if &scalar < min || &scalar > max {
+            let scalar = SignedScalar::parse_with_work(raw, *scale, work)?;
+            if scalar.compare_with_work(min, work)? == Ordering::Less
+                || scalar.compare_with_work(max, work)? == Ordering::Greater
+            {
                 return Err(fail("FACT_RANGE", "numeric bounds"));
             }
             if *integer {
@@ -614,30 +755,34 @@ fn normalize_value(kind: &FactType, value: &Value) -> Result<FactValue> {
             }
         }
         FactType::Time { min, max } => {
-            let time = Timestamp::parse(text()?)?;
-            if time.micros() < min.micros() || time.micros() > max.micros() {
+            let time = Timestamp::parse_with_work(text()?, work)?;
+            if vw::compare(work, time.micros(), min.micros())? == Ordering::Less
+                || vw::compare(work, time.micros(), max.micros())? == Ordering::Greater
+            {
                 return Err(fail("FACT_RANGE", "timestamp bounds"));
             }
             FactValue::Timestamp(time)
         }
     })
 }
-fn number_type(
+fn number_type_with_work(
     min: &mut String,
     max: &mut String,
     unit: &Option<String>,
     scale: u8,
     integer: bool,
+    work: &mut dyn ValidationWork,
 ) -> Result<FactType> {
     if let Some(unit) = unit {
-        name(unit)?;
+        name_with_work(unit, work)?;
     }
-    if integer && (min.contains('.') || max.contains('.')) {
+    work.visit(Visit::Constraint)?;
+    if integer && (contains_byte(min, b'.', work)? || contains_byte(max, b'.', work)?) {
         return Err(fail("FACT_SCHEMA", "integer bound syntax"));
     }
-    let low = SignedScalar::parse(min, scale)?;
-    let high = SignedScalar::parse(max, scale)?;
-    if low > high {
+    let low = SignedScalar::parse_with_work(min, scale, work)?;
+    let high = SignedScalar::parse_with_work(max, scale, work)?;
+    if low.compare_with_work(&high, work)? == Ordering::Greater {
         return Err(fail("FACT_SCHEMA", "numeric bounds"));
     }
     *min = low.as_str().to_owned();
@@ -651,64 +796,178 @@ fn number_type(
     })
 }
 pub(super) fn counter(raw: &str) -> Result<u64> {
-    if raw.is_empty() || raw.len() > 64 || !raw.bytes().all(|b| b.is_ascii_digit()) {
+    counter_with_work(raw, &mut NoopValidationWork)
+}
+pub(super) fn counter_with_work(raw: &str, work: &mut dyn ValidationWork) -> Result<u64> {
+    work.visit(Visit::Constraint)?;
+    if raw.is_empty() || vw::compare(work, raw.len(), 64usize)? == Ordering::Greater {
         return Err(fail("FACT_SCHEMA", "counter syntax"));
     }
-    let canonical = raw.trim_start_matches('0');
-    let value: u64 = if canonical.is_empty() {
-        0
-    } else {
-        canonical
-            .parse()
-            .map_err(|_| fail("FACT_SCHEMA", "counter bound"))?
-    };
-    if value > i64::MAX as u64 {
+    // Preserve syntax-first errors even if an early numeric prefix overflows.
+    for byte in raw.bytes() {
+        work.scan_bytes(1)?;
+        work.visit(Visit::ScalarDigit)?;
+        if !byte.is_ascii_digit() {
+            return Err(fail("FACT_SCHEMA", "counter syntax"));
+        }
+    }
+    let mut value = 0u64;
+    for byte in raw.bytes() {
+        work.scan_bytes(1)?;
+        work.visit(Visit::ScalarDigit)?;
+        work.arithmetic(Op::Multiply, &[&BigInt::from(value), &BigInt::from(10)])?;
+        value = value
+            .checked_mul(10)
+            .ok_or_else(|| fail("FACT_SCHEMA", "counter bound"))?;
+        work.arithmetic(Op::Subtract, &[&BigInt::from(byte), &BigInt::from(b'0')])?;
+        let digit = u64::from(byte) - u64::from(b'0');
+        work.arithmetic(Op::Add, &[&BigInt::from(value), &BigInt::from(digit)])?;
+        value = value
+            .checked_add(digit)
+            .ok_or_else(|| fail("FACT_SCHEMA", "counter bound"))?;
+    }
+    if vw::compare(work, value, i64::MAX as u64)? == Ordering::Greater {
         return Err(fail("FACT_SCHEMA", "counter bound"));
     }
     Ok(value)
 }
 pub(super) fn name(raw: &str) -> Result<()> {
-    let (namespace, local) = raw
-        .split_once(':')
-        .ok_or_else(|| fail("FACT_SCHEMA", "qualified name required"))?;
-    let valid = |part: &str, max: usize| {
-        !part.is_empty()
-            && part.len() <= max
-            && part.as_bytes()[0].is_ascii_alphabetic()
-            && part
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-    };
-    if !valid(namespace, 63) || !valid(local, 64) {
+    name_with_work(raw, &mut NoopValidationWork)
+}
+pub(super) fn name_with_work(raw: &str, work: &mut dyn ValidationWork) -> Result<()> {
+    work.visit(Visit::Constraint)?;
+    let mut point = None;
+    for (i, byte) in raw.bytes().enumerate() {
+        work.scan_bytes(1)?;
+        work.visit(Visit::MemberCompare)?;
+        if byte == b':' {
+            point = Some(i);
+            break;
+        }
+    }
+    let point = point.ok_or_else(|| fail("FACT_SCHEMA", "qualified name required"))?;
+    let after = vw::usize_add(work, point, 1)?;
+    let (namespace, local) = (&raw[..point], &raw[after..]);
+    fn valid(part: &str, max: usize, w: &mut dyn ValidationWork) -> Result<bool> {
+        w.visit(Visit::Constraint)?;
+        if part.is_empty() || vw::compare(w, part.len(), max)? == Ordering::Greater {
+            return Ok(false);
+        }
+        w.scan_bytes(1)?;
+        w.visit(Visit::Constraint)?;
+        if !part.as_bytes()[0].is_ascii_alphabetic() {
+            return Ok(false);
+        }
+        for byte in part.bytes() {
+            w.scan_bytes(1)?;
+            w.visit(Visit::Constraint)?;
+            if !byte.is_ascii_alphanumeric() && !b"_.-".contains(&byte) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+    if !valid(namespace, 63, work)? || !valid(local, 64, work)? {
         return Err(fail("FACT_SCHEMA", "qualified name syntax"));
     }
     Ok(())
 }
 pub(super) fn reject_null(value: &Value) -> Result<()> {
+    reject_null_with_work(value, &mut NoopValidationWork)
+}
+pub(super) fn reject_null_with_work(value: &Value, work: &mut dyn ValidationWork) -> Result<()> {
+    work.visit(Visit::Value)?;
     match value {
         Value::Null => return Err(fail("FACT_SCHEMA", "explicit null")),
         Value::Array(values) => {
             for value in values {
-                reject_null(value)?;
+                work.visit(Visit::Element)?;
+                reject_null_with_work(value, work)?;
             }
         }
         Value::Object(values) => {
             for value in values.values() {
-                reject_null(value)?;
+                work.visit(Visit::Field)?;
+                reject_null_with_work(value, work)?;
             }
         }
         _ => (),
     }
     Ok(())
 }
-fn closed_variant(value: Option<&Value>, provenance: bool) -> Result<()> {
+pub(super) fn member_compare(a: &str, b: &str, work: &mut dyn ValidationWork) -> Result<Ordering> {
+    work.visit(Visit::MemberCompare)?;
+    Ok(a.cmp(b))
+}
+pub(super) fn map_lookup<'a, T>(
+    map: &'a BTreeMap<String, T>,
+    key: &str,
+    work: &mut dyn ValidationWork,
+) -> Result<Option<&'a T>> {
+    work.visit(Visit::RefLookup)?;
+    for (candidate, value) in map {
+        if member_compare(candidate, key, work)? == Ordering::Equal {
+            return Ok(Some(value));
+        }
+    }
+    Ok(None)
+}
+fn contains_byte(raw: &str, target: u8, work: &mut dyn ValidationWork) -> Result<bool> {
+    for byte in raw.bytes() {
+        work.scan_bytes(1)?;
+        work.visit(Visit::MemberCompare)?;
+        if byte == target {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+pub(super) fn set_contains(
+    names: &BTreeSet<String>,
+    key: &str,
+    work: &mut dyn ValidationWork,
+) -> Result<bool> {
+    work.visit(Visit::RefLookup)?;
+    for name in names {
+        if member_compare(name, key, work)? == Ordering::Equal {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+fn contains_name(names: &[&str], candidate: &str, work: &mut dyn ValidationWork) -> Result<bool> {
+    for name in names {
+        if member_compare(name, candidate, work)? == Ordering::Equal {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+pub(super) fn has_control(text: &str, work: &mut dyn ValidationWork) -> Result<bool> {
+    for character in text.chars() {
+        work.scan_bytes(character.len_utf8())?;
+        work.visit(Visit::Constraint)?;
+        if character.is_control() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+fn closed_variant_with_work(
+    value: Option<&Value>,
+    provenance: bool,
+    work: &mut dyn ValidationWork,
+) -> Result<()> {
+    work.visit(Visit::Constraint)?;
     let object = value
         .and_then(Value::as_object)
         .ok_or_else(|| fail("FACT_SCHEMA", "tagged object required"))?;
+    work.visit(Visit::RefLookup)?;
     let kind = object
         .get("kind")
         .and_then(Value::as_str)
         .ok_or_else(|| fail("FACT_SCHEMA", "kind required"))?;
+    work.visit(Visit::Constraint)?;
     let allowed: &[&str] = if provenance {
         match kind {
             "caller" => &["kind"],
@@ -727,8 +986,11 @@ fn closed_variant(value: Option<&Value>, provenance: bool) -> Result<()> {
             _ => return Err(fail("FACT_UNSUPPORTED_TYPE", "unsupported scalar type")),
         }
     };
-    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err(fail("FACT_SCHEMA", "unknown tagged object field"));
+    for key in object.keys() {
+        work.visit(Visit::Field)?;
+        if !contains_name(allowed, key, work)? {
+            return Err(fail("FACT_SCHEMA", "unknown tagged object field"));
+        }
     }
     Ok(())
 }

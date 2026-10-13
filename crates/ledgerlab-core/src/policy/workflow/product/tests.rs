@@ -422,3 +422,126 @@ fn selector_declaration_feasibility_does_not_prove_every_actual_endpoint() {
         "SELECTOR_PATH",
     );
 }
+
+#[test]
+fn executing_terminal_product_matches_independent_bytes_and_exact_budget() {
+    use crate::validation_work::tests::CountingWork;
+    let mut work = CountingWork::new(usize::MAX);
+    let product = Product::parse_with_work(PRODUCT, &[facts()], &mut work).unwrap();
+    assert_eq!(
+        product
+            .canonical_bytes_with_work(&mut work)
+            .unwrap()
+            .as_slice(),
+        PRODUCT
+    );
+    assert_eq!(
+        product.document_id_with_work(&mut work).unwrap(),
+        "wdoc_d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb"
+    );
+    let mut parse_work = CountingWork::new(usize::MAX);
+    Product::parse_with_work(PRODUCT, &[facts()], &mut parse_work).unwrap();
+    let mut exact = CountingWork::new(parse_work.used);
+    Product::parse_with_work(PRODUCT, &[facts()], &mut exact).unwrap();
+    let mut short = CountingWork::new(parse_work.used - 1);
+    error(
+        Product::parse_with_work(PRODUCT, &[facts()], &mut short),
+        "TEST_EXHAUSTED",
+    );
+    let mut decoded_work = CountingWork::new(usize::MAX);
+    let decoded = Product::from_value_with_work(
+        canonical::parse(PRODUCT).unwrap(),
+        &[facts()],
+        &mut decoded_work,
+    )
+    .unwrap();
+    assert_eq!(decoded.body, product.body);
+    assert_eq!(decoded_work.used, parse_work.used);
+    assert_eq!(decoded_work.scanned + PRODUCT.len(), parse_work.scanned);
+    let mut wrong = source();
+    wrong["activities"][0]["fact_schema"]["digest"] = json!(format!("sha256:{}", "0".repeat(64)));
+    let mut enough = CountingWork::new(usize::MAX);
+    error(
+        Product::from_value_with_work(wrong, &[facts()], &mut enough),
+        "DEFINITION_DIGEST_MISMATCH",
+    );
+    let mut exhausted = CountingWork::new(0);
+    error(
+        Product::parse_with_work(PRODUCT, &[], &mut exhausted),
+        "TEST_EXHAUSTED",
+    );
+}
+
+#[test]
+fn executing_link_bounds_and_lookup_refusals_are_fallible() {
+    use crate::validation_work::tests::CountingWork;
+    let mut value = source();
+    value["links"] = json!([link("fixture.report:z"), link("fixture.report:a")]);
+    let mut work = CountingWork::new(usize::MAX);
+    let product = Product::from_value_with_work(value.clone(), &[facts()], &mut work).unwrap();
+    assert_eq!(product.body["links"][0]["name"], "fixture.report:a");
+    assert!(work.visits.contains(&Visit::SortMove));
+    let mut short = CountingWork::new(work.used - 1);
+    error(
+        Product::from_value_with_work(value.clone(), &[facts()], &mut short),
+        "TEST_EXHAUSTED",
+    );
+    value["links"][0]["maximum"] = json!("9");
+    let mut enough = CountingWork::new(usize::MAX);
+    error(
+        Product::from_value_with_work(value, &[facts()], &mut enough),
+        "LINK_LIMIT",
+    );
+}
+
+#[test]
+fn executing_key_and_selector_helpers_do_not_hide_membership() {
+    use crate::validation_work::tests::CountingWork;
+    let mut value = source();
+    value["links"] = json!([link("fixture.report:previous")]);
+    let product = parse(&value).unwrap();
+    let mut key_work = CountingWork::new(2);
+    assert!(product
+        .activity_with_work("fixture.report:completed", &mut key_work)
+        .unwrap()
+        .is_some());
+    assert_eq!(key_work.visits, [Visit::RefLookup, Visit::MemberCompare]);
+    let mut short_key = CountingWork::new(1);
+    error(
+        product.unit_with_work("fixture.report:page", &mut short_key),
+        "TEST_EXHAUSTED",
+    );
+    let path = vec!["fixture.report:previous".to_string()];
+    let mut probe = CountingWork::new(usize::MAX);
+    product
+        .validate_selector_path_with_work(
+            "fixture.report:completed",
+            &path,
+            "fixture.report:completed",
+            &mut probe,
+        )
+        .unwrap();
+    assert_eq!(
+        probe.visits.iter().filter(|v| **v == Visit::Edge).count(),
+        1
+    );
+    let mut exact = CountingWork::new(probe.used);
+    product
+        .validate_selector_path_with_work(
+            "fixture.report:completed",
+            &path,
+            "fixture.report:completed",
+            &mut exact,
+        )
+        .unwrap();
+    let mut short = CountingWork::new(probe.used - 1);
+    error(
+        product.validate_selector_path_with_work(
+            "fixture.report:completed",
+            &path,
+            "fixture.report:completed",
+            &mut short,
+        ),
+        "TEST_EXHAUSTED",
+    );
+}

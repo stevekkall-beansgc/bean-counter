@@ -1,12 +1,21 @@
 //! Closed reusable activity/unit/link declarations. These definitions supply
 //! no source rights, customer bindings, event links or economic authorization.
-use super::facts::{counter, name, reject_null};
+use super::facts::{
+    counter_with_work, has_control, map_lookup, member_compare, name_with_work, reject_null,
+    reject_null_with_work,
+};
 use super::FactSchema;
 use crate::canonical::{self, CanonicalBytes};
 use crate::money::ExactRatio;
+use crate::validation_work::{
+    self as vw, ArithmeticOperation as Op, NoopValidationWork, ValidationVisit as Visit,
+    ValidationWork,
+};
 use crate::{Error, Result};
+use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 const SCHEMA: &str = "ledger-workflow-product/1";
@@ -39,10 +48,23 @@ struct Labels {
     description: Option<String>,
 }
 impl Labels {
-    fn validate(&self) -> Result<()> {
-        crate::domain::text(&self.title, 128)?;
+    fn validate_with_work(&self, work: &mut dyn ValidationWork) -> Result<()> {
+        fn text(s: &str, max: usize, work: &mut dyn ValidationWork) -> Result<()> {
+            work.visit(Visit::Constraint)?;
+            if s.is_empty()
+                || vw::compare(work, s.len(), max)? == Ordering::Greater
+                || has_control(s, work)?
+            {
+                return Err(Error::new(
+                    "IDENTIFIER",
+                    "invalid UTF-8 byte length or control character",
+                ));
+            }
+            Ok(())
+        }
+        text(&self.title, 128, work)?;
         if let Some(description) = &self.description {
-            crate::domain::text(description, 1024)?;
+            text(description, 1024, work)?;
         }
         Ok(())
     }
@@ -228,58 +250,89 @@ impl Product {
     /// Source-closure admission and current authority remain compiler/coordinator
     /// obligations; this operation cannot fetch a URL or select a mutable head.
     pub fn parse(bytes: &[u8], supplied_schemas: &[FactSchema]) -> Result<Self> {
-        let value = canonical::parse(bytes)?;
-        reject_null(&value)?;
-        let mut dto: ProductDto = canonical::dto(value)?;
-        if dto.schema != SCHEMA
-            || dto.profile != "workflow/1"
-            || dto.evaluator != "ledger-workflow-evaluator/1"
-            || dto.grammar != "ledger-policy-grammar/1"
-            || dto.limits_profile != "workflow-limits/1"
+        Self::parse_with_work(bytes, supplied_schemas, &mut NoopValidationWork)
+    }
+    /// The selected compiler rejects unit conversion before this decoded path:
+    /// legacy ratio serde is retained for compatibility, not a metered domain.
+    pub fn parse_with_work(
+        bytes: &[u8],
+        supplied_schemas: &[FactSchema],
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        work.scan_bytes(bytes.len())?;
+        Self::from_value_with_work(canonical::parse(bytes)?, supplied_schemas, work)
+    }
+    pub(crate) fn from_value_with_work(
+        value: Value,
+        supplied_schemas: &[FactSchema],
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        reject_null_with_work(&value, work)?;
+        let mut dto: ProductDto =
+            serde_json::from_value(value).map_err(|error| fail("SCHEMA", &error.to_string()))?;
+        if member_compare(&dto.schema, SCHEMA, work)? != Ordering::Equal
+            || member_compare(&dto.profile, "workflow/1", work)? != Ordering::Equal
+            || member_compare(&dto.evaluator, "ledger-workflow-evaluator/1", work)?
+                != Ordering::Equal
+            || member_compare(&dto.grammar, "ledger-policy-grammar/1", work)? != Ordering::Equal
+            || member_compare(&dto.limits_profile, "workflow-limits/1", work)? != Ordering::Equal
         {
             return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "product profiles"));
         }
-        name(&dto.product_id)?;
-        dto.labels.validate()?;
-        let version = counter(&dto.version)?;
-        if version == 0 {
+        name_with_work(&dto.product_id, work)?;
+        dto.labels.validate_with_work(work)?;
+        let version = counter_with_work(&dto.version, work)?;
+        if vw::compare(work, version, 0u64)? == Ordering::Equal {
             return Err(fail("PRODUCT_VERSION", "version starts at one"));
         }
-        dto.version = version.to_string();
-        if !(1..=16).contains(&dto.units.len())
-            || !(1..=16).contains(&dto.activities.len())
-            || !(1..=16).contains(&dto.fact_schemas.len())
-            || dto.links.len() > 32
+        dto.version = vw::unsigned_string(u128::from(version), work)?;
+        work.visit(Visit::Constraint)?;
+        if (vw::compare(work, dto.units.len(), 1usize)? == Ordering::Less
+            || vw::compare(work, dto.units.len(), 16usize)? == Ordering::Greater)
+            || (vw::compare(work, dto.activities.len(), 1usize)? == Ordering::Less
+                || vw::compare(work, dto.activities.len(), 16usize)? == Ordering::Greater)
+            || (vw::compare(work, dto.fact_schemas.len(), 1usize)? == Ordering::Less
+                || vw::compare(work, dto.fact_schemas.len(), 16usize)? == Ordering::Greater)
+            || vw::compare(work, dto.links.len(), 32usize)? == Ordering::Greater
         {
             return Err(fail("PRODUCT_LIMIT", "units/activities/schemas/links"));
         }
         // Shared input closure may include the separate context schema and
         // source ancestors, within the authored closure count/byte ceilings.
-        if supplied_schemas.len() > 128 {
+        if vw::compare(work, supplied_schemas.len(), 128usize)? == Ordering::Greater {
             return Err(fail("DEFINITION_LIMIT", "supplied schemas"));
         }
         let mut available = BTreeMap::new();
         let mut source_bytes = 0usize;
         for schema in supplied_schemas {
+            work.visit(Visit::Element)?;
+            let schema_bytes = schema.canonical_bytes_with_work(work)?.as_slice().len();
+            work.arithmetic(
+                Op::Add,
+                &[&BigInt::from(source_bytes), &BigInt::from(schema_bytes)],
+            )?;
             source_bytes = source_bytes
-                .checked_add(schema.canonical_bytes()?.as_slice().len())
+                .checked_add(schema_bytes)
                 .ok_or_else(|| fail("DEFINITION_LIMIT", "source bytes"))?;
-            if source_bytes > 1024 * 1024 {
+            if vw::compare(work, source_bytes, 1048576usize)? == Ordering::Greater {
                 return Err(fail("DEFINITION_LIMIT", "source bytes"));
             }
-            available.insert(schema.document_id()?, schema);
+            work.visit(Visit::RefLookup)?;
+            available.insert(schema.document_id_with_work(work)?, schema);
         }
-        canonical::sort_set(&mut dto.fact_schemas)?;
+        canonical::sort_set_with_work(&mut dto.fact_schemas, work)?;
         let mut schemas = BTreeMap::new();
-        let mut schema_keys = BTreeSet::new();
+        let mut schema_keys: Vec<(&str, &str)> = Vec::new();
         for reference in &dto.fact_schemas {
+            work.visit(Visit::Element)?;
+            work.visit(Visit::Constraint)?;
             if reference.kind != "workflow-fact-schema" {
                 return Err(fail("DEFINITION_KIND", "product fact schema"));
             }
-            let schema = available
-                .get(&reference.id)
+            let schema = map_lookup(&available, &reference.id, work)?
                 .ok_or_else(|| fail("DEFINITION_MISSING", "product fact schema"))?;
-            if reference.digest != schema.content_digest()? {
+            work.visit(Visit::Constraint)?;
+            if reference.digest != schema.content_digest_with_work(work)? {
                 return Err(fail("DEFINITION_DIGEST_MISMATCH", "fact schema"));
             }
             let key = (
@@ -290,42 +343,58 @@ impl Product {
                     .as_str()
                     .expect("validated version"),
             );
-            if !schema_keys.insert(key) {
-                return Err(fail("DEFINITION_CONFLICT", "schema identity/version"));
+            work.visit(Visit::RefLookup)?;
+            work.visit(Visit::Constraint)?;
+            for prior in &schema_keys {
+                if member_compare(prior.0, key.0, work)? == Ordering::Equal
+                    && member_compare(prior.1, key.1, work)? == Ordering::Equal
+                {
+                    return Err(fail("DEFINITION_CONFLICT", "schema identity/version"));
+                }
             }
-            if schemas
-                .insert(reference.id.clone(), (*schema).clone())
-                .is_some()
-            {
+            schema_keys.push(key);
+            work.visit(Visit::Constraint)?;
+            if map_lookup(&schemas, &reference.id, work)?.is_some() {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "fact schema reference"));
             }
+            schemas.insert(reference.id.clone(), (*schema).clone());
         }
-        dto.units.sort_by(|a, b| a.name.cmp(&b.name));
-        dto.activities.sort_by(|a, b| a.name.cmp(&b.name));
-        dto.links.sort_by(|a, b| a.name.cmp(&b.name));
+        vw::try_sort_by(&mut dto.units, work, |a, b, w| {
+            member_compare(&a.name, &b.name, w)
+        })?;
+        vw::try_sort_by(&mut dto.activities, work, |a, b, w| {
+            member_compare(&a.name, &b.name, w)
+        })?;
+        vw::try_sort_by(&mut dto.links, work, |a, b, w| {
+            member_compare(&a.name, &b.name, w)
+        })?;
         let mut units = BTreeMap::new();
         for unit in &dto.units {
-            name(&unit.name)?;
-            name(&unit.dimension)?;
-            unit.labels.validate()?;
+            work.visit(Visit::Element)?;
+            name_with_work(&unit.name, work)?;
+            name_with_work(&unit.dimension, work)?;
+            unit.labels.validate_with_work(work)?;
+            work.visit(Visit::Constraint)?;
             if let Some(normalization) = &unit.normalization {
-                name(&normalization.to)?;
+                name_with_work(&normalization.to, work)?;
+                work.visit(Visit::Constraint)?;
                 if !normalization.factor.is_positive() {
                     return Err(fail("UNIT_NORMALIZATION", "positive factor required"));
                 }
             }
-            if units
-                .insert(unit.name.clone(), UnitDefinition(unit.clone()))
-                .is_some()
-            {
+            work.visit(Visit::Constraint)?;
+            if map_lookup(&units, &unit.name, work)?.is_some() {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "unit name"));
             }
+            units.insert(unit.name.clone(), UnitDefinition(unit.clone()));
         }
         for unit in units.values() {
+            work.visit(Visit::Element)?;
+            work.visit(Visit::Constraint)?;
             if let Some((to, _)) = unit.normalization() {
-                let target = units
-                    .get(to)
+                let target = map_lookup(&units, to, work)?
                     .ok_or_else(|| fail("UNIT_MISSING", "normalization target"))?;
+                work.visit(Visit::Constraint)?;
                 if target.normalization().is_some()
                     || unit.name() == to
                     || unit.dimension() != target.dimension()
@@ -338,12 +407,15 @@ impl Product {
             }
         }
         for schema in schemas.values() {
+            work.visit(Visit::Element)?;
             for field in schema.canonical_value()["fields"]
                 .as_array()
                 .expect("validated fields")
             {
+                work.visit(Visit::Constraint)?;
                 if let Some(unit) = field["type"].get("unit").and_then(Value::as_str) {
-                    if !units.contains_key(unit) {
+                    work.visit(Visit::Constraint)?;
+                    if map_lookup(&units, unit, work)?.is_none() {
                         return Err(fail("UNIT_MISSING", "fact field unit"));
                     }
                 }
@@ -351,53 +423,70 @@ impl Product {
         }
         let mut activities = BTreeMap::new();
         for activity in &dto.activities {
-            name(&activity.name)?;
-            name(&activity.source_slot)?;
-            activity.labels.validate()?;
+            work.visit(Visit::Element)?;
+            name_with_work(&activity.name, work)?;
+            name_with_work(&activity.source_slot, work)?;
+            activity.labels.validate_with_work(work)?;
+            work.visit(Visit::Constraint)?;
             if let Some(leg) = &activity.funding_leg {
-                name(leg)?;
+                name_with_work(leg, work)?;
             }
+            work.visit(Visit::Constraint)?;
             if activity.fact_schema.kind != "workflow-fact-schema" {
                 return Err(fail("DEFINITION_KIND", "activity fact schema"));
             }
-            let schema = schemas.get(&activity.fact_schema.id).ok_or_else(|| {
-                fail(
-                    "DEFINITION_MISSING",
-                    "activity schema not declared by product",
-                )
-            })?;
-            if activity.fact_schema.digest != schema.content_digest()? {
+            work.visit(Visit::RefLookup)?;
+            let schema =
+                map_lookup(&schemas, &activity.fact_schema.id, work)?.ok_or_else(|| {
+                    fail(
+                        "DEFINITION_MISSING",
+                        "activity schema not declared by product",
+                    )
+                })?;
+            work.visit(Visit::Constraint)?;
+            if activity.fact_schema.digest != schema.content_digest_with_work(work)? {
                 return Err(fail("DEFINITION_DIGEST_MISMATCH", "activity schema"));
             }
-            if activities
-                .insert(activity.name.clone(), Activity(activity.clone()))
-                .is_some()
-            {
+            work.visit(Visit::Constraint)?;
+            if map_lookup(&activities, &activity.name, work)?.is_some() {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "activity name"));
             }
+            activities.insert(activity.name.clone(), Activity(activity.clone()));
         }
         let mut links = BTreeMap::new();
         for link in &mut dto.links {
-            name(&link.name)?;
-            name(&link.child_activity)?;
-            if !(1..=16).contains(&link.predecessor_activities.len()) {
+            work.visit(Visit::Element)?;
+            name_with_work(&link.name, work)?;
+            name_with_work(&link.child_activity, work)?;
+            work.visit(Visit::Constraint)?;
+            if vw::compare(work, link.predecessor_activities.len(), 1usize)? == Ordering::Less
+                || vw::compare(work, link.predecessor_activities.len(), 16usize)?
+                    == Ordering::Greater
+            {
                 return Err(fail("PRODUCT_LIMIT", "predecessor activity set"));
             }
             for predecessor in &link.predecessor_activities {
-                name(predecessor)?;
+                work.visit(Visit::Element)?;
+                name_with_work(predecessor, work)?;
             }
-            canonical::sort_set(&mut link.predecessor_activities)?;
-            let minimum = counter(&link.minimum)?;
-            let maximum = counter(&link.maximum)?;
-            let depth = counter(&link.max_depth)?;
-            if minimum > 1 || !(1..=8).contains(&maximum) || maximum < minimum || depth > 16 {
+            canonical::sort_set_with_work(&mut link.predecessor_activities, work)?;
+            let minimum = counter_with_work(&link.minimum, work)?;
+            let maximum = counter_with_work(&link.maximum, work)?;
+            let depth = counter_with_work(&link.max_depth, work)?;
+            if vw::compare(work, minimum, 1u64)? == Ordering::Greater
+                || vw::compare(work, maximum, 1u64)? == Ordering::Less
+                || vw::compare(work, maximum, 8u64)? == Ordering::Greater
+                || vw::compare(work, maximum, minimum)? == Ordering::Less
+                || vw::compare(work, depth, 16u64)? == Ordering::Greater
+            {
                 return Err(fail("LINK_LIMIT", "cardinality/depth"));
             }
-            link.minimum = minimum.to_string();
-            link.maximum = maximum.to_string();
-            link.max_depth = depth.to_string();
+            link.minimum = vw::unsigned_string(u128::from(minimum), work)?;
+            link.maximum = vw::unsigned_string(u128::from(maximum), work)?;
+            link.max_depth = vw::unsigned_string(u128::from(depth), work)?;
+            work.visit(Visit::Constraint)?;
             match (link.binding_relation, &link.supplier_slot) {
-                (BindingRelation::DeclaredSupplier, Some(slot)) => name(slot)?,
+                (BindingRelation::DeclaredSupplier, Some(slot)) => name_with_work(slot, work)?,
                 (BindingRelation::DeclaredSupplier, None) => {
                     return Err(fail(
                         "LINK_SUPPLIER_SLOT",
@@ -412,16 +501,17 @@ impl Product {
                 }
                 (_, None) => (),
             }
-            let child = activities
-                .get(&link.child_activity)
+            let child = map_lookup(&activities, &link.child_activity, work)?
                 .ok_or_else(|| fail("LINK_ACTIVITY_MISSING", "child activity"))?;
+            work.visit(Visit::Constraint)?;
             if child.primitive() != link.child_primitive {
                 return Err(fail("LINK_PRIMITIVE", "child primitive mismatch"));
             }
             for predecessor in &link.predecessor_activities {
-                let activity = activities
-                    .get(predecessor)
+                work.visit(Visit::Element)?;
+                let activity = map_lookup(&activities, predecessor, work)?
                     .ok_or_else(|| fail("LINK_ACTIVITY_MISSING", "predecessor activity"))?;
+                work.visit(Visit::Constraint)?;
                 if activity.primitive() != link.predecessor_primitive {
                     return Err(fail("LINK_PRIMITIVE", "predecessor primitive mismatch"));
                 }
@@ -434,9 +524,11 @@ impl Product {
                 maximum: maximum as u8,
                 depth: depth as u8,
             };
-            if links.insert(link.name.clone(), definition).is_some() {
+            work.visit(Visit::Constraint)?;
+            if map_lookup(&links, &link.name, work)?.is_some() {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "link name"));
             }
+            links.insert(link.name.clone(), definition);
         }
         let body = serde_json::to_value(&dto).map_err(|error| fail("JSON", &error.to_string()))?;
         Ok(Self {
@@ -456,16 +548,48 @@ impl Product {
         self.version
     }
     pub fn unit(&self, name: &str) -> Option<&UnitDefinition> {
-        self.units.get(name)
+        self.unit_with_work(name, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
+    }
+    pub fn unit_with_work(
+        &self,
+        name: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<&UnitDefinition>> {
+        map_lookup(&self.units, name, work)
     }
     pub fn activity(&self, name: &str) -> Option<&Activity> {
-        self.activities.get(name)
+        self.activity_with_work(name, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
+    }
+    pub fn activity_with_work(
+        &self,
+        name: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<&Activity>> {
+        map_lookup(&self.activities, name, work)
     }
     pub fn link(&self, name: &str) -> Option<&LinkDefinition> {
-        self.links.get(name)
+        self.link_with_work(name, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
+    }
+    pub fn link_with_work(
+        &self,
+        name: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<&LinkDefinition>> {
+        map_lookup(&self.links, name, work)
     }
     pub fn fact_schema(&self, id: &str) -> Option<&FactSchema> {
-        self.schemas.get(id)
+        self.fact_schema_with_work(id, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
+    }
+    pub fn fact_schema_with_work(
+        &self,
+        id: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<&FactSchema>> {
+        map_lookup(&self.schemas, id, work)
     }
     pub fn activities(&self) -> impl Iterator<Item = &Activity> {
         self.activities.values()
@@ -480,13 +604,27 @@ impl Product {
         &self.body
     }
     pub fn canonical_bytes(&self) -> Result<CanonicalBytes> {
-        CanonicalBytes::from_value(&self.body)
+        self.canonical_bytes_with_work(&mut NoopValidationWork)
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<CanonicalBytes> {
+        CanonicalBytes::from_value_with_work(&self.body, work)
     }
     pub fn content_digest(&self) -> Result<String> {
-        super::document_digest(SCHEMA, &self.body)
+        self.content_digest_with_work(&mut NoopValidationWork)
+    }
+    pub fn content_digest_with_work(&self, work: &mut dyn ValidationWork) -> Result<String> {
+        super::document_digest_with_work(SCHEMA, &self.body, work)
     }
     pub fn document_id(&self) -> Result<String> {
-        Ok(format!("wdoc_{}", &self.content_digest()?[7..]))
+        self.document_id_with_work(&mut NoopValidationWork)
+    }
+    pub fn document_id_with_work(&self, work: &mut dyn ValidationWork) -> Result<String> {
+        let digest = self.content_digest_with_work(work)?;
+        work.write_bytes(69)?;
+        Ok(format!("wdoc_{}", &digest[7..]))
     }
     /// Check declaration feasibility of a named monetary path. When an edge
     /// permits alternative activity types, this is an existential type check,
@@ -495,24 +633,46 @@ impl Product {
     /// endpoint, primitive, graph cycle/depth and binding under original terms;
     /// unsupported endpoints refuse/wait rather than selecting a fallback.
     pub fn validate_selector_path(&self, child: &str, path: &[String], target: &str) -> Result<()> {
-        if path.is_empty() || path.len() > 4 {
+        self.validate_selector_path_with_work(child, path, target, &mut NoopValidationWork)
+    }
+    pub fn validate_selector_path_with_work(
+        &self,
+        child: &str,
+        path: &[String],
+        target: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<()> {
+        work.visit(Visit::Constraint)?;
+        if path.is_empty() || vw::compare(work, path.len(), 4usize)? == Ordering::Greater {
             return Err(fail("SELECTOR_PATH", "named predecessor path length"));
         }
-        if !self.activities.contains_key(target) {
+        work.visit(Visit::RefLookup)?;
+        if self.activity_with_work(target, work)?.is_none() {
             return Err(fail("LINK_ACTIVITY_MISSING", "selector target"));
         }
         let mut possible = BTreeSet::from([child.to_owned()]);
         for slot in path {
+            work.visit(Visit::Edge)?;
+            work.visit(Visit::RefLookup)?;
             let link = self
-                .links
-                .get(slot)
+                .link_with_work(slot, work)?
                 .ok_or_else(|| fail("SELECTOR_PATH", "undeclared link slot"))?;
-            if !possible.contains(link.child_activity()) || link.maximum() != 1 {
+            work.visit(Visit::RefLookup)?;
+            if !super::facts::set_contains(&possible, link.child_activity(), work)?
+                || vw::compare(work, link.maximum(), 1u8)? != Ordering::Equal
+            {
                 return Err(fail("SELECTOR_PATH", "path activity/cardinality mismatch"));
             }
-            possible = link.predecessor_activities().iter().cloned().collect();
+            let mut next = BTreeSet::new();
+            for activity in link.predecessor_activities() {
+                work.visit(Visit::Element)?;
+                work.visit(Visit::RefLookup)?;
+                next.insert(activity.clone());
+            }
+            possible = next;
         }
-        if !possible.contains(target) {
+        work.visit(Visit::RefLookup)?;
+        if !super::facts::set_contains(&possible, target, work)? {
             return Err(fail("SELECTOR_PATH", "target activity mismatch"));
         }
         Ok(())

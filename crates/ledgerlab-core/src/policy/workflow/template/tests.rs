@@ -324,3 +324,90 @@ fn independent_ordering_and_successor_vectors() {
         assert_eq!(actual.document_id().unwrap(), *expected_id);
     }
 }
+
+#[test]
+fn executing_initial_template_matches_sealed_bytes_and_exact_budget() {
+    use crate::validation_work::tests::CountingWork;
+    let mut work = CountingWork::new(usize::MAX);
+    let template = SlotTemplate::parse_with_work(V1, None, &mut work).unwrap();
+    let parse_used = work.used;
+    assert_eq!(
+        template
+            .canonical_bytes_with_work(&mut work)
+            .unwrap()
+            .as_slice(),
+        V1
+    );
+    assert_eq!(template.document_id_with_work(&mut work).unwrap(), V1_ID);
+    let mut exact = CountingWork::new(parse_used);
+    SlotTemplate::parse_with_work(V1, None, &mut exact).unwrap();
+    let mut short = CountingWork::new(parse_used - 1);
+    error(
+        SlotTemplate::parse_with_work(V1, None, &mut short),
+        "TEST_EXHAUSTED",
+    );
+    let mut decoded_work = CountingWork::new(usize::MAX);
+    let decoded =
+        SlotTemplate::from_value_with_work(canonical::parse(V1).unwrap(), None, &mut decoded_work)
+            .unwrap();
+    assert_eq!(decoded.body, template.body);
+    assert_eq!(decoded_work.used, parse_used);
+    let mut dangling = template.body.clone();
+    dangling["components"][0]["root_key"] = json!("review.measure:absent");
+    let mut enough = CountingWork::new(usize::MAX);
+    error(
+        SlotTemplate::from_value_with_work(dangling, None, &mut enough),
+        "TEMPLATE_MISSING_ROOT",
+    );
+    assert!(enough.visits.contains(&Visit::RefLookup));
+}
+
+#[test]
+fn executing_named_lookup_charges_each_real_candidate_and_stops() {
+    use crate::validation_work::tests::CountingWork;
+    let template = initial();
+    let mut exact = CountingWork::new(4);
+    assert_eq!(
+        template
+            .component_named_with_work(
+                "review.measure:unit-root",
+                "review.measure:work-old",
+                &mut exact
+            )
+            .unwrap()
+            .key(),
+        "review.measure:unit-root"
+    );
+    assert_eq!(
+        exact.visits,
+        [
+            Visit::RefLookup,
+            Visit::MemberCompare,
+            Visit::MemberCompare,
+            Visit::MemberCompare
+        ]
+    );
+    let mut short = CountingWork::new(3);
+    error(
+        template.component_named_with_work(
+            "review.measure:unit-root",
+            "review.measure:work-old",
+            &mut short,
+        ),
+        "TEST_EXHAUSTED",
+    );
+    let mut missing = CountingWork::new(2);
+    assert!(template
+        .component_with_work("review.measure:absent", &mut missing)
+        .unwrap()
+        .is_none());
+    let mut family = CountingWork::new(3);
+    template
+        .family_named_with_work(
+            "review.measure:success-family",
+            "review.measure:outcome",
+            &mut family,
+        )
+        .unwrap();
+    assert_eq!(family.used, 3);
+}

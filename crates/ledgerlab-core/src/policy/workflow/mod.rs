@@ -19,17 +19,34 @@ pub use compiler::{
 };
 
 fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<String> {
+    document_digest_with_work(
+        schema,
+        body,
+        &mut crate::validation_work::NoopValidationWork,
+    )
+}
+fn document_digest_with_work(
+    schema: &str,
+    body: &serde_json::Value,
+    work: &mut dyn crate::validation_work::ValidationWork,
+) -> crate::Result<String> {
     use sha2::{Digest, Sha256};
+    let domain = b"bean-counter/workflow-document/1\0";
+    let bytes = crate::canonical::CanonicalBytes::from_value_with_work(
+        &serde_json::json!([schema, body]),
+        work,
+    )?;
+    work.hash_bytes(domain.len())?;
     let mut hash = Sha256::new();
-    hash.update(b"bean-counter/workflow-document/1\0");
-    hash.update(
-        crate::canonical::CanonicalBytes::from_value(&serde_json::json!([schema, body]))?
-            .as_slice(),
-    );
-    Ok(format!(
-        "sha256:{}",
-        crate::canonical::hex(&hash.finalize())
-    ))
+    hash.update(domain);
+    work.scan_bytes(bytes.as_slice().len())?;
+    work.hash_bytes(bytes.as_slice().len())?;
+    hash.update(bytes.as_slice());
+    work.write_bytes(32)?;
+    let hash = hash.finalize();
+    let hex = crate::canonical::hex_with_work(&hash, work)?;
+    work.write_bytes(71)?;
+    Ok(format!("sha256:{hex}"))
 }
 
 mod slots;

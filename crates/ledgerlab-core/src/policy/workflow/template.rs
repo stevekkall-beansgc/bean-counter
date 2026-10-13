@@ -1,10 +1,16 @@
 //! Reusable symbolic template validation. Agreement slot instantiation and
 //! financial authority are separate, and cannot be inferred from this type.
-use super::facts::{counter, name, reject_null};
+use super::facts::{
+    counter_with_work, map_lookup, member_compare, name_with_work, reject_null_with_work,
+};
 use crate::canonical::{self, CanonicalBytes};
+use crate::validation_work::{
+    self as vw, NoopValidationWork, ValidationVisit as Visit, ValidationWork,
+};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 const SCHEMA: &str = "ledger-workflow-slot-template/1";
@@ -133,95 +139,131 @@ pub struct SlotTemplate {
 }
 impl SlotTemplate {
     pub fn parse(bytes: &[u8], previous: Option<&Self>) -> Result<Self> {
-        let value = canonical::parse(bytes)?;
-        reject_null(&value)?;
-        let mut dto: TemplateDto = canonical::dto(value)?;
+        Self::parse_with_work(bytes, previous, &mut NoopValidationWork)
+    }
+    pub fn parse_with_work(
+        bytes: &[u8],
+        previous: Option<&Self>,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        work.scan_bytes(bytes.len())?;
+        Self::from_value_with_work(canonical::parse(bytes)?, previous, work)
+    }
+    pub(crate) fn from_value_with_work(
+        value: Value,
+        previous: Option<&Self>,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        reject_null_with_work(&value, work)?;
+        let mut dto: TemplateDto =
+            serde_json::from_value(value).map_err(|error| fail("SCHEMA", &error.to_string()))?;
+        work.visit(Visit::Constraint)?;
         if dto.schema != SCHEMA {
             return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "slot-template schema"));
         }
-        name(&dto.template_id)?;
-        let version = counter(&dto.version)?;
-        if version == 0 {
+        name_with_work(&dto.template_id, work)?;
+        let version = counter_with_work(&dto.version, work)?;
+        if vw::compare(work, version, 0u64)? == Ordering::Equal {
             return Err(fail("TEMPLATE_VERSION", "version starts at one"));
         }
-        dto.version = version.to_string();
-        if dto.components.is_empty() || dto.components.len() > 128 || dto.families.len() > 64 {
+        dto.version = vw::unsigned_string(u128::from(version), work)?;
+        if vw::compare(work, dto.components.len(), 0usize)? == Ordering::Equal
+            || vw::compare(work, dto.components.len(), 128usize)? == Ordering::Greater
+            || vw::compare(work, dto.families.len(), 64usize)? == Ordering::Greater
+        {
             return Err(fail("TEMPLATE_LIMIT", "component/family cardinality"));
         }
-        dto.components.sort_by(|a, b| a.key.cmp(&b.key));
-        dto.families.sort_by(|a, b| a.key.cmp(&b.key));
+        vw::try_sort_by(&mut dto.components, work, |a, b, w| {
+            member_compare(&a.key, &b.key, w)
+        })?;
+        vw::try_sort_by(&mut dto.families, work, |a, b, w| {
+            member_compare(&a.key, &b.key, w)
+        })?;
         let mut components: BTreeMap<String, TemplateComponent> = BTreeMap::new();
         let mut families: BTreeMap<String, TemplateFamily> = BTreeMap::new();
         for component in &mut dto.components {
-            name(&component.key)?;
-            name(&component.root_key)?;
-            name(&component.role_slot)?;
-            aliases(&mut component.aliases)?;
-            if components
-                .insert(component.key.clone(), component.clone().into())
-                .is_some()
-            {
+            work.visit(Visit::Element)?;
+            name_with_work(&component.key, work)?;
+            name_with_work(&component.root_key, work)?;
+            name_with_work(&component.role_slot, work)?;
+            aliases(&mut component.aliases, work)?;
+            work.visit(Visit::Constraint)?;
+            if map_lookup(&components, &component.key, work)?.is_some() {
                 return Err(fail("TEMPLATE_DUPLICATE_KEY", "component key"));
             }
+            components.insert(component.key.clone(), component.clone().into());
         }
         for component in components.values() {
-            let root = components
-                .get(&component.root_key)
+            work.visit(Visit::Element)?;
+            let root = map_lookup(&components, &component.root_key, work)?
                 .ok_or_else(|| fail("TEMPLATE_MISSING_ROOT", "component root"))?;
+            work.visit(Visit::Constraint)?;
             if root.root_key != root.key {
                 return Err(fail("TEMPLATE_ROOT_CHAIN", "root must be direct self-root"));
             }
-            if root.book != component.book || root.role_slot != component.role_slot {
+            work.visit(Visit::Constraint)?;
+            if root.book != component.book
+                || member_compare(&root.role_slot, &component.role_slot, work)? != Ordering::Equal
+            {
                 return Err(fail("TEMPLATE_ROOT_SEMANTICS", "root book/role mismatch"));
             }
         }
         for family in &mut dto.families {
-            name(&family.key)?;
-            name(&family.target_component_key)?;
-            name(&family.role_slot)?;
-            aliases(&mut family.aliases)?;
-            if families
-                .insert(family.key.clone(), family.clone().into())
-                .is_some()
-            {
+            work.visit(Visit::Element)?;
+            name_with_work(&family.key, work)?;
+            name_with_work(&family.target_component_key, work)?;
+            name_with_work(&family.role_slot, work)?;
+            aliases(&mut family.aliases, work)?;
+            work.visit(Visit::Constraint)?;
+            if map_lookup(&families, &family.key, work)?.is_some() {
                 return Err(fail("TEMPLATE_DUPLICATE_KEY", "family key"));
             }
-            let target = components
-                .get(&family.target_component_key)
+            families.insert(family.key.clone(), family.clone().into());
+            let target = map_lookup(&components, &family.target_component_key, work)?
                 .ok_or_else(|| fail("TEMPLATE_MISSING_ROOT", "family target"))?;
+            work.visit(Visit::Constraint)?;
             if target.root_key != target.key {
                 return Err(fail(
                     "TEMPLATE_FAMILY_TARGET",
                     "family requires original root component",
                 ));
             }
+            work.visit(Visit::Constraint)?;
             if target.role_slot != family.role_slot {
                 return Err(fail("TEMPLATE_FAMILY_TARGET", "family role mismatch"));
             }
         }
-        match (version, &dto.previous, previous) {
-            (1, None, None) => (),
-            (1, _, _) => return Err(fail("TEMPLATE_VERSION", "initial version forbids previous")),
-            (_, Some(reference), Some(prior)) => {
+        let initial = vw::compare(work, version, 1u64)? == Ordering::Equal;
+        match (initial, &dto.previous, previous) {
+            (true, None, None) => (),
+            (true, _, _) => {
+                return Err(fail("TEMPLATE_VERSION", "initial version forbids previous"))
+            }
+            (false, Some(reference), Some(prior)) => {
+                work.visit(Visit::Constraint)?;
                 if reference.kind != "workflow-slot-template"
-                    || reference.id != prior.document_id()?
-                    || reference.digest != prior.content_digest()?
+                    || reference.id != prior.document_id_with_work(work)?
+                    || reference.digest != prior.content_digest_with_work(work)?
                 {
                     return Err(fail(
                         "TEMPLATE_PREVIOUS_MISMATCH",
                         "exact previous reference required",
                     ));
                 }
-                if dto.template_id != prior.template_id || version <= prior.version {
+                work.visit(Visit::Constraint)?;
+                if dto.template_id != prior.template_id
+                    || vw::compare(work, version, prior.version)? != Ordering::Greater
+                {
                     return Err(fail(
                         "TEMPLATE_VERSION",
                         "same template and strictly increasing version required",
                     ));
                 }
                 for old in prior.components.values() {
-                    let new = components
-                        .get(&old.key)
+                    work.visit(Visit::Element)?;
+                    let new = map_lookup(&components, &old.key, work)?
                         .ok_or_else(|| fail("TEMPLATE_CONTINUITY", "previous component removed"))?;
+                    work.visit(Visit::Constraint)?;
                     if new.book != old.book
                         || new.root_key != old.root_key
                         || new.role_slot != old.role_slot
@@ -233,9 +275,10 @@ impl SlotTemplate {
                     }
                 }
                 for old in prior.families.values() {
-                    let new = families
-                        .get(&old.key)
+                    work.visit(Visit::Element)?;
+                    let new = map_lookup(&families, &old.key, work)?
                         .ok_or_else(|| fail("TEMPLATE_CONTINUITY", "previous family removed"))?;
+                    work.visit(Visit::Constraint)?;
                     if new.target_component_key != old.target_component_key
                         || new.role_slot != old.role_slot
                     {
@@ -269,10 +312,26 @@ impl SlotTemplate {
         self.version
     }
     pub fn component(&self, key: &str) -> Option<&TemplateComponent> {
-        self.components.get(key)
+        self.component_with_work(key, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
     }
     pub fn family(&self, key: &str) -> Option<&TemplateFamily> {
-        self.families.get(key)
+        self.family_with_work(key, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
+    }
+    pub fn component_with_work(
+        &self,
+        key: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<&TemplateComponent>> {
+        map_lookup(&self.components, key, work)
+    }
+    pub fn family_with_work(
+        &self,
+        key: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<&TemplateFamily>> {
+        map_lookup(&self.families, key, work)
     }
     pub fn components(&self) -> impl Iterator<Item = &TemplateComponent> {
         self.components.values()
@@ -283,46 +342,78 @@ impl SlotTemplate {
     /// Friendly aliases are checked only inside an explicitly supplied key.
     /// They never select or merge stable slots across template keys.
     pub fn component_named(&self, key: &str, alias: &str) -> Result<&TemplateComponent> {
+        self.component_named_with_work(key, alias, &mut NoopValidationWork)
+    }
+    pub fn component_named_with_work(
+        &self,
+        key: &str,
+        alias: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<&TemplateComponent> {
         let component = self
-            .components
-            .get(key)
+            .component_with_work(key, work)?
             .ok_or_else(|| fail("TEMPLATE_UNKNOWN_KEY", "component key"))?;
-        if !component.aliases.iter().any(|candidate| candidate == alias) {
-            return Err(fail("TEMPLATE_UNKNOWN_ALIAS", "component alias"));
+        for candidate in &component.aliases {
+            if member_compare(candidate, alias, work)? == Ordering::Equal {
+                return Ok(component);
+            }
         }
-        Ok(component)
+        Err(fail("TEMPLATE_UNKNOWN_ALIAS", "component alias"))
     }
     pub fn family_named(&self, key: &str, alias: &str) -> Result<&TemplateFamily> {
+        self.family_named_with_work(key, alias, &mut NoopValidationWork)
+    }
+    pub fn family_named_with_work(
+        &self,
+        key: &str,
+        alias: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<&TemplateFamily> {
         let family = self
-            .families
-            .get(key)
+            .family_with_work(key, work)?
             .ok_or_else(|| fail("TEMPLATE_UNKNOWN_KEY", "family key"))?;
-        if !family.aliases.iter().any(|candidate| candidate == alias) {
-            return Err(fail("TEMPLATE_UNKNOWN_ALIAS", "family alias"));
+        for candidate in &family.aliases {
+            if member_compare(candidate, alias, work)? == Ordering::Equal {
+                return Ok(family);
+            }
         }
-        Ok(family)
+        Err(fail("TEMPLATE_UNKNOWN_ALIAS", "family alias"))
     }
     pub fn canonical_value(&self) -> &Value {
         &self.body
     }
     pub fn canonical_bytes(&self) -> Result<CanonicalBytes> {
-        CanonicalBytes::from_value(&self.body)
+        self.canonical_bytes_with_work(&mut NoopValidationWork)
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<CanonicalBytes> {
+        CanonicalBytes::from_value_with_work(&self.body, work)
     }
     pub fn content_digest(&self) -> Result<String> {
-        super::document_digest(SCHEMA, &self.body)
+        self.content_digest_with_work(&mut NoopValidationWork)
+    }
+    pub fn content_digest_with_work(&self, work: &mut dyn ValidationWork) -> Result<String> {
+        super::document_digest_with_work(SCHEMA, &self.body, work)
     }
     pub fn document_id(&self) -> Result<String> {
-        Ok(format!("wdoc_{}", &self.content_digest()?[7..]))
+        self.document_id_with_work(&mut NoopValidationWork)
+    }
+    pub fn document_id_with_work(&self, work: &mut dyn ValidationWork) -> Result<String> {
+        let digest = self.content_digest_with_work(work)?;
+        work.write_bytes(69)?;
+        Ok(format!("wdoc_{}", &digest[7..]))
     }
 }
-fn aliases(values: &mut Vec<String>) -> Result<()> {
-    if values.len() > 64 {
+fn aliases(values: &mut Vec<String>, work: &mut dyn ValidationWork) -> Result<()> {
+    if vw::compare(work, values.len(), 64usize)? == Ordering::Greater {
         return Err(fail("TEMPLATE_LIMIT", "aliases"));
     }
     for alias in values.iter() {
-        name(alias)?;
+        name_with_work(alias, work)?;
     }
-    canonical::sort_set(values)
+    canonical::sort_set_with_work(values, work)
 }
 fn fail(code: &'static str, detail: &str) -> Error {
     Error::new(code, detail)
