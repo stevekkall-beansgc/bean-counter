@@ -707,6 +707,21 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
     assert_eq!(head.revision, 1);
     assert_eq!(head.grant, Some(initial_grant.id.clone()));
     assert_eq!(head.state, initial_state.id);
+    ledger
+        .admin
+        .read(&ledger.store, &mut tx, &key)
+        .await
+        .unwrap();
+    let observed = context::observe_source(&mut tx, &key, &e).await.unwrap();
+    assert_eq!(observed.state().revision(), 1);
+    assert_eq!(observed.grant().unwrap().revision(), 1);
+    assert_eq!(observed.enrollment().enrollment_id(), "source-enrollment-A");
+    assert!(
+        observed
+            .documents()
+            .iter()
+            .any(|d| d.reference == initial_grant)
+    );
     tx.rollback().await.unwrap();
     let mut narrowed = ceiling.clone();
     narrowed["operations"] = json!(["quantity.correct"]);
@@ -750,6 +765,31 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
         .prerequisite(&records::bytes(&revoke).unwrap())
         .await
         .unwrap();
+    let mut observed_tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    ledger
+        .admin
+        .read(&ledger.store, &mut observed_tx, &key)
+        .await
+        .unwrap();
+    let observed = context::observe_source(&mut observed_tx, &key, &e)
+        .await
+        .unwrap();
+    assert_eq!(observed.state().revision(), 3);
+    assert_eq!(observed.state().status(), "revoked");
+    assert!(observed.grant().is_none());
+    // Prior active grants remain verification history, never a fake current
+    // grant when the actual latest source state is revoked.
+    assert!(
+        observed
+            .documents()
+            .iter()
+            .any(|d| d.reference == initial_grant)
+    );
+    observed_tx.rollback().await.unwrap();
     assert_eq!(
         revoked["receipt"]["result_refs"].as_array().unwrap().len(),
         1
