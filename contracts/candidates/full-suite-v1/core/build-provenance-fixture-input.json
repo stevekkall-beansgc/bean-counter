@@ -1,0 +1,36 @@
+{
+  "schema": "synthetic-build-provenance-input/1",
+  "status": "source-only synthetic review input; no expected oracle; not actual build authority",
+  "source": {
+    "base_commit": "369caa2afc25b66c7d0b478e54fb64ac5eabeb6f",
+    "state": "worktree_snapshot",
+    "files": [
+      {
+        "path": "Cargo.lock",
+        "utf8": "# synthetic locked dependency input\nversion = 4\n"
+      },
+      {
+        "path": "Cargo.toml",
+        "utf8": "[workspace]\nmembers = [\"crates/example\"]\n"
+      },
+      {
+        "path": "crates/example/src/lib.rs",
+        "utf8": "pub fn synthetic() -> bool { true }\n"
+      }
+    ]
+  },
+  "recipe": {
+    "package_name": "synthetic-ledger",
+    "package_version": "0.0.0-fixture",
+    "build_profile": "test",
+    "target": "synthetic-target",
+    "features": [],
+    "rustc_version": "synthetic rustc fixture",
+    "cargo_version": "synthetic cargo fixture",
+    "rustflags": [],
+    "cargo_lock_digest": "DERIVE_FROM_CARGO_LOCK_BYTES",
+    "compiler_ref": "USE_RUNTIME_SUPPORT_INDEPENDENT_EXPECTED_REF"
+  },
+  "executable_utf8": "synthetic executable bytes; not a real binary\n",
+  "assembly": "Inventory entries sorted UTF16 path; exact UTF8 bytes no changes. Derive sizes/rawSHA, source digest with declared frame, canonical manifest/rawdigest/document Ref. Tokens resolve before schema validation; never admitted by runtime."
+}
