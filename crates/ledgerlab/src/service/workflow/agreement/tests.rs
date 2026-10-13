@@ -849,7 +849,7 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
     );
     observed_tx.rollback().await.unwrap();
     let restrict_identity = records::bytes(&restrict["key"]).unwrap();
-    for mode in 0..4 {
+    for mode in 0..5 {
         let mut tx = ledger
             .store
             .begin(crate::service::workflow::local::deadline())
@@ -858,7 +858,34 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
         tx.workflow_test_source_history_tamper(mode, &restrict_identity)
             .await
             .unwrap();
-        let as_of = context::source_as_of(&mut tx, &key, &e, revoked_sequence + 1).await;
+        if mode == 4 {
+            assert_eq!(
+                loaded(&mut tx, &key, &restricted_state)
+                    .await
+                    .unwrap()
+                    .reference,
+                restricted_state,
+                "state2 survives removal of its original birth row"
+            );
+            assert!(
+                tx.workflow_agreement_source_prefix(
+                    &key.logical_store_id,
+                    &key.scope,
+                    &e,
+                    "source-enrollment-A"
+                )
+                .await
+                .unwrap()
+                .contains(&restrict_identity),
+                "independent state locator preserves missing original identity"
+            );
+        }
+        let frontier = if mode == 4 {
+            restricted_sequence + 1
+        } else {
+            revoked_sequence + 1
+        };
+        let as_of = context::source_as_of(&mut tx, &key, &e, frontier).await;
         if mode == 0 {
             assert_eq!(
                 as_of.unwrap(),

@@ -108,6 +108,22 @@ impl SqliteTx {
                     .await?;
                 sqlx::query("UPDATE workflow_agreement_semantics SET original_identity_key=(SELECT identity_key FROM workflow_operations WHERE json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action')='source.enroll' ORDER BY commit_sequence LIMIT 1) WHERE original_identity_key=?").bind(identity).execute(self.conn()).await?;
             }
+            4 => {
+                // Deliberately damage only the original operation row. Keep
+                // its immutable state/body, membership and feed as evidence.
+                // Deferred FK checks permit this negative test inside a
+                // transaction that is always rolled back, never committed.
+                sqlx::query("PRAGMA defer_foreign_keys=ON")
+                    .execute(self.conn())
+                    .await?;
+                sqlx::query("DROP TRIGGER workflow_operations_delete_immutable")
+                    .execute(self.conn())
+                    .await?;
+                sqlx::query("DELETE FROM workflow_operations WHERE identity_key=?")
+                    .bind(identity)
+                    .execute(self.conn())
+                    .await?;
+            }
             _ => return Err(StoreError::Integrity("unknown test tamper")),
         }
         Ok(())
@@ -115,6 +131,8 @@ impl SqliteTx {
     /// Candidate immutable source births, independent of the mutable head or
     /// an auxiliary history index. The service verifies every certificate and
     /// its contiguous lineage; these JSON paths only locate closed records.
+    /// State identities are independent candidates, even when their original
+    /// operation is missing. The resolver must refuse that incomplete history.
     pub(crate) async fn workflow_agreement_source_prefix(
         &mut self,
         store: &str,
@@ -126,9 +144,9 @@ impl SqliteTx {
         self.failed = true;
         let result=timeout_at(self.deadline,async {
             self.workflow_schema().await?;
-            sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE ((json_extract(operation_bytes,'$.kind')='authority.change' AND json_extract(operation_bytes,'$.key.logical_store_id')=? AND json_extract(operation_bytes,'$.key.scope[0]')=? AND json_extract(operation_bytes,'$.key.scope[1]')=? AND ((json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action')='source.enroll' AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_id')=?) OR (json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action') IN ('source.restrict','source.revoke') AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_ref.id')=?))) OR identity_key IN (SELECT CAST(json_extract(canonical_bytes,'$.operation_key') AS BLOB) FROM workflow_documents WHERE json_extract(canonical_bytes,'$.schema')='ledger-workflow-source-state/1' AND json_extract(canonical_bytes,'$.enrollment_ref.id')=? AND json_extract(canonical_bytes,'$.enrollment_ref.digest')=?)) ORDER BY commit_sequence")
-                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment_id)
-                .bind(&enrollment.id).bind(&enrollment.id).bind(&enrollment.digest)
+            sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE json_extract(operation_bytes,'$.kind')='authority.change' AND json_extract(operation_bytes,'$.key.logical_store_id')=? AND json_extract(operation_bytes,'$.key.scope[0]')=? AND json_extract(operation_bytes,'$.key.scope[1]')=? AND ((json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action')='source.enroll' AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_id')=?) OR (json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action') IN ('source.restrict','source.revoke') AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_ref.id')=?)) UNION SELECT CAST(json_extract(canonical_bytes,'$.operation_key') AS BLOB) FROM workflow_documents WHERE json_extract(canonical_bytes,'$.schema')='ledger-workflow-source-state/1' AND json_extract(canonical_bytes,'$.operation_key.logical_store_id')=? AND json_extract(canonical_bytes,'$.operation_key.scope[0]')=? AND json_extract(canonical_bytes,'$.operation_key.scope[1]')=? AND json_extract(canonical_bytes,'$.enrollment_ref.kind')=? AND json_extract(canonical_bytes,'$.enrollment_ref.id')=? AND json_extract(canonical_bytes,'$.enrollment_ref.digest')=?")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment_id).bind(&enrollment.id)
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(&enrollment.kind).bind(&enrollment.id).bind(&enrollment.digest)
                 .fetch_all(self.conn()).await.map_err(StoreError::from)
         }).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
