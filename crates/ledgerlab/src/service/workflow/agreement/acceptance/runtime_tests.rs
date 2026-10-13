@@ -708,7 +708,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
             "INVALID_REFERENCE"
         };
         assert_eq!(
-            ledger.agreement(&records::bytes(&bad).unwrap()).await,
+            Box::pin(ledger.agreement(&records::bytes(&bad).unwrap())).await,
             Err(reject(expected))
         );
     }
@@ -759,8 +759,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         "1",
         json!({"kind":"not_before","at":"2029-01-01T00:00:00.000000Z"}),
     );
-    let pending = ledger
-        .agreement(&records::bytes(&pending_input).unwrap())
+    let pending = Box::pin(ledger.agreement(&records::bytes(&pending_input).unwrap()))
         .await
         .unwrap();
     let mut replace_input = activate_input(
@@ -773,8 +772,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     replace_input["payload"]["schema"] = json!("ledger-workflow-activation-replace/1");
     replace_input["payload"]["replaces_transition_ref"] =
         json!(result_ref(&pending, "workflow-activation"));
-    let replaced = ledger
-        .agreement(&records::bytes(&replace_input).unwrap())
+    let replaced = Box::pin(ledger.agreement(&records::bytes(&replace_input).unwrap()))
         .await
         .unwrap();
     let target = result_ref(&replaced, "workflow-activation");
@@ -790,11 +788,10 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     let bad_target_proof=proof(&ledger,"A-stop-active-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":a_binding,"target_transition_ref":result_ref(&active_a,"workflow-activation"),"reason":"Explicit pending cancellation and immediate stop"})).await;
     bad_stop["payload"]["evidence_refs"] = json!([bad_target_proof]);
     assert_eq!(
-        ledger.agreement(&records::bytes(&bad_stop).unwrap()).await,
+        Box::pin(ledger.agreement(&records::bytes(&bad_stop).unwrap())).await,
         Err(reject("ACTIVATION_SCHEDULE_CONFLICT"))
     );
-    let stopped = ledger
-        .agreement(&records::bytes(&stop_input).unwrap())
+    let stopped = Box::pin(ledger.agreement(&records::bytes(&stop_input).unwrap()))
         .await
         .unwrap();
     let pretty = serde_json::to_vec_pretty(&a).unwrap();
@@ -821,8 +818,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     ] {
         let mut alias = original.clone();
         alias["key"]["operation_id"] = json!(id);
-        let result = ledger
-            .agreement(&records::bytes(&alias).unwrap())
+        let result = Box::pin(ledger.agreement(&records::bytes(&alias).unwrap()))
             .await
             .unwrap();
         assert_eq!(result["receipt"]["result_kind"], "semantic_alias");
@@ -851,8 +847,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .unwrap();
     let mut b_alias = activate_b.clone();
     b_alias["key"]["operation_id"] = json!("B-activate-alias-after-expiry");
-    let b_aliased = ledger
-        .agreement(&records::bytes(&b_alias).unwrap())
+    let b_aliased = Box::pin(ledger.agreement(&records::bytes(&b_alias).unwrap()))
         .await
         .unwrap();
     assert_eq!(b_aliased["receipt"]["result_kind"], "semantic_alias");
@@ -888,7 +883,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     denied["key"]["operation_id"] = json!("A-fresh-after-source-revoke");
     denied["payload"]["expected_revision"] = json!("4");
     assert_eq!(
-        ledger.agreement(&records::bytes(&denied).unwrap()).await,
+        Box::pin(ledger.agreement(&records::bytes(&denied).unwrap())).await,
         Err(reject("AUTHORITY_REQUIRED"))
     );
     ledger.close().await;
@@ -1023,8 +1018,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         (&stop_input, &stopped),
     ] {
         assert_eq!(
-            reopened
-                .agreement(&serde_json::to_vec_pretty(request).unwrap())
+            Box::pin(reopened.agreement(&serde_json::to_vec_pretty(request).unwrap()))
                 .await
                 .unwrap()["receipt"],
             response["receipt"]
