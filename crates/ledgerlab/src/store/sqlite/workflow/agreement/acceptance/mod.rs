@@ -9,6 +9,7 @@ pub(crate) enum HeadKind {
     Acceptance,
     Activation,
 }
+
 impl HeadKind {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -118,6 +119,72 @@ fn projection_document(p: &JournalAppend, r: &RecordRef) -> Result<(), StoreErro
     if !p.documents.iter().any(|d| d.reference == *r) {
         return Err(StoreError::Integrity(
             "agreement projection outside complete prepared closure",
+        ));
+    }
+    Ok(())
+}
+fn projection_body(p: &JournalAppend, r: &RecordRef) -> Result<serde_json::Value, StoreError> {
+    let d = p
+        .documents
+        .iter()
+        .find(|d| d.reference == *r)
+        .ok_or(StoreError::Integrity("projection document absent"))?;
+    let body = ledgerlab_core::canonical::parse_bounded(&d.bytes, 262144)
+        .map_err(|_| StoreError::Integrity("invalid projection body"))?;
+    if ledgerlab_core::canonical::CanonicalBytes::from_value(&body)
+        .map_err(|_| StoreError::Integrity("invalid projection JCS"))?
+        .as_slice()
+        != d.bytes
+        || body["schema"] != d.schema
+    {
+        return Err(StoreError::Integrity(
+            "projection body/schema copies differ",
+        ));
+    }
+    Ok(body)
+}
+fn activation_copies(p: &JournalAppend, a: &ActivationProjection) -> Result<(), StoreError> {
+    use serde_json::json;
+    let head = projection_body(p, &a.head.transition)?;
+    let activation = projection_body(p, &a.activation)?;
+    let key = json!({"logical_store_id":p.store,"scope":[p.tenant,p.environment],"source":p.source,"operation_id":p.operation_id});
+    let old = a.expected_revision.to_string();
+    let new = a.head.revision.to_string();
+    let sequence = a.sequence.to_string();
+    let micros = |v: &serde_json::Value| -> Result<i64, StoreError> {
+        let s = v
+            .as_str()
+            .ok_or(StoreError::Integrity("projection time string"))?;
+        ledgerlab_core::domain::Timestamp::parse(s)
+            .map(|t| t.micros())
+            .map_err(|_| StoreError::Integrity("projection time"))
+    };
+    if head["schema"] != "ledger-workflow-head-transition/1"
+        || head["head_kind"] != "agreement_activation"
+        || head["operation_key"] != key
+        || head["scope"] != key["scope"]
+        || head["customer"] != a.customer
+        || head["agreement_id"] != a.agreement
+        || head["old_revision"] != old.as_str()
+        || head["new_revision"] != new.as_str()
+        || head["accepted_binding_ref"] != json!(a.binding)
+        || head["commit_sequence"] != sequence.as_str()
+        || micros(&head["accepted_at"])? != a.accepted_at_us
+        || micros(&head["resolved_effective_time"])? != a.effective_at_us
+        || (a.expected_revision == 0) != head.get("prior_head_ref").is_none()
+        || activation["schema"] != "ledger-workflow-activation-transition/1"
+        || activation["head_transition_ref"] != json!(a.head.transition)
+        || activation["binding_ref"] != json!(a.binding)
+        || activation["action"] != a.action.as_str()
+        || activation["commit_sequence"] != sequence.as_str()
+        || micros(&activation["accepted_at"])? != a.accepted_at_us
+        || micros(&activation["effective_at"])? != a.effective_at_us
+        || activation.get("target_transition_ref") != a.target.as_ref().map(|r| json!(r)).as_ref()
+        || a.effective_at_us < a.accepted_at_us
+        || (a.action == ActivationAction::Revoke && a.effective_at_us != a.accepted_at_us)
+    {
+        return Err(StoreError::Integrity(
+            "activation projection body copies differ",
         ));
     }
     Ok(())
@@ -291,6 +358,7 @@ impl SqliteTx {
         p: &JournalAppend,
         a: &ActivationProjection,
     ) -> Result<(), StoreError> {
+        activation_copies(p, a)?;
         for r in [&a.activation, &a.binding, &a.intent] {
             projection_document(p, r)?;
         }
@@ -363,5 +431,130 @@ impl SqliteTx {
         .execute(self.conn())
         .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::sqlite::workflow::Document;
+    use serde_json::{Value, json};
+    fn document(v: &Value) -> Document {
+        Document {
+            reference: serde_json::from_value(v["ref"].clone()).unwrap(),
+            schema: v["body"]["schema"].as_str().unwrap().into(),
+            bytes: ledgerlab_core::canonical::CanonicalBytes::from_value(&v["body"])
+                .unwrap()
+                .as_slice()
+                .to_vec(),
+        }
+    }
+    fn fixture(customer: &str) -> (JournalAppend, ActivationProjection) {
+        // Independent encoding operands only. No SQL rows, owner capability,
+        // customer assent or complete prepared append is created by this test.
+        let f: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../service/workflow/agreement/testdata/semantic-independent.json"
+        ))
+        .unwrap();
+        let vectors = f["vectors"].as_array().unwrap();
+        let vector = |name: &str| vectors.iter().find(|v| v["name"] == name).unwrap();
+        let head = vector(&format!("{customer}.activation-head-v1"));
+        let activation = vector(&format!("{customer}.activation-v1"));
+        let h = &head["body"];
+        let a = &activation["body"];
+        let key = &h["operation_key"];
+        let reference = |v: &Value| serde_json::from_value::<RecordRef>(v.clone()).unwrap();
+        let sequence = h["commit_sequence"].as_str().unwrap().parse().unwrap();
+        let at = ledgerlab_core::domain::Timestamp::parse(h["accepted_at"].as_str().unwrap())
+            .unwrap()
+            .micros();
+        let effective =
+            ledgerlab_core::domain::Timestamp::parse(a["effective_at"].as_str().unwrap())
+                .unwrap()
+                .micros();
+        let intent = RecordRef {
+            kind: "workflow-agreement-intent".into(),
+            id: "encoding-only-unused-intent".into(),
+            digest: "encoding-only-unused-digest".into(),
+        };
+        let projection = ActivationProjection {
+            customer: h["customer"].as_str().unwrap().into(),
+            agreement: h["agreement_id"].as_str().unwrap().into(),
+            expected_revision: 0,
+            head: AgreementHead {
+                revision: 1,
+                transition: reference(&head["ref"]),
+            },
+            activation: reference(&activation["ref"]),
+            binding: reference(&h["accepted_binding_ref"]),
+            intent: intent.clone(),
+            action: ActivationAction::Activate,
+            effective_at_us: effective,
+            accepted_at_us: at,
+            sequence,
+            target: None,
+        };
+        let unused = RecordRef {
+            kind: "encoding-only-unused-wrapper".into(),
+            id: "encoding-only-unused-wrapper".into(),
+            digest: "encoding-only-unused-wrapper".into(),
+        };
+        let append = JournalAppend {
+            store: key["logical_store_id"].as_str().unwrap().into(),
+            tenant: key["scope"][0].as_str().unwrap().into(),
+            environment: key["scope"][1].as_str().unwrap().into(),
+            source: key["source"].as_str().unwrap().into(),
+            operation_id: key["operation_id"].as_str().unwrap().into(),
+            documents: vec![document(head), document(activation)],
+            operation: super::super::JournalOperation {
+                identity: vec![],
+                kind: "agreement.activate".into(),
+                operation_ref: unused.clone(),
+                operation_bytes: vec![],
+                request_hash: String::new(),
+                manifest_ref: unused.clone(),
+                manifest_bytes: vec![],
+                receipt_ref: unused,
+                receipt_bytes: vec![],
+                sequence,
+                accepted_at_us: at,
+                members: vec![],
+            },
+            semantic_key: vec![],
+            alias_of: None,
+            projection: super::super::Projection::None,
+        };
+        (append, projection)
+    }
+    #[test]
+    fn activation_index_copies_match_independent_a_b_records_and_refuse_changed_metadata() {
+        for customer in ["A", "B"] {
+            let (p, a) = fixture(customer);
+            activation_copies(&p, &a).unwrap();
+            for mode in 0..6 {
+                let mut bad = a.clone();
+                match mode {
+                    0 => bad.head.revision += 1,
+                    1 => bad.sequence += 1,
+                    2 => bad.effective_at_us += 1,
+                    3 => bad.action = ActivationAction::Revoke,
+                    4 => bad.binding.digest = "sha256:wrong-copy".into(),
+                    _ => bad.target = Some(bad.activation.clone()),
+                }
+                assert!(
+                    matches!(activation_copies(&p, &bad), Err(StoreError::Integrity(_))),
+                    "metadata mismatch {mode} must refuse before a head/index write"
+                );
+            }
+            let mut bad = p;
+            let d = &mut bad.documents[0];
+            let mut body = ledgerlab_core::canonical::parse(&d.bytes).unwrap();
+            body["head_kind"] = json!("agreement_acceptance");
+            d.bytes = ledgerlab_core::canonical::CanonicalBytes::from_value(&body)
+                .unwrap()
+                .as_slice()
+                .to_vec();
+            assert!(activation_copies(&bad, &a).is_err());
+        }
     }
 }
