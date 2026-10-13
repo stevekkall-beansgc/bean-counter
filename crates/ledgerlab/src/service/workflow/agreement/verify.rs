@@ -1,0 +1,461 @@
+//! Retained raw→normalized linkage and complete typed dependency verification.
+use super::super::request::OperationKey;
+use super::*;
+
+pub(super) fn root(body: &Value, key: &OperationKey, expected_source: Option<&str>) -> Result<()> {
+    exact_keys(
+        body,
+        &[
+            "schema",
+            "basis",
+            "basis_digest",
+            "verification_profile",
+            "verified_at",
+        ],
+    )?;
+    let b = &body["basis"];
+    exact_keys(
+        b,
+        &[
+            "schema",
+            "logical_store_id",
+            "scope",
+            "principal_id",
+            "source",
+            "canonical_economic_namespace",
+            "rights",
+            "source_grant_revision",
+        ],
+    )?;
+    if body["schema"] != "ledger-workflow-local-authority-snapshot/1"
+        || body["verification_profile"] != "local-private-directory-owner/1"
+        || b["schema"] != "ledger-workflow-local-authority-basis/1"
+        || b["logical_store_id"] != key.logical_store_id
+        || b["scope"] != json!(key.scope)
+        || b["rights"] != json!(["admin", "read"])
+        || b["canonical_economic_namespace"] != b["source"]
+        || records::hash("local-authority-basis", 1, b)? != body["basis_digest"]
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let revision = text(b, "source_grant_revision")?;
+    if revision
+        .parse::<i64>()
+        .ok()
+        .filter(|n| *n > 0)
+        .map(|n| n.to_string())
+        .as_deref()
+        != Some(revision)
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Timestamp::parse(text(body, "verified_at")?).map_err(|_| ServiceError::IntegrityFailure)?;
+    for field in ["principal_id", "source"] {
+        if text(b, field)?.is_empty() {
+            return Err(ServiceError::IntegrityFailure);
+        }
+    }
+    if expected_source.is_some_and(|s| b["source"] != s) {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(())
+}
+fn parse_ref(v: &Value) -> Result<RecordRef> {
+    serde_json::from_value(v.clone()).map_err(|_| ServiceError::IntegrityFailure)
+}
+fn dependencies(body: &Value, kind: &str, key: &OperationKey) -> Result<Vec<RecordRef>> {
+    match kind {
+        "workflow-authority" => {
+            root(body, key, None)?;
+            Ok(vec![])
+        }
+        "workflow-evidence" => {
+            let input = evidence_input(body)?;
+            Timestamp::parse(text(body, "retained_at")?)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            if !matches!(
+                body["installation_mode"].as_str(),
+                Some("real_local" | "isolated_synthetic")
+            ) || text(body, "retained_by")?.is_empty()
+            {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            let mut refs = vec![parse_ref(&body["authority_ref"])?];
+            if input.purpose() == "operator_attestation" {
+                refs.push(parse_ref(&input.metadata()["assent_evidence_ref"])?);
+            } else if input.purpose() == "admission_stop" {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            Ok(refs)
+        }
+        "workflow-customer" => {
+            exact_keys(
+                body,
+                &[
+                    "schema",
+                    "scope",
+                    "customer",
+                    "acceptor",
+                    "evidence_ref",
+                    "registered_by",
+                    "registered_at",
+                    "authority_ref",
+                    "installation_mode",
+                ],
+            )?;
+            if body["schema"] != "ledger-workflow-customer-registration/1"
+                || body["scope"] != json!(key.scope)
+                || !matches!(
+                    body["installation_mode"].as_str(),
+                    Some("real_local" | "isolated_synthetic")
+                )
+            {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            Timestamp::parse(text(body, "registered_at")?)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            for field in ["customer", "acceptor", "registered_by"] {
+                if text(body, field)?.is_empty() {
+                    return Err(ServiceError::IntegrityFailure);
+                }
+            }
+            Ok(vec![
+                parse_ref(&body["evidence_ref"])?,
+                parse_ref(&body["authority_ref"])?,
+            ])
+        }
+        _ => Err(ServiceError::IntegrityFailure),
+    }
+}
+pub(super) async fn closure(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    seeds: &[RecordRef],
+) -> Result<Vec<Document>> {
+    let mut todo = seeds.to_vec();
+    let mut loaded = std::collections::BTreeMap::new();
+    let mut total = 0usize;
+    while let Some(r) = todo.pop() {
+        if let Some(d) = loaded.get(&r.id) {
+            let d: &Document = d;
+            if d.reference != r {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            continue;
+        }
+        require(loaded.len() < 4095, "PROGRAM_BUDGET_EXCEEDED")?;
+        let d = super::loaded(tx, key, &r).await?;
+        let body = canonical_body(&d)?;
+        total = total
+            .checked_add(d.bytes.len())
+            .ok_or(ServiceError::IntegrityFailure)?;
+        require(total <= 8 * 1024 * 1024, "PROGRAM_BUDGET_EXCEEDED")?;
+        todo.extend(dependencies(&body, &r.kind, key)?);
+        loaded.insert(r.id.clone(), d);
+    }
+    for d in loaded.values() {
+        let b = canonical_body(d)?;
+        if d.reference.kind == "workflow-evidence" || d.reference.kind == "workflow-customer" {
+            let authority = parse_ref(&b["authority_ref"])?;
+            let root_doc = loaded
+                .get(&authority.id)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            if root_doc.reference != authority || authority.kind != "workflow-authority" {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            let root = canonical_body(root_doc)?;
+            let actor = if d.reference.kind == "workflow-evidence" {
+                &b["retained_by"]
+            } else {
+                &b["registered_by"]
+            };
+            if root["basis"]["principal_id"] != *actor {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            if d.reference.kind == "workflow-customer" {
+                let e = parse_ref(&b["evidence_ref"])?;
+                let proof = loaded.get(&e.id).ok_or(ServiceError::IntegrityFailure)?;
+                if proof.reference != e || e.kind != "workflow-evidence" {
+                    return Err(ServiceError::IntegrityFailure);
+                }
+                let p = canonical_body(proof)?;
+                let input = evidence_input(&p)?;
+                if input.purpose() != "customer_registration"
+                    || input.customer() != text(&b, "customer")?
+                    || input.metadata()["acceptor"] != b["acceptor"]
+                    || p["installation_mode"] != b["installation_mode"]
+                {
+                    return Err(ServiceError::IntegrityFailure);
+                }
+            } else {
+                let input = evidence_input(&b)?;
+                if input.purpose() == "operator_attestation" {
+                    let e = parse_ref(&input.metadata()["assent_evidence_ref"])?;
+                    let proof = loaded.get(&e.id).ok_or(ServiceError::IntegrityFailure)?;
+                    if proof.reference != e || e.kind != "workflow-evidence" {
+                        return Err(ServiceError::IntegrityFailure);
+                    }
+                    let p = canonical_body(proof)?;
+                    let assent = evidence_input(&p)?;
+                    if assent.purpose() != "assent"
+                        || assent.customer() != input.customer()
+                        || assent.agreement_id() != input.agreement_id()
+                        || assent.metadata()["terms_digest"] != input.metadata()["terms_digest"]
+                        || assent.metadata()["acceptor"] != input.metadata()["acceptor"]
+                        || p["retained_by"] != b["retained_by"]
+                        || p["installation_mode"] != b["installation_mode"]
+                    {
+                        return Err(ServiceError::IntegrityFailure);
+                    }
+                }
+            }
+        }
+    }
+    Ok(loaded.into_values().collect())
+}
+pub(super) async fn locator_dependencies(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    req: &request::Request,
+    payload: &Value,
+) -> Result<Vec<Document>> {
+    let mut refs = vec![];
+    for l in journal::locators(req, payload)? {
+        refs.push(parse_ref(&l["ref"])?);
+    }
+    closure(tx, key, &refs).await
+}
+fn checked(raw: &[u8], limit: usize) -> Result<Value> {
+    let v = canonical::parse_bounded(raw, limit).map_err(|_| ServiceError::IntegrityFailure)?;
+    if records::bytes(&v)? != raw {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(v)
+}
+pub(super) async fn retained(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    o: &JournalOperation,
+) -> Result<Value> {
+    let op = checked(&o.operation_bytes, 8 * 1024 * 1024)?;
+    let manifest = checked(&o.manifest_bytes, 4 * 1024 * 1024)?;
+    let receipt = checked(&o.receipt_bytes, 1024 * 1024)?;
+    exact_keys(
+        &op,
+        &[
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "request_evidence",
+            "authority_snapshot",
+            "accepted_at",
+            "commit_sequence",
+            "result_refs",
+        ],
+    )?;
+    exact_keys(&manifest, &["schema", "key", "members"])?;
+    exact_keys(
+        &receipt,
+        &[
+            "schema",
+            "key",
+            "request_hash",
+            "request_hash_profile",
+            "normalization_profile",
+            "schema_bundle_digest",
+            "descriptor_closure_digest",
+            "original_request_bytes_sha256",
+            "result_kind",
+            "result_refs",
+            "accepted_at",
+            "commit_sequence",
+            "manifest_hash",
+            "receipt_hash",
+        ],
+    )?;
+    let sequence = o.sequence.to_string();
+    if op["schema"] != "ledger-workflow-operation-record/1"
+        || op["key"] != json!(key)
+        || op["kind"] != o.kind
+        || op["contract"] != "workflow/1"
+        || o.identity != key.bytes()?
+        || op["commit_sequence"] != sequence
+        || Timestamp::parse(text(&op, "accepted_at")?)
+            .map_err(|_| ServiceError::IntegrityFailure)?
+            .micros()
+            != o.accepted_at_us
+        || manifest["schema"] != "ledger-workflow-agreement-manifest/1"
+        || manifest["key"] != json!(key)
+        || receipt["schema"] != "ledger-operation-receipt/2"
+        || receipt["key"] != json!(key)
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    if records::record_reference("workflow-operation", &key.scope, &op)? != o.operation_ref
+        || records::record_reference("workflow-manifest", &key.scope, &manifest)? != o.manifest_ref
+        || records::record_reference("workflow-receipt", &key.scope, &receipt)? != o.receipt_ref
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let evidence = &op["request_evidence"];
+    let raw = ledgerlab_core::adjudication::proofs::decode_base64(
+        text(evidence, "original_request_bytes_base64")?,
+        262144,
+    )
+    .map_err(|_| ServiceError::IntegrityFailure)?;
+    let req = request::Request::parse(&raw).map_err(|_| ServiceError::IntegrityFailure)?;
+    if req.key() != key || req.kind() != o.kind {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let payload = service::normalize_payload(&req).map_err(|_| ServiceError::IntegrityFailure)?;
+    let reproduced =
+        journal::evidence(&req, &payload).map_err(|_| ServiceError::IntegrityFailure)?;
+    if reproduced != *evidence
+        || evidence["request_hash"] != o.request_hash
+        || receipt["request_hash"] != o.request_hash
+        || receipt["request_hash_profile"] != "bean-counter/operation-request/2"
+        || receipt["normalization_profile"] != evidence["normalization_profile"]
+        || receipt["schema_bundle_digest"] != evidence["schema_bundle_digest"]
+        || receipt["descriptor_closure_digest"]
+            != evidence["descriptor_resolution"]["closure_digest"]
+        || receipt["original_request_bytes_sha256"] != evidence["original_request_bytes_sha256"]
+        || receipt["manifest_hash"] != o.manifest_ref.digest
+        || receipt["accepted_at"] != op["accepted_at"]
+        || receipt["commit_sequence"] != sequence
+        || receipt["result_refs"] != op["result_refs"]
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let authority = &op["authority_snapshot"];
+    exact_keys(
+        authority,
+        &[
+            "schema",
+            "principal_id",
+            "source",
+            "authority_refs",
+            "rights",
+            "validated_at",
+        ],
+    )?;
+    let roots: Vec<RecordRef> = serde_json::from_value(authority["authority_refs"].clone())
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    if authority["schema"] != "ledger-workflow-publication-authority/1"
+        || authority["source"] != key.source
+        || authority["rights"] != json!(["admin"])
+        || authority["validated_at"] != op["accepted_at"]
+        || roots.len() != 1
+        || roots[0].kind != "workflow-authority"
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let results: Vec<RecordRef> = serde_json::from_value(op["result_refs"].clone())
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    if results.len() != 1
+        || results[0].kind
+            != if o.kind == "evidence.retain" {
+                "workflow-evidence"
+            } else {
+                "workflow-customer"
+            }
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let mut seeds = results.clone();
+    seeds.extend(roots.clone());
+    for l in journal::locators(&req, &payload)? {
+        seeds.push(parse_ref(&l["ref"])?);
+    }
+    let docs = closure(tx, key, &seeds).await?;
+    let root_doc = docs
+        .iter()
+        .find(|d| d.reference == roots[0])
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let root_body = canonical_body(root_doc)?;
+    root(&root_body, key, Some(&key.source))?;
+    if root_body["basis"]["principal_id"] != authority["principal_id"] {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let result_doc = docs
+        .iter()
+        .find(|d| d.reference == results[0])
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let body = canonical_body(result_doc)?;
+    let semantic = if o.kind == "evidence.retain" {
+        let input = evidence_input(&body)?;
+        if input
+            .canonical_value()
+            .map_err(|_| ServiceError::IntegrityFailure)?
+            != payload
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        evidence_identity(key, &input)?
+    } else {
+        if body["customer"] != payload["customer"]
+            || body["acceptor"] != payload["acceptor"]
+            || body["evidence_ref"] != payload["registration_evidence_ref"]
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        records::bytes(&json!(["customer.register", body["customer"]]))?
+    };
+    let original = tx
+        .workflow_agreement_semantic(&key.logical_store_id, &key.scope, &o.kind, &semantic)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let is_alias = original != o.identity;
+    if receipt["result_kind"]
+        != if is_alias {
+            "semantic_alias"
+        } else {
+            "administrative"
+        }
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    if !is_alias {
+        let result_time = if o.kind == "evidence.retain" {
+            &body["retained_at"]
+        } else {
+            &body["registered_at"]
+        };
+        let result_actor = if o.kind == "evidence.retain" {
+            &body["retained_by"]
+        } else {
+            &body["registered_by"]
+        };
+        if *result_time != op["accepted_at"]
+            || *result_actor != authority["principal_id"]
+            || body["authority_ref"] != json!(roots[0])
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+    } else {
+        let old = tx
+            .workflow_agreement_lookup(&original)
+            .await
+            .map_err(crate::service::store_error)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let old_op = checked(&old.operation_bytes, 8 * 1024 * 1024)?;
+        if old_op["result_refs"] != op["result_refs"]
+            || old.kind != o.kind
+            || old.sequence >= o.sequence
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+    }
+    let mut expected: Vec<_> = docs.iter().map(|d| d.reference.clone()).collect();
+    expected.push(o.operation_ref.clone());
+    records::sort_refs(&mut expected)?;
+    let mut indexed = o.members.clone();
+    records::sort_refs(&mut indexed)?;
+    if indexed != expected || manifest["members"] != json!(expected) {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(
+        json!({"schema":"ledger-operation-status/1","status":"committed","receipt":receipt,"request_evidence":evidence}),
+    )
+}
