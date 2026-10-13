@@ -1,0 +1,29 @@
+{
+  "schema": "candidate-author-validation/1",
+  "status": "UNFROZEN_AUTHOR_CHECKPOINT",
+  "author": "GPT-6 Astra",
+  "date": "2026-10-13",
+  "sha256": {
+    "PUBLICATION-TRANSPORT-02-REPAIR.md": "ac57151f57c26e067ec856017b50f081e7ae759bc9bee39d73adf5c575fc4cab",
+    "publication-transport-02.schema.json": "3b0dd01db46f426ae2943a4d73f1176cf781c7c4eeef80cb74902f7ef2d540c9",
+    "publication-transport-02-registry.json": "ce1b5c6ba35f3b59305f750d7b85e505db499aef7e399f631b183121055d5d6f",
+    "publication-transport-02-fixture-input.json": "7e7a8808856b9cdd51a9037e5ddcc93d4a115ed8f3aa4cc76f2b79438029b656",
+    "derive_publication_transport_02_author.py": "06dd5532b54e284f6658fe3d667d3d41f1cdb08ec2fd5963e3f53cc41ee5db8a",
+    "publication-transport-02-author.json": "1abd24d363b75a1cb9bc079b3c86f4ce2eb28957efd985e06fd501df7320bad4",
+    "validate_publication_transport_02.py": "aeb63ec2e93750a1132f8cbd7504371acd5354a763cb7d238374b8e68d5b7882",
+    "compare_publication_transport_known.py": "6d03a28a01d86e21c1eef223c4f0cf8af2bb09625f29b401a5db355955540900"
+  },
+  "checks": {
+    "draft202012_and_shapes": 225,
+    "jsonschema_version": "4.26.0",
+    "author_regeneration": "PASS",
+    "sealed_known_four_document_request_read_comparison": "PASS",
+    "pub_enc_01_hash_preservation": "PASS",
+    "pub_enc_01_independent_oracle_reproduction": "PASS",
+    "full27operation_independent_comparison": "PENDING",
+    "runtime_public_retention_publication_read_reopen": "UNRUN"
+  },
+  "sealed_known_oracle_sha256": "aeb25eeed32a48364e340ce3525c8d2d6e1971cf8fb65bab167d23023d86a38d",
+  "first_author_output_before_known_oracle_inspection": "ca3618b7f67f1f87d797ab049300f4d5c7315c401d5586694388f61fa6118048",
+  "later_output_delta": "Added explicit committed original-status envelope; canonical records and operation chains unchanged."
+}
