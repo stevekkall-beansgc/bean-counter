@@ -5,7 +5,6 @@ use crate::{Error, Result};
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -321,16 +320,7 @@ impl FactSchema {
     }
     /// S12 workflow-document framing; legacy domains remain unchanged.
     pub fn content_digest(&self) -> Result<String> {
-        let mut hash = Sha256::new();
-        hash.update(b"bean-counter/workflow-document/1\0");
-        hash.update(
-            CanonicalBytes::from_value(&serde_json::json!([
-                "ledger-workflow-fact-schema/1",
-                self.body
-            ]))?
-            .as_slice(),
-        );
-        Ok(format!("sha256:{}", canonical::hex(&hash.finalize())))
+        super::document_digest("ledger-workflow-fact-schema/1", &self.body)
     }
     pub fn document_id(&self) -> Result<String> {
         Ok(format!("wdoc_{}", &self.content_digest()?[7..]))
@@ -526,7 +516,7 @@ fn number_type(
         unit: unit.clone(),
     })
 }
-fn counter(raw: &str) -> Result<u64> {
+pub(super) fn counter(raw: &str) -> Result<u64> {
     if raw.is_empty() || raw.len() > 64 || !raw.bytes().all(|b| b.is_ascii_digit()) {
         return Err(fail("FACT_SCHEMA", "counter syntax"));
     }
@@ -543,7 +533,7 @@ fn counter(raw: &str) -> Result<u64> {
     }
     Ok(value)
 }
-fn name(raw: &str) -> Result<()> {
+pub(super) fn name(raw: &str) -> Result<()> {
     let (namespace, local) = raw
         .split_once(':')
         .ok_or_else(|| fail("FACT_SCHEMA", "qualified name required"))?;
@@ -560,7 +550,7 @@ fn name(raw: &str) -> Result<()> {
     }
     Ok(())
 }
-fn reject_null(value: &Value) -> Result<()> {
+pub(super) fn reject_null(value: &Value) -> Result<()> {
     match value {
         Value::Null => return Err(fail("FACT_SCHEMA", "explicit null")),
         Value::Array(values) => {
