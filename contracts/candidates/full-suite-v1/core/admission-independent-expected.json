@@ -1,0 +1,595 @@
+{
+  "status": "PROPOSED_CAPACITY_EXPECTATIONS_OWNER_ENABLE_PENDING_NOT_RUNTIME_PASS",
+  "profile": "workflow-shared-capacity/1",
+  "original_fixture_sha256": "6c78618fb689d0122ca5245c58464f3a27b1919bf013dea11a1a1f36dbde0599",
+  "fresh": {
+    "units": 1,
+    "new_documents": 9,
+    "document_bytes": 10806,
+    "wrapper_and_key_bytes": 19452,
+    "WB_delta": 30258
+  },
+  "original_retry": {
+    "units": 0,
+    "WB_delta": 0
+  },
+  "new_key_alias_one_second_later": {
+    "units": 1,
+    "new_documents": 1,
+    "reused_documents": 8,
+    "document_bytes": 544,
+    "wrapper_and_key_bytes": 19452,
+    "WB_delta": 19996,
+    "publication_ref_unchanged": {
+      "kind": "workflow-publication",
+      "id": "wpub_be643632c1b9960fab5ca9c424651c7f756b10c0e1bf6976c384b13a59398dac",
+      "digest": "sha256:fefae3ad28ea3f1ccbdfd7f1782d99640b9fa8675dfba6c70deb2ca9bcd02c57"
+    },
+    "plan_ref_unchanged": {
+      "kind": "workflow-compiled-plan",
+      "id": "wplan_a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5",
+      "digest": "sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5"
+    }
+  },
+  "vectors": [
+    {
+      "name": "authority-snapshot",
+      "body": {
+        "schema": "ledger-workflow-local-authority-snapshot/1",
+        "basis": {
+          "schema": "ledger-workflow-local-authority-basis/1",
+          "logical_store_id": "fixture-store",
+          "scope": [
+            "fixture",
+            "sandbox"
+          ],
+          "principal_id": "fixture-admin",
+          "source": "urn:fixture:publisher",
+          "canonical_economic_namespace": "urn:fixture:publisher",
+          "rights": [
+            "admin",
+            "read"
+          ],
+          "source_grant_revision": "1"
+        },
+        "basis_digest": "sha256:8e388a8a512b66e232ebcccdf67c1935d247aebe670322e208abbe7cf383c771",
+        "verification_profile": "local-private-directory-owner/1",
+        "verified_at": "2026-10-12T20:00:01.000000Z"
+      },
+      "ref": {
+        "kind": "workflow-authority",
+        "id": "wdoc_f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3",
+        "digest": "sha256:f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3"
+      },
+      "canonical_utf8": "{\"basis\":{\"canonical_economic_namespace\":\"urn:fixture:publisher\",\"logical_store_id\":\"fixture-store\",\"principal_id\":\"fixture-admin\",\"rights\":[\"admin\",\"read\"],\"schema\":\"ledger-workflow-local-authority-basis/1\",\"scope\":[\"fixture\",\"sandbox\"],\"source\":\"urn:fixture:publisher\",\"source_grant_revision\":\"1\"},\"basis_digest\":\"sha256:8e388a8a512b66e232ebcccdf67c1935d247aebe670322e208abbe7cf383c771\",\"schema\":\"ledger-workflow-local-authority-snapshot/1\",\"verification_profile\":\"local-private-directory-owner/1\",\"verified_at\":\"2026-10-12T20:00:01.000000Z\"}",
+      "canonical_hex": "7b226261736973223a7b2263616e6f6e6963616c5f65636f6e6f6d69635f6e616d657370616365223a2275726e3a666978747572653a7075626c6973686572222c226c6f676963616c5f73746f72655f6964223a22666978747572652d73746f7265222c227072696e636970616c5f6964223a22666978747572652d61646d696e222c22726967687473223a5b2261646d696e222c2272656164225d2c22736368656d61223a226c65646765722d776f726b666c6f772d6c6f63616c2d617574686f726974792d62617369732f31222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c22736f75726365223a2275726e3a666978747572653a7075626c6973686572222c22736f757263655f6772616e745f7265766973696f6e223a2231227d2c2262617369735f646967657374223a227368613235363a38653338386138613531326236366532333265626363636466363763313933356432343761656265363730333232653230386162626537636633383363373731222c22736368656d61223a226c65646765722d776f726b666c6f772d6c6f63616c2d617574686f726974792d736e617073686f742f31222c22766572696669636174696f6e5f70726f66696c65223a226c6f63616c2d707269766174652d6469726563746f72792d6f776e65722f31222c2276657269666965645f6174223a22323032362d31302d31325432303a30303a30312e3030303030305a227d",
+      "byte_length": 544
+    },
+    {
+      "name": "operation",
+      "body": {
+        "schema": "ledger-workflow-operation-record/1",
+        "key": {
+          "logical_store_id": "fixture-store",
+          "scope": [
+            "fixture",
+            "sandbox"
+          ],
+          "source": "urn:fixture:publisher",
+          "operation_id": "publish-002"
+        },
+        "kind": "policy.publish",
+        "contract": "workflow/1",
+        "request_evidence": {
+          "schema": "ledger-operation-request-evidence/2",
+          "normalization_profile": "ledger-operation-normalization/2",
+          "original_request_bytes_base64": "eyJjb250cmFjdCI6IndvcmtmbG93LzEiLCJrZXkiOnsibG9naWNhbF9zdG9yZV9pZCI6ImZpeHR1cmUtc3RvcmUiLCJvcGVyYXRpb25faWQiOiJwdWJsaXNoLTAwMiIsInNjb3BlIjpbImZpeHR1cmUiLCJzYW5kYm94Il0sInNvdXJjZSI6InVybjpmaXh0dXJlOnB1Ymxpc2hlciJ9LCJraW5kIjoicG9saWN5LnB1Ymxpc2giLCJwYXlsb2FkIjp7ImRvY3VtZW50cyI6W3siYWN0aXZpdGllcyI6W3siZmFjdF9zY2hlbWEiOnsiZGlnZXN0Ijoic2hhMjU2OmEzMzI3ZDM4OGVkMTU3ZjA2YTlmZWQwOTQzY2MzOGQ4NmRlMmUzNjMyYjIzZWEwN2IyZTAxMTEyZTM1MjE0YTciLCJpZCI6Indkb2NfYTMzMjdkMzg4ZWQxNTdmMDZhOWZlZDA5NDNjYzM4ZDg2ZGUyZTM2MzJiMjNlYTA3YjJlMDExMTJlMzUyMTRhNyIsImtpbmQiOiJ3b3JrZmxvdy1mYWN0LXNjaGVtYSJ9LCJmdW5kaW5nX2xlZyI6ImZpeHR1cmUucmVwb3J0OmN1c3RvbWVyIiwibGFiZWxzIjp7InRpdGxlIjoiQ29tcGxldGVkIHJlcG9ydCJ9LCJuYW1lIjoiZml4dHVyZS5yZXBvcnQ6Y29tcGxldGVkIiwicHJpbWl0aXZlIjoid29yayIsInNvdXJjZV9zbG90IjoiZml4dHVyZS5yZXBvcnQ6d29ya2VyIn1dLCJldmFsdWF0b3IiOiJsZWRnZXItd29ya2Zsb3ctZXZhbHVhdG9yLzEiLCJmYWN0X3NjaGVtYXMiOlt7ImRpZ2VzdCI6InNoYTI1NjphMzMyN2QzODhlZDE1N2YwNmE5ZmVkMDk0M2NjMzhkODZkZTJlMzYzMmIyM2VhMDdiMmUwMTExMmUzNTIxNGE3IiwiaWQiOiJ3ZG9jX2EzMzI3ZDM4OGVkMTU3ZjA2YTlmZWQwOTQzY2MzOGQ4NmRlMmUzNjMyYjIzZWEwN2IyZTAxMTEyZTM1MjE0YTciLCJraW5kIjoid29ya2Zsb3ctZmFjdC1zY2hlbWEifV0sImdyYW1tYXIiOiJsZWRnZXItcG9saWN5LWdyYW1tYXIvMSIsImxhYmVscyI6eyJ0aXRsZSI6IlN5bnRoZXRpYyByZXBvcnQifSwibGltaXRzX3Byb2ZpbGUiOiJ3b3JrZmxvdy1saW1pdHMvMSIsImxpbmtzIjpbXSwicHJvZHVjdF9pZCI6ImZpeHR1cmUucmVwb3J0OnByb2R1Y3QiLCJwcm9maWxlIjoid29ya2Zsb3cvMSIsInNjaGVtYSI6ImxlZGdlci13b3JrZmxvdy1wcm9kdWN0LzEiLCJ1bml0cyI6W3siZGltZW5zaW9uIjoiZml4dHVyZS5yZXBvcnQ6Y291bnQiLCJsYWJlbHMiOnsidGl0bGUiOiJQYWdlIn0sIm5hbWUiOiJmaXh0dXJlLnJlcG9ydDpwYWdlIn1dLCJ2ZXJzaW9uIjoiMSJ9LHsiYmluZGluZ19zbG90cyI6W3siYWxsb3dlZF9hY3Rpdml0aWVzIjpbImZpeHR1cmUucmVwb3J0OmNvbXBsZXRlZCJdLCJib29rIjoicmV0YWlsIiwiY29ycmVjdGlvbl9zb3VyY2Vfc2xvdCI6ImZpeHR1cmUucmVwb3J0OndvcmtlciIsImZ1bmRpbmdfbGVnIjoiZml4dHVyZS5yZXBvcnQ6Y3VzdG9tZXIiLCJuYW1lIjoiZml4dHVyZS5yZXBvcnQ6cmV0YWlsIn1dLCJjb21waWxlcl9yZWYiOnsiZGlnZXN0Ijoic2hhMjU2Ojk0MjlhODVmN2E0MTFhMzc5ODBhOTlmMWYwMWNmY2E0MmUzZmRlNGE3MWU1OGRlOGQxYzE1NzU3MmY2NjRjNzUiLCJpZCI6Indkb2NfOTQyOWE4NWY3YTQxMWEzNzk4MGE5OWYxZjAxY2ZjYTQyZTNmZGU0YTcxZTU4ZGU4ZDFjMTU3NTcyZjY2NGM3NSIsImtpbmQiOiJ3b3JrZmxvdy1jb21waWxlci1kZXNjcmlwdG9yIn0sImNvbnRleHRfc2NoZW1hX3JlZiI6eyJkaWdlc3QiOiJzaGEyNTY6NzFkZTg5NjM0M2JiMmI2OGYzYTA0MDM1M2MxZWY3NTBhNzA1N2VhM2FmYmY2Njg0NjFjNTc3YmIyYzZiYTU3MiIsImlkIjoid2RvY183MWRlODk2MzQzYmIyYjY4ZjNhMDQwMzUzYzFlZjc1MGE3MDU3ZWEzYWZiZjY2ODQ2MWM1NzdiYjJjNmJhNTcyIiwia2luZCI6IndvcmtmbG93LWZhY3Qtc2NoZW1hIn0sImN1cnJlbmN5IjoiVVNEIiwiZGVsYXllZF9jb3N0cyI6W10sImZhbWlsaWVzIjpbXSwibW9kZSI6ImNvbXBvbmVudF93b3JrZmxvdyIsInBvbGljeV9pZCI6ImZpeHR1cmUucmVwb3J0OnBvbGljeSIsInByb2R1Y3RfcmVmIjp7ImRpZ2VzdCI6InNoYTI1NjpkMGU5NTZkYWEzMTZiOTVjOThkMjU1M2EyZDNkMzA4ZmNiYzc2ZWRjYTAyZTIyNjVjZjA5MzNmNDczZWI0M2NiIiwiaWQiOiJ3ZG9jX2QwZTk1NmRhYTMxNmI5NWM5OGQyNTUzYTJkM2QzMDhmY2JjNzZlZGNhMDJlMjI2NWNmMDkzM2Y0NzNlYjQzY2IiLCJraW5kIjoid29ya2Zsb3ctcHJvZHVjdCJ9LCJyb3VuZGluZyI6Im5lYXJlc3RfdGllc19hd2F5IiwicnVsZXMiOlt7ImFjdGl2aXR5IjoiZml4dHVyZS5yZXBvcnQ6Y29tcGxldGVkIiwiYmluZGluZ19zbG90IjoiZml4dHVyZS5yZXBvcnQ6cmV0YWlsIiwiY29tcG9uZW50X2tleSI6ImZpeHR1cmUucmVwb3J0OmJhc2UiLCJjb21wb25lbnRfbmFtZSI6ImZpeHR1cmUucmVwb3J0OmJhc2UiLCJkZXBlbmRlbmN5Ijoib25fbWlzc2luZ19yZWZ1c2UiLCJmb3JtdWxhIjp7ImtpbmQiOiJ1bml0IiwicXVhbnRpdHlfZmllbGQiOiJmaXh0dXJlLnJlcG9ydDpwYWdlcyIsInJhdGUiOiIwLjM3IiwidW5pdCI6ImZpeHR1cmUucmVwb3J0OnBhZ2UifSwicGhhc2UiOiJiYXNlIiwicnVsZV9pZCI6ImZpeHR1cmUucmVwb3J0OmNoYXJnZSIsIndoZW4iOnsib3AiOiJ0cnVlIn19XSwic2NhbGUiOjE4LCJzY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctcG9saWN5LzEiLCJzbG90X3RlbXBsYXRlX3JlZiI6eyJkaWdlc3QiOiJzaGEyNTY6Mzc0MjRiNmZmMzkxOWM4OGU2NTFkZTM1OGIwNzZkYTExZWNhMzJmNGExOWZmZjExMmRiNGM0NGQ3YTEyNjFiMyIsImlkIjoid2RvY18zNzQyNGI2ZmYzOTE5Yzg4ZTY1MWRlMzU4YjA3NmRhMTFlY2EzMmY0YTE5ZmZmMTEyZGI0YzQ0ZDdhMTI2MWIzIiwia2luZCI6IndvcmtmbG93LXNsb3QtdGVtcGxhdGUifSwic3RhZ2VzIjpbXSwidmVyc2lvbiI6IjEifSx7ImNvbXBpbGVyX3NlbWFudGljcyI6ImxlZGdlci1wb2xpY3ktY29tcGlsZXIvMSIsImNvbnRyYWN0X21hbmlmZXN0X2RpZ2VzdCI6InNoYTI1NjphNGU0YjM4MzQxYzFhOTgyODYxNmQ2NDQyODFjZWRhZWUyNzI0YTQ0NTkwMWQ3MzFjNDVjYWE1NmQxNWY5MTg0IiwiZXZhbHVhdG9yIjoibGVkZ2VyLXdvcmtmbG93LWV2YWx1YXRvci8xIiwiZmFjdF90eXBlcyI6WyJpbnRlZ2VyLzEiXSwiZmFjdHNfbm9ybWFsaXphdGlvbiI6ImxlZGdlci1mYWN0cy1ub3JtYWxpemF0aW9uLzEiLCJmb3JtdWxhX2tpbmRzIjpbInVuaXQvMSJdLCJncmFtbWFyIjoibGVkZ2VyLXBvbGljeS1ncmFtbWFyLzEiLCJsaW1pdHNfZGlnZXN0Ijoic2hhMjU2OjkxYTAzYWRiNDY3OTcxNDAzNDJlYzdkNzFiYTA0M2IyN2VmMzFhYzQxZWEwMzcxOGY3NGFmNDJlZDJiMWJkZTUiLCJsaW1pdHNfcHJvZmlsZSI6IndvcmtmbG93LWxpbWl0cy8xIiwibW9kZV9tYXRyaXhfZGlnZXN0Ijoic2hhMjU2OmE3NWUxMTU0ZGI5NGFmMzAwNzllY2U4OTFjZDY1NWYzMWQ3Y2NmMmVkYTg0NjRiYTM1M2FhMTMyN2JiNDFmM2UiLCJvcGVyYXRpb25fbm9ybWFsaXphdGlvbiI6ImxlZGdlci1vcGVyYXRpb24tbm9ybWFsaXphdGlvbi8yIiwicGxhbl9zY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctY29tcGlsZWQtcGxhbi8xIiwicHJlZGljYXRlX29wcyI6WyJ0cnVlLzEiXSwicHJpbWl0aXZlX3ZlcnNpb25zIjpbInVuaXQvMSJdLCJzY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctY29tcGlsZXItZGVzY3JpcHRvci8xIn0seyJjb21wb25lbnRzIjpbeyJhbGlhc2VzIjpbImZpeHR1cmUucmVwb3J0OmJhc2UiXSwiYm9vayI6InJldGFpbCIsImtleSI6ImZpeHR1cmUucmVwb3J0OmJhc2UiLCJyb2xlX3Nsb3QiOiJmaXh0dXJlLnJlcG9ydDpyZXRhaWwiLCJyb290X2tleSI6ImZpeHR1cmUucmVwb3J0OmJhc2UifV0sImZhbWlsaWVzIjpbXSwic2NoZW1hIjoibGVkZ2VyLXdvcmtmbG93LXNsb3QtdGVtcGxhdGUvMSIsInRlbXBsYXRlX2lkIjoiZml4dHVyZS5yZXBvcnQ6dGVtcGxhdGUiLCJ2ZXJzaW9uIjoiMSJ9LHsiZmllbGRzIjpbXSwibm9ybWFsaXphdGlvbiI6ImxlZGdlci1mYWN0cy1ub3JtYWxpemF0aW9uLzEiLCJzY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctZmFjdC1zY2hlbWEvMSIsInNjaGVtYV9pZCI6ImZpeHR1cmUucmVwb3J0OmNvbnRleHQiLCJ2ZXJzaW9uIjoiMSJ9LHsiZmllbGRzIjpbeyJuYW1lIjoiZml4dHVyZS5yZXBvcnQ6cGFnZXMiLCJwcm92ZW5hbmNlIjp7ImtpbmQiOiJjYWxsZXIifSwicmVxdWlyZWQiOnRydWUsInR5cGUiOnsia2luZCI6ImludGVnZXIiLCJtYXgiOiIxMDAiLCJtaW4iOiIwIiwidW5pdCI6ImZpeHR1cmUucmVwb3J0OnBhZ2UifX1dLCJub3JtYWxpemF0aW9uIjoibGVkZ2VyLWZhY3RzLW5vcm1hbGl6YXRpb24vMSIsInNjaGVtYSI6ImxlZGdlci13b3JrZmxvdy1mYWN0LXNjaGVtYS8xIiwic2NoZW1hX2lkIjoiZml4dHVyZS5yZXBvcnQ6ZmFjdHMiLCJ2ZXJzaW9uIjoiMSJ9XSwiZXhwZWN0ZWRfcGxhbl9kaWdlc3QiOiJzaGEyNTY6YTkyNWY0ZTc2MWEwMjQ5YWIwYzQzMjhlNmM2MmM0YjZlMDIzOTEzMTUxZTM5N2Y5NzFkNzI0NWEyZDI3MDJmNSIsIm1vZGUiOiJpbmxpbmUiLCJyb290X3BvbGljeV9yZWYiOnsiZGlnZXN0Ijoic2hhMjU2OjJlODljZDEzZGZhNTc2MTlhN2RlMGVlYWRjNDljNjAwODEzM2JmMTZmNzMwY2RhODlkZDIwNmI1ZDY2OWVjNzgiLCJpZCI6Indkb2NfMmU4OWNkMTNkZmE1NzYxOWE3ZGUwZWVhZGM0OWM2MDA4MTMzYmYxNmY3MzBjZGE4OWRkMjA2YjVkNjY5ZWM3OCIsImtpbmQiOiJ3b3JrZmxvdy1wb2xpY3kifSwic2NoZW1hIjoibGVkZ2VyLXdvcmtmbG93LXBvbGljeS1wdWJsaWNhdGlvbi8xIn0sInNjaGVtYSI6ImxlZGdlci1vcGVyYXRpb24vMSJ9",
+          "original_request_bytes_sha256": "d36bdeed3d1ddb4d92229bf91a4199897ab84893c7ccb2a2f0870709056e6baf",
+          "normalized_request": {
+            "schema": "ledger-operation/1",
+            "key": {
+              "logical_store_id": "fixture-store",
+              "scope": [
+                "fixture",
+                "sandbox"
+              ],
+              "source": "urn:fixture:publisher",
+              "operation_id": "publish-002"
+            },
+            "kind": "policy.publish",
+            "contract": "workflow/1",
+            "payload": {
+              "schema": "ledger-workflow-policy-publication/1",
+              "mode": "inline",
+              "documents": [
+                {
+                  "schema": "ledger-workflow-product/1",
+                  "product_id": "fixture.report:product",
+                  "version": "1",
+                  "labels": {
+                    "title": "Synthetic report"
+                  },
+                  "profile": "workflow/1",
+                  "evaluator": "ledger-workflow-evaluator/1",
+                  "grammar": "ledger-policy-grammar/1",
+                  "limits_profile": "workflow-limits/1",
+                  "units": [
+                    {
+                      "name": "fixture.report:page",
+                      "labels": {
+                        "title": "Page"
+                      },
+                      "dimension": "fixture.report:count"
+                    }
+                  ],
+                  "activities": [
+                    {
+                      "name": "fixture.report:completed",
+                      "labels": {
+                        "title": "Completed report"
+                      },
+                      "primitive": "work",
+                      "fact_schema": {
+                        "kind": "workflow-fact-schema",
+                        "id": "wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7",
+                        "digest": "sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7"
+                      },
+                      "source_slot": "fixture.report:worker",
+                      "funding_leg": "fixture.report:customer"
+                    }
+                  ],
+                  "fact_schemas": [
+                    {
+                      "kind": "workflow-fact-schema",
+                      "id": "wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7",
+                      "digest": "sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7"
+                    }
+                  ],
+                  "links": []
+                },
+                {
+                  "schema": "ledger-workflow-policy/1",
+                  "policy_id": "fixture.report:policy",
+                  "version": "1",
+                  "product_ref": {
+                    "kind": "workflow-product",
+                    "id": "wdoc_d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb",
+                    "digest": "sha256:d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb"
+                  },
+                  "context_schema_ref": {
+                    "kind": "workflow-fact-schema",
+                    "id": "wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572",
+                    "digest": "sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572"
+                  },
+                  "slot_template_ref": {
+                    "kind": "workflow-slot-template",
+                    "id": "wdoc_37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3",
+                    "digest": "sha256:37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3"
+                  },
+                  "compiler_ref": {
+                    "kind": "workflow-compiler-descriptor",
+                    "id": "wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75",
+                    "digest": "sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75"
+                  },
+                  "currency": "USD",
+                  "scale": 18,
+                  "rounding": "nearest_ties_away",
+                  "mode": "component_workflow",
+                  "binding_slots": [
+                    {
+                      "name": "fixture.report:retail",
+                      "book": "retail",
+                      "funding_leg": "fixture.report:customer",
+                      "allowed_activities": [
+                        "fixture.report:completed"
+                      ],
+                      "correction_source_slot": "fixture.report:worker"
+                    }
+                  ],
+                  "rules": [
+                    {
+                      "rule_id": "fixture.report:charge",
+                      "activity": "fixture.report:completed",
+                      "component_name": "fixture.report:base",
+                      "component_key": "fixture.report:base",
+                      "binding_slot": "fixture.report:retail",
+                      "phase": "base",
+                      "when": {
+                        "op": "true"
+                      },
+                      "formula": {
+                        "kind": "unit",
+                        "quantity_field": "fixture.report:pages",
+                        "unit": "fixture.report:page",
+                        "rate": "0.37"
+                      },
+                      "dependency": "on_missing_refuse"
+                    }
+                  ],
+                  "families": [],
+                  "stages": [],
+                  "delayed_costs": []
+                },
+                {
+                  "schema": "ledger-workflow-compiler-descriptor/1",
+                  "compiler_semantics": "ledger-policy-compiler/1",
+                  "evaluator": "ledger-workflow-evaluator/1",
+                  "grammar": "ledger-policy-grammar/1",
+                  "facts_normalization": "ledger-facts-normalization/1",
+                  "operation_normalization": "ledger-operation-normalization/2",
+                  "limits_profile": "workflow-limits/1",
+                  "primitive_versions": [
+                    "unit/1"
+                  ],
+                  "fact_types": [
+                    "integer/1"
+                  ],
+                  "predicate_ops": [
+                    "true/1"
+                  ],
+                  "formula_kinds": [
+                    "unit/1"
+                  ],
+                  "plan_schema": "ledger-workflow-compiled-plan/1",
+                  "limits_digest": "sha256:91a03adb46797140342ec7d71ba043b27ef31ac41ea03718f74af42ed2b1bde5",
+                  "mode_matrix_digest": "sha256:a75e1154db94af30079ece891cd655f31d7ccf2eda8464ba353aa1327bb41f3e",
+                  "contract_manifest_digest": "sha256:a4e4b38341c1a9828616d644281cedaee2724a445901d731c45caa56d15f9184"
+                },
+                {
+                  "schema": "ledger-workflow-slot-template/1",
+                  "template_id": "fixture.report:template",
+                  "version": "1",
+                  "components": [
+                    {
+                      "key": "fixture.report:base",
+                      "book": "retail",
+                      "root_key": "fixture.report:base",
+                      "role_slot": "fixture.report:retail",
+                      "aliases": [
+                        "fixture.report:base"
+                      ]
+                    }
+                  ],
+                  "families": []
+                },
+                {
+                  "schema": "ledger-workflow-fact-schema/1",
+                  "schema_id": "fixture.report:context",
+                  "version": "1",
+                  "normalization": "ledger-facts-normalization/1",
+                  "fields": []
+                },
+                {
+                  "schema": "ledger-workflow-fact-schema/1",
+                  "schema_id": "fixture.report:facts",
+                  "version": "1",
+                  "normalization": "ledger-facts-normalization/1",
+                  "fields": [
+                    {
+                      "name": "fixture.report:pages",
+                      "required": true,
+                      "type": {
+                        "kind": "integer",
+                        "min": "0",
+                        "max": "100",
+                        "unit": "fixture.report:page"
+                      },
+                      "provenance": {
+                        "kind": "caller"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "root_policy_ref": {
+                "kind": "workflow-policy",
+                "id": "wdoc_2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78",
+                "digest": "sha256:2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78"
+              },
+              "expected_plan_digest": "sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5"
+            }
+          },
+          "request_hash": "sha256:a3d0ca443b1887a321e50b7b1d9788363a35a08c322472817b2dd87b20e33010",
+          "schema_bundle_digest": "sha256:66877e7ad62b7061bb44b889c843f15c5b2929d0c3e177e18171737d884ee067",
+          "descriptor_resolution": {
+            "schema": "ledger-operation-descriptors/1",
+            "registry_digest": "sha256:8c61f0c3f9f246b6f0c0ba419d4e2d6a9c7f9f588c8dbf80f6124c89c23f2210",
+            "operation_kind": "policy.publish",
+            "payload_schema": "ledger-workflow-policy-publication/1",
+            "locator_digest": "sha256:0c82689f7c64b68b2f9552c8a2066cfab7b0befc4b33a8c5e5ee7690a09c057b",
+            "anchors": [
+              {
+                "role": "inline_document",
+                "record_ref": {
+                  "kind": "workflow-slot-template",
+                  "id": "wdoc_37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3",
+                  "digest": "sha256:37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3"
+                },
+                "relation": "publication_source",
+                "descriptor_refs": []
+              },
+              {
+                "role": "inline_document",
+                "record_ref": {
+                  "kind": "workflow-fact-schema",
+                  "id": "wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572",
+                  "digest": "sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572"
+                },
+                "relation": "publication_source",
+                "descriptor_refs": []
+              },
+              {
+                "role": "inline_document",
+                "record_ref": {
+                  "kind": "workflow-compiler-descriptor",
+                  "id": "wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75",
+                  "digest": "sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75"
+                },
+                "relation": "publication_source",
+                "descriptor_refs": []
+              },
+              {
+                "role": "inline_document",
+                "record_ref": {
+                  "kind": "workflow-fact-schema",
+                  "id": "wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7",
+                  "digest": "sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7"
+                },
+                "relation": "publication_source",
+                "descriptor_refs": []
+              },
+              {
+                "role": "inline_document",
+                "record_ref": {
+                  "kind": "workflow-product",
+                  "id": "wdoc_d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb",
+                  "digest": "sha256:d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb"
+                },
+                "relation": "publication_source",
+                "descriptor_refs": []
+              },
+              {
+                "role": "inline_document",
+                "record_ref": {
+                  "kind": "workflow-policy",
+                  "id": "wdoc_2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78",
+                  "digest": "sha256:2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78"
+                },
+                "relation": "publication_source",
+                "descriptor_refs": [
+                  {
+                    "kind": "workflow-fact-schema",
+                    "id": "wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572",
+                    "digest": "sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572"
+                  },
+                  {
+                    "kind": "workflow-fact-schema",
+                    "id": "wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7",
+                    "digest": "sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7"
+                  }
+                ]
+              }
+            ],
+            "descriptors": [
+              {
+                "kind": "workflow-fact-schema",
+                "id": "wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572",
+                "digest": "sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572"
+              },
+              {
+                "kind": "workflow-compiler-descriptor",
+                "id": "wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75",
+                "digest": "sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75"
+              },
+              {
+                "kind": "workflow-fact-schema",
+                "id": "wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7",
+                "digest": "sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7"
+              }
+            ],
+            "normalization_profile": "ledger-operation-normalization/2",
+            "closure_digest": "sha256:14c32d054fd374376052ff95864de85086481d65db81d28a108a6e1d2b47292c"
+          }
+        },
+        "authority_snapshot": {
+          "schema": "ledger-workflow-publication-authority/1",
+          "principal_id": "fixture-admin",
+          "source": "urn:fixture:publisher",
+          "authority_refs": [
+            {
+              "kind": "workflow-authority",
+              "id": "wdoc_f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3",
+              "digest": "sha256:f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3"
+            }
+          ],
+          "rights": [
+            "admin"
+          ],
+          "validated_at": "2026-10-12T20:00:01.000000Z"
+        },
+        "accepted_at": "2026-10-12T20:00:01.000000Z",
+        "commit_sequence": "2",
+        "result_refs": [
+          {
+            "kind": "workflow-compiled-plan",
+            "id": "wplan_a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5",
+            "digest": "sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5"
+          },
+          {
+            "kind": "workflow-publication",
+            "id": "wpub_be643632c1b9960fab5ca9c424651c7f756b10c0e1bf6976c384b13a59398dac",
+            "digest": "sha256:fefae3ad28ea3f1ccbdfd7f1782d99640b9fa8675dfba6c70deb2ca9bcd02c57"
+          }
+        ]
+      },
+      "ref": {
+        "kind": "workflow-operation",
+        "id": "wop_4829951519d39b9d82d93a38cf1cabd7b506d650b4deb05c59a0ee1cdedc6f80",
+        "digest": "sha256:9a323403d2dce3975551b1b0505cfde0941e42ed10d3e2a20483c86a63e4c498"
+      },
+      "canonical_utf8": "{\"accepted_at\":\"2026-10-12T20:00:01.000000Z\",\"authority_snapshot\":{\"authority_refs\":[{\"digest\":\"sha256:f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3\",\"id\":\"wdoc_f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3\",\"kind\":\"workflow-authority\"}],\"principal_id\":\"fixture-admin\",\"rights\":[\"admin\"],\"schema\":\"ledger-workflow-publication-authority/1\",\"source\":\"urn:fixture:publisher\",\"validated_at\":\"2026-10-12T20:00:01.000000Z\"},\"commit_sequence\":\"2\",\"contract\":\"workflow/1\",\"key\":{\"logical_store_id\":\"fixture-store\",\"operation_id\":\"publish-002\",\"scope\":[\"fixture\",\"sandbox\"],\"source\":\"urn:fixture:publisher\"},\"kind\":\"policy.publish\",\"request_evidence\":{\"descriptor_resolution\":{\"anchors\":[{\"descriptor_refs\":[],\"record_ref\":{\"digest\":\"sha256:37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3\",\"id\":\"wdoc_37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3\",\"kind\":\"workflow-slot-template\"},\"relation\":\"publication_source\",\"role\":\"inline_document\"},{\"descriptor_refs\":[],\"record_ref\":{\"digest\":\"sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"id\":\"wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"kind\":\"workflow-fact-schema\"},\"relation\":\"publication_source\",\"role\":\"inline_document\"},{\"descriptor_refs\":[],\"record_ref\":{\"digest\":\"sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"id\":\"wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"kind\":\"workflow-compiler-descriptor\"},\"relation\":\"publication_source\",\"role\":\"inline_document\"},{\"descriptor_refs\":[],\"record_ref\":{\"digest\":\"sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"id\":\"wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"kind\":\"workflow-fact-schema\"},\"relation\":\"publication_source\",\"role\":\"inline_document\"},{\"descriptor_refs\":[],\"record_ref\":{\"digest\":\"sha256:d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb\",\"id\":\"wdoc_d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb\",\"kind\":\"workflow-product\"},\"relation\":\"publication_source\",\"role\":\"inline_document\"},{\"descriptor_refs\":[{\"digest\":\"sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"id\":\"wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"kind\":\"workflow-fact-schema\"},{\"digest\":\"sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"id\":\"wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"kind\":\"workflow-fact-schema\"}],\"record_ref\":{\"digest\":\"sha256:2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78\",\"id\":\"wdoc_2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78\",\"kind\":\"workflow-policy\"},\"relation\":\"publication_source\",\"role\":\"inline_document\"}],\"closure_digest\":\"sha256:14c32d054fd374376052ff95864de85086481d65db81d28a108a6e1d2b47292c\",\"descriptors\":[{\"digest\":\"sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"id\":\"wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"kind\":\"workflow-fact-schema\"},{\"digest\":\"sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"id\":\"wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"kind\":\"workflow-compiler-descriptor\"},{\"digest\":\"sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"id\":\"wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"kind\":\"workflow-fact-schema\"}],\"locator_digest\":\"sha256:0c82689f7c64b68b2f9552c8a2066cfab7b0befc4b33a8c5e5ee7690a09c057b\",\"normalization_profile\":\"ledger-operation-normalization/2\",\"operation_kind\":\"policy.publish\",\"payload_schema\":\"ledger-workflow-policy-publication/1\",\"registry_digest\":\"sha256:8c61f0c3f9f246b6f0c0ba419d4e2d6a9c7f9f588c8dbf80f6124c89c23f2210\",\"schema\":\"ledger-operation-descriptors/1\"},\"normalization_profile\":\"ledger-operation-normalization/2\",\"normalized_request\":{\"contract\":\"workflow/1\",\"key\":{\"logical_store_id\":\"fixture-store\",\"operation_id\":\"publish-002\",\"scope\":[\"fixture\",\"sandbox\"],\"source\":\"urn:fixture:publisher\"},\"kind\":\"policy.publish\",\"payload\":{\"documents\":[{\"activities\":[{\"fact_schema\":{\"digest\":\"sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"id\":\"wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"kind\":\"workflow-fact-schema\"},\"funding_leg\":\"fixture.report:customer\",\"labels\":{\"title\":\"Completed report\"},\"name\":\"fixture.report:completed\",\"primitive\":\"work\",\"source_slot\":\"fixture.report:worker\"}],\"evaluator\":\"ledger-workflow-evaluator/1\",\"fact_schemas\":[{\"digest\":\"sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"id\":\"wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"kind\":\"workflow-fact-schema\"}],\"grammar\":\"ledger-policy-grammar/1\",\"labels\":{\"title\":\"Synthetic report\"},\"limits_profile\":\"workflow-limits/1\",\"links\":[],\"product_id\":\"fixture.report:product\",\"profile\":\"workflow/1\",\"schema\":\"ledger-workflow-product/1\",\"units\":[{\"dimension\":\"fixture.report:count\",\"labels\":{\"title\":\"Page\"},\"name\":\"fixture.report:page\"}],\"version\":\"1\"},{\"binding_slots\":[{\"allowed_activities\":[\"fixture.report:completed\"],\"book\":\"retail\",\"correction_source_slot\":\"fixture.report:worker\",\"funding_leg\":\"fixture.report:customer\",\"name\":\"fixture.report:retail\"}],\"compiler_ref\":{\"digest\":\"sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"id\":\"wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"kind\":\"workflow-compiler-descriptor\"},\"context_schema_ref\":{\"digest\":\"sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"id\":\"wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"kind\":\"workflow-fact-schema\"},\"currency\":\"USD\",\"delayed_costs\":[],\"families\":[],\"mode\":\"component_workflow\",\"policy_id\":\"fixture.report:policy\",\"product_ref\":{\"digest\":\"sha256:d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb\",\"id\":\"wdoc_d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb\",\"kind\":\"workflow-product\"},\"rounding\":\"nearest_ties_away\",\"rules\":[{\"activity\":\"fixture.report:completed\",\"binding_slot\":\"fixture.report:retail\",\"component_key\":\"fixture.report:base\",\"component_name\":\"fixture.report:base\",\"dependency\":\"on_missing_refuse\",\"formula\":{\"kind\":\"unit\",\"quantity_field\":\"fixture.report:pages\",\"rate\":\"0.37\",\"unit\":\"fixture.report:page\"},\"phase\":\"base\",\"rule_id\":\"fixture.report:charge\",\"when\":{\"op\":\"true\"}}],\"scale\":18,\"schema\":\"ledger-workflow-policy/1\",\"slot_template_ref\":{\"digest\":\"sha256:37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3\",\"id\":\"wdoc_37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3\",\"kind\":\"workflow-slot-template\"},\"stages\":[],\"version\":\"1\"},{\"compiler_semantics\":\"ledger-policy-compiler/1\",\"contract_manifest_digest\":\"sha256:a4e4b38341c1a9828616d644281cedaee2724a445901d731c45caa56d15f9184\",\"evaluator\":\"ledger-workflow-evaluator/1\",\"fact_types\":[\"integer/1\"],\"facts_normalization\":\"ledger-facts-normalization/1\",\"formula_kinds\":[\"unit/1\"],\"grammar\":\"ledger-policy-grammar/1\",\"limits_digest\":\"sha256:91a03adb46797140342ec7d71ba043b27ef31ac41ea03718f74af42ed2b1bde5\",\"limits_profile\":\"workflow-limits/1\",\"mode_matrix_digest\":\"sha256:a75e1154db94af30079ece891cd655f31d7ccf2eda8464ba353aa1327bb41f3e\",\"operation_normalization\":\"ledger-operation-normalization/2\",\"plan_schema\":\"ledger-workflow-compiled-plan/1\",\"predicate_ops\":[\"true/1\"],\"primitive_versions\":[\"unit/1\"],\"schema\":\"ledger-workflow-compiler-descriptor/1\"},{\"components\":[{\"aliases\":[\"fixture.report:base\"],\"book\":\"retail\",\"key\":\"fixture.report:base\",\"role_slot\":\"fixture.report:retail\",\"root_key\":\"fixture.report:base\"}],\"families\":[],\"schema\":\"ledger-workflow-slot-template/1\",\"template_id\":\"fixture.report:template\",\"version\":\"1\"},{\"fields\":[],\"normalization\":\"ledger-facts-normalization/1\",\"schema\":\"ledger-workflow-fact-schema/1\",\"schema_id\":\"fixture.report:context\",\"version\":\"1\"},{\"fields\":[{\"name\":\"fixture.report:pages\",\"provenance\":{\"kind\":\"caller\"},\"required\":true,\"type\":{\"kind\":\"integer\",\"max\":\"100\",\"min\":\"0\",\"unit\":\"fixture.report:page\"}}],\"normalization\":\"ledger-facts-normalization/1\",\"schema\":\"ledger-workflow-fact-schema/1\",\"schema_id\":\"fixture.report:facts\",\"version\":\"1\"}],\"expected_plan_digest\":\"sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5\",\"mode\":\"inline\",\"root_policy_ref\":{\"digest\":\"sha256:2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78\",\"id\":\"wdoc_2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78\",\"kind\":\"workflow-policy\"},\"schema\":\"ledger-workflow-policy-publication/1\"},\"schema\":\"ledger-operation/1\"},\"original_request_bytes_base64\":\"eyJjb250cmFjdCI6IndvcmtmbG93LzEiLCJrZXkiOnsibG9naWNhbF9zdG9yZV9pZCI6ImZpeHR1cmUtc3RvcmUiLCJvcGVyYXRpb25faWQiOiJwdWJsaXNoLTAwMiIsInNjb3BlIjpbImZpeHR1cmUiLCJzYW5kYm94Il0sInNvdXJjZSI6InVybjpmaXh0dXJlOnB1Ymxpc2hlciJ9LCJraW5kIjoicG9saWN5LnB1Ymxpc2giLCJwYXlsb2FkIjp7ImRvY3VtZW50cyI6W3siYWN0aXZpdGllcyI6W3siZmFjdF9zY2hlbWEiOnsiZGlnZXN0Ijoic2hhMjU2OmEzMzI3ZDM4OGVkMTU3ZjA2YTlmZWQwOTQzY2MzOGQ4NmRlMmUzNjMyYjIzZWEwN2IyZTAxMTEyZTM1MjE0YTciLCJpZCI6Indkb2NfYTMzMjdkMzg4ZWQxNTdmMDZhOWZlZDA5NDNjYzM4ZDg2ZGUyZTM2MzJiMjNlYTA3YjJlMDExMTJlMzUyMTRhNyIsImtpbmQiOiJ3b3JrZmxvdy1mYWN0LXNjaGVtYSJ9LCJmdW5kaW5nX2xlZyI6ImZpeHR1cmUucmVwb3J0OmN1c3RvbWVyIiwibGFiZWxzIjp7InRpdGxlIjoiQ29tcGxldGVkIHJlcG9ydCJ9LCJuYW1lIjoiZml4dHVyZS5yZXBvcnQ6Y29tcGxldGVkIiwicHJpbWl0aXZlIjoid29yayIsInNvdXJjZV9zbG90IjoiZml4dHVyZS5yZXBvcnQ6d29ya2VyIn1dLCJldmFsdWF0b3IiOiJsZWRnZXItd29ya2Zsb3ctZXZhbHVhdG9yLzEiLCJmYWN0X3NjaGVtYXMiOlt7ImRpZ2VzdCI6InNoYTI1NjphMzMyN2QzODhlZDE1N2YwNmE5ZmVkMDk0M2NjMzhkODZkZTJlMzYzMmIyM2VhMDdiMmUwMTExMmUzNTIxNGE3IiwiaWQiOiJ3ZG9jX2EzMzI3ZDM4OGVkMTU3ZjA2YTlmZWQwOTQzY2MzOGQ4NmRlMmUzNjMyYjIzZWEwN2IyZTAxMTEyZTM1MjE0YTciLCJraW5kIjoid29ya2Zsb3ctZmFjdC1zY2hlbWEifV0sImdyYW1tYXIiOiJsZWRnZXItcG9saWN5LWdyYW1tYXIvMSIsImxhYmVscyI6eyJ0aXRsZSI6IlN5bnRoZXRpYyByZXBvcnQifSwibGltaXRzX3Byb2ZpbGUiOiJ3b3JrZmxvdy1saW1pdHMvMSIsImxpbmtzIjpbXSwicHJvZHVjdF9pZCI6ImZpeHR1cmUucmVwb3J0OnByb2R1Y3QiLCJwcm9maWxlIjoid29ya2Zsb3cvMSIsInNjaGVtYSI6ImxlZGdlci13b3JrZmxvdy1wcm9kdWN0LzEiLCJ1bml0cyI6W3siZGltZW5zaW9uIjoiZml4dHVyZS5yZXBvcnQ6Y291bnQiLCJsYWJlbHMiOnsidGl0bGUiOiJQYWdlIn0sIm5hbWUiOiJmaXh0dXJlLnJlcG9ydDpwYWdlIn1dLCJ2ZXJzaW9uIjoiMSJ9LHsiYmluZGluZ19zbG90cyI6W3siYWxsb3dlZF9hY3Rpdml0aWVzIjpbImZpeHR1cmUucmVwb3J0OmNvbXBsZXRlZCJdLCJib29rIjoicmV0YWlsIiwiY29ycmVjdGlvbl9zb3VyY2Vfc2xvdCI6ImZpeHR1cmUucmVwb3J0OndvcmtlciIsImZ1bmRpbmdfbGVnIjoiZml4dHVyZS5yZXBvcnQ6Y3VzdG9tZXIiLCJuYW1lIjoiZml4dHVyZS5yZXBvcnQ6cmV0YWlsIn1dLCJjb21waWxlcl9yZWYiOnsiZGlnZXN0Ijoic2hhMjU2Ojk0MjlhODVmN2E0MTFhMzc5ODBhOTlmMWYwMWNmY2E0MmUzZmRlNGE3MWU1OGRlOGQxYzE1NzU3MmY2NjRjNzUiLCJpZCI6Indkb2NfOTQyOWE4NWY3YTQxMWEzNzk4MGE5OWYxZjAxY2ZjYTQyZTNmZGU0YTcxZTU4ZGU4ZDFjMTU3NTcyZjY2NGM3NSIsImtpbmQiOiJ3b3JrZmxvdy1jb21waWxlci1kZXNjcmlwdG9yIn0sImNvbnRleHRfc2NoZW1hX3JlZiI6eyJkaWdlc3QiOiJzaGEyNTY6NzFkZTg5NjM0M2JiMmI2OGYzYTA0MDM1M2MxZWY3NTBhNzA1N2VhM2FmYmY2Njg0NjFjNTc3YmIyYzZiYTU3MiIsImlkIjoid2RvY183MWRlODk2MzQzYmIyYjY4ZjNhMDQwMzUzYzFlZjc1MGE3MDU3ZWEzYWZiZjY2ODQ2MWM1NzdiYjJjNmJhNTcyIiwia2luZCI6IndvcmtmbG93LWZhY3Qtc2NoZW1hIn0sImN1cnJlbmN5IjoiVVNEIiwiZGVsYXllZF9jb3N0cyI6W10sImZhbWlsaWVzIjpbXSwibW9kZSI6ImNvbXBvbmVudF93b3JrZmxvdyIsInBvbGljeV9pZCI6ImZpeHR1cmUucmVwb3J0OnBvbGljeSIsInByb2R1Y3RfcmVmIjp7ImRpZ2VzdCI6InNoYTI1NjpkMGU5NTZkYWEzMTZiOTVjOThkMjU1M2EyZDNkMzA4ZmNiYzc2ZWRjYTAyZTIyNjVjZjA5MzNmNDczZWI0M2NiIiwiaWQiOiJ3ZG9jX2QwZTk1NmRhYTMxNmI5NWM5OGQyNTUzYTJkM2QzMDhmY2JjNzZlZGNhMDJlMjI2NWNmMDkzM2Y0NzNlYjQzY2IiLCJraW5kIjoid29ya2Zsb3ctcHJvZHVjdCJ9LCJyb3VuZGluZyI6Im5lYXJlc3RfdGllc19hd2F5IiwicnVsZXMiOlt7ImFjdGl2aXR5IjoiZml4dHVyZS5yZXBvcnQ6Y29tcGxldGVkIiwiYmluZGluZ19zbG90IjoiZml4dHVyZS5yZXBvcnQ6cmV0YWlsIiwiY29tcG9uZW50X2tleSI6ImZpeHR1cmUucmVwb3J0OmJhc2UiLCJjb21wb25lbnRfbmFtZSI6ImZpeHR1cmUucmVwb3J0OmJhc2UiLCJkZXBlbmRlbmN5Ijoib25fbWlzc2luZ19yZWZ1c2UiLCJmb3JtdWxhIjp7ImtpbmQiOiJ1bml0IiwicXVhbnRpdHlfZmllbGQiOiJmaXh0dXJlLnJlcG9ydDpwYWdlcyIsInJhdGUiOiIwLjM3IiwidW5pdCI6ImZpeHR1cmUucmVwb3J0OnBhZ2UifSwicGhhc2UiOiJiYXNlIiwicnVsZV9pZCI6ImZpeHR1cmUucmVwb3J0OmNoYXJnZSIsIndoZW4iOnsib3AiOiJ0cnVlIn19XSwic2NhbGUiOjE4LCJzY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctcG9saWN5LzEiLCJzbG90X3RlbXBsYXRlX3JlZiI6eyJkaWdlc3QiOiJzaGEyNTY6Mzc0MjRiNmZmMzkxOWM4OGU2NTFkZTM1OGIwNzZkYTExZWNhMzJmNGExOWZmZjExMmRiNGM0NGQ3YTEyNjFiMyIsImlkIjoid2RvY18zNzQyNGI2ZmYzOTE5Yzg4ZTY1MWRlMzU4YjA3NmRhMTFlY2EzMmY0YTE5ZmZmMTEyZGI0YzQ0ZDdhMTI2MWIzIiwia2luZCI6IndvcmtmbG93LXNsb3QtdGVtcGxhdGUifSwic3RhZ2VzIjpbXSwidmVyc2lvbiI6IjEifSx7ImNvbXBpbGVyX3NlbWFudGljcyI6ImxlZGdlci1wb2xpY3ktY29tcGlsZXIvMSIsImNvbnRyYWN0X21hbmlmZXN0X2RpZ2VzdCI6InNoYTI1NjphNGU0YjM4MzQxYzFhOTgyODYxNmQ2NDQyODFjZWRhZWUyNzI0YTQ0NTkwMWQ3MzFjNDVjYWE1NmQxNWY5MTg0IiwiZXZhbHVhdG9yIjoibGVkZ2VyLXdvcmtmbG93LWV2YWx1YXRvci8xIiwiZmFjdF90eXBlcyI6WyJpbnRlZ2VyLzEiXSwiZmFjdHNfbm9ybWFsaXphdGlvbiI6ImxlZGdlci1mYWN0cy1ub3JtYWxpemF0aW9uLzEiLCJmb3JtdWxhX2tpbmRzIjpbInVuaXQvMSJdLCJncmFtbWFyIjoibGVkZ2VyLXBvbGljeS1ncmFtbWFyLzEiLCJsaW1pdHNfZGlnZXN0Ijoic2hhMjU2OjkxYTAzYWRiNDY3OTcxNDAzNDJlYzdkNzFiYTA0M2IyN2VmMzFhYzQxZWEwMzcxOGY3NGFmNDJlZDJiMWJkZTUiLCJsaW1pdHNfcHJvZmlsZSI6IndvcmtmbG93LWxpbWl0cy8xIiwibW9kZV9tYXRyaXhfZGlnZXN0Ijoic2hhMjU2OmE3NWUxMTU0ZGI5NGFmMzAwNzllY2U4OTFjZDY1NWYzMWQ3Y2NmMmVkYTg0NjRiYTM1M2FhMTMyN2JiNDFmM2UiLCJvcGVyYXRpb25fbm9ybWFsaXphdGlvbiI6ImxlZGdlci1vcGVyYXRpb24tbm9ybWFsaXphdGlvbi8yIiwicGxhbl9zY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctY29tcGlsZWQtcGxhbi8xIiwicHJlZGljYXRlX29wcyI6WyJ0cnVlLzEiXSwicHJpbWl0aXZlX3ZlcnNpb25zIjpbInVuaXQvMSJdLCJzY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctY29tcGlsZXItZGVzY3JpcHRvci8xIn0seyJjb21wb25lbnRzIjpbeyJhbGlhc2VzIjpbImZpeHR1cmUucmVwb3J0OmJhc2UiXSwiYm9vayI6InJldGFpbCIsImtleSI6ImZpeHR1cmUucmVwb3J0OmJhc2UiLCJyb2xlX3Nsb3QiOiJmaXh0dXJlLnJlcG9ydDpyZXRhaWwiLCJyb290X2tleSI6ImZpeHR1cmUucmVwb3J0OmJhc2UifV0sImZhbWlsaWVzIjpbXSwic2NoZW1hIjoibGVkZ2VyLXdvcmtmbG93LXNsb3QtdGVtcGxhdGUvMSIsInRlbXBsYXRlX2lkIjoiZml4dHVyZS5yZXBvcnQ6dGVtcGxhdGUiLCJ2ZXJzaW9uIjoiMSJ9LHsiZmllbGRzIjpbXSwibm9ybWFsaXphdGlvbiI6ImxlZGdlci1mYWN0cy1ub3JtYWxpemF0aW9uLzEiLCJzY2hlbWEiOiJsZWRnZXItd29ya2Zsb3ctZmFjdC1zY2hlbWEvMSIsInNjaGVtYV9pZCI6ImZpeHR1cmUucmVwb3J0OmNvbnRleHQiLCJ2ZXJzaW9uIjoiMSJ9LHsiZmllbGRzIjpbeyJuYW1lIjoiZml4dHVyZS5yZXBvcnQ6cGFnZXMiLCJwcm92ZW5hbmNlIjp7ImtpbmQiOiJjYWxsZXIifSwicmVxdWlyZWQiOnRydWUsInR5cGUiOnsia2luZCI6ImludGVnZXIiLCJtYXgiOiIxMDAiLCJtaW4iOiIwIiwidW5pdCI6ImZpeHR1cmUucmVwb3J0OnBhZ2UifX1dLCJub3JtYWxpemF0aW9uIjoibGVkZ2VyLWZhY3RzLW5vcm1hbGl6YXRpb24vMSIsInNjaGVtYSI6ImxlZGdlci13b3JrZmxvdy1mYWN0LXNjaGVtYS8xIiwic2NoZW1hX2lkIjoiZml4dHVyZS5yZXBvcnQ6ZmFjdHMiLCJ2ZXJzaW9uIjoiMSJ9XSwiZXhwZWN0ZWRfcGxhbl9kaWdlc3QiOiJzaGEyNTY6YTkyNWY0ZTc2MWEwMjQ5YWIwYzQzMjhlNmM2MmM0YjZlMDIzOTEzMTUxZTM5N2Y5NzFkNzI0NWEyZDI3MDJmNSIsIm1vZGUiOiJpbmxpbmUiLCJyb290X3BvbGljeV9yZWYiOnsiZGlnZXN0Ijoic2hhMjU2OjJlODljZDEzZGZhNTc2MTlhN2RlMGVlYWRjNDljNjAwODEzM2JmMTZmNzMwY2RhODlkZDIwNmI1ZDY2OWVjNzgiLCJpZCI6Indkb2NfMmU4OWNkMTNkZmE1NzYxOWE3ZGUwZWVhZGM0OWM2MDA4MTMzYmYxNmY3MzBjZGE4OWRkMjA2YjVkNjY5ZWM3OCIsImtpbmQiOiJ3b3JrZmxvdy1wb2xpY3kifSwic2NoZW1hIjoibGVkZ2VyLXdvcmtmbG93LXBvbGljeS1wdWJsaWNhdGlvbi8xIn0sInNjaGVtYSI6ImxlZGdlci1vcGVyYXRpb24vMSJ9\",\"original_request_bytes_sha256\":\"d36bdeed3d1ddb4d92229bf91a4199897ab84893c7ccb2a2f0870709056e6baf\",\"request_hash\":\"sha256:a3d0ca443b1887a321e50b7b1d9788363a35a08c322472817b2dd87b20e33010\",\"schema\":\"ledger-operation-request-evidence/2\",\"schema_bundle_digest\":\"sha256:66877e7ad62b7061bb44b889c843f15c5b2929d0c3e177e18171737d884ee067\"},\"result_refs\":[{\"digest\":\"sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5\",\"id\":\"wplan_a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5\",\"kind\":\"workflow-compiled-plan\"},{\"digest\":\"sha256:fefae3ad28ea3f1ccbdfd7f1782d99640b9fa8675dfba6c70deb2ca9bcd02c57\",\"id\":\"wpub_be643632c1b9960fab5ca9c424651c7f756b10c0e1bf6976c384b13a59398dac\",\"kind\":\"workflow-publication\"}],\"schema\":\"ledger-workflow-operation-record/1\"}",
+      "canonical_hex": "7b2261636365707465645f6174223a22323032362d31302d31325432303a30303a30312e3030303030305a222c22617574686f726974795f736e617073686f74223a7b22617574686f726974795f72656673223a5b7b22646967657374223a227368613235363a66343032636532656562323936623062373037333239646630356464663832333234363336333636393961613432626332643135623336303534353134666233222c226964223a2277646f635f66343032636532656562323936623062373037333239646630356464663832333234363336333636393961613432626332643135623336303534353134666233222c226b696e64223a22776f726b666c6f772d617574686f72697479227d5d2c227072696e636970616c5f6964223a22666978747572652d61646d696e222c22726967687473223a5b2261646d696e225d2c22736368656d61223a226c65646765722d776f726b666c6f772d7075626c69636174696f6e2d617574686f726974792f31222c22736f75726365223a2275726e3a666978747572653a7075626c6973686572222c2276616c6964617465645f6174223a22323032362d31302d31325432303a30303a30312e3030303030305a227d2c22636f6d6d69745f73657175656e6365223a2232222c22636f6e7472616374223a22776f726b666c6f772f31222c226b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d73746f7265222c226f7065726174696f6e5f6964223a227075626c6973682d303032222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c22736f75726365223a2275726e3a666978747572653a7075626c6973686572227d2c226b696e64223a22706f6c6963792e7075626c697368222c22726571756573745f65766964656e6365223a7b2264657363726970746f725f7265736f6c7574696f6e223a7b22616e63686f7273223a5b7b2264657363726970746f725f72656673223a5b5d2c227265636f72645f726566223a7b22646967657374223a227368613235363a33373432346236666633393139633838653635316465333538623037366461313165636133326634613139666666313132646234633434643761313236316233222c226964223a2277646f635f33373432346236666633393139633838653635316465333538623037366461313165636133326634613139666666313132646234633434643761313236316233222c226b696e64223a22776f726b666c6f772d736c6f742d74656d706c617465227d2c2272656c6174696f6e223a227075626c69636174696f6e5f736f75726365222c22726f6c65223a22696e6c696e655f646f63756d656e74227d2c7b2264657363726970746f725f72656673223a5b5d2c227265636f72645f726566223a7b22646967657374223a227368613235363a37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226964223a2277646f635f37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c2272656c6174696f6e223a227075626c69636174696f6e5f736f75726365222c22726f6c65223a22696e6c696e655f646f63756d656e74227d2c7b2264657363726970746f725f72656673223a5b5d2c227265636f72645f726566223a7b22646967657374223a227368613235363a39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226964223a2277646f635f39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226b696e64223a22776f726b666c6f772d636f6d70696c65722d64657363726970746f72227d2c2272656c6174696f6e223a227075626c69636174696f6e5f736f75726365222c22726f6c65223a22696e6c696e655f646f63756d656e74227d2c7b2264657363726970746f725f72656673223a5b5d2c227265636f72645f726566223a7b22646967657374223a227368613235363a61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226964223a2277646f635f61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c2272656c6174696f6e223a227075626c69636174696f6e5f736f75726365222c22726f6c65223a22696e6c696e655f646f63756d656e74227d2c7b2264657363726970746f725f72656673223a5b5d2c227265636f72645f726566223a7b22646967657374223a227368613235363a64306539353664616133313662393563393864323535336132643364333038666362633736656463613032653232363563663039333366343733656234336362222c226964223a2277646f635f64306539353664616133313662393563393864323535336132643364333038666362633736656463613032653232363563663039333366343733656234336362222c226b696e64223a22776f726b666c6f772d70726f64756374227d2c2272656c6174696f6e223a227075626c69636174696f6e5f736f75726365222c22726f6c65223a22696e6c696e655f646f63756d656e74227d2c7b2264657363726970746f725f72656673223a5b7b22646967657374223a227368613235363a37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226964223a2277646f635f37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c7b22646967657374223a227368613235363a61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226964223a2277646f635f61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d5d2c227265636f72645f726566223a7b22646967657374223a227368613235363a32653839636431336466613537363139613764653065656164633439633630303831333362663136663733306364613839646432303662356436363965633738222c226964223a2277646f635f32653839636431336466613537363139613764653065656164633439633630303831333362663136663733306364613839646432303662356436363965633738222c226b696e64223a22776f726b666c6f772d706f6c696379227d2c2272656c6174696f6e223a227075626c69636174696f6e5f736f75726365222c22726f6c65223a22696e6c696e655f646f63756d656e74227d5d2c22636c6f737572655f646967657374223a227368613235363a31346333326430353466643337343337363035326666393538363464653835303836343831643635646238316432386131303861366531643262343732393263222c2264657363726970746f7273223a5b7b22646967657374223a227368613235363a37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226964223a2277646f635f37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c7b22646967657374223a227368613235363a39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226964223a2277646f635f39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226b696e64223a22776f726b666c6f772d636f6d70696c65722d64657363726970746f72227d2c7b22646967657374223a227368613235363a61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226964223a2277646f635f61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d5d2c226c6f6361746f725f646967657374223a227368613235363a30633832363839663763363462363862326639353532633861323036366366616237623062656663346233336138633565356565373639306130396330353762222c226e6f726d616c697a6174696f6e5f70726f66696c65223a226c65646765722d6f7065726174696f6e2d6e6f726d616c697a6174696f6e2f32222c226f7065726174696f6e5f6b696e64223a22706f6c6963792e7075626c697368222c227061796c6f61645f736368656d61223a226c65646765722d776f726b666c6f772d706f6c6963792d7075626c69636174696f6e2f31222c2272656769737472795f646967657374223a227368613235363a38633631663063336639663234366236663063306261343139643465326436613963376639663538386338646266383066363132346338396332336632323130222c22736368656d61223a226c65646765722d6f7065726174696f6e2d64657363726970746f72732f31227d2c226e6f726d616c697a6174696f6e5f70726f66696c65223a226c65646765722d6f7065726174696f6e2d6e6f726d616c697a6174696f6e2f32222c226e6f726d616c697a65645f72657175657374223a7b22636f6e7472616374223a22776f726b666c6f772f31222c226b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d73746f7265222c226f7065726174696f6e5f6964223a227075626c6973682d303032222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c22736f75726365223a2275726e3a666978747572653a7075626c6973686572227d2c226b696e64223a22706f6c6963792e7075626c697368222c227061796c6f6164223a7b22646f63756d656e7473223a5b7b2261637469766974696573223a5b7b22666163745f736368656d61223a7b22646967657374223a227368613235363a61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226964223a2277646f635f61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c2266756e64696e675f6c6567223a22666978747572652e7265706f72743a637573746f6d6572222c226c6162656c73223a7b227469746c65223a22436f6d706c65746564207265706f7274227d2c226e616d65223a22666978747572652e7265706f72743a636f6d706c65746564222c227072696d6974697665223a22776f726b222c22736f757263655f736c6f74223a22666978747572652e7265706f72743a776f726b6572227d5d2c226576616c7561746f72223a226c65646765722d776f726b666c6f772d6576616c7561746f722f31222c22666163745f736368656d6173223a5b7b22646967657374223a227368613235363a61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226964223a2277646f635f61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d5d2c226772616d6d6172223a226c65646765722d706f6c6963792d6772616d6d61722f31222c226c6162656c73223a7b227469746c65223a2253796e746865746963207265706f7274227d2c226c696d6974735f70726f66696c65223a22776f726b666c6f772d6c696d6974732f31222c226c696e6b73223a5b5d2c2270726f647563745f6964223a22666978747572652e7265706f72743a70726f64756374222c2270726f66696c65223a22776f726b666c6f772f31222c22736368656d61223a226c65646765722d776f726b666c6f772d70726f647563742f31222c22756e697473223a5b7b2264696d656e73696f6e223a22666978747572652e7265706f72743a636f756e74222c226c6162656c73223a7b227469746c65223a2250616765227d2c226e616d65223a22666978747572652e7265706f72743a70616765227d5d2c2276657273696f6e223a2231227d2c7b2262696e64696e675f736c6f7473223a5b7b22616c6c6f7765645f61637469766974696573223a5b22666978747572652e7265706f72743a636f6d706c65746564225d2c22626f6f6b223a2272657461696c222c22636f7272656374696f6e5f736f757263655f736c6f74223a22666978747572652e7265706f72743a776f726b6572222c2266756e64696e675f6c6567223a22666978747572652e7265706f72743a637573746f6d6572222c226e616d65223a22666978747572652e7265706f72743a72657461696c227d5d2c22636f6d70696c65725f726566223a7b22646967657374223a227368613235363a39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226964223a2277646f635f39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226b696e64223a22776f726b666c6f772d636f6d70696c65722d64657363726970746f72227d2c22636f6e746578745f736368656d615f726566223a7b22646967657374223a227368613235363a37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226964223a2277646f635f37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c2263757272656e6379223a22555344222c2264656c617965645f636f737473223a5b5d2c2266616d696c696573223a5b5d2c226d6f6465223a22636f6d706f6e656e745f776f726b666c6f77222c22706f6c6963795f6964223a22666978747572652e7265706f72743a706f6c696379222c2270726f647563745f726566223a7b22646967657374223a227368613235363a64306539353664616133313662393563393864323535336132643364333038666362633736656463613032653232363563663039333366343733656234336362222c226964223a2277646f635f64306539353664616133313662393563393864323535336132643364333038666362633736656463613032653232363563663039333366343733656234336362222c226b696e64223a22776f726b666c6f772d70726f64756374227d2c22726f756e64696e67223a226e6561726573745f746965735f61776179222c2272756c6573223a5b7b226163746976697479223a22666978747572652e7265706f72743a636f6d706c65746564222c2262696e64696e675f736c6f74223a22666978747572652e7265706f72743a72657461696c222c22636f6d706f6e656e745f6b6579223a22666978747572652e7265706f72743a62617365222c22636f6d706f6e656e745f6e616d65223a22666978747572652e7265706f72743a62617365222c22646570656e64656e6379223a226f6e5f6d697373696e675f726566757365222c22666f726d756c61223a7b226b696e64223a22756e6974222c227175616e746974795f6669656c64223a22666978747572652e7265706f72743a7061676573222c2272617465223a22302e3337222c22756e6974223a22666978747572652e7265706f72743a70616765227d2c227068617365223a2262617365222c2272756c655f6964223a22666978747572652e7265706f72743a636861726765222c227768656e223a7b226f70223a2274727565227d7d5d2c227363616c65223a31382c22736368656d61223a226c65646765722d776f726b666c6f772d706f6c6963792f31222c22736c6f745f74656d706c6174655f726566223a7b22646967657374223a227368613235363a33373432346236666633393139633838653635316465333538623037366461313165636133326634613139666666313132646234633434643761313236316233222c226964223a2277646f635f33373432346236666633393139633838653635316465333538623037366461313165636133326634613139666666313132646234633434643761313236316233222c226b696e64223a22776f726b666c6f772d736c6f742d74656d706c617465227d2c22737461676573223a5b5d2c2276657273696f6e223a2231227d2c7b22636f6d70696c65725f73656d616e74696373223a226c65646765722d706f6c6963792d636f6d70696c65722f31222c22636f6e74726163745f6d616e69666573745f646967657374223a227368613235363a61346534623338333431633161393832383631366436343432383163656461656532373234613434353930316437333163343563616135366431356639313834222c226576616c7561746f72223a226c65646765722d776f726b666c6f772d6576616c7561746f722f31222c22666163745f7479706573223a5b22696e74656765722f31225d2c2266616374735f6e6f726d616c697a6174696f6e223a226c65646765722d66616374732d6e6f726d616c697a6174696f6e2f31222c22666f726d756c615f6b696e6473223a5b22756e69742f31225d2c226772616d6d6172223a226c65646765722d706f6c6963792d6772616d6d61722f31222c226c696d6974735f646967657374223a227368613235363a39316130336164623436373937313430333432656337643731626130343362323765663331616334316561303337313866373461663432656432623162646535222c226c696d6974735f70726f66696c65223a22776f726b666c6f772d6c696d6974732f31222c226d6f64655f6d61747269785f646967657374223a227368613235363a61373565313135346462393461663330303739656365383931636436353566333164376363663265646138343634626133353361613133323762623431663365222c226f7065726174696f6e5f6e6f726d616c697a6174696f6e223a226c65646765722d6f7065726174696f6e2d6e6f726d616c697a6174696f6e2f32222c22706c616e5f736368656d61223a226c65646765722d776f726b666c6f772d636f6d70696c65642d706c616e2f31222c227072656469636174655f6f7073223a5b22747275652f31225d2c227072696d69746976655f76657273696f6e73223a5b22756e69742f31225d2c22736368656d61223a226c65646765722d776f726b666c6f772d636f6d70696c65722d64657363726970746f722f31227d2c7b22636f6d706f6e656e7473223a5b7b22616c6961736573223a5b22666978747572652e7265706f72743a62617365225d2c22626f6f6b223a2272657461696c222c226b6579223a22666978747572652e7265706f72743a62617365222c22726f6c655f736c6f74223a22666978747572652e7265706f72743a72657461696c222c22726f6f745f6b6579223a22666978747572652e7265706f72743a62617365227d5d2c2266616d696c696573223a5b5d2c22736368656d61223a226c65646765722d776f726b666c6f772d736c6f742d74656d706c6174652f31222c2274656d706c6174655f6964223a22666978747572652e7265706f72743a74656d706c617465222c2276657273696f6e223a2231227d2c7b226669656c6473223a5b5d2c226e6f726d616c697a6174696f6e223a226c65646765722d66616374732d6e6f726d616c697a6174696f6e2f31222c22736368656d61223a226c65646765722d776f726b666c6f772d666163742d736368656d612f31222c22736368656d615f6964223a22666978747572652e7265706f72743a636f6e74657874222c2276657273696f6e223a2231227d2c7b226669656c6473223a5b7b226e616d65223a22666978747572652e7265706f72743a7061676573222c2270726f76656e616e6365223a7b226b696e64223a2263616c6c6572227d2c227265717569726564223a747275652c2274797065223a7b226b696e64223a22696e7465676572222c226d6178223a22313030222c226d696e223a2230222c22756e6974223a22666978747572652e7265706f72743a70616765227d7d5d2c226e6f726d616c697a6174696f6e223a226c65646765722d66616374732d6e6f726d616c697a6174696f6e2f31222c22736368656d61223a226c65646765722d776f726b666c6f772d666163742d736368656d612f31222c22736368656d615f6964223a22666978747572652e7265706f72743a6661637473222c2276657273696f6e223a2231227d5d2c2265787065637465645f706c616e5f646967657374223a227368613235363a61393235663465373631613032343961623063343332386536633632633462366530323339313331353165333937663937316437323435613264323730326635222c226d6f6465223a22696e6c696e65222c22726f6f745f706f6c6963795f726566223a7b22646967657374223a227368613235363a32653839636431336466613537363139613764653065656164633439633630303831333362663136663733306364613839646432303662356436363965633738222c226964223a2277646f635f32653839636431336466613537363139613764653065656164633439633630303831333362663136663733306364613839646432303662356436363965633738222c226b696e64223a22776f726b666c6f772d706f6c696379227d2c22736368656d61223a226c65646765722d776f726b666c6f772d706f6c6963792d7075626c69636174696f6e2f31227d2c22736368656d61223a226c65646765722d6f7065726174696f6e2f31227d2c226f726967696e616c5f726571756573745f62797465735f626173653634223a2265794a6a62323530636d466a64434936496e6476636d746d624739334c7a45694c434a725a586b694f6e73696247396e61574e686246397a644739795a5639705a434936496d5a7065485231636d557463335276636d55694c434a76634756795958527062323566615751694f694a7764574a7361584e6f4c5441774d694973496e4e6a6233426c496a7062496d5a7065485231636d55694c434a7a5957356b596d3934496c3073496e4e7664584a6a5a534936496e5679626a706d6158683064584a6c4f6e4231596d78706332686c63694a394c434a726157356b496a6f696347397361574e354c6e4231596d7870633267694c434a7759586c736232466b496a7037496d5276593356745a573530637949365733736959574e3061585a7064476c6c63794936573373695a6d466a6446397a5932686c625745694f6e73695a476c6e5a584e30496a6f69633268684d6a55324f6d457a4d7a49335a444d344f47566b4d5455335a6a413259546c6d5a5751774f54517a59324d7a4f4751344e6d526c4d6d557a4e6a4d79596a497a5a5745774e3249795a5441784d5445795a544d314d6a4530595463694c434a705a434936496e646b62324e6659544d7a4d6a646b4d7a67345a5751784e54646d4d445a684f575a6c5a4441354e444e6a597a4d345a4467325a4755795a544d324d7a4a694d6a4e6c59544133596a4a6c4d4445784d544a6c4d7a55794d5452684e794973496d7470626d51694f694a3362334a725a6d78766479316d59574e304c584e6a6147567459534a394c434a6d6457356b6157356e5832786c5a794936496d5a7065485231636d5575636d567762334a304f6d4e31633352766257567949697769624746695a57787a496a7037496e52706447786c496a6f69513239746347786c6447566b49484a6c6347397964434a394c434a755957316c496a6f695a6d6c34644856795a5335795a584276636e5136593239746347786c6447566b4969776963484a7062576c3061585a6c496a6f696432397961794973496e4e7664584a6a5a56397a62473930496a6f695a6d6c34644856795a5335795a584276636e51366432397961325679496e31644c434a6c646d467364574630623349694f694a735a57526e5a5849746432397961325a73623363745a585a6862485668644739794c7a45694c434a6d59574e3058334e6a6147567459584d694f6c7437496d52705a32567a64434936496e4e6f595449314e6a70684d7a4d794e32517a4f44686c5a4445314e3259774e6d45355a6d566b4d446b304d324e6a4d7a686b4f445a6b5a544a6c4d7a597a4d6d49794d3256684d4464694d6d55774d5445784d6d557a4e5449784e47453349697769615751694f694a335a47396a5832457a4d7a49335a444d344f47566b4d5455335a6a413259546c6d5a5751774f54517a59324d7a4f4751344e6d526c4d6d557a4e6a4d79596a497a5a5745774e3249795a5441784d5445795a544d314d6a4530595463694c434a726157356b496a6f696432397961325a73623363745a6d466a6443317a5932686c6257456966563073496d647959573174595849694f694a735a57526e5a5849746347397361574e354c57647959573174595849764d534973496d7868596d56736379493665794a30615852735a534936496c4e35626e526f5a585270597942795a584276636e51696653776962476c746158527a5833427962325a70624755694f694a3362334a725a6d7876647931736157317064484d764d534973496d7870626d747a496a70625853776963484a765a48566a644639705a434936496d5a7065485231636d5575636d567762334a304f6e427962325231593351694c434a77636d396d6157786c496a6f696432397961325a73623363764d534973496e4e6a6147567459534936496d786c5a47646c6369313362334a725a6d787664793177636d396b64574e304c7a45694c434a31626d6c3063794936573373695a476c745a57357a61573975496a6f695a6d6c34644856795a5335795a584276636e513659323931626e51694c434a7359574a6c62484d694f6e736964476c30624755694f694a515957646c496e3073496d3568625755694f694a6d6158683064584a6c4c6e4a6c63473979644470775957646c496e31644c434a325a584a7a61573975496a6f694d534a394c487369596d6c755a476c755a31397a624739306379493657337369595778736233646c5a46396859335270646d6c306157567a496a7062496d5a7065485231636d5575636d567762334a304f6d4e76625842735a58526c5a434a644c434a6962323972496a6f69636d563059576c734969776959323979636d566a64476c76626c397a62335679593256666332787664434936496d5a7065485231636d5575636d567762334a304f6e6476636d746c63694973496d5a31626d5270626d64666247566e496a6f695a6d6c34644856795a5335795a584276636e51365933567a644739745a5849694c434a755957316c496a6f695a6d6c34644856795a5335795a584276636e5136636d563059576c73496e31644c434a6a623231776157786c636c39795a5759694f6e73695a476c6e5a584e30496a6f69633268684d6a55324f6a6b304d6a6c684f44566d4e3245304d5446684d7a63354f4442684f546c6d4d5759774d574e6d593245304d6d557a5a6d526c4e4745334d5755314f47526c4f475178597a45314e7a55334d6d59324e6a526a4e7a55694c434a705a434936496e646b62324e664f5451794f5745344e575933595451784d57457a4e7a6b344d4745354f5759785a6a417859325a6a595451795a544e6d5a475530595463785a5455345a4755345a44466a4d5455334e5463795a6a59324e474d334e534973496d7470626d51694f694a3362334a725a6d78766479316a623231776157786c6369316b5a584e6a636d6c7764473979496e3073496d4e76626e526c6548526663324e6f5a57316858334a6c5a69493665794a6b6157646c633351694f694a7a614745794e5459364e7a466b5a5467354e6a4d304d324a694d6d49324f47597a595441304d444d314d324d785a5759334e5442684e7a41314e3256684d32466d596d59324e6a67304e6a466a4e546333596d4979597a5a69595455334d694973496d6c6b496a6f6964325276593138334d57526c4f446b324d7a517a596d4979596a59345a6a4e684d4451774d7a557a597a466c5a6a63314d4745334d4455335a57457a59575a695a6a59324f4451324d574d314e7a6469596a4a6a4e6d4a684e5463794969776961326c755a434936496e6476636d746d624739334c575a685933517463324e6f5a573168496e3073496d4e31636e4a6c626d4e35496a6f6956564e45496977695a47567359586c6c5a46396a62334e306379493657313073496d5a6862576c736157567a496a7062585377696257396b5a534936496d4e7662584276626d56756446393362334a725a6d787664794973496e427662476c6a655639705a434936496d5a7065485231636d5575636d567762334a304f6e427662476c6a65534973496e42796232523159335266636d566d496a7037496d52705a32567a64434936496e4e6f595449314e6a706b4d4755354e545a6b5957457a4d545a694f54566a4f54686b4d6a55314d3245795a444e6b4d7a41345a6d4e69597a63325a57526a595441795a5449794e6a566a5a6a41354d7a4e6d4e44637a5a5749304d324e6949697769615751694f694a335a47396a583251775a546b314e6d526859544d784e6d49354e574d354f4751794e54557a59544a6b4d32517a4d44686d59324a6a4e7a5a6c5a474e684d444a6c4d6a49324e574e6d4d446b7a4d3259304e7a4e6c596a517a593249694c434a726157356b496a6f696432397961325a736233637463484a765a48566a64434a394c434a79623356755a476c755a794936496d356c59584a6c6333526664476c6c633139686432463549697769636e56735a584d694f6c7437496d466a64476c3261585235496a6f695a6d6c34644856795a5335795a584276636e5136593239746347786c6447566b49697769596d6c755a476c755a31397a62473930496a6f695a6d6c34644856795a5335795a584276636e5136636d563059576c734969776959323974634739755a5735305832746c65534936496d5a7065485231636d5575636d567762334a304f6d4a68633255694c434a6a623231776232356c626e5266626d46745a534936496d5a7065485231636d5575636d567762334a304f6d4a68633255694c434a6b5a58426c626d526c626d4e35496a6f696232356662576c7a63326c755a3139795a575a31633255694c434a6d62334a7464577868496a7037496d7470626d51694f694a31626d6c304969776963585668626e527064486c665a6d6c6c624751694f694a6d6158683064584a6c4c6e4a6c63473979644470775957646c63794973496e4a68644755694f6949774c6a4d33496977696457357064434936496d5a7065485231636d5575636d567762334a304f6e42685a3255696653776963476868633255694f694a6959584e6c49697769636e56735a5639705a434936496d5a7065485231636d5575636d567762334a304f6d4e6f59584a6e5a534973496e646f5a5734694f6e7369623341694f694a30636e566c496e31395853776963324e68624755694f6a45344c434a7a5932686c625745694f694a735a57526e5a5849746432397961325a73623363746347397361574e354c7a45694c434a7a624739305833526c625842735958526c58334a6c5a69493665794a6b6157646c633351694f694a7a614745794e5459364d7a63304d6a52694e6d5a6d4d7a6b784f574d344f4755324e54466b5a544d314f4749774e7a5a6b595445785a574e684d7a4a6d4e4745784f575a6d5a6a45784d6d52694e474d304e475133595445794e6a46694d794973496d6c6b496a6f69643252765931387a4e7a51794e4749325a6d597a4f544535597a67345a5459314d57526c4d7a5534596a41334e6d52684d54466c5932457a4d6d5930595445355a6d5a6d4d5445795a474930597a51305a4464684d5449324d57497a4969776961326c755a434936496e6476636d746d624739334c584e736233517464475674634778686447556966537769633352685a32567a496a706258537769646d567963326c7662694936496a456966537837496d4e76625842706247567958334e6c6257467564476c6a63794936496d786c5a47646c636931776232787059336b745932397463476c735a5849764d534973496d4e76626e527959574e3058323168626d6c6d5a584e30583252705a32567a64434936496e4e6f595449314e6a70684e475530596a4d344d7a5178597a46684f5467794f4459784e6d51324e4451794f44466a5a5752685a5755794e7a4930595451304e546b774d5751334d7a466a4e44566a595745314e6d51784e5759354d546730496977695a585a686248566864473979496a6f696247566b5a3256794c586476636d746d624739334c575632595778315958527663693878496977695a6d466a644639306558426c6379493657794a70626e526c5a3256794c7a4569585377695a6d466a64484e66626d3979625746736158706864476c7662694936496d786c5a47646c6369316d59574e306379317562334a7459577870656d4630615739754c7a45694c434a6d62334a746457786858327470626d527a496a7062496e5675615851764d534a644c434a6e636d467462574679496a6f696247566b5a3256794c58427662476c6a6553316e636d4674625746794c7a45694c434a736157317064484e665a476c6e5a584e30496a6f69633268684d6a55324f6a6b785954417a595752694e4459334f5463784e44417a4e444a6c597a646b4e7a4669595441304d3249794e32566d4d7a4668597a51785a5745774d7a63784f4759334e47466d4e444a6c5a444a694d574a6b5a5455694c434a736157317064484e6663484a765a6d6c735a534936496e6476636d746d624739334c57787062576c3063793878496977696257396b5a56397459585279615868665a476c6e5a584e30496a6f69633268684d6a55324f6d45334e5755784d5455305a4749354e47466d4d7a41774e7a6c6c593255344f54466a5a4459314e57597a4d57513359324e6d4d6d566b595467304e6a526959544d314d3246684d544d794e324a694e44466d4d3255694c434a76634756795958527062323566626d3979625746736158706864476c7662694936496d786c5a47646c63693176634756795958527062323474626d3979625746736158706864476c76626938794969776963477868626c397a5932686c625745694f694a735a57526e5a5849746432397961325a73623363745932397463476c735a57517463477868626938784969776963484a6c5a476c6a5958526c583239776379493657794a30636e566c4c7a45695853776963484a7062576c3061585a6c58335a6c636e4e706232357a496a7062496e5675615851764d534a644c434a7a5932686c625745694f694a735a57526e5a5849746432397961325a73623363745932397463476c735a5849745a47567a59334a706348527663693878496e307365794a6a623231776232356c626e527a496a706265794a6862476c686332567a496a7062496d5a7065485231636d5575636d567762334a304f6d4a686332556958537769596d397661794936496e4a6c6447467062434973496d746c65534936496d5a7065485231636d5575636d567762334a304f6d4a68633255694c434a796232786c58334e73623351694f694a6d6158683064584a6c4c6e4a6c63473979644470795a585268615777694c434a79623239305832746c65534936496d5a7065485231636d5575636d567762334a304f6d4a686332556966563073496d5a6862576c736157567a496a70625853776963324e6f5a573168496a6f696247566b5a3256794c586476636d746d624739334c584e73623351746447567463477868644755764d534973496e526c625842735958526c58326c6b496a6f695a6d6c34644856795a5335795a584276636e51366447567463477868644755694c434a325a584a7a61573975496a6f694d534a394c4873695a6d6c6c6247527a496a706258537769626d3979625746736158706864476c7662694936496d786c5a47646c6369316d59574e306379317562334a7459577870656d4630615739754c7a45694c434a7a5932686c625745694f694a735a57526e5a5849746432397961325a73623363745a6d466a6443317a5932686c625745764d534973496e4e6a61475674595639705a434936496d5a7065485231636d5575636d567762334a304f6d4e76626e526c654851694c434a325a584a7a61573975496a6f694d534a394c4873695a6d6c6c6247527a496a706265794a755957316c496a6f695a6d6c34644856795a5335795a584276636e51366347466e5a584d694c434a77636d39325a573568626d4e6c496a7037496d7470626d51694f694a6a595778735a58496966537769636d567864576c795a5751694f6e527964575573496e5235634755694f6e736961326c755a434936496d6c756447566e5a5849694c434a74595867694f6949784d4441694c434a74615734694f694977496977696457357064434936496d5a7065485231636d5575636d567762334a304f6e42685a325569665831644c434a7562334a7459577870656d463061573975496a6f696247566b5a3256794c575a685933527a4c573576636d316862476c3659585270623234764d534973496e4e6a6147567459534936496d786c5a47646c6369313362334a725a6d78766479316d59574e304c584e6a61475674595338784969776963324e6f5a57316858326c6b496a6f695a6d6c34644856795a5335795a584276636e51365a6d466a64484d694c434a325a584a7a61573975496a6f694d534a39585377695a5868775a574e305a57526663477868626c396b6157646c633351694f694a7a614745794e54593659546b794e5759305a5463324d5745774d6a513559574977597a517a4d6a686c4e6d4d324d6d4d30596a5a6c4d44497a4f54457a4d5455785a544d354e3259354e7a466b4e7a49304e5745795a4449334d444a6d4e534973496d31765a4755694f694a70626d7870626d55694c434a79623239305833427662476c6a655639795a5759694f6e73695a476c6e5a584e30496a6f69633268684d6a55324f6a4a6c4f446c6a5a44457a5a475a684e5463324d546c684e32526c4d47566c5957526a4e446c6a4e6a41774f44457a4d324a6d4d545a6d4e7a4d77593252684f446c6b5a4449774e6d49315a4459324f57566a4e7a67694c434a705a434936496e646b62324e664d6d55344f574e6b4d544e6b5a6d45314e7a59784f5745335a4755775a5756685a474d304f574d324d4441344d544d7a596d59784e6d59334d7a426a5a4745344f57526b4d6a4132596a566b4e6a59355a574d334f434973496d7470626d51694f694a3362334a725a6d7876647931776232787059336b696653776963324e6f5a573168496a6f696247566b5a3256794c586476636d746d624739334c58427662476c6a6553317764574a7361574e6864476c7662693878496e3073496e4e6a6147567459534936496d786c5a47646c636931766347567959585270623234764d534a39222c226f726967696e616c5f726571756573745f62797465735f736861323536223a2264333662646565643364316464623464393232323962663931613431393938393761623834383933633763636232613266303837303730393035366536626166222c22726571756573745f68617368223a227368613235363a61336430636134343362313838376133323165353062376231643937383833363361333561303863333232343732383137623264643837623230653333303130222c22736368656d61223a226c65646765722d6f7065726174696f6e2d726571756573742d65766964656e63652f32222c22736368656d615f62756e646c655f646967657374223a227368613235363a36363837376537616436326237303631626234346238383963383433663135633562323932396430633365313737653138313731373337643838346565303637227d2c22726573756c745f72656673223a5b7b22646967657374223a227368613235363a61393235663465373631613032343961623063343332386536633632633462366530323339313331353165333937663937316437323435613264323730326635222c226964223a2277706c616e5f61393235663465373631613032343961623063343332386536633632633462366530323339313331353165333937663937316437323435613264323730326635222c226b696e64223a22776f726b666c6f772d636f6d70696c65642d706c616e227d2c7b22646967657374223a227368613235363a66656661653361643238656133663163636264666437663137383264393936343062396661383637356466626136633730646562326361396263643032633537222c226964223a22777075625f62653634333633326331623939363066616235636139633432343635316337663735366231306330653162663639373663333834623133613539333938646163222c226b696e64223a22776f726b666c6f772d7075626c69636174696f6e227d5d2c22736368656d61223a226c65646765722d776f726b666c6f772d6f7065726174696f6e2d7265636f72642f31227d",
+      "byte_length": 15850
+    },
+    {
+      "name": "manifest",
+      "body": {
+        "schema": "ledger-workflow-publication-manifest/1",
+        "key": {
+          "logical_store_id": "fixture-store",
+          "scope": [
+            "fixture",
+            "sandbox"
+          ],
+          "source": "urn:fixture:publisher",
+          "operation_id": "publish-002"
+        },
+        "members": [
+          {
+            "kind": "workflow-policy",
+            "id": "wdoc_2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78",
+            "digest": "sha256:2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78"
+          },
+          {
+            "kind": "workflow-slot-template",
+            "id": "wdoc_37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3",
+            "digest": "sha256:37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3"
+          },
+          {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572",
+            "digest": "sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572"
+          },
+          {
+            "kind": "workflow-compiler-descriptor",
+            "id": "wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75",
+            "digest": "sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75"
+          },
+          {
+            "kind": "workflow-operation",
+            "id": "wop_4829951519d39b9d82d93a38cf1cabd7b506d650b4deb05c59a0ee1cdedc6f80",
+            "digest": "sha256:9a323403d2dce3975551b1b0505cfde0941e42ed10d3e2a20483c86a63e4c498"
+          },
+          {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7",
+            "digest": "sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7"
+          },
+          {
+            "kind": "workflow-compiled-plan",
+            "id": "wplan_a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5",
+            "digest": "sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5"
+          },
+          {
+            "kind": "workflow-product",
+            "id": "wdoc_d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb",
+            "digest": "sha256:d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb"
+          },
+          {
+            "kind": "workflow-authority",
+            "id": "wdoc_f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3",
+            "digest": "sha256:f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3"
+          },
+          {
+            "kind": "workflow-publication",
+            "id": "wpub_be643632c1b9960fab5ca9c424651c7f756b10c0e1bf6976c384b13a59398dac",
+            "digest": "sha256:fefae3ad28ea3f1ccbdfd7f1782d99640b9fa8675dfba6c70deb2ca9bcd02c57"
+          }
+        ]
+      },
+      "ref": {
+        "kind": "workflow-manifest",
+        "id": "wmanifest_0d4caaed9ce24963216b642f97ebc88c5e5a9677749ea990ff80f59e7ae46383",
+        "digest": "sha256:0d4caaed9ce24963216b642f97ebc88c5e5a9677749ea990ff80f59e7ae46383"
+      },
+      "canonical_utf8": "{\"key\":{\"logical_store_id\":\"fixture-store\",\"operation_id\":\"publish-002\",\"scope\":[\"fixture\",\"sandbox\"],\"source\":\"urn:fixture:publisher\"},\"members\":[{\"digest\":\"sha256:2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78\",\"id\":\"wdoc_2e89cd13dfa57619a7de0eeadc49c6008133bf16f730cda89dd206b5d669ec78\",\"kind\":\"workflow-policy\"},{\"digest\":\"sha256:37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3\",\"id\":\"wdoc_37424b6ff3919c88e651de358b076da11eca32f4a19fff112db4c44d7a1261b3\",\"kind\":\"workflow-slot-template\"},{\"digest\":\"sha256:71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"id\":\"wdoc_71de896343bb2b68f3a040353c1ef750a7057ea3afbf668461c577bb2c6ba572\",\"kind\":\"workflow-fact-schema\"},{\"digest\":\"sha256:9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"id\":\"wdoc_9429a85f7a411a37980a99f1f01cfca42e3fde4a71e58de8d1c157572f664c75\",\"kind\":\"workflow-compiler-descriptor\"},{\"digest\":\"sha256:9a323403d2dce3975551b1b0505cfde0941e42ed10d3e2a20483c86a63e4c498\",\"id\":\"wop_4829951519d39b9d82d93a38cf1cabd7b506d650b4deb05c59a0ee1cdedc6f80\",\"kind\":\"workflow-operation\"},{\"digest\":\"sha256:a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"id\":\"wdoc_a3327d388ed157f06a9fed0943cc38d86de2e3632b23ea07b2e01112e35214a7\",\"kind\":\"workflow-fact-schema\"},{\"digest\":\"sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5\",\"id\":\"wplan_a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5\",\"kind\":\"workflow-compiled-plan\"},{\"digest\":\"sha256:d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb\",\"id\":\"wdoc_d0e956daa316b95c98d2553a2d3d308fcbc76edca02e2265cf0933f473eb43cb\",\"kind\":\"workflow-product\"},{\"digest\":\"sha256:f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3\",\"id\":\"wdoc_f402ce2eeb296b0b707329df05ddf8232463636699aa42bc2d15b36054514fb3\",\"kind\":\"workflow-authority\"},{\"digest\":\"sha256:fefae3ad28ea3f1ccbdfd7f1782d99640b9fa8675dfba6c70deb2ca9bcd02c57\",\"id\":\"wpub_be643632c1b9960fab5ca9c424651c7f756b10c0e1bf6976c384b13a59398dac\",\"kind\":\"workflow-publication\"}],\"schema\":\"ledger-workflow-publication-manifest/1\"}",
+      "canonical_hex": "7b226b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d73746f7265222c226f7065726174696f6e5f6964223a227075626c6973682d303032222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c22736f75726365223a2275726e3a666978747572653a7075626c6973686572227d2c226d656d62657273223a5b7b22646967657374223a227368613235363a32653839636431336466613537363139613764653065656164633439633630303831333362663136663733306364613839646432303662356436363965633738222c226964223a2277646f635f32653839636431336466613537363139613764653065656164633439633630303831333362663136663733306364613839646432303662356436363965633738222c226b696e64223a22776f726b666c6f772d706f6c696379227d2c7b22646967657374223a227368613235363a33373432346236666633393139633838653635316465333538623037366461313165636133326634613139666666313132646234633434643761313236316233222c226964223a2277646f635f33373432346236666633393139633838653635316465333538623037366461313165636133326634613139666666313132646234633434643761313236316233222c226b696e64223a22776f726b666c6f772d736c6f742d74656d706c617465227d2c7b22646967657374223a227368613235363a37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226964223a2277646f635f37316465383936333433626232623638663361303430333533633165663735306137303537656133616662663636383436316335373762623263366261353732222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c7b22646967657374223a227368613235363a39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226964223a2277646f635f39343239613835663761343131613337393830613939663166303163666361343265336664653461373165353864653864316331353735373266363634633735222c226b696e64223a22776f726b666c6f772d636f6d70696c65722d64657363726970746f72227d2c7b22646967657374223a227368613235363a39613332333430336432646365333937353535316231623035303563666465303934316534326564313064336532613230343833633836613633653463343938222c226964223a22776f705f34383239393531353139643339623964383264393361333863663163616264376235303664363530623464656230356335396130656531636465646336663830222c226b696e64223a22776f726b666c6f772d6f7065726174696f6e227d2c7b22646967657374223a227368613235363a61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226964223a2277646f635f61333332376433383865643135376630366139666564303934336363333864383664653265333633326232336561303762326530313131326533353231346137222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c7b22646967657374223a227368613235363a61393235663465373631613032343961623063343332386536633632633462366530323339313331353165333937663937316437323435613264323730326635222c226964223a2277706c616e5f61393235663465373631613032343961623063343332386536633632633462366530323339313331353165333937663937316437323435613264323730326635222c226b696e64223a22776f726b666c6f772d636f6d70696c65642d706c616e227d2c7b22646967657374223a227368613235363a64306539353664616133313662393563393864323535336132643364333038666362633736656463613032653232363563663039333366343733656234336362222c226964223a2277646f635f64306539353664616133313662393563393864323535336132643364333038666362633736656463613032653232363563663039333366343733656234336362222c226b696e64223a22776f726b666c6f772d70726f64756374227d2c7b22646967657374223a227368613235363a66343032636532656562323936623062373037333239646630356464663832333234363336333636393961613432626332643135623336303534353134666233222c226964223a2277646f635f66343032636532656562323936623062373037333239646630356464663832333234363336333636393961613432626332643135623336303534353134666233222c226b696e64223a22776f726b666c6f772d617574686f72697479227d2c7b22646967657374223a227368613235363a66656661653361643238656133663163636264666437663137383264393936343062396661383637356466626136633730646562326361396263643032633537222c226964223a22777075625f62653634333633326331623939363066616235636139633432343635316337663735366231306330653162663639373663333834623133613539333938646163222c226b696e64223a22776f726b666c6f772d7075626c69636174696f6e227d5d2c22736368656d61223a226c65646765722d776f726b666c6f772d7075626c69636174696f6e2d6d616e69666573742f31227d",
+      "byte_length": 2117
+    },
+    {
+      "name": "receipt",
+      "body": {
+        "schema": "ledger-operation-receipt/2",
+        "key": {
+          "logical_store_id": "fixture-store",
+          "scope": [
+            "fixture",
+            "sandbox"
+          ],
+          "source": "urn:fixture:publisher",
+          "operation_id": "publish-002"
+        },
+        "request_hash": "sha256:a3d0ca443b1887a321e50b7b1d9788363a35a08c322472817b2dd87b20e33010",
+        "request_hash_profile": "bean-counter/operation-request/2",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "schema_bundle_digest": "sha256:66877e7ad62b7061bb44b889c843f15c5b2929d0c3e177e18171737d884ee067",
+        "descriptor_closure_digest": "sha256:14c32d054fd374376052ff95864de85086481d65db81d28a108a6e1d2b47292c",
+        "original_request_bytes_sha256": "d36bdeed3d1ddb4d92229bf91a4199897ab84893c7ccb2a2f0870709056e6baf",
+        "result_kind": "semantic_alias",
+        "result_refs": [
+          {
+            "kind": "workflow-compiled-plan",
+            "id": "wplan_a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5",
+            "digest": "sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5"
+          },
+          {
+            "kind": "workflow-publication",
+            "id": "wpub_be643632c1b9960fab5ca9c424651c7f756b10c0e1bf6976c384b13a59398dac",
+            "digest": "sha256:fefae3ad28ea3f1ccbdfd7f1782d99640b9fa8675dfba6c70deb2ca9bcd02c57"
+          }
+        ],
+        "accepted_at": "2026-10-12T20:00:01.000000Z",
+        "commit_sequence": "2",
+        "manifest_hash": "sha256:0d4caaed9ce24963216b642f97ebc88c5e5a9677749ea990ff80f59e7ae46383",
+        "receipt_hash": "sha256:0c5994f0d70bfbf07551302b9ec83a80d31baea6040947424c96585ac63cbb3c"
+      },
+      "ref": {
+        "kind": "workflow-receipt",
+        "id": "wreceipt_0c5994f0d70bfbf07551302b9ec83a80d31baea6040947424c96585ac63cbb3c",
+        "digest": "sha256:0c5994f0d70bfbf07551302b9ec83a80d31baea6040947424c96585ac63cbb3c"
+      },
+      "canonical_utf8": "{\"accepted_at\":\"2026-10-12T20:00:01.000000Z\",\"commit_sequence\":\"2\",\"descriptor_closure_digest\":\"sha256:14c32d054fd374376052ff95864de85086481d65db81d28a108a6e1d2b47292c\",\"key\":{\"logical_store_id\":\"fixture-store\",\"operation_id\":\"publish-002\",\"scope\":[\"fixture\",\"sandbox\"],\"source\":\"urn:fixture:publisher\"},\"manifest_hash\":\"sha256:0d4caaed9ce24963216b642f97ebc88c5e5a9677749ea990ff80f59e7ae46383\",\"normalization_profile\":\"ledger-operation-normalization/2\",\"original_request_bytes_sha256\":\"d36bdeed3d1ddb4d92229bf91a4199897ab84893c7ccb2a2f0870709056e6baf\",\"receipt_hash\":\"sha256:0c5994f0d70bfbf07551302b9ec83a80d31baea6040947424c96585ac63cbb3c\",\"request_hash\":\"sha256:a3d0ca443b1887a321e50b7b1d9788363a35a08c322472817b2dd87b20e33010\",\"request_hash_profile\":\"bean-counter/operation-request/2\",\"result_kind\":\"semantic_alias\",\"result_refs\":[{\"digest\":\"sha256:a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5\",\"id\":\"wplan_a925f4e761a0249ab0c4328e6c62c4b6e023913151e397f971d7245a2d2702f5\",\"kind\":\"workflow-compiled-plan\"},{\"digest\":\"sha256:fefae3ad28ea3f1ccbdfd7f1782d99640b9fa8675dfba6c70deb2ca9bcd02c57\",\"id\":\"wpub_be643632c1b9960fab5ca9c424651c7f756b10c0e1bf6976c384b13a59398dac\",\"kind\":\"workflow-publication\"}],\"schema\":\"ledger-operation-receipt/2\",\"schema_bundle_digest\":\"sha256:66877e7ad62b7061bb44b889c843f15c5b2929d0c3e177e18171737d884ee067\"}",
+      "canonical_hex": "7b2261636365707465645f6174223a22323032362d31302d31325432303a30303a30312e3030303030305a222c22636f6d6d69745f73657175656e6365223a2232222c2264657363726970746f725f636c6f737572655f646967657374223a227368613235363a31346333326430353466643337343337363035326666393538363464653835303836343831643635646238316432386131303861366531643262343732393263222c226b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d73746f7265222c226f7065726174696f6e5f6964223a227075626c6973682d303032222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c22736f75726365223a2275726e3a666978747572653a7075626c6973686572227d2c226d616e69666573745f68617368223a227368613235363a30643463616165643963653234393633323136623634326639376562633838633565356139363737373439656139393066663830663539653761653436333833222c226e6f726d616c697a6174696f6e5f70726f66696c65223a226c65646765722d6f7065726174696f6e2d6e6f726d616c697a6174696f6e2f32222c226f726967696e616c5f726571756573745f62797465735f736861323536223a2264333662646565643364316464623464393232323962663931613431393938393761623834383933633763636232613266303837303730393035366536626166222c22726563656970745f68617368223a227368613235363a30633539393466306437306266626630373535313330326239656338336138306433316261656136303430393437343234633936353835616336336362623363222c22726571756573745f68617368223a227368613235363a61336430636134343362313838376133323165353062376231643937383833363361333561303863333232343732383137623264643837623230653333303130222c22726571756573745f686173685f70726f66696c65223a226265616e2d636f756e7465722f6f7065726174696f6e2d726571756573742f32222c22726573756c745f6b696e64223a2273656d616e7469635f616c696173222c22726573756c745f72656673223a5b7b22646967657374223a227368613235363a61393235663465373631613032343961623063343332386536633632633462366530323339313331353165333937663937316437323435613264323730326635222c226964223a2277706c616e5f61393235663465373631613032343961623063343332386536633632633462366530323339313331353165333937663937316437323435613264323730326635222c226b696e64223a22776f726b666c6f772d636f6d70696c65642d706c616e227d2c7b22646967657374223a227368613235363a66656661653361643238656133663163636264666437663137383264393936343062396661383637356466626136633730646562326361396263643032633537222c226964223a22777075625f62653634333633326331623939363066616235636139633432343635316337663735366231306330653162663639373663333834623133613539333938646163222c226b696e64223a22776f726b666c6f772d7075626c69636174696f6e227d5d2c22736368656d61223a226c65646765722d6f7065726174696f6e2d726563656970742f32222c22736368656d615f62756e646c655f646967657374223a227368613235363a36363837376537616436326237303631626234346238383963383433663135633562323932396430633365313737653138313731373337643838346565303637227d",
+      "byte_length": 1357
+    }
+  ],
+  "conditional_boundaries": [
+    {
+      "pre_units": 99999,
+      "delta_units": 1,
+      "expected": "accept unit bound at100000 if all bytes/old subgates pass"
+    },
+    {
+      "pre_units": 100000,
+      "delta_units": 1,
+      "expected": "refuse; admin alias not free"
+    },
+    {
+      "pre_bytes": 268405198,
+      "delta_bytes": 30258,
+      "expected": "accept exact byte ceiling if all other gates pass"
+    },
+    {
+      "pre_bytes": 268405199,
+      "delta_bytes": 30258,
+      "expected": "refuse one byte over"
+    },
+    {
+      "E": 99998,
+      "R": 0,
+      "C": 1,
+      "I": 0,
+      "W": 1,
+      "expected_total": 100000
+    },
+    {
+      "E": 60000,
+      "R": 20000,
+      "C": 20000,
+      "I": 1,
+      "W": 0,
+      "expected_total": 100001,
+      "expected": "legacy history remains valid; shared enable refuses, not corruption"
+    }
+  ]
+}

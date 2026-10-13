@@ -1,0 +1,48 @@
+{
+  "schema": "ledger-workflow-builtin-mode-matrix/1",
+  "profile": "retail-unit-publication/1",
+  "scope": "compile-publication-only",
+  "policy_modes": [
+    "component_workflow"
+  ],
+  "books": [
+    "retail"
+  ],
+  "phases": [
+    "base"
+  ],
+  "primitives": [
+    "unit/1"
+  ],
+  "fact_types": [
+    "integer/1"
+  ],
+  "predicate_ops": [
+    "true/1"
+  ],
+  "formula_kinds": [
+    "unit/1"
+  ],
+  "fact_constraints": [
+    "bounded-nonnegative",
+    "caller",
+    "required"
+  ],
+  "activity_primitives": [
+    "work"
+  ],
+  "excluded": [
+    "basis",
+    "caps",
+    "delayed-cost",
+    "families",
+    "links",
+    "optional-facts",
+    "shares",
+    "stages",
+    "unit-conversion"
+  ],
+  "supports_previous_sources": false,
+  "requires_terminal_units": true,
+  "aggregate_proof": "positive-root-maxima-by-activity-book-slot-and-activity-book/1"
+}

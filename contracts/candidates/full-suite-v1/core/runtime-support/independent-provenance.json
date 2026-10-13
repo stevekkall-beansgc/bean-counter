@@ -1,0 +1,10 @@
+{
+  "schema": "ledger-independent-oracle-provenance/1",
+  "reviewer": "GPT-6 Astra /root/adversarial_money",
+  "scope": "New runtime catalog descriptor derivation only; reviewer authored prior financial architecture",
+  "original_generator_path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/review-fixtures/derive_runtime_support.py",
+  "original_generator_sha256": "414370c96e702765bcff38f81f141bc8050965dfc8a78d5493b9d33b15bc3224",
+  "original_expected_path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/review-fixtures/runtime-support-expected.json",
+  "original_expected_sha256": "1b195c7fa5f70fff8ad0631555f7c7a5ca5f25343a0278eba26bc3b7cbc5c897",
+  "adaptation": "Changed absolute input directory to sibling files; replaced output write with read-only complete object comparison. Derivation unchanged."
+}

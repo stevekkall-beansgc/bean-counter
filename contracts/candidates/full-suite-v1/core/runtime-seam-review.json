@@ -1,0 +1,41 @@
+{
+  "schema": "ledger-workflow-scoped-contract-review/1",
+  "name": "PUB-RUNTIME-SEAMS-01",
+  "status": "reviewed-candidate-interfaces; admission-options-unapproved",
+  "author": "GPT-6 Astra /root/astra_s12_technical_plan",
+  "reviewer": "GPT-6 Astra /root/adversarial_money",
+  "review_scope": "Authority/support seam; independent catalog descriptor bytes; portable oracle adaptation; exact A/B proposal algebra. Reviewer authored prior financial architecture; this is independent review of new transcription only.",
+  "included": [
+    "LocalOwnerAdmin separation and retained read/retry semantics",
+    "builtin catalog inputs and independent descriptor encoding",
+    "A/B admission alternatives as unapproved proposals"
+  ],
+  "exclusions": [
+    "owner approval of either admission profile",
+    "installed binary support/matrix enforcement",
+    "actual authority resolver",
+    "all-writer aggregate accounting/migration",
+    "runtime histories",
+    "full Wave1 or Wave2 completion"
+  ],
+  "admission_oracle": {
+    "original_path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/review-fixtures/admission-expected.json",
+    "sha256": "ac099b226ad57a90df03eedd852c4d9c1d0849e7b3cadf99f6dfb2c50e2dc243",
+    "copied_verbatim": true,
+    "status": "independent synthetic payload byte/alias expectations; no executed store proof or owner approval"
+  },
+  "file_sha256": {
+    "ADMIN-ADMISSION-DECISION.md": "985ce5cd010c50eb0b351e54317a71335c035636c1eff2a4b2f9142b7867cd9b",
+    "publication-runtime-seams.md": "d6534d16a868f69c2f9f1d68a7ca0a789df2c1b9bce751523b48efae530021c8",
+    "runtime-seam-history-cases.json": "48e6bb3f0ffda4c962750b40e2491d48f2bc085a3bac1274bb990271ff851c2f",
+    "runtime-support/catalog.schema.json": "d1bb261ea64ecd03789b679555c9d17211ff75c0c58379766ff3f02034674553",
+    "runtime-support/contract-profile.json": "0671b73afa7df35604ab7651001cb95d6d1d2c30d88a9aa0e0c0bcd6d8a54427",
+    "runtime-support/descriptor-expected.json": "dc1bcd3aa32fcb59d80bbc5178bc94d82d3445de573fd878017aa5e4c6e4fcdc",
+    "runtime-support/independent-expected.json": "1b195c7fa5f70fff8ad0631555f7c7a5ca5f25343a0278eba26bc3b7cbc5c897",
+    "runtime-support/independent-provenance.json": "120e16e8e865059b46592b8de93de9e217adce8b91d948909d1627973819fd23",
+    "runtime-support/limits.json": "655a3f02f725b31278770d934f4854cfdcdaaec186b6fb14e908e92fd321a31b",
+    "runtime-support/mode-matrix.json": "a172dc7f7a7672845e789ce6d7080292c34028dc32a57f1bd54fba6cb71bc4d2",
+    "runtime-support/verify.py": "7695ca630feb5654939a8a628b83b31fc7b3d3696ed173548e1ae47362521b74",
+    "runtime-support/verify_independent.py": "c43fca36683b74245a51de30e2b978d77594d5c1fade3f344b1c330299d012b9"
+  }
+}

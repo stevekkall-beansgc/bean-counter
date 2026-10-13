@@ -1,0 +1,81 @@
+{
+  "schema": "ledger-workflow-runtime-seam-cases/1",
+  "status": "expected histories; execution UNRUN; CAP profile owner approval pending",
+  "cases": [
+    {
+      "id": "AUTH-01",
+      "given": "LocalOwnerAdmin; source submit revoked; valid current mapping",
+      "expected": "fresh publish uses local admin; does not restore source submit"
+    },
+    {
+      "id": "AUTH-02",
+      "given": "LocalOwnerAdmin; source read revoked",
+      "expected": "owner status/read succeeds; legacy source read denies"
+    },
+    {
+      "id": "AUTH-03",
+      "given": "old source mapping removed; valid same-store/scope local admin",
+      "expected": "original status/retry succeeds against retained rules; fresh old-source publish denies"
+    },
+    {
+      "id": "AUTH-04",
+      "given": "remote caller; server holds Owner; source has submit/read",
+      "expected": "publish and owner-only reads deny; held lock is not caller authentication"
+    },
+    {
+      "id": "AUTH-05",
+      "given": "same original key; compiler unsupported now; source revision changed",
+      "expected": "exact original receipt after current owner read; different normalized retry conflicts"
+    },
+    {
+      "id": "SUP-01",
+      "given": "production source names synthetic PUB-ENC-01 compiler",
+      "expected": "unsupported descriptor; no append"
+    },
+    {
+      "id": "SUP-02",
+      "given": "real builtin catalogs and exact descriptor; supported source",
+      "expected": "compile exact independently derived descriptor/source/plan; runtime history still separately tested"
+    },
+    {
+      "id": "SUP-03",
+      "given": "two positive roots 600000000000 units each at rate1",
+      "expected": "aggregate atoms1200000000000000000000000000000 exceeds MAX_ATOMS; refuse"
+    },
+    {
+      "id": "CAP-01",
+      "given": "shared profile enabled; legacy units99999; fresh workflowoperation1; reused docs",
+      "expected": "unit total100000; byte delta only new wrapper/key/snapshot rows"
+    },
+    {
+      "id": "CAP-02",
+      "given": "same original key after CAP-01 lost reply",
+      "expected": "unit/byte delta0; exact receipt"
+    },
+    {
+      "id": "CAP-03",
+      "given": "new-key semantic alias at shared unit total100000",
+      "expected": "capacity refusal; no extra namespace ledger budget"
+    },
+    {
+      "id": "CAP-04",
+      "given": "legacy separate valid meters sum>100000 or shared payload>268435456",
+      "expected": "do not corrupt/rewrite legacy history; shared enable refuses; legacy-only mode preserved"
+    },
+    {
+      "id": "CAP-05",
+      "given": "fresh publication repeats already stored immutable docs",
+      "expected": "charge unique newly inserted docs only; duplicate request entries reject before coalescing"
+    },
+    {
+      "id": "CAP-06",
+      "given": "M3 or M5 writer after shared profile enabled",
+      "expected": "same aggregate lock/check; old writer fenced; rollback or unknown handled by original status"
+    }
+  ],
+  "historical_case_interpretation": {
+    "PUB-02": "Write revoke is not a currently supported delegated-publisher operation. Local owner retry requires current local read only; legacy source submit revocation does not revoke owner admin.",
+    "PUB-04": "For local admin, revoke current read means loss of valid local actor/store-scope access; revoking source read alone does not satisfy this precondition. Source callers keep their current read requirement.",
+    "PUB-05": "Original-key race ordering retained. Fresh authority failure can be invalid current mapping/local context; no invented delegated publish grant."
+  }
+}

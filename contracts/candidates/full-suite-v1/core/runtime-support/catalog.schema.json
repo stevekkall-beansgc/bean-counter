@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Exact builtin candidate catalog bodies; not a proof of binary support",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "profile",
+        "document_bytes",
+        "source_documents",
+        "source_closure_bytes",
+        "fact_slots",
+        "ast_nodes",
+        "predicate_depth",
+        "predicate_cells",
+        "rules",
+        "graph_hops",
+        "loaded_refs",
+        "actions",
+        "explanations",
+        "canonical_decision_bytes",
+        "resolved_bytes",
+        "compile_visits",
+        "runtime_visits",
+        "max_atoms"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-builtin-limits/1"
+        },
+        "profile": {
+          "const": "workflow-limits/1"
+        },
+        "document_bytes": {
+          "const": 262144
+        },
+        "source_documents": {
+          "const": 128
+        },
+        "source_closure_bytes": {
+          "const": 1048576
+        },
+        "fact_slots": {
+          "const": 1088
+        },
+        "ast_nodes": {
+          "const": 256
+        },
+        "predicate_depth": {
+          "const": 8
+        },
+        "predicate_cells": {
+          "const": 4096
+        },
+        "rules": {
+          "const": 64
+        },
+        "graph_hops": {
+          "const": 16
+        },
+        "loaded_refs": {
+          "const": 4096
+        },
+        "actions": {
+          "const": 128
+        },
+        "explanations": {
+          "const": 256
+        },
+        "canonical_decision_bytes": {
+          "const": 4194304
+        },
+        "resolved_bytes": {
+          "const": 8388608
+        },
+        "compile_visits": {
+          "const": 1048576
+        },
+        "runtime_visits": {
+          "const": 65536
+        },
+        "max_atoms": {
+          "const": "999999999999999999999999999999"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "profile",
+        "scope",
+        "policy_modes",
+        "books",
+        "phases",
+        "primitives",
+        "fact_types",
+        "predicate_ops",
+        "formula_kinds",
+        "fact_constraints",
+        "activity_primitives",
+        "excluded",
+        "supports_previous_sources",
+        "requires_terminal_units",
+        "aggregate_proof"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-builtin-mode-matrix/1"
+        },
+        "profile": {
+          "const": "retail-unit-publication/1"
+        },
+        "scope": {
+          "const": "compile-publication-only"
+        },
+        "policy_modes": {
+          "const": [
+            "component_workflow"
+          ]
+        },
+        "books": {
+          "const": [
+            "retail"
+          ]
+        },
+        "phases": {
+          "const": [
+            "base"
+          ]
+        },
+        "primitives": {
+          "const": [
+            "unit/1"
+          ]
+        },
+        "fact_types": {
+          "const": [
+            "integer/1"
+          ]
+        },
+        "predicate_ops": {
+          "const": [
+            "true/1"
+          ]
+        },
+        "formula_kinds": {
+          "const": [
+            "unit/1"
+          ]
+        },
+        "fact_constraints": {
+          "const": [
+            "bounded-nonnegative",
+            "caller",
+            "required"
+          ]
+        },
+        "activity_primitives": {
+          "const": [
+            "work"
+          ]
+        },
+        "excluded": {
+          "const": [
+            "basis",
+            "caps",
+            "delayed-cost",
+            "families",
+            "links",
+            "optional-facts",
+            "shares",
+            "stages",
+            "unit-conversion"
+          ]
+        },
+        "supports_previous_sources": {
+          "const": false
+        },
+        "requires_terminal_units": {
+          "const": true
+        },
+        "aggregate_proof": {
+          "const": "positive-root-maxima-by-activity-book-slot-and-activity-book/1"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "profile",
+        "encoding_files",
+        "semantic_amendment"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-builtin-contract-profile/1"
+        },
+        "profile": {
+          "const": "PUB-ENC-01+PUB-RUNTIME-SEAMS-01"
+        },
+        "encoding_files": {
+          "const": [
+            {
+              "path": "normative-amendment.md",
+              "sha256": "sha256:4321e5a639ca73a9f013fe7a2d23f70a776524b00983454587e18ea3ec0780fe"
+            },
+            {
+              "path": "publication-boundary.md",
+              "sha256": "sha256:b9c0fbc6d37cc7c8d0225621fca19915d935a2ec67f5203dacc9e5c9312b2a8e"
+            },
+            {
+              "path": "registry-contract.json",
+              "sha256": "sha256:e3845b3a16656e776591b41cdf1046a6da9f38dfa77d8fb8657f2ca01e55ad55"
+            },
+            {
+              "path": "workflow.schema.json",
+              "sha256": "sha256:b25f2efe301f2c78b3655daa770e9a075e74837d01aeb4658be823270be6052a"
+            }
+          ]
+        },
+        "semantic_amendment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "const": "publication-runtime-seams.md"
+            },
+            "sha256": {
+              "const": "sha256:d6534d16a868f69c2f9f1d68a7ca0a789df2c1b9bce751523b48efae530021c8"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
