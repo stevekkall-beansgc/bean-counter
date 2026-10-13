@@ -88,12 +88,15 @@ fn transport_presence_changes_request_but_not_fully_resolved_semantic_intent() {
         .normalize_private_documents(&template(), &product(), &retained)
         .unwrap();
     assert_ne!(inline.value().unwrap(), loaded.value().unwrap());
-    assert_eq!(inline.intent().unwrap(), loaded.intent().unwrap());
+    assert_eq!(
+        inline.semantic_intent().unwrap(),
+        loaded.semantic_intent().unwrap()
+    );
     let mut changed = body;
     changed["expected_revision"] = json!("1");
     assert_ne!(
-        inline.intent().unwrap(),
-        prepare(&changed).intent().unwrap()
+        inline.semantic_intent().unwrap(),
+        prepare(&changed).semantic_intent().unwrap()
     );
 }
 #[test]

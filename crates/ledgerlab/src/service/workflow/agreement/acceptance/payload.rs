@@ -286,7 +286,9 @@ impl AcceptInput {
     pub(in crate::service::workflow::agreement) fn value(&self) -> Result<Value> {
         serde_json::to_value(&self.input).map_err(|_| ServiceError::IntegrityFailure)
     }
-    pub(in crate::service::workflow::agreement) fn intent(&self) -> Result<Value> {
+    /// Transport-independent comparison only. The immutable Intent record must
+    /// retain value(), including the normalized inline documents.
+    pub(in crate::service::workflow::agreement) fn semantic_intent(&self) -> Result<Value> {
         let mut v = self.value()?;
         v.as_object_mut()
             .ok_or(ServiceError::IntegrityFailure)?
