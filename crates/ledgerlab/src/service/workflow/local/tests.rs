@@ -297,3 +297,119 @@ async fn captured_workflow_publication_reply_loss_retry_alias_read_and_reopen() 
     tx.rollback().await.unwrap();
     reopened.close().await;
 }
+
+fn threaded<F: std::future::Future + Send + 'static>(
+    future: F,
+) -> tokio::task::JoinHandle<F::Output>
+where
+    F::Output: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(future)
+    })
+}
+
+#[tokio::test]
+#[ignore = "requires trusted captured build inputs; ordinary Cargo cannot publish"]
+async fn captured_workflow_locked_duplicate_alias_and_changed_payload_races() {
+    use std::sync::{Arc, Barrier};
+    assert!(crate::build_identity::embedded_inputs().is_ok());
+    let (_dir, path) = installation("captured-race-test").await;
+    let ledger = Arc::new(LocalWorkflowLedger::open_local(&path).await.unwrap());
+    ledger.enable_profile_b().await.unwrap();
+    let request = publication_request("captured-race-test");
+    let raw = records::bytes(&request).unwrap();
+    let barrier = Arc::new(Barrier::new(2));
+    let mut tasks = vec![];
+    for _ in 0..2 {
+        let ledger = ledger.clone();
+        let barrier = barrier.clone();
+        let raw = raw.clone();
+        tasks.push(threaded(async move {
+            ledger
+                .publish_with(&raw, || {
+                    barrier.wait();
+                    ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
+                        .map_err(|_| ServiceError::Unavailable)
+                })
+                .await
+        }));
+    }
+    let first = tasks.remove(0).await.unwrap().unwrap();
+    let second = tasks.remove(0).await.unwrap().unwrap();
+    assert_eq!(first["receipt"], second["receipt"]);
+    assert_eq!(first["request_evidence"], second["request_evidence"]);
+    assert!(first["duplicate_kind"] == "identity" || second["duplicate_kind"] == "identity");
+    let barrier = Arc::new(Barrier::new(2));
+    let mut tasks = vec![];
+    for name in ["racing-alias-a", "racing-alias-b"] {
+        let ledger = ledger.clone();
+        let barrier = barrier.clone();
+        let mut request = request.clone();
+        request["key"]["operation_id"] = json!(name);
+        tasks.push(threaded(async move {
+            ledger
+                .publish_with(&records::bytes(&request).unwrap(), || {
+                    barrier.wait();
+                    ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
+                        .map_err(|_| ServiceError::Unavailable)
+                })
+                .await
+        }));
+    }
+    let a = tasks.remove(0).await.unwrap().unwrap();
+    let b = tasks.remove(0).await.unwrap().unwrap();
+    assert_eq!(a["duplicate_kind"], "semantic");
+    assert_eq!(b["duplicate_kind"], "semantic");
+    assert_ne!(
+        a["receipt"]["commit_sequence"],
+        b["receipt"]["commit_sequence"]
+    );
+    assert_eq!(a["receipt"]["result_refs"], first["receipt"]["result_refs"]);
+    assert_eq!(b["receipt"]["result_refs"], first["receipt"]["result_refs"]);
+    let mut valid = request.clone();
+    valid["key"]["operation_id"] = json!("racing-changed-payload");
+    let mut changed = valid.clone();
+    changed["payload"]["expected_plan_digest"] = json!(format!("sha256:{}", "0".repeat(64)));
+    let barrier = Arc::new(Barrier::new(2));
+    let (committed, wait) = std::sync::mpsc::channel();
+    let valid_ledger = ledger.clone();
+    let valid_barrier = barrier.clone();
+    let valid_task = threaded(async move {
+        let result = valid_ledger
+            .publish_with(&records::bytes(&valid).unwrap(), || {
+                valid_barrier.wait();
+                ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
+                    .map_err(|_| ServiceError::Unavailable)
+            })
+            .await;
+        committed.send(result.is_ok()).unwrap();
+        result
+    });
+    let invalid_ledger = ledger.clone();
+    let invalid_task = threaded(async move {
+        invalid_ledger
+            .publish_with(&records::bytes(&changed).unwrap(), move || {
+                barrier.wait();
+                assert!(wait.recv().unwrap());
+                ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
+                    .map_err(|_| ServiceError::Unavailable)
+            })
+            .await
+    });
+    assert_eq!(
+        valid_task.await.unwrap().unwrap()["duplicate_kind"],
+        "semantic"
+    );
+    assert!(
+        matches!(invalid_task.await.unwrap(),Err(ServiceError::Rejection(code)) if code=="IDENTITY_CONFLICT")
+    );
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 4);
+    tx.rollback().await.unwrap();
+    Arc::try_unwrap(ledger).ok().unwrap().close().await;
+}

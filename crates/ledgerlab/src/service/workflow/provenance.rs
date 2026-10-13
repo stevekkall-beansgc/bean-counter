@@ -189,6 +189,33 @@ fn same(a: &Metadata, b: &Metadata) -> bool {
     }
 }
 fn observe_file(path: &Path) -> Result<(String, u64)> {
+    observe_file_checked(
+        path,
+        |before| {
+            #[cfg(target_os = "linux")]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let image =
+                    std::fs::metadata("/proc/self/exe").map_err(|_| ServiceError::Unavailable)?;
+                require(
+                    (image.dev(), image.ino()) == (before.dev(), before.ino()),
+                    "BUILD_IDENTITY_REQUIRED",
+                )?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = before;
+            Ok(())
+        },
+        || {},
+    )
+}
+// Private deterministic observation seam. Production always supplies the
+// hardcoded current-image check above and no mutation callback.
+fn observe_file_checked(
+    path: &Path,
+    identity: impl FnOnce(&Metadata) -> Result<()>,
+    after_read: impl FnOnce(),
+) -> Result<(String, u64)> {
     let before_path = std::fs::symlink_metadata(path).map_err(|_| ServiceError::Unavailable)?;
     require(
         before_path.is_file() && !before_path.file_type().is_symlink(),
@@ -200,15 +227,7 @@ fn observe_file(path: &Path) -> Result<(String, u64)> {
         same(&before_path, &before) && before.len() <= i64::MAX as u64,
         "BUILD_IDENTITY_REQUIRED",
     )?;
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let image = std::fs::metadata("/proc/self/exe").map_err(|_| ServiceError::Unavailable)?;
-        require(
-            (image.dev(), image.ino()) == (before.dev(), before.ino()),
-            "BUILD_IDENTITY_REQUIRED",
-        )?;
-    }
+    identity(&before)?;
     let mut hash = Sha256::new();
     let mut count = 0_u64;
     let mut buffer = [0_u8; 8192];
@@ -225,6 +244,7 @@ fn observe_file(path: &Path) -> Result<(String, u64)> {
         require(count <= before.len(), "BUILD_IDENTITY_REQUIRED")?;
         hash.update(&buffer[..n]);
     }
+    after_read();
     let after = file.metadata().map_err(|_| ServiceError::Unavailable)?;
     let after_path = std::fs::symlink_metadata(path).map_err(|_| ServiceError::Unavailable)?;
     require(
@@ -235,4 +255,55 @@ fn observe_file(path: &Path) -> Result<(String, u64)> {
         "BUILD_IDENTITY_REQUIRED",
     )?;
     Ok((ledgerlab_core::canonical::hex(&hash.finalize()), count))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    #[test]
+    fn workflow_executable_observation_detects_changed_replaced_and_symlinked_file() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image");
+        let body = b"private observation seam bytes";
+        std::fs::write(&path, body).unwrap();
+        let got = observe_file_checked(&path, |_| Ok(()), || {}).unwrap();
+        assert_eq!(got, (records::raw_hash(body), body.len() as u64));
+        assert!(
+            observe_file_checked(
+                &path,
+                |_| Ok(()),
+                || std::fs::write(&path, b"changed").unwrap()
+            )
+            .is_err()
+        );
+        std::fs::write(&path, body).unwrap();
+        let replacement = dir.path().join("replacement");
+        std::fs::write(&replacement, body).unwrap();
+        assert!(
+            observe_file_checked(
+                &path,
+                |_| Ok(()),
+                || std::fs::rename(&replacement, &path).unwrap()
+            )
+            .is_err()
+        );
+        std::fs::write(&path, body).unwrap();
+        let target = dir.path().join("target");
+        std::fs::write(&target, body).unwrap();
+        assert!(
+            observe_file_checked(
+                &path,
+                |_| Ok(()),
+                || {
+                    std::fs::remove_file(&path).unwrap();
+                    symlink(&target, &path).unwrap();
+                }
+            )
+            .is_err()
+        );
+        assert!(observe_file_checked(&path, |_| Ok(()), || {}).is_err());
+        // The actual entry uses current_exe plus the hardcoded platform identity
+        // check; this temporary-file seam claims no executable qualification.
+    }
 }
