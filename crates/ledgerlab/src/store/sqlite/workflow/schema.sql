@@ -14,7 +14,7 @@ BEGIN SELECT RAISE(ABORT,'workflow meter must be monotone'); END;
 CREATE TRIGGER workflow_state_no_delete BEFORE DELETE ON workflow_state
 BEGIN SELECT RAISE(ABORT,'immutable workflow capacity profile'); END;
 CREATE TABLE workflow_documents (
- kind TEXT NOT NULL CHECK(kind IN ('workflow-product','workflow-fact-schema','workflow-slot-template','workflow-policy','workflow-compiler-descriptor','workflow-compiled-plan','workflow-authority','workflow-publication')),
+ kind TEXT NOT NULL CHECK(kind IN ('workflow-product','workflow-fact-schema','workflow-slot-template','workflow-policy','workflow-compiler-descriptor','workflow-compiled-plan','workflow-authority','workflow-publication','workflow-build-manifest')),
  id TEXT PRIMARY KEY, digest TEXT NOT NULL, schema_name TEXT NOT NULL,
  canonical_bytes BLOB NOT NULL CHECK(length(canonical_bytes) BETWEEN 1 AND 1048576),
  UNIQUE(kind,id,digest)

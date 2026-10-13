@@ -72,6 +72,62 @@ pub(crate) struct PublicationAppend {
 }
 
 impl SqliteTx {
+    pub(crate) async fn workflow_publication_origin(
+        &mut self,
+        id: &str,
+        store: &str,
+        tenant: &str,
+        environment: &str,
+    ) -> Result<Option<i64>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result=timeout_at(self.deadline,async { self.workflow_schema().await?; sqlx::query_scalar("SELECT MIN(commit_sequence) FROM workflow_operations WHERE publication_id=? AND logical_store_id=? AND tenant=? AND environment=?").bind(id).bind(store).bind(tenant).bind(environment).fetch_one(self.conn()).await.map_err(StoreError::from) }).await.map_err(|_|StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
+    pub(crate) async fn workflow_publication_build_ref(
+        &mut self,
+        id: &str,
+        store: &str,
+        tenant: &str,
+        environment: &str,
+    ) -> Result<Option<RecordRef>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result=timeout_at(self.deadline,async {
+            self.workflow_schema().await?;
+            let rows:Vec<(String,String)>=sqlx::query_as("SELECT m.id,m.digest FROM workflow_manifest_members m WHERE m.kind='workflow-build-manifest' AND m.identity_key=(SELECT identity_key FROM workflow_operations WHERE publication_id=? AND logical_store_id=? AND tenant=? AND environment=? ORDER BY commit_sequence LIMIT 1)").bind(id).bind(store).bind(tenant).bind(environment).fetch_all(self.conn()).await?;
+            if rows.len()>1{return Err(StoreError::Integrity("ambiguous retained build manifest"));}
+            Ok(rows.into_iter().next().map(|(id,digest)|RecordRef{kind:"workflow-build-manifest".into(),id,digest}))
+        }).await.map_err(|_|StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
+    #[cfg(test)]
+    pub(crate) async fn workflow_test_meter(
+        &mut self,
+    ) -> Result<capacity::WorkflowMeter, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result = timeout_at(self.deadline, capacity::check(self.conn(), 0, 0))
+            .await
+            .map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
+    #[cfg(test)]
+    pub(crate) async fn workflow_test_freeze_admission(&mut self) -> Result<(), StoreError> {
+        sqlx::query("UPDATE installation SET admission='frozen',dispatch_hold=0 WHERE singleton=1")
+            .execute(self.conn())
+            .await?;
+        Ok(())
+    }
     pub(crate) async fn workflow_document_by_id(
         &mut self,
         id: &str,
@@ -226,7 +282,7 @@ impl SqliteTx {
         if exists {
             return Err(StoreError::ExpectedCurrent);
         }
-        if p.documents.len() > 147 || o.members.len() > 147 {
+        if p.documents.len() > 148 || o.members.len() > 148 {
             return Err(StoreError::BillingHistoryLimit);
         }
         let mut seen = std::collections::BTreeSet::new();

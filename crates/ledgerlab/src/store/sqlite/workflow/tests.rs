@@ -2,10 +2,10 @@
 use super::*;
 use crate::store::{
     ports::{AcceptanceStore, AcceptanceTx},
-    sqlite::{tests::installation, SqliteStore},
+    sqlite::{SqliteStore, tests::installation},
 };
 use ledgerlab_core::canonical::CanonicalBytes;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -125,11 +125,12 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
     let (dir, store) = create().await;
     let p = fixture();
     let mut tx = store.begin(deadline()).await.unwrap();
-    assert!(tx
-        .workflow_lookup(&p.operation.identity)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        tx.workflow_lookup(&p.operation.identity)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(tx.workflow_sequence().await.unwrap(), 1);
     tx.workflow_append(&p).await.unwrap();
     assert_eq!(
@@ -178,13 +179,14 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
         p.operation.publication_id
     );
     let d = &p.documents[0];
-    assert!(tx
-        .workflow_document(&d.reference, "wrong-store", &p.tenant, &p.environment, None)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(tx
-        .workflow_document(
+    assert!(
+        tx.workflow_document(&d.reference, "wrong-store", &p.tenant, &p.environment, None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        tx.workflow_document(
             &d.reference,
             &p.store_id,
             "wrong-tenant",
@@ -193,14 +195,16 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
         )
         .await
         .unwrap()
-        .is_none());
-    assert!(tx
-        .workflow_document(&d.reference, &p.store_id, &p.tenant, "wrong-env", None)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(tx
-        .workflow_document(
+        .is_none()
+    );
+    assert!(
+        tx.workflow_document(&d.reference, &p.store_id, &p.tenant, "wrong-env", None)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        tx.workflow_document(
             &d.reference,
             &p.store_id,
             &p.tenant,
@@ -209,12 +213,14 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
         )
         .await
         .unwrap()
-        .is_none());
-    assert!(tx
-        .workflow_document(&d.reference, &p.store_id, &p.tenant, &p.environment, None)
-        .await
-        .unwrap()
-        .is_some());
+        .is_none()
+    );
+    assert!(
+        tx.workflow_document(&d.reference, &p.store_id, &p.tenant, &p.environment, None)
+            .await
+            .unwrap()
+            .is_some()
+    );
     tx.rollback().await.unwrap();
     store.close().await;
     // Migration12 registration belongs to integration. This narrowly proves

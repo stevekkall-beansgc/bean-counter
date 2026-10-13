@@ -27,6 +27,15 @@ pub struct LocalWorkflowLedger {
     lose_reply: std::sync::atomic::AtomicBool,
 }
 impl LocalWorkflowLedger {
+    /// Publish through the journal using only the implemented builtin compiler
+    /// and code-owned captured build inputs. Publishing obtains no assent.
+    pub async fn publish(&self, raw: &[u8]) -> Result<Value> {
+        self.publish_with(raw, || {
+            ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
+                .map_err(|_| reject("UNSUPPORTED_SCHEMA_PROFILE"))
+        })
+        .await
+    }
     pub async fn open_local(path: &Path) -> Result<Self> {
         let path = local_io::normalize_path(path).map_err(|_| reject("AUTHORITY_REQUIRED"))?;
         local_io::private_existing(&path, true).map_err(|_| reject("AUTHORITY_REQUIRED"))?;
@@ -85,6 +94,70 @@ impl LocalWorkflowLedger {
             }
         }
     }
+    /// Read an exact retained publication member in this verified owner scope.
+    pub async fn read(&self, raw: &[u8]) -> Result<Value> {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Read {
+            schema: String,
+            kind: String,
+            payload: Payload,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Payload {
+            r#ref: crate::store::sqlite::workflow::RecordRef,
+        }
+        let v = ledgerlab_core::canonical::parse_bounded(raw, 262_144)
+            .map_err(|_| reject("INVALID_SHAPE"))?;
+        let read: Read = serde_json::from_value(v).map_err(|_| reject("INVALID_SHAPE"))?;
+        require(
+            read.schema == "ledger-read/1" && read.kind == "policy.document",
+            "INVALID_SHAPE",
+        )?;
+        let r = read.payload.r#ref;
+        require(
+            matches!(
+                r.kind.as_str(),
+                "workflow-product"
+                    | "workflow-fact-schema"
+                    | "workflow-slot-template"
+                    | "workflow-policy"
+                    | "workflow-compiler-descriptor"
+                    | "workflow-compiled-plan"
+                    | "workflow-publication"
+                    | "workflow-authority"
+                    | "workflow-build-manifest"
+            ),
+            "INVALID_SHAPE",
+        )?;
+        let key = request::OperationKey {
+            logical_store_id: self.admin.logical_store_id.clone(),
+            scope: self.admin.scope.clone(),
+            source: "urn:internal:workflow-read".into(),
+            operation_id: "workflow-read".into(),
+        };
+        let mut tx = self
+            .store
+            .begin(deadline())
+            .await
+            .map_err(super::super::store_error)?;
+        let result = async {
+            self.admin.read(&self.store, &mut tx, &key).await?;
+            let d = tx.workflow_document(&r,&key.logical_store_id,&key.scope[0],&key.scope[1],None).await.map_err(super::super::store_error)?.ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+            let body = ledgerlab_core::canonical::parse_bounded(&d.bytes, 4*1024*1024).map_err(|_| ServiceError::IntegrityFailure)?;
+            if records::bytes(&body)? != d.bytes || body["schema"] != d.schema { return Err(ServiceError::IntegrityFailure); }
+            let derived = match r.kind.as_str() {
+                "workflow-publication" => records::publication_ref(&key.logical_store_id,&key.scope,&body)?,
+                "workflow-compiled-plan" => { let digest=records::hash("workflow-plan",1,&body)?; crate::store::sqlite::workflow::RecordRef {kind:r.kind.clone(),id:format!("wplan_{}",&digest[7..]),digest} },
+                _ => records::source_document(&r.kind,body.clone())?.reference,
+            };
+            if derived != r { return Err(ServiceError::IntegrityFailure); }
+            Ok(json!({"schema":"ledger-document-read/1","record":{"kind":r.kind,"logical_store_id":key.logical_store_id,"scope":key.scope,"id":r.id,"digest":r.digest,"body":body},"canonical_bytes_base64":publication::base64(&d.bytes),"canonical_digest":r.digest}))
+        }.await;
+        tx.rollback().await.map_err(super::super::store_error)?;
+        result
+    }
     pub async fn status(&self, raw_key: &[u8]) -> Result<Value> {
         let key = request::OperationKey::parse(raw_key)?;
         let mut tx = self
@@ -100,12 +173,53 @@ impl LocalWorkflowLedger {
                 .map_err(super::super::store_error)?
             {
                 Some(o) => records::verify_retained(&mut tx, &key, &o).await,
-                None => Ok(json!({"status":"not_observed","key":key})),
+                None => Ok(
+                    json!({"schema":"ledger-operation-status/1","status":"not_observed","key":key}),
+                ),
             }
         }
         .await;
         tx.rollback().await.map_err(super::super::store_error)?;
         result
+    }
+    /// Explicit trusted-local opt-in. Whole legacy history is validated under
+    /// the same ordered transaction before the mechanical additive migration.
+    pub async fn enable_profile_b(&self) -> Result<()> {
+        let mut tx = self
+            .store
+            .begin(deadline())
+            .await
+            .map_err(super::super::store_error)?;
+        let key = request::OperationKey {
+            logical_store_id: self.admin.logical_store_id.clone(),
+            scope: self.admin.scope.clone(),
+            source: "urn:internal:workflow-enable".into(),
+            operation_id: "workflow-enable".into(),
+        };
+        let prepared = async {
+            self.admin.read(&self.store, &mut tx, &key).await?;
+            let snapshot = tx
+                .billing_snapshot()
+                .await
+                .map_err(super::super::store_error)?;
+            billing::validate_snapshot(&snapshot)?;
+            tx.workflow_enable_profile_b()
+                .await
+                .map_err(super::super::store_error)
+        }
+        .await;
+        if let Err(e) = prepared {
+            tx.rollback().await.map_err(super::super::store_error)?;
+            return Err(e);
+        }
+        tx.commit().await.map_err(|e| match e {
+            crate::store::errors::CommitError::RolledBack(e) => super::super::store_error(e),
+            crate::store::errors::CommitError::OutcomeUnknown => ServiceError::OutcomeUnknown {
+                scope: key.scope,
+                source: key.source,
+                external_id: key.operation_id,
+            },
+        })
     }
     pub async fn close(self) {
         let Self { store, admin, .. } = self;
@@ -143,7 +257,7 @@ impl LocalWorkflowLedger {
         tx.rollback().await.map_err(super::super::store_error)?;
         let (original, raw_documents) = preparation?;
         if let Some(result) = original {
-            return Ok(result);
+            return Ok(operation_result(result, Some("identity")));
         }
         let raw_documents = raw_documents.ok_or(ServiceError::IntegrityFailure)?;
         let fresh_prepared: Result<(
@@ -160,7 +274,8 @@ impl LocalWorkflowLedger {
             let prepared =
                 core::compile_publication(&raw_documents, &root, req.expected_digest(), &supported)
                     .map_err(|e| reject(e.code))?;
-            let provenance = publication::BuildProvenance::capture()?;
+            let provenance =
+                publication::BuildProvenance::capture(supported.descriptor().reference())?;
             Ok((prepared, evidence, provenance))
         })();
         let mut tx = self
@@ -184,6 +299,40 @@ impl LocalWorkflowLedger {
                 let locked = resolve_documents(&mut tx, &req).await?;
                 require(locked == raw_documents, "SEMANTIC_CONFLICT")?;
             }
+            // A supplied predecessor is only a normalization input. Its exact
+            // validated bytes must already belong to a publication in this scope.
+            for template in prepared
+                .source_documents()
+                .iter()
+                .filter(|d| d.kind() == "workflow-slot-template")
+            {
+                if let Some(previous) = template.canonical_value().get("previous") {
+                    let r: crate::store::sqlite::workflow::RecordRef =
+                        serde_json::from_value(previous.clone())
+                            .map_err(|_| reject("INVALID_SHAPE"))?;
+                    let retained = tx
+                        .workflow_document(
+                            &r,
+                            &key.logical_store_id,
+                            &key.scope[0],
+                            &key.scope[1],
+                            None,
+                        )
+                        .await
+                        .map_err(super::super::store_error)?
+                        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+                    let supplied = prepared
+                        .source_documents()
+                        .iter()
+                        .find(|d| d.id() == r.id)
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    if retained.bytes != supplied.canonical_bytes()
+                        || json!(supplied.reference()) != json!(r)
+                    {
+                        return Err(ServiceError::IntegrityFailure);
+                    }
+                }
+            }
             let sequence = tx
                 .workflow_sequence()
                 .await
@@ -200,8 +349,8 @@ impl LocalWorkflowLedger {
                 .map_err(super::super::store_error)?
                 .is_some()
             {
-                Some(
-                    tx.workflow_document_by_id(
+                let publication = tx
+                    .workflow_document_by_id(
                         &pub_id,
                         &key.logical_store_id,
                         &key.scope[0],
@@ -209,8 +358,33 @@ impl LocalWorkflowLedger {
                     )
                     .await
                     .map_err(super::super::store_error)?
-                    .ok_or(ServiceError::IntegrityFailure)?,
-                )
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                let build_ref = tx
+                    .workflow_publication_build_ref(
+                        &pub_id,
+                        &key.logical_store_id,
+                        &key.scope[0],
+                        &key.scope[1],
+                    )
+                    .await
+                    .map_err(super::super::store_error)?;
+                let build = if let Some(r) = build_ref {
+                    Some(
+                        tx.workflow_document(
+                            &r,
+                            &key.logical_store_id,
+                            &key.scope[0],
+                            &key.scope[1],
+                            None,
+                        )
+                        .await
+                        .map_err(super::super::store_error)?
+                        .ok_or(ServiceError::IntegrityFailure)?,
+                    )
+                } else {
+                    None
+                };
+                Some((publication, build))
             } else {
                 None
             };
@@ -243,7 +417,7 @@ impl LocalWorkflowLedger {
             }
             Ok((result, false)) => {
                 tx.rollback().await.map_err(super::super::store_error)?;
-                Ok(result)
+                Ok(operation_result(result, Some("identity")))
             }
             Ok((result, true)) => {
                 match tx.commit().await {
@@ -266,10 +440,22 @@ impl LocalWorkflowLedger {
                 {
                     return Err(ServiceError::ResponseLost);
                 }
-                Ok(result)
+                let alias = result["receipt"]["result_kind"] == "semantic_alias";
+                Ok(operation_result(
+                    result,
+                    if alias { Some("semantic") } else { None },
+                ))
             }
         }
     }
+}
+
+fn operation_result(mut result: Value, duplicate: Option<&str>) -> Value {
+    result["schema"] = json!("ledger-operation-result/1");
+    if let Some(kind) = duplicate {
+        result["duplicate_kind"] = json!(kind);
+    }
+    result
 }
 
 async fn resolve_documents(
@@ -379,3 +565,6 @@ impl LocalOwnerAdmin {
         Ok(setup)
     }
 }
+
+#[cfg(test)]
+mod tests;

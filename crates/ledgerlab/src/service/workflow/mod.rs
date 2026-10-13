@@ -1,5 +1,6 @@
 //! Local generic publication coordinator. Publications create no economic debt.
 mod local;
+mod provenance;
 mod publication;
 mod records;
 mod request;

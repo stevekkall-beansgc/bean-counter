@@ -56,7 +56,7 @@ pub(super) fn normalized(
         .map_err(|e| reject(e.code))?;
     core::normalize_publication_sources(raw_documents, &root).map_err(|e| reject(e.code))
 }
-fn base64(raw: &[u8]) -> String {
+pub(super) fn base64(raw: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut s = String::with_capacity(raw.len().div_ceil(3) * 4);
     for c in raw.chunks(3) {
@@ -139,12 +139,21 @@ pub(super) fn evidence(
     )
 }
 /// Code-owned metadata from the actual local artifact, not a wire value.
-pub(super) struct BuildProvenance(Value);
+pub(super) struct BuildProvenance {
+    projection: Value,
+    manifest: Option<Document>,
+}
 impl BuildProvenance {
-    pub(super) fn capture() -> Result<Self> {
-        // Fresh publication remains held until PUB-BUILD-01's reviewed embedded
-        // BuildInputs and stable executable observation produce a retained manifest.
-        Err(reject("BUILD_IDENTITY_REQUIRED"))
+    pub(super) fn capture(compiler_ref: &core::DefinitionRef) -> Result<Self> {
+        let captured = provenance::VerifiedBuildProvenance::capture(
+            crate::build_identity::embedded_inputs().map_err(|_| ServiceError::Unavailable)?,
+            compiler_ref,
+        )
+        .map_err(|_| ServiceError::Unavailable)?;
+        Ok(Self {
+            projection: captured.projection,
+            manifest: Some(captured.manifest),
+        })
     }
 }
 pub(super) fn assemble(
@@ -155,7 +164,7 @@ pub(super) fn assemble(
     at: &ledgerlab_core::domain::Timestamp,
     sequence: i64,
     provenance: &BuildProvenance,
-    existing: Option<Document>,
+    existing: Option<(Document, Option<Document>)>,
 ) -> Result<PublicationAppend> {
     let key = req.key();
     let mut docs: Vec<Document> = prepared.source_documents().iter().map(document).collect();
@@ -164,9 +173,9 @@ pub(super) fn assemble(
     let plan = document(prepared.compiled_plan());
     let plan_ref = plan.reference.clone();
     docs.push(plan);
-    let publication_body = json!({"schema":"ledger-workflow-publication/1","root_policy_ref":prepared.root_policy_ref(),"source_refs":source_refs,"compiled_plan_ref":plan_ref,"compiler_ref":prepared.compiler_descriptor().reference(),"provenance":provenance.0});
+    let publication_body = json!({"schema":"ledger-workflow-publication/1","root_policy_ref":prepared.root_policy_ref(),"source_refs":source_refs,"compiled_plan_ref":plan_ref,"compiler_ref":prepared.compiler_descriptor().reference(),"provenance":provenance.projection});
     let is_alias = existing.is_some();
-    let publication = if let Some(old) = existing {
+    let publication = if let Some((old, old_build)) = existing {
         let body = ledgerlab_core::canonical::parse_bounded(&old.bytes, 1024 * 1024)
             .map_err(|_| ServiceError::IntegrityFailure)?;
         require(
@@ -176,8 +185,29 @@ pub(super) fn assemble(
                 && body["compiler_ref"] == publication_body["compiler_ref"],
             "SEMANTIC_CONFLICT",
         )?;
+        if let Some(build) = old_build {
+            let b = ledgerlab_core::canonical::parse_bounded(&build.bytes, 65536)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            require(
+                super::provenance::projection(&b).map_err(|_| ServiceError::IntegrityFailure)?
+                    == body["provenance"],
+                "INTEGRITY_FAILURE",
+            )?;
+            docs.push(build);
+        } else if !cfg!(test) {
+            return Err(ServiceError::IntegrityFailure);
+        }
         old
     } else {
+        if let Some(build) = &provenance.manifest {
+            docs.push(Document {
+                reference: build.reference.clone(),
+                schema: build.schema.clone(),
+                bytes: build.bytes.clone(),
+            });
+        } else if !cfg!(test) {
+            return Err(ServiceError::IntegrityFailure);
+        }
         Document {
             reference: records::publication_ref(
                 &key.logical_store_id,
@@ -310,7 +340,10 @@ mod tests {
         )
         .unwrap();
         // Known synthetic provenance only within this private encoding test.
-        let provenance = BuildProvenance(vector("publication")["body"]["provenance"].clone());
+        let provenance = BuildProvenance {
+            projection: vector("publication")["body"]["provenance"].clone(),
+            manifest: None,
+        };
         let append =
             assemble(&req, &prepared, evidence, &setup, &at, 1, &provenance, None).unwrap();
         for d in &append.documents {
@@ -349,5 +382,230 @@ mod tests {
                     .as_bytes()
             );
         }
+    }
+
+    #[test]
+    fn shared_schema_activities_deduplicate_derived_descriptor_refs_only() {
+        let expected:Value=serde_json::from_str(include_str!("../../../../../contracts/candidates/full-suite-v1/core/runtime-support/publication-independent-expected.json")).unwrap();
+        let mut v = expected["normalized_request"].clone();
+        let docs = v["payload"]["documents"].as_array_mut().unwrap();
+        let product = docs
+            .iter_mut()
+            .find(|d| d["schema"] == "ledger-workflow-product/1")
+            .unwrap();
+        let mut second = product["activities"][0].clone();
+        second["name"] = json!("fixture.report:other");
+        product["activities"].as_array_mut().unwrap().push(second);
+        let product_ref = records::source_document("workflow-product", product.clone())
+            .unwrap()
+            .reference;
+        let policy = docs
+            .iter_mut()
+            .find(|d| d["schema"] == "ledger-workflow-policy/1")
+            .unwrap();
+        policy["product_ref"] = json!(product_ref);
+        let root = records::source_document("workflow-policy", policy.clone())
+            .unwrap()
+            .reference;
+        v["payload"]["root_policy_ref"] = json!(root);
+        let req = request::PublicationRequest::parse(&records::bytes(&v).unwrap()).unwrap();
+        let raw: Vec<_> = req
+            .inline_documents()
+            .unwrap()
+            .iter()
+            .map(|d| records::bytes(d).unwrap())
+            .collect();
+        let sources = normalized(&req, &raw).unwrap();
+        let e = evidence(&req, &sources).unwrap();
+        let anchor = e["descriptor_resolution"]["anchors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["record_ref"]["kind"] == "workflow-policy")
+            .unwrap();
+        assert_eq!(anchor["descriptor_refs"].as_array().unwrap().len(), 2);
+        let mut duplicate = v;
+        let d = duplicate["payload"]["documents"][0].clone();
+        duplicate["payload"]["documents"]
+            .as_array_mut()
+            .unwrap()
+            .push(d);
+        let req = request::PublicationRequest::parse(&records::bytes(&duplicate).unwrap()).unwrap();
+        let raw: Vec<_> = req
+            .inline_documents()
+            .unwrap()
+            .iter()
+            .map(|d| records::bytes(d).unwrap())
+            .collect();
+        assert!(normalized(&req, &raw).is_err());
+    }
+
+    #[tokio::test]
+    async fn independent_build_manifest_and_alias_bytes_meter_verify_exactly() {
+        use crate::store::{
+            ports::{AcceptanceStore, AcceptanceTx},
+            sqlite::workflow::tests::{create, deadline},
+        };
+        let source:Value=serde_json::from_str(include_str!("../../../../../contracts/candidates/full-suite-v1/core/runtime-support/publication-independent-expected.json")).unwrap();
+        let expected: Value = serde_json::from_str(include_str!(
+            "../../../../../contracts/candidates/full-suite-v1/core/build-provenance-expected.json"
+        ))
+        .unwrap();
+        let req = request::PublicationRequest::parse(
+            &records::bytes(&source["normalized_request"]).unwrap(),
+        )
+        .unwrap();
+        let raw: Vec<Vec<u8>> = source["vectors"].as_array().unwrap()[..6]
+            .iter()
+            .map(|v| {
+                v["canonical_body_utf8"]
+                    .as_str()
+                    .unwrap()
+                    .as_bytes()
+                    .to_vec()
+            })
+            .collect();
+        let root =
+            core::DefinitionRef::new(&req.root().kind, &req.root().id, &req.root().digest).unwrap();
+        let prepared = core::compile_publication(
+            &raw,
+            &root,
+            req.expected_digest(),
+            &core::VerifiedCompilerSupport::builtin().unwrap(),
+        )
+        .unwrap();
+        let sources = normalized(&req, &raw).unwrap();
+        let rec = |name: &str| {
+            expected["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["name"] == name)
+                .unwrap()
+        };
+        let build = rec("build-manifest");
+        let provenance = BuildProvenance {
+            projection: super::super::provenance::projection(&build["body"]).unwrap(),
+            manifest: Some(
+                records::source_document("workflow-build-manifest", build["body"].clone()).unwrap(),
+            ),
+        };
+        assert_eq!(provenance.projection, expected["projection"]);
+        let mut setup =
+            Setup::parse(include_bytes!("../../../../../examples/billing/setup.json")).unwrap();
+        setup.store_id = req.key().logical_store_id.clone();
+        setup.scope =
+            ledgerlab_core::domain::Scope::new(&req.key().scope[0], &req.key().scope[1]).unwrap();
+        setup.source = req.key().source.clone();
+        setup.operator = rec("authority-snapshot")["body"]["basis"]["principal_id"]
+            .as_str()
+            .unwrap()
+            .into();
+        let at = ledgerlab_core::domain::Timestamp::parse(
+            rec("operation")["body"]["accepted_at"].as_str().unwrap(),
+        )
+        .unwrap();
+        let append = assemble(
+            &req,
+            &prepared,
+            evidence(&req, &sources).unwrap(),
+            &setup,
+            &at,
+            1,
+            &provenance,
+            None,
+        )
+        .unwrap();
+        for (name, bytes) in [
+            ("operation", &append.operation.operation_bytes),
+            ("manifest", &append.operation.manifest_bytes),
+            ("receipt", &append.operation.receipt_bytes),
+        ] {
+            assert_eq!(
+                bytes,
+                rec(name)["canonical_utf8"].as_str().unwrap().as_bytes()
+            );
+        }
+        let (_dir, store) = create().await;
+        let mut tx = store.begin(deadline()).await.unwrap();
+        tx.workflow_append(&append).await.unwrap();
+        assert_eq!(tx.workflow_test_meter().await.unwrap().payload_bytes, 31486);
+        records::verify_retained(&mut tx, req.key(), &append.operation)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let alias_records = expected["alias"]["records"].as_array().unwrap();
+        let a = |name: &str| alias_records.iter().find(|v| v["name"] == name).unwrap();
+        let raw_alias =
+            records::bytes(&a("operation")["body"]["request_evidence"]["normalized_request"])
+                .unwrap();
+        let alias_req = request::PublicationRequest::parse(&raw_alias).unwrap();
+        let mut tx = store.begin(deadline()).await.unwrap();
+        let old_pub = tx
+            .workflow_document_by_id(
+                &append.operation.publication_id,
+                &req.key().logical_store_id,
+                &req.key().scope[0],
+                &req.key().scope[1],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let old_ref = tx
+            .workflow_publication_build_ref(
+                &append.operation.publication_id,
+                &req.key().logical_store_id,
+                &req.key().scope[0],
+                &req.key().scope[1],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let old_build = tx
+            .workflow_document(
+                &old_ref,
+                &req.key().logical_store_id,
+                &req.key().scope[0],
+                &req.key().scope[1],
+                None,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let alias_at = ledgerlab_core::domain::Timestamp::parse(
+            a("operation")["body"]["accepted_at"].as_str().unwrap(),
+        )
+        .unwrap();
+        let alias = assemble(
+            &alias_req,
+            &prepared,
+            evidence(&alias_req, &sources).unwrap(),
+            &setup,
+            &alias_at,
+            2,
+            &provenance,
+            Some((old_pub, Some(old_build))),
+        )
+        .unwrap();
+        for (name, bytes) in [
+            ("operation", &alias.operation.operation_bytes),
+            ("manifest", &alias.operation.manifest_bytes),
+            ("receipt", &alias.operation.receipt_bytes),
+        ] {
+            assert_eq!(
+                bytes,
+                a(name)["canonical_utf8"].as_str().unwrap().as_bytes()
+            );
+        }
+        tx.workflow_append(&alias).await.unwrap();
+        assert_eq!(
+            tx.workflow_test_meter().await.unwrap().payload_bytes,
+            31486 + 20191
+        );
+        records::verify_retained(&mut tx, alias_req.key(), &alias.operation)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        store.close().await;
     }
 }

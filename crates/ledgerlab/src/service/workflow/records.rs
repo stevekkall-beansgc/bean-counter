@@ -1,8 +1,8 @@
 //! Reviewed publication record encoding and immutable retained verification.
 use super::*;
 use crate::store::sqlite::{
-    workflow::{Document, RecordRef, StoredOperation},
     SqliteTx,
+    workflow::{Document, RecordRef, StoredOperation},
 };
 use ledgerlab_core::canonical::{self, CanonicalBytes};
 use serde_json::json;
@@ -51,8 +51,7 @@ mod tests {
         );
         assert_eq!(
             result["request_evidence"],
-            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()
-                ["request_evidence"]
+            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()["request_evidence"]
         );
         let mut tampered = original.clone();
         tampered.receipt_bytes[8] = b'x';
@@ -324,10 +323,53 @@ pub(super) async fn verify_retained(
     let (plan_ref, plan) = loaded
         .get(&o.plan_id)
         .ok_or(ServiceError::IntegrityFailure)?;
+    keys(
+        publication,
+        &[
+            "schema",
+            "root_policy_ref",
+            "source_refs",
+            "compiled_plan_ref",
+            "compiler_ref",
+            "provenance",
+        ],
+    )?;
+    keys(
+        &publication["provenance"],
+        &["source_sha", "binary_sha256", "build_manifest_digest"],
+    )?;
+    keys(
+        plan,
+        &[
+            "schema",
+            "compiler_ref",
+            "compiler_semantics",
+            "evaluator",
+            "grammar",
+            "limits_profile",
+            "source_refs",
+            "activity_table",
+            "fact_slots",
+            "link_paths",
+            "component_slots",
+            "rule_order",
+            "typed_instructions",
+            "dependency_edges",
+            "worst_case",
+            "explanation_map",
+        ],
+    )?;
     if publication_ref.kind != "workflow-publication"
         || plan_ref.kind != "workflow-compiled-plan"
         || publication["compiled_plan_ref"] != json!(plan_ref)
         || publication["source_refs"] != plan["source_refs"]
+        || plan["compiler_ref"] != publication["compiler_ref"]
+        || publication["schema"] != "ledger-workflow-publication/1"
+        || plan["schema"] != "ledger-workflow-compiled-plan/1"
+        || !matches!(
+            receipt["result_kind"].as_str(),
+            Some("administrative" | "semantic_alias")
+        )
     {
         return Err(ServiceError::IntegrityFailure);
     }
@@ -439,7 +481,42 @@ pub(super) async fn verify_retained(
     {
         return Err(ServiceError::IntegrityFailure);
     }
+    let origin = tx
+        .workflow_publication_origin(
+            &o.publication_id,
+            &key.logical_store_id,
+            &key.scope[0],
+            &key.scope[1],
+        )
+        .await
+        .map_err(super::super::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if receipt["result_kind"]
+        != if origin == o.sequence {
+            "administrative"
+        } else {
+            "semantic_alias"
+        }
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
     let mut expected_members = source_refs.clone();
+    let build_docs: Vec<_> = loaded
+        .values()
+        .filter(|(r, _)| r.kind == "workflow-build-manifest")
+        .collect();
+    if build_docs.len() == 1 {
+        let (r, b) = build_docs[0];
+        if super::provenance::projection(b).map_err(|_| ServiceError::IntegrityFailure)?
+            != publication["provenance"]
+            || b["build_inputs"]["recipe"]["compiler_ref"] != publication["compiler_ref"]
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        expected_members.push(r.clone());
+    } else if !build_docs.is_empty() || !cfg!(test) {
+        return Err(ServiceError::IntegrityFailure);
+    }
     expected_members.extend([
         ar.clone(),
         plan_ref.clone(),
@@ -460,5 +537,7 @@ pub(super) async fn verify_retained(
     {
         return Err(ServiceError::IntegrityFailure);
     }
-    Ok(json!({"status":"committed","receipt":receipt,"request_evidence":evidence}))
+    Ok(
+        json!({"schema":"ledger-operation-status/1","status":"committed","receipt":receipt,"request_evidence":evidence}),
+    )
 }
