@@ -2,6 +2,31 @@
 use super::super::request::OperationKey;
 use super::*;
 
+#[cfg(test)]
+tokio::task_local! {
+    static ORIGIN_COUNTS: std::cell::RefCell<std::collections::BTreeMap<Vec<u8>,usize>>;
+}
+#[cfg(test)]
+pub(super) async fn audit_origins<T>(
+    future: impl std::future::Future<Output = Result<T>>,
+) -> Result<(T, std::collections::BTreeMap<Vec<u8>, usize>)> {
+    ORIGIN_COUNTS
+        .scope(
+            std::cell::RefCell::new(std::collections::BTreeMap::new()),
+            async {
+                let result = future.await?;
+                Ok((result, ORIGIN_COUNTS.with(|counts| counts.borrow().clone())))
+            },
+        )
+        .await
+}
+#[cfg(test)]
+fn count_origin(identity: &[u8]) {
+    let _ = ORIGIN_COUNTS.try_with(|counts| {
+        *counts.borrow_mut().entry(identity.to_vec()).or_default() += 1;
+    });
+}
+
 pub(super) fn root(body: &Value, key: &OperationKey, expected_source: Option<&str>) -> Result<()> {
     exact_keys(
         body,
@@ -529,7 +554,8 @@ pub(super) async fn retained(
             continue;
         }
         // The installation-wide admitted operation bound also bounds this
-        // acyclic history walk. No recursive futures or alias chains are used.
+        // acyclic history walk. Predecessor data traversal adds origin
+        // obligations here rather than recursively reproving each ancestor.
         if verified.len() >= 100_000 {
             return Err(ServiceError::IntegrityFailure);
         }
@@ -542,6 +568,8 @@ pub(super) async fn retained(
                 .ok_or(ServiceError::IntegrityFailure)?
         };
         let saved_key = origin_key(&operation.identity, key)?;
+        #[cfg(test)]
+        count_origin(&operation.identity);
         let parsed = checked(&operation.operation_bytes, 8 * 1024 * 1024)?;
         let certificate =
             if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
@@ -656,8 +684,9 @@ pub(super) async fn authenticated_closure(
     key: &OperationKey,
     seeds: &[RecordRef],
 ) -> Result<Vec<Document>> {
-    if seeds.len()==1 && seeds[0].kind=="workflow-head-transition" {
-        return Box::pin(replay::predecessor_closure(tx,key,&seeds[0])).await;
+    if seeds.len() == 1 && seeds[0].kind == "workflow-head-transition" {
+        document_origin(tx, key, &seeds[0]).await?;
+        return Box::pin(replay::predecessor_closure(tx, key, &seeds[0])).await;
     }
     let documents = closure(tx, key, seeds).await?;
     for document in &documents {

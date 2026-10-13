@@ -787,6 +787,58 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
     assert_eq!(original_source.state().revision(), 1);
     assert_eq!(original_source.state().status(), "active");
     assert_eq!(original_source.grant().unwrap().revision(), 1);
+    let initial_sequence = saved["receipt"]["commit_sequence"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    let restricted_sequence = restricted["receipt"]["commit_sequence"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    let revoked_sequence = revoked["receipt"]["commit_sequence"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    let restricted_state: RecordRef = serde_json::from_value(
+        restricted["receipt"]["result_refs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == "workflow-source-state")
+            .unwrap()
+            .clone(),
+    )
+    .unwrap();
+    let revoked_state: RecordRef =
+        serde_json::from_value(revoked["receipt"]["result_refs"][0].clone()).unwrap();
+    let (first_as_of, counts) = verify::audit_origins(context::source_as_of(
+        &mut observed_tx,
+        &key,
+        &e,
+        initial_sequence + 1,
+    ))
+    .await
+    .unwrap();
+    assert_eq!(first_as_of, initial_state);
+    assert_eq!(
+        counts.get(&records::bytes(&enrollment["key"]).unwrap()),
+        Some(&1)
+    );
+    assert_eq!(
+        context::source_as_of(&mut observed_tx, &key, &e, restricted_sequence + 1)
+            .await
+            .unwrap(),
+        restricted_state
+    );
+    assert_eq!(
+        context::source_as_of(&mut observed_tx, &key, &e, revoked_sequence + 1)
+            .await
+            .unwrap(),
+        revoked_state
+    );
     // Prior active grants remain verification history, never a fake current
     // grant when the actual latest source state is revoked.
     assert!(
@@ -796,6 +848,31 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
             .any(|d| d.reference == initial_grant)
     );
     observed_tx.rollback().await.unwrap();
+    let restrict_identity = records::bytes(&restrict["key"]).unwrap();
+    for mode in 0..4 {
+        let mut tx = ledger
+            .store
+            .begin(crate::service::workflow::local::deadline())
+            .await
+            .unwrap();
+        tx.workflow_test_source_history_tamper(mode, &restrict_identity)
+            .await
+            .unwrap();
+        let as_of = context::source_as_of(&mut tx, &key, &e, revoked_sequence + 1).await;
+        if mode == 0 {
+            assert_eq!(
+                as_of.unwrap(),
+                revoked_state,
+                "mutable head is not historical admission evidence"
+            );
+        } else {
+            assert!(
+                matches!(as_of, Err(ServiceError::IntegrityFailure)),
+                "missing or moved immutable birth cannot resurrect state1"
+            );
+        }
+        tx.rollback().await.unwrap();
+    }
     assert_eq!(
         revoked["receipt"]["result_refs"].as_array().unwrap().len(),
         1

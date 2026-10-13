@@ -67,6 +67,75 @@ pub(crate) struct SourceHead {
 }
 
 impl SqliteTx {
+    #[cfg(test)]
+    pub(crate) async fn workflow_test_source_history_tamper(
+        &mut self,
+        mode: u8,
+        identity: &[u8],
+    ) -> Result<(), StoreError> {
+        match mode {
+            0 => {
+                sqlx::query("DROP TRIGGER workflow_source_heads_no_delete")
+                    .execute(self.conn())
+                    .await?;
+                sqlx::query("DELETE FROM workflow_source_heads")
+                    .execute(self.conn())
+                    .await?;
+            }
+            1 => {
+                sqlx::query("PRAGMA defer_foreign_keys=ON")
+                    .execute(self.conn())
+                    .await?;
+                sqlx::query("DROP TRIGGER workflow_operations_update_immutable")
+                    .execute(self.conn())
+                    .await?;
+                sqlx::query(
+                    "UPDATE workflow_operations SET commit_sequence=99999 WHERE identity_key=?",
+                )
+                .bind(identity)
+                .execute(self.conn())
+                .await?;
+            }
+            2 => {
+                sqlx::query("DROP TRIGGER workflow_manifest_members_delete_immutable")
+                    .execute(self.conn())
+                    .await?;
+                sqlx::query("DELETE FROM workflow_manifest_members WHERE identity_key=? AND kind='workflow-source-state'").bind(identity).execute(self.conn()).await?;
+            }
+            3 => {
+                sqlx::query("DROP TRIGGER workflow_agreement_semantics_update_immutable")
+                    .execute(self.conn())
+                    .await?;
+                sqlx::query("UPDATE workflow_agreement_semantics SET original_identity_key=(SELECT identity_key FROM workflow_operations WHERE json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action')='source.enroll' ORDER BY commit_sequence LIMIT 1) WHERE original_identity_key=?").bind(identity).execute(self.conn()).await?;
+            }
+            _ => return Err(StoreError::Integrity("unknown test tamper")),
+        }
+        Ok(())
+    }
+    /// Candidate immutable source births, independent of the mutable head or
+    /// an auxiliary history index. The service verifies every certificate and
+    /// its contiguous lineage; these JSON paths only locate closed records.
+    pub(crate) async fn workflow_agreement_source_prefix(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        enrollment: &RecordRef,
+        enrollment_id: &str,
+    ) -> Result<Vec<Vec<u8>>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result=timeout_at(self.deadline,async {
+            self.workflow_schema().await?;
+            sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE ((json_extract(operation_bytes,'$.kind')='authority.change' AND json_extract(operation_bytes,'$.key.logical_store_id')=? AND json_extract(operation_bytes,'$.key.scope[0]')=? AND json_extract(operation_bytes,'$.key.scope[1]')=? AND ((json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action')='source.enroll' AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_id')=?) OR (json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action') IN ('source.restrict','source.revoke') AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_ref.id')=?))) OR identity_key IN (SELECT CAST(json_extract(canonical_bytes,'$.operation_key') AS BLOB) FROM workflow_documents WHERE json_extract(canonical_bytes,'$.schema')='ledger-workflow-source-state/1' AND json_extract(canonical_bytes,'$.enrollment_ref.id')=? AND json_extract(canonical_bytes,'$.enrollment_ref.digest')=?)) ORDER BY commit_sequence")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment_id)
+                .bind(&enrollment.id).bind(&enrollment.id).bind(&enrollment.digest)
+                .fetch_all(self.conn()).await.map_err(StoreError::from)
+        }).await.map_err(|_|StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
     /// Locate a candidate origin. Its membership is not a verified certificate;
     /// the coordinator must verify the complete retained operation before use.
     pub(crate) async fn workflow_agreement_document_origin(

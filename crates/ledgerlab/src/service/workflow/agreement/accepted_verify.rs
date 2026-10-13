@@ -214,6 +214,9 @@ pub(super) async fn retained_local(
     let state_ref = one(&a["source_state_refs"], "workflow-source-state")?;
     prior_origin(tx, key, &enrollment_ref, o.sequence).await?;
     prior_origin(tx, key, &state_ref, o.sequence).await?;
+    if context::source_as_of(tx, key, &enrollment_ref, o.sequence).await? != state_ref {
+        return Err(ServiceError::IntegrityFailure);
+    }
     // Guard every immutable proof origin before the capture helper verifies
     // certificates, so coherent index corruption cannot recurse to this row.
     let customer_id = tx

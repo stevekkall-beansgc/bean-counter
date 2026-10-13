@@ -2,6 +2,10 @@
 //! is consulted. The certificate caller authenticates captured authority.
 use super::super::request::OperationKey;
 use super::acceptance::{AcceptInput, PublicationInputs};
+use super::*;
+/// Closed scoped data traversal only. The retained certificate worklist proves
+/// all returned origins once; fresh callers authenticate the root certificate
+/// before using this traversal. No caller cache or trust flag replaces proof.
 pub(super) async fn predecessor_closure(
     tx: &mut SqliteTx,
     key: &OperationKey,
@@ -21,7 +25,6 @@ pub(super) async fn predecessor_closure(
             return Err(ServiceError::IntegrityFailure);
         }
         let d = loaded(tx, key, &r).await?;
-        Box::pin(verify::document_origin(tx, key, &r)).await?;
         let body = canonical::parse_bounded(
             &d.bytes,
             if r.kind == "workflow-compiled-plan" {
@@ -173,7 +176,7 @@ pub(super) async fn predecessor_closure(
             | "workflow-source-state"
             | "workflow-evidence"
             | "workflow-customer" => {
-                for proof in verify::authenticated_closure(tx, key, &[r.clone()]).await? {
+                for proof in verify::closure(tx, key, &[r.clone()]).await? {
                     if !docs.contains_key(&proof.reference.id) {
                         todo.push(proof.reference);
                     }
@@ -192,7 +195,6 @@ pub(super) async fn predecessor_closure(
     }
     Ok(docs.into_values().collect())
 }
-use super::*;
 
 pub(super) struct AcceptanceData {
     pub(super) input: AcceptInput,

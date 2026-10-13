@@ -118,6 +118,113 @@ pub(super) async fn observe_source_at(
     })
 }
 
+/// Latest authenticated immutable source transition BEFORE one original
+/// operation, not today's mutable head or eligibility. Two independent birth
+/// locators prevent a missing auxiliary projection from resurrecting revision1.
+pub(super) async fn source_as_of(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    enrollment_ref: &RecordRef,
+    before_sequence: i64,
+) -> Result<RecordRef> {
+    // Data only until the complete original revision1 birth certificate below
+    // authenticates this exact enrollment. Avoid reproving that same origin.
+    let document=loaded(tx,key,enrollment_ref).await?;
+    let enrollment=SourceEnrollment::parse(&document.bytes).map_err(|_|ServiceError::IntegrityFailure)?;
+    if enrollment.scope()!=&key.scope || json!(enrollment.reference())!=json!(enrollment_ref)
+        || enrollment.canonical_value().map_err(|_|ServiceError::IntegrityFailure)?!=canonical_body(&document)? {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let candidates = tx
+        .workflow_agreement_source_prefix(
+            &key.logical_store_id,
+            &key.scope,
+            enrollment_ref,
+            enrollment.enrollment_id(),
+        )
+        .await
+        .map_err(crate::service::store_error)?;
+    let mut states = std::collections::BTreeMap::<u64, (i64, RecordRef, Option<RecordRef>)>::new();
+    for identity in candidates {
+        let operation = tx
+            .workflow_agreement_lookup(&identity)
+            .await
+            .map_err(crate::service::store_error)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let saved_key =
+            OperationKey::parse(&identity).map_err(|_| ServiceError::IntegrityFailure)?;
+        if saved_key.logical_store_id != key.logical_store_id
+            || saved_key.scope != key.scope
+            || operation.kind != "authority.change"
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        // Validate the immutable birth sequence copy before choosing the past
+        // prefix: moving an index row forward cannot hide an earlier mutation.
+        let body = canonical::parse_bounded(&operation.operation_bytes, 8388608)
+            .map_err(|_| ServiceError::IntegrityFailure)?;
+        let sequence = operation.sequence.to_string();
+        if records::bytes(&body)? != operation.operation_bytes
+            || body["key"] != json!(saved_key)
+            || body["commit_sequence"] != sequence.as_str()
+            || body["kind"] != operation.kind
+            || records::record_reference("workflow-operation", &key.scope, &body)?
+                != operation.operation_ref
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        if operation.sequence >= before_sequence {
+            continue;
+        }
+        let certificate = Box::pin(verify::retained(tx, &saved_key, &operation)).await?;
+        if certificate["receipt"]["result_kind"] == "semantic_alias" {
+            continue;
+        }
+        let refs: Vec<RecordRef> =
+            serde_json::from_value(certificate["receipt"]["result_refs"].clone())
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+        for r in refs
+            .into_iter()
+            .filter(|r| r.kind == "workflow-source-state")
+        {
+            let d = loaded(tx, key, &r).await?;
+            let state = SourceState::parse(&d.bytes, &enrollment)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            if json!(state.enrollment_ref()) != json!(enrollment_ref) {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            let body = canonical::parse(&d.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+            if body["operation_key"] != json!(saved_key) || json!(state.reference()) != json!(r) {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            let prior = state.prior_state_ref().map(|r| RecordRef {
+                kind: r.kind().into(),
+                id: r.id().into(),
+                digest: r.digest().into(),
+            });
+            if states
+                .insert(state.revision(), (operation.sequence, r, prior))
+                .is_some()
+            {
+                return Err(ServiceError::IntegrityFailure);
+            }
+        }
+    }
+    let mut previous = None;
+    let mut previous_sequence = 0;
+    for (index, (revision, (sequence, r, prior))) in states.iter().enumerate() {
+        if *revision != u64::try_from(index + 1).map_err(|_| ServiceError::IntegrityFailure)?
+            || *sequence <= previous_sequence
+            || *prior != previous
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        previous = Some(r.clone());
+        previous_sequence = *sequence;
+    }
+    previous.ok_or(ServiceError::IntegrityFailure)
+}
+
 /// Data from one fully verified publication boundary, without its historical
 /// operation/manifest/receipt wrappers. No current compiler or build is loaded.
 pub(super) struct ObservedPublication {
