@@ -19,7 +19,10 @@ pub(super) fn inject_committed_reply_loss(key: Vec<u8>) {
 pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value> {
     let req = request::Request::parse_agreement(raw)?;
     require(
-        req.kind() == "agreement.accept",
+        matches!(
+            req.kind(),
+            "agreement.accept" | "agreement.activate" | "agreement.revoke"
+        ),
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let key = req.key();
@@ -55,20 +58,39 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                 let original = verify::retained(tx, key, &old).await?;
                 let saved = &original["request_evidence"];
                 if saved["original_request_bytes_sha256"] != records::raw_hash(req.raw()) {
-                    require(
-                        req.payload()["publication_ref"]
-                            == saved["normalized_request"]["payload"]["publication_ref"],
-                        "IDENTITY_CONFLICT",
-                    )?;
-                    let data =
-                        replay::acceptance_data(tx, key, &req)
-                            .await
+                    let evidence = if req.kind() == "agreement.accept" {
+                        require(
+                            req.payload()["publication_ref"]
+                                == saved["normalized_request"]["payload"]["publication_ref"],
+                            "IDENTITY_CONFLICT",
+                        )?;
+                        let data =
+                            replay::acceptance_data(tx, key, &req)
+                                .await
+                                .map_err(|e| match e {
+                                    ServiceError::Rejection(_) => reject("IDENTITY_CONFLICT"),
+                                    e => e,
+                                })?;
+                        descriptor::evidence(&req, &data.input.value()?, &data.descriptors)?
+                    } else {
+                        require(
+                            req.payload()["accepted_binding_ref"]
+                                == saved["normalized_request"]["payload"]["accepted_binding_ref"],
+                            "IDENTITY_CONFLICT",
+                        )?;
+                        let reference: RecordRef =
+                            serde_json::from_value(req.payload()["accepted_binding_ref"].clone())
+                                .map_err(|_| reject("IDENTITY_CONFLICT"))?;
+                        let accepted =
+                            context::observe_accepted_binding(tx, key, &reference, old.sequence)
+                                .await?;
+                        let payload = activation_verify::normalize(&req, &accepted.binding)
                             .map_err(|e| match e {
                                 ServiceError::Rejection(_) => reject("IDENTITY_CONFLICT"),
                                 e => e,
                             })?;
-                    let evidence =
-                        descriptor::evidence(&req, &data.input.value()?, &data.descriptors)?;
+                        descriptor::evidence(&req, &payload, &accepted.acceptance.descriptors)?
+                    };
                     require(
                         evidence["request_hash"] == saved["request_hash"]
                             && evidence["descriptor_resolution"] == saved["descriptor_resolution"],
@@ -82,7 +104,11 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                 "{} before fresh preparation",
                 key.operation_id
             ));
-            let append = prepare::fresh(ledger, tx, &req).await?;
+            let append = if req.kind() == "agreement.accept" {
+                prepare::fresh(ledger, tx, &req).await?
+            } else {
+                super::activation::fresh(ledger, tx, &req).await?
+            };
             #[cfg(test)]
             verify::diagnostic_checkpoint(&format!("{} before append", key.operation_id));
             tx.workflow_agreement_append(&append).await.map_err(|e| {

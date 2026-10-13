@@ -249,6 +249,44 @@ pub(super) async fn closure(
     key: &OperationKey,
     seeds: &[RecordRef],
 ) -> Result<Vec<Document>> {
+    for seed in seeds.iter().filter(|r| r.kind == "workflow-evidence") {
+        let evidence = super::loaded(tx, key, seed).await?;
+        let body = canonical_body(&evidence)?;
+        let input = evidence_input(&body)?;
+        if input.purpose() == "admission_stop" {
+            let mut docs = activation_verify::stop_evidence_dependencies(tx, key, &input).await?;
+            let root = parse_ref(&body["authority_ref"])?;
+            let root_doc = super::loaded(tx, key, &root).await?;
+            let root_body = canonical_body(&root_doc)?;
+            require(
+                root_body["basis"]["principal_id"] == body["retained_by"],
+                "INTEGRITY_FAILURE",
+            )?;
+            docs.push(evidence);
+            docs.push(root_doc);
+            for seed in seeds.iter().filter(|r| r.kind == "workflow-authority") {
+                docs.push(super::loaded(tx, key, seed).await?);
+            }
+            let mut unique = std::collections::BTreeMap::new();
+            for d in docs {
+                if let Some(old) = unique.insert(d.reference.id.clone(), d) {
+                    let d = unique
+                        .get(&old.reference.id)
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    require(
+                        d.reference == old.reference && d.bytes == old.bytes,
+                        "INTEGRITY_FAILURE",
+                    )?;
+                }
+            }
+            let docs: Vec<Document> = unique.into_values().collect();
+            require(
+                docs.len() <= 4095 && docs.iter().map(|d| d.bytes.len()).sum::<usize>() <= 8388608,
+                "PROGRAM_BUDGET_EXCEEDED",
+            )?;
+            return Ok(docs);
+        }
+    }
     let mut todo = seeds.to_vec();
     let mut loaded = std::collections::BTreeMap::new();
     let mut total = 0usize;
@@ -342,6 +380,12 @@ pub(super) async fn locator_dependencies(
     req: &request::Request,
     payload: &Value,
 ) -> Result<Vec<Document>> {
+    if req.kind() == "evidence.retain" && payload["purpose"] == "admission_stop" {
+        let input =
+            ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(payload)?)
+                .map_err(typed_error)?;
+        return activation_verify::stop_evidence_dependencies(tx, key, &input).await;
+    }
     let mut refs = vec![];
     for l in journal::locators(req, payload)? {
         refs.push(parse_ref(&l["ref"])?);
@@ -681,6 +725,14 @@ async fn retained_in_scope(
         let certificate =
             if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
                 transport::certificate::retained_local(tx, &saved_key, &operation).await?
+            } else if matches!(
+                operation.kind.as_str(),
+                "agreement.activate" | "agreement.revoke"
+            ) {
+                Box::pin(activation_verify::retained_local(
+                    tx, &saved_key, &operation,
+                ))
+                .await?
             } else if operation.kind == "agreement.accept" {
                 Box::pin(accepted_verify::retained_local(tx, &saved_key, &operation)).await?
             } else {

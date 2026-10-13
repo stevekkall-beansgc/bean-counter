@@ -1,6 +1,7 @@
 //! Reviewed administrative prerequisites. Customer assent is never inferred.
 mod acceptance;
 mod accepted_verify;
+mod activation_verify;
 mod context;
 mod descriptor;
 mod journal;

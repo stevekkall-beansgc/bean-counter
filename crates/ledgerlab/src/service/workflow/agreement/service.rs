@@ -1,7 +1,7 @@
 //! Trusted local prerequisite entry. No request can supply an authority snapshot.
 use super::*;
 use crate::{
-    service::workflow::local::{LocalWorkflowLedger, deadline},
+    service::workflow::local::{deadline, LocalWorkflowLedger},
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
 use serde::{Deserialize, Serialize};
@@ -216,7 +216,7 @@ async fn validate_evidence_dependencies(
             "INSTALLATION_MODE_MISMATCH",
         )?;
     } else if input.purpose() == "admission_stop" {
-        return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+        activation_verify::stop_evidence_dependencies(tx, key, input).await?;
     }
     Ok(())
 }

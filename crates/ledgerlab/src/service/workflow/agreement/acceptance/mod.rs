@@ -3,6 +3,7 @@
 pub(super) mod authority;
 pub(super) mod construct;
 mod execute;
+mod activation;
 mod payload;
 mod prepare;
 mod resolve;

@@ -354,7 +354,7 @@ async fn test_root_choice_must_be_in_actual_scoped_latest_candidate_set() {
 
 #[tokio::test]
 #[ignore = "requires reviewed controlled build with actual executable provenance"]
-async fn captured_agreement_public_two_customers_accept_original_recovery_and_reopen() {
+async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_and_reopen() {
     assert!(crate::build_identity::embedded_inputs().is_ok());
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().canonicalize().unwrap().join("billing");
@@ -609,6 +609,118 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
     );
     assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 29);
     tx.rollback().await.unwrap();
+    // Actual narrowed grant2 stays compatible with the complete bound projection.
+    let mut source_tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let enrolled = loaded(&mut source_tx, &a_key, &enrollment_a).await.unwrap();
+    let mut ceiling = canonical_body(&enrolled).unwrap()["ceiling"].clone();
+    ceiling["starts_at"] = json!("2021-01-01T00:00:00.000000Z");
+    source_tx.rollback().await.unwrap();
+    let narrowed = envelope(
+        "A-narrow",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-restrict/1","action":"source.restrict","enrollment_ref":enrollment_a,"expected_revision":"1","replacement_ceiling":ceiling}),
+    );
+    ledger
+        .prerequisite(&records::bytes(&narrowed).unwrap())
+        .await
+        .unwrap();
+    fn activate_input(
+        id: &str,
+        accepted: &Value,
+        binding_payload: &Value,
+        expected: &str,
+        effective: Value,
+    ) -> Value {
+        envelope(
+            id,
+            "agreement.activate",
+            json!({"schema":"ledger-workflow-activation/1","agreement_id":binding_payload["binding_inputs"]["agreement_id"],"expected_revision":expected,"accepted_binding_ref":result_ref(accepted,"workflow-binding"),"policy_ref":binding_payload["binding_inputs"]["policy_ref"],"product_ref":binding_payload["binding_inputs"]["product_ref"],"fact_schema_refs":binding_payload["binding_inputs"]["fact_schema_refs"],"compiled_plan_ref":binding_payload["binding_inputs"]["compiled_plan_ref"],"effective":effective,"evidence_refs":[]}),
+        )
+    }
+    let activate_a = activate_input(
+        "A-activate",
+        &last_receipt,
+        &last["payload"],
+        "0",
+        json!({"kind":"at_commit"}),
+    );
+    let activate_a_key = super::super::super::request::OperationKey::parse(
+        &records::bytes(&activate_a["key"]).unwrap(),
+    )
+    .unwrap();
+    super::execute::inject_committed_reply_loss(activate_a_key.bytes().unwrap());
+    assert_eq!(
+        diagnostic(
+            "A activate narrowed lost reply",
+            ledger.agreement(&records::bytes(&activate_a).unwrap())
+        )
+        .await,
+        Err(ServiceError::ResponseLost)
+    );
+    let active_a = ledger
+        .status(&activate_a_key.bytes().unwrap())
+        .await
+        .unwrap();
+    let activate_b = activate_input(
+        "B-activate",
+        &accepted_b,
+        &b["payload"],
+        "0",
+        json!({"kind":"at_commit"}),
+    );
+    let active_b = diagnostic(
+        "B activate",
+        ledger.agreement(&records::bytes(&activate_b).unwrap()),
+    )
+    .await
+    .unwrap();
+    let pending_input = activate_input(
+        "A-pending",
+        &last_receipt,
+        &last["payload"],
+        "1",
+        json!({"kind":"not_before","at":"2029-01-01T00:00:00.000000Z"}),
+    );
+    let pending = ledger
+        .agreement(&records::bytes(&pending_input).unwrap())
+        .await
+        .unwrap();
+    let mut replace_input = activate_input(
+        "A-replace",
+        &last_receipt,
+        &last["payload"],
+        "2",
+        json!({"kind":"not_before","at":"2029-02-01T00:00:00.000000Z"}),
+    );
+    replace_input["payload"]["schema"] = json!("ledger-workflow-activation-replace/1");
+    replace_input["payload"]["replaces_transition_ref"] =
+        json!(result_ref(&pending, "workflow-activation"));
+    let replaced = ledger
+        .agreement(&records::bytes(&replace_input).unwrap())
+        .await
+        .unwrap();
+    let target = result_ref(&replaced, "workflow-activation");
+    let stop_proof = proof(&ledger,"A-stop-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":result_ref(&last_receipt,"workflow-binding"),"target_transition_ref":target,"reason":"Explicit pending cancellation and immediate stop"})).await;
+    let stop_input = envelope(
+        "A-stop",
+        "agreement.revoke",
+        json!({"schema":"ledger-workflow-agreement-revoke/1","agreement_id":"agreement-A","expected_revision":"3","accepted_binding_ref":result_ref(&last_receipt,"workflow-binding"),"transition_ref":target,"reason":"Explicit pending cancellation and immediate stop","evidence_refs":[stop_proof]}),
+    );
+    let mut bad_stop = stop_input.clone();
+    bad_stop["key"]["operation_id"] = json!("A-stop-wrong-active-target");
+    bad_stop["payload"]["transition_ref"] = json!(result_ref(&active_a, "workflow-activation"));
+    assert!(ledger
+        .agreement(&records::bytes(&bad_stop).unwrap())
+        .await
+        .is_err());
+    let stopped = ledger
+        .agreement(&records::bytes(&stop_input).unwrap())
+        .await
+        .unwrap();
     let pretty = serde_json::to_vec_pretty(&a).unwrap();
     assert_eq!(
         diagnostic("A1 original retry", ledger.agreement(&pretty))
@@ -620,12 +732,36 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
         "revoke-A-work-source",
         "authority.change",
         json!({"schema":"ledger-workflow-source-revoke/1","action":"source.revoke",
-        "enrollment_ref":enrollment_a,"expected_revision":"1","reason":"Explicit test stop after acceptance"}),
+        "enrollment_ref":enrollment_a,"expected_revision":"2","reason":"Explicit test stop after acceptance"}),
     );
     ledger
         .prerequisite(&records::bytes(&revoked).unwrap())
         .await
         .unwrap();
+    for (id, original, receipt) in [
+        ("A-accept-alias-after-revoke", &last, &last_receipt),
+        ("A-activate-alias-after-revoke", &activate_a, &active_a),
+        ("A-stop-alias-after-revoke", &stop_input, &stopped),
+    ] {
+        let mut alias = original.clone();
+        alias["key"]["operation_id"] = json!(id);
+        let result = ledger
+            .agreement(&records::bytes(&alias).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(result["receipt"]["result_kind"], "semantic_alias");
+        assert_eq!(
+            result["receipt"]["result_refs"],
+            receipt["receipt"]["result_refs"]
+        );
+    }
+    let mut denied = activate_a.clone();
+    denied["key"]["operation_id"] = json!("A-fresh-after-source-revoke");
+    denied["payload"]["expected_revision"] = json!("4");
+    assert_eq!(
+        ledger.agreement(&records::bytes(&denied).unwrap()).await,
+        Err(reject("AUTHORITY_REQUIRED"))
+    );
     ledger.close().await;
     let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
     let latest_key =
@@ -677,7 +813,84 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
         .begin(crate::service::workflow::local::deadline())
         .await
         .unwrap();
-    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 30);
+    assert_eq!(
+        tx.workflow_agreement_head(
+            STORE,
+            &a_key.scope,
+            "customer-A",
+            "agreement-A",
+            crate::store::sqlite::workflow::agreement::acceptance::HeadKind::Activation
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .revision,
+        4
+    );
+    assert_eq!(
+        tx.workflow_agreement_head(
+            STORE,
+            &a_key.scope,
+            "customer-B",
+            "agreement-B",
+            crate::store::sqlite::workflow::agreement::acceptance::HeadKind::Activation
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .revision,
+        1
+    );
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 40);
+    let next_sequence = tx.workflow_sequence().await.unwrap();
+    let a_history = activation_verify::schedule::history_before(
+        &mut tx,
+        &a_key,
+        "customer-A",
+        "agreement-A",
+        next_sequence,
+    )
+    .await
+    .unwrap();
+    let b_history = activation_verify::schedule::history_before(
+        &mut tx,
+        &a_key,
+        "customer-B",
+        "agreement-B",
+        next_sequence,
+    )
+    .await
+    .unwrap();
+    let now = crate::local::now().unwrap();
+    assert_eq!(
+        activation_verify::schedule::selected_binding(&a_history, &now).unwrap(),
+        None
+    );
+    assert_eq!(
+        activation_verify::schedule::selected_binding(&b_history, &now).unwrap(),
+        Some(result_ref(&accepted_b, "workflow-binding"))
+    );
+    assert_eq!(
+        activation_verify::schedule::selected_binding(
+            &a_history,
+            &Timestamp::parse("2029-03-01T00:00:00.000000Z").unwrap()
+        )
+        .unwrap(),
+        None
+    );
     tx.rollback().await.unwrap();
+    for (request, response) in [
+        (&activate_a, &active_a),
+        (&activate_b, &active_b),
+        (&stop_input, &stopped),
+    ] {
+        assert_eq!(
+            reopened
+                .agreement(&serde_json::to_vec_pretty(request).unwrap())
+                .await
+                .unwrap()["receipt"],
+            response["receipt"]
+        );
+    }
     reopened.close().await;
 }
