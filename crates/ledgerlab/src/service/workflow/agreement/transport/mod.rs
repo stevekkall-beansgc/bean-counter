@@ -15,6 +15,16 @@ use ledgerlab_core::policy::workflow as core;
 #[cfg(test)]
 mod tests;
 pub(in super::super) use read::read;
+/// Scoped membership is only an origin locator. Publication's trusted resolver
+/// must authenticate the complete saved source-producing closure under its lock.
+pub(in crate::service::workflow) async fn verify_source_origin(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &RecordRef,
+) -> Result<()> {
+    require(source_kind(&reference.kind), "INVALID_REFERENCE")?;
+    Box::pin(verify::document_origin(tx, key, reference)).await
+}
 pub(super) fn selected(payload: &Value) -> bool {
     matches!(
         payload["schema"].as_str(),

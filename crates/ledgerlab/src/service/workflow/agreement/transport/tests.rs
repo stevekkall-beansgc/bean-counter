@@ -371,3 +371,363 @@ async fn retain_document(ledger: &LocalWorkflowLedger, id: &str, body: &Value) -
         .await
         .unwrap()
 }
+
+#[tokio::test]
+async fn transport_public_publication_prepare_matches_frozen_recipe_without_writes() {
+    let (_directory, path) = installation().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let fixture: Value = serde_json::from_slice(include_bytes!("../../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/publication-independent-expected.json")).unwrap();
+    let vectors = fixture["vectors"].as_array().unwrap();
+    let documents: Vec<_> = vectors[..6].iter().map(|v| v["body"].clone()).collect();
+    let prepare = |candidate: Value| {
+        records::bytes(&json!({"schema":"ledger-read/1","kind":"operation.descriptors","payload":{"operation_kind":"policy.publish","candidate":candidate}})).unwrap()
+    };
+    let mut candidate = fixture["normalized_request"]["payload"].clone();
+    candidate["mode"] = json!("inline");
+    candidate["documents"] = json!(documents);
+    assert_eq!(
+        ledger.read(&prepare(candidate.clone())).await.unwrap(),
+        fixture["descriptor_resolution"]
+    );
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 0);
+    tx.rollback().await.unwrap();
+    let mut refs = vec![];
+    for (index, body) in documents.iter().enumerate() {
+        refs.push(reference(
+            &retain_document(&ledger, &format!("prepare-source-{index}"), body).await,
+        ));
+    }
+    records::sort_refs(&mut refs).unwrap();
+    candidate.as_object_mut().unwrap().remove("documents");
+    candidate["mode"] = json!("retained");
+    candidate["document_refs"] = json!(refs);
+    let retained = ledger.read(&prepare(candidate.clone())).await.unwrap();
+    assert_eq!(
+        retained["anchors"],
+        fixture["descriptor_resolution"]["anchors"]
+    );
+    assert_eq!(
+        retained["descriptors"],
+        fixture["descriptor_resolution"]["descriptors"]
+    );
+    assert_eq!(
+        retained["registry_digest"],
+        fixture["descriptor_resolution"]["registry_digest"]
+    );
+    assert_ne!(
+        retained["locator_digest"],
+        fixture["descriptor_resolution"]["locator_digest"]
+    );
+    candidate["unexpected"] = json!(true);
+    assert!(ledger.read(&prepare(candidate)).await.is_err());
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 6);
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+}
+
+#[tokio::test]
+#[ignore = "requires actual controlled captured build; public retention never seeds SQL"]
+async fn captured_transport_large_public_retention_publication_canonical_read_reopen() {
+    assert!(crate::build_identity::embedded_inputs().is_ok());
+    let (_directory, path) = installation().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let fixture:Value=serde_json::from_slice(include_bytes!("../../../../../../../contracts/candidates/full-suite-v1/core/publication-transport-02-fixture-input.json")).unwrap();
+    let inputs = fixture["requests"].as_array().unwrap();
+    let mut parts = vec![];
+    let mut retained = std::collections::BTreeMap::new();
+    let mut first_receipt = None;
+    for (index, input) in inputs[..26].iter().enumerate() {
+        let mut request = actual(input.clone());
+        if index == 3 {
+            records::sort_refs(&mut parts).unwrap();
+            request["payload"]["fragment_refs"] = json!(parts);
+        }
+        let prepared=ledger.read(&records::bytes(&json!({"schema":"ledger-read/1","kind":"operation.descriptors","payload":{"operation_kind":"evidence.retain","candidate":request["payload"]}})).unwrap()).await.unwrap();
+        let result = ledger
+            .prerequisite(&records::bytes(&request).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            prepared,
+            result["request_evidence"]["descriptor_resolution"]
+        );
+        let r = reference(&result);
+        if index == 1 || index == 2 {
+            parts.push(r.clone());
+        }
+        if source_kind(&r.kind) {
+            retained.insert(r.id.clone(), r);
+        }
+        if index == 0 {
+            first_receipt = Some((request, result));
+        }
+        eprintln!(
+            "transport public retained {index} {}",
+            input["key"]["operation_id"]
+        );
+    }
+    let sources:Value=serde_json::from_slice(include_bytes!("../../../../../../../contracts/candidates/full-suite-v1/core/plan-size-counterexample/input.json")).unwrap();
+    let mut refs = vec![];
+    for body in sources["documents"].as_array().unwrap() {
+        let kind = match body["schema"].as_str().unwrap() {
+            "ledger-workflow-fact-schema/1" => "workflow-fact-schema",
+            "ledger-workflow-product/1" => "workflow-product",
+            "ledger-workflow-policy/1" => "workflow-policy",
+            "ledger-workflow-slot-template/1" => "workflow-slot-template",
+            "ledger-workflow-compiler-descriptor/1" => "workflow-compiler-descriptor",
+            _ => panic!("unsupported frozen source"),
+        };
+        let derived = records::source_document(kind, body.clone()).unwrap();
+        refs.push(retained.get(&derived.reference.id).unwrap().clone());
+    }
+    records::sort_refs(&mut refs).unwrap();
+    assert_eq!(refs.len(), 21);
+    let expected:Value=serde_json::from_slice(include_bytes!("../../../../../../../contracts/candidates/full-suite-v1/core/transport-02-independent/expected.json")).unwrap();
+    let plan = expected["envelopes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "workflow-compiled-plan")
+        .unwrap();
+    let mut publish = actual(inputs[0].clone());
+    publish["key"]["operation_id"] = json!("actual-large-publication");
+    publish["kind"] = json!("policy.publish");
+    publish["payload"] = json!({"schema":"ledger-workflow-policy-publication/1","mode":"retained","document_refs":refs,"root_policy_ref":sources["root_policy_ref"],"expected_plan_digest":plan["digest"]});
+    let prepare=ledger.read(&records::bytes(&json!({"schema":"ledger-read/1","kind":"operation.descriptors","payload":{"operation_kind":"policy.publish","candidate":publish["payload"]}})).unwrap()).await.unwrap();
+    assert_eq!(
+        prepare,
+        expected["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["name"] == "publish-large")
+            .unwrap()["descriptor_resolution"]
+    );
+    let result = ledger
+        .publish(&records::bytes(&publish).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(prepare, result["request_evidence"]["descriptor_resolution"]);
+    let plan_ref: RecordRef = serde_json::from_value(
+        result["receipt"]["result_refs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == "workflow-compiled-plan")
+            .unwrap()
+            .clone(),
+    )
+    .unwrap();
+    let read = ledger.read(&canonical_read(&plan_ref)).await.unwrap();
+    let decoded = ledgerlab_core::adjudication::proofs::decode_base64(
+        text(&read, "canonical_bytes_base64").unwrap(),
+        4194304,
+    )
+    .unwrap();
+    assert_eq!(decoded.len(), 1089536);
+    assert_eq!(decoded, records::bytes(&plan["body"]).unwrap());
+    assert_eq!(read.as_object().unwrap().len(), 5);
+    assert!(read.get("body").is_none());
+    assert!(serde_json::to_vec(&read).unwrap().len() < 8388608);
+    assert_eq!(
+        ledger
+            .status(&key(&publish).bytes().unwrap())
+            .await
+            .unwrap()["receipt"],
+        result["receipt"]
+    );
+    let (first, first_result) = first_receipt.unwrap();
+    assert_eq!(
+        ledger
+            .prerequisite(&serde_json::to_vec_pretty(&first).unwrap())
+            .await
+            .unwrap()["receipt"],
+        first_result["receipt"]
+    );
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let meter = tx.workflow_test_meter().await.unwrap();
+    assert_eq!(meter.operations, 27);
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(
+        reopened.read(&canonical_read(&plan_ref)).await.unwrap(),
+        read
+    );
+    assert_eq!(
+        reopened
+            .publish(&records::bytes(&publish).unwrap())
+            .await
+            .unwrap()["receipt"],
+        result["receipt"]
+    );
+    let mut tx = reopened
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), meter);
+    tx.rollback().await.unwrap();
+    reopened.close().await;
+}
+
+async fn transport_test_sql(path: &std::path::Path, statement: &str) {
+    use sqlx::Connection;
+    let mut c = sqlx::SqliteConnection::connect_with(
+        &sqlx::sqlite::SqliteConnectOptions::new().filename(path.join(".ledger/local.db")),
+    )
+    .await
+    .unwrap();
+    // Only closed literal test triggers enter this seam, never ingress data.
+    sqlx::query(sqlx::AssertSqlSafe(statement))
+        .execute(&mut c)
+        .await
+        .unwrap();
+    c.close().await.unwrap();
+}
+async fn transport_counts(path: &std::path::Path) -> Vec<i64> {
+    use sqlx::Connection;
+    let mut c = sqlx::SqliteConnection::connect_with(
+        &sqlx::sqlite::SqliteConnectOptions::new().filename(path.join(".ledger/local.db")),
+    )
+    .await
+    .unwrap();
+    let mut counts = vec![];
+    for table in [
+        "workflow_documents",
+        "workflow_operations",
+        "workflow_manifest_members",
+        "workflow_agreement_semantics",
+        "workflow_definition_registry",
+        "workflow_definition_uploads",
+        "workflow_definition_upload_parts",
+        "workflow_feed",
+    ] {
+        counts.push(
+            sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT count(*) FROM {table}")))
+                .fetch_one(&mut c)
+                .await
+                .unwrap(),
+        );
+    }
+    c.close().await.unwrap();
+    counts
+}
+#[tokio::test]
+async fn transport_upload_and_finalize_projection_cuts_leave_no_partial_history() {
+    let (_directory, path) = installation().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let first = actual(requests()[1].clone());
+    let raw = records::bytes(&first).unwrap();
+    let baseline = transport_counts(&path).await;
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let meter = tx.workflow_test_meter().await.unwrap();
+    tx.rollback().await.unwrap();
+    for (index, cut) in [
+        "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_documents WHEN NEW.kind='workflow-definition-fragment' BEGIN SELECT RAISE(ABORT,'fragment document cut'); END",
+        "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_definition_uploads BEGIN SELECT RAISE(ABORT,'upload metadata cut'); END",
+        "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_definition_upload_parts BEGIN SELECT RAISE(ABORT,'upload part cut'); END",
+        "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_operations BEGIN SELECT RAISE(ABORT,'operation cut'); END",
+        "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_agreement_semantics BEGIN SELECT RAISE(ABORT,'semantic index cut'); END",
+        "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_feed BEGIN SELECT RAISE(ABORT,'feed cut'); END",
+        "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_manifest_members WHEN NEW.kind='workflow-definition-fragment' BEGIN SELECT RAISE(ABORT,'fragment closure cut'); END",
+        "CREATE TRIGGER transport_cut BEFORE UPDATE ON workflow_state BEGIN SELECT RAISE(ABORT,'meter cut'); END",
+    ].iter().enumerate() {
+        transport_test_sql(&path, cut).await;
+        assert!(ledger.prerequisite(&raw).await.is_err(), "cut {index}");
+        transport_test_sql(&path, "DROP TRIGGER transport_cut").await;
+        assert_eq!(transport_counts(&path).await, baseline, "cut {index}");
+        assert_eq!(ledger.status(&key(&first).bytes().unwrap()).await.unwrap()["status"], "not_observed");
+        let mut tx = ledger.store.begin(crate::service::workflow::local::deadline()).await.unwrap();
+        assert_eq!(tx.workflow_test_meter().await.unwrap(), meter, "cut {index}");
+        tx.rollback().await.unwrap();
+    }
+    let saved_first = ledger.prerequisite(&raw).await.unwrap();
+    let saved_second = ledger
+        .prerequisite(&records::bytes(&actual(requests()[2].clone())).unwrap())
+        .await
+        .unwrap();
+    let mut finalize = actual(requests()[3].clone());
+    let mut parts = vec![reference(&saved_first), reference(&saved_second)];
+    records::sort_refs(&mut parts).unwrap();
+    finalize["payload"]["fragment_refs"] = json!(parts);
+    let baseline = transport_counts(&path).await;
+    transport_test_sql(&path, "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_definition_registry BEGIN SELECT RAISE(ABORT,'finalized definition registry cut'); END").await;
+    assert!(
+        ledger
+            .prerequisite(&records::bytes(&finalize).unwrap())
+            .await
+            .is_err()
+    );
+    transport_test_sql(&path, "DROP TRIGGER transport_cut").await;
+    assert_eq!(transport_counts(&path).await, baseline);
+    let saved = ledger
+        .prerequisite(&records::bytes(&finalize).unwrap())
+        .await
+        .unwrap();
+    let finalized = reference(&saved);
+    ledger.close().await;
+    let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(
+        reopened
+            .status(&key(&finalize).bytes().unwrap())
+            .await
+            .unwrap()["receipt"],
+        saved["receipt"]
+    );
+    assert!(reopened.read(&canonical_read(&finalized)).await.is_ok());
+    reopened.close().await;
+    // Keep the valid fragment body, upload projection and finalized body, but
+    // remove its originating committed membership. Those indices cannot serve
+    // as proof of a retained closure after restart.
+    use sqlx::Connection;
+    let mut c = sqlx::SqliteConnection::connect_with(
+        &sqlx::sqlite::SqliteConnectOptions::new().filename(path.join(".ledger/local.db")),
+    )
+    .await
+    .unwrap();
+    sqlx::query("DROP TRIGGER workflow_manifest_members_delete_immutable")
+        .execute(&mut c)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM workflow_manifest_members WHERE identity_key=? AND kind='workflow-definition-fragment'").bind(key(&first).bytes().unwrap()).execute(&mut c).await.unwrap();
+    sqlx::query("CREATE TRIGGER workflow_manifest_members_delete_immutable BEFORE DELETE ON workflow_manifest_members BEGIN SELECT RAISE(ABORT,'immutable workflow history'); END").execute(&mut c).await.unwrap();
+    c.close().await.unwrap();
+    let damaged = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(
+        damaged.read(&canonical_read(&finalized)).await,
+        Err(ServiceError::IntegrityFailure)
+    );
+    assert_eq!(
+        damaged.status(&key(&finalize).bytes().unwrap()).await,
+        Err(ServiceError::IntegrityFailure)
+    );
+    assert_eq!(
+        damaged
+            .prerequisite(&records::bytes(&finalize).unwrap())
+            .await,
+        Err(ServiceError::IntegrityFailure)
+    );
+    damaged.close().await;
+}

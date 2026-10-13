@@ -68,13 +68,62 @@ pub(in super::super::super) async fn read(
             },
             "operation.descriptors"=>{
                 let payload:Prepare=serde_json::from_value(read.payload).map_err(|_|reject("INVALID_SHAPE"))?;
-                require(payload.operation_kind=="evidence.retain" && selected(&payload.candidate),"UNSUPPORTED_SCHEMA_PROFILE")?;
-                let resolution=resolve::resolve(&mut tx,&key,&payload.candidate,true).await?;
-                wire(evidence::descriptors(&resolution)?.0)
+                if payload.operation_kind=="evidence.retain" && selected(&payload.candidate) {
+                    let resolution=resolve::resolve(&mut tx,&key,&payload.candidate,true).await?;
+                    wire(evidence::descriptors(&resolution)?.0)
+                }else if payload.operation_kind=="policy.publish" {publication_prepare(&mut tx,&key,&payload.candidate).await}
+                else {Err(reject("UNSUPPORTED_SCHEMA_PROFILE"))}
             },
             _=>Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
         }
     }.await;
     tx.rollback().await.map_err(crate::service::store_error)?;
     result
+}
+
+async fn publication_prepare(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    candidate: &Value,
+) -> Result<Value> {
+    // This read-only projection has no original write bytes and cannot be
+    // retained as request evidence. The actual read ingress already has its
+    // own byte ceiling; an invented write wrapper must not consume it again.
+    let request =
+        super::super::super::request::PublicationRequest::from_read_candidate(key, candidate)?;
+    let raw_documents = if let Some(documents) = request.inline_documents() {
+        documents
+            .iter()
+            .map(records::bytes)
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        let mut documents = vec![];
+        for r in request
+            .retained_refs()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            require(source_kind(&r.kind), "INVALID_REFERENCE")?;
+            let doc = loaded(tx, key, r).await?;
+            verify_source_origin(tx, key, r).await?;
+            documents.push(doc.bytes);
+        }
+        documents
+    };
+    let root = core::DefinitionRef::new(
+        &request.root().kind,
+        &request.root().id,
+        &request.root().digest,
+    )
+    .map_err(transport_error)?;
+    let support = core::VerifiedCompilerSupport::builtin().map_err(transport_error)?;
+    // Read-only compilation validates the declared expected digest without
+    // creating publication, build provenance, claims or cached prices.
+    core::compile_publication(&raw_documents, &root, request.expected_digest(), &support)
+        .map_err(transport_error)?;
+    let sources =
+        core::normalize_publication_sources(&raw_documents, &root).map_err(transport_error)?;
+    wire(
+        super::super::super::publication::evidence(&request, &sources)?["descriptor_resolution"]
+            .clone(),
+    )
 }

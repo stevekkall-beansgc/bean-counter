@@ -50,13 +50,14 @@ pub(in super::super) async fn retained_local(
             "receipt_hash",
         ],
     )?;
+    let expected_sequence = o.sequence.to_string();
     if op["schema"] != "ledger-workflow-operation-record/1"
         || op["key"] != json!(key)
         || op["kind"] != "evidence.retain"
         || o.kind != "evidence.retain"
         || op["contract"] != "workflow/1"
         || o.identity != key.bytes()?
-        || op["commit_sequence"] != o.sequence.to_string()
+        || op["commit_sequence"] != expected_sequence.as_str()
         || Timestamp::parse(text(&op, "accepted_at")?)
             .map_err(|_| ServiceError::IntegrityFailure)?
             .micros()
