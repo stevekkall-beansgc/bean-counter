@@ -83,7 +83,35 @@ impl PublicationRequest {
             "INVALID_SHAPE",
         )?;
         outer.key.validate()?;
-        let (schema, count, root, digest) = match &outer.payload {
+        Self::validate_payload(&outer.payload)?;
+        Ok(Self {
+            outer,
+            raw: raw.to_vec(),
+        })
+    }
+    /// Internal read projection of an already strictly parsed read payload.
+    /// It carries no original write bytes, authority or append permission.
+    /// The enclosing read ingress owns its 256KiB bound; do not charge a
+    /// manufactured write envelope against that bound.
+    pub(crate) fn from_read_candidate(key: &OperationKey, value: &Value) -> Result<Self> {
+        key.validate()?;
+        require(no_null(value), "INVALID_SHAPE")?;
+        let payload: Payload =
+            serde_json::from_value(value.clone()).map_err(|_| reject("INVALID_SHAPE"))?;
+        Self::validate_payload(&payload)?;
+        Ok(Self {
+            outer: Outer {
+                schema: "ledger-operation/1".into(),
+                key: key.clone(),
+                kind: "policy.publish".into(),
+                contract: "workflow/1".into(),
+                payload,
+            },
+            raw: Vec::new(),
+        })
+    }
+    fn validate_payload(payload: &Payload) -> Result<()> {
+        let (schema, count, root, digest) = match payload {
             Payload::Inline {
                 schema,
                 documents,
@@ -115,13 +143,10 @@ impl PublicationRequest {
                 && valid_reference(root),
             "INVALID_SHAPE",
         )?;
-        if let Payload::Retained { document_refs, .. } = &outer.payload {
+        if let Payload::Retained { document_refs, .. } = payload {
             require(document_refs.iter().all(valid_reference), "INVALID_SHAPE")?;
         }
-        Ok(Self {
-            outer,
-            raw: raw.to_vec(),
-        })
+        Ok(())
     }
     pub(crate) fn key(&self) -> &OperationKey {
         &self.outer.key
@@ -223,13 +248,11 @@ mod tests {
         let null = text.replacen("\"documents\":[", "\"documents\":[null,", 1);
         assert!(PublicationRequest::parse(null.as_bytes()).is_err());
         for number in ["18.0", "18e0", "-0", "9007199254740992"] {
-            assert!(
-                PublicationRequest::parse(
-                    text.replace("\"scale\":18", &format!("\"scale\":{number}"))
-                        .as_bytes()
-                )
-                .is_err()
-            );
+            assert!(PublicationRequest::parse(
+                text.replace("\"scale\":18", &format!("\"scale\":{number}"))
+                    .as_bytes()
+            )
+            .is_err());
         }
         let mut bom = vec![0xef, 0xbb, 0xbf];
         bom.extend(&raw);
@@ -245,6 +268,39 @@ mod tests {
         assert!(PublicationRequest::parse(&raw).is_ok());
         raw.push(b' ');
         assert!(PublicationRequest::parse(&raw).is_err());
+    }
+    #[test]
+    fn read_candidate_checks_closed_payload_without_charging_write_wrapper() {
+        let mut value: Value = serde_json::from_slice(&original()).unwrap();
+        let key: OperationKey = serde_json::from_value(value["key"].clone()).unwrap();
+        // This exercises the request-syntax boundary only; typed document
+        // validation still belongs to the pure normalizer after this helper.
+        value["payload"]["documents"][0]["syntax_test_padding"] = Value::String(String::new());
+        let read_base = serde_json::json!({"schema":"ledger-read/1","kind":"operation.descriptors","key":key,"payload":value["payload"]});
+        let padding = 262_144 - serde_json::to_vec(&read_base).unwrap().len();
+        value["payload"]["documents"][0]["syntax_test_padding"] =
+            Value::String("x".repeat(padding));
+        let read = serde_json::json!({"schema":"ledger-read/1","kind":"operation.descriptors","key":key,"payload":value["payload"]});
+        assert_eq!(serde_json::to_vec(&read).unwrap().len(), 262_144);
+        assert!(serde_json::to_vec(&value).unwrap().len() > 262_144);
+        assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_err());
+        let candidate = PublicationRequest::from_read_candidate(&key, &value["payload"]).unwrap();
+        assert_eq!(candidate.key(), &key);
+        assert!(candidate.raw().is_empty());
+        for (field, bad) in [
+            ("unexpected", Value::Bool(true)),
+            ("expected_plan_digest", Value::Null),
+            ("schema", Value::String("wrong".into())),
+            ("documents", serde_json::json!([])),
+            (
+                "root_policy_ref",
+                serde_json::json!({"kind":"workflow-product","id":"wrong","digest":"wrong"}),
+            ),
+        ] {
+            let mut payload = value["payload"].clone();
+            payload[field] = bad;
+            assert!(PublicationRequest::from_read_candidate(&key, &payload).is_err());
+        }
     }
     #[test]
     fn equivalent_lexical_forms_retain_their_own_original_raw_bytes() {
