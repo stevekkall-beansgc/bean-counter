@@ -74,6 +74,16 @@ impl AcceptInput {
         let terms =
             AcceptanceTerms::parse(&records::bytes(&body)?, context).map_err(typed_error)?;
         let normalized = &terms.canonical_value()["binding_inputs"];
+        let next_revision = input
+            .expected_revision
+            .parse::<u64>()
+            .ok()
+            .and_then(|revision| revision.checked_add(1))
+            .ok_or_else(|| reject("INVALID_SCALAR"))?;
+        require(
+            normalized["version"] == next_revision.to_string(),
+            "INVALID_SHAPE",
+        )?;
         require(
             normalized["slot_catalog_ref"] == json!(input.slot_catalog_ref)
                 && normalized["slot_instantiation_ref"] == json!(input.slot_instantiation_ref),

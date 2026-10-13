@@ -18,7 +18,7 @@ fn priced_rule_coverage_requires_original_role_activity_source_and_funding() {
         })
         .collect();
     let refs: Vec<_> = source_docs.iter().collect();
-    let definitions = PublicationInputs::fixture(
+    let mut definitions = PublicationInputs::fixture(
         &vectors.iter().find(|v| v["name"] == "publication").unwrap()["body"],
         &refs,
     )
@@ -42,6 +42,47 @@ fn priced_rule_coverage_requires_original_role_activity_source_and_funding() {
         .unwrap();
     let binding = input.value().unwrap()["binding_inputs"].clone();
     coverage(&binding, &definitions, &docs).unwrap();
+    let mut expanded_product = definitions.product.canonical_value().clone();
+    let mut other = expanded_product["activities"][0].clone();
+    other["name"] = json!("fixture.report:other");
+    expanded_product["activities"]
+        .as_array_mut()
+        .unwrap()
+        .push(other);
+    let facts: Vec<_> = source_docs
+        .iter()
+        .filter(|d| d.reference.kind == "workflow-fact-schema")
+        .map(|d| ledgerlab_core::policy::workflow::FactSchema::parse(&d.bytes).unwrap())
+        .collect();
+    definitions.product = ledgerlab_core::policy::workflow::Product::parse(
+        &records::bytes(&expanded_product).unwrap(),
+        &facts,
+    )
+    .unwrap();
+    let broadened: Vec<_> = docs
+        .iter()
+        .map(|d| {
+            let mut body = canonical::parse(&d.bytes).unwrap();
+            if d.reference.kind == "workflow-slot-terms" {
+                body["allowed_activities"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!("fixture.report:other"));
+                ledgerlab_core::policy::workflow::SlotBindingTerms::parse(
+                    &records::bytes(&body).unwrap(),
+                )
+                .unwrap()
+                .validate_product(&definitions.product)
+                .unwrap();
+            }
+            Document {
+                reference: d.reference.clone(),
+                schema: d.schema.clone(),
+                bytes: records::bytes(&body).unwrap(),
+            }
+        })
+        .collect();
+    assert!(coverage(&binding, &definitions, &broadened).is_err());
     for field in ["bindings", "source_slots", "funding_legs"] {
         let mut missing = binding.clone();
         missing[field] = json!([]);

@@ -65,6 +65,15 @@ fn coverage(binding: &Value, definitions: &PublicationInputs, docs: &[Document])
                 && terms["book"] == slot["book"]
                 && terms["funding_leg"] == slot["funding_leg"]
                 && terms["correction_source_slot"] == slot["correction_source_slot"]
+                && terms["allowed_activities"]
+                    .as_array()
+                    .is_some_and(|activities| {
+                        activities.iter().all(|activity| {
+                            activity
+                                .as_str()
+                                .is_some_and(|name| contains(&slot["allowed_activities"], name))
+                        })
+                    })
                 && binding["funding_legs"]
                     .as_array()
                     .is_some_and(|legs| legs.iter().any(|leg| leg["name"] == terms["funding_leg"])),

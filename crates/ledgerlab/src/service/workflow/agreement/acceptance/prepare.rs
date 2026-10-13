@@ -117,6 +117,7 @@ pub(super) async fn fresh(
         revision.to_string() == input.expected_revision(),
         "STALE_REVISION",
     )?;
+    let mut predecessors = vec![];
     if let Some(head) = &head {
         verify::document_origin(tx, key, &head.transition).await?;
         let prior = loaded(tx, key, &head.transition).await?;
@@ -130,6 +131,7 @@ pub(super) async fn fresh(
                 && body["new_revision"] == revision.to_string(),
             "INTEGRITY_FAILURE",
         )?;
+        predecessors = verify::authenticated_closure(tx, key, &[head.transition.clone()]).await?;
     }
     let admitted = authority::check(ledger, tx, key, &input, &definitions, &private).await?;
     let root = journal::fresh_root(&admitted.setup, &admitted.at)?;
@@ -179,6 +181,7 @@ pub(super) async fn fresh(
         .collect();
     let evidence = descriptor::evidence(req, &payload, &descriptors)?;
     let mut documents = admitted.documents;
+    documents.extend(predecessors);
     documents.extend(publication.documents().iter().map(|d| Document {
         reference: d.reference.clone(),
         schema: d.schema.clone(),

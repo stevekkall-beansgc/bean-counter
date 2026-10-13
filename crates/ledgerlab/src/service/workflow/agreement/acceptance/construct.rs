@@ -51,6 +51,7 @@ pub(in crate::service::workflow::agreement) fn build(
     let version = text(&binding, "version")?
         .parse::<u64>()
         .map_err(|_| reject("INVALID_SCALAR"))?;
+    require(version == new as u64, "INVALID_SHAPE")?;
     binding["schema"] = json!("ledger-workflow-binding/1");
     binding["policy_ref"] = json!(definitions.policy_ref);
     binding["product_ref"] = json!(definitions.product_ref);

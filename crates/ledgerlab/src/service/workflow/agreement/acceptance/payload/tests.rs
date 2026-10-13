@@ -94,10 +94,59 @@ fn transport_presence_changes_request_but_not_fully_resolved_semantic_intent() {
     );
     let mut changed = body;
     changed["expected_revision"] = json!("1");
+    changed["binding_inputs"]["version"] = json!("2");
     assert_ne!(
         inline.semantic_intent().unwrap(),
         prepare(&changed).semantic_intent().unwrap()
     );
+}
+#[test]
+fn coherent_terms_assent_version_must_equal_new_acceptance_revision() {
+    for (version, expected, valid) in [
+        ("7", "0", false),
+        ("7", "1", false),
+        ("1", "1", false),
+        ("2", "1", true),
+    ] {
+        let mut body = payload("A");
+        body["expected_revision"] = json!(expected);
+        body["binding_inputs"]["version"] = json!(version);
+        let docs = body["documents"].as_array_mut().unwrap();
+        let term = docs
+            .iter_mut()
+            .find(|d| d["schema"] == "ledger-workflow-acceptance-terms/1")
+            .unwrap();
+        term["version"] = json!(version);
+        term["binding_inputs"]["version"] = json!(version);
+        let terms = AcceptanceTerms::parse(&records::bytes(term).unwrap(), &context()).unwrap();
+        let assent = docs
+            .iter_mut()
+            .find(|d| d["schema"] == "ledger-workflow-assent/1")
+            .unwrap();
+        assent["terms_digest"] = json!(terms.terms_digest());
+        let assent = AssentRecord::parse(&records::bytes(assent).unwrap(), &terms).unwrap();
+        let reference =
+            records::source_document("workflow-assent", assent.canonical_value().clone())
+                .unwrap()
+                .reference;
+        body["assent_refs"] = json!([reference]);
+        body["binding_inputs"]["assent_refs"] = json!([reference]);
+        // Terms and assent assertions are internally consistent; the altered
+        // fixture evidence is not being asserted authenticated by this test.
+        let parsed = AcceptInput::parse(
+            &records::bytes(&body).unwrap(),
+            &["fixture".into(), "sandbox".into()],
+            &context(),
+        );
+        if valid {
+            parsed
+                .unwrap()
+                .normalize_private_documents(&template(), &product(), &[])
+                .unwrap();
+        } else {
+            assert!(parsed.is_err(), "version{version}/expected{expected}");
+        }
+    }
 }
 #[test]
 fn tentative_documents_cannot_substitute_customer_grants_or_accepted_state() {
