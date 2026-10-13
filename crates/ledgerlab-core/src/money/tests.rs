@@ -158,3 +158,46 @@ fn revision_bound_is_distinct_from_safe_json_numbers() {
         assert!(Revision::parse(v).is_err());
     }
 }
+
+#[test]
+fn fallible_ratio_reduction_preserves_sign_zero_and_bounds() {
+    use crate::validation_work::tests::CountingWork;
+    for (n, d, expected_n, expected_d) in
+        [(0, 10, "0", "1"), (-12, 10, "-6", "5"), (15, 21, "5", "7")]
+    {
+        let mut work = CountingWork::new(usize::MAX);
+        let metered =
+            ExactRatio::new_with_work(BigInt::from(n), BigInt::from(d), &mut work).unwrap();
+        assert_eq!(
+            metered,
+            ExactRatio::new(BigInt::from(n), BigInt::from(d)).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(metered).unwrap(),
+            serde_json::json!({"numerator":expected_n,"denominator":expected_d})
+        );
+        let mut exact = CountingWork::new(work.used);
+        ExactRatio::new_with_work(BigInt::from(n), BigInt::from(d), &mut exact).unwrap();
+        assert_eq!(exact.operations, work.operations);
+        let mut short = CountingWork::new(work.used - 1);
+        assert_eq!(
+            ExactRatio::new_with_work(BigInt::from(n), BigInt::from(d), &mut short)
+                .unwrap_err()
+                .code,
+            "TEST_EXHAUSTED"
+        );
+    }
+    let mut work = CountingWork::new(usize::MAX);
+    assert_eq!(
+        ExactRatio::new_with_work(BigInt::from(1), BigInt::from(0), &mut work)
+            .unwrap_err()
+            .code,
+        "INPUT_PRECISION"
+    );
+    assert_eq!(
+        ExactRatio::new_with_work(BigInt::from(1) << 512, BigInt::from(1), &mut work)
+            .unwrap_err()
+            .code,
+        "ARITHMETIC_OVERFLOW"
+    );
+}

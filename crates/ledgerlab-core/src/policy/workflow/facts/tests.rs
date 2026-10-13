@@ -350,3 +350,87 @@ fn descriptor_domains_and_exact_field_ceiling_are_validated_first() {
         assert!(FactSchema::parse(&serde_json::to_vec(&wrong).unwrap()).is_err());
     }
 }
+
+#[test]
+fn executing_signed_scalar_preserves_normalization_and_exact_budget() {
+    use crate::validation_work::tests::CountingWork;
+    for (raw, scale, expected) in [
+        ("0001", 0, "1"),
+        ("000.000", 3, "0"),
+        ("-0001.2300", 4, "-1.23"),
+        (
+            "999999999999999999999999999999.0",
+            1,
+            "999999999999999999999999999999",
+        ),
+        ("0.000000000000000001", 18, "0.000000000000000001"),
+    ] {
+        let mut probe = CountingWork::new(usize::MAX);
+        let scalar = SignedScalar::parse_with_work(raw, scale, &mut probe).unwrap();
+        assert_eq!(scalar.as_str(), expected);
+        assert_eq!(scalar, SignedScalar::parse(raw, scale).unwrap());
+        if expected != "0" {
+            assert!(probe
+                .operations
+                .iter()
+                .any(|(kind, _)| *kind == Op::Multiply));
+        }
+        let mut exact = CountingWork::new(probe.used);
+        assert_eq!(
+            SignedScalar::parse_with_work(raw, scale, &mut exact).unwrap(),
+            scalar
+        );
+        assert_eq!(exact.operations, probe.operations);
+        let mut short = CountingWork::new(probe.used - 1);
+        assert_eq!(
+            SignedScalar::parse_with_work(raw, scale, &mut short)
+                .unwrap_err()
+                .code,
+            "TEST_EXHAUSTED"
+        );
+    }
+    let mut work = CountingWork::new(0);
+    assert_eq!(
+        SignedScalar::parse_with_work("-0", 0, &mut work)
+            .unwrap_err()
+            .code,
+        "TEST_EXHAUSTED"
+    );
+    assert_eq!(
+        SignedScalar::parse("-0", 0).unwrap_err().code,
+        "FACT_PRECISION"
+    );
+}
+
+#[test]
+fn executing_scalar_comparison_and_reduction_use_actual_operands() {
+    use crate::validation_work::tests::CountingWork;
+    let a = SignedScalar::parse("-1.20", 2).unwrap();
+    let b = SignedScalar::parse("-1.199", 3).unwrap();
+    let mut work = CountingWork::new(usize::MAX);
+    assert_eq!(a.compare_with_work(&b, &mut work).unwrap(), Ordering::Less);
+    let last = work.operations.last().unwrap();
+    assert_eq!(
+        last,
+        &(
+            Op::Compare,
+            vec![BigInt::from(-12000), BigInt::from(-11990)]
+        )
+    );
+    let mut ratio_work = CountingWork::new(usize::MAX);
+    let ratio = a.ratio_with_work(&mut ratio_work).unwrap();
+    assert_eq!(
+        serde_json::to_value(ratio).unwrap(),
+        json!({"numerator":"-6","denominator":"5"})
+    );
+    assert!(ratio_work
+        .operations
+        .iter()
+        .any(|(kind, operands)| *kind == Op::DivideRemainder
+            && operands == &[BigInt::from(12), BigInt::from(10)]));
+    let mut short = CountingWork::new(ratio_work.used - 1);
+    assert_eq!(
+        a.ratio_with_work(&mut short).unwrap_err().code,
+        "TEST_EXHAUSTED"
+    );
+}

@@ -6,6 +6,7 @@ pub mod canonical;
 pub mod domain;
 pub mod money;
 pub mod policy;
+pub mod validation_work;
 pub mod wire;
 #[cfg(feature = "zen-charge-candidate")]
 pub mod zen_candidate;

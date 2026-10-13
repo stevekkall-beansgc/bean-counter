@@ -152,19 +152,50 @@ impl ExactRatio {
         }
     }
     pub fn new(numerator: BigInt, denominator: BigInt) -> Result<Self> {
+        Self::new_with_work(
+            numerator,
+            denominator,
+            &mut crate::validation_work::NoopValidationWork,
+        )
+    }
+    pub fn new_with_work(
+        numerator: BigInt,
+        denominator: BigInt,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<Self> {
+        use crate::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+        work.arithmetic(Op::Compare, &[&denominator, &BigInt::zero()])?;
         if denominator <= BigInt::zero() {
             return Err(Error::new(
                 "INPUT_PRECISION",
                 "positive denominator required",
             ));
         }
-        bounded(&numerator)?;
-        bounded(&denominator)?;
+        for operand in [&numerator, &denominator] {
+            work.visit(Visit::Constraint)?;
+            bounded(operand)?;
+        }
+        work.arithmetic(Op::Absolute, &[&numerator])?;
+        let mut a = numerator.abs();
+        let mut b = denominator.clone();
+        loop {
+            work.arithmetic(Op::Compare, &[&b, &BigInt::zero()])?;
+            if b == BigInt::zero() {
+                break;
+            }
+            work.arithmetic(Op::DivideRemainder, &[&a, &b])?;
+            let remainder = &a % &b;
+            a = b;
+            b = remainder;
+        }
+        work.arithmetic(Op::DivideRemainder, &[&numerator, &a])?;
+        let numerator = numerator / &a;
+        work.arithmetic(Op::DivideRemainder, &[&denominator, &a])?;
+        let denominator = denominator / a;
         Ok(Self {
             numerator,
             denominator,
-        }
-        .reduced())
+        })
     }
     pub fn from_canonical(n: &str, d: &str) -> Result<Self> {
         canonical_integer(n)?;

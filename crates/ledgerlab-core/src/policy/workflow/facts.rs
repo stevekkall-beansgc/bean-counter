@@ -1,6 +1,10 @@
 use crate::canonical::{self, CanonicalBytes};
 use crate::domain::Timestamp;
-use crate::money::{Decimal, ExactRatio};
+use crate::money::ExactRatio;
+use crate::validation_work::{
+    self as vw, ArithmeticOperation as Op, NoopValidationWork, ValidationVisit as Visit,
+    ValidationWork,
+};
 use crate::{Error, Result};
 use num_bigint::BigInt;
 use serde::{Deserialize, Serialize};
@@ -16,59 +20,170 @@ pub struct SignedScalar {
     canonical: String,
 }
 impl SignedScalar {
-    fn parse(raw: &str, max_scale: u8) -> Result<Self> {
-        if raw.is_empty() || raw.len() > 64 {
+    pub fn parse(raw: &str, max_scale: u8) -> Result<Self> {
+        Self::parse_with_work(raw, max_scale, &mut NoopValidationWork)
+    }
+    pub fn parse_with_work(
+        raw: &str,
+        max_scale: u8,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        work.visit(Visit::Constraint)?;
+        if raw.is_empty() || vw::compare(work, raw.len(), 64usize)? == Ordering::Greater {
             return Err(fail("FACT_PRECISION", "scalar byte bound"));
         }
+        work.visit(Visit::Constraint)?;
+        work.scan_bytes(1)?;
         let negative = raw.starts_with('-');
         let magnitude = raw.strip_prefix('-').unwrap_or(raw);
-        let (whole, fraction) = magnitude.split_once('.').unwrap_or((magnitude, ""));
-        if whole.is_empty()
-            || !whole.bytes().all(|b| b.is_ascii_digit())
-            || !fraction.bytes().all(|b| b.is_ascii_digit())
-            || fraction.len() > usize::from(max_scale)
-            || (magnitude.contains('.') && fraction.is_empty())
-        {
+        let mut point = None;
+        for (i, byte) in magnitude.bytes().enumerate() {
+            work.scan_bytes(1)?;
+            work.visit(Visit::MemberCompare)?;
+            if byte == b'.' {
+                point = Some(i);
+                break;
+            }
+        }
+        let (whole, fraction) = if let Some(i) = point {
+            let after = vw::usize_add(work, i, 1)?;
+            (&magnitude[..i], &magnitude[after..])
+        } else {
+            (magnitude, "")
+        };
+        work.visit(Visit::Constraint)?;
+        if whole.is_empty() {
             return Err(fail("FACT_PRECISION", "signed scalar syntax/scale"));
         }
-        // The declared raw fractional scale is checked before normalization;
-        // the 30-digit coefficient bound applies to the normalized coefficient.
-        // This preserves the legacy exact scalar magnitude convention.
-        let decimal =
-            Decimal::parse(magnitude).map_err(|error| fail("FACT_PRECISION", &error.detail))?;
-        if negative && decimal.is_zero() {
+        for part in [whole, fraction] {
+            for digit in part.bytes() {
+                work.scan_bytes(1)?;
+                work.visit(Visit::ScalarDigit)?;
+                if !digit.is_ascii_digit() {
+                    return Err(fail("FACT_PRECISION", "signed scalar syntax/scale"));
+                }
+            }
+        }
+        if vw::compare(work, fraction.len(), usize::from(max_scale))? == Ordering::Greater {
+            return Err(fail("FACT_PRECISION", "signed scalar syntax/scale"));
+        }
+        work.visit(Visit::Constraint)?;
+        if point.is_some() && fraction.is_empty() {
+            return Err(fail("FACT_PRECISION", "signed scalar syntax/scale"));
+        }
+        if vw::compare(work, fraction.len(), 18usize)? == Ordering::Greater {
+            return Err(fail("FACT_PRECISION", "nonnegative decimal required"));
+        }
+        // Apply the same normalized-coefficient convention as Decimal::parse,
+        // directly on this decoded scalar, without a second opaque parse.
+        let mut fraction_end = fraction.len();
+        while vw::compare(work, fraction_end, 0usize)? == Ordering::Greater {
+            work.scan_bytes(1)?;
+            work.visit(Visit::MemberCompare)?;
+            let prior = vw::usize_sub(work, fraction_end, 1)?;
+            if fraction.as_bytes()[prior] != b'0' {
+                break;
+            }
+            fraction_end = prior;
+        }
+        let fraction = &fraction[..fraction_end];
+        let digit_bytes = vw::usize_add(work, whole.len(), fraction.len())?;
+        work.write_bytes(digit_bytes)?;
+        let digits = format!("{whole}{fraction}");
+        let mut first = 0;
+        for byte in digits.bytes() {
+            work.scan_bytes(1)?;
+            work.visit(Visit::MemberCompare)?;
+            if byte != b'0' {
+                break;
+            }
+            first = vw::usize_add(work, first, 1)?;
+        }
+        let digits = &digits[first..];
+        if vw::compare(work, digits.len(), 30usize)? == Ordering::Greater {
+            return Err(fail("FACT_PRECISION", "decimal coefficient"));
+        }
+        let mut coefficient = 0i128;
+        for byte in digits.bytes() {
+            work.scan_bytes(1)?;
+            work.visit(Visit::ScalarDigit)?;
+            work.arithmetic(
+                Op::Multiply,
+                &[&BigInt::from(coefficient), &BigInt::from(10)],
+            )?;
+            coefficient *= 10;
+            work.arithmetic(Op::Subtract, &[&BigInt::from(byte), &BigInt::from(b'0')])?;
+            let digit = i128::from(byte) - i128::from(b'0');
+            work.arithmetic(Op::Add, &[&BigInt::from(coefficient), &BigInt::from(digit)])?;
+            coefficient += digit;
+        }
+        let zero = vw::compare(work, coefficient, 0)? == Ordering::Equal;
+        if negative && zero {
             return Err(fail("FACT_PRECISION", "negative zero"));
         }
-        let canonical = format!("{}{}", if negative { "-" } else { "" }, decimal);
-        let (whole, fraction) = canonical.split_once('.').unwrap_or((&canonical, ""));
-        let coefficient = format!("{whole}{fraction}")
-            .parse()
-            .map_err(|_| fail("FACT_PRECISION", "scalar coefficient"))?;
+        let scale = if zero { 0 } else { fraction.len() as u8 };
+        work.write_bytes(if zero { 1 } else { digits.len() })?;
+        let mut canonical = coefficient.to_string();
+        if vw::compare(work, scale, 0u8)? == Ordering::Greater {
+            let scale = usize::from(scale);
+            if vw::compare(work, canonical.len(), scale)? != Ordering::Greater {
+                let width = vw::usize_add(work, scale, 1)?;
+                let padding = vw::usize_sub(work, width, canonical.len())?;
+                work.write_bytes(padding)?;
+                let zeros = "0".repeat(padding);
+                work.write_bytes(width)?;
+                canonical = format!("{zeros}{canonical}");
+            }
+            let point = vw::usize_sub(work, canonical.len(), scale)?;
+            let width = vw::usize_add(work, canonical.len(), 1)?;
+            work.write_bytes(width)?;
+            canonical.insert(point, '.');
+        }
+        if negative {
+            work.arithmetic(Op::Negate, &[&BigInt::from(coefficient)])?;
+            coefficient = -coefficient;
+            let width = vw::usize_add(work, canonical.len(), 1)?;
+            work.write_bytes(width)?;
+            canonical.insert(0, '-');
+        }
         Ok(Self {
             coefficient,
-            scale: fraction.len() as u8,
+            scale,
             canonical,
         })
+    }
+    pub fn compare_with_work(
+        &self,
+        other: &Self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Ordering> {
+        let left_factor = vw::power_ten(work, other.scale)?;
+        let right_factor = vw::power_ten(work, self.scale)?;
+        let left_coefficient = BigInt::from(self.coefficient);
+        let right_coefficient = BigInt::from(other.coefficient);
+        work.arithmetic(Op::Multiply, &[&left_coefficient, &left_factor])?;
+        let left = left_coefficient * left_factor;
+        work.arithmetic(Op::Multiply, &[&right_coefficient, &right_factor])?;
+        let right = right_coefficient * right_factor;
+        work.arithmetic(Op::Compare, &[&left, &right])?;
+        Ok(left.cmp(&right))
     }
     pub fn as_str(&self) -> &str {
         &self.canonical
     }
     pub fn ratio(&self) -> ExactRatio {
-        // A fact has at most 30 coefficient digits and 18 fractional digits.
-        ExactRatio::new(
-            BigInt::from(self.coefficient),
-            BigInt::from(10u128.pow(u32::from(self.scale))),
-        )
-        .expect("validated bounded scalar")
+        self.ratio_with_work(&mut NoopValidationWork)
+            .expect("validated bounded scalar; Noop work cannot fail")
+    }
+    pub fn ratio_with_work(&self, work: &mut dyn ValidationWork) -> Result<ExactRatio> {
+        let denominator = vw::power_ten(work, self.scale)?;
+        ExactRatio::new_with_work(BigInt::from(self.coefficient), denominator, work)
     }
 }
 impl Ord for SignedScalar {
     fn cmp(&self, other: &Self) -> Ordering {
-        let left =
-            BigInt::from(self.coefficient) * BigInt::from(10u128.pow(u32::from(other.scale)));
-        let right =
-            BigInt::from(other.coefficient) * BigInt::from(10u128.pow(u32::from(self.scale)));
-        left.cmp(&right)
+        self.compare_with_work(other, &mut NoopValidationWork)
+            .expect("Noop work cannot fail")
     }
 }
 impl PartialOrd for SignedScalar {
