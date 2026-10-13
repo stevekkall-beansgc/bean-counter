@@ -27,10 +27,14 @@ pub(in crate::service::workflow::agreement) fn build(
 ) -> Result<PreparedRecords> {
     let payload = input.value()?;
     let key = metadata.key;
+    let publication_body = canonical::parse_bounded(&publication.bytes, 1048576)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
     if payload["publication_ref"] != json!(publication.reference)
         || publication.reference.kind != "workflow-publication"
         || plan.reference.kind != "workflow-compiled-plan"
         || authority.reference.kind != "workflow-authority"
+        || publication_body["compiled_plan_ref"] != json!(plan.reference)
+        || publication_body["root_policy_ref"] != json!(definitions.policy_ref)
         || metadata.sequence <= 0
     {
         return Err(ServiceError::IntegrityFailure);
