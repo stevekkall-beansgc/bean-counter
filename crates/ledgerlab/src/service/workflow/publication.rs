@@ -156,6 +156,9 @@ impl BuildProvenance {
         })
     }
 }
+// These arguments are the separately reviewed request, pure compiler output,
+// authenticated local snapshot, trusted commit metadata and original alias.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn assemble(
     req: &request::PublicationRequest,
     prepared: &PreparedPublication,

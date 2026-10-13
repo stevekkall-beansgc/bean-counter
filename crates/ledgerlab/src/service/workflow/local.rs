@@ -12,6 +12,8 @@ use serde_json::json;
 use std::{path::Path, time::Duration};
 use tokio::time::Instant;
 
+type PublicationPreparation = (Option<Value>, Option<Vec<Vec<u8>>>);
+
 /// Private fields and no Deserialize, request/config flag or snapshot constructor.
 pub(super) struct LocalOwnerAdmin {
     instance: SqliteStore,
@@ -251,7 +253,7 @@ impl LocalWorkflowLedger {
             .begin(deadline())
             .await
             .map_err(super::super::store_error)?;
-        let preparation: Result<(Option<Value>, Option<Vec<Vec<u8>>>)> = async {
+        let preparation: Result<PublicationPreparation> = async {
             self.admin.read(&self.store, &mut tx, key).await?;
             if let Some(original) = tx
                 .workflow_lookup(&key.bytes()?)
