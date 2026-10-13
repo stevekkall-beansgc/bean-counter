@@ -37,6 +37,44 @@ fn result_ref(value: &Value, kind: &str) -> RecordRef {
     )
     .unwrap()
 }
+// Acceptance results expose AcceptedAgreement, whose fully verified retained
+// body names Binding. Read real committed data; never invent a returned Ref.
+async fn accepted_binding_ref(ledger: &LocalWorkflowLedger, value: &Value) -> (RecordRef, Value) {
+    let reference = result_ref(value, "workflow-accepted-agreement");
+    let key = super::super::super::request::OperationKey::parse(
+        &records::bytes(&envelope("read-accepted-binding", "agreement.accept", json!({}))["key"])
+            .unwrap(),
+    )
+    .unwrap();
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    ledger
+        .admin
+        .read(&ledger.store, &mut tx, &key)
+        .await
+        .unwrap();
+    let reference = proof_session::with_proofs(&mut tx, &key, |tx| {
+        Box::pin(async {
+            verify::document_origin(tx, &key, &reference).await?;
+            let document = loaded(tx, &key, &reference).await?;
+            let body = canonical::parse_bounded(&document.bytes, 262144)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            let binding: RecordRef = serde_json::from_value(body["binding_ref"].clone())
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            require(binding.kind == "workflow-binding", "INTEGRITY_FAILURE")?;
+            let binding_doc = loaded(tx, &key, &binding).await?;
+            let binding_body = canonical_body(&binding_doc)?;
+            Ok((binding, binding_body))
+        })
+    })
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+    reference
+}
 fn diagnostic<'a, T: 'a>(
     label: &'a str,
     future: impl std::future::Future<Output = Result<T>> + 'a,
@@ -631,9 +669,11 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .prerequisite(&records::bytes(&narrowed).unwrap())
         .await
         .unwrap();
+    let (a_binding, a_binding_body) = accepted_binding_ref(&ledger, &last_receipt).await;
+    let (b_binding, b_binding_body) = accepted_binding_ref(&ledger, &accepted_b).await;
     fn activate_input(
         id: &str,
-        accepted: &Value,
+        binding_ref: &RecordRef,
         binding_payload: &Value,
         expected: &str,
         effective: Value,
@@ -641,13 +681,13 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         envelope(
             id,
             "agreement.activate",
-            json!({"schema":"ledger-workflow-activation/1","agreement_id":binding_payload["binding_inputs"]["agreement_id"],"expected_revision":expected,"accepted_binding_ref":result_ref(accepted,"workflow-binding"),"policy_ref":binding_payload["binding_inputs"]["policy_ref"],"product_ref":binding_payload["binding_inputs"]["product_ref"],"fact_schema_refs":binding_payload["binding_inputs"]["fact_schema_refs"],"compiled_plan_ref":binding_payload["binding_inputs"]["compiled_plan_ref"],"effective":effective,"evidence_refs":[]}),
+            json!({"schema":"ledger-workflow-activation/1","agreement_id":binding_payload["agreement_id"],"expected_revision":expected,"accepted_binding_ref":binding_ref,"policy_ref":binding_payload["policy_ref"],"product_ref":binding_payload["product_ref"],"fact_schema_refs":binding_payload["fact_schema_refs"],"compiled_plan_ref":binding_payload["compiled_plan_ref"],"effective":effective,"evidence_refs":[]}),
         )
     }
     let activate_a = activate_input(
         "A-activate",
-        &last_receipt,
-        &last["payload"],
+        &a_binding,
+        &a_binding_body,
         "0",
         json!({"kind":"at_commit"}),
     );
@@ -670,8 +710,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .unwrap();
     let activate_b = activate_input(
         "B-activate",
-        &accepted_b,
-        &b["payload"],
+        &b_binding,
+        &b_binding_body,
         "0",
         json!({"kind":"at_commit"}),
     );
@@ -683,8 +723,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     .unwrap();
     let pending_input = activate_input(
         "A-pending",
-        &last_receipt,
-        &last["payload"],
+        &a_binding,
+        &a_binding_body,
         "1",
         json!({"kind":"not_before","at":"2029-01-01T00:00:00.000000Z"}),
     );
@@ -694,8 +734,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .unwrap();
     let mut replace_input = activate_input(
         "A-replace",
-        &last_receipt,
-        &last["payload"],
+        &a_binding,
+        &a_binding_body,
         "2",
         json!({"kind":"not_before","at":"2029-02-01T00:00:00.000000Z"}),
     );
@@ -707,16 +747,16 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .await
         .unwrap();
     let target = result_ref(&replaced, "workflow-activation");
-    let stop_proof = proof(&ledger,"A-stop-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":result_ref(&last_receipt,"workflow-binding"),"target_transition_ref":target,"reason":"Explicit pending cancellation and immediate stop"})).await;
+    let stop_proof = proof(&ledger,"A-stop-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":a_binding,"target_transition_ref":target,"reason":"Explicit pending cancellation and immediate stop"})).await;
     let stop_input = envelope(
         "A-stop",
         "agreement.revoke",
-        json!({"schema":"ledger-workflow-agreement-revoke/1","agreement_id":"agreement-A","expected_revision":"3","accepted_binding_ref":result_ref(&last_receipt,"workflow-binding"),"transition_ref":target,"reason":"Explicit pending cancellation and immediate stop","evidence_refs":[stop_proof]}),
+        json!({"schema":"ledger-workflow-agreement-revoke/1","agreement_id":"agreement-A","expected_revision":"3","accepted_binding_ref":a_binding,"transition_ref":target,"reason":"Explicit pending cancellation and immediate stop","evidence_refs":[stop_proof]}),
     );
     let mut bad_stop = stop_input.clone();
     bad_stop["key"]["operation_id"] = json!("A-stop-wrong-active-target");
     bad_stop["payload"]["transition_ref"] = json!(result_ref(&active_a, "workflow-activation"));
-    let bad_target_proof=proof(&ledger,"A-stop-active-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":result_ref(&last_receipt,"workflow-binding"),"target_transition_ref":result_ref(&active_a,"workflow-activation"),"reason":"Explicit pending cancellation and immediate stop"})).await;
+    let bad_target_proof=proof(&ledger,"A-stop-active-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":a_binding,"target_transition_ref":result_ref(&active_a,"workflow-activation"),"reason":"Explicit pending cancellation and immediate stop"})).await;
     bad_stop["payload"]["evidence_refs"] = json!([bad_target_proof]);
     assert_eq!(
         ledger.agreement(&records::bytes(&bad_stop).unwrap()).await,
@@ -926,7 +966,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     );
     assert_eq!(
         activation_verify::schedule::selected_binding(&b_history, &now).unwrap(),
-        Some(result_ref(&accepted_b, "workflow-binding"))
+        Some(b_binding.clone())
     );
     assert_eq!(
         activation_verify::schedule::selected_binding(
