@@ -158,6 +158,12 @@ pub(super) fn assemble_agreement(
     evidence: Value,
     commit: AgreementCommit<'_>,
 ) -> Result<JournalAppend> {
+    // New-key administrative recovery has its reviewed authority/3 and
+    // dedicated operation/manifest recipe. This fresh admit/stop constructor
+    // must never relabel authority/2 as a semantic alias.
+    if commit.alias_of.is_some() {
+        return Err(ServiceError::IntegrityFailure);
+    }
     let observation = canonical_body(&commit.authority)?;
     let purpose = if req.kind() == "agreement.revoke" {
         "stop"
