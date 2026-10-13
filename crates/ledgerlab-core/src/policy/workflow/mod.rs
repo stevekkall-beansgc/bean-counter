@@ -50,3 +50,5 @@ mod transport;
 pub use transport::{
     DefinitionFinalizeInput, DefinitionFragment, DefinitionFragmentInput, SourceRetentionInput,
 };
+mod terms;
+pub use terms::{AcceptanceTerms, AssentRecord, SlotBindingTerms};
