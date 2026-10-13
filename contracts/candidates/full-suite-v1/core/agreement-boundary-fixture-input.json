@@ -1,0 +1,445 @@
+{
+  "schema": "synthetic-agreement-boundary-input/1",
+  "status": "SOURCE INPUTS AND HISTORY EXPECTATIONS ONLY; independent byte/authority fixtures pending",
+  "publication": "Use unchanged PUB-ENC-01 synthetic publication source/plan fixture as P1; actual-runtime build provenance remains separate PUB-BUILD-01 qualification",
+  "scope": [
+    "fixture",
+    "sandbox"
+  ],
+  "store": "fixture-store",
+  "source": "urn:fixture:publisher",
+  "customers": [
+    {
+      "tag": "A",
+      "role": {
+        "schema": "ledger-workflow-role-assignment/1",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "agreement_id": "agreement-A",
+        "customer": "customer-A",
+        "role_slot": "fixture.report:retail",
+        "provider": "fixture-provider",
+        "cost_originator": "fixture-provider",
+        "bearer": "customer-A",
+        "payer": "customer-A",
+        "beneficiary": "customer-A",
+        "recipient": "fixture-provider"
+      },
+      "catalog": {
+        "schema": "ledger-workflow-slot-catalog/1",
+        "agreement_id": "agreement-A",
+        "customer": "customer-A",
+        "revision": "1",
+        "components": [
+          {
+            "slot_id": "A-base",
+            "book": "retail",
+            "root_slot": "A-base",
+            "role_slot": "fixture.report:retail"
+          }
+        ],
+        "families": []
+      },
+      "instantiation": {
+        "schema": "ledger-workflow-slot-instantiation/1",
+        "agreement_id": "agreement-A",
+        "customer": "customer-A",
+        "revision": "1",
+        "template_ref": {
+          "fixture_ref": "P1.template"
+        },
+        "catalog_ref": {
+          "fixture_ref": "A.catalog"
+        },
+        "component_map": [
+          {
+            "template_key": "fixture.report:base",
+            "slot_id": "A-base"
+          }
+        ],
+        "family_map": []
+      },
+      "slot_terms": {
+        "schema": "ledger-workflow-slot-binding-terms/1",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "agreement_id": "agreement-A",
+        "customer": "customer-A",
+        "slot": "fixture.report:retail",
+        "book": "retail",
+        "role_slot": "fixture.report:retail",
+        "role_ref": {
+          "fixture_ref": "A.role"
+        },
+        "funding_leg": "fixture.report:customer",
+        "allowed_activities": [
+          "fixture.report:completed"
+        ],
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.report:completed",
+            "field": "fixture.report:pages",
+            "unit": "fixture.report:page",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceiling": "37000000000000000000",
+        "source_grant_refs": [
+          {
+            "fixture_ref": "A.verified_grant"
+          }
+        ],
+        "correction_source_slot": "fixture.report:worker"
+      },
+      "binding_inputs": {
+        "agreement_id": "agreement-A",
+        "version": "1",
+        "customer": "customer-A",
+        "source_namespace": "urn:fixture:publisher",
+        "slot_catalog_ref": {
+          "fixture_ref": "A.catalog"
+        },
+        "slot_instantiation_ref": {
+          "fixture_ref": "A.instantiation"
+        },
+        "roles_refs": [
+          {
+            "fixture_ref": "A.role"
+          }
+        ],
+        "assent_refs": [
+          {
+            "fixture_ref": "A.assent"
+          }
+        ],
+        "authority_refs": [
+          {
+            "fixture_ref": "A.verified_grant"
+          }
+        ],
+        "source_slots": [
+          {
+            "name": "fixture.report:worker",
+            "sources": [
+              "urn:fixture:publisher"
+            ],
+            "evidence_kinds": []
+          }
+        ],
+        "accepted_context": {
+          "fact_schema_ref": {
+            "fixture_ref": "P1.context"
+          },
+          "facts": {}
+        },
+        "bindings": [
+          {
+            "slot": "fixture.report:retail",
+            "binding_ref": {
+              "fixture_ref": "A.slot_terms"
+            }
+          }
+        ],
+        "funding_legs": [
+          {
+            "name": "fixture.report:customer",
+            "mode": "customer_local",
+            "resource_owner": "customer-A",
+            "payer": "customer-A",
+            "evidence_refs": [
+              {
+                "fixture_ref": "A.funding_evidence"
+              }
+            ]
+          }
+        ],
+        "starts_at": "2026-10-13T00:00:00.000000Z",
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.report:completed",
+            "field": "fixture.report:pages",
+            "unit": "fixture.report:page",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceilings": [
+          {
+            "binding_slot": "fixture.report:retail",
+            "maximum": "37000000000000000000"
+          }
+        ]
+      },
+      "assent_input": {
+        "mode": "synthetic",
+        "acceptor": "customer-A",
+        "operator": "fixture-admin",
+        "accepted_at": "2026-10-13T00:00:00.000000Z",
+        "evidence_utf8": "Synthetic A accepts exact assembled AGR-01 terms.",
+        "operator_attestation_utf8": "Synthetic local test administrator verifies A assent.",
+        "funding_evidence_utf8": "Synthetic customer-owned local resource."
+      },
+      "authority_requirement": "Reviewer constructs exact retained synthetic generic grant+original enrollment ceiling using prior SourceGrant dictionary; fixture is an isolated test trusted source, never real enrollment."
+    },
+    {
+      "tag": "B",
+      "role": {
+        "schema": "ledger-workflow-role-assignment/1",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "agreement_id": "agreement-B",
+        "customer": "customer-B",
+        "role_slot": "fixture.report:retail",
+        "provider": "fixture-provider",
+        "cost_originator": "fixture-provider",
+        "bearer": "customer-B",
+        "payer": "customer-B",
+        "beneficiary": "customer-B",
+        "recipient": "fixture-provider"
+      },
+      "catalog": {
+        "schema": "ledger-workflow-slot-catalog/1",
+        "agreement_id": "agreement-B",
+        "customer": "customer-B",
+        "revision": "1",
+        "components": [
+          {
+            "slot_id": "B-base",
+            "book": "retail",
+            "root_slot": "B-base",
+            "role_slot": "fixture.report:retail"
+          }
+        ],
+        "families": []
+      },
+      "instantiation": {
+        "schema": "ledger-workflow-slot-instantiation/1",
+        "agreement_id": "agreement-B",
+        "customer": "customer-B",
+        "revision": "1",
+        "template_ref": {
+          "fixture_ref": "P1.template"
+        },
+        "catalog_ref": {
+          "fixture_ref": "B.catalog"
+        },
+        "component_map": [
+          {
+            "template_key": "fixture.report:base",
+            "slot_id": "B-base"
+          }
+        ],
+        "family_map": []
+      },
+      "slot_terms": {
+        "schema": "ledger-workflow-slot-binding-terms/1",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "agreement_id": "agreement-B",
+        "customer": "customer-B",
+        "slot": "fixture.report:retail",
+        "book": "retail",
+        "role_slot": "fixture.report:retail",
+        "role_ref": {
+          "fixture_ref": "B.role"
+        },
+        "funding_leg": "fixture.report:customer",
+        "allowed_activities": [
+          "fixture.report:completed"
+        ],
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.report:completed",
+            "field": "fixture.report:pages",
+            "unit": "fixture.report:page",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceiling": "37000000000000000000",
+        "source_grant_refs": [
+          {
+            "fixture_ref": "B.verified_grant"
+          }
+        ],
+        "correction_source_slot": "fixture.report:worker"
+      },
+      "binding_inputs": {
+        "agreement_id": "agreement-B",
+        "version": "1",
+        "customer": "customer-B",
+        "source_namespace": "urn:fixture:publisher",
+        "slot_catalog_ref": {
+          "fixture_ref": "B.catalog"
+        },
+        "slot_instantiation_ref": {
+          "fixture_ref": "B.instantiation"
+        },
+        "roles_refs": [
+          {
+            "fixture_ref": "B.role"
+          }
+        ],
+        "assent_refs": [
+          {
+            "fixture_ref": "B.assent"
+          }
+        ],
+        "authority_refs": [
+          {
+            "fixture_ref": "B.verified_grant"
+          }
+        ],
+        "source_slots": [
+          {
+            "name": "fixture.report:worker",
+            "sources": [
+              "urn:fixture:publisher"
+            ],
+            "evidence_kinds": []
+          }
+        ],
+        "accepted_context": {
+          "fact_schema_ref": {
+            "fixture_ref": "P1.context"
+          },
+          "facts": {}
+        },
+        "bindings": [
+          {
+            "slot": "fixture.report:retail",
+            "binding_ref": {
+              "fixture_ref": "B.slot_terms"
+            }
+          }
+        ],
+        "funding_legs": [
+          {
+            "name": "fixture.report:customer",
+            "mode": "customer_local",
+            "resource_owner": "customer-B",
+            "payer": "customer-B",
+            "evidence_refs": [
+              {
+                "fixture_ref": "B.funding_evidence"
+              }
+            ]
+          }
+        ],
+        "starts_at": "2026-10-13T00:00:00.000000Z",
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.report:completed",
+            "field": "fixture.report:pages",
+            "unit": "fixture.report:page",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceilings": [
+          {
+            "binding_slot": "fixture.report:retail",
+            "maximum": "37000000000000000000"
+          }
+        ]
+      },
+      "assent_input": {
+        "mode": "synthetic",
+        "acceptor": "customer-B",
+        "operator": "fixture-admin",
+        "accepted_at": "2026-10-13T00:00:00.000000Z",
+        "evidence_utf8": "Synthetic B accepts exact assembled AGR-01 terms.",
+        "operator_attestation_utf8": "Synthetic local test administrator verifies B assent.",
+        "funding_evidence_utf8": "Synthetic customer-owned local resource."
+      },
+      "authority_requirement": "Reviewer constructs exact retained synthetic generic grant+original enrollment ceiling using prior SourceGrant dictionary; fixture is an isolated test trusted source, never real enrollment."
+    }
+  ],
+  "time_and_sequence": "Base P1 publication sequence1; fixed_timeline supplies independent first A/B derivation timestamps. Later history extensions pin their own times/sequences before derivation.",
+  "cases": [
+    {
+      "id": "AGR-01",
+      "steps": [
+        "accept A v1 expected acceptance0",
+        "accept B v1 expected acceptance0",
+        "activate A atcommit expected activation0",
+        "activate B atcommit expected activation0"
+      ],
+      "expected": "A acceptance1/activation1; B acceptance1/activation1; same P1/plan bytes; distinct binding/catalog/targets"
+    },
+    {
+      "id": "AGR-02",
+      "steps": [
+        "repeat A original accept key after reply loss and restart"
+      ],
+      "expected": "exact original receipt; no new head or capacity delta"
+    },
+    {
+      "id": "AGR-03",
+      "steps": [
+        "new key same A v1 intent and assent"
+      ],
+      "expected": "semantic alias; reuse original binding/head/time; counters unchanged"
+    },
+    {
+      "id": "AGR-04",
+      "steps": [
+        "A accepts v2 with unchanged P1/catalog and context; acceptance1\u21922",
+        "schedule A v2 activation1\u21922 at00:10",
+        "replace pending at00:05 with00:20 activation2\u21923",
+        "revoke current pending transition at00:06 activation3\u21924"
+      ],
+      "expected": "B remains1/1; A original active interval persists until revoke; old work stays pinned"
+    },
+    {
+      "id": "AGR-05",
+      "steps": [
+        "reuse agreement-A with customer-B",
+        "change assent terms context",
+        "activate wrong copied plan",
+        "activate competing pending schedule",
+        "change stored catalog mapping",
+        "use publication admin without assent/grant"
+      ],
+      "expected": "respective ownership/assent/ref/schedule/semantic/authority refusal; no writes"
+    },
+    {
+      "id": "AGR-06",
+      "steps": [
+        "future exact end/start boundaries",
+        "clock regression",
+        "source revocation before fresh transition",
+        "old original receipt after source changes with admin read",
+        "ProfileB threshold and rollback/unknown"
+      ],
+      "expected": "frozen time/source/read/alias rules; atomic complete-or-absent-or-explicit-unknown, no head reset"
+    }
+  ],
+  "fixed_timeline": [
+    {
+      "operation_id": "accept-A-1",
+      "accepted_at": "2026-10-13T00:00:01.000000Z",
+      "commit_sequence": "2"
+    },
+    {
+      "operation_id": "accept-B-1",
+      "accepted_at": "2026-10-13T00:00:02.000000Z",
+      "commit_sequence": "3"
+    },
+    {
+      "operation_id": "activate-A-1",
+      "accepted_at": "2026-10-13T00:00:03.000000Z",
+      "commit_sequence": "4"
+    },
+    {
+      "operation_id": "activate-B-1",
+      "accepted_at": "2026-10-13T00:00:04.000000Z",
+      "commit_sequence": "5"
+    }
+  ]
+}
