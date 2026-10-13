@@ -2,6 +2,7 @@
 //! authenticate an actor, select a schedule, or confer append permission.
 use super::super::request::OperationKey;
 use super::*;
+pub(super) mod schedule;
 use crate::store::sqlite::workflow::agreement::acceptance::{
     ActivationAction, ActivationProjection, AgreementHead,
 };

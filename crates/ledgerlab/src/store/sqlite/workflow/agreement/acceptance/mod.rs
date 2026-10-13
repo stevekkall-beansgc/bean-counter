@@ -234,6 +234,30 @@ impl SqliteTx {
         }
         result
     }
+    /// Locate immutable activation births independently of the mutable head and
+    /// activation index. Surviving head identities remain candidates even when
+    /// their operation row is missing; the host must refuse that missing birth.
+    pub(crate) async fn workflow_agreement_activation_prefix(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        customer: &str,
+        agreement: &str,
+    ) -> Result<Vec<Vec<u8>>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result=timeout_at(self.deadline,async {
+            self.workflow_schema().await?;
+            sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE json_extract(operation_bytes,'$.kind') IN ('agreement.activate','agreement.revoke') AND json_extract(operation_bytes,'$.key.logical_store_id')=? AND json_extract(operation_bytes,'$.key.scope[0]')=? AND json_extract(operation_bytes,'$.key.scope[1]')=? AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.agreement_id')=? UNION SELECT CAST(json_extract(canonical_bytes,'$.operation_key') AS BLOB) FROM workflow_documents WHERE json_extract(canonical_bytes,'$.schema')='ledger-workflow-head-transition/1' AND json_extract(canonical_bytes,'$.head_kind')='agreement_activation' AND json_extract(canonical_bytes,'$.operation_key.logical_store_id')=? AND json_extract(canonical_bytes,'$.operation_key.scope[0]')=? AND json_extract(canonical_bytes,'$.operation_key.scope[1]')=? AND json_extract(canonical_bytes,'$.customer')=? AND json_extract(canonical_bytes,'$.agreement_id')=?")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(agreement)
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).bind(agreement)
+                .fetch_all(self.conn()).await.map_err(StoreError::from)
+        }).await.map_err(|_|StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
     pub(crate) async fn workflow_agreement_activation_history(
         &mut self,
         store: &str,
