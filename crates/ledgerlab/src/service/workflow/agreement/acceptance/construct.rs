@@ -5,19 +5,19 @@ use super::{AcceptInput, PublicationInputs};
 use crate::service::workflow::request::OperationKey;
 use crate::store::sqlite::workflow::agreement::acceptance::{AcceptanceProjection, AgreementHead};
 
-pub(super) struct CommitMetadata<'a> {
-    pub(super) key: &'a OperationKey,
-    pub(super) actor: &'a str,
-    pub(super) at: &'a Timestamp,
-    pub(super) sequence: i64,
-    pub(super) prior: Option<RecordRef>,
+pub(in crate::service::workflow::agreement) struct CommitMetadata<'a> {
+    pub(in crate::service::workflow::agreement) key: &'a OperationKey,
+    pub(in crate::service::workflow::agreement) actor: &'a str,
+    pub(in crate::service::workflow::agreement) at: &'a Timestamp,
+    pub(in crate::service::workflow::agreement) sequence: i64,
+    pub(in crate::service::workflow::agreement) prior: Option<RecordRef>,
 }
-pub(super) struct PreparedRecords {
-    pub(super) documents: Vec<Document>,
-    pub(super) results: Vec<RecordRef>,
-    pub(super) projection: Projection,
+pub(in crate::service::workflow::agreement) struct PreparedRecords {
+    pub(in crate::service::workflow::agreement) documents: Vec<Document>,
+    pub(in crate::service::workflow::agreement) results: Vec<RecordRef>,
+    pub(in crate::service::workflow::agreement) projection: Projection,
 }
-pub(super) fn build(
+pub(in crate::service::workflow::agreement) fn build(
     input: &AcceptInput,
     definitions: &PublicationInputs,
     publication: &Document,
