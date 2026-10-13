@@ -103,6 +103,22 @@ async fn agreement_actual_owner_evidence_registration_original_alias_conflict_re
     assert!(
         matches!(ledger.prerequisite(&records::bytes(&crosskind).unwrap()).await,Err(ServiceError::Rejection(code)) if code=="IDENTITY_CONFLICT")
     );
+    // A globally retained key also conflicts through the older publication
+    // facade before compiler/build preparation or non-publication pair decoding.
+    // Reuse the immutable publication oracle; no fresh publication is required.
+    let publication: Value = serde_json::from_str(include_str!(
+        "../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/publication-independent-expected.json"
+    ))
+    .unwrap();
+    for retained_key in [&proof["key"], &registration["key"]] {
+        let mut attempt = publication["normalized_request"].clone();
+        attempt["key"] = retained_key.clone();
+        let attempted_raw = records::bytes(&attempt).unwrap();
+        super::super::request::PublicationRequest::parse(&attempted_raw).unwrap();
+        assert!(
+            matches!(ledger.publish(&attempted_raw).await, Err(ServiceError::Rejection(code)) if code == "IDENTITY_CONFLICT")
+        );
+    }
     let mut tx = ledger
         .store
         .begin(crate::service::workflow::local::deadline())
