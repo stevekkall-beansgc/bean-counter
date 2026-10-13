@@ -61,6 +61,27 @@ pub(crate) struct SourceHead {
 }
 
 impl SqliteTx {
+    /// Locate a candidate origin. Its membership is not a verified certificate;
+    /// the coordinator must verify the complete retained operation before use.
+    pub(crate) async fn workflow_agreement_document_origin(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        reference: &RecordRef,
+    ) -> Result<Option<(Vec<u8>, String, i64)>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result = timeout_at(self.deadline, async {
+            self.workflow_schema().await?;
+            sqlx::query_as("SELECT o.identity_key,o.operation_kind,o.commit_sequence FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE o.logical_store_id=? AND o.tenant=? AND o.environment=? AND m.kind=? AND m.id=? AND m.digest=? ORDER BY o.commit_sequence LIMIT 1")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(&reference.kind).bind(&reference.id).bind(&reference.digest)
+                .fetch_optional(self.conn()).await.map_err(StoreError::from)
+        }).await.map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
     pub(crate) async fn workflow_agreement_root_candidate(
         &mut self,
         store: &str,

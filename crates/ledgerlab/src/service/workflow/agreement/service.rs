@@ -6,6 +6,16 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+static LOST_REPLY_KEY: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(super) fn inject_committed_reply_loss(key: Vec<u8>) {
+    let mut selected = LOST_REPLY_KEY.lock().unwrap();
+    assert!(selected.is_none());
+    *selected = Some(key);
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Registration {
@@ -74,7 +84,7 @@ impl LocalWorkflowLedger {
             let mode="real_local";
             let at=crate::local::now().map_err(|_|ServiceError::Unavailable)?;
             let root=match tx.workflow_agreement_root_candidate(&key.logical_store_id,&key.scope).await.map_err(crate::service::store_error)? {
-                Some(d)=>{let body=canonical_body(&d)?;verify::root(&body,key,None)?;if body["basis"]==journal::basis(&setup){d}else{journal::fresh_root(&setup,&at)?}},
+                Some(d)=>{verify::document_origin(&mut tx,key,&d.reference).await?;let body=canonical_body(&d)?;verify::root(&body,key,None)?;if body["basis"]==journal::basis(&setup){d}else{journal::fresh_root(&setup,&at)?}},
                 None=>journal::fresh_root(&setup,&at)?,
             };
             let sequence=tx.workflow_sequence().await.map_err(crate::service::store_error)?;
@@ -87,7 +97,7 @@ impl LocalWorkflowLedger {
                 let original_result=verify::retained(&mut tx,&original_key,&original).await?;
                 require(original_result["request_evidence"]["normalized_request"]["payload"]==payload,"SEMANTIC_CONFLICT")?;
                 let results:Vec<RecordRef>=serde_json::from_value(original_result["receipt"]["result_refs"].clone()).map_err(|_|ServiceError::IntegrityFailure)?;
-                let documents=verify::closure(&mut tx,key,&results).await?;
+                let documents=verify::authenticated_closure(&mut tx,key,&results).await?;
                 (documents,results,Projection::None)
             }else if req.kind()=="evidence.retain" {
                 let input=ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(&payload)?).map_err(typed_error)?;
@@ -96,10 +106,10 @@ impl LocalWorkflowLedger {
             }else {
                 let registration:Registration=serde_json::from_value(payload.clone()).map_err(|_|ServiceError::IntegrityFailure)?;
                 require(tx.workflow_agreement_customer(&key.logical_store_id,&key.scope,&registration.customer).await.map_err(crate::service::store_error)?.is_none(),"SEMANTIC_CONFLICT")?;
-                let proof=loaded(&mut tx,key,&registration.registration_evidence_ref).await?;let body=canonical_body(&proof)?;let input=evidence_input(&body)?;
+                verify::document_origin(&mut tx,key,&registration.registration_evidence_ref).await?;let proof=loaded(&mut tx,key,&registration.registration_evidence_ref).await?;let body=canonical_body(&proof)?;let input=evidence_input(&body)?;
                 require(input.purpose()=="customer_registration" && input.customer()==registration.customer && input.metadata()["acceptor"]==registration.acceptor,"AUTHORITY_REQUIRED")?;require(body["installation_mode"]==mode,"INSTALLATION_MODE_MISMATCH")?;
                 let doc=records::source_document("workflow-customer",json!({"schema":"ledger-workflow-customer-registration/1","scope":key.scope,"customer":registration.customer,"acceptor":registration.acceptor,"evidence_ref":registration.registration_evidence_ref,"registered_by":setup.operator,"registered_at":at,"authority_ref":root.reference,"installation_mode":mode}))?;
-                let projection=Projection::Customer{customer:registration.customer,document:doc.reference.id.clone()};let refs=vec![doc.reference.clone()];let mut docs=vec![doc];docs.extend(verify::closure(&mut tx,key,&[proof.reference]).await?);(docs,refs,projection)
+                let projection=Projection::Customer{customer:registration.customer,document:doc.reference.id.clone()};let refs=vec![doc.reference.clone()];let mut docs=vec![doc];docs.extend(verify::authenticated_closure(&mut tx,key,&[proof.reference]).await?);(docs,refs,projection)
             };
             let evidence=journal::evidence(&req,&payload)?;
             let append=journal::assemble(&req,evidence,&setup,&at,sequence,root,documents,results,semantic_key,alias,projection)?;
@@ -128,6 +138,14 @@ impl LocalWorkflowLedger {
                         }
                     }
                 })?;
+                #[cfg(test)]
+                {
+                    let mut selected = LOST_REPLY_KEY.lock().unwrap();
+                    if selected.as_ref() == Some(&key.bytes()?) {
+                        *selected = None;
+                        return Err(ServiceError::ResponseLost);
+                    }
+                }
                 let alias = result["receipt"]["result_kind"] == "semantic_alias";
                 Ok(result_envelope(
                     result,
@@ -167,6 +185,7 @@ async fn validate_evidence_dependencies(
     if input.purpose() == "operator_attestation" {
         let r: RecordRef = serde_json::from_value(input.metadata()["assent_evidence_ref"].clone())
             .map_err(|_| reject("INVALID_REFERENCE"))?;
+        verify::document_origin(tx, key, &r).await?;
         let prior = loaded(tx, key, &r).await?;
         let body = canonical_body(&prior)?;
         let assent = evidence_input(&body)?;

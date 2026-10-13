@@ -144,7 +144,12 @@ pub(super) async fn closure(
             continue;
         }
         require(loaded.len() < 4095, "PROGRAM_BUDGET_EXCEEDED")?;
-        let d = super::loaded(tx, key, &r).await?;
+        let d = super::loaded(tx, key, &r).await.map_err(|e| match e {
+            ServiceError::Rejection(code) if code == "AUTHORITY_REQUIRED" => {
+                ServiceError::IntegrityFailure
+            }
+            e => e,
+        })?;
         let body = canonical_body(&d)?;
         total = total
             .checked_add(d.bytes.len())
@@ -223,7 +228,7 @@ pub(super) async fn locator_dependencies(
     for l in journal::locators(req, payload)? {
         refs.push(parse_ref(&l["ref"])?);
     }
-    closure(tx, key, &refs).await
+    authenticated_closure(tx, key, &refs).await
 }
 fn checked(raw: &[u8], limit: usize) -> Result<Value> {
     let v = canonical::parse_bounded(raw, limit).map_err(|_| ServiceError::IntegrityFailure)?;
@@ -232,11 +237,19 @@ fn checked(raw: &[u8], limit: usize) -> Result<Value> {
     }
     Ok(v)
 }
-pub(super) async fn retained(
+struct LocalCertificate {
+    value: Value,
+    documents: Vec<Document>,
+    original: Option<Vec<u8>>,
+}
+
+// This checks one complete certificate without recursively trusting origins.
+// The outer verifier resolves all origin obligations with a finite worklist.
+async fn retained_local(
     tx: &mut SqliteTx,
     key: &OperationKey,
     o: &JournalOperation,
-) -> Result<Value> {
+) -> Result<LocalCertificate> {
     let op = checked(&o.operation_bytes, 8 * 1024 * 1024)?;
     let manifest = checked(&o.manifest_bytes, 4 * 1024 * 1024)?;
     let receipt = checked(&o.receipt_bytes, 1024 * 1024)?;
@@ -443,6 +456,7 @@ pub(super) async fn retained(
         if old_op["result_refs"] != op["result_refs"]
             || old.kind != o.kind
             || old.sequence >= o.sequence
+            || old_op["request_evidence"]["normalized_request"]["payload"] != payload
         {
             return Err(ServiceError::IntegrityFailure);
         }
@@ -455,7 +469,160 @@ pub(super) async fn retained(
     if indexed != expected || manifest["members"] != json!(expected) {
         return Err(ServiceError::IntegrityFailure);
     }
-    Ok(
-        json!({"schema":"ledger-operation-status/1","status":"committed","receipt":receipt,"request_evidence":evidence}),
-    )
+    Ok(LocalCertificate {
+        value: json!({"schema":"ledger-operation-status/1","status":"committed","receipt":receipt,"request_evidence":evidence}),
+        documents: docs,
+        original: is_alias.then_some(original),
+    })
+}
+
+fn origin_key(identity: &[u8], expected: &OperationKey) -> Result<OperationKey> {
+    let key = OperationKey::parse(identity).map_err(|_| ServiceError::IntegrityFailure)?;
+    if key.logical_store_id != expected.logical_store_id || key.scope != expected.scope {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    Ok(key)
+}
+
+pub(super) async fn retained(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    o: &JournalOperation,
+) -> Result<Value> {
+    let mut pending = std::collections::BTreeMap::from([(o.identity.clone(), false)]);
+    let mut verified = std::collections::BTreeMap::<Vec<u8>, bool>::new();
+    let mut verified_publications = std::collections::BTreeSet::new();
+    let mut result = None;
+    while let Some((identity, must_be_original)) = pending.pop_first() {
+        if let Some(original) = verified.get(&identity) {
+            if must_be_original && !original {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            continue;
+        }
+        // The installation-wide admitted operation bound also bounds this
+        // acyclic history walk. No recursive futures or alias chains are used.
+        if verified.len() >= 100_000 {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        let operation = if identity == o.identity {
+            o.clone()
+        } else {
+            tx.workflow_agreement_lookup(&identity)
+                .await
+                .map_err(crate::service::store_error)?
+                .ok_or(ServiceError::IntegrityFailure)?
+        };
+        let saved_key = origin_key(&operation.identity, key)?;
+        let certificate = retained_local(tx, &saved_key, &operation).await?;
+        let is_original = certificate.original.is_none();
+        if must_be_original && !is_original {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        if operation.identity == o.identity {
+            result = Some(certificate.value);
+        }
+        verified.insert(operation.identity.clone(), is_original);
+        if let Some(identity) = certificate.original {
+            let original = tx
+                .workflow_agreement_lookup(&identity)
+                .await
+                .map_err(crate::service::store_error)?
+                .ok_or(ServiceError::IntegrityFailure)?;
+            if original.sequence >= operation.sequence {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            pending.insert(original.identity, true);
+        }
+        for document in certificate.documents {
+            let (identity, kind, sequence) = tx
+                .workflow_agreement_document_origin(
+                    &key.logical_store_id,
+                    &key.scope,
+                    &document.reference,
+                )
+                .await
+                .map_err(crate::service::store_error)?
+                .ok_or(ServiceError::IntegrityFailure)?;
+            if identity == operation.identity {
+                if sequence != operation.sequence {
+                    return Err(ServiceError::IntegrityFailure);
+                }
+                continue;
+            }
+            if sequence >= operation.sequence {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            if kind == "policy.publish" {
+                if verified_publications.insert(identity.clone()) {
+                    verify_publication_origin(tx, key, &identity, sequence).await?;
+                }
+            } else {
+                // Queue identities, not entire row BLOBs, and deduplicate before
+                // loading. Preserve a prior direct-original obligation.
+                pending.entry(identity).or_insert(false);
+            }
+        }
+    }
+    result.ok_or(ServiceError::IntegrityFailure)
+}
+
+async fn verify_publication_origin(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    identity: &[u8],
+    sequence: i64,
+) -> Result<()> {
+    let saved_key = origin_key(identity, key)?;
+    let origin = tx
+        .workflow_lookup(identity)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if origin.sequence != sequence {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    records::verify_retained(tx, &saved_key, &origin).await?;
+    Ok(())
+}
+
+/// Authenticate an immutable dependency against its complete originating
+/// certificate. The scoped member index is used only to locate that origin.
+pub(super) async fn document_origin(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &RecordRef,
+) -> Result<()> {
+    let (identity, kind, sequence) = tx
+        .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if kind == "policy.publish" {
+        verify_publication_origin(tx, key, &identity, sequence).await
+    } else {
+        let saved_key = origin_key(&identity, key)?;
+        let origin = tx
+            .workflow_agreement_lookup(&identity)
+            .await
+            .map_err(crate::service::store_error)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        if origin.sequence != sequence {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        retained(tx, &saved_key, &origin).await?;
+        Ok(())
+    }
+}
+
+pub(super) async fn authenticated_closure(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    seeds: &[RecordRef],
+) -> Result<Vec<Document>> {
+    let documents = closure(tx, key, seeds).await?;
+    for document in &documents {
+        document_origin(tx, key, &document.reference).await?;
+    }
+    Ok(documents)
 }
