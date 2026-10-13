@@ -15,7 +15,17 @@ pub(super) struct Admission {
     pub(super) documents: Vec<Document>,
 }
 async fn proof(tx: &mut SqliteTx, key: &OperationKey, r: &RecordRef) -> Result<Document> {
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before authority proof kind={} id={}",
+        key.operation_id, r.kind, r.id
+    ));
     verify::document_origin(tx, key, r).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after authority proof kind={} id={}",
+        key.operation_id, r.kind, r.id
+    ));
     loaded(tx, key, r).await
 }
 fn ref_value(v: &Value) -> Result<RecordRef> {
@@ -122,11 +132,19 @@ pub(super) async fn check(
     definitions: &PublicationInputs,
     private_documents: &[Document],
 ) -> Result<Admission> {
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!("{} before actual fresh admin", key.operation_id));
     let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!("{} after actual fresh admin", key.operation_id));
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!("{} before installation load", key.operation_id));
     let installation = tx
         .load_installation()
         .await
         .map_err(crate::service::store_error)?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!("{} after installation load", key.operation_id));
     require(installation.mode == "real", "INSTALLATION_MODE_MISMATCH")?;
     let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
     let normalized = input.value()?;
@@ -142,7 +160,17 @@ pub(super) async fn check(
     let declared = ledgerlab_core::policy::workflow::SourceGrant::parse(&granted.bytes)
         .map_err(typed_error)?;
     let enrollment = ref_value(&json!(declared.original_ceiling_ref()))?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before latest enrolled source observation",
+        key.operation_id
+    ));
     let source = context::observe_source(tx, key, &enrollment).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after latest enrolled source observation",
+        key.operation_id
+    ));
     let documents = verify_capture(
         tx,
         key,
@@ -236,7 +264,17 @@ pub(in crate::service::workflow::agreement) async fn verify_capture(
         .await
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before registered customer origin",
+        key.operation_id
+    ));
     verify::document_origin(tx, key, &customer.reference).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after registered customer origin",
+        key.operation_id
+    ));
     let registration = canonical_body(&customer)?;
     require(
         registration["customer"] == input.customer()
@@ -396,7 +434,17 @@ pub(in crate::service::workflow::agreement) async fn verify_capture(
             roots.push(r);
         }
     }
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before authority full root closure",
+        key.operation_id
+    ));
     let mut documents = verify::authenticated_closure(tx, key, &roots).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after authority full root closure",
+        key.operation_id
+    ));
     documents.extend(source.documents().iter().map(|d| Document {
         reference: d.reference.clone(),
         schema: d.schema.clone(),

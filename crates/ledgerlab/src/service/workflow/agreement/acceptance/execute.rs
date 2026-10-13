@@ -30,8 +30,16 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
         .begin(deadline())
         .await
         .map_err(crate::service::store_error)?;
+    #[cfg(test)]
+    let writer_begun = std::time::Instant::now();
     let attempted: Result<(Value, bool)> = async {
         ledger.admin.read(&ledger.store, &mut tx, key).await?;
+        #[cfg(test)]
+        verify::diagnostic_checkpoint(&format!(
+            "{} writer acquired/admin read writer_ms={}",
+            key.operation_id,
+            writer_begun.elapsed().as_millis()
+        ));
         if let Some(kind) = tx
             .workflow_operation_kind(&key.bytes()?)
             .await
@@ -93,6 +101,13 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
         Ok((verified, true))
     }
     .await;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} attempted complete writer_ms={} result={:?}",
+        key.operation_id,
+        writer_begun.elapsed().as_millis(),
+        attempted.as_ref().map(|_| "ok")
+    ));
     match attempted {
         Err(e) => {
             tx.rollback().await.map_err(crate::service::store_error)?;

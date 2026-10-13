@@ -5,6 +5,10 @@ mod project;
 mod tests;
 use crate::{store::errors::StoreError, ServiceError};
 pub(crate) fn store_error(e: StoreError) -> ServiceError {
+    #[cfg(test)]
+    if e.retryable_after_rollback() {
+        eprintln!("ACCEPT-DIAG retryable store class={e:?}");
+    }
     if matches!(e, StoreError::ReadBudgetExhausted) {
         ServiceError::ReadBudgetExhausted
     } else if matches!(e, StoreError::BillingM5SchemaRequired) {

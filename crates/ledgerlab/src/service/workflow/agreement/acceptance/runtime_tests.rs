@@ -37,6 +37,42 @@ fn result_ref(value: &Value, kind: &str) -> RecordRef {
     )
     .unwrap()
 }
+async fn diagnostic<T>(
+    label: &str,
+    future: impl std::future::Future<Output = Result<T>>,
+) -> Result<T> {
+    eprintln!("ACCEPT-DIAG {label} before audited call");
+    let begun = std::time::Instant::now();
+    let (result, origins, work) = verify::audit_work(future).await;
+    let mut named: Vec<_> = origins
+        .iter()
+        .map(|(identity, count)| {
+            (
+                super::super::super::request::OperationKey::parse(identity)
+                    .unwrap()
+                    .operation_id,
+                *count,
+            )
+        })
+        .collect();
+    named.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+    let publications: Vec<_> = work
+        .publications
+        .iter()
+        .map(|(identity, count)| {
+            (
+                super::super::super::request::OperationKey::parse(identity)
+                    .unwrap()
+                    .operation_id,
+                *count,
+            )
+        })
+        .collect();
+    eprintln!("ACCEPT-DIAG {label} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} publication_counts={:?} document_origin_total={} selected_loaded_helper_total={}",
+        begun.elapsed().as_millis(), result.as_ref().map(|_| "ok"), origins.values().sum::<usize>(), named,
+        work.publications.values().sum::<usize>(), publications, work.document_origins.values().sum::<usize>(), work.helper_document_loads.values().sum::<usize>());
+    result
+}
 async fn retained(ledger: &LocalWorkflowLedger, id: &str, payload: Value) -> Value {
     ledger
         .prerequisite(&records::bytes(&envelope(id, "evidence.retain", payload)).unwrap())
@@ -265,16 +301,24 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
             .unwrap();
     super::execute::inject_committed_reply_loss(a_key.bytes().unwrap());
     assert_eq!(
-        ledger.agreement(&records::bytes(&a).unwrap()).await,
+        diagnostic(
+            "A1 agreement",
+            ledger.agreement(&records::bytes(&a).unwrap())
+        )
+        .await,
         Err(ServiceError::ResponseLost)
     );
-    let accepted_a = ledger.status(&a_key.bytes().unwrap()).await.unwrap();
-    assert_eq!(accepted_a["status"], "committed");
-    let (b, _) = input(&ledger, "B", &publication_ref).await;
-    let accepted_b = ledger
-        .agreement(&records::bytes(&b).unwrap())
+    let accepted_a = diagnostic("A1 status", ledger.status(&a_key.bytes().unwrap()))
         .await
         .unwrap();
+    assert_eq!(accepted_a["status"], "committed");
+    let (b, _) = input(&ledger, "B", &publication_ref).await;
+    let accepted_b = diagnostic(
+        "B1 agreement",
+        ledger.agreement(&records::bytes(&b).unwrap()),
+    )
+    .await
+    .unwrap();
     assert_ne!(
         result_ref(&accepted_a, "workflow-accepted-agreement"),
         result_ref(&accepted_b, "workflow-accepted-agreement")
@@ -330,25 +374,12 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
         eprintln!("ACCEPT-DIAG successor{version} before prerequisite proofs");
         last = successor(&ledger, &a, version, &context).await;
         eprintln!("ACCEPT-DIAG successor{version} before agreement");
-        let begun = std::time::Instant::now();
-        let (result, origins, work) =
-            verify::audit_work(ledger.agreement(&records::bytes(&last).unwrap())).await;
-        let mut named: Vec<_> = origins
-            .iter()
-            .map(|(identity, count)| {
-                (
-                    super::super::super::request::OperationKey::parse(identity)
-                        .unwrap()
-                        .operation_id,
-                    *count,
-                )
-            })
-            .collect();
-        named.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
-        eprintln!("ACCEPT-DIAG successor{version} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} document_origin_total={} selected_loaded_helper_total={}",
-            begun.elapsed().as_millis(),result.as_ref().map(|_|"ok"),origins.values().sum::<usize>(),named,
-            work.publications.values().sum::<usize>(),work.document_origins.values().sum::<usize>(),work.helper_document_loads.values().sum::<usize>());
-        last_receipt = result.unwrap();
+        last_receipt = diagnostic(
+            &format!("successor{version}"),
+            ledger.agreement(&records::bytes(&last).unwrap()),
+        )
+        .await
+        .unwrap();
     }
     let mut tx = ledger
         .store
@@ -387,7 +418,9 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
     tx.rollback().await.unwrap();
     let pretty = serde_json::to_vec_pretty(&a).unwrap();
     assert_eq!(
-        ledger.agreement(&pretty).await.unwrap()["receipt"],
+        diagnostic("A1 original retry", ledger.agreement(&pretty))
+            .await
+            .unwrap()["receipt"],
         accepted_a["receipt"]
     );
     let revoked = envelope(
@@ -425,14 +458,18 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
         );
     }
     assert_eq!(
-        reopened
-            .agreement(&serde_json::to_vec_pretty(&last).unwrap())
-            .await
-            .unwrap()["receipt"],
+        diagnostic(
+            "A5 reopened original retry",
+            reopened.agreement(&serde_json::to_vec_pretty(&last).unwrap())
+        )
+        .await
+        .unwrap()["receipt"],
         last_receipt["receipt"]
     );
     assert_eq!(
-        reopened.agreement(&pretty).await.unwrap()["receipt"],
+        diagnostic("A1 reopened original retry", reopened.agreement(&pretty))
+            .await
+            .unwrap()["receipt"],
         accepted_a["receipt"]
     );
     let key =

@@ -23,6 +23,7 @@ pub(super) async fn audit_origins<T>(
 #[cfg(test)]
 #[derive(Clone, Debug, Default)]
 pub(super) struct WorkCounts {
+    started: Option<std::time::Instant>,
     pub(super) publications: std::collections::BTreeMap<Vec<u8>, usize>,
     pub(super) document_origins: std::collections::BTreeMap<String, usize>,
     pub(super) helper_document_loads: std::collections::BTreeMap<String, usize>,
@@ -38,21 +39,27 @@ pub(super) async fn audit_work<T>(
     WorkCounts,
 ) {
     WORK_COUNTS
-        .scope(std::cell::RefCell::new(WorkCounts::default()), async {
-            ORIGIN_COUNTS
-                .scope(
-                    std::cell::RefCell::new(std::collections::BTreeMap::new()),
-                    async {
-                        let value = future.await;
-                        (
-                            value,
-                            ORIGIN_COUNTS.with(|counts| counts.borrow().clone()),
-                            WORK_COUNTS.with(|counts| counts.borrow().clone()),
-                        )
-                    },
-                )
-                .await
-        })
+        .scope(
+            std::cell::RefCell::new(WorkCounts {
+                started: Some(std::time::Instant::now()),
+                ..WorkCounts::default()
+            }),
+            async {
+                ORIGIN_COUNTS
+                    .scope(
+                        std::cell::RefCell::new(std::collections::BTreeMap::new()),
+                        async {
+                            let value = future.await;
+                            (
+                                value,
+                                ORIGIN_COUNTS.with(|counts| counts.borrow().clone()),
+                                WORK_COUNTS.with(|counts| counts.borrow().clone()),
+                            )
+                        },
+                    )
+                    .await
+            },
+        )
         .await
 }
 #[cfg(test)]
@@ -60,7 +67,8 @@ pub(super) fn diagnostic_checkpoint(label: &str) {
     let _ = WORK_COUNTS.try_with(|counts| {
         let counts = counts.borrow();
         eprintln!(
-            "ACCEPT-DIAG {label} publications={} document_origins={} helper_document_loads={}",
+            "ACCEPT-DIAG {label} since_call_ms={} publications={} document_origins={} selected_loaded_helper_total={}",
+            counts.started.map(|start| start.elapsed().as_millis()).unwrap_or(0),
             counts.publications.values().sum::<usize>(),
             counts.document_origins.values().sum::<usize>(),
             counts.helper_document_loads.values().sum::<usize>()

@@ -40,7 +40,17 @@ pub(super) async fn observe_source(
         reference.kind == "workflow-source-enrollment",
         "INVALID_REFERENCE",
     )?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before latest source enrollment proof",
+        key.operation_id
+    ));
     let enrollment = source::enrollment(tx, key, reference).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after latest source enrollment proof",
+        key.operation_id
+    ));
     let head = tx
         .workflow_agreement_source_head(
             &key.logical_store_id,
@@ -51,7 +61,17 @@ pub(super) async fn observe_source(
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
     let state_document = by_id(tx, key, &head.state).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before latest pinned source proof",
+        key.operation_id
+    ));
     let observed = observe_source_at(tx, key, reference, &state_document.reference).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after latest pinned source proof",
+        key.operation_id
+    ));
     if observed.state.revision()
         != u64::try_from(head.revision).map_err(|_| ServiceError::IntegrityFailure)?
         || observed.state.status() != head.status
@@ -74,7 +94,17 @@ pub(super) async fn observe_source_at(
             && state_ref.kind == "workflow-source-state",
         "INVALID_REFERENCE",
     )?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before pinned enrollment proof",
+        key.operation_id
+    ));
     let enrollment = source::enrollment(tx, key, enrollment_ref).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after pinned enrollment proof",
+        key.operation_id
+    ));
     let state_document = loaded(tx, key, state_ref).await?;
     verify::document_origin(tx, key, &state_document.reference).await?;
     let state = SourceState::parse(&state_document.bytes, &enrollment)
@@ -109,7 +139,17 @@ pub(super) async fn observe_source_at(
         }
         _ => return Err(ServiceError::IntegrityFailure),
     };
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before pinned state full closure",
+        key.operation_id
+    ));
     let documents = verify::authenticated_closure(tx, key, &[state_document.reference]).await?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} after pinned state full closure",
+        key.operation_id
+    ));
     Ok(ObservedSource {
         enrollment,
         state,
@@ -135,6 +175,11 @@ pub(super) async fn source_as_of(
         || enrollment.canonical_value().map_err(|_|ServiceError::IntegrityFailure)?!=canonical_body(&document)? {
         return Err(ServiceError::IntegrityFailure);
     }
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} before source birth prefix lookup frontier={}",
+        key.operation_id, before_sequence
+    ));
     let candidates = tx
         .workflow_agreement_source_prefix(
             &key.logical_store_id,
@@ -144,6 +189,13 @@ pub(super) async fn source_as_of(
         )
         .await
         .map_err(crate::service::store_error)?;
+    #[cfg(test)]
+    verify::diagnostic_checkpoint(&format!(
+        "{} source birth prefix candidates={} frontier={}",
+        key.operation_id,
+        candidates.len(),
+        before_sequence
+    ));
     let mut states = std::collections::BTreeMap::<u64, (i64, RecordRef, Option<RecordRef>)>::new();
     for identity in candidates {
         let operation = tx
@@ -176,7 +228,17 @@ pub(super) async fn source_as_of(
         if operation.sequence >= before_sequence {
             continue;
         }
+        #[cfg(test)]
+        verify::diagnostic_checkpoint(&format!(
+            "{} before source birth certificate={} sequence={}",
+            key.operation_id, saved_key.operation_id, operation.sequence
+        ));
         let certificate = Box::pin(verify::retained(tx, &saved_key, &operation)).await?;
+        #[cfg(test)]
+        verify::diagnostic_checkpoint(&format!(
+            "{} after source birth certificate={} sequence={}",
+            key.operation_id, saved_key.operation_id, operation.sequence
+        ));
         if certificate["receipt"]["result_kind"] == "semantic_alias" {
             continue;
         }
