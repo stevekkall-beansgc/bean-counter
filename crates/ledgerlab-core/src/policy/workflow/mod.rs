@@ -34,3 +34,5 @@ mod slots;
 pub use slots::{RoleAssignment, SlotCatalog, SlotInstantiation};
 mod ceiling;
 pub use ceiling::SourceCeiling;
+mod evidence;
+pub use evidence::EvidenceInput;
