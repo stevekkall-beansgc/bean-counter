@@ -36,6 +36,8 @@ pub struct LocalWorkflowLedger {
     lose_reply: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     preparation_gate: std::sync::Mutex<Option<TestPreparationGate>>,
+    #[cfg(test)]
+    pub(super) preferred_root: std::sync::Mutex<Option<crate::store::sqlite::workflow::RecordRef>>,
 }
 impl LocalWorkflowLedger {
     /// Publish through the journal using only the implemented builtin compiler
@@ -100,6 +102,8 @@ impl LocalWorkflowLedger {
                 lose_reply: std::sync::atomic::AtomicBool::new(false),
                 #[cfg(test)]
                 preparation_gate: std::sync::Mutex::new(None),
+                #[cfg(test)]
+                preferred_root: std::sync::Mutex::new(None),
             }),
             Err(e) => {
                 store.close().await;

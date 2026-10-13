@@ -192,6 +192,29 @@ impl SqliteTx {
         }
         result
     }
+    /// Test-only tie enumeration uses precisely the production scoped root
+    /// candidate set, restricted to its greatest manifest sequence. Selection
+    /// is still just a locator; the service proves the full origin and basis.
+    #[cfg(test)]
+    pub(crate) async fn workflow_test_latest_root_candidates(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+    ) -> Result<Vec<Document>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result = timeout_at(self.deadline, async {
+            self.workflow_schema().await?;
+            let rows = sqlx::query("WITH candidates AS (SELECT d.kind,d.id,d.digest,d.schema_name,d.canonical_bytes,o.commit_sequence FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE d.kind='workflow-authority' AND d.schema_name='ledger-workflow-local-authority-snapshot/1' AND o.logical_store_id=? AND o.tenant=? AND o.environment=?) SELECT DISTINCT kind,id,digest,schema_name,canonical_bytes FROM candidates WHERE commit_sequence=(SELECT MAX(commit_sequence) FROM candidates)")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).fetch_all(self.conn()).await?;
+            rows.into_iter().map(|r| Ok(Document {
+                reference: RecordRef { kind: r.try_get("kind")?, id: r.try_get("id")?, digest: r.try_get("digest")? },
+                schema: r.try_get("schema_name")?, bytes: r.try_get("canonical_bytes")?,
+            })).collect::<Result<Vec<_>, sqlx::Error>>().map_err(StoreError::from)
+        }).await.map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() { self.failed = prior; }
+        result
+    }
     pub(crate) async fn workflow_agreement_lookup(
         &mut self,
         identity: &[u8],

@@ -41,6 +41,14 @@ fn diagnostic<'a, T: 'a>(
     label: &'a str,
     future: impl std::future::Future<Output = Result<T>> + 'a,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + 'a>> {
+    diagnostic_expected(label, future, &[], &[])
+}
+fn diagnostic_expected<'a, T: 'a>(
+    label: &'a str,
+    future: impl std::future::Future<Output = Result<T>> + 'a,
+    expected_origins: &'a [(Vec<u8>, usize)],
+    expected_publications: &'a [(Vec<u8>, usize)],
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + 'a>> {
     // Keep the audit wrappers off the large captured journey future's stack.
     // The inner await order, task-local counts and returned error are unchanged.
     let future = Box::pin(future);
@@ -75,6 +83,22 @@ fn diagnostic<'a, T: 'a>(
         eprintln!("ACCEPT-DIAG {label} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} publication_counts={:?} document_origin_total={} selected_loaded_helper_total={}",
             begun.elapsed().as_millis(), result.as_ref().map(|_| "ok"), origins.values().sum::<usize>(), named,
             work.publications.values().sum::<usize>(), publications, work.document_origins.values().sum::<usize>(), work.helper_document_loads.values().sum::<usize>());
+        if result.is_ok() {
+            for (identity, expected) in expected_origins {
+                assert_eq!(
+                    origins.get(identity),
+                    Some(expected),
+                    "required actual origin proof count"
+                );
+            }
+            for (identity, expected) in expected_publications {
+                assert_eq!(
+                    work.publications.get(identity),
+                    Some(expected),
+                    "required actual publication proof count"
+                );
+            }
+        }
         result
     })
 }
@@ -277,6 +301,58 @@ async fn successor(
 }
 
 #[tokio::test]
+async fn test_root_choice_must_be_in_actual_scoped_latest_candidate_set() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().canonicalize().unwrap().join("billing");
+    let mut setup: Value = serde_json::from_slice(include_bytes!(
+        "../../../../../../../examples/billing/setup.json"
+    ))
+    .unwrap();
+    setup["store_id"] = json!(STORE);
+    BillingLedger::init(&path, &records::bytes(&setup).unwrap())
+        .await
+        .unwrap();
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let evidence = proof(
+        &ledger,
+        "first-root-proof",
+        "customer_registration",
+        "customer-A",
+        None,
+        json!({"acceptor":"customer-A"}),
+    )
+    .await;
+    // An actual retained evidence Ref is not an eligible owner-root candidate.
+    // The hook must refuse rather than falling back to an arbitrary valid root.
+    *ledger.preferred_root.lock().unwrap() = Some(evidence);
+    let content = b"Explicit isolated alternate registration proof";
+    let request = envelope(
+        "not-eligible-root",
+        "evidence.retain",
+        json!({
+        "schema":"ledger-workflow-evidence-retain/1","purpose":"customer_registration",
+        "subject":{"customer":"customer-B"},"media_type":"text/plain;charset=utf-8",
+        "content_base64":super::super::super::publication::base64(content),
+        "content_sha256":records::raw_hash(content),"metadata":{"acceptor":"customer-B"}}),
+    );
+    assert_eq!(
+        ledger
+            .prerequisite(&records::bytes(&request).unwrap())
+            .await,
+        Err(ServiceError::IntegrityFailure)
+    );
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 1);
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+}
+
+#[tokio::test]
 #[ignore = "requires reviewed controlled build with actual executable provenance"]
 async fn captured_agreement_public_two_customers_accept_original_recovery_and_reopen() {
     assert!(crate::build_identity::embedded_inputs().is_ok());
@@ -317,13 +393,125 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
         .await
         .unwrap();
     assert_eq!(accepted_a["status"], "committed");
+    // Force the legitimate A1-origin tie/path observed in capture008.
+    // The Ref comes from actual committed bytes, never a fixture or seeded row.
+    let mut root_tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    ledger
+        .admin
+        .read(&ledger.store, &mut root_tx, &a_key)
+        .await
+        .unwrap();
+    let a_operation = root_tx
+        .workflow_agreement_lookup(&a_key.bytes().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let a_body = canonical::parse_bounded(&a_operation.operation_bytes, 8388608).unwrap();
+    let a_root: RecordRef =
+        serde_json::from_value(a_body["authority_snapshot"]["local_admin_ref"].clone()).unwrap();
+    assert!(root_tx
+        .workflow_test_latest_root_candidates(STORE, &a_key.scope)
+        .await
+        .unwrap()
+        .iter()
+        .any(|d| d.reference == a_root));
+    let birth = root_tx
+        .workflow_agreement_document_origin(STORE, &a_key.scope, &a_root)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        birth,
+        (
+            a_key.bytes().unwrap(),
+            "agreement.accept".into(),
+            a_operation.sequence
+        )
+    );
+    eprintln!(
+        "ACCEPT-DIAG preferred eligible A1 root={:?} original_sequence={}",
+        a_root, a_operation.sequence
+    );
+    root_tx.rollback().await.unwrap();
+    *ledger.preferred_root.lock().unwrap() = Some(a_root.clone());
     let (b, _) = input(&ledger, "B", &publication_ref).await;
-    let accepted_b = diagnostic(
+    let mut metadata_tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    for id in [
+        "B-registration-proof",
+        "B-register",
+        "B-enrollment-proof",
+        "B-enroll",
+        "B-funding-proof",
+        "B-assent-proof",
+        "B-operator-statement",
+    ] {
+        let key = super::super::super::request::OperationKey::parse(
+            &records::bytes(&envelope(id, "evidence.retain", json!({}))["key"]).unwrap(),
+        )
+        .unwrap();
+        let operation = metadata_tx
+            .workflow_agreement_lookup(&key.bytes().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        let body = canonical::parse_bounded(&operation.operation_bytes, 8388608).unwrap();
+        assert_eq!(
+            body["authority_snapshot"]["authority_refs"],
+            json!([a_root])
+        );
+        for value in body["result_refs"].as_array().unwrap() {
+            let reference: RecordRef = serde_json::from_value(value.clone()).unwrap();
+            if matches!(
+                reference.kind.as_str(),
+                "workflow-evidence" | "workflow-customer" | "workflow-source-enrollment"
+            ) {
+                let document = metadata_tx
+                    .workflow_document(&reference, STORE, &a_key.scope[0], &a_key.scope[1], None)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    canonical::parse(&document.bytes).unwrap()["authority_ref"],
+                    json!(a_root)
+                );
+            }
+        }
+    }
+    metadata_tx.rollback().await.unwrap();
+    let published_key = super::super::super::request::OperationKey::parse(
+        &records::bytes(&publication["key"]).unwrap(),
+    )
+    .unwrap();
+    let accepted_b = diagnostic_expected(
         "B1 agreement",
         ledger.agreement(&records::bytes(&b).unwrap()),
+        &[(a_key.bytes().unwrap(), 2)],
+        &[(published_key.bytes().unwrap(), 2)],
     )
     .await
     .unwrap();
+    let b_key =
+        super::super::super::request::OperationKey::parse(&records::bytes(&b["key"]).unwrap())
+            .unwrap();
+    assert_eq!(
+        diagnostic_expected(
+            "B1 status",
+            ledger.status(&b_key.bytes().unwrap()),
+            &[(a_key.bytes().unwrap(), 1)],
+            &[(published_key.bytes().unwrap(), 1)]
+        )
+        .await
+        .unwrap()["receipt"],
+        accepted_b["receipt"]
+    );
     assert_ne!(
         result_ref(&accepted_a, "workflow-accepted-agreement"),
         result_ref(&accepted_b, "workflow-accepted-agreement")

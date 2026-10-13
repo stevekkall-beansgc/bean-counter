@@ -87,7 +87,15 @@ impl LocalWorkflowLedger {
             require(installation.mode=="real","INSTALLATION_MODE_MISMATCH")?;
             let mode="real_local";
             let at=crate::local::now().map_err(|_|ServiceError::Unavailable)?;
-            let root=match tx.workflow_agreement_root_candidate(&key.logical_store_id,&key.scope).await.map_err(crate::service::store_error)? {
+            let candidate=tx.workflow_agreement_root_candidate(&key.logical_store_id,&key.scope).await.map_err(crate::service::store_error)?;
+            #[cfg(test)]
+            let preferred={self.preferred_root.lock().unwrap().clone()};
+            #[cfg(test)]
+            let candidate=if let Some(preferred)=preferred {
+                let eligible=tx.workflow_test_latest_root_candidates(&key.logical_store_id,&key.scope).await.map_err(crate::service::store_error)?;
+                Some(eligible.into_iter().find(|d|d.reference==preferred).ok_or(ServiceError::IntegrityFailure)?)
+            }else{candidate};
+            let root=match candidate {
                 Some(d)=>{verify::document_origin(tx,key,&d.reference).await?;let body=canonical_body(&d)?;verify::root(&body,key,None)?;if body["basis"]==journal::basis(&setup){d}else{journal::fresh_root(&setup,&at)?}},
                 None=>journal::fresh_root(&setup,&at)?,
             };
