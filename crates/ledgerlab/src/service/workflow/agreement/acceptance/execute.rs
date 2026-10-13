@@ -23,6 +23,8 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
         "UNSUPPORTED_SCHEMA_PROFILE",
     )?;
     let key = req.key();
+    #[cfg(test)]
+    eprintln!("ACCEPT-DIAG {} before begin writer", key.operation_id);
     let mut tx = ledger
         .store
         .begin(deadline())
@@ -65,7 +67,11 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
             }
             return Ok((original, false));
         }
+        #[cfg(test)]
+        verify::diagnostic_checkpoint(&format!("{} before fresh preparation", key.operation_id));
         let append = prepare::fresh(ledger, &mut tx, &req).await?;
+        #[cfg(test)]
+        verify::diagnostic_checkpoint(&format!("{} before append", key.operation_id));
         tx.workflow_agreement_append(&append).await.map_err(|e| {
             if matches!(e, crate::store::errors::StoreError::DeliveryConflict) {
                 reject("SEMANTIC_CONFLICT")
@@ -73,10 +79,18 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                 crate::service::store_error(e)
             }
         })?;
-        Ok((
-            verify::retained(&mut tx, key, &append.operation).await?,
-            true,
-        ))
+        #[cfg(test)]
+        verify::diagnostic_checkpoint(&format!(
+            "{} before retained after append",
+            key.operation_id
+        ));
+        let verified = verify::retained(&mut tx, key, &append.operation).await?;
+        #[cfg(test)]
+        verify::diagnostic_checkpoint(&format!(
+            "{} retained after append complete",
+            key.operation_id
+        ));
+        Ok((verified, true))
     }
     .await;
     match attempted {

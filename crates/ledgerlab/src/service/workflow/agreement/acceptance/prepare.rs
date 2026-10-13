@@ -47,6 +47,8 @@ pub(super) async fn fresh(
     tx: &mut SqliteTx,
     req: &request::Request,
 ) -> Result<JournalAppend> {
+    #[cfg(test)]
+    let begun = std::time::Instant::now();
     require(
         req.kind() == "agreement.accept",
         "UNSUPPORTED_SCHEMA_PROFILE",
@@ -65,8 +67,14 @@ pub(super) async fn fresh(
     let publication_ref: RecordRef =
         serde_json::from_value(req.payload()["publication_ref"].clone())
             .map_err(|_| reject("INVALID_REFERENCE"))?;
+    #[cfg(test)]
+    phase(key, "before original publication", begun);
     let publication = context::observe_publication(tx, key, &publication_ref).await?;
+    #[cfg(test)]
+    phase(key, "before private normalization", begun);
     let (input, definitions, private) = normalized(tx, req, &publication).await?;
+    #[cfg(test)]
+    phase(key, "private normalization complete", begun);
     let payload = input.value()?;
     let semantic_key = records::bytes(&json!([
         input.customer(),
@@ -118,6 +126,8 @@ pub(super) async fn fresh(
         "STALE_REVISION",
     )?;
     let mut predecessors = vec![];
+    #[cfg(test)]
+    phase(key, "before prior head proof", begun);
     if let Some(head) = &head {
         verify::document_origin(tx, key, &head.transition).await?;
         let prior = loaded(tx, key, &head.transition).await?;
@@ -133,7 +143,11 @@ pub(super) async fn fresh(
         )?;
         predecessors = verify::authenticated_closure(tx, key, &[head.transition.clone()]).await?;
     }
+    #[cfg(test)]
+    phase(key, "before current admission proof", begun);
     let admitted = authority::check(ledger, tx, key, &input, &definitions, &private).await?;
+    #[cfg(test)]
+    phase(key, "current admission proof complete", begun);
     let root = journal::fresh_root(&admitted.setup, &admitted.at)?;
     let source = admitted
         .source
@@ -205,4 +219,14 @@ pub(super) async fn fresh(
             projection: built.projection,
         },
     )
+}
+
+#[cfg(test)]
+fn phase(key: &super::super::super::request::OperationKey, label: &str, begun: std::time::Instant) {
+    eprintln!(
+        "ACCEPT-DIAG {} prepare {label} elapsed_ms={}",
+        key.operation_id,
+        begun.elapsed().as_millis()
+    );
+    verify::diagnostic_checkpoint(&format!("{} prepare {label}", key.operation_id));
 }

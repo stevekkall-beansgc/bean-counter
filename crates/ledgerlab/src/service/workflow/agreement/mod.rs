@@ -74,6 +74,8 @@ async fn loaded(
     key: &super::request::OperationKey,
     r: &RecordRef,
 ) -> Result<Document> {
+    #[cfg(test)]
+    verify::count_document_load(r);
     tx.workflow_document(r, &key.logical_store_id, &key.scope[0], &key.scope[1], None)
         .await
         .map_err(crate::service::store_error)?

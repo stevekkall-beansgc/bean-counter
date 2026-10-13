@@ -327,11 +327,28 @@ async fn captured_agreement_public_two_customers_accept_original_recovery_and_re
     let mut last = a.clone();
     let mut last_receipt = accepted_a.clone();
     for version in 2..=5 {
+        eprintln!("ACCEPT-DIAG successor{version} before prerequisite proofs");
         last = successor(&ledger, &a, version, &context).await;
-        last_receipt = ledger
-            .agreement(&records::bytes(&last).unwrap())
-            .await
-            .unwrap();
+        eprintln!("ACCEPT-DIAG successor{version} before agreement");
+        let begun = std::time::Instant::now();
+        let (result, origins, work) =
+            verify::audit_work(ledger.agreement(&records::bytes(&last).unwrap())).await;
+        let mut named: Vec<_> = origins
+            .iter()
+            .map(|(identity, count)| {
+                (
+                    super::super::super::request::OperationKey::parse(identity)
+                        .unwrap()
+                        .operation_id,
+                    *count,
+                )
+            })
+            .collect();
+        named.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        eprintln!("ACCEPT-DIAG successor{version} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} document_origin_total={} selected_loaded_helper_total={}",
+            begun.elapsed().as_millis(),result.as_ref().map(|_|"ok"),origins.values().sum::<usize>(),named,
+            work.publications.values().sum::<usize>(),work.document_origins.values().sum::<usize>(),work.helper_document_loads.values().sum::<usize>());
+        last_receipt = result.unwrap();
     }
     let mut tx = ledger
         .store

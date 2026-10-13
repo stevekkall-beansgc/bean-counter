@@ -21,6 +21,63 @@ pub(super) async fn audit_origins<T>(
         .await
 }
 #[cfg(test)]
+#[derive(Clone, Debug, Default)]
+pub(super) struct WorkCounts {
+    pub(super) publications: std::collections::BTreeMap<Vec<u8>, usize>,
+    pub(super) document_origins: std::collections::BTreeMap<String, usize>,
+    pub(super) helper_document_loads: std::collections::BTreeMap<String, usize>,
+}
+#[cfg(test)]
+tokio::task_local! { static WORK_COUNTS: std::cell::RefCell<WorkCounts>; }
+#[cfg(test)]
+pub(super) async fn audit_work<T>(
+    future: impl std::future::Future<Output = Result<T>>,
+) -> (
+    Result<T>,
+    std::collections::BTreeMap<Vec<u8>, usize>,
+    WorkCounts,
+) {
+    WORK_COUNTS
+        .scope(std::cell::RefCell::new(WorkCounts::default()), async {
+            ORIGIN_COUNTS
+                .scope(
+                    std::cell::RefCell::new(std::collections::BTreeMap::new()),
+                    async {
+                        let value = future.await;
+                        (
+                            value,
+                            ORIGIN_COUNTS.with(|counts| counts.borrow().clone()),
+                            WORK_COUNTS.with(|counts| counts.borrow().clone()),
+                        )
+                    },
+                )
+                .await
+        })
+        .await
+}
+#[cfg(test)]
+pub(super) fn diagnostic_checkpoint(label: &str) {
+    let _ = WORK_COUNTS.try_with(|counts| {
+        let counts = counts.borrow();
+        eprintln!(
+            "ACCEPT-DIAG {label} publications={} document_origins={} helper_document_loads={}",
+            counts.publications.values().sum::<usize>(),
+            counts.document_origins.values().sum::<usize>(),
+            counts.helper_document_loads.values().sum::<usize>()
+        );
+    });
+}
+#[cfg(test)]
+pub(super) fn count_document_load(reference: &RecordRef) {
+    let _ = WORK_COUNTS.try_with(|counts| {
+        *counts
+            .borrow_mut()
+            .helper_document_loads
+            .entry(reference.id.clone())
+            .or_default() += 1;
+    });
+}
+#[cfg(test)]
 fn count_origin(identity: &[u8]) {
     let _ = ORIGIN_COUNTS.try_with(|counts| {
         *counts.borrow_mut().entry(identity.to_vec()).or_default() += 1;
@@ -637,6 +694,16 @@ async fn verify_publication_origin(
     identity: &[u8],
     sequence: i64,
 ) -> Result<()> {
+    #[cfg(test)]
+    {
+        let _ = WORK_COUNTS.try_with(|counts| {
+            *counts
+                .borrow_mut()
+                .publications
+                .entry(identity.to_vec())
+                .or_default() += 1;
+        });
+    }
     let saved_key = origin_key(identity, key)?;
     let origin = tx
         .workflow_lookup(identity)
@@ -657,6 +724,16 @@ pub(super) async fn document_origin(
     key: &OperationKey,
     reference: &RecordRef,
 ) -> Result<()> {
+    #[cfg(test)]
+    {
+        let _ = WORK_COUNTS.try_with(|counts| {
+            *counts
+                .borrow_mut()
+                .document_origins
+                .entry(reference.id.clone())
+                .or_default() += 1;
+        });
+    }
     let (identity, kind, sequence) = tx
         .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
         .await
