@@ -1,0 +1,99 @@
+{
+  "schema": "ledger-workflow-candidate-registry/1",
+  "status": "unfrozen-partial",
+  "contract": "workflow/1",
+  "operation_schema": "ledger-operation/1",
+  "receipt_schema": "ledger-operation-receipt/2",
+  "operations": [
+    {
+      "kind": "policy.publish",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "PolicyPublish"
+      ],
+      "recipe": "publication inline/retained immutable source closure",
+      "heads": []
+    },
+    {
+      "kind": "agreement.accept",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "AgreementAccept"
+      ],
+      "recipe": "publication original context schema plus catalog/instantiation/authority/assent",
+      "heads": [
+        "agreement_acceptance"
+      ]
+    },
+    {
+      "kind": "agreement.activate",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "AgreementActivate",
+        "AgreementActivationReplace"
+      ],
+      "recipe": "exact accepted binding and replaced transition",
+      "heads": [
+        "agreement_activation"
+      ]
+    },
+    {
+      "kind": "agreement.revoke",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "AgreementRevoke"
+      ],
+      "recipe": "exact accepted binding and original transition",
+      "heads": [
+        "agreement_activation"
+      ]
+    },
+    {
+      "kind": "work.accept",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "Work"
+      ],
+      "recipe": "direct product/policy/schema/binding/stage refs; no current head normalization",
+      "heads": []
+    },
+    {
+      "kind": "quantity.correct",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "QuantityCorrection"
+      ],
+      "recipe": "original work/field and dependent decisions; original descriptors",
+      "heads": []
+    },
+    {
+      "kind": "outcome.submit",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "OutcomeSubmit"
+      ],
+      "recipe": "original target/family original trigger schema; compare explicit refs",
+      "heads": []
+    },
+    {
+      "kind": "outcome.correct",
+      "exposure": "external",
+      "runtime_supported": false,
+      "payloads": [
+        "OutcomeCorrect"
+      ],
+      "recipe": "original claim/target/family; original trigger schema",
+      "heads": []
+    }
+  ],
+  "status_input": "OperationKey",
+  "status_output": "OperationStatus",
+  "error_schema": "ErrorCode"
+}

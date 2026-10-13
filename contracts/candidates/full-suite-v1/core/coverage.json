@@ -1,0 +1,40 @@
+{
+  "status": "partial-transcription-not-frozen",
+  "shape_present": [
+    "product",
+    "fact-schema",
+    "slot-template",
+    "slot-catalog",
+    "slot-instantiation",
+    "policy",
+    "binding",
+    "accepted-context",
+    "source-grant",
+    "offer",
+    "compiler-descriptor",
+    "compiled-plan",
+    "publication",
+    "head-transition",
+    "operation-envelope",
+    "receipt",
+    "request-evidence",
+    "descriptor-resolution",
+    "status",
+    "error"
+  ],
+  "operation_payloads_present": [
+    "policy.publish",
+    "agreement.accept",
+    "agreement.activate",
+    "agreement.revoke",
+    "work.accept",
+    "quantity.correct",
+    "outcome.submit",
+    "outcome.correct"
+  ],
+  "semantic_freeze": false,
+  "full_draft202012_validation": "passed jsonschema4.26.0 metaschema and7 shape fixtures; semantic freeze pending",
+  "full_canonical_journal": "missing",
+  "all_mode_compiler_fixture": "missing",
+  "remaining_required": "See normative-amendment.md Remaining blockers; no Wave2 completion claim."
+}

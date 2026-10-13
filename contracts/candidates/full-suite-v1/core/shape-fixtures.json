@@ -1,0 +1,176 @@
+[
+  {
+    "name": "declared integer fact schema",
+    "definition": "FactSchema",
+    "value": {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "example.report:facts",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "example.report:pages",
+          "required": true,
+          "type": {
+            "kind": "integer",
+            "min": "0",
+            "max": "100",
+            "unit": "example.report:page"
+          },
+          "provenance": {
+            "kind": "caller"
+          }
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "unknown schema field",
+    "definition": "FactSchema",
+    "value": {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "example.report:facts",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "example.report:pages",
+          "required": true,
+          "type": {
+            "kind": "integer",
+            "min": "0",
+            "max": "100",
+            "unit": "example.report:page"
+          },
+          "provenance": {
+            "kind": "caller"
+          }
+        }
+      ],
+      "extra": true
+    },
+    "valid": false
+  },
+  {
+    "name": "explicit null",
+    "definition": "FactSchema",
+    "value": {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "example.report:facts",
+      "version": null,
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "example.report:pages",
+          "required": true,
+          "type": {
+            "kind": "integer",
+            "min": "0",
+            "max": "100",
+            "unit": "example.report:page"
+          },
+          "provenance": {
+            "kind": "caller"
+          }
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "business name lacks namespace",
+    "definition": "FactSchema",
+    "value": {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "report",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "example.report:pages",
+          "required": true,
+          "type": {
+            "kind": "integer",
+            "min": "0",
+            "max": "100",
+            "unit": "example.report:page"
+          },
+          "provenance": {
+            "kind": "caller"
+          }
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown fact type",
+    "definition": "FactSchema",
+    "value": {
+      "schema": "ledger-workflow-fact-schema/1",
+      "schema_id": "example.report:facts",
+      "version": "1",
+      "normalization": "ledger-facts-normalization/1",
+      "fields": [
+        {
+          "name": "example.report:pages",
+          "required": true,
+          "type": {
+            "kind": "float",
+            "min": "0",
+            "max": "100",
+            "unit": "example.report:page"
+          },
+          "provenance": {
+            "kind": "caller"
+          }
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "quantity original locator",
+    "definition": "QuantityCorrection",
+    "value": {
+      "schema": "ledger-workflow-quantity-correction/1",
+      "work_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "field": "example.report:pages",
+      "replacement_quantity": "2",
+      "expected_revision": "0",
+      "evidence_refs": [],
+      "fact_proofs": [],
+      "dependent_reversals": []
+    },
+    "valid": true
+  },
+  {
+    "name": "correction cannot substitute current policy",
+    "definition": "QuantityCorrection",
+    "value": {
+      "schema": "ledger-workflow-quantity-correction/1",
+      "work_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "field": "example.report:pages",
+      "replacement_quantity": "2",
+      "expected_revision": "0",
+      "evidence_refs": [],
+      "fact_proofs": [],
+      "dependent_reversals": [],
+      "policy_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "valid": false
+  }
+]

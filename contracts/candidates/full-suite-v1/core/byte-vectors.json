@@ -1,0 +1,50 @@
+[
+  {
+    "label": "fact document",
+    "authorship": "candidate author, independent comparison pending",
+    "frame": "bean-counter/workflow-document/1",
+    "value": [
+      "ledger-workflow-fact-schema/1",
+      {
+        "schema": "ledger-workflow-fact-schema/1",
+        "schema_id": "example.report:facts",
+        "version": "1",
+        "normalization": "ledger-facts-normalization/1",
+        "fields": [
+          {
+            "name": "example.report:pages",
+            "required": true,
+            "type": {
+              "kind": "integer",
+              "min": "0",
+              "max": "100",
+              "unit": "example.report:page"
+            },
+            "provenance": {
+              "kind": "caller"
+            }
+          }
+        ]
+      }
+    ],
+    "canonical_utf8_hex": "5b226c65646765722d776f726b666c6f772d666163742d736368656d612f31222c7b226669656c6473223a5b7b226e616d65223a226578616d706c652e7265706f72743a7061676573222c2270726f76656e616e6365223a7b226b696e64223a2263616c6c6572227d2c227265717569726564223a747275652c2274797065223a7b226b696e64223a22696e7465676572222c226d6178223a22313030222c226d696e223a2230222c22756e6974223a226578616d706c652e7265706f72743a70616765227d7d5d2c226e6f726d616c697a6174696f6e223a226c65646765722d66616374732d6e6f726d616c697a6174696f6e2f31222c22736368656d61223a226c65646765722d776f726b666c6f772d666163742d736368656d612f31222c22736368656d615f6964223a226578616d706c652e7265706f72743a6661637473222c2276657273696f6e223a2231227d5d",
+    "sha256": "87eb25e3e7c311768d6eddd60b392e8e38a5600838a73556846bedf5c8b8303f"
+  },
+  {
+    "label": "work claim stable across policy",
+    "authorship": "candidate author, independent comparison pending",
+    "frame": "bean-counter/workflow-work-claim/1",
+    "value": [
+      "store-demo",
+      [
+        "demo",
+        "sandbox"
+      ],
+      "urn:demo:app",
+      "job-001",
+      "completion"
+    ],
+    "canonical_utf8_hex": "5b2273746f72652d64656d6f222c5b2264656d6f222c2273616e64626f78225d2c2275726e3a64656d6f3a617070222c226a6f622d303031222c22636f6d706c6574696f6e225d",
+    "sha256": "240e26281cfce0db1f859a260b575eab377568cab57b45dbca90ec6d8ebfa293"
+  }
+]
