@@ -1,0 +1,7 @@
+{
+  "status": "independent source-only oracle copied verbatim; not actual build qualification",
+  "expected_sha256": "06abec5977d6ee9a782ee1588f0cb7dbd933018c3cedb4547c98234c86da7138",
+  "original_generator_sha256": "1c3919790226b4ef2b401f2ca9e62e44f5a80640f47a5523508c1981a6e8a6e8",
+  "portable_changes": "input paths and final read-only comparison only; arithmetic/hash/body assembly unchanged",
+  "reviewer": "/root/adversarial_money"
+}
