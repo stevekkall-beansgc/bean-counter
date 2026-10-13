@@ -3,6 +3,7 @@ mod journal;
 mod request;
 mod service;
 mod source;
+pub(super) mod transport;
 mod verify;
 use super::{Result, ServiceError, records, reject, require};
 use crate::store::sqlite::{

@@ -85,10 +85,72 @@ pub(super) fn assemble(
     sequence: i64,
     root: Document,
     documents: Vec<Document>,
+    results: Vec<RecordRef>,
+    semantic_key: Vec<u8>,
+    alias_of: Option<Vec<u8>>,
+    projection: Projection,
+) -> Result<JournalAppend> {
+    assemble_recipe(
+        req,
+        evidence,
+        setup,
+        at,
+        sequence,
+        root,
+        documents,
+        results,
+        semantic_key,
+        alias_of,
+        projection,
+        None,
+    )
+}
+/// The source recipe is selected by the compiled coordinator; neither schema
+/// nor alias classification is taken from an external prepared journal.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn assemble_definition(
+    req: &request::Request,
+    evidence: Value,
+    setup: &Setup,
+    at: &Timestamp,
+    sequence: i64,
+    root: Document,
+    documents: Vec<Document>,
+    results: Vec<RecordRef>,
+    semantic_key: Vec<u8>,
+    alias_of: Option<Vec<u8>>,
+    projection: Projection,
+    semantic_alias: bool,
+) -> Result<JournalAppend> {
+    assemble_recipe(
+        req,
+        evidence,
+        setup,
+        at,
+        sequence,
+        root,
+        documents,
+        results,
+        semantic_key,
+        alias_of,
+        projection,
+        Some(semantic_alias),
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn assemble_recipe(
+    req: &request::Request,
+    evidence: Value,
+    setup: &Setup,
+    at: &Timestamp,
+    sequence: i64,
+    root: Document,
+    documents: Vec<Document>,
     mut results: Vec<RecordRef>,
     semantic_key: Vec<u8>,
     alias_of: Option<Vec<u8>>,
     projection: Projection,
+    source_alias: Option<bool>,
 ) -> Result<JournalAppend> {
     let key = req.key();
     if canonical_body(&root)?["basis"] != basis(setup) {
@@ -114,10 +176,9 @@ pub(super) fn assemble(
     let mut members: Vec<_> = documents.iter().map(|d| d.reference.clone()).collect();
     members.push(operation_ref.clone());
     records::sort_refs(&mut members)?;
-    let manifest =
-        json!({"schema":"ledger-workflow-agreement-manifest/1","key":key,"members":members});
+    let manifest = json!({"schema":if source_alias.is_some(){"ledger-workflow-definition-manifest/1"}else{"ledger-workflow-agreement-manifest/1"},"key":key,"members":members});
     let manifest_ref = records::record_reference("workflow-manifest", &key.scope, &manifest)?;
-    let mut receipt = json!({"schema":"ledger-operation-receipt/2","key":key,"request_hash":evidence["request_hash"],"request_hash_profile":"bean-counter/operation-request/2","normalization_profile":"ledger-operation-normalization/2","schema_bundle_digest":evidence["schema_bundle_digest"],"descriptor_closure_digest":evidence["descriptor_resolution"]["closure_digest"],"original_request_bytes_sha256":evidence["original_request_bytes_sha256"],"result_kind":if alias_of.is_some(){"semantic_alias"}else{"administrative"},"result_refs":results,"accepted_at":at,"commit_sequence":sequence.to_string(),"manifest_hash":manifest_ref.digest});
+    let mut receipt = json!({"schema":"ledger-operation-receipt/2","key":key,"request_hash":evidence["request_hash"],"request_hash_profile":"bean-counter/operation-request/2","normalization_profile":"ledger-operation-normalization/2","schema_bundle_digest":evidence["schema_bundle_digest"],"descriptor_closure_digest":evidence["descriptor_resolution"]["closure_digest"],"original_request_bytes_sha256":evidence["original_request_bytes_sha256"],"result_kind":if source_alias.unwrap_or(alias_of.is_some()){"semantic_alias"}else{"administrative"},"result_refs":results,"accepted_at":at,"commit_sequence":sequence.to_string(),"manifest_hash":manifest_ref.digest});
     receipt["receipt_hash"] = json!(records::hash("operation-receipt", 2, &receipt)?);
     let receipt_ref = records::record_reference("workflow-receipt", &key.scope, &receipt)?;
     let operation = JournalOperation {

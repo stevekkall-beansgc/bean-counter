@@ -5,6 +5,7 @@ use ledgerlab_core::canonical::CanonicalBytes;
 use serde_json::json;
 use sqlx::Row;
 use tokio::time::timeout_at;
+pub(crate) mod transport;
 
 #[derive(Clone, Debug)]
 pub(crate) struct JournalOperation {
@@ -35,6 +36,8 @@ pub(crate) struct JournalAppend {
 }
 pub(crate) enum Projection {
     None,
+    Definition(super::RegistryEntry),
+    Fragment(transport::Part),
     Customer {
         customer: String,
         document: String,
@@ -377,6 +380,24 @@ impl SqliteTx {
         }
         match &p.projection {
             Projection::None => {}
+            Projection::Definition(entry) => {
+                self.workflow_transport_insert_definition(
+                    &p.store,
+                    &[p.tenant.clone(), p.environment.clone()],
+                    &p.source,
+                    entry,
+                )
+                .await?;
+            }
+            Projection::Fragment(part) => {
+                self.workflow_transport_insert_part(
+                    &p.store,
+                    &[p.tenant.clone(), p.environment.clone()],
+                    &p.source,
+                    part,
+                )
+                .await?;
+            }
             Projection::Customer { customer, document } => {
                 sqlx::query("INSERT INTO workflow_customer_registrations VALUES(?,?,?,?,?)")
                     .bind(&p.store)

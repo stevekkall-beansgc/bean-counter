@@ -65,6 +65,9 @@ impl LocalWorkflowLedger {
     /// The private owner capability supplies administration, never assent.
     pub async fn prerequisite(&self, raw: &[u8]) -> Result<Value> {
         let req = request::Request::parse(raw)?;
+        if transport::selected(req.payload()) {
+            return transport::service::execute(self, req).await;
+        }
         let key = req.key();
         let mut tx = self
             .store

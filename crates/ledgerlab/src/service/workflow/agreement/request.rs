@@ -40,7 +40,13 @@ impl Request {
             .and_then(Value::as_str)
             .ok_or_else(|| reject("INVALID_SHAPE"))?;
         let valid = match outer.kind.as_str() {
-            "evidence.retain" => schema == "ledger-workflow-evidence-retain/1",
+            "evidence.retain" => matches!(
+                schema,
+                "ledger-workflow-evidence-retain/1"
+                    | "ledger-workflow-definition-retain/1"
+                    | "ledger-workflow-definition-fragment/1"
+                    | "ledger-workflow-definition-finalize/1"
+            ),
             "authority.change" => matches!(
                 schema,
                 "ledger-workflow-customer-register/1"

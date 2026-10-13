@@ -265,10 +265,10 @@ fn checked(raw: &[u8], limit: usize) -> Result<Value> {
     }
     Ok(v)
 }
-struct LocalCertificate {
-    value: Value,
-    documents: Vec<Document>,
-    original: Option<Vec<u8>>,
+pub(super) struct LocalCertificate {
+    pub(super) value: Value,
+    pub(super) documents: Vec<Document>,
+    pub(super) original: Option<Vec<u8>>,
 }
 
 // This checks one complete certificate without recursively trusting origins.
@@ -542,7 +542,13 @@ pub(super) async fn retained(
                 .ok_or(ServiceError::IntegrityFailure)?
         };
         let saved_key = origin_key(&operation.identity, key)?;
-        let certificate = retained_local(tx, &saved_key, &operation).await?;
+        let parsed = checked(&operation.operation_bytes, 8 * 1024 * 1024)?;
+        let certificate =
+            if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
+                transport::certificate::retained_local(tx, &saved_key, &operation).await?
+            } else {
+                retained_local(tx, &saved_key, &operation).await?
+            };
         let is_original = certificate.original.is_none();
         if must_be_original && !is_original {
             return Err(ServiceError::IntegrityFailure);
