@@ -2,10 +2,14 @@
 //! authenticate an actor, select a schedule, or confer append permission.
 use super::super::request::OperationKey;
 use super::*;
+mod authority;
+mod certificate;
 pub(super) mod schedule;
 use crate::store::sqlite::workflow::agreement::acceptance::{
     ActivationAction, ActivationProjection, AgreementHead,
 };
+pub(super) use authority::{source_observation, stop_evidence_dependencies, verify_capture};
+pub(super) use certificate::retained_local;
 use ledgerlab_core::policy::workflow::AgreementRef;
 
 pub(super) struct TransitionMetadata<'a> {

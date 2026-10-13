@@ -140,3 +140,67 @@ fn competing_pending_wrong_target_and_replacement_at_boundary_refuse() {
     );
     assert!(check_next(&history, &late).is_err());
 }
+fn stop(history: &[Transition], accepted: u8, target: &RecordRef) -> Transition {
+    let previous = history.last().unwrap();
+    let binding = Document {
+        reference: previous.binding.reference.clone(),
+        schema: previous.binding.schema.clone(),
+        bytes: previous.binding.bytes.clone(),
+    };
+    let envelope = json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"agreement.revoke",
+        "key":{"logical_store_id":"fixture-store","scope":["fixture","sandbox"],"source":"urn:fixture:publisher","operation_id":"schedule-stop"},
+        "payload":{"schema":"ledger-workflow-agreement-revoke/1","agreement_id":"agreement-A","accepted_binding_ref":binding.reference,
+            "expected_revision":previous.revision.to_string(),"transition_ref":target,"reason":"explicit local stop",
+            "evidence_refs":[{"kind":"workflow-evidence","id":format!("wdoc_{}","a".repeat(64)),"digest":format!("sha256:{}","a".repeat(64))}]}});
+    let req = request::Request::parse_agreement(&records::bytes(&envelope).unwrap()).unwrap();
+    let p = normalize(&req, &binding).unwrap();
+    let accepted = at(accepted);
+    let prepared = build_records(
+        &req,
+        &p,
+        &TransitionMetadata {
+            key: req.key(),
+            actor: "fixture-admin",
+            at: &accepted,
+            sequence: previous.sequence + 1,
+            binding: &binding,
+            prior: Some(previous.head.reference.clone()),
+            target: Some(target.clone()),
+        },
+    )
+    .unwrap();
+    let mut docs = prepared.documents.into_iter();
+    docs.next();
+    transition(
+        req.key(),
+        "customer-A",
+        "agreement-A",
+        docs.next().unwrap(),
+        docs.next().unwrap(),
+        binding,
+    )
+    .unwrap()
+}
+#[test]
+fn pending_stop_requires_explicit_pending_edge_and_expired_binding_can_stop_without_fallback() {
+    let v1 = make(0, 0, 0, 1, None, None, None);
+    let v2 = make(1, 5, 10, 2, Some(20), Some(v1.head.reference.clone()), None);
+    let mut history = vec![v1, v2];
+    let wrong = stop(&history, 6, &history[0].activation.reference);
+    assert!(check_next(&history, &wrong).is_err());
+    let good = stop(&history, 6, &history[1].activation.reference);
+    check_next(&history, &good).unwrap();
+    history.push(good);
+    assert_eq!(
+        selected_binding(&history, &at(4)).unwrap(),
+        Some(history[0].binding.reference.clone())
+    );
+    for t in [6, 10, 20] {
+        assert_eq!(selected_binding(&history, &at(t)).unwrap(), None);
+    }
+    let v1 = make(0, 0, 0, 1, None, None, None);
+    let v2 = make(1, 5, 10, 2, Some(20), Some(v1.head.reference.clone()), None);
+    let history = vec![v1, v2];
+    let expired_stop = stop(&history, 21, &history[1].activation.reference);
+    check_next(&history, &expired_stop).unwrap();
+}

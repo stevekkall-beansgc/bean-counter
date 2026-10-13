@@ -221,7 +221,22 @@ pub(in crate::service::workflow::agreement) fn check_next(
                 return Err(ServiceError::IntegrityFailure);
             }
         }
-        ActivationAction::Revoke => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+        ActivationAction::Revoke => {
+            if next.effective != next.at {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            let selected = if let Some(pending) = pending.first() {
+                Some(*pending)
+            } else {
+                boundary_at(history, &next.at)?
+            };
+            if selected.is_none_or(|t| {
+                t.action == ActivationAction::Revoke
+                    || Some(&t.activation.reference) != next.target.as_ref()
+            }) {
+                return Err(reject("ACTIVATION_SCHEDULE_CONFLICT"));
+            }
+        }
     }
     Ok(())
 }
