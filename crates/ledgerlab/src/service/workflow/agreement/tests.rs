@@ -624,3 +624,226 @@ fn agreement_assembler_matches_independent_prerequisite_certificates_and_byte_de
         }
     }
 }
+
+fn source_ceiling(customer: &str) -> Value {
+    json!({"principal_id":"example-operator","source":"urn:example:work","canonical_economic_namespace":"urn:example:work","customer_scope":[customer],"operations":["quantity.correct","work.accept"],"product_selectors":[{"names":["test:product"]}],"activity_selectors":[{"names":["test:completed"]}],"link_selectors":[],"source_slots":["test:worker"],"permissions":["correct","read","submit"],"starts_at":"2026-10-12T00:00:00.000000Z","ends_at":"2027-01-01T00:00:00.000000Z"})
+}
+fn result_ref(value: &Value, kind: &str) -> RecordRef {
+    serde_json::from_value(
+        value["receipt"]["result_refs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["kind"] == kind)
+            .unwrap()
+            .clone(),
+    )
+    .unwrap()
+}
+async fn source_inputs(ledger: &LocalWorkflowLedger, customer: &str) -> (RecordRef, RecordRef) {
+    let mut proof = proof_payload();
+    proof["subject"]["customer"] = json!(customer);
+    proof["metadata"]["acceptor"] = json!(customer);
+    let proof = ledger
+        .prerequisite(
+            &records::bytes(&envelope(
+                &format!("{customer}-registration-proof"),
+                "evidence.retain",
+                proof,
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let proof_ref = result_ref(&proof, "workflow-evidence");
+    let registered=ledger.prerequisite(&records::bytes(&envelope(&format!("{customer}-register"),"authority.change",json!({"schema":"ledger-workflow-customer-register/1","action":"customer.register","expected_revision":"0","customer":customer,"acceptor":customer,"registration_evidence_ref":proof_ref}))).unwrap()).await.unwrap();
+    let content = format!(
+        "Explicit test source enrollment material for {customer}; no commercial activation."
+    );
+    let evidence=ledger.prerequisite(&records::bytes(&envelope(&format!("{customer}-source-proof"),"evidence.retain",json!({"schema":"ledger-workflow-evidence-retain/1","purpose":"source_enrollment","subject":{"customer":customer},"media_type":"text/plain;charset=utf-8","content_base64":super::super::publication::base64(content.as_bytes()),"content_sha256":records::raw_hash(content.as_bytes()),"metadata":{"source":"urn:example:work","principal_id":"example-operator"}}))).unwrap()).await.unwrap();
+    (
+        result_ref(&registered, "workflow-customer"),
+        result_ref(&evidence, "workflow-evidence"),
+    )
+}
+#[tokio::test]
+async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen() {
+    let (_dir, path) = installation().await;
+    let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    ledger.enable_profile_b().await.unwrap();
+    let (customer, evidence) = source_inputs(&ledger, "test-source-customer-A").await;
+    let ceiling = source_ceiling("test-source-customer-A");
+    let enrollment = envelope(
+        "source-enroll-A",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"source-enrollment-A","customer_refs":[customer],"ceiling":ceiling,"evidence_ref":evidence}),
+    );
+    let saved = ledger
+        .prerequisite(&records::bytes(&enrollment).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(saved["receipt"]["result_refs"].as_array().unwrap().len(), 3);
+    let e = result_ref(&saved, "workflow-source-enrollment");
+    let initial_grant = result_ref(&saved, "workflow-source-grant");
+    let initial_state = result_ref(&saved, "workflow-source-state");
+    assert!(initial_state.id.starts_with("wsource_"));
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let key =
+        super::super::request::OperationKey::parse(&records::bytes(&enrollment["key"]).unwrap())
+            .unwrap();
+    let body = canonical_body(&loaded(&mut tx, &key, &e).await.unwrap()).unwrap();
+    assert_eq!(body["ceiling"], ceiling);
+    assert_eq!(body["enrolled_by"], "example-operator");
+    assert_eq!(body["installation_mode"], "real_local");
+    let head = tx
+        .workflow_agreement_source_head(&key.logical_store_id, &key.scope, "source-enrollment-A")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(head.revision, 1);
+    assert_eq!(head.grant, Some(initial_grant.id.clone()));
+    assert_eq!(head.state, initial_state.id);
+    tx.rollback().await.unwrap();
+    let mut narrowed = ceiling.clone();
+    narrowed["operations"] = json!(["quantity.correct"]);
+    narrowed["permissions"] = json!(["correct", "read"]);
+    narrowed["ends_at"] = json!("2026-12-01T00:00:00.000000Z");
+    let restrict = envelope(
+        "source-restrict-A",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-restrict/1","action":"source.restrict","enrollment_ref":e,"expected_revision":"1","replacement_ceiling":narrowed}),
+    );
+    let restricted = ledger
+        .prerequisite(&records::bytes(&restrict).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        restricted["receipt"]["result_refs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let mut restore = restrict.clone();
+    restore["key"]["operation_id"] = json!("refuse-rights-restore");
+    restore["payload"]["expected_revision"] = json!("2");
+    restore["payload"]["replacement_ceiling"] = ceiling.clone();
+    assert!(
+        matches!(ledger.prerequisite(&records::bytes(&restore).unwrap()).await,Err(ServiceError::Rejection(code)) if code=="SOURCE_CEILING_EXCEEDED")
+    );
+    let mut stale = restore.clone();
+    stale["key"]["operation_id"] = json!("refuse-stale-source-state");
+    stale["payload"]["expected_revision"] = json!("9");
+    assert!(
+        matches!(ledger.prerequisite(&records::bytes(&stale).unwrap()).await,Err(ServiceError::Rejection(code)) if code=="STALE_REVISION")
+    );
+    let revoke = envelope(
+        "source-revoke-A",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-revoke/1","action":"source.revoke","enrollment_ref":e,"expected_revision":"2","reason":"Explicit test revoke of future source admissions."}),
+    );
+    let revoked = ledger
+        .prerequisite(&records::bytes(&revoke).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        revoked["receipt"]["result_refs"].as_array().unwrap().len(),
+        1
+    );
+    let mut after_revoke = restore;
+    after_revoke["key"]["operation_id"] = json!("refuse-reenable-source");
+    after_revoke["payload"]["expected_revision"] = json!("3");
+    assert!(
+        matches!(ledger.prerequisite(&records::bytes(&after_revoke).unwrap()).await,Err(ServiceError::Rejection(code)) if code=="AUTHORITY_REQUIRED")
+    );
+    for (original, value, id) in [
+        (&enrollment, &saved, "alias-enroll-after-revoke"),
+        (&restrict, &restricted, "alias-restrict-after-revoke"),
+        (&revoke, &revoked, "alias-revoke-after-revoke"),
+    ] {
+        let mut alias = original.clone();
+        alias["key"]["operation_id"] = json!(id);
+        let result = ledger
+            .prerequisite(&records::bytes(&alias).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(result["duplicate_kind"], "semantic");
+        assert_eq!(
+            result["receipt"]["result_refs"],
+            value["receipt"]["result_refs"]
+        );
+        assert_eq!(
+            ledger
+                .prerequisite(&serde_json::to_vec_pretty(original).unwrap())
+                .await
+                .unwrap()["receipt"],
+            value["receipt"]
+        );
+    }
+    let mut changed = enrollment.clone();
+    changed["key"]["operation_id"] = json!("refuse-enrollment-ceiling-rewrite");
+    changed["payload"]["ceiling"]["ends_at"] = json!("2026-12-02T00:00:00.000000Z");
+    assert!(
+        matches!(ledger.prerequisite(&records::bytes(&changed).unwrap()).await,Err(ServiceError::Rejection(code)) if code=="SEMANTIC_CONFLICT")
+    );
+    // Same canonical source can have an independent enrollment for B; its own
+    // customer evidence/ceiling is required and A's state stays revoked.
+    let (b_customer, b_evidence) = source_inputs(&ledger, "test-source-customer-B").await;
+    let b = envelope(
+        "source-enroll-B",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"source-enrollment-B","customer_refs":[b_customer],"ceiling":source_ceiling("test-source-customer-B"),"evidence_ref":b_evidence}),
+    );
+    ledger
+        .prerequisite(&records::bytes(&b).unwrap())
+        .await
+        .unwrap();
+    let mut tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let a_head = tx
+        .workflow_agreement_source_head(&key.logical_store_id, &key.scope, "source-enrollment-A")
+        .await
+        .unwrap()
+        .unwrap();
+    let b_head = tx
+        .workflow_agreement_source_head(&key.logical_store_id, &key.scope, "source-enrollment-B")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (a_head.revision, a_head.status.as_str(), a_head.grant),
+        (3, "revoked", None)
+    );
+    assert_eq!((b_head.revision, b_head.status.as_str()), (1, "active"));
+    let meter = tx.workflow_test_meter().await.unwrap();
+    assert_eq!(meter.operations, 13);
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+    let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(
+        reopened.status(&key.bytes().unwrap()).await.unwrap()["receipt"],
+        saved["receipt"]
+    );
+    assert_eq!(
+        reopened
+            .prerequisite(&records::bytes(&revoke).unwrap())
+            .await
+            .unwrap()["receipt"],
+        revoked["receipt"]
+    );
+    let mut tx = reopened
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), meter);
+    tx.rollback().await.unwrap();
+    reopened.close().await;
+}

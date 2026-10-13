@@ -236,6 +236,20 @@ impl SqliteTx {
         }
         result
     }
+    pub(crate) async fn workflow_agreement_namespace(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        source: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT canonical_economic_namespace FROM workflow_source_namespaces WHERE logical_store_id=? AND tenant=? AND environment=? AND source=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(source).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
     /// Only the trusted coordinator can construct this crate-private append.
     /// Cancellation or any failed insert poisons the entire transaction.
     pub(crate) async fn workflow_agreement_append(

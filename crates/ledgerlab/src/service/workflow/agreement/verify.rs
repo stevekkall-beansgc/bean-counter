@@ -124,6 +124,33 @@ fn dependencies(body: &Value, kind: &str, key: &OperationKey) -> Result<Vec<Reco
                 parse_ref(&body["authority_ref"])?,
             ])
         }
+        "workflow-source-enrollment" => {
+            let e =
+                ledgerlab_core::policy::workflow::SourceEnrollment::parse(&records::bytes(body)?)
+                    .map_err(|_| ServiceError::IntegrityFailure)?;
+            if e.scope() != &key.scope {
+                return Err(ServiceError::IntegrityFailure);
+            }
+            let mut refs: Vec<RecordRef> = serde_json::from_value(body["customer_refs"].clone())
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            refs.push(parse_ref(&body["evidence_ref"])?);
+            refs.push(parse_ref(&body["authority_ref"])?);
+            Ok(refs)
+        }
+        "workflow-source-grant" => {
+            ledgerlab_core::policy::workflow::SourceGrant::parse(&records::bytes(body)?)
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            Ok(vec![parse_ref(&body["original_ceiling_ref"])?])
+        }
+        "workflow-source-state" => {
+            let mut refs = vec![parse_ref(&body["enrollment_ref"])?];
+            for field in ["current_grant_ref", "prior_state_ref"] {
+                if let Some(v) = body.get(field) {
+                    refs.push(parse_ref(v)?);
+                }
+            }
+            Ok(refs)
+        }
         _ => Err(ServiceError::IntegrityFailure),
     }
 }
@@ -216,6 +243,7 @@ pub(super) async fn closure(
             }
         }
     }
+    source::verify_closure(key, &loaded)?;
     Ok(loaded.into_values().collect())
 }
 pub(super) async fn locator_dependencies(
@@ -365,16 +393,7 @@ async fn retained_local(
     }
     let results: Vec<RecordRef> = serde_json::from_value(op["result_refs"].clone())
         .map_err(|_| ServiceError::IntegrityFailure)?;
-    if results.len() != 1
-        || results[0].kind
-            != if o.kind == "evidence.retain" {
-                "workflow-evidence"
-            } else {
-                "workflow-customer"
-            }
-    {
-        return Err(ServiceError::IntegrityFailure);
-    }
+    source::verify_result_kinds(&payload, o.kind.as_str(), &results)?;
     let mut seeds = results.clone();
     seeds.extend(roots.clone());
     for l in journal::locators(&req, &payload)? {
@@ -405,7 +424,7 @@ async fn retained_local(
             return Err(ServiceError::IntegrityFailure);
         }
         evidence_identity(key, &input)?
-    } else {
+    } else if payload["action"] == "customer.register" {
         if body["customer"] != payload["customer"]
             || body["acceptor"] != payload["acceptor"]
             || body["evidence_ref"] != payload["registration_evidence_ref"]
@@ -413,6 +432,8 @@ async fn retained_local(
             return Err(ServiceError::IntegrityFailure);
         }
         records::bytes(&json!(["customer.register", body["customer"]]))?
+    } else {
+        source::verify_intent(key, &payload, &results, &docs)?
     };
     let original = tx
         .workflow_agreement_semantic(&key.logical_store_id, &key.scope, &o.kind, &semantic)
@@ -430,21 +451,28 @@ async fn retained_local(
         return Err(ServiceError::IntegrityFailure);
     }
     if !is_alias {
-        let result_time = if o.kind == "evidence.retain" {
-            &body["retained_at"]
-        } else {
-            &body["registered_at"]
-        };
-        let result_actor = if o.kind == "evidence.retain" {
-            &body["retained_by"]
-        } else {
-            &body["registered_by"]
-        };
-        if *result_time != op["accepted_at"]
-            || *result_actor != authority["principal_id"]
-            || body["authority_ref"] != json!(roots[0])
+        if payload["action"]
+            .as_str()
+            .is_some_and(|a| a.starts_with("source."))
         {
-            return Err(ServiceError::IntegrityFailure);
+            source::verify_original(key, &payload, &results, &docs, &op, authority, &roots[0])?;
+        } else {
+            let result_time = if o.kind == "evidence.retain" {
+                &body["retained_at"]
+            } else {
+                &body["registered_at"]
+            };
+            let result_actor = if o.kind == "evidence.retain" {
+                &body["retained_by"]
+            } else {
+                &body["registered_by"]
+            };
+            if *result_time != op["accepted_at"]
+                || *result_actor != authority["principal_id"]
+                || body["authority_ref"] != json!(roots[0])
+            {
+                return Err(ServiceError::IntegrityFailure);
+            }
         }
     } else {
         let old = tx

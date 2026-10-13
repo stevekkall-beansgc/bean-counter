@@ -2,6 +2,7 @@
 mod journal;
 mod request;
 mod service;
+mod source;
 mod verify;
 use super::{Result, ServiceError, records, reject, require};
 use crate::store::sqlite::{
@@ -39,10 +40,24 @@ fn canonical_body(d: &Document) -> Result<Value> {
     };
     let body =
         canonical::parse_bounded(&d.bytes, limit).map_err(|_| ServiceError::IntegrityFailure)?;
-    if records::bytes(&body)? != d.bytes
-        || records::source_document(&d.reference.kind, body.clone())?.reference != d.reference
-        || body["schema"] != d.schema
-    {
+    let identity_matches = if d.reference.kind == "workflow-source-state" {
+        // Its semantic ID additionally depends on the resolved enrollment.
+        // SourceState::parse below verifies that ID once the closure is loaded.
+        d.reference.digest
+            == records::hash(
+                "workflow-record",
+                1,
+                &json!([d.reference.kind, body["operation_key"]["scope"], body]),
+            )?
+            && d.reference.id.strip_prefix("wsource_").is_some_and(|s| {
+                s.len() == 64
+                    && s.bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+    } else {
+        records::source_document(&d.reference.kind, body.clone())?.reference == d.reference
+    };
+    if records::bytes(&body)? != d.bytes || !identity_matches || body["schema"] != d.schema {
         return Err(ServiceError::IntegrityFailure);
     }
     Ok(body)

@@ -47,6 +47,7 @@ fn normalized(req: &request::Request) -> Result<Value> {
             )?;
             serde_json::to_value(r).map_err(|_| ServiceError::IntegrityFailure)
         }
+        "authority.change" => source::normalize(req.payload()),
         _ => Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
     }
 }
@@ -88,7 +89,7 @@ impl LocalWorkflowLedger {
                 None=>journal::fresh_root(&setup,&at)?,
             };
             let sequence=tx.workflow_sequence().await.map_err(crate::service::store_error)?;
-            let semantic_key=match req.kind(){"evidence.retain"=>evidence_identity(key,&ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(&payload)?).map_err(typed_error)?)?,_=>records::bytes(&json!(["customer.register",payload["customer"]]))?};
+            let semantic_key=if req.kind()=="evidence.retain" {evidence_identity(key,&ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(&payload)?).map_err(typed_error)?)?} else if payload["action"]=="customer.register" {records::bytes(&json!(["customer.register",payload["customer"]]))?} else if payload["action"]=="source.enroll" {source::semantic(&payload,text(&payload,"enrollment_id")?)?} else {let r:RecordRef=serde_json::from_value(payload["enrollment_ref"].clone()).map_err(|_|ServiceError::IntegrityFailure)?;let e=source::enrollment(&mut tx,key,&r).await?;source::semantic(&payload,e.enrollment_id())?};
             let alias=tx.workflow_agreement_semantic(&key.logical_store_id,&key.scope,req.kind(),&semantic_key).await.map_err(crate::service::store_error)?;
             let (documents,results,projection)=if let Some(identity)=&alias {
                 let original=tx.workflow_agreement_lookup(identity).await.map_err(crate::service::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
@@ -103,14 +104,14 @@ impl LocalWorkflowLedger {
                 let input=ledgerlab_core::policy::workflow::EvidenceInput::parse(&records::bytes(&payload)?).map_err(typed_error)?;
                 validate_evidence_dependencies(&mut tx,key,&input,&setup.operator,mode).await?;
                 let result=evidence_record(&input,&setup.operator,&at,mode,&root.reference)?;let refs=vec![result.reference.clone()];let mut docs=vec![result];docs.extend(verify::locator_dependencies(&mut tx,key,&req,&payload).await?);(docs,refs,Projection::None)
-            }else {
+            }else if payload["action"]=="customer.register" {
                 let registration:Registration=serde_json::from_value(payload.clone()).map_err(|_|ServiceError::IntegrityFailure)?;
                 require(tx.workflow_agreement_customer(&key.logical_store_id,&key.scope,&registration.customer).await.map_err(crate::service::store_error)?.is_none(),"SEMANTIC_CONFLICT")?;
                 verify::document_origin(&mut tx,key,&registration.registration_evidence_ref).await?;let proof=loaded(&mut tx,key,&registration.registration_evidence_ref).await?;let body=canonical_body(&proof)?;let input=evidence_input(&body)?;
                 require(input.purpose()=="customer_registration" && input.customer()==registration.customer && input.metadata()["acceptor"]==registration.acceptor,"AUTHORITY_REQUIRED")?;require(body["installation_mode"]==mode,"INSTALLATION_MODE_MISMATCH")?;
                 let doc=records::source_document("workflow-customer",json!({"schema":"ledger-workflow-customer-registration/1","scope":key.scope,"customer":registration.customer,"acceptor":registration.acceptor,"evidence_ref":registration.registration_evidence_ref,"registered_by":setup.operator,"registered_at":at,"authority_ref":root.reference,"installation_mode":mode}))?;
                 let projection=Projection::Customer{customer:registration.customer,document:doc.reference.id.clone()};let refs=vec![doc.reference.clone()];let mut docs=vec![doc];docs.extend(verify::authenticated_closure(&mut tx,key,&[proof.reference]).await?);(docs,refs,projection)
-            };
+            }else {let prepared=source::prepare(&mut tx,key,&payload,&setup,&at,mode,&root.reference).await?;(prepared.documents,prepared.results,prepared.projection)};
             let evidence=journal::evidence(&req,&payload)?;
             let append=journal::assemble(&req,evidence,&setup,&at,sequence,root,documents,results,semantic_key,alias,projection)?;
             tx.workflow_agreement_append(&append).await.map_err(|e|if matches!(e,crate::store::errors::StoreError::DeliveryConflict){reject("SEMANTIC_CONFLICT")}else{crate::service::store_error(e)})?;
