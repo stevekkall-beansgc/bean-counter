@@ -403,3 +403,106 @@ pub(super) async fn observe_publication(
         source_indices,
     })
 }
+
+/// One independently accepted binding and its original immutable inputs. This
+/// is origin-authenticated data, never a current source or owner capability.
+pub(super) struct ObservedAcceptedBinding {
+    pub(super) accepted: Document,
+    pub(super) binding: Document,
+    pub(super) original: JournalOperation,
+    pub(super) original_key: OperationKey,
+    pub(super) acceptance: replay::AcceptanceData,
+    pub(super) documents: Vec<Document>,
+}
+pub(super) async fn observe_accepted_binding(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    binding_ref: &RecordRef,
+    before_sequence: i64,
+) -> Result<ObservedAcceptedBinding> {
+    require(binding_ref.kind == "workflow-binding", "INVALID_REFERENCE")?;
+    let accepted_ref = tx
+        .workflow_agreement_accepted_binding(&key.logical_store_id, &key.scope, binding_ref)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or_else(|| reject("DESCRIPTOR_DEPENDENCY_MISSING"))?;
+    let (identity, kind, sequence) = tx
+        .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, &accepted_ref)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if kind != "agreement.accept" || sequence >= before_sequence {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let original = tx
+        .workflow_agreement_lookup(&identity)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let original_key =
+        OperationKey::parse(&identity).map_err(|_| ServiceError::IntegrityFailure)?;
+    if original_key.logical_store_id != key.logical_store_id
+        || original_key.scope != key.scope
+        || original.sequence != sequence
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let certificate = Box::pin(verify::retained(tx, &original_key, &original)).await?;
+    if certificate["receipt"]["result_kind"] != "administrative" {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let results: Vec<RecordRef> =
+        serde_json::from_value(certificate["receipt"]["result_refs"].clone())
+            .map_err(|_| ServiceError::IntegrityFailure)?;
+    if !results.contains(&accepted_ref) {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let accepted = loaded(tx, key, &accepted_ref).await?;
+    let body = canonical::parse_bounded(&accepted.bytes, 262144)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let binding = loaded(tx, key, binding_ref).await?;
+    let binding_body = canonical_body(&binding)?;
+    if body["operation_key"] != json!(original_key)
+        || body["binding_ref"] != json!(binding_ref)
+        || body["scope"] != json!(key.scope)
+        || body["customer"] != binding_body["customer"]
+        || body["agreement_id"] != binding_body["agreement_id"]
+        || body["version"] != binding_body["version"]
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let raw = ledgerlab_core::adjudication::proofs::decode_base64(
+        text(
+            &certificate["request_evidence"],
+            "original_request_bytes_base64",
+        )?,
+        262144,
+    )
+    .map_err(|_| ServiceError::IntegrityFailure)?;
+    let req =
+        request::Request::parse_agreement(&raw).map_err(|_| ServiceError::IntegrityFailure)?;
+    let acceptance = replay::acceptance_data(tx, &original_key, &req).await?;
+    let mut documents = vec![];
+    let mut bytes = 0usize;
+    for r in &original.members {
+        if *r == original.operation_ref {
+            continue;
+        }
+        let d = loaded(tx, key, r).await?;
+        bytes = bytes
+            .checked_add(d.bytes.len())
+            .ok_or(ServiceError::IntegrityFailure)?;
+        if bytes > 8388608 || documents.len() >= 4096 {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        documents.push(d);
+    }
+    Ok(ObservedAcceptedBinding {
+        accepted,
+        binding,
+        original,
+        original_key,
+        acceptance,
+        documents,
+    })
+}
