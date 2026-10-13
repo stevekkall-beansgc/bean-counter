@@ -35,6 +35,7 @@ impl AgreementRef {
             | "workflow-customer"
             | "workflow-source-enrollment"
             | "workflow-source-grant"
+            | "workflow-definition-fragment"
             | "workflow-binding"
             | "workflow-roles"
             | "workflow-slot-catalog"

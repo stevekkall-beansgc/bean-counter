@@ -116,6 +116,314 @@ impl DefinitionDocument {
     }
 }
 
+/// One normalized source and its exact typed dependency closure. The host must
+/// authenticate dependency origin/readability; this type creates no retention,
+/// publication, compiled plan or executable capability.
+#[derive(Clone, Debug)]
+pub struct NormalizedDefinition {
+    document: DefinitionDocument,
+    dependencies: Vec<DefinitionDocument>,
+}
+impl NormalizedDefinition {
+    pub fn document(&self) -> &DefinitionDocument {
+        &self.document
+    }
+    pub fn dependencies(&self) -> &[DefinitionDocument] {
+        &self.dependencies
+    }
+    pub fn direct_dependency_refs(&self) -> Result<Vec<DefinitionRef>> {
+        source_dependencies(&self.document)
+    }
+    pub fn descriptor_refs_for(&self, root: &DefinitionRef) -> Result<Vec<DefinitionRef>> {
+        let mut stack = vec![root.clone()];
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        while let Some(reference) = stack.pop() {
+            if !seen.insert(reference.id.clone()) {
+                continue;
+            }
+            let document = std::iter::once(&self.document)
+                .chain(self.dependencies.iter())
+                .find(|d| d.reference() == &reference)
+                .ok_or_else(|| fail("DEFINITION_MISSING", "descriptor source dependency"))?;
+            if matches!(
+                document.kind(),
+                "workflow-fact-schema" | "workflow-compiler-descriptor"
+            ) {
+                out.push(reference);
+            }
+            stack.extend(source_dependencies(document)?);
+        }
+        canonical::sort_set(&mut out)?;
+        Ok(out)
+    }
+}
+
+/// Normalize a single initial source using exact typed dependency data. Broader
+/// policy modes and source ancestry remain explicitly unsupported by this
+/// selected implementation. The support token is code-owned, never supplied by
+/// a retained/request descriptor. This does not compute a compiled plan.
+pub fn normalize_definition(
+    raw: &[u8],
+    dependencies: &[DefinitionDocument],
+    supported: &VerifiedCompilerSupport,
+) -> Result<NormalizedDefinition> {
+    let value = canonical::parse_bounded(raw, 262144)?;
+    reject_null(&value)?;
+    if dependencies.len() > 127 {
+        return Err(fail("DEFINITION_LIMIT", "definition dependencies"));
+    }
+    // Raw root has its own wire bound. The retained dependency budget sums
+    // canonical bodies; equivalent root whitespace must not change that sum.
+    let mut total = 0usize;
+    let mut ids = BTreeSet::new();
+    for dependency in dependencies {
+        if dependency.kind() == "workflow-compiled-plan"
+            || dependency.canonical_bytes().len() > 262144
+            || !ids.insert(dependency.id())
+        {
+            return Err(fail(
+                "DEFINITION_CONFLICT",
+                "invalid/duplicate source dependency",
+            ));
+        }
+        total = total
+            .checked_add(dependency.canonical_bytes().len())
+            .ok_or_else(|| fail("DEFINITION_LIMIT", "definition closure bytes"))?;
+        if total > 1048576 {
+            return Err(fail("DEFINITION_LIMIT", "definition closure bytes"));
+        }
+    }
+    let document = match value["schema"].as_str() {
+        Some("ledger-workflow-fact-schema/1") => DefinitionDocument::document(
+            "workflow-fact-schema",
+            FactSchema::parse(raw)?.canonical_value().clone(),
+        )?,
+        Some("ledger-workflow-compiler-descriptor/1") => {
+            let descriptor = CompilerDescriptor::parse(raw)?;
+            if descriptor.reference() != supported.descriptor.reference()
+                || descriptor.canonical_bytes() != supported.descriptor.canonical_bytes()
+            {
+                return Err(fail(
+                    "UNSUPPORTED_COMPILER_DESCRIPTOR",
+                    "binary-owned descriptor mismatch",
+                ));
+            }
+            descriptor.document
+        }
+        Some("ledger-workflow-slot-template/1") => {
+            if value.get("previous").is_some() {
+                return Err(fail(
+                    "PROGRAM_UNSUPPORTED_PRIMITIVE",
+                    "definition template ancestry not implemented",
+                ));
+            }
+            DefinitionDocument::document(
+                "workflow-slot-template",
+                SlotTemplate::parse(raw, None)?.canonical_value().clone(),
+            )?
+        }
+        Some("ledger-workflow-product/1") => {
+            let facts = dependencies
+                .iter()
+                .filter(|d| d.kind() == "workflow-fact-schema")
+                .map(|d| FactSchema::parse(d.canonical_bytes()))
+                .collect::<Result<Vec<_>>>()?;
+            DefinitionDocument::document(
+                "workflow-product",
+                Product::parse(raw, &facts)?.canonical_value().clone(),
+            )?
+        }
+        Some("ledger-workflow-policy/1") => {
+            let root = DefinitionDocument::document("workflow-policy", normalize_policy(value)?)?;
+            let mut closure: Vec<_> = dependencies
+                .iter()
+                .map(|d| d.canonical_bytes().to_vec())
+                .collect();
+            closure.push(root.canonical_bytes().to_vec());
+            let sources = normalize_publication_sources(&closure, root.reference())?;
+            validate_policy_definition(&sources, supported)?;
+            root
+        }
+        _ => {
+            return Err(fail(
+                "UNSUPPORTED_SCHEMA_PROFILE",
+                "source definition family/private data",
+            ))
+        }
+    };
+    if document.canonical_bytes().len() > 262144 {
+        return Err(fail("DEFINITION_LIMIT", "normalized source bytes"));
+    }
+    if dependencies
+        .iter()
+        .map(|d| d.canonical_bytes().len())
+        .sum::<usize>()
+        + document.canonical_bytes().len()
+        > 1048576
+    {
+        return Err(fail(
+            "DEFINITION_LIMIT",
+            "normalized definition closure bytes",
+        ));
+    }
+    let mut pending = source_dependencies(&document)?;
+    let mut required = BTreeSet::new();
+    while let Some(reference) = pending.pop() {
+        if !required.insert(reference.id.clone()) {
+            continue;
+        }
+        let dependency = dependencies
+            .iter()
+            .find(|d| d.reference() == &reference)
+            .ok_or_else(|| fail("DEFINITION_MISSING", "exact source dependency"))?;
+        pending.extend(source_dependencies(dependency)?);
+    }
+    if required != ids.into_iter().map(str::to_owned).collect() {
+        return Err(fail(
+            "DEFINITION_EXTRA",
+            "exact definition dependency closure",
+        ));
+    }
+    let mut dependencies = dependencies.to_vec();
+    dependencies.sort_by(|a, b| a.canonical_bytes().cmp(b.canonical_bytes()));
+    Ok(NormalizedDefinition {
+        document,
+        dependencies,
+    })
+}
+fn source_dependencies(document: &DefinitionDocument) -> Result<Vec<DefinitionRef>> {
+    let mut refs = Vec::new();
+    let body = document.canonical_value();
+    match document.kind() {
+        "workflow-product" => {
+            for r in body["fact_schemas"]
+                .as_array()
+                .ok_or_else(|| fail("INVALID_SHAPE", "product schema refs"))?
+            {
+                refs.push(canonical::dto(r.clone())?);
+            }
+        }
+        "workflow-policy" => {
+            for key in [
+                "product_ref",
+                "context_schema_ref",
+                "slot_template_ref",
+                "compiler_ref",
+            ] {
+                refs.push(canonical::dto(body[key].clone())?);
+            }
+        }
+        "workflow-fact-schema" | "workflow-slot-template" | "workflow-compiler-descriptor" => (),
+        _ => return Err(fail("DEFINITION_KIND", "source dependency family")),
+    }
+    if body.get("previous").is_some() {
+        return Err(fail(
+            "PROGRAM_UNSUPPORTED_PRIMITIVE",
+            "source ancestry not implemented",
+        ));
+    }
+    canonical::sort_set(&mut refs)?;
+    Ok(refs)
+}
+fn validate_policy_definition(
+    sources: &NormalizedPublicationSources,
+    supported: &VerifiedCompilerSupport,
+) -> Result<()> {
+    if sources.compiler.reference() != supported.descriptor.reference()
+        || sources.compiler.canonical_bytes() != supported.descriptor.canonical_bytes()
+    {
+        return Err(fail(
+            "UNSUPPORTED_COMPILER_DESCRIPTOR",
+            "binary-owned descriptor mismatch",
+        ));
+    }
+    let product = &sources.product;
+    let policy = &sources.policy;
+    let slot = &policy.binding_slots[0];
+    if product.links().next().is_some()
+        || product.units().any(|u| u.normalization().is_some())
+        || product
+            .activities()
+            .any(|a| a.primitive() != Primitive::Work)
+    {
+        return Err(fail(
+            "PROGRAM_UNSUPPORTED_PRIMITIVE",
+            "selected policy source profile",
+        ));
+    }
+    let schemas = product
+        .activities()
+        .map(|a| {
+            product
+                .fact_schema(a.fact_schema_id())
+                .expect("validated schema")
+        })
+        .chain(std::iter::once(&sources.context));
+    for schema in schemas {
+        for field in schema.canonical_value()["fields"]
+            .as_array()
+            .expect("validated fields")
+        {
+            if field["type"]["kind"] != "integer"
+                || field["required"] != true
+                || field["provenance"]["kind"] != "caller"
+                || field["type"]["min"]
+                    .as_str()
+                    .is_some_and(|s| s.starts_with('-'))
+            {
+                return Err(fail(
+                    "PROGRAM_UNSUPPORTED_PRIMITIVE",
+                    "selected integer source profile",
+                ));
+            }
+        }
+    }
+    for activity in &slot.allowed_activities {
+        if product.activity(activity).is_none() {
+            return Err(fail("LINK_ACTIVITY_MISSING", "binding slot activity"));
+        }
+    }
+    let mut producers = BTreeSet::new();
+    for rule in &policy.rules {
+        let activity = product
+            .activity(&rule.activity)
+            .ok_or_else(|| fail("LINK_ACTIVITY_MISSING", "rule activity"))?;
+        if rule.binding_slot != slot.name
+            || !slot.allowed_activities.contains(&rule.activity)
+            || activity
+                .funding_leg()
+                .is_some_and(|leg| leg != slot.funding_leg)
+        {
+            return Err(fail(
+                "PROGRAM_BINDING",
+                "rule binding/work funding mismatch",
+            ));
+        }
+        let component = sources
+            .template
+            .component_named(&rule.component_key, &rule.component_name)?;
+        if component.book() != slot.book || component.root_key() != component.key() {
+            return Err(fail("PROGRAM_COMPONENT", "unit root/book mismatch"));
+        }
+        if !producers.insert((&rule.activity, &rule.component_key)) {
+            return Err(fail(
+                "PROGRAM_DUPLICATE_RULE",
+                "activity/component producer",
+            ));
+        }
+        let schema = product
+            .fact_schema(activity.fact_schema_id())
+            .expect("validated schema");
+        if schema.quantity_unit(&rule.formula.quantity_field)? != rule.formula.unit
+            || rule.formula.normalize_to.is_some()
+        {
+            return Err(fail("UNIT_MISMATCH", "terminal formula/field unit"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DescriptorDto {

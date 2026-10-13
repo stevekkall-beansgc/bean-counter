@@ -12,8 +12,9 @@ pub use product::{
 };
 mod compiler;
 pub use compiler::{
-    compile_publication, normalize_publication_sources, CompilerDescriptor, DefinitionDocument,
-    DefinitionRef, NormalizedPublicationSources, PreparedPublication, VerifiedCompilerSupport,
+    compile_publication, normalize_definition, normalize_publication_sources, CompilerDescriptor,
+    DefinitionDocument, DefinitionRef, NormalizedDefinition, NormalizedPublicationSources,
+    PreparedPublication, VerifiedCompilerSupport,
 };
 
 fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<String> {
@@ -44,3 +45,7 @@ mod enrollment;
 pub use enrollment::SourceEnrollment;
 mod source_state;
 pub use source_state::SourceState;
+mod transport;
+pub use transport::{
+    DefinitionFinalizeInput, DefinitionFragment, DefinitionFragmentInput, SourceRetentionInput,
+};
