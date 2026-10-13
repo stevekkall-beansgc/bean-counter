@@ -1,0 +1,8 @@
+{
+  "status": "independent reviewer fixture copied verbatim; not runtime authority/build qualification",
+  "source": "review-fixtures/publication-runtime-catalog-expected.json",
+  "sha256": "a8259c5010417c7dab0eca0417a87fde1f8d09304ab978344d1188df2b49e7f3",
+  "reviewer": "/root/adversarial_money",
+  "uses_production_oracle": false,
+  "historical_pub_enc_fixture_changed": false
+}

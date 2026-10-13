@@ -393,3 +393,114 @@ fn binary_catalog_narrow_subset_rejects_unused_broader_declarations() {
         );
     }
 }
+
+// Separate independent catalog anchor and source-only plan expectations. These
+// inputs retain synthetic authority/build evidence and qualify only pure compile.
+fn runtime_fixture() -> Value {
+    serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/publication-independent-expected.json")).unwrap()
+}
+
+#[test]
+fn builtin_descriptor_is_derived_from_reviewed_embedded_artifacts() {
+    let expected: Value = serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/independent-expected.json")).unwrap();
+    let support = VerifiedCompilerSupport::builtin().unwrap();
+    assert_eq!(
+        support.descriptor().canonical_bytes(),
+        expected["canonical_utf8"].as_str().unwrap().as_bytes()
+    );
+    assert_eq!(
+        serde_json::to_value(support.descriptor().reference()).unwrap(),
+        expected["ref"]
+    );
+    assert_eq!(
+        support.descriptor().reference().id(),
+        "wdoc_90bf960b3ed89569b1bb6e07ae05339a65a3b045b47b85f1449143d29cf902b2"
+    );
+    let (documents, root, _) = input();
+    error(
+        compile_publication(&documents, &root, &plan_digest(), &support),
+        "UNSUPPORTED_COMPILER_DESCRIPTOR",
+    );
+}
+
+#[test]
+fn builtin_compiler_reproduces_independent_real_catalog_plan_bytes() {
+    let expected = runtime_fixture();
+    let vectors = expected["vectors"].as_array().unwrap();
+    let documents: Vec<_> = vectors[..6]
+        .iter()
+        .map(|v| {
+            v["canonical_body_utf8"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+                .to_vec()
+        })
+        .collect();
+    let root = DefinitionRef::parse(
+        CanonicalBytes::from_value(&vectors[5]["ref"])
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
+    let plan = &vectors[6];
+    let support = VerifiedCompilerSupport::builtin().unwrap();
+    let result = compile_publication(
+        &documents,
+        &root,
+        plan["ref"]["digest"].as_str().unwrap(),
+        &support,
+    )
+    .unwrap();
+    assert_eq!(
+        result.compiled_plan().canonical_bytes(),
+        plan["canonical_body_utf8"].as_str().unwrap().as_bytes()
+    );
+    assert_eq!(
+        serde_json::to_value(result.compiled_plan().reference()).unwrap(),
+        plan["ref"]
+    );
+    assert_eq!(
+        result.compiled_plan().id(),
+        "wplan_be51d43d564750c345eb6894f3f1c0e2d38b28b87716de5ae31d526fb2f2aa8b"
+    );
+    for actual in result.source_documents() {
+        let source = vectors[..6]
+            .iter()
+            .find(|v| v["ref"]["id"] == actual.id())
+            .unwrap();
+        assert_eq!(
+            actual.canonical_bytes(),
+            source["canonical_body_utf8"].as_str().unwrap().as_bytes()
+        );
+    }
+    // Changing caller-advertised catalog data never produces new trusted support.
+    let mut changed: Vec<_> = documents
+        .iter()
+        .map(|b| canonical::parse(b).unwrap())
+        .collect();
+    changed[3]["limits_digest"] =
+        json!("sha256:0000000000000000000000000000000000000000000000000000000000000000");
+    let changed_descriptor =
+        CompilerDescriptor::parse(CanonicalBytes::from_value(&changed[3]).unwrap().as_slice())
+            .unwrap();
+    changed[5]["compiler_ref"] = serde_json::to_value(changed_descriptor.reference()).unwrap();
+    let root = DefinitionDocument::document("workflow-policy", changed[5].clone())
+        .unwrap()
+        .reference()
+        .clone();
+    let changed: Vec<_> = changed
+        .iter()
+        .map(|v| CanonicalBytes::from_value(v).unwrap().into_vec())
+        .collect();
+    normalize_publication_sources(&changed, &root).unwrap();
+    error(
+        compile_publication(
+            &changed,
+            &root,
+            plan["ref"]["digest"].as_str().unwrap(),
+            &support,
+        ),
+        "UNSUPPORTED_COMPILER_DESCRIPTOR",
+    );
+}

@@ -199,13 +199,50 @@ impl CompilerDescriptor {
 }
 
 /// Binary-owned support anchor. There is no public request/DB/config constructor.
-/// The embedded-artifact builtin factory is an integration prerequisite; its
-/// artifacts are authored separately. Synthetic support exists only in tests.
+/// The builtin factory verifies immutable embedded contract artifacts against
+/// the implemented capability set. Synthetic support exists only in tests.
 #[derive(Clone, Debug)]
 pub struct VerifiedCompilerSupport {
     descriptor: CompilerDescriptor,
 }
 impl VerifiedCompilerSupport {
+    /// Derive support exclusively from the artifacts embedded in this binary.
+    /// Request, database and ambient configuration never supply these bytes.
+    pub fn builtin() -> Result<Self> {
+        let limits = canonical::parse(include_bytes!(
+            "../../../../../contracts/candidates/full-suite-v1/core/runtime-support/limits.json"
+        ))?;
+        let mode=canonical::parse(include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/runtime-support/mode-matrix.json"))?;
+        let contract=canonical::parse(include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/runtime-support/contract-profile.json"))?;
+        let expected_limits = json!({"schema":"ledger-workflow-builtin-limits/1","profile":"workflow-limits/1","document_bytes":262144,"source_documents":128,"source_closure_bytes":1048576,"fact_slots":1088,"ast_nodes":256,"predicate_depth":8,"predicate_cells":4096,"rules":64,"graph_hops":16,"loaded_refs":4096,"actions":128,"explanations":256,"canonical_decision_bytes":4194304,"resolved_bytes":8388608,"compile_visits":1048576,"runtime_visits":65536,"max_atoms":"999999999999999999999999999999"});
+        let expected_mode = json!({"schema":"ledger-workflow-builtin-mode-matrix/1","profile":"retail-unit-publication/1","scope":"compile-publication-only","policy_modes":["component_workflow"],"books":["retail"],"phases":["base"],"primitives":["unit/1"],"fact_types":["integer/1"],"predicate_ops":["true/1"],"formula_kinds":["unit/1"],"fact_constraints":["bounded-nonnegative","caller","required"],"activity_primitives":["work"],"excluded":["basis","caps","delayed-cost","families","links","optional-facts","shares","stages","unit-conversion"],"supports_previous_sources":false,"requires_terminal_units":true,"aggregate_proof":"positive-root-maxima-by-activity-book-slot-and-activity-book/1"});
+        if limits != expected_limits || mode != expected_mode {
+            return Err(fail(
+                "UNSUPPORTED_COMPILER_DESCRIPTOR",
+                "embedded catalog differs from implemented support",
+            ));
+        }
+        let files:[(&str,&[u8]);5]=[
+            ("normative-amendment.md",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/normative-amendment.md")),
+            ("publication-boundary.md",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/publication-boundary.md")),
+            ("registry-contract.json",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/registry-contract.json")),
+            ("workflow.schema.json",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/workflow.schema.json")),
+            ("publication-runtime-seams.md",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/publication-runtime-seams.md")),
+        ];
+        let expected_contract = json!({"schema":"ledger-workflow-builtin-contract-profile/1","profile":"PUB-ENC-01+PUB-RUNTIME-SEAMS-01","encoding_files":files[..4].iter().map(|(path,bytes)|json!({"path":path,"sha256":raw_digest(bytes)})).collect::<Vec<_>>(),"semantic_amendment":{"path":files[4].0,"sha256":raw_digest(files[4].1)}});
+        if contract != expected_contract {
+            return Err(fail(
+                "UNSUPPORTED_COMPILER_DESCRIPTOR",
+                "embedded contract profile membership/digests",
+            ));
+        }
+        let descriptor = json!({"schema":"ledger-workflow-compiler-descriptor/1","compiler_semantics":"ledger-policy-compiler/1","evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","facts_normalization":"ledger-facts-normalization/1","operation_normalization":"ledger-operation-normalization/2","limits_profile":"workflow-limits/1","primitive_versions":mode["primitives"],"fact_types":mode["fact_types"],"predicate_ops":mode["predicate_ops"],"formula_kinds":mode["formula_kinds"],"plan_schema":"ledger-workflow-compiled-plan/1","limits_digest":raw_digest(CanonicalBytes::from_value(&limits)?.as_slice()),"mode_matrix_digest":raw_digest(CanonicalBytes::from_value(&mode)?.as_slice()),"contract_manifest_digest":raw_digest(CanonicalBytes::from_value(&contract)?.as_slice())});
+        Ok(Self {
+            descriptor: CompilerDescriptor::parse(
+                CanonicalBytes::from_value(&descriptor)?.as_slice(),
+            )?,
+        })
+    }
     pub fn descriptor(&self) -> &CompilerDescriptor {
         &self.descriptor
     }
@@ -221,6 +258,9 @@ impl VerifiedCompilerSupport {
         }
         Ok(Self { descriptor })
     }
+}
+fn raw_digest(bytes: &[u8]) -> String {
+    format!("sha256:{}", canonical::hex(&Sha256::digest(bytes)))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
