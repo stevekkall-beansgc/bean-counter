@@ -37,41 +37,46 @@ fn result_ref(value: &Value, kind: &str) -> RecordRef {
     )
     .unwrap()
 }
-async fn diagnostic<T>(
-    label: &str,
-    future: impl std::future::Future<Output = Result<T>>,
-) -> Result<T> {
-    eprintln!("ACCEPT-DIAG {label} before audited call");
-    let begun = std::time::Instant::now();
-    let (result, origins, work) = verify::audit_work(future).await;
-    let mut named: Vec<_> = origins
-        .iter()
-        .map(|(identity, count)| {
-            (
-                super::super::super::request::OperationKey::parse(identity)
-                    .unwrap()
-                    .operation_id,
-                *count,
-            )
-        })
-        .collect();
-    named.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
-    let publications: Vec<_> = work
-        .publications
-        .iter()
-        .map(|(identity, count)| {
-            (
-                super::super::super::request::OperationKey::parse(identity)
-                    .unwrap()
-                    .operation_id,
-                *count,
-            )
-        })
-        .collect();
-    eprintln!("ACCEPT-DIAG {label} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} publication_counts={:?} document_origin_total={} selected_loaded_helper_total={}",
-        begun.elapsed().as_millis(), result.as_ref().map(|_| "ok"), origins.values().sum::<usize>(), named,
-        work.publications.values().sum::<usize>(), publications, work.document_origins.values().sum::<usize>(), work.helper_document_loads.values().sum::<usize>());
-    result
+fn diagnostic<'a, T: 'a>(
+    label: &'a str,
+    future: impl std::future::Future<Output = Result<T>> + 'a,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + 'a>> {
+    // Keep the audit wrappers off the large captured journey future's stack.
+    // The inner await order, task-local counts and returned error are unchanged.
+    let future = Box::pin(future);
+    Box::pin(async move {
+        eprintln!("ACCEPT-DIAG {label} before audited call");
+        let begun = std::time::Instant::now();
+        let (result, origins, work) = verify::audit_work(future).await;
+        let mut named: Vec<_> = origins
+            .iter()
+            .map(|(identity, count)| {
+                (
+                    super::super::super::request::OperationKey::parse(identity)
+                        .unwrap()
+                        .operation_id,
+                    *count,
+                )
+            })
+            .collect();
+        named.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+        let publications: Vec<_> = work
+            .publications
+            .iter()
+            .map(|(identity, count)| {
+                (
+                    super::super::super::request::OperationKey::parse(identity)
+                        .unwrap()
+                        .operation_id,
+                    *count,
+                )
+            })
+            .collect();
+        eprintln!("ACCEPT-DIAG {label} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} publication_counts={:?} document_origin_total={} selected_loaded_helper_total={}",
+            begun.elapsed().as_millis(), result.as_ref().map(|_| "ok"), origins.values().sum::<usize>(), named,
+            work.publications.values().sum::<usize>(), publications, work.document_origins.values().sum::<usize>(), work.helper_document_loads.values().sum::<usize>());
+        result
+    })
 }
 async fn retained(ledger: &LocalWorkflowLedger, id: &str, payload: Value) -> Value {
     ledger
