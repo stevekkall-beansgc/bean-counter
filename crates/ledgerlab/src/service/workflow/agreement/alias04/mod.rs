@@ -171,6 +171,8 @@ async fn attempted(
         activation_verify::normalize(req, &original.accepted.binding)
     }
 }
+// Exact reviewed authority3 dictionary, derived only from verified observations.
+#[allow(clippy::too_many_arguments)]
 fn authority(
     req: &request::Request,
     setup: &Setup,
@@ -189,6 +191,46 @@ fn authority(
         "binding_source_namespace":b["source_namespace"],"source_observation":activation_verify::source_observation(source,at)?,"observed_at":at}),
     )
 }
+/// Exact wrapper encoding from previously certified result/authority data.
+/// This data helper cannot confer admin authority or construct a public append.
+fn wrappers(
+    req: &request::Request,
+    evidence: &Value,
+    snapshot: &Value,
+    at: &Timestamp,
+    sequence: i64,
+    results: &[RecordRef],
+    mut members: Vec<RecordRef>,
+) -> Result<JournalOperation> {
+    let key = req.key();
+    let op = json!({"schema":"ledger-workflow-agreement-alias-operation/1","key":key,"kind":req.kind(),"contract":"workflow/1","request_evidence":evidence,"authority_snapshot":snapshot,"accepted_at":at,"commit_sequence":sequence.to_string(),"result_refs":results});
+    let operation_ref = records::record_reference("workflow-operation", &key.scope, &op)?;
+    members.push(operation_ref.clone());
+    records::sort_refs(&mut members)?;
+    require(members.len() <= 4096, "PROGRAM_BUDGET_EXCEEDED")?;
+    let manifest =
+        json!({"schema":"ledger-workflow-agreement-alias-manifest/1","key":key,"members":members});
+    let manifest_ref = records::record_reference("workflow-manifest", &key.scope, &manifest)?;
+    let mut receipt = json!({"schema":"ledger-operation-receipt/2","key":key,"request_hash":evidence["request_hash"],"request_hash_profile":"bean-counter/operation-request/2","normalization_profile":"ledger-operation-normalization/2","schema_bundle_digest":evidence["schema_bundle_digest"],"descriptor_closure_digest":evidence["descriptor_resolution"]["closure_digest"],"original_request_bytes_sha256":evidence["original_request_bytes_sha256"],"result_kind":"semantic_alias","result_refs":results,"accepted_at":at,"commit_sequence":sequence.to_string(),"manifest_hash":manifest_ref.digest});
+    receipt["receipt_hash"] = json!(records::hash("operation-receipt", 2, &receipt)?);
+    let receipt_ref = records::record_reference("workflow-receipt", &key.scope, &receipt)?;
+    Ok(JournalOperation {
+        identity: key.bytes()?,
+        kind: req.kind().into(),
+        operation_ref,
+        operation_bytes: records::bytes(&op)?,
+        request_hash: text(evidence, "request_hash")?.into(),
+        manifest_ref,
+        manifest_bytes: records::bytes(&manifest)?,
+        receipt_ref,
+        receipt_bytes: records::bytes(&receipt)?,
+        sequence,
+        accepted_at_us: at.micros(),
+        members,
+    })
+}
+// One reviewed journal dictionary: metadata stays explicit at this private boundary.
+#[allow(clippy::too_many_arguments)]
 fn assemble(
     req: &request::Request,
     evidence: Value,
@@ -218,33 +260,29 @@ fn assemble(
             .ok_or(ServiceError::IntegrityFailure)?,
     )?;
     let key = req.key();
-    let op = json!({"schema":"ledger-workflow-agreement-alias-operation/1","key":key,"kind":req.kind(),"contract":"workflow/1","request_evidence":evidence,
-        "authority_snapshot":snapshot,"accepted_at":at,"commit_sequence":sequence.to_string(),"result_refs":data.results});
-    let operation_ref = records::record_reference("workflow-operation", &key.scope, &op)?;
     let mut members: Vec<_> = documents.values().map(|d| d.reference.clone()).collect();
-    members.extend([operation_ref.clone(), original.operation_ref.clone()]);
-    records::sort_refs(&mut members)?;
-    let operation_bytes = records::bytes(&op)?;
+    members.push(original.operation_ref.clone());
+    let operation = wrappers(
+        req,
+        &evidence,
+        &snapshot,
+        at,
+        sequence,
+        &data.results,
+        members,
+    )?;
     let bytes = documents
         .values()
         .try_fold(
-            operation_bytes
+            operation
+                .operation_bytes
                 .len()
                 .checked_add(original.operation_bytes.len())
                 .ok_or(ServiceError::IntegrityFailure)?,
             |n, d| n.checked_add(d.bytes.len()),
         )
         .ok_or(ServiceError::IntegrityFailure)?;
-    require(
-        bytes <= 8388608 && members.len() <= 4096,
-        "PROGRAM_BUDGET_EXCEEDED",
-    )?;
-    let manifest =
-        json!({"schema":"ledger-workflow-agreement-alias-manifest/1","key":key,"members":members});
-    let manifest_ref = records::record_reference("workflow-manifest", &key.scope, &manifest)?;
-    let mut receipt = json!({"schema":"ledger-operation-receipt/2","key":key,"request_hash":evidence["request_hash"],"request_hash_profile":"bean-counter/operation-request/2","normalization_profile":"ledger-operation-normalization/2","schema_bundle_digest":evidence["schema_bundle_digest"],"descriptor_closure_digest":evidence["descriptor_resolution"]["closure_digest"],"original_request_bytes_sha256":evidence["original_request_bytes_sha256"],"result_kind":"semantic_alias","result_refs":data.results,"accepted_at":at,"commit_sequence":sequence.to_string(),"manifest_hash":manifest_ref.digest});
-    receipt["receipt_hash"] = json!(records::hash("operation-receipt", 2, &receipt)?);
-    let receipt_ref = records::record_reference("workflow-receipt", &key.scope, &receipt)?;
+    require(bytes <= 8388608, "PROGRAM_BUDGET_EXCEEDED")?;
     let b = canonical_body(&data.accepted.binding)?;
     let semantic_key = semantic(
         req.kind(),
@@ -260,20 +298,7 @@ fn assemble(
         source: key.source.clone(),
         operation_id: key.operation_id.clone(),
         documents: documents.into_values().collect(),
-        operation: JournalOperation {
-            identity: key.bytes()?,
-            kind: req.kind().into(),
-            operation_ref,
-            operation_bytes,
-            request_hash: text(&evidence, "request_hash")?.into(),
-            manifest_ref,
-            manifest_bytes: records::bytes(&manifest)?,
-            receipt_ref,
-            receipt_bytes: records::bytes(&receipt)?,
-            sequence,
-            accepted_at_us: at.micros(),
-            members,
-        },
+        operation,
         semantic_key,
         alias_of: Some(original.identity.clone()),
         projection: Projection::None,
@@ -367,3 +392,6 @@ pub(super) async fn prepare(
         &source,
     )
 }
+
+#[cfg(test)]
+mod tests;

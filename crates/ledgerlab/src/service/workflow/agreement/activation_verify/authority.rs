@@ -112,6 +112,8 @@ pub(in crate::service::workflow::agreement) fn source_observation(
     }
     Ok(v)
 }
+// Explicit reviewed captured authority inputs; none is request-deserializable.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::service::workflow::agreement) async fn verify_capture(
     tx: &mut SqliteTx,
     key: &OperationKey,

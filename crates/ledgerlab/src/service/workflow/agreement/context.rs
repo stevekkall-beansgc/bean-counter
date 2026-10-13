@@ -409,8 +409,6 @@ pub(super) async fn observe_publication(
 pub(super) struct ObservedAcceptedBinding {
     pub(super) accepted: Document,
     pub(super) binding: Document,
-    pub(super) original: JournalOperation,
-    pub(super) original_key: OperationKey,
     pub(super) acceptance: replay::AcceptanceData,
     pub(super) documents: Vec<Document>,
 }
@@ -500,8 +498,6 @@ pub(super) async fn observe_accepted_binding(
     Ok(ObservedAcceptedBinding {
         accepted,
         binding,
-        original,
-        original_key,
         acceptance,
         documents,
     })
