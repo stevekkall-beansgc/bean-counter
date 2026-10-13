@@ -5,6 +5,7 @@ use ledgerlab_core::canonical::CanonicalBytes;
 use serde_json::json;
 use sqlx::Row;
 use tokio::time::timeout_at;
+pub(crate) mod acceptance;
 pub(crate) mod transport;
 
 #[derive(Clone, Debug)]
@@ -38,6 +39,8 @@ pub(crate) enum Projection {
     None,
     Definition(super::RegistryEntry),
     Fragment(transport::Part),
+    Acceptance(acceptance::AcceptanceProjection),
+    Activation(acceptance::ActivationProjection),
     Customer {
         customer: String,
         document: String,
@@ -397,6 +400,14 @@ impl SqliteTx {
                     part,
                 )
                 .await?;
+            }
+            Projection::Acceptance(accepted) => {
+                self.workflow_agreement_insert_acceptance(p, accepted)
+                    .await?;
+            }
+            Projection::Activation(activation) => {
+                self.workflow_agreement_insert_activation(p, activation)
+                    .await?;
             }
             Projection::Customer { customer, document } => {
                 sqlx::query("INSERT INTO workflow_customer_registrations VALUES(?,?,?,?,?)")
