@@ -53,8 +53,8 @@ pub(super) fn normalized(
     raw_documents: &[Vec<u8>],
 ) -> Result<NormalizedPublicationSources> {
     let root = core::DefinitionRef::new(&req.root().kind, &req.root().id, &req.root().digest)
-        .map_err(|e| reject(e.code))?;
-    core::normalize_publication_sources(raw_documents, &root).map_err(|e| reject(e.code))
+        .map_err(core_error)?;
+    core::normalize_publication_sources(raw_documents, &root).map_err(core_error)
 }
 pub(super) fn base64(raw: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -95,7 +95,7 @@ pub(super) fn evidence(
     };
     ledgerlab_core::canonical::sort_set(&mut locators)
         .map_err(|_| ServiceError::IntegrityFailure)?;
-    let descriptors = sources.descriptor_refs().map_err(|e| reject(e.code))?;
+    let descriptors = sources.descriptor_refs().map_err(core_error)?;
     let mut anchors = vec![];
     for d in sources.source_documents() {
         let mut refs: Vec<Value> = vec![];

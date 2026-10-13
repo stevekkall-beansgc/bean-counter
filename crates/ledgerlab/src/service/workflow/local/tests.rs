@@ -88,9 +88,13 @@ async fn owner_read_survives_source_rights_revocation_and_frozen_admission() {
         "not_observed"
     );
     let mut tx = ledger.store.begin(deadline()).await.unwrap();
-    assert!(
-        matches!(ledger.admin.fresh(&ledger.store,&mut tx,&key("owner-read-test")).await,Err(ServiceError::Rejection(code)) if code=="ADMISSION_CLOSED")
-    );
+    assert!(matches!(
+        ledger
+            .admin
+            .fresh(&ledger.store, &mut tx, &key("owner-read-test"))
+            .await,
+        Err(ServiceError::Unavailable)
+    ));
     tx.rollback().await.unwrap();
     ledger.close().await;
     let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
@@ -261,9 +265,10 @@ async fn captured_workflow_publication_reply_loss_retry_alias_read_and_reopen() 
     );
     let mut new_request = request.clone();
     new_request["key"]["operation_id"] = json!("refused-new");
-    assert!(
-        matches!(ledger.publish(&records::bytes(&new_request).unwrap()).await,Err(ServiceError::Rejection(code)) if code=="ADMISSION_CLOSED")
-    );
+    assert!(matches!(
+        ledger.publish(&records::bytes(&new_request).unwrap()).await,
+        Err(ServiceError::Unavailable)
+    ));
     ledger.close().await;
     let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
     assert_eq!(

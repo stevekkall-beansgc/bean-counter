@@ -270,10 +270,10 @@ impl LocalWorkflowLedger {
             let supported = fresh_support()?;
             let root =
                 core::DefinitionRef::new(&req.root().kind, &req.root().id, &req.root().digest)
-                    .map_err(|e| reject(e.code))?;
+                    .map_err(core_error)?;
             let prepared =
                 core::compile_publication(&raw_documents, &root, req.expected_digest(), &supported)
-                    .map_err(|e| reject(e.code))?;
+                    .map_err(core_error)?;
             let provenance =
                 publication::BuildProvenance::capture(supported.descriptor().reference())?;
             Ok((prepared, evidence, provenance))
@@ -558,10 +558,11 @@ impl LocalOwnerAdmin {
             .load_installation()
             .await
             .map_err(super::super::store_error)?;
-        require(
-            state.admission == "open" && state.dispatch_hold && !state.dispatch_enabled,
-            "ADMISSION_CLOSED",
-        )?;
+        // Mutable installation availability is a service boundary, not an
+        // invented publication/economic refusal in the closed registry.
+        if state.admission != "open" || !state.dispatch_hold || state.dispatch_enabled {
+            return Err(ServiceError::Unavailable);
+        }
         Ok(setup)
     }
 }
