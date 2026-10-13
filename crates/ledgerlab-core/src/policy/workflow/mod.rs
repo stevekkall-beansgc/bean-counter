@@ -40,3 +40,7 @@ mod agreement_ref;
 pub use agreement_ref::AgreementRef;
 mod grant;
 pub use grant::SourceGrant;
+mod enrollment;
+pub use enrollment::SourceEnrollment;
+mod source_state;
+pub use source_state::SourceState;
