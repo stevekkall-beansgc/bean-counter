@@ -1,0 +1,7 @@
+{
+  "status": "sealed known AGR-01 structural documents only; authority/acceptance/activation held",
+  "expected_sha256": "dbc66fa8f5464a2f82b0b6f6c77992670ef49bfb8d5bd9f90660abc38eb1aa6c",
+  "source": "review-fixtures/agreement-known-expected.json",
+  "reviewer": "independent AGR-01 reviewer",
+  "uses_production_oracle": false
+}

@@ -29,3 +29,6 @@ fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<Stri
         crate::canonical::hex(&hash.finalize())
     ))
 }
+
+mod slots;
+pub use slots::{RoleAssignment, SlotCatalog, SlotInstantiation};
