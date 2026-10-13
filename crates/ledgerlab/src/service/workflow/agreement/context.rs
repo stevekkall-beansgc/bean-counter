@@ -99,3 +99,118 @@ pub(super) async fn observe_source(
         documents,
     })
 }
+
+/// Data from one fully verified publication boundary, without its historical
+/// operation/manifest/receipt wrappers. No current compiler or build is loaded.
+pub(super) struct ObservedPublication {
+    body: Value,
+    documents: Vec<Document>,
+    publication_index: usize,
+    plan_index: usize,
+    source_indices: Vec<usize>,
+}
+impl ObservedPublication {
+    pub(super) fn body(&self) -> &Value {
+        &self.body
+    }
+    pub(super) fn documents(&self) -> &[Document] {
+        &self.documents
+    }
+    pub(super) fn publication(&self) -> &Document {
+        &self.documents[self.publication_index]
+    }
+    pub(super) fn plan(&self) -> &Document {
+        &self.documents[self.plan_index]
+    }
+    pub(super) fn sources(&self) -> impl Iterator<Item = &Document> {
+        self.source_indices.iter().map(|i| &self.documents[*i])
+    }
+}
+pub(super) async fn observe_publication(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &RecordRef,
+) -> Result<ObservedPublication> {
+    require(
+        reference.kind == "workflow-publication",
+        "INVALID_REFERENCE",
+    )?;
+    verify::document_origin(tx, key, reference).await?;
+    let (identity, kind, sequence) = tx
+        .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if kind != "policy.publish" {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let origin = tx
+        .workflow_lookup(&identity)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if origin.sequence != sequence || origin.publication_id != reference.id {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let mut documents = vec![];
+    let mut total = 0usize;
+    for member in origin.members {
+        if member.kind == "workflow-operation" {
+            continue;
+        }
+        if matches!(
+            member.kind.as_str(),
+            "workflow-manifest" | "workflow-receipt"
+        ) {
+            return Err(ServiceError::IntegrityFailure);
+        }
+        let document = loaded(tx, key, &member).await.map_err(|e| match e {
+            ServiceError::Rejection(_) => ServiceError::IntegrityFailure,
+            e => e,
+        })?;
+        total = total
+            .checked_add(document.bytes.len())
+            .ok_or(ServiceError::IntegrityFailure)?;
+        require(
+            total <= 8388608 && documents.len() < 4096,
+            "PROGRAM_BUDGET_EXCEEDED",
+        )?;
+        documents.push(document);
+    }
+    let publication_index = documents
+        .iter()
+        .position(|d| d.reference == *reference)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let publication = &documents[publication_index];
+    let body = canonical::parse_bounded(&publication.bytes, 1048576)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    if records::bytes(&body)? != publication.bytes
+        || records::publication_ref(&key.logical_store_id, &key.scope, &body)? != *reference
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let plan: RecordRef = serde_json::from_value(body["compiled_plan_ref"].clone())
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let plan_index = documents
+        .iter()
+        .position(|d| d.reference == plan)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let sources: Vec<RecordRef> = serde_json::from_value(body["source_refs"].clone())
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let source_indices = sources
+        .iter()
+        .map(|r| {
+            documents
+                .iter()
+                .position(|d| d.reference == *r)
+                .ok_or(ServiceError::IntegrityFailure)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ObservedPublication {
+        body,
+        documents,
+        publication_index,
+        plan_index,
+        source_indices,
+    })
+}

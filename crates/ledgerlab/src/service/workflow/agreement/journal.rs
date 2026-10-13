@@ -103,6 +103,7 @@ pub(super) fn assemble(
         alias_of,
         projection,
         None,
+        None,
     )
 }
 /// The source recipe is selected by the compiled coordinator; neither schema
@@ -135,6 +136,127 @@ pub(super) fn assemble_definition(
         alias_of,
         projection,
         Some(semantic_alias),
+        None,
+    )
+}
+/// Private transaction inputs from the actual coordinator, never a deserialized
+/// purported authority/plan or a second public append entry point.
+pub(super) struct AgreementCommit<'a> {
+    pub(super) setup: &'a Setup,
+    pub(super) at: &'a Timestamp,
+    pub(super) sequence: i64,
+    pub(super) root: Document,
+    pub(super) authority: Document,
+    pub(super) documents: Vec<Document>,
+    pub(super) results: Vec<RecordRef>,
+    pub(super) semantic_key: Vec<u8>,
+    pub(super) alias_of: Option<Vec<u8>>,
+    pub(super) projection: Projection,
+}
+pub(super) fn assemble_agreement(
+    req: &request::Request,
+    evidence: Value,
+    commit: AgreementCommit<'_>,
+) -> Result<JournalAppend> {
+    let observation = canonical_body(&commit.authority)?;
+    let purpose = if req.kind() == "agreement.revoke" {
+        "stop"
+    } else {
+        "admit"
+    };
+    let keys: &[&str] = if purpose == "admit" {
+        &[
+            "schema",
+            "actor",
+            "source",
+            "canonical_economic_namespace",
+            "operation",
+            "scope",
+            "customer",
+            "agreement_id",
+            "local_admin_ref",
+            "source_grant_refs",
+            "assent_refs",
+            "observed_at",
+            "source_revision",
+            "source_state_refs",
+            "purpose",
+        ]
+    } else {
+        &[
+            "schema",
+            "purpose",
+            "operation",
+            "actor",
+            "source",
+            "scope",
+            "customer",
+            "agreement_id",
+            "local_admin_ref",
+            "accepted_agreement_ref",
+            "binding_ref",
+            "target_transition_ref",
+            "expected_activation_revision",
+            "binding_source_namespace",
+            "source_observation",
+            "evidence_refs",
+            "observed_at",
+        ]
+    };
+    exact_keys(&observation, keys)?;
+    if !matches!(
+        req.kind(),
+        "agreement.accept" | "agreement.activate" | "agreement.revoke"
+    ) || commit.authority.reference.kind != "workflow-authority"
+        || observation["schema"] != "ledger-workflow-agreement-authority/2"
+        || observation["purpose"] != purpose
+        || observation["operation"] != req.kind()
+        || observation["actor"] != commit.setup.operator
+        || observation["source"] != commit.setup.source
+        || observation["scope"] != json!(req.key().scope)
+        || observation["agreement_id"] != req.payload()["agreement_id"]
+        || observation["local_admin_ref"] != json!(commit.root.reference)
+        || observation["observed_at"] != json!(commit.at)
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    if req.kind() == "agreement.accept"
+        && observation["customer"] != req.payload()["binding_inputs"]["customer"]
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    // These exact metadata checks cannot authenticate assent or a grant. The
+    // controller derives this body from verified evidence/current source state;
+    // the retained verifier is still required before committing the append.
+    if purpose == "admit" {
+        for field in ["source_grant_refs", "source_state_refs"] {
+            if observation[field].as_array().map(Vec::len) != Some(1) {
+                return Err(ServiceError::IntegrityFailure);
+            }
+        }
+        if observation["assent_refs"]
+            .as_array()
+            .is_none_or(|a| a.is_empty() || a.len() > 16)
+        {
+            return Err(ServiceError::IntegrityFailure);
+        }
+    }
+    let mut documents = commit.documents;
+    documents.push(commit.authority);
+    assemble_recipe(
+        req,
+        evidence,
+        commit.setup,
+        commit.at,
+        commit.sequence,
+        commit.root,
+        documents,
+        commit.results,
+        commit.semantic_key,
+        commit.alias_of,
+        commit.projection,
+        None,
+        Some(observation),
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -151,6 +273,7 @@ fn assemble_recipe(
     alias_of: Option<Vec<u8>>,
     projection: Projection,
     source_alias: Option<bool>,
+    agreement_authority: Option<Value>,
 ) -> Result<JournalAppend> {
     let key = req.key();
     if canonical_body(&root)?["basis"] != basis(setup) {
@@ -170,7 +293,8 @@ fn assemble_recipe(
         }
     }
     records::sort_refs(&mut results)?;
-    let operation = json!({"schema":"ledger-workflow-operation-record/1","key":key,"kind":req.kind(),"contract":"workflow/1","request_evidence":evidence,"authority_snapshot":{"schema":"ledger-workflow-publication-authority/1","principal_id":setup.operator,"source":setup.source,"authority_refs":[root_ref],"rights":["admin"],"validated_at":at},"accepted_at":at,"commit_sequence":sequence.to_string(),"result_refs":results});
+    let authority_snapshot=agreement_authority.unwrap_or_else(||json!({"schema":"ledger-workflow-publication-authority/1","principal_id":setup.operator,"source":setup.source,"authority_refs":[root_ref],"rights":["admin"],"validated_at":at}));
+    let operation = json!({"schema":"ledger-workflow-operation-record/1","key":key,"kind":req.kind(),"contract":"workflow/1","request_evidence":evidence,"authority_snapshot":authority_snapshot,"accepted_at":at,"commit_sequence":sequence.to_string(),"result_refs":results});
     let operation_ref = records::record_reference("workflow-operation", &key.scope, &operation)?;
     let documents: Vec<_> = all.into_values().collect();
     let mut members: Vec<_> = documents.iter().map(|d| d.reference.clone()).collect();

@@ -22,14 +22,7 @@ pub(super) struct Request {
 }
 impl Request {
     pub(super) fn parse(raw: &[u8]) -> Result<Self> {
-        let v = canonical::parse_bounded(raw, 262_144).map_err(|_| reject("INVALID_SHAPE"))?;
-        require(no_null(&v), "INVALID_SHAPE")?;
-        let outer: Outer = serde_json::from_value(v).map_err(|_| reject("INVALID_SHAPE"))?;
-        require(
-            outer.schema == "ledger-operation/1" && outer.contract == "workflow/1",
-            "INVALID_SHAPE",
-        )?;
-        OperationKey::parse(&records::bytes(&outer.key)?)?;
+        let outer = parse_outer(raw)?;
         require(
             matches!(outer.kind.as_str(), "evidence.retain" | "authority.change"),
             "UNSUPPORTED_SCHEMA_PROFILE",
@@ -62,6 +55,31 @@ impl Request {
             raw: raw.to_vec(),
         })
     }
+    /// Closed raw ingress for the reviewed agreement coordinator. This step
+    /// does not resolve private documents, authenticate assent or grant rights.
+    /// Existing prerequisite dispatch remains separately restricted above.
+    pub(super) fn parse_agreement(raw: &[u8]) -> Result<Self> {
+        let outer = parse_outer(raw)?;
+        let schema = outer
+            .payload
+            .get("schema")
+            .and_then(Value::as_str)
+            .ok_or_else(|| reject("INVALID_SHAPE"))?;
+        let valid = match outer.kind.as_str() {
+            "agreement.accept" => schema == "ledger-workflow-agreement-accept/2",
+            "agreement.activate" => matches!(
+                schema,
+                "ledger-workflow-activation/1" | "ledger-workflow-activation-replace/1"
+            ),
+            "agreement.revoke" => schema == "ledger-workflow-agreement-revoke/1",
+            _ => false,
+        };
+        require(valid, "UNSUPPORTED_SCHEMA_PROFILE")?;
+        Ok(Self {
+            outer,
+            raw: raw.to_vec(),
+        })
+    }
     pub(super) fn key(&self) -> &OperationKey {
         &self.outer.key
     }
@@ -78,6 +96,17 @@ impl Request {
         json!({"schema":"ledger-operation/1","contract":"workflow/1","key":self.outer.key,"kind":self.outer.kind,"payload":payload})
     }
 }
+fn parse_outer(raw: &[u8]) -> Result<Outer> {
+    let v = canonical::parse_bounded(raw, 262144).map_err(|_| reject("INVALID_SHAPE"))?;
+    require(no_null(&v), "INVALID_SHAPE")?;
+    let outer: Outer = serde_json::from_value(v).map_err(|_| reject("INVALID_SHAPE"))?;
+    require(
+        outer.schema == "ledger-operation/1" && outer.contract == "workflow/1",
+        "INVALID_SHAPE",
+    )?;
+    OperationKey::parse(&records::bytes(&outer.key)?)?;
+    Ok(outer)
+}
 fn no_null(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -92,6 +121,27 @@ mod tests {
     use super::*;
     fn valid() -> Value {
         json!({"schema":"ledger-operation/1","contract":"workflow/1","key":{"logical_store_id":"test-store","scope":["test","local"],"source":"urn:test:owner","operation_id":"explicit-evidence"},"kind":"evidence.retain","payload":{"schema":"ledger-workflow-evidence-retain/1"}})
+    }
+    #[test]
+    fn agreement_closed_raw_family_preserves_evidence_without_advertising_execution() {
+        let mut v = valid();
+        v["kind"] = json!("agreement.accept");
+        v["payload"] = json!({"schema":"ledger-workflow-agreement-accept/2"});
+        let raw = serde_json::to_vec_pretty(&v).unwrap();
+        let request = Request::parse_agreement(&raw).unwrap();
+        assert_eq!(request.raw(), raw);
+        assert!(Request::parse(&raw).is_err());
+        let duplicate = String::from_utf8(raw.clone()).unwrap().replacen(
+            "\"kind\": \"agreement.accept\"",
+            "\"kind\": \"agreement.accept\", \"\\u006bind\": \"agreement.accept\"",
+            1,
+        );
+        assert!(Request::parse_agreement(duplicate.as_bytes()).is_err());
+        v["owner"] = json!(true);
+        assert!(Request::parse_agreement(&records::bytes(&v).unwrap()).is_err());
+        v.as_object_mut().unwrap().remove("owner");
+        v["payload"]["trusted"] = Value::Null;
+        assert!(Request::parse_agreement(&records::bytes(&v).unwrap()).is_err());
     }
     #[test]
     fn agreement_raw_outer_never_drops_duplicate_unknown_or_null_input() {
