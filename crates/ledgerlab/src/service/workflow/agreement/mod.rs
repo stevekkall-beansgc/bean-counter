@@ -34,7 +34,7 @@ fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
 }
 fn canonical_body(d: &Document) -> Result<Value> {
     let limit = match d.reference.kind.as_str() {
-        "workflow-authority" | "workflow-source-grant" | "workflow-source-enrollment" => 65536,
+        "workflow-authority" => 65536,
         _ => 262144,
     };
     let body =
@@ -138,3 +138,6 @@ pub(super) async fn status(tx: &mut SqliteTx, key: &super::request::OperationKey
         .ok_or(ServiceError::IntegrityFailure)?;
     verify::retained(tx, key, &original).await
 }
+
+#[cfg(test)]
+mod tests;
