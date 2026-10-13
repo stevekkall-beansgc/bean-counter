@@ -7,6 +7,22 @@ use sqlx::Row;
 use tokio::time::timeout_at;
 pub(crate) mod capacity;
 
+impl super::SqliteStore {
+    /// Mechanical instance binding; this confers no caller authority.
+    pub(crate) fn workflow_same_instance(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.inner, &other.inner)
+    }
+    pub(crate) fn workflow_owner_paths(
+        &self,
+    ) -> Result<(std::path::PathBuf, std::path::PathBuf), StoreError> {
+        self.inner._owner.verify_path()?;
+        Ok((
+            self.inner._owner.directory.clone(),
+            self.inner._owner.database.clone(),
+        ))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RecordRef {
@@ -56,6 +72,25 @@ pub(crate) struct PublicationAppend {
 }
 
 impl SqliteTx {
+    pub(crate) async fn workflow_document_by_id(
+        &mut self,
+        id: &str,
+        store: &str,
+        tenant: &str,
+        environment: &str,
+    ) -> Result<Option<Document>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result=timeout_at(self.deadline,async {
+            self.workflow_schema().await?;
+            let row:Option<(String,String,String,Vec<u8>)>=sqlx::query_as("SELECT d.kind,d.digest,d.schema_name,d.canonical_bytes FROM workflow_documents d WHERE d.id=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?)").bind(id).bind(store).bind(tenant).bind(environment).fetch_optional(self.conn()).await?;
+            Ok(row.map(|(kind,digest,schema,bytes)|Document{reference:RecordRef{kind,id:id.into(),digest},schema,bytes}))
+        }).await.map_err(|_|StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
     async fn workflow_schema(&mut self) -> Result<(), StoreError> {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())

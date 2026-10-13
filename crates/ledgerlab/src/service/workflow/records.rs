@@ -402,6 +402,43 @@ pub(super) async fn verify_retained(
     }
     let source_refs: Vec<RecordRef> = serde_json::from_value(publication["source_refs"].clone())
         .map_err(|_| ServiceError::IntegrityFailure)?;
+    let raw_documents = if let Some(docs) = attempted.inline_documents() {
+        docs.iter().map(bytes).collect::<Result<Vec<_>>>()?
+    } else {
+        attempted
+            .retained_refs()
+            .ok_or(ServiceError::IntegrityFailure)?
+            .iter()
+            .map(|r| {
+                let (saved, body) = loaded.get(&r.id).ok_or(ServiceError::IntegrityFailure)?;
+                if saved != r {
+                    return Err(ServiceError::IntegrityFailure);
+                }
+                bytes(body)
+            })
+            .collect::<Result<Vec<_>>>()?
+    };
+    let normalized = super::publication::normalized(&attempted, &raw_documents)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let derived = super::publication::evidence(&attempted, &normalized)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
+    let mut normalized_refs: Vec<RecordRef> = normalized
+        .source_documents()
+        .iter()
+        .map(|d| RecordRef {
+            kind: d.kind().into(),
+            id: d.id().into(),
+            digest: d.digest().into(),
+        })
+        .collect();
+    sort_refs(&mut normalized_refs)?;
+    if derived != *evidence
+        || normalized_refs != source_refs
+        || json!(attempted.root()) != publication["root_policy_ref"]
+        || attempted.expected_digest() != plan_ref.digest
+    {
+        return Err(ServiceError::IntegrityFailure);
+    }
     let mut expected_members = source_refs.clone();
     expected_members.extend([
         ar.clone(),

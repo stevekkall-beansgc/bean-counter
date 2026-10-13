@@ -1,9 +1,10 @@
-//! Non-authoritative workflow ingress scaffold. Publication authority remains
-//! blocked pending reviewed owner-admin/source-revocation contract disposition.
-//! There is no publish, pricing or raw append endpoint in this increment.
+//! Local generic publication coordinator. Publications create no economic debt.
+mod local;
+mod publication;
 mod records;
 mod request;
 use crate::ServiceError;
+pub use local::LocalWorkflowLedger;
 use serde_json::Value;
 type Result<T> = std::result::Result<T, ServiceError>;
 fn reject(code: &str) -> ServiceError {
