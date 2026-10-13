@@ -546,6 +546,8 @@ pub(super) async fn retained(
         let certificate =
             if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
                 transport::certificate::retained_local(tx, &saved_key, &operation).await?
+            } else if operation.kind == "agreement.accept" {
+                Box::pin(accepted_verify::retained_local(tx, &saved_key, &operation)).await?
             } else {
                 retained_local(tx, &saved_key, &operation).await?
             };
@@ -654,6 +656,9 @@ pub(super) async fn authenticated_closure(
     key: &OperationKey,
     seeds: &[RecordRef],
 ) -> Result<Vec<Document>> {
+    if seeds.len()==1 && seeds[0].kind=="workflow-head-transition" {
+        return Box::pin(replay::predecessor_closure(tx,key,&seeds[0])).await;
+    }
     let documents = closure(tx, key, seeds).await?;
     for document in &documents {
         document_origin(tx, key, &document.reference).await?;

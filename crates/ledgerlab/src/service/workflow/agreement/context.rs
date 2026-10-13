@@ -153,7 +153,6 @@ pub(super) async fn observe_publication(
         reference.kind == "workflow-publication",
         "INVALID_REFERENCE",
     )?;
-    verify::document_origin(tx, key, reference).await?;
     let (identity, kind, sequence) = tx
         .workflow_agreement_document_origin(&key.logical_store_id, &key.scope, reference)
         .await
@@ -162,6 +161,9 @@ pub(super) async fn observe_publication(
     if kind != "policy.publish" {
         return Err(ServiceError::IntegrityFailure);
     }
+    // A corrupt membership index must not route a publication back through
+    // its dependent agreement certificate before the origin family is checked.
+    verify::document_origin(tx, key, reference).await?;
     let origin = tx
         .workflow_lookup(&identity)
         .await
