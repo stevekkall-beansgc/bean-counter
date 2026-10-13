@@ -1,4 +1,5 @@
 //! Reviewed administrative prerequisites. Customer assent is never inferred.
+mod acceptance;
 mod journal;
 mod request;
 mod service;
