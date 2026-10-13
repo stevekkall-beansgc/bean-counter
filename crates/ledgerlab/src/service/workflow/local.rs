@@ -1,4 +1,5 @@
 //! Trusted local-process entry. Remote/source actors cannot mint this capability.
+use super::agreement::proof_session;
 use super::*;
 use crate::{
     local as local_io,
@@ -161,8 +162,8 @@ impl LocalWorkflowLedger {
             .begin(deadline())
             .await
             .map_err(super::super::store_error)?;
-        let result = async {
-            self.admin.read(&self.store, &mut tx, &key).await?;
+        let result = proof_session::with_proofs(&mut tx, &key, |tx| Box::pin(async {
+            self.admin.read(&self.store, tx, &key).await?;
             let d = tx.workflow_document(&r,&key.logical_store_id,&key.scope[0],&key.scope[1],None).await.map_err(super::super::store_error)?.ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
             let body = ledgerlab_core::canonical::parse_bounded(&d.bytes, 4*1024*1024).map_err(|_| ServiceError::IntegrityFailure)?;
             if records::bytes(&body)? != d.bytes || body["schema"] != d.schema { return Err(ServiceError::IntegrityFailure); }
@@ -173,7 +174,7 @@ impl LocalWorkflowLedger {
             };
             if derived != r { return Err(ServiceError::IntegrityFailure); }
             Ok(json!({"schema":"ledger-document-read/1","record":{"kind":r.kind,"logical_store_id":key.logical_store_id,"scope":key.scope,"id":r.id,"digest":r.digest,"body":body},"canonical_bytes_base64":publication::base64(&d.bytes),"canonical_digest":r.digest}))
-        }.await;
+        })).await;
         tx.rollback().await.map_err(super::super::store_error)?;
         result
     }
@@ -184,8 +185,8 @@ impl LocalWorkflowLedger {
             .begin(deadline())
             .await
             .map_err(super::super::store_error)?;
-        let result = async {
-            self.admin.read(&self.store, &mut tx, &key).await?;
+        let result = proof_session::with_proofs(&mut tx, &key, |tx| Box::pin(async {
+            self.admin.read(&self.store, tx, &key).await?;
             match tx
                 .workflow_operation_kind(&key.bytes()?)
                 .await
@@ -197,14 +198,14 @@ impl LocalWorkflowLedger {
                         .await
                         .map_err(super::super::store_error)?
                         .ok_or(ServiceError::IntegrityFailure)?;
-                    records::verify_retained(&mut tx, &key, &original).await
+                    records::verify_retained(tx, &key, &original).await
                 }
-                Some(_) => agreement::status(&mut tx, &key).await,
+                Some(_) => agreement::status(tx, &key).await,
                 None => Ok(
                     json!({"schema":"ledger-operation-status/1","status":"not_observed","key":key}),
                 ),
             }
-        }
+        }))
         .await;
         tx.rollback().await.map_err(super::super::store_error)?;
         result
@@ -268,8 +269,8 @@ impl LocalWorkflowLedger {
             .begin(deadline())
             .await
             .map_err(super::super::store_error)?;
-        let preparation: Result<PublicationPreparation> = async {
-            self.admin.read(&self.store, &mut tx, key).await?;
+        let preparation: Result<PublicationPreparation> = proof_session::with_proofs(&mut tx, key, |tx| Box::pin(async {
+            self.admin.read(&self.store, tx, key).await?;
             if let Some(kind) = tx
                 .workflow_operation_kind(&key.bytes()?)
                 .await
@@ -282,11 +283,11 @@ impl LocalWorkflowLedger {
                 .await
                 .map_err(super::super::store_error)?
             {
-                return Ok((Some(retry(&mut tx, &req, &original).await?), None));
+                return Ok((Some(retry(tx, &req, &original).await?), None));
             }
-            self.admin.fresh(&self.store, &mut tx, key).await?;
-            Ok((None, Some(resolve_documents(&mut tx, &req).await?)))
-        }
+            self.admin.fresh(&self.store, tx, key).await?;
+            Ok((None, Some(resolve_documents(tx, &req).await?)))
+        }))
         .await;
         tx.rollback().await.map_err(super::super::store_error)?;
         let (original, raw_documents) = preparation?;
@@ -342,8 +343,8 @@ impl LocalWorkflowLedger {
             .begin(deadline())
             .await
             .map_err(super::super::store_error)?;
-        let written: Result<(Value, bool)> = async {
-            self.admin.read(&self.store, &mut tx, key).await?;
+        let written: Result<(Value, bool)> = proof_session::with_proofs(&mut tx, key, |tx| Box::pin(async {
+            self.admin.read(&self.store, tx, key).await?;
             if let Some(kind) = tx
                 .workflow_operation_kind(&key.bytes()?)
                 .await
@@ -357,12 +358,12 @@ impl LocalWorkflowLedger {
                 .await
                 .map_err(super::super::store_error)?
             {
-                return Ok((retry(&mut tx, &req, &original).await?, false));
+                return Ok((retry(tx, &req, &original).await?, false));
             }
             let (prepared, evidence, provenance) = fresh_prepared?;
-            let setup = self.admin.fresh(&self.store, &mut tx, key).await?;
+            let setup = self.admin.fresh(&self.store, tx, key).await?;
             if req.retained_refs().is_some() {
-                let locked = resolve_documents(&mut tx, &req).await?;
+                let locked = resolve_documents(tx, &req).await?;
                 require(locked == raw_documents, "SEMANTIC_CONFLICT")?;
             }
             // A supplied predecessor is only a normalization input. Its exact
@@ -472,9 +473,10 @@ impl LocalWorkflowLedger {
                     super::super::store_error(e)
                 }
             })?;
-            let result = records::verify_retained(&mut tx, key, &append.operation).await?;
+            proof_session::after_append(tx, key)?;
+            let result = records::verify_retained(tx, key, &append.operation).await?;
             Ok((result, true))
-        }
+        }))
         .await;
         match written {
             Err(e) => {

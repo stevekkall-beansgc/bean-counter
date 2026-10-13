@@ -4,6 +4,7 @@ mod accepted_verify;
 mod context;
 mod descriptor;
 mod journal;
+pub(super) mod proof_session;
 mod record;
 mod replay;
 mod request;

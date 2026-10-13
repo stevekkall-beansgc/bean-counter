@@ -420,6 +420,7 @@ impl SqliteStore {
             slot: Some(slot),
             deadline,
             failed: false,
+            workflow_proof_failed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             outcome_locks: Vec::new(),
             physical_lane,
             adjudication: None,

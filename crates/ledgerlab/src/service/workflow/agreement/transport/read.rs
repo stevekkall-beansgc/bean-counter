@@ -52,7 +52,8 @@ pub(in super::super::super) async fn read(
         let meta=tx.billing_meta().await.map_err(crate::service::store_error)?;
         let setup=crate::service::billing::permissions::effective(&meta)?;
         let key=OperationKey{logical_store_id:setup.store_id,scope:[setup.scope.tenant().into(),setup.scope.environment().into()],source:setup.source,operation_id:"source-transport-read".into()};
-        ledger.admin.read(&ledger.store,&mut tx,&key).await?;
+        proof_session::with_proofs(&mut tx, &key, |tx| Box::pin(async {
+        ledger.admin.read(&ledger.store,tx,&key).await?;
         match read.kind.as_str() {
             "policy.document"=>{
                 let payload:Canonical=serde_json::from_value(read.payload).map_err(|_|reject("INVALID_SHAPE"))?;
@@ -61,21 +62,22 @@ pub(in super::super::super) async fn read(
                 require(source_kind(&r.kind)||matches!(r.kind.as_str(),"workflow-definition-fragment"|"workflow-compiled-plan"|"workflow-publication"|"workflow-authority"|"workflow-build-manifest"),"INVALID_REFERENCE")?;
                 require(records::bytes(&r)?.len()<=1024,"INVALID_REFERENCE")?;
                 core::AgreementRef::parse(&records::bytes(&r)?).map_err(|_|reject("INVALID_REFERENCE"))?;
-                let d=loaded(&mut tx,&key,&r).await?;
-                Box::pin(verify::document_origin(&mut tx,&key,&r)).await?;
+                let d=loaded(tx,&key,&r).await?;
+                Box::pin(verify::document_origin(tx,&key,&r)).await?;
                 require(d.bytes.len()<=4194304,"RESPONSE_BUDGET_EXCEEDED")?;
                 wire(json!({"schema":"ledger-workflow-document-read/2","ref":r,"canonical_bytes_base64":super::super::super::publication::base64(&d.bytes),"canonical_bytes_sha256":records::raw_hash(&d.bytes),"body_bytes":d.bytes.len().to_string()}))
             },
             "operation.descriptors"=>{
                 let payload:Prepare=serde_json::from_value(read.payload).map_err(|_|reject("INVALID_SHAPE"))?;
                 if payload.operation_kind=="evidence.retain" && selected(&payload.candidate) {
-                    let resolution=resolve::resolve(&mut tx,&key,&payload.candidate,true).await?;
+                    let resolution=resolve::resolve(tx,&key,&payload.candidate,true).await?;
                     wire(evidence::descriptors(&resolution)?.0)
-                }else if payload.operation_kind=="policy.publish" {publication_prepare(&mut tx,&key,&payload.candidate).await}
+                }else if payload.operation_kind=="policy.publish" {publication_prepare(tx,&key,&payload.candidate).await}
                 else {Err(reject("UNSUPPORTED_SCHEMA_PROFILE"))}
             },
             _=>Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
         }
+        })).await
     }.await;
     tx.rollback().await.map_err(crate::service::store_error)?;
     result

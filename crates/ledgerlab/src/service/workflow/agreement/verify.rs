@@ -348,7 +348,7 @@ pub(super) async fn locator_dependencies(
     }
     authenticated_closure(tx, key, &refs).await
 }
-fn checked(raw: &[u8], limit: usize) -> Result<Value> {
+pub(super) fn checked(raw: &[u8], limit: usize) -> Result<Value> {
     let v = canonical::parse_bounded(raw, limit).map_err(|_| ServiceError::IntegrityFailure)?;
     if records::bytes(&v)? != raw {
         return Err(ServiceError::IntegrityFailure);
@@ -602,28 +602,55 @@ fn origin_key(identity: &[u8], expected: &OperationKey) -> Result<OperationKey> 
     Ok(key)
 }
 
-pub(super) async fn retained(
+pub(super) fn retained<'a>(
+    tx: &'a mut SqliteTx,
+    key: &'a OperationKey,
+    o: &'a JournalOperation,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>> {
+    Box::pin(async move {
+        if !proof_session::present(tx, key)? {
+            return proof_session::with_proofs(tx, key, |tx| {
+                Box::pin(retained_in_scope(tx, key, o))
+            })
+            .await;
+        }
+        retained_in_scope(tx, key, o).await
+    })
+}
+
+async fn retained_in_scope(
     tx: &mut SqliteTx,
     key: &OperationKey,
     o: &JournalOperation,
 ) -> Result<Value> {
-    let mut pending = std::collections::BTreeMap::from([(o.identity.clone(), false)]);
-    let mut verified = std::collections::BTreeMap::<Vec<u8>, bool>::new();
-    let mut verified_publications = std::collections::BTreeSet::new();
+    // Compact enter/exit frames replace the predependency verified map. A
+    // certificate completes only after all of its origin children complete.
+    enum Frame {
+        Enter {
+            identity: Vec<u8>,
+            original: bool,
+        },
+        Exit {
+            guard: proof_session::Guard,
+            original: bool,
+        },
+    }
+    let mut frames = vec![Frame::Enter {
+        identity: o.identity.clone(),
+        original: false,
+    }];
     let mut result = None;
-    while let Some((identity, must_be_original)) = pending.pop_first() {
-        if let Some(original) = verified.get(&identity) {
-            if must_be_original && !original {
-                return Err(ServiceError::IntegrityFailure);
+    while let Some(frame) = frames.pop() {
+        let Frame::Enter {
+            identity,
+            original: must_be_original,
+        } = frame
+        else {
+            if let Frame::Exit { guard, original } = frame {
+                guard.finish(original)?;
             }
             continue;
-        }
-        // The installation-wide admitted operation bound also bounds this
-        // acyclic history walk. Predecessor data traversal adds origin
-        // obligations here rather than recursively reproving each ancestor.
-        if verified.len() >= 100_000 {
-            return Err(ServiceError::IntegrityFailure);
-        }
+        };
         let operation = if identity == o.identity {
             o.clone()
         } else {
@@ -633,6 +660,21 @@ pub(super) async fn retained(
                 .ok_or(ServiceError::IntegrityFailure)?
         };
         let saved_key = origin_key(&operation.identity, key)?;
+        let guard = match proof_session::enter(
+            tx,
+            &saved_key,
+            &identity,
+            proof_session::journal_binding(&operation)?,
+            must_be_original,
+        )? {
+            proof_session::Entry::Completed => {
+                if identity == o.identity {
+                    result = Some(proof_session::journal_response(&operation)?);
+                }
+                continue;
+            }
+            proof_session::Entry::Started(guard) => guard,
+        };
         #[cfg(test)]
         count_origin(&operation.identity);
         let parsed = checked(&operation.operation_bytes, 8 * 1024 * 1024)?;
@@ -648,10 +690,10 @@ pub(super) async fn retained(
         if must_be_original && !is_original {
             return Err(ServiceError::IntegrityFailure);
         }
-        if operation.identity == o.identity {
+        if identity == o.identity {
             result = Some(certificate.value);
         }
-        verified.insert(operation.identity.clone(), is_original);
+        let mut children = std::collections::BTreeMap::<Vec<u8>, bool>::new();
         if let Some(identity) = certificate.original {
             let original = tx
                 .workflow_agreement_lookup(&identity)
@@ -661,7 +703,7 @@ pub(super) async fn retained(
             if original.sequence >= operation.sequence {
                 return Err(ServiceError::IntegrityFailure);
             }
-            pending.insert(original.identity, true);
+            children.insert(original.identity, true);
         }
         for document in certificate.documents {
             let (identity, kind, sequence) = tx
@@ -674,6 +716,8 @@ pub(super) async fn retained(
                 .map_err(crate::service::store_error)?
                 .ok_or(ServiceError::IntegrityFailure)?;
             if identity == operation.identity {
+                // Only this exact, already locally checked certificate's own
+                // members may terminate here. Cross-origin cycles do not.
                 if sequence != operation.sequence {
                     return Err(ServiceError::IntegrityFailure);
                 }
@@ -683,14 +727,19 @@ pub(super) async fn retained(
                 return Err(ServiceError::IntegrityFailure);
             }
             if kind == "policy.publish" {
-                if verified_publications.insert(identity.clone()) {
-                    verify_publication_origin(tx, key, &identity, sequence).await?;
-                }
+                verify_publication_origin(tx, key, &identity, sequence).await?;
             } else {
-                // Queue identities, not entire row BLOBs, and deduplicate before
-                // loading. Preserve a prior direct-original obligation.
-                pending.entry(identity).or_insert(false);
+                children.entry(identity).or_insert(false);
             }
+        }
+        // Documents/status graphs are dropped now; frames retain compact
+        // bindings and identity obligations, not transitive record BLOBs.
+        frames.push(Frame::Exit {
+            guard,
+            original: is_original,
+        });
+        for (identity, original) in children.into_iter().rev() {
+            frames.push(Frame::Enter { identity, original });
         }
     }
     result.ok_or(ServiceError::IntegrityFailure)
@@ -702,6 +751,25 @@ async fn verify_publication_origin(
     identity: &[u8],
     sequence: i64,
 ) -> Result<()> {
+    let saved_key = origin_key(identity, key)?;
+    let origin = tx
+        .workflow_lookup(identity)
+        .await
+        .map_err(crate::service::store_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    if origin.sequence != sequence {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let guard = match proof_session::enter(
+        tx,
+        &saved_key,
+        identity,
+        proof_session::publication_binding(&origin)?,
+        false,
+    )? {
+        proof_session::Entry::Completed => return Ok(()),
+        proof_session::Entry::Started(guard) => guard,
+    };
     #[cfg(test)]
     {
         let _ = WORK_COUNTS.try_with(|counts| {
@@ -712,22 +780,29 @@ async fn verify_publication_origin(
                 .or_default() += 1;
         });
     }
-    let saved_key = origin_key(identity, key)?;
-    let origin = tx
-        .workflow_lookup(identity)
-        .await
-        .map_err(crate::service::store_error)?
-        .ok_or(ServiceError::IntegrityFailure)?;
-    if origin.sequence != sequence {
-        return Err(ServiceError::IntegrityFailure);
-    }
-    records::verify_retained(tx, &saved_key, &origin).await?;
-    Ok(())
+    let proof = records::verify_retained(tx, &saved_key, &origin).await?;
+    guard.finish(proof["receipt"]["result_kind"] != "semantic_alias")
 }
 
 /// Authenticate an immutable dependency against its complete originating
 /// certificate. The scoped member index is used only to locate that origin.
-pub(super) async fn document_origin(
+pub(super) fn document_origin<'a>(
+    tx: &'a mut SqliteTx,
+    key: &'a OperationKey,
+    reference: &'a RecordRef,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+    Box::pin(async move {
+        if !proof_session::present(tx, key)? {
+            return proof_session::with_proofs(tx, key, |tx| {
+                Box::pin(document_origin_in_scope(tx, key, reference))
+            })
+            .await;
+        }
+        document_origin_in_scope(tx, key, reference).await
+    })
+}
+
+async fn document_origin_in_scope(
     tx: &mut SqliteTx,
     key: &OperationKey,
     reference: &RecordRef,

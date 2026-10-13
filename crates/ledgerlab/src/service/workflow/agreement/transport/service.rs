@@ -23,8 +23,8 @@ pub(in super::super) async fn execute(
         .begin(deadline())
         .await
         .map_err(crate::service::store_error)?;
-    let result: Result<(Value, bool)> = async {
-        ledger.admin.read(&ledger.store, &mut tx, key).await?;
+    let result: Result<(Value, bool)> = proof_session::with_proofs(&mut tx, key, |tx| Box::pin(async {
+        ledger.admin.read(&ledger.store, tx, key).await?;
         if let Some(kind) = tx
             .workflow_operation_kind(&key.bytes()?)
             .await
@@ -36,14 +36,14 @@ pub(in super::super) async fn execute(
                 .await
                 .map_err(crate::service::store_error)?
                 .ok_or(ServiceError::IntegrityFailure)?;
-            let saved = verify::retained(&mut tx, key, &old).await?;
+            let saved = verify::retained(tx, key, &old).await?;
             let previous = &saved["request_evidence"];
             require(
                 previous["normalized_request"]["payload"]["schema"] == req.payload()["schema"],
                 "IDENTITY_CONFLICT",
             )?;
             if previous["original_request_bytes_sha256"] != records::raw_hash(req.raw()) {
-                let normalized = resolve::resolve(&mut tx, key, req.payload(), false).await?;
+                let normalized = resolve::resolve(tx, key, req.payload(), false).await?;
                 let attempted = evidence::request_evidence(&req, &normalized)?;
                 require(
                     attempted["request_hash"] == previous["request_hash"]
@@ -53,9 +53,9 @@ pub(in super::super) async fn execute(
             }
             return Ok((saved, false));
         }
-        let setup = ledger.admin.fresh(&ledger.store, &mut tx, key).await?;
+        let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
-        let resolution = resolve::resolve(&mut tx, key, req.payload(), true).await?;
+        let resolution = resolve::resolve(tx, key, req.payload(), true).await?;
         let semantic = semantic(key, &resolution)?;
         let alias_of = tx
             .workflow_agreement_semantic(&key.logical_store_id, &key.scope, req.kind(), &semantic)
@@ -67,7 +67,7 @@ pub(in super::super) async fn execute(
             .map_err(crate::service::store_error)?
         {
             Some(root) => {
-                Box::pin(verify::document_origin(&mut tx, key, &root.reference)).await?;
+                Box::pin(verify::document_origin(tx, key, &root.reference)).await?;
                 let body = canonical_body(&root)?;
                 verify::root(&body, key, None)?;
                 if body["basis"] == journal::basis(&setup) {
@@ -118,8 +118,8 @@ pub(in super::super) async fn execute(
                     .map_err(crate::service::store_error)?;
                 if let Some(id) = previous {
                     require(id == result.reference.id, "SOURCE_FRAGMENT_MISMATCH")?;
-                    Box::pin(verify::document_origin(&mut tx, key, &result.reference)).await?;
-                    let old = loaded(&mut tx, key, &result.reference).await?;
+                    Box::pin(verify::document_origin(tx, key, &result.reference)).await?;
+                    let old = loaded(tx, key, &result.reference).await?;
                     if old.bytes != result.bytes {
                         return Err(ServiceError::IntegrityFailure);
                     }
@@ -164,8 +164,8 @@ pub(in super::super) async fn execute(
                 };
                 if let Some(id) = previous {
                     require(id == result.reference.id, "SEMANTIC_CONFLICT")?;
-                    Box::pin(verify::document_origin(&mut tx, key, &result.reference)).await?;
-                    if loaded(&mut tx, key, &result.reference).await?.bytes != result.bytes {
+                    Box::pin(verify::document_origin(tx, key, &result.reference)).await?;
+                    if loaded(tx, key, &result.reference).await?.bytes != result.bytes {
                         return Err(ServiceError::IntegrityFailure);
                     }
                     (result, Projection::None, true)
@@ -185,7 +185,7 @@ pub(in super::super) async fn execute(
                 .ok_or(ServiceError::IntegrityFailure)?;
             let original_key =
                 super::super::super::request::OperationKey::parse(&original.identity)?;
-            let original_result = verify::retained(&mut tx, &original_key, &original).await?;
+            let original_result = verify::retained(tx, &original_key, &original).await?;
             if original_result["receipt"]["result_refs"] != json!([result.reference])
                 || !semantic_alias
             {
@@ -222,11 +222,12 @@ pub(in super::super) async fn execute(
                 crate::service::store_error(e)
             }
         })?;
+        proof_session::after_append(tx, key)?;
         Ok((
-            verify::retained(&mut tx, key, &append.operation).await?,
+            verify::retained(tx, key, &append.operation).await?,
             true,
         ))
-    }
+    }))
     .await;
     match result {
         Err(e) => {

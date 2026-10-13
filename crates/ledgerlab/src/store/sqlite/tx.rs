@@ -49,6 +49,8 @@ pub(crate) struct SqliteTx {
     pub(super) slot: Option<OwnedSemaphorePermit>,
     pub(super) deadline: Instant,
     pub(super) failed: bool,
+    // Service proof scopes can poison this transaction on pure failure/cancel.
+    pub(super) workflow_proof_failed: Arc<std::sync::atomic::AtomicBool>,
     pub(super) outcome_locks: Vec<crate::store::outcomes::OutcomeLock>,
     pub(super) physical_lane: Option<OwnedRwLockWriteGuard<()>>,
     pub(super) adjudication: Option<super::adjudication::tx::Context>,
@@ -59,6 +61,9 @@ pub(crate) struct SqliteTx {
     pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
 impl SqliteTx {
+    pub(crate) fn workflow_proof_failure_handle(&self) -> Arc<std::sync::atomic::AtomicBool> {
+        Arc::clone(&self.workflow_proof_failed)
+    }
     pub(super) fn conn(&mut self) -> &mut SqliteConnection {
         self.transaction.as_mut().expect("live transaction")
     }
@@ -540,7 +545,7 @@ impl AcceptanceTx for SqliteTx {
     }
 
     async fn write(&mut self, op: &WriteOp) -> Result<(), StoreError> {
-        if self.failed {
+        if self.failed || self.workflow_proof_failed.load(Ordering::Acquire) {
             return Err(StoreError::Integrity(
                 "transaction already failed or was cancelled",
             ));
@@ -597,6 +602,7 @@ impl AcceptanceTx for SqliteTx {
         }
     }
     async fn commit(mut self) -> Result<(), CommitError> {
+        self.failed |= self.workflow_proof_failed.load(Ordering::Acquire);
         if !self.failed && Instant::now() < self.deadline && self.adjudication.is_none() {
             if let Some(before) = self.physical_start_pages {
                 self.failed = true;

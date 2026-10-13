@@ -32,74 +32,81 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
         .map_err(crate::service::store_error)?;
     #[cfg(test)]
     let writer_begun = std::time::Instant::now();
-    let attempted: Result<(Value, bool)> = async {
-        ledger.admin.read(&ledger.store, &mut tx, key).await?;
-        #[cfg(test)]
-        verify::diagnostic_checkpoint(&format!(
-            "{} writer acquired/admin read writer_ms={}",
-            key.operation_id,
-            writer_begun.elapsed().as_millis()
-        ));
-        if let Some(kind) = tx
-            .workflow_operation_kind(&key.bytes()?)
-            .await
-            .map_err(crate::service::store_error)?
-        {
-            require(kind == req.kind(), "IDENTITY_CONFLICT")?;
-            let old = tx
-                .workflow_agreement_lookup(&key.bytes()?)
+    let attempted: Result<(Value, bool)> = proof_session::with_proofs(&mut tx, key, |tx| {
+        Box::pin(async {
+            ledger.admin.read(&ledger.store, tx, key).await?;
+            #[cfg(test)]
+            verify::diagnostic_checkpoint(&format!(
+                "{} writer acquired/admin read writer_ms={}",
+                key.operation_id,
+                writer_begun.elapsed().as_millis()
+            ));
+            if let Some(kind) = tx
+                .workflow_operation_kind(&key.bytes()?)
                 .await
                 .map_err(crate::service::store_error)?
-                .ok_or(ServiceError::IntegrityFailure)?;
-            let original = verify::retained(&mut tx, key, &old).await?;
-            let saved = &original["request_evidence"];
-            if saved["original_request_bytes_sha256"] != records::raw_hash(req.raw()) {
-                require(
-                    req.payload()["publication_ref"]
-                        == saved["normalized_request"]["payload"]["publication_ref"],
-                    "IDENTITY_CONFLICT",
-                )?;
-                let data =
-                    replay::acceptance_data(&mut tx, key, &req)
-                        .await
-                        .map_err(|e| match e {
-                            ServiceError::Rejection(_) => reject("IDENTITY_CONFLICT"),
-                            e => e,
-                        })?;
-                let evidence = descriptor::evidence(&req, &data.input.value()?, &data.descriptors)?;
-                require(
-                    evidence["request_hash"] == saved["request_hash"]
-                        && evidence["descriptor_resolution"] == saved["descriptor_resolution"],
-                    "IDENTITY_CONFLICT",
-                )?;
+            {
+                require(kind == req.kind(), "IDENTITY_CONFLICT")?;
+                let old = tx
+                    .workflow_agreement_lookup(&key.bytes()?)
+                    .await
+                    .map_err(crate::service::store_error)?
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                let original = verify::retained(tx, key, &old).await?;
+                let saved = &original["request_evidence"];
+                if saved["original_request_bytes_sha256"] != records::raw_hash(req.raw()) {
+                    require(
+                        req.payload()["publication_ref"]
+                            == saved["normalized_request"]["payload"]["publication_ref"],
+                        "IDENTITY_CONFLICT",
+                    )?;
+                    let data =
+                        replay::acceptance_data(tx, key, &req)
+                            .await
+                            .map_err(|e| match e {
+                                ServiceError::Rejection(_) => reject("IDENTITY_CONFLICT"),
+                                e => e,
+                            })?;
+                    let evidence =
+                        descriptor::evidence(&req, &data.input.value()?, &data.descriptors)?;
+                    require(
+                        evidence["request_hash"] == saved["request_hash"]
+                            && evidence["descriptor_resolution"] == saved["descriptor_resolution"],
+                        "IDENTITY_CONFLICT",
+                    )?;
+                }
+                return Ok((original, false));
             }
-            return Ok((original, false));
-        }
-        #[cfg(test)]
-        verify::diagnostic_checkpoint(&format!("{} before fresh preparation", key.operation_id));
-        let append = prepare::fresh(ledger, &mut tx, &req).await?;
-        #[cfg(test)]
-        verify::diagnostic_checkpoint(&format!("{} before append", key.operation_id));
-        tx.workflow_agreement_append(&append).await.map_err(|e| {
-            if matches!(e, crate::store::errors::StoreError::DeliveryConflict) {
-                reject("SEMANTIC_CONFLICT")
-            } else {
-                crate::service::store_error(e)
-            }
-        })?;
-        #[cfg(test)]
-        verify::diagnostic_checkpoint(&format!(
-            "{} before retained after append",
-            key.operation_id
-        ));
-        let verified = verify::retained(&mut tx, key, &append.operation).await?;
-        #[cfg(test)]
-        verify::diagnostic_checkpoint(&format!(
-            "{} retained after append complete",
-            key.operation_id
-        ));
-        Ok((verified, true))
-    }
+            #[cfg(test)]
+            verify::diagnostic_checkpoint(&format!(
+                "{} before fresh preparation",
+                key.operation_id
+            ));
+            let append = prepare::fresh(ledger, tx, &req).await?;
+            #[cfg(test)]
+            verify::diagnostic_checkpoint(&format!("{} before append", key.operation_id));
+            tx.workflow_agreement_append(&append).await.map_err(|e| {
+                if matches!(e, crate::store::errors::StoreError::DeliveryConflict) {
+                    reject("SEMANTIC_CONFLICT")
+                } else {
+                    crate::service::store_error(e)
+                }
+            })?;
+            #[cfg(test)]
+            verify::diagnostic_checkpoint(&format!(
+                "{} before retained after append",
+                key.operation_id
+            ));
+            proof_session::after_append(tx, key)?;
+            let verified = verify::retained(tx, key, &append.operation).await?;
+            #[cfg(test)]
+            verify::diagnostic_checkpoint(&format!(
+                "{} retained after append complete",
+                key.operation_id
+            ));
+            Ok((verified, true))
+        })
+    })
     .await;
     #[cfg(test)]
     verify::diagnostic_checkpoint(&format!(
