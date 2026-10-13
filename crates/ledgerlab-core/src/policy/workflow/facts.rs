@@ -361,6 +361,21 @@ impl FactSchema {
             required_proofs,
         })
     }
+    /// Binding context syntax uses only required caller facts. This does not
+    /// establish assent, bind a customer or select an accepted policy.
+    pub fn normalize_context(&self, bytes: &[u8]) -> Result<NormalizedFacts> {
+        if self
+            .fields
+            .iter()
+            .any(|field| !field.required || field.attested)
+        {
+            return Err(fail(
+                "CONTEXT_SCHEMA",
+                "binding context fields must be required caller facts",
+            ));
+        }
+        self.normalize(bytes)
+    }
     /// Quantity corrections and formula typechecking use the original schema.
     pub fn quantity_unit(&self, field: &str) -> Result<&str> {
         let field = self

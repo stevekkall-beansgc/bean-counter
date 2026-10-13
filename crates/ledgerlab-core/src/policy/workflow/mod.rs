@@ -5,6 +5,11 @@ mod facts;
 pub use facts::{FactSchema, FactValue, NormalizedFacts, SignedScalar};
 mod template;
 pub use template::{SlotTemplate, TemplateBook, TemplateComponent, TemplateFamily};
+mod product;
+pub use product::{
+    Activity, BindingRelation, LinkDefinition, MissingDependency, Primitive, Product,
+    UnitDefinition,
+};
 
 fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<String> {
     use sha2::{Digest, Sha256};
