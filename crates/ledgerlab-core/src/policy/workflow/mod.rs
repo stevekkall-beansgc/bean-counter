@@ -32,3 +32,5 @@ fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<Stri
 
 mod slots;
 pub use slots::{RoleAssignment, SlotCatalog, SlotInstantiation};
+mod ceiling;
+pub use ceiling::SourceCeiling;
