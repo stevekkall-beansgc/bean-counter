@@ -11,6 +11,8 @@ use std::collections::BTreeSet;
 /// Typed Phase 2 evaluation. It deliberately does not extend the frozen wire
 /// parser or manufacture Phase 1 journal records for later record families.
 pub mod chaining;
+/// Generic workflow document validation, separate from all legacy profiles.
+pub mod workflow;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

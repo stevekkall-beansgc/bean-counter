@@ -1,0 +1,352 @@
+use super::*;
+use serde_json::json;
+
+fn schema(fields: Value) -> FactSchema {
+    FactSchema::parse(
+        &serde_json::to_vec(&json!({
+            "schema":"ledger-workflow-fact-schema/1", "schema_id":"example:work", "version":"1",
+            "normalization":"ledger-facts-normalization/1", "fields":fields
+        }))
+        .unwrap(),
+    )
+    .unwrap()
+}
+fn field(name: &str, required: bool, kind: Value) -> Value {
+    json!({"name":name,"required":required,"type":kind,"provenance":{"kind":"caller"}})
+}
+fn integer() -> FactSchema {
+    schema(json!([field(
+        "example:quantity",
+        true,
+        json!({"kind":"integer","min":"0","max":"999999999999999999999999999999","unit":"example:work"})
+    )]))
+}
+fn decimal() -> FactSchema {
+    schema(json!([field(
+        "example:delta",
+        true,
+        json!({"kind":"decimal","min":"-2","max":"2","max_scale":"2"})
+    )]))
+}
+fn error<T: std::fmt::Debug>(result: Result<T>, code: &str) {
+    assert_eq!(result.unwrap_err().code, code);
+}
+
+#[test]
+fn required_and_missing_are_distinct_without_invented_defaults() {
+    let s = schema(json!([
+        field("example:required", true, json!({"kind":"boolean"})),
+        field("example:optional", false, json!({"kind":"boolean"}))
+    ]));
+    error(s.normalize(b"{}"), "FACT_REQUIRED");
+    let facts = s.normalize(br#"{"example:required":false}"#).unwrap();
+    assert_eq!(facts.get("example:optional"), Some(&FactValue::Missing));
+    assert_eq!(facts.canonical_value(), &json!({"example:required":false}));
+    error(
+        s.normalize(br#"{"example:required":false,"example:optional":null}"#),
+        "FACT_TYPE",
+    );
+}
+
+#[test]
+fn strict_lexical_parser_runs_before_deserialization() {
+    let s = integer();
+    for bytes in [
+        br#"{"example:quantity":"1","example:quantity":"2"}"#.as_slice(),
+        br#"{"example:quantity":-0}"#,
+        br#"{"example:quantity":1e0}"#,
+        br#"{"example:quantity":1.0}"#,
+    ] {
+        assert!(s.normalize(bytes).is_err(), "{:?}", bytes);
+    }
+    error(s.normalize(br#"{"example:quantity":1}"#), "FACT_TYPE");
+}
+
+#[test]
+fn integer_limits_and_signed_bounds_are_exact() {
+    let s = integer();
+    assert_eq!(
+        s.normalize(br#"{"example:quantity":"0001"}"#)
+            .unwrap()
+            .canonical_value(),
+        &json!({"example:quantity":"1"})
+    );
+    s.normalize(br#"{"example:quantity":"999999999999999999999999999999"}"#)
+        .unwrap();
+    error(
+        s.normalize(br#"{"example:quantity":"1000000000000000000000000000000"}"#),
+        "FACT_PRECISION",
+    );
+    error(s.normalize(br#"{"example:quantity":"-1"}"#), "FACT_RANGE");
+    for value in ["-0", "-00", "1.0", "+1", "1e1"] {
+        assert!(s
+            .normalize(&serde_json::to_vec(&json!({"example:quantity":value})).unwrap())
+            .is_err());
+    }
+    let s = schema(json!([field(
+        "example:delta",
+        true,
+        json!({"kind":"integer","min":"-999999999999999999999999999999","max":"-1"})
+    )]));
+    s.normalize(br#"{"example:delta":"-999999999999999999999999999999"}"#)
+        .unwrap();
+    error(s.normalize(br#"{"example:delta":"0"}"#), "FACT_RANGE");
+}
+
+#[test]
+fn decimal_raw_scale_and_precision_precede_normalization() {
+    let s = decimal();
+    assert_eq!(
+        s.normalize(br#"{"example:delta":"-01.20"}"#)
+            .unwrap()
+            .canonical_value(),
+        &json!({"example:delta":"-1.2"})
+    );
+    for value in ["-0.00", "1.000", "1.", ".1", "+1", "1e-2"] {
+        error(
+            s.normalize(&serde_json::to_vec(&json!({"example:delta":value})).unwrap()),
+            "FACT_PRECISION",
+        );
+    }
+    error(s.normalize(br#"{"example:delta":"2.01"}"#), "FACT_RANGE");
+    error(s.normalize(br#"{"example:delta":"-2.01"}"#), "FACT_RANGE");
+    s.normalize(br#"{"example:delta":"-2"}"#).unwrap();
+    s.normalize(br#"{"example:delta":"2"}"#).unwrap();
+    assert!(SignedScalar::parse("999999999999999999999999999999.0", 18).is_ok());
+    assert!(SignedScalar::parse("1000000000000000000000000000000", 18).is_err());
+}
+
+#[test]
+fn comparison_does_not_overflow_at_30_digits_and_scale_18() {
+    let large = SignedScalar::parse("999999999999999999999999999999", 18).unwrap();
+    let tiny = SignedScalar::parse("0.000000000000000001", 18).unwrap();
+    assert!(large > tiny);
+    assert!(SignedScalar::parse("-999999999999999999999999999999", 18).unwrap() < tiny);
+    assert_eq!(
+        serde_json::to_value(tiny.ratio()).unwrap(),
+        json!({"numerator":"1","denominator":"1000000000000000000"})
+    );
+}
+
+#[test]
+fn closed_shapes_reject_unknown_and_explicit_null_recursively() {
+    let mut value = schema(json!([field(
+        "example:n",
+        true,
+        json!({"kind":"integer","min":"0","max":"2"})
+    )]))
+    .body;
+    for path in [0, 1, 2] {
+        let mut wrong = value.clone();
+        match path {
+            0 => {
+                wrong["extra"] = json!(true);
+            }
+            1 => {
+                wrong["fields"][0]["type"]["extra"] = json!(true);
+            }
+            _ => {
+                wrong["fields"][0]["provenance"]["extra"] = json!(true);
+            }
+        }
+        assert!(FactSchema::parse(&serde_json::to_vec(&wrong).unwrap()).is_err());
+    }
+    value["fields"][0]["type"]["unit"] = Value::Null;
+    error(
+        FactSchema::parse(&serde_json::to_vec(&value).unwrap()),
+        "FACT_SCHEMA",
+    );
+    error(
+        integer().normalize(br#"{"example:quantity":"1","example:price":"0"}"#),
+        "FACT_UNKNOWN",
+    );
+}
+
+#[test]
+fn schema_sets_normalize_deterministically_and_refuse_duplicates() {
+    let a = field(
+        "example:a",
+        true,
+        json!({"kind":"enum","values":["example:z","example:a"]}),
+    );
+    let b = field("example:b", false, json!({"kind":"boolean"}));
+    let left = schema(json!([a.clone(), b.clone()]));
+    let right = schema(json!([b, a.clone()]));
+    assert_eq!(
+        left.canonical_bytes().unwrap(),
+        right.canonical_bytes().unwrap()
+    );
+    let mut duplicate = left.body.clone();
+    duplicate["fields"] = json!([a.clone(), a]);
+    error(
+        FactSchema::parse(&serde_json::to_vec(&duplicate).unwrap()),
+        "FACT_SCHEMA",
+    );
+    duplicate["fields"] = json!([field(
+        "example:e",
+        true,
+        json!({"kind":"enum","values":["example:a","example:a"]})
+    )]);
+    assert!(FactSchema::parse(&serde_json::to_vec(&duplicate).unwrap()).is_err());
+}
+
+#[test]
+fn strings_enums_names_and_timestamps_remain_typed() {
+    let s = schema(json!([
+        field(
+            "example:text",
+            true,
+            json!({"kind":"string","min_bytes":"1","max_bytes":"4"})
+        ),
+        field(
+            "example:enum",
+            true,
+            json!({"kind":"enum","values":["example:yes"]})
+        ),
+        field(
+            "example:time",
+            true,
+            json!({"kind":"timestamp","min":"2026-01-01T00:00:00Z","max":"2027-01-01T00:00:00Z"})
+        )
+    ]));
+    let good = json!({"example:text":"éé","example:enum":"example:yes","example:time":"2026-01-01T01:00:00+01:00"});
+    let facts = s.normalize(&serde_json::to_vec(&good).unwrap()).unwrap();
+    assert_eq!(
+        facts.canonical_value()["example:time"],
+        "2026-01-01T00:00:00.000000Z"
+    );
+    for (field, value) in [
+        ("example:text", "ééé"),
+        ("example:text", "a\n"),
+        ("example:enum", "example:Yes"),
+        ("example:time", "2025-12-31T23:59:59Z"),
+    ] {
+        let mut wrong = good.clone();
+        wrong[field] = json!(value);
+        assert!(s.normalize(&serde_json::to_vec(&wrong).unwrap()).is_err());
+    }
+    for value in ["unqualified", "a:b:c", "1bad:name", "a:bad space"] {
+        assert!(name(value).is_err());
+    }
+}
+
+#[test]
+fn quantity_corrections_use_original_field_descriptor() {
+    let old = integer();
+    let new = schema(json!([field(
+        "example:quantity",
+        true,
+        json!({"kind":"decimal","min":"0","max":"100","max_scale":"2","unit":"example:work"})
+    )]));
+    assert_eq!(
+        old.quantity_unit("example:quantity").unwrap(),
+        "example:work"
+    );
+    old.normalize_quantity("example:quantity", br#""2""#)
+        .unwrap();
+    error(
+        old.normalize_quantity("example:quantity", br#""2.5""#),
+        "FACT_PRECISION",
+    );
+    new.normalize_quantity("example:quantity", br#""2.5""#)
+        .unwrap();
+    error(decimal().quantity_unit("example:delta"), "QUANTITY_TYPE");
+    let optional = schema(json!([field(
+        "example:quantity",
+        false,
+        json!({"kind":"integer","min":"0","max":"2","unit":"example:work"})
+    )]));
+    error(optional.quantity_unit("example:quantity"), "QUANTITY_TYPE");
+}
+
+#[test]
+fn attested_facts_require_proof_and_reference_types_fail_closed() {
+    let mut f = field(
+        "example:cost",
+        true,
+        json!({"kind":"integer","min":"0","max":"2"}),
+    );
+    f["provenance"] =
+        json!({"kind":"attested","source_slot":"example:meter","evidence_kind":"meter_quantity"});
+    let s = schema(json!([f]));
+    assert_eq!(
+        s.normalize(br#"{"example:cost":"1"}"#)
+            .unwrap()
+            .required_proof_fields(),
+        &["example:cost"]
+    );
+    let mut unsupported = s.body.clone();
+    unsupported["fields"][0]["type"] =
+        json!({"kind":"reference","record_kind":"anything","relation":"same_binding"});
+    error(
+        FactSchema::parse(&serde_json::to_vec(&unsupported).unwrap()),
+        "FACT_UNSUPPORTED_TYPE",
+    );
+}
+
+#[test]
+fn independently_derived_schema_bytes_and_document_identity() {
+    // Independent stdlib oracle by /root/adversarial_money, 2026-10-12:
+    // review-fixtures/independent-expected.json vector fact-schema-v1.
+    // The expected values are not obtained from the production normalizer/hash.
+    let expected = br#"{"fields":[{"name":"review.measure:units","provenance":{"kind":"caller"},"required":true,"type":{"kind":"integer","max":"9","min":"1","unit":"review.measure:item"}}],"normalization":"ledger-facts-normalization/1","schema":"ledger-workflow-fact-schema/1","schema_id":"review.measure:work-facts","version":"1"}"#;
+    let schema = FactSchema::parse(expected).unwrap();
+    assert_eq!(schema.canonical_bytes().unwrap().as_slice(), expected);
+    assert_eq!(
+        schema.document_id().unwrap(),
+        "wdoc_f291139089808d576591c70182ee5891eae994d278d8a75ffd94bc44aa9256e7"
+    );
+    assert_eq!(
+        schema.content_digest().unwrap(),
+        "sha256:f291139089808d576591c70182ee5891eae994d278d8a75ffd94bc44aa9256e7"
+    );
+    assert_eq!(
+        CanonicalBytes::from_value(
+            schema
+                .normalize(br#"{"review.measure:units":"003"}"#)
+                .unwrap()
+                .canonical_value()
+        )
+        .unwrap()
+        .as_slice(),
+        br#"{"review.measure:units":"3"}"#
+    );
+}
+
+#[test]
+fn descriptor_domains_and_exact_field_ceiling_are_validated_first() {
+    let fields: Vec<_> = (0..64)
+        .map(|i| {
+            field(
+                &format!("example:field{i}"),
+                false,
+                json!({"kind":"boolean"}),
+            )
+        })
+        .collect();
+    let s = schema(json!(fields));
+    s.normalize(b"{}").unwrap();
+    let mut oversized = s.body.clone();
+    oversized["fields"].as_array_mut().unwrap().push(field(
+        "example:extra",
+        false,
+        json!({"kind":"boolean"}),
+    ));
+    error(
+        FactSchema::parse(&serde_json::to_vec(&oversized).unwrap()),
+        "FACT_LIMIT",
+    );
+    for kind in [
+        json!({"kind":"integer","min":"2","max":"1"}),
+        json!({"kind":"integer","min":"1.0","max":"2"}),
+        json!({"kind":"decimal","min":"0","max":"1.000","max_scale":"2"}),
+        json!({"kind":"decimal","min":"0","max":"1","max_scale":"19"}),
+        json!({"kind":"string","min_bytes":"0","max_bytes":"1025"}),
+        json!({"kind":"boolean","default":false}),
+        json!({"kind":"array","items":{"kind":"integer"}}),
+    ] {
+        let mut wrong = integer().body.clone();
+        wrong["fields"][0]["type"] = kind;
+        assert!(FactSchema::parse(&serde_json::to_vec(&wrong).unwrap()).is_err());
+    }
+}
