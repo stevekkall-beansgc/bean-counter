@@ -176,7 +176,7 @@ pub(super) async fn predecessor_closure(
             | "workflow-source-state"
             | "workflow-evidence"
             | "workflow-customer" => {
-                for proof in verify::closure(tx, key, &[r.clone()]).await? {
+                for proof in verify::closure(tx, key, std::slice::from_ref(&r)).await? {
                     if !docs.contains_key(&proof.reference.id) {
                         todo.push(proof.reference);
                     }

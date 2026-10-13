@@ -182,8 +182,10 @@ pub(super) async fn fresh(
     );
     documents.extend(source.documents().iter().map(copy));
     if let Some(prior) = history.last() {
-        documents
-            .extend(verify::authenticated_closure(tx, key, &[prior.head.reference.clone()]).await?);
+        documents.extend(
+            verify::authenticated_closure(tx, key, std::slice::from_ref(&prior.head.reference))
+                .await?,
+        );
     }
     if let Some(target) = payload.get(target_field) {
         let target: RecordRef =
@@ -194,7 +196,12 @@ pub(super) async fn fresh(
             .ok_or(ServiceError::IntegrityFailure)?;
         documents.push(copy(&transition.activation));
         documents.extend(
-            verify::authenticated_closure(tx, key, &[transition.head.reference.clone()]).await?,
+            verify::authenticated_closure(
+                tx,
+                key,
+                std::slice::from_ref(&transition.head.reference),
+            )
+            .await?,
         );
     }
     for r in payload["evidence_refs"]

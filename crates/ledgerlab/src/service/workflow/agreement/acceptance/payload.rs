@@ -80,8 +80,9 @@ impl AcceptInput {
             .ok()
             .and_then(|revision| revision.checked_add(1))
             .ok_or_else(|| reject("INVALID_SCALAR"))?;
+        let next_revision = next_revision.to_string();
         require(
-            normalized["version"] == next_revision.to_string(),
+            normalized["version"].as_str() == Some(next_revision.as_str()),
             "INVALID_SHAPE",
         )?;
         require(

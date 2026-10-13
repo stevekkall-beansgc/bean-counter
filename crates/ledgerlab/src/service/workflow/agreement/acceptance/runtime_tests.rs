@@ -192,6 +192,9 @@ async fn input(
     terms["publication_ref"] = json!(publication_ref);
     let binding = &mut terms["binding_inputs"];
     binding["source_namespace"] = json!("urn:example:work");
+    if label == "B" {
+        binding["ends_at"] = json!("2028-12-31T00:00:00.000000Z");
+    }
     binding["roles_refs"] = json!([role.reference]);
     binding["slot_catalog_ref"] = json!(catalog.reference);
     binding["slot_instantiation_ref"] = json!(instantiation.reference);
@@ -438,7 +441,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     );
     root_tx.rollback().await.unwrap();
     *ledger.preferred_root.lock().unwrap() = Some(a_root.clone());
-    let (b, _) = input(&ledger, "B", &publication_ref).await;
+    let (b, enrollment_b) = input(&ledger, "B", &publication_ref).await;
     let mut metadata_tx = ledger
         .store
         .begin(crate::service::workflow::local::deadline())
@@ -713,10 +716,12 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     let mut bad_stop = stop_input.clone();
     bad_stop["key"]["operation_id"] = json!("A-stop-wrong-active-target");
     bad_stop["payload"]["transition_ref"] = json!(result_ref(&active_a, "workflow-activation"));
-    assert!(ledger
-        .agreement(&records::bytes(&bad_stop).unwrap())
-        .await
-        .is_err());
+    let bad_target_proof=proof(&ledger,"A-stop-active-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":result_ref(&last_receipt,"workflow-binding"),"target_transition_ref":result_ref(&active_a,"workflow-activation"),"reason":"Explicit pending cancellation and immediate stop"})).await;
+    bad_stop["payload"]["evidence_refs"] = json!([bad_target_proof]);
+    assert_eq!(
+        ledger.agreement(&records::bytes(&bad_stop).unwrap()).await,
+        Err(reject("ACTIVATION_SCHEDULE_CONFLICT"))
+    );
     let stopped = ledger
         .agreement(&records::bytes(&stop_input).unwrap())
         .await
@@ -755,6 +760,59 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
             receipt["receipt"]["result_refs"]
         );
     }
+    let mut expiry_tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let b_enrolled = loaded(&mut expiry_tx, &a_key, &enrollment_b).await.unwrap();
+    let mut b_ceiling = canonical_body(&b_enrolled).unwrap()["ceiling"].clone();
+    b_ceiling["ends_at"] = json!("2026-10-13T00:00:00.000000Z");
+    expiry_tx.rollback().await.unwrap();
+    let expire_b = envelope(
+        "B-expire-source",
+        "authority.change",
+        json!({"schema":"ledger-workflow-source-restrict/1","action":"source.restrict","enrollment_ref":enrollment_b,"expected_revision":"1","replacement_ceiling":b_ceiling}),
+    );
+    ledger
+        .prerequisite(&records::bytes(&expire_b).unwrap())
+        .await
+        .unwrap();
+    let mut b_alias = activate_b.clone();
+    b_alias["key"]["operation_id"] = json!("B-activate-alias-after-expiry");
+    let b_aliased = ledger
+        .agreement(&records::bytes(&b_alias).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(b_aliased["receipt"]["result_kind"], "semantic_alias");
+    assert_eq!(
+        b_aliased["receipt"]["result_refs"],
+        active_b["receipt"]["result_refs"]
+    );
+    let b_alias_key = super::super::super::request::OperationKey::parse(
+        &records::bytes(&b_alias["key"]).unwrap(),
+    )
+    .unwrap();
+    let mut alias_tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    let b_alias_op = alias_tx
+        .workflow_agreement_lookup(&b_alias_key.bytes().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let b_alias_body = canonical::parse_bounded(&b_alias_op.operation_bytes, 8388608).unwrap();
+    assert_eq!(
+        b_alias_body["authority_snapshot"]["source_observation"]["status"],
+        "active"
+    );
+    assert_eq!(
+        b_alias_body["authority_snapshot"]["source_observation"]["grant_time_status"],
+        "expired"
+    );
+    alias_tx.rollback().await.unwrap();
     let mut denied = activate_a.clone();
     denied["key"]["operation_id"] = json!("A-fresh-after-source-revoke");
     denied["payload"]["expected_revision"] = json!("4");
@@ -841,7 +899,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .revision,
         1
     );
-    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 40);
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 43);
     let next_sequence = tx.workflow_sequence().await.unwrap();
     let a_history = activation_verify::schedule::history_before(
         &mut tx,
@@ -869,6 +927,15 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     assert_eq!(
         activation_verify::schedule::selected_binding(&b_history, &now).unwrap(),
         Some(result_ref(&accepted_b, "workflow-binding"))
+    );
+    assert_eq!(
+        activation_verify::schedule::selected_binding(
+            &b_history,
+            &Timestamp::parse("2029-03-01T00:00:00.000000Z").unwrap()
+        )
+        .unwrap(),
+        None,
+        "finite B expiry never resumes an older binding"
     );
     assert_eq!(
         activation_verify::schedule::selected_binding(

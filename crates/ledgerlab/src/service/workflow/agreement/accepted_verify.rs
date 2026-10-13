@@ -264,7 +264,8 @@ pub(super) async fn retained_local(
         }
     }
     let source = context::observe_source_at(tx, key, &enrollment_ref, &state_ref).await?;
-    if a["source_revision"] != source.state().revision().to_string() {
+    let source_revision = source.state().revision().to_string();
+    if a["source_revision"].as_str() != Some(source_revision.as_str()) {
         return Err(ServiceError::IntegrityFailure);
     }
     let proofs = authority::verify_capture(

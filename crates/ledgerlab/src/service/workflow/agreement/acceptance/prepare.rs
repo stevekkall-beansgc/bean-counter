@@ -133,15 +133,17 @@ pub(super) async fn fresh(
         let prior = loaded(tx, key, &head.transition).await?;
         let body = canonical::parse_bounded(&prior.bytes, 262144)
             .map_err(|_| ServiceError::IntegrityFailure)?;
+        let revision_text = revision.to_string();
         require(
             body["head_kind"] == "agreement_acceptance"
                 && body["scope"] == json!(key.scope)
                 && body["customer"] == input.customer()
                 && body["agreement_id"] == input.agreement_id()
-                && body["new_revision"] == revision.to_string(),
+                && body["new_revision"].as_str() == Some(revision_text.as_str()),
             "INTEGRITY_FAILURE",
         )?;
-        predecessors = verify::authenticated_closure(tx, key, &[head.transition.clone()]).await?;
+        predecessors =
+            verify::authenticated_closure(tx, key, std::slice::from_ref(&head.transition)).await?;
     }
     #[cfg(test)]
     phase(key, "before current admission proof", begun);
