@@ -123,7 +123,9 @@ impl LocalWorkflowLedger {
         let v = ledgerlab_core::canonical::parse_bounded(raw, 262_144)
             .map_err(|_| reject("INVALID_SHAPE"))?;
         if v["kind"] == "operation.descriptors"
-            || v.get("payload").and_then(|p| p.get("representation")).is_some()
+            || v.get("payload")
+                .and_then(|p| p.get("representation"))
+                .is_some()
         {
             return agreement::transport::read(self, raw).await;
         }
@@ -190,8 +192,11 @@ impl LocalWorkflowLedger {
                 .map_err(super::super::store_error)?
             {
                 Some(kind) if kind == "policy.publish" => {
-                    let original = tx.workflow_lookup(&key.bytes()?).await
-                        .map_err(super::super::store_error)?.ok_or(ServiceError::IntegrityFailure)?;
+                    let original = tx
+                        .workflow_lookup(&key.bytes()?)
+                        .await
+                        .map_err(super::super::store_error)?
+                        .ok_or(ServiceError::IntegrityFailure)?;
                     records::verify_retained(&mut tx, &key, &original).await
                 }
                 Some(_) => agreement::status(&mut tx, &key).await,
@@ -265,7 +270,11 @@ impl LocalWorkflowLedger {
             .map_err(super::super::store_error)?;
         let preparation: Result<PublicationPreparation> = async {
             self.admin.read(&self.store, &mut tx, key).await?;
-            if let Some(kind) = tx.workflow_operation_kind(&key.bytes()?).await.map_err(super::super::store_error)? {
+            if let Some(kind) = tx
+                .workflow_operation_kind(&key.bytes()?)
+                .await
+                .map_err(super::super::store_error)?
+            {
                 require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
             }
             if let Some(original) = tx
@@ -335,7 +344,11 @@ impl LocalWorkflowLedger {
             .map_err(super::super::store_error)?;
         let written: Result<(Value, bool)> = async {
             self.admin.read(&self.store, &mut tx, key).await?;
-            if let Some(kind) = tx.workflow_operation_kind(&key.bytes()?).await.map_err(super::super::store_error)? {
+            if let Some(kind) = tx
+                .workflow_operation_kind(&key.bytes()?)
+                .await
+                .map_err(super::super::store_error)?
+            {
                 require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
             }
             // A racing commit wins before mutable fresh configuration/support.
@@ -528,6 +541,9 @@ async fn resolve_documents(
             .await
             .map_err(super::super::store_error)?
             .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        // Scoped bytes alone do not prove a source's retained origin. Resolve
+        // the complete saved certificate before fresh compilation/publication.
+        agreement::transport::verify_source_origin(tx, key, r).await?;
         docs.push(d.bytes);
     }
     Ok(docs)
