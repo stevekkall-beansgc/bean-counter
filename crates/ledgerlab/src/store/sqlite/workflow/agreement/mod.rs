@@ -212,7 +212,9 @@ impl SqliteTx {
                 schema: r.try_get("schema_name")?, bytes: r.try_get("canonical_bytes")?,
             })).collect::<Result<Vec<_>, sqlx::Error>>().map_err(StoreError::from)
         }).await.map_err(|_| StoreError::Deadline)?;
-        if result.is_ok() { self.failed = prior; }
+        if result.is_ok() {
+            self.failed = prior;
+        }
         result
     }
     pub(crate) async fn workflow_agreement_lookup(
@@ -290,6 +292,27 @@ impl SqliteTx {
         })
         .await
         .map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = prior;
+        }
+        result
+    }
+    /// Scoped original operation BLOB lookup, not a content-document fallback.
+    pub(crate) async fn workflow_agreement_operation_ref(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        r: &RecordRef,
+    ) -> Result<Option<JournalOperation>, StoreError> {
+        let prior = self.failed;
+        self.failed = true;
+        let result=timeout_at(self.deadline,async {
+            self.workflow_schema().await?;
+            if r.kind!="workflow-operation" {return Err(StoreError::Integrity("not an operation reference"));}
+            let identity:Option<Vec<u8>>=sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_record_id=? AND operation_digest=?")
+                .bind(store).bind(&scope[0]).bind(&scope[1]).bind(&r.id).bind(&r.digest).fetch_optional(self.conn()).await?;
+            match identity {Some(identity)=>self.workflow_agreement_lookup(&identity).await,None=>Ok(None)}
+        }).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -433,6 +456,53 @@ impl SqliteTx {
             || (p.alias_of.is_some() && !matches!(p.projection, Projection::None))
         {
             return Err(StoreError::DeliveryConflict);
+        }
+        if body["schema"] == "ledger-workflow-agreement-alias-operation/1" {
+            let original_identity = p
+                .alias_of
+                .as_ref()
+                .ok_or(StoreError::Integrity("alias04 missing original"))?;
+            if !matches!(p.projection, Projection::None) {
+                return Err(StoreError::Integrity("alias04 mutates projection"));
+            }
+            let original = self
+                .workflow_agreement_lookup(original_identity)
+                .await?
+                .ok_or(StoreError::Integrity("alias04 missing original BLOB"))?;
+            let old = ledgerlab_core::canonical::parse_bounded(&original.operation_bytes, 8388608)
+                .map_err(|_| StoreError::Integrity("alias04 bad original BLOB"))?;
+            let original_key: serde_json::Value = serde_json::from_slice(original_identity)
+                .map_err(|_| StoreError::Integrity("alias04 bad original identity"))?;
+            if original.kind != o.kind
+                || original.sequence >= o.sequence
+                || old["schema"] != "ledger-workflow-operation-record/1"
+                || old["key"] != original_key
+                || original_key["logical_store_id"] != p.store
+                || original_key["scope"] != json!([p.tenant, p.environment])
+                || original_key["source"] != p.source
+                || body["authority_snapshot"]["original_operation_ref"]
+                    != json!(original.operation_ref)
+                || body["authority_snapshot"]["schema"] != "ledger-workflow-agreement-authority/3"
+                || body["authority_snapshot"]["purpose"] != "semantic_alias"
+                || body["result_refs"] != old["result_refs"]
+                || p.documents
+                    .iter()
+                    .any(|d| d.reference.kind == "workflow-operation")
+            {
+                return Err(StoreError::Integrity(
+                    "alias04 original association mismatch",
+                ));
+            }
+            let mut expected: Vec<_> = p.documents.iter().map(|d| d.reference.clone()).collect();
+            expected.extend([o.operation_ref.clone(), original.operation_ref]);
+            expected.sort_by(|a, b| (&a.kind, &a.id, &a.digest).cmp(&(&b.kind, &b.id, &b.digest)));
+            let mut actual = o.members.clone();
+            actual.sort_by(|a, b| (&a.kind, &a.id, &a.digest).cmp(&(&b.kind, &b.id, &b.digest)));
+            if expected != actual {
+                return Err(StoreError::Integrity("alias04 members mismatch"));
+            }
+            // Original BLOB remains in workflow_operations, already charged.
+            // It is never inserted into workflow_documents or new-byte delta.
         }
         let mut unique = std::collections::BTreeSet::new();
         let mut new = std::collections::BTreeSet::new();
