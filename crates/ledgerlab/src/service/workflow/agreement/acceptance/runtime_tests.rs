@@ -691,6 +691,37 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         "0",
         json!({"kind":"at_commit"}),
     );
+    // Genuine retained A/B bindings remain scoped by their accepted original
+    // certificates and current private owner capability, despite no scope in
+    // the Binding body itself. None of these refusals may append a transition.
+    for variant in ["scope", "customer", "copy"] {
+        let mut bad = activate_a.clone();
+        bad["key"]["operation_id"] = json!(format!("A-activate-invalid-{variant}"));
+        let expected = if variant == "scope" {
+            bad["key"]["scope"] = json!(["other-company", "local"]);
+            "AUTHORITY_REQUIRED"
+        } else if variant == "customer" {
+            bad["payload"]["accepted_binding_ref"] = json!(b_binding);
+            "INVALID_REFERENCE"
+        } else {
+            bad["payload"]["product_ref"] = bad["payload"]["policy_ref"].clone();
+            "INVALID_REFERENCE"
+        };
+        assert_eq!(
+            ledger.agreement(&records::bytes(&bad).unwrap()).await,
+            Err(reject(expected))
+        );
+    }
+    let mut refusal_tx = ledger
+        .store
+        .begin(crate::service::workflow::local::deadline())
+        .await
+        .unwrap();
+    assert_eq!(
+        refusal_tx.workflow_test_meter().await.unwrap().operations,
+        30
+    );
+    refusal_tx.rollback().await.unwrap();
     let activate_a_key = super::super::super::request::OperationKey::parse(
         &records::bytes(&activate_a["key"]).unwrap(),
     )

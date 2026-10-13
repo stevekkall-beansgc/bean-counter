@@ -57,7 +57,6 @@ pub(in crate::service::workflow::agreement) fn transition(
         || h["agreement_id"] != agreement
         || b["customer"] != customer
         || b["agreement_id"] != agreement
-        || b["scope"] != json!(key.scope)
         || h["accepted_binding_ref"] != json!(binding.reference)
         || h["resolved_effective_time"] != a["effective_at"]
         || a["binding_ref"] != json!(binding.reference)
@@ -155,7 +154,10 @@ pub(in crate::service::workflow::agreement) fn boundary_at<'a>(
 /// Evaluate only an already certified schedule prefix. Expiry/revoke yields no
 /// selection, never a fallback to a previously valid binding.
 #[cfg(test)]
-pub(in crate::service::workflow::agreement) fn selected_binding(history: &[Transition], at: &Timestamp) -> Result<Option<RecordRef>> {
+pub(in crate::service::workflow::agreement) fn selected_binding(
+    history: &[Transition],
+    at: &Timestamp,
+) -> Result<Option<RecordRef>> {
     let Some(t) = boundary_at(history, at)? else {
         return Ok(None);
     };

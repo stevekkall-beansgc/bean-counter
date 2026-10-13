@@ -50,7 +50,9 @@ fn counter(v: &Value) -> Result<String> {
     .to_string())
 }
 /// Binding bytes have already been authenticated by the coordinator or saved
-/// certificate. Parsing/copy comparison here does not authenticate membership.
+/// certificate. Binding has no scope field; its accepted-agreement/operation
+/// provenance and the scoped head authenticate scope at the host boundary.
+/// Parsing/copy comparison here does not authenticate membership.
 pub(super) fn normalize(req: &request::Request, binding: &Document) -> Result<Value> {
     let mut p = req.payload().clone();
     let schema = text(&p, "schema")?;
@@ -85,9 +87,7 @@ pub(super) fn normalize(req: &request::Request, binding: &Document) -> Result<Va
     let b = canonical::parse_bounded(&binding.bytes, 262144)
         .map_err(|_| ServiceError::IntegrityFailure)?;
     require(
-        binding.reference.kind == "workflow-binding"
-            && b["schema"] == "ledger-workflow-binding/1"
-            && b["scope"] == json!(req.key().scope),
+        binding.reference.kind == "workflow-binding" && b["schema"] == "ledger-workflow-binding/1",
         "INVALID_REFERENCE",
     )?;
     require(

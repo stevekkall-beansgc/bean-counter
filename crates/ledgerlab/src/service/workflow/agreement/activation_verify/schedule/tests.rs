@@ -18,7 +18,7 @@ fn make(
             .unwrap();
     let mut envelope = fixtures["operations"][2]["request_evidence"]["normalized_request"].clone();
     let p = &mut envelope["payload"];
-    let mut body = json!({"schema":"ledger-workflow-binding/1","scope":["fixture","sandbox"],"customer":"customer-A","agreement_id":"agreement-A",
+    let mut body = json!({"schema":"ledger-workflow-binding/1","customer":"customer-A","agreement_id":"agreement-A",
         "policy_ref":p["policy_ref"],"product_ref":p["product_ref"],"fact_schema_refs":p["fact_schema_refs"],"compiled_plan_ref":p["compiled_plan_ref"],"starts_at":at(if end.is_some(){10}else{0})});
     if let Some(end) = end {
         body["ends_at"] = json!(at(end));
@@ -203,4 +203,74 @@ fn pending_stop_requires_explicit_pending_edge_and_expired_binding_can_stop_with
     let history = vec![v1, v2];
     let expired_stop = stop(&history, 21, &history[1].activation.reference);
     check_next(&history, &expired_stop).unwrap();
+}
+
+#[test]
+fn complete_sealed_binding_uses_scoped_head_and_rejects_coherent_foreign_scope_or_customer() {
+    let f: Value = serde_json::from_slice(include_bytes!(
+        "../../testdata/r1-binding-scope-independent.json"
+    ))
+    .unwrap();
+    fn doc(f: &Value, name: &str) -> Document {
+        let v = f["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["name"] == name)
+            .unwrap();
+        Document {
+            reference: serde_json::from_value(v["ref"].clone()).unwrap(),
+            schema: v["body"]["schema"].as_str().unwrap().into(),
+            bytes: v["canonical_utf8"].as_str().unwrap().as_bytes().to_vec(),
+        }
+    }
+    let h = doc(&f, "A.activation-head-v1");
+    let a = doc(&f, "A.activation-v1");
+    let b = doc(&f, "A.binding");
+    let head = checked(&h).unwrap();
+    let key = OperationKey::parse(&records::bytes(&head["operation_key"]).unwrap()).unwrap();
+    transition(&key, "customer-A", "agreement-A", h, a, b).unwrap();
+    // Both semantic record refs are regenerated for a genuinely different scoped
+    // operation. A changed-scope stub with its old digest is not the test input.
+    for customer_change in [false, true] {
+        let mut foreign = head.clone();
+        let mut foreign_key = key.clone();
+        if customer_change {
+            foreign["customer"] = json!("customer-other");
+        } else {
+            foreign_key.scope = ["other".into(), "sandbox".into()];
+            foreign["scope"] = json!(foreign_key.scope);
+            foreign["operation_key"] = json!(foreign_key);
+        }
+        let customer = foreign["customer"].as_str().unwrap();
+        let h = record::semantic_document(
+            "workflow-head-transition",
+            &foreign_key,
+            customer,
+            "agreement-A",
+            1,
+            foreign.clone(),
+        )
+        .unwrap();
+        let mut a = checked(&doc(&f, "A.activation-v1")).unwrap();
+        a["head_transition_ref"] = json!(h.reference);
+        let a = record::semantic_document(
+            "workflow-activation",
+            &foreign_key,
+            customer,
+            "agreement-A",
+            1,
+            a,
+        )
+        .unwrap();
+        assert!(transition(
+            &key,
+            "customer-A",
+            "agreement-A",
+            h,
+            a,
+            doc(&f, "A.binding")
+        )
+        .is_err());
+    }
 }
