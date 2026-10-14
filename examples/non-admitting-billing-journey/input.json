@@ -1,0 +1,230 @@
+{
+  "schema": "bean-counter-billing-journey-input/1",
+  "classification": "synthetic_local_acknowledgement",
+  "scope": [
+    "synthetic-billing-demo",
+    "offline"
+  ],
+  "customer": "demo-customer",
+  "acceptor": "synthetic-demo-acceptor",
+  "currency": "USD",
+  "scale": 18,
+  "policies": [
+    {
+      "id": "retail",
+      "agreement": "synthetic-retail-agreement",
+      "book": "Retail",
+      "roles": [
+        "synthetic-host",
+        "synthetic-host",
+        "demo-customer",
+        "demo-customer",
+        "demo-customer",
+        "synthetic-host"
+      ],
+      "sources": [
+        "urn:synthetic:work",
+        "urn:synthetic:assessment"
+      ],
+      "event_types": [
+        "content.generated"
+      ],
+      "unit": "call",
+      "maximum_quantity": "10",
+      "correction_sources": [
+        "urn:synthetic:correction"
+      ],
+      "rules": [
+        {
+          "id": "base-price",
+          "on": "content.generated",
+          "component": "service.base",
+          "when": [],
+          "operation": {
+            "Base": {
+              "Fixed": "0.41"
+            }
+          }
+        },
+        {
+          "id": "model-price",
+          "on": "content.generated",
+          "component": "model.pass-through",
+          "when": [],
+          "operation": {
+            "Base": {
+              "Unit": {
+                "rate": "0.37",
+                "unit": "call"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "provider-observation",
+      "agreement": "synthetic-provider-observation",
+      "book": "CostObservation",
+      "roles": [
+        "synthetic-model-provider",
+        "synthetic-model-provider",
+        "demo-customer",
+        "demo-customer",
+        "demo-customer",
+        "synthetic-model-provider"
+      ],
+      "sources": [
+        "urn:synthetic:work",
+        "urn:synthetic:assessment"
+      ],
+      "event_types": [
+        "content.generated"
+      ],
+      "unit": "call",
+      "maximum_quantity": "10",
+      "correction_sources": [
+        "urn:synthetic:correction"
+      ],
+      "rules": [
+        {
+          "id": "provider-cost",
+          "on": "content.generated",
+          "component": "model.observation",
+          "when": [],
+          "operation": "ObserveCost"
+        }
+      ]
+    }
+  ],
+  "context": {
+    "funding": "Platform",
+    "tier": null,
+    "priority": null
+  },
+  "acknowledgement_at": "2026-10-14T12:00:00Z",
+  "work": {
+    "schema": "ledger-event/1",
+    "id": "completed-work",
+    "operation_id": "synthetic-operation",
+    "type": "content.generated",
+    "customer": "demo-customer",
+    "source": "urn:synthetic:work",
+    "chain": "synthetic-chain",
+    "occurred_at": "2026-10-14T12:01:00Z",
+    "status": "succeeded",
+    "quantity": "3",
+    "unit": "call"
+  },
+  "received_at": "2026-10-14T12:02:00Z",
+  "accepted_at": "2026-10-14T12:03:00Z",
+  "source": {
+    "principal": "synthetic-work-actor",
+    "source": "urn:synthetic:work",
+    "revision": "1",
+    "event_types": [
+      "content.generated"
+    ],
+    "relations": []
+  },
+  "cost": {
+    "schema": "bean-counter-synthetic-provider-cost/1",
+    "classification": "synthetic_local_acknowledgement",
+    "scope": [
+      "synthetic-billing-demo",
+      "offline"
+    ],
+    "customer": "demo-customer",
+    "provider": "synthetic-model-provider",
+    "binding_id": "provider-observation",
+    "event_external_id": "completed-work",
+    "model_component": "model.pass-through",
+    "quantity": "3",
+    "unit": "call",
+    "original_unit_rate": "0.37",
+    "observed_amount": "1.11"
+  },
+  "outcome": {
+    "version": "original-demo-terms-1",
+    "family": "delivery-assessment",
+    "binding_id": "retail",
+    "source": "urn:synthetic:assessment",
+    "correction_source": "urn:synthetic:correction",
+    "ordinary": {
+      "starts_at": "2026-10-14T12:01:00Z",
+      "occurs_before": "2026-10-15T12:00:00Z",
+      "received_by": "2026-10-16T12:00:00Z",
+      "accepted_by": "2026-10-17T12:00:00Z"
+    },
+    "corrections": {
+      "starts_at": "2026-10-14T12:01:00Z",
+      "occurs_before": "2026-10-15T12:00:00Z",
+      "received_by": "2026-10-16T12:00:00Z",
+      "accepted_by": "2026-10-17T12:00:00Z"
+    },
+    "codes": [
+      {
+        "code": "success",
+        "percent": "20"
+      },
+      {
+        "code": "failure",
+        "percent": "-10"
+      }
+    ],
+    "premium_ceiling": "1",
+    "evidence_required": true,
+    "replacement_codes": [],
+    "allow_reversal": false,
+    "principal": "synthetic-assessment-actor",
+    "grant_revision": "1",
+    "branches": [
+      {
+        "name": "success",
+        "id": "assessment-success",
+        "code": "success",
+        "occurred_at": "2026-10-14T12:04:00Z",
+        "received_at": "2026-10-14T12:05:00Z",
+        "accepted_at": "2026-10-14T12:06:00Z",
+        "evidence": {
+          "schema": "bean-counter-synthetic-assessment/1",
+          "classification": "synthetic_local_acknowledgement",
+          "scope": [
+            "synthetic-billing-demo",
+            "offline"
+          ],
+          "customer": "demo-customer",
+          "source": "urn:synthetic:assessment",
+          "family": "delivery-assessment",
+          "target_external_id": "completed-work",
+          "assessment": "success",
+          "code": "success",
+          "occurred_at": "2026-10-14T12:04:00Z"
+        }
+      },
+      {
+        "name": "failure",
+        "id": "assessment-failure",
+        "code": "failure",
+        "occurred_at": "2026-10-14T12:04:00Z",
+        "received_at": "2026-10-14T12:05:00Z",
+        "accepted_at": "2026-10-14T12:06:00Z",
+        "evidence": {
+          "schema": "bean-counter-synthetic-assessment/1",
+          "classification": "synthetic_local_acknowledgement",
+          "scope": [
+            "synthetic-billing-demo",
+            "offline"
+          ],
+          "customer": "demo-customer",
+          "source": "urn:synthetic:assessment",
+          "family": "delivery-assessment",
+          "target_external_id": "completed-work",
+          "assessment": "failure",
+          "code": "failure",
+          "occurred_at": "2026-10-14T12:04:00Z"
+        }
+      }
+    ]
+  }
+}
