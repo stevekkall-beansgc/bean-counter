@@ -261,7 +261,8 @@ fn emit_string(s: &str, out: &mut Destination, work: &mut dyn ValidationWork) ->
     append(out, b"\"", work)?;
     for character in s.chars() {
         work.scan_bytes(character.len_utf8())?;
-        work.visit(Visit::Value)?;
+        // Escaping an already typed string is byte work. The caller pays the
+        // string's Value/Field visit; formatting characters are not new values.
         match character {
             '"' => append(out, b"\\\"", work)?,
             '\\' => append(out, b"\\\\", work)?,
@@ -589,6 +590,50 @@ mod executing_work_tests {
     use super::*;
     use crate::validation_work::tests::CountingWork;
     use num_bigint::BigInt;
+
+    #[test]
+    fn string_formatting_pays_one_typed_value_and_every_scanned_written_byte() {
+        let value = Value::String("a\n\u{000b}é😀\"\\".into());
+        let expected = "\"a\\n\\u000bé😀\\\"\\\\\"";
+        let mut work = CountingWork::new(usize::MAX);
+        let bytes = CanonicalBytes::from_value_with_work_bounded(&value, &mut work, expected.len())
+            .unwrap();
+        assert_eq!(bytes.as_slice(), expected.as_bytes());
+        assert_eq!(bytes, CanonicalBytes::from_value(&value).unwrap());
+        assert_eq!(work.visits, [Visit::Value]);
+        assert_eq!(work.scanned, value.as_str().unwrap().len());
+        assert_eq!(work.written, expected.len());
+        assert_eq!(work.hashed, 0);
+        assert_eq!(work.operations.len(), 1); // Executed depth comparison.
+
+        let mut longer = CountingWork::new(usize::MAX);
+        CanonicalBytes::from_value_with_work_bounded(
+            &Value::String("é".repeat(1024)),
+            &mut longer,
+            2050,
+        )
+        .unwrap();
+        assert_eq!(longer.visits, work.visits);
+        assert_eq!(longer.used, work.used);
+        assert_eq!(longer.scanned, 2048);
+        assert_eq!(longer.written, 2050);
+
+        let mut exact = CountingWork::new(work.used);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&value, &mut exact, expected.len())
+                .unwrap(),
+            bytes
+        );
+        let mut short = CountingWork::new(work.used - 1);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(&value, &mut short, expected.len())
+                .unwrap_err()
+                .code,
+            "TEST_EXHAUSTED"
+        );
+        assert_eq!(short.scanned, 0);
+        assert_eq!(short.written, 0);
+    }
 
     #[test]
     fn capped_single_pass_preserves_bytes_callbacks_and_exact_budgets() {
