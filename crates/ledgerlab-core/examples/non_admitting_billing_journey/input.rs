@@ -194,9 +194,20 @@ pub struct Prepared {
     pub outcome_grant_ref: String,
 }
 pub fn prepare(input: &Input) -> Result<Prepared> {
+    // Acknowledged terms contain only the predeclared policy. Later request
+    // identities, assessments, observations and current grant metadata remain
+    // separate source/evidence data; they cannot enter the original terms hash.
+    let o = &input.outcome;
+    let outcome_policy_terms = json!({
+        "version":o.version,"family":o.family,"binding_id":o.binding_id,
+        "source":o.source,"correction_source":o.correction_source,
+        "ordinary":o.ordinary,"corrections":o.corrections,"codes":o.codes,
+        "premium_ceiling":o.premium_ceiling,"evidence_required":o.evidence_required,
+        "replacement_codes":o.replacement_codes,"allow_reversal":o.allow_reversal,
+    });
     let terms = json!({"schema":"bean-counter-synthetic-original-terms/1", "classification":CLASSIFICATION,
         "scope":input.scope,"customer":input.customer,"acceptor":input.acceptor,
-        "currency":input.currency,"scale":input.scale,"policies":input.policies,"outcome":input.outcome});
+        "currency":input.currency,"scale":input.scale,"policies":input.policies,"outcome":outcome_policy_terms});
     let terms_ref = doc(&terms)?;
     let acknowledgement = json!({"schema":"bean-counter-synthetic-policy-acknowledgement/1",
         "classification":CLASSIFICATION,"scope":input.scope,"customer":input.customer,
