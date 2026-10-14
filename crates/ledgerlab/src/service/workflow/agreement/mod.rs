@@ -6,6 +6,7 @@ mod activation_verify;
 mod context;
 mod descriptor;
 mod journal;
+mod origin_driver;
 pub(super) mod proof_session;
 mod record;
 mod replay;

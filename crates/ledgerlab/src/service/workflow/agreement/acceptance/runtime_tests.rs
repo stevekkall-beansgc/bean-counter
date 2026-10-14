@@ -118,9 +118,17 @@ fn diagnostic_expected<'a, T: 'a>(
                 )
             })
             .collect();
-        eprintln!("ACCEPT-DIAG {label} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} publication_counts={:?} document_origin_total={} selected_loaded_helper_total={}",
-            begun.elapsed().as_millis(), result.as_ref().map(|_| "ok"), origins.values().sum::<usize>(), named,
-            work.publications.values().sum::<usize>(), publications, work.document_origins.values().sum::<usize>(), work.helper_document_loads.values().sum::<usize>());
+        eprintln!(
+            "ACCEPT-DIAG {label} elapsed_ms={} result={:?} origin_total={} origin_counts={:?} publication_total={} publication_counts={:?} document_origin_total={} selected_loaded_helper_total={}",
+            begun.elapsed().as_millis(),
+            result.as_ref().map(|_| "ok"),
+            origins.values().sum::<usize>(),
+            named,
+            work.publications.values().sum::<usize>(),
+            publications,
+            work.document_origins.values().sum::<usize>(),
+            work.helper_document_loads.values().sum::<usize>()
+        );
         if result.is_ok() {
             for (identity, expected) in expected_origins {
                 assert_eq!(
@@ -409,6 +417,38 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .unwrap();
     let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
     ledger.enable_profile_b().await.unwrap();
+    let accepted = lifecycle_acceptances(&ledger).await;
+    let activated = lifecycle_activations(&ledger, &accepted).await;
+    let stopped = lifecycle_stop_aliases(&ledger, &accepted, &activated).await;
+    ledger.close().await;
+    lifecycle_reopen(&path, &accepted, &activated, &stopped).await;
+}
+
+struct AcceptanceStage {
+    a_key: super::super::super::request::OperationKey,
+    a: Value,
+    accepted_a: Value,
+    accepted_b: Value,
+    last: Value,
+    last_receipt: Value,
+    enrollment_a: RecordRef,
+    enrollment_b: RecordRef,
+}
+struct ActivationStage {
+    a_binding: RecordRef,
+    b_binding: RecordRef,
+    activate_a: Value,
+    activate_b: Value,
+    active_a: Value,
+    active_b: Value,
+    replaced: Value,
+}
+struct StopStage {
+    stop_input: Value,
+    stopped: Value,
+    pretty: Vec<u8>,
+}
+async fn lifecycle_acceptances(ledger: &LocalWorkflowLedger) -> AcceptanceStage {
     let expected:Value=serde_json::from_slice(include_bytes!("../../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/publication-independent-expected.json")).unwrap();
     let mut publication = expected["normalized_request"].clone();
     publication["key"] = envelope("publish-shared", "policy.publish", json!({}))["key"].clone();
@@ -417,7 +457,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .await
         .unwrap();
     let publication_ref = result_ref(&published, "workflow-publication");
-    let (a, enrollment_a) = input(&ledger, "A", &publication_ref).await;
+    let (a, enrollment_a) = input(ledger, "A", &publication_ref).await;
     let a_key =
         super::super::super::request::OperationKey::parse(&records::bytes(&a["key"]).unwrap())
             .unwrap();
@@ -454,12 +494,14 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     let a_body = canonical::parse_bounded(&a_operation.operation_bytes, 8388608).unwrap();
     let a_root: RecordRef =
         serde_json::from_value(a_body["authority_snapshot"]["local_admin_ref"].clone()).unwrap();
-    assert!(root_tx
-        .workflow_test_latest_root_candidates(STORE, &a_key.scope)
-        .await
-        .unwrap()
-        .iter()
-        .any(|d| d.reference == a_root));
+    assert!(
+        root_tx
+            .workflow_test_latest_root_candidates(STORE, &a_key.scope)
+            .await
+            .unwrap()
+            .iter()
+            .any(|d| d.reference == a_root)
+    );
     let birth = root_tx
         .workflow_agreement_document_origin(STORE, &a_key.scope, &a_root)
         .await
@@ -479,7 +521,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     );
     root_tx.rollback().await.unwrap();
     *ledger.preferred_root.lock().unwrap() = Some(a_root.clone());
-    let (b, enrollment_b) = input(&ledger, "B", &publication_ref).await;
+    let (b, enrollment_b) = input(ledger, "B", &publication_ref).await;
     let mut metadata_tx = ledger
         .store
         .begin(crate::service::workflow::local::deadline())
@@ -576,8 +618,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
             .unwrap()
             .unwrap();
         assert_eq!(head.revision, 1);
-        assert!(tx
-            .workflow_agreement_head(
+        assert!(
+            tx.workflow_agreement_head(
                 STORE,
                 &["example-company".into(), "local".into()],
                 customer,
@@ -586,7 +628,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
             )
             .await
             .unwrap()
-            .is_none());
+            .is_none()
+        );
     }
     assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 17);
     tx.rollback().await.unwrap();
@@ -606,7 +649,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     let mut last_receipt = accepted_a.clone();
     for version in 2..=5 {
         eprintln!("ACCEPT-DIAG successor{version} before prerequisite proofs");
-        last = successor(&ledger, &a, version, &context).await;
+        last = successor(ledger, &a, version, &context).await;
         eprintln!("ACCEPT-DIAG successor{version} before agreement");
         last_receipt = diagnostic(
             &format!("successor{version}"),
@@ -650,13 +693,35 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     );
     assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 29);
     tx.rollback().await.unwrap();
+    AcceptanceStage {
+        a_key,
+        a,
+        accepted_a,
+        accepted_b,
+        last,
+        last_receipt,
+        enrollment_a,
+        enrollment_b,
+    }
+}
+async fn lifecycle_activations(
+    ledger: &LocalWorkflowLedger,
+    state: &AcceptanceStage,
+) -> ActivationStage {
+    let AcceptanceStage {
+        a_key,
+        accepted_b,
+        last_receipt,
+        enrollment_a,
+        ..
+    } = state;
     // Actual narrowed grant2 stays compatible with the complete bound projection.
     let mut source_tx = ledger
         .store
         .begin(crate::service::workflow::local::deadline())
         .await
         .unwrap();
-    let enrolled = loaded(&mut source_tx, &a_key, &enrollment_a).await.unwrap();
+    let enrolled = loaded(&mut source_tx, a_key, enrollment_a).await.unwrap();
     let mut ceiling = canonical_body(&enrolled).unwrap()["ceiling"].clone();
     ceiling["starts_at"] = json!("2021-01-01T00:00:00.000000Z");
     source_tx.rollback().await.unwrap();
@@ -669,8 +734,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .prerequisite(&records::bytes(&narrowed).unwrap())
         .await
         .unwrap();
-    let (a_binding, a_binding_body) = accepted_binding_ref(&ledger, &last_receipt).await;
-    let (b_binding, b_binding_body) = accepted_binding_ref(&ledger, &accepted_b).await;
+    let (a_binding, a_binding_body) = accepted_binding_ref(ledger, last_receipt).await;
+    let (b_binding, b_binding_body) = accepted_binding_ref(ledger, accepted_b).await;
     fn activate_input(
         id: &str,
         binding_ref: &RecordRef,
@@ -775,8 +840,42 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     let replaced = Box::pin(ledger.agreement(&records::bytes(&replace_input).unwrap()))
         .await
         .unwrap();
-    let target = result_ref(&replaced, "workflow-activation");
-    let stop_proof = proof(&ledger,"A-stop-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":a_binding,"target_transition_ref":target,"reason":"Explicit pending cancellation and immediate stop"})).await;
+    ActivationStage {
+        a_binding,
+        b_binding,
+        activate_a,
+        activate_b,
+        active_a,
+        active_b,
+        replaced,
+    }
+}
+async fn lifecycle_stop_aliases(
+    ledger: &LocalWorkflowLedger,
+    state: &AcceptanceStage,
+    activation: &ActivationStage,
+) -> StopStage {
+    let AcceptanceStage {
+        a_key,
+        a,
+        accepted_a,
+        last,
+        last_receipt,
+        enrollment_a,
+        enrollment_b,
+        ..
+    } = state;
+    let ActivationStage {
+        a_binding,
+        activate_a,
+        activate_b,
+        active_a,
+        active_b,
+        replaced,
+        ..
+    } = activation;
+    let target = result_ref(replaced, "workflow-activation");
+    let stop_proof = proof(ledger,"A-stop-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":a_binding,"target_transition_ref":target,"reason":"Explicit pending cancellation and immediate stop"})).await;
     let stop_input = envelope(
         "A-stop",
         "agreement.revoke",
@@ -784,8 +883,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     );
     let mut bad_stop = stop_input.clone();
     bad_stop["key"]["operation_id"] = json!("A-stop-wrong-active-target");
-    bad_stop["payload"]["transition_ref"] = json!(result_ref(&active_a, "workflow-activation"));
-    let bad_target_proof=proof(&ledger,"A-stop-active-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":a_binding,"target_transition_ref":result_ref(&active_a,"workflow-activation"),"reason":"Explicit pending cancellation and immediate stop"})).await;
+    bad_stop["payload"]["transition_ref"] = json!(result_ref(active_a, "workflow-activation"));
+    let bad_target_proof=proof(ledger,"A-stop-active-proof","admission_stop","customer-A",Some("agreement-A"),json!({"binding_ref":a_binding,"target_transition_ref":result_ref(active_a,"workflow-activation"),"reason":"Explicit pending cancellation and immediate stop"})).await;
     bad_stop["payload"]["evidence_refs"] = json!([bad_target_proof]);
     assert_eq!(
         Box::pin(ledger.agreement(&records::bytes(&bad_stop).unwrap())).await,
@@ -812,8 +911,8 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .await
         .unwrap();
     for (id, original, receipt) in [
-        ("A-accept-alias-after-revoke", &last, &last_receipt),
-        ("A-activate-alias-after-revoke", &activate_a, &active_a),
+        ("A-accept-alias-after-revoke", last, last_receipt),
+        ("A-activate-alias-after-revoke", activate_a, active_a),
         ("A-stop-alias-after-revoke", &stop_input, &stopped),
     ] {
         let mut alias = original.clone();
@@ -832,7 +931,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         .begin(crate::service::workflow::local::deadline())
         .await
         .unwrap();
-    let b_enrolled = loaded(&mut expiry_tx, &a_key, &enrollment_b).await.unwrap();
+    let b_enrolled = loaded(&mut expiry_tx, a_key, enrollment_b).await.unwrap();
     let mut b_ceiling = canonical_body(&b_enrolled).unwrap()["ceiling"].clone();
     b_ceiling["ends_at"] = json!("2026-10-13T00:00:00.000000Z");
     expiry_tx.rollback().await.unwrap();
@@ -886,8 +985,40 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         Box::pin(ledger.agreement(&records::bytes(&denied).unwrap())).await,
         Err(reject("AUTHORITY_REQUIRED"))
     );
-    ledger.close().await;
-    let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    StopStage {
+        stop_input,
+        stopped,
+        pretty,
+    }
+}
+async fn lifecycle_reopen(
+    path: &std::path::Path,
+    state: &AcceptanceStage,
+    activation: &ActivationStage,
+    stop: &StopStage,
+) {
+    let AcceptanceStage {
+        a_key,
+        a,
+        accepted_a,
+        last,
+        last_receipt,
+        ..
+    } = state;
+    let ActivationStage {
+        b_binding,
+        activate_a,
+        activate_b,
+        active_a,
+        active_b,
+        ..
+    } = activation;
+    let StopStage {
+        stop_input,
+        stopped,
+        pretty,
+    } = stop;
+    let reopened = LocalWorkflowLedger::open_local(path).await.unwrap();
     let latest_key =
         super::super::super::request::OperationKey::parse(&records::bytes(&last["key"]).unwrap())
             .unwrap();
@@ -920,7 +1051,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
         last_receipt["receipt"]
     );
     assert_eq!(
-        diagnostic("A1 reopened original retry", reopened.agreement(&pretty))
+        diagnostic("A1 reopened original retry", reopened.agreement(pretty))
             .await
             .unwrap()["receipt"],
         accepted_a["receipt"]
@@ -969,7 +1100,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     let next_sequence = tx.workflow_sequence().await.unwrap();
     let a_history = activation_verify::schedule::history_before(
         &mut tx,
-        &a_key,
+        a_key,
         "customer-A",
         "agreement-A",
         next_sequence,
@@ -978,7 +1109,7 @@ async fn captured_r1_agreement_lifecycle_two_customers_original_alias_recovery_a
     .unwrap();
     let b_history = activation_verify::schedule::history_before(
         &mut tx,
-        &a_key,
+        a_key,
         "customer-B",
         "agreement-B",
         next_sequence,

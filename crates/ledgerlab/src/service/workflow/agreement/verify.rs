@@ -652,6 +652,16 @@ pub(super) fn retained<'a>(
     o: &'a JournalOperation,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send + 'a>> {
     Box::pin(async move {
+        if proof_session::local_phase(tx, key)? {
+            let _view = proof_session::completed(
+                tx,
+                key,
+                &o.identity,
+                &proof_session::journal_binding(o)?,
+                false,
+            )?;
+            return proof_session::journal_response(o);
+        }
         if !proof_session::present(tx, key)? {
             return proof_session::with_proofs(tx, key, |tx| {
                 Box::pin(retained_in_scope(tx, key, o))
@@ -667,11 +677,18 @@ async fn retained_in_scope(
     key: &OperationKey,
     o: &JournalOperation,
 ) -> Result<Value> {
-    // Compact enter/exit frames replace the predependency verified map. A
-    // certificate completes only after all of its origin children complete.
+    use origin_driver::{LocalContinuation, LocalStep, OriginDemand, Stage};
+    // Preparation is untrusted. Only this one driver schedules origins; local
+    // semantic continuations can consume exact completed proofs, never reenter.
     enum Frame {
         Enter {
             identity: Vec<u8>,
+            original: bool,
+            demand: Option<OriginDemand>,
+        },
+        Resume {
+            continuation: LocalContinuation,
+            guard: proof_session::Guard,
             original: bool,
         },
         Exit {
@@ -682,69 +699,161 @@ async fn retained_in_scope(
     let mut frames = vec![Frame::Enter {
         identity: o.identity.clone(),
         original: false,
+        demand: None,
     }];
     let mut result = None;
     while let Some(frame) = frames.pop() {
-        let Frame::Enter {
-            identity,
-            original: must_be_original,
-        } = frame
-        else {
-            if let Frame::Exit { guard, original } = frame {
+        let (operation, saved_key, guard, must_be_original, continuation) = match frame {
+            Frame::Exit { guard, original } => {
                 guard.finish(original)?;
-            }
-            continue;
-        };
-        let operation = if identity == o.identity {
-            o.clone()
-        } else {
-            tx.workflow_agreement_lookup(&identity)
-                .await
-                .map_err(crate::service::store_error)?
-                .ok_or(ServiceError::IntegrityFailure)?
-        };
-        let saved_key = origin_key(&operation.identity, key)?;
-        let guard = match proof_session::enter(
-            tx,
-            &saved_key,
-            &identity,
-            proof_session::journal_binding(&operation)?,
-            must_be_original,
-        )? {
-            proof_session::Entry::Completed => {
-                if identity == o.identity {
-                    result = Some(proof_session::journal_response(&operation)?);
-                }
                 continue;
             }
-            proof_session::Entry::Started(guard) => guard,
+            Frame::Enter {
+                identity,
+                original,
+                demand,
+            } => {
+                let operation = if identity == o.identity {
+                    o.clone()
+                } else {
+                    tx.workflow_agreement_lookup(&identity)
+                        .await
+                        .map_err(crate::service::store_error)?
+                        .ok_or(ServiceError::IntegrityFailure)?
+                };
+                let saved_key = origin_key(&operation.identity, key)?;
+                if let Some(demand) = demand {
+                    if demand.identity != operation.identity
+                        || demand.kind != operation.kind
+                        || demand.sequence != operation.sequence
+                        || operation.sequence >= demand.parent_sequence
+                    {
+                        return Err(ServiceError::IntegrityFailure);
+                    }
+                    for reference in demand.references {
+                        let actual = tx
+                            .workflow_agreement_document_origin(
+                                &key.logical_store_id,
+                                &key.scope,
+                                &reference,
+                            )
+                            .await
+                            .map_err(crate::service::store_error)?
+                            .ok_or(ServiceError::IntegrityFailure)?;
+                        if actual
+                            != (
+                                operation.identity.clone(),
+                                operation.kind.clone(),
+                                operation.sequence,
+                            )
+                            || !operation.members.contains(&reference)
+                        {
+                            return Err(ServiceError::IntegrityFailure);
+                        }
+                    }
+                }
+                let binding = proof_session::journal_binding(&operation)?;
+                let guard = match proof_session::enter(
+                    tx,
+                    &saved_key,
+                    &identity,
+                    binding.clone(),
+                    original,
+                )? {
+                    proof_session::Entry::Completed => {
+                        if identity == o.identity {
+                            result = Some(proof_session::journal_response(&operation)?);
+                        }
+                        continue;
+                    }
+                    proof_session::Entry::Started(guard) => guard,
+                };
+                #[cfg(test)]
+                count_origin(&operation.identity);
+                let continuation = LocalContinuation {
+                    identity,
+                    binding,
+                    stage: Stage::Members,
+                };
+                (operation, saved_key, guard, original, continuation)
+            }
+            Frame::Resume {
+                continuation,
+                guard,
+                original,
+            } => {
+                let operation = if continuation.identity == o.identity {
+                    o.clone()
+                } else {
+                    tx.workflow_agreement_lookup(&continuation.identity)
+                        .await
+                        .map_err(crate::service::store_error)?
+                        .ok_or(ServiceError::IntegrityFailure)?
+                };
+                let saved_key = origin_key(&operation.identity, key)?;
+                (operation, saved_key, guard, original, continuation)
+            }
         };
-        #[cfg(test)]
-        count_origin(&operation.identity);
-        let parsed = checked(&operation.operation_bytes, 8 * 1024 * 1024)?;
         let certificate =
-            if parsed["schema"]=="ledger-workflow-agreement-alias-operation/1" {
-                Box::pin(alias04::retained_local(tx,&saved_key,&operation)).await?
-            } else if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
-                transport::certificate::retained_local(tx, &saved_key, &operation).await?
-            } else if matches!(
-                operation.kind.as_str(),
-                "agreement.activate" | "agreement.revoke"
-            ) {
-                Box::pin(activation_verify::retained_local(
-                    tx, &saved_key, &operation,
-                ))
-                .await?
-            } else if operation.kind == "agreement.accept" {
-                Box::pin(accepted_verify::retained_local(tx, &saved_key, &operation)).await?
-            } else {
-                retained_local(tx, &saved_key, &operation).await?
+            match origin_driver::prepare(tx, &saved_key, &operation, continuation).await? {
+                LocalStep::NeedOrigins { demands, resume } => {
+                    frames.push(Frame::Resume {
+                        continuation: resume,
+                        guard,
+                        original: must_be_original,
+                    });
+                    for demand in demands.into_iter().rev() {
+                        if demand.kind == "policy.publish" {
+                            let origin = tx
+                                .workflow_lookup(&demand.identity)
+                                .await
+                                .map_err(crate::service::store_error)?
+                                .ok_or(ServiceError::IntegrityFailure)?;
+                            if origin.sequence != demand.sequence
+                                || origin.sequence >= demand.parent_sequence
+                            {
+                                return Err(ServiceError::IntegrityFailure);
+                            }
+                            for reference in &demand.references {
+                                let actual = tx
+                                    .workflow_agreement_document_origin(
+                                        &key.logical_store_id,
+                                        &key.scope,
+                                        reference,
+                                    )
+                                    .await
+                                    .map_err(crate::service::store_error)?
+                                    .ok_or(ServiceError::IntegrityFailure)?;
+                                if actual
+                                    != (
+                                        demand.identity.clone(),
+                                        demand.kind.clone(),
+                                        demand.sequence,
+                                    )
+                                    || !origin.members.contains(reference)
+                                {
+                                    return Err(ServiceError::IntegrityFailure);
+                                }
+                            }
+                            verify_publication_origin(tx, key, &demand.identity, demand.sequence)
+                                .await?;
+                        } else {
+                            frames.push(Frame::Enter {
+                                identity: demand.identity.clone(),
+                                original: demand.original,
+                                demand: Some(demand),
+                            });
+                        }
+                    }
+                    continue;
+                }
+                LocalStep::Complete(certificate) => certificate,
             };
         let is_original = certificate.original.is_none();
         if must_be_original && !is_original {
             return Err(ServiceError::IntegrityFailure);
         }
-        if identity == o.identity {
+        if operation.identity == o.identity {
             result = Some(certificate.value);
         }
         let mut children = std::collections::BTreeMap::<Vec<u8>, bool>::new();
@@ -793,10 +902,42 @@ async fn retained_in_scope(
             original: is_original,
         });
         for (identity, original) in children.into_iter().rev() {
-            frames.push(Frame::Enter { identity, original });
+            frames.push(Frame::Enter {
+                identity,
+                original,
+                demand: None,
+            });
         }
     }
     result.ok_or(ServiceError::IntegrityFailure)
+}
+
+/// One semantic step. The private completed-only phase established by the
+/// driver forbids every reachable checker from polling a new origin driver.
+pub(super) async fn validate_local(
+    tx: &mut SqliteTx,
+    saved_key: &OperationKey,
+    operation: &JournalOperation,
+) -> Result<LocalCertificate> {
+    if !proof_session::local_phase(tx, saved_key)? {
+        return Err(ServiceError::IntegrityFailure);
+    }
+    let parsed = checked(&operation.operation_bytes, 8 * 1024 * 1024)?;
+    let certificate = if parsed["schema"] == "ledger-workflow-agreement-alias-operation/1" {
+        Box::pin(alias04::retained_local(tx, saved_key, operation)).await?
+    } else if transport::selected(&parsed["request_evidence"]["normalized_request"]["payload"]) {
+        transport::certificate::retained_local(tx, saved_key, operation).await?
+    } else if matches!(
+        operation.kind.as_str(),
+        "agreement.activate" | "agreement.revoke"
+    ) {
+        Box::pin(activation_verify::retained_local(tx, saved_key, operation)).await?
+    } else if operation.kind == "agreement.accept" {
+        Box::pin(accepted_verify::retained_local(tx, saved_key, operation)).await?
+    } else {
+        retained_local(tx, saved_key, operation).await?
+    };
+    Ok(certificate)
 }
 
 async fn verify_publication_origin(
@@ -814,13 +955,12 @@ async fn verify_publication_origin(
     if origin.sequence != sequence {
         return Err(ServiceError::IntegrityFailure);
     }
-    let guard = match proof_session::enter(
-        tx,
-        &saved_key,
-        identity,
-        proof_session::publication_binding(&origin)?,
-        false,
-    )? {
+    let binding = proof_session::publication_binding(&origin)?;
+    if proof_session::local_phase(tx, key)? {
+        let _view = proof_session::completed(tx, &saved_key, identity, &binding, false)?;
+        return Ok(());
+    }
+    let guard = match proof_session::enter(tx, &saved_key, identity, binding, false)? {
         proof_session::Entry::Completed => return Ok(()),
         proof_session::Entry::Started(guard) => guard,
     };
@@ -877,6 +1017,14 @@ async fn document_origin_in_scope(
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
     if kind == "policy.publish" {
+        let origin = tx
+            .workflow_lookup(&identity)
+            .await
+            .map_err(crate::service::store_error)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        if origin.sequence != sequence || !origin.members.contains(reference) {
+            return Err(ServiceError::IntegrityFailure);
+        }
         verify_publication_origin(tx, key, &identity, sequence).await
     } else {
         let saved_key = origin_key(&identity, key)?;
@@ -885,7 +1033,7 @@ async fn document_origin_in_scope(
             .await
             .map_err(crate::service::store_error)?
             .ok_or(ServiceError::IntegrityFailure)?;
-        if origin.sequence != sequence {
+        if origin.sequence != sequence || !origin.members.contains(reference) {
             return Err(ServiceError::IntegrityFailure);
         }
         retained(tx, &saved_key, &origin).await?;

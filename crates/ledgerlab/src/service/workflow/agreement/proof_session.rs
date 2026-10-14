@@ -19,12 +19,14 @@ struct State {
     invalid: bool,
     active: BTreeSet<Vec<u8>>,
     complete: BTreeMap<Vec<u8>, Complete>,
+    local_parent: Option<Vec<u8>>,
 }
 impl State {
     fn invalidate(&mut self) {
         self.invalid = true;
         self.active.clear();
         self.complete.clear();
+        self.local_parent = None;
         self.failure
             .store(true, std::sync::atomic::Ordering::Release);
     }
@@ -65,8 +67,8 @@ pub(in crate::service::workflow) fn with_proofs<'a, T: Send + 'a>(
     tx: &'a mut SqliteTx,
     key: &OperationKey,
     run: impl FnOnce(&'a mut SqliteTx) -> Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>
-        + Send
-        + 'a,
+    + Send
+    + 'a,
 ) -> Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>> {
     match present(tx, key) {
         Ok(true) => return run(tx),
@@ -82,6 +84,7 @@ pub(in crate::service::workflow) fn with_proofs<'a, T: Send + 'a>(
         invalid: false,
         active: BTreeSet::new(),
         complete: BTreeMap::new(),
+        local_parent: None,
     };
     let mut exit = ScopeExit {
         failure,
@@ -91,7 +94,7 @@ pub(in crate::service::workflow) fn with_proofs<'a, T: Send + 'a>(
         let result = run(tx).await;
         let clean = SESSION.with(|state| {
             let state = state.borrow();
-            !state.invalid && state.active.is_empty()
+            !state.invalid && state.active.is_empty() && state.local_parent.is_none()
         });
         match result {
             // Poison and discard partial state without changing the original
@@ -133,7 +136,7 @@ pub(in crate::service::workflow) fn after_append(
     SESSION
         .try_with(|state| {
             let mut state = state.borrow_mut();
-            if !bound(&state, tx, key) || !state.active.is_empty() {
+            if !bound(&state, tx, key) || !state.active.is_empty() || state.local_parent.is_some() {
                 state.invalidate();
                 tx.workflow_proof_failure_handle()
                     .store(true, std::sync::atomic::Ordering::Release);
@@ -149,6 +152,94 @@ pub(super) enum Entry {
     Completed,
     Started(Guard),
 }
+
+/// Local semantic validation can consume completed historical proofs only.
+/// This view cannot be constructed from an index row or an active entry.
+pub(super) struct CompletedOrigin {
+    _completed: (),
+}
+pub(super) fn completed(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    identity: &[u8],
+    binding: &str,
+    original: bool,
+) -> Result<CompletedOrigin> {
+    SESSION
+        .try_with(|cell| {
+            let mut state = cell.borrow_mut();
+            let valid = bound(&state, tx, key)
+                && state
+                    .complete
+                    .get(identity)
+                    .is_some_and(|proof| proof.binding == binding && (!original || proof.original));
+            if !valid {
+                state.invalidate();
+                tx.workflow_proof_failure_handle()
+                    .store(true, std::sync::atomic::Ordering::Release);
+                return Err(ServiceError::IntegrityFailure);
+            }
+            Ok(CompletedOrigin { _completed: () })
+        })
+        .map_err(|_| ServiceError::IntegrityFailure)?
+}
+pub(super) fn local_phase(tx: &mut SqliteTx, key: &OperationKey) -> Result<bool> {
+    if !present(tx, key)? {
+        return Ok(false);
+    }
+    SESSION.with(|cell| Ok(cell.borrow().local_parent.is_some()))
+}
+pub(super) struct LocalPhase {
+    parent: Vec<u8>,
+    finished: bool,
+}
+impl LocalPhase {
+    pub(super) fn finish(mut self) -> Result<()> {
+        SESSION.with(|cell| {
+            let mut state = cell.borrow_mut();
+            if state.invalid || state.local_parent.as_deref() != Some(self.parent.as_slice()) {
+                state.invalidate();
+                return Err(ServiceError::IntegrityFailure);
+            }
+            state.local_parent = None;
+            Ok(())
+        })?;
+        self.finished = true;
+        Ok(())
+    }
+}
+impl Drop for LocalPhase {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = SESSION.try_with(|cell| cell.borrow_mut().invalidate());
+        }
+    }
+}
+pub(super) fn begin_local(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    parent: &[u8],
+) -> Result<LocalPhase> {
+    SESSION
+        .try_with(|cell| {
+            let mut state = cell.borrow_mut();
+            if !bound(&state, tx, key)
+                || state.local_parent.is_some()
+                || !state.active.contains(parent)
+            {
+                state.invalidate();
+                tx.workflow_proof_failure_handle()
+                    .store(true, std::sync::atomic::Ordering::Release);
+                return Err(ServiceError::IntegrityFailure);
+            }
+            state.local_parent = Some(parent.to_vec());
+            Ok(LocalPhase {
+                parent: parent.to_vec(),
+                finished: false,
+            })
+        })
+        .map_err(|_| ServiceError::IntegrityFailure)?
+}
 /// Dropping an unfinished proof invalidates the entire scope. An in-progress
 /// entry is never accepted as a way to terminate a recursive dependency.
 pub(super) struct Guard {
@@ -161,7 +252,10 @@ impl Guard {
         SESSION
             .try_with(|state| {
                 let mut state = state.borrow_mut();
-                if state.invalid || !state.active.remove(&self.identity) {
+                if state.invalid
+                    || state.local_parent.is_some()
+                    || !state.active.remove(&self.identity)
+                {
                     return Err(ServiceError::IntegrityFailure);
                 }
                 state.complete.insert(
@@ -202,6 +296,12 @@ pub(super) fn enter(
                 state.invalidate();
                 tx.workflow_proof_failure_handle()
                     .store(true, std::sync::atomic::Ordering::Release);
+                return Err(ServiceError::IntegrityFailure);
+            }
+            if state.local_parent.is_some() {
+                // A local continuation cannot schedule a new certificate, even
+                // if a future caller bypasses the completed-only entry helper.
+                state.invalidate();
                 return Err(ServiceError::IntegrityFailure);
             }
             if let Some(complete) = state.complete.get(identity) {

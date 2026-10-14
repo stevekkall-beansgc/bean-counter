@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     billing::BillingLedger,
-    service::workflow::{local::deadline, LocalWorkflowLedger},
+    service::workflow::{LocalWorkflowLedger, local::deadline},
     store::{
         errors::{CommitError, StoreError},
         ports::{AcceptanceStore, AcceptanceTx},
@@ -54,6 +54,153 @@ async fn cannot_commit(tx: SqliteTx) {
         tx.commit().await,
         Err(CommitError::RolledBack(StoreError::Integrity(_)))
     ));
+}
+
+#[tokio::test]
+async fn every_reference_to_a_shared_origin_is_retained_and_wrong_member_index_refuses() {
+    use super::super::origin_driver::{LocalContinuation, LocalStep, Stage};
+    use sqlx::Connection;
+    let (directory, ledger, key, original) = installed().await;
+    let evidence = original
+        .members
+        .iter()
+        .find(|r| r.kind == "workflow-evidence")
+        .unwrap();
+    let mut child_key = key.clone();
+    child_key.operation_id = "registered-child".into();
+    let raw = records::bytes(&json!({"schema":"ledger-operation/1","contract":"workflow/1",
+        "kind":"authority.change","key":child_key,"payload":{"schema":"ledger-workflow-customer-register/1",
+        "action":"customer.register","expected_revision":"0","customer":"test-customer","acceptor":"test-customer",
+        "registration_evidence_ref":evidence}})).unwrap();
+    let response = ledger.prerequisite(&raw).await.unwrap();
+    let customer: RecordRef =
+        serde_json::from_value(response["receipt"]["result_refs"][0].clone()).unwrap();
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    let child = tx
+        .workflow_agreement_lookup(&child_key.bytes().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let step = super::super::origin_driver::prepare(
+        &mut tx,
+        &child_key,
+        &child,
+        LocalContinuation {
+            identity: child.identity.clone(),
+            binding: journal_binding(&child).unwrap(),
+            stage: Stage::Members,
+        },
+    )
+    .await
+    .unwrap();
+    let LocalStep::NeedOrigins { demands, .. } = step else {
+        panic!("member preparation must not certify a parent");
+    };
+    let first = demands
+        .iter()
+        .find(|d| d.identity == original.identity)
+        .unwrap();
+    assert!(first.references.contains(evidence));
+    assert!(
+        first
+            .references
+            .iter()
+            .any(|r| r.kind == "workflow-authority")
+    );
+    assert_eq!(first.references.len(), 2);
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        ledger.status(&child_key.bytes().unwrap()).await.unwrap()["receipt"],
+        response["receipt"]
+    );
+
+    // Negative corruption only: the second Ref is falsely indexed as an
+    // earlier origin member. No document/body/authority is seeded or rewritten.
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(directory.path().join("billing/.ledger/local.db"));
+    let mut connection = sqlx::SqliteConnection::connect_with(&options)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO workflow_manifest_members VALUES(?,?,?,?)")
+        .bind(&original.identity)
+        .bind(&customer.kind)
+        .bind(&customer.id)
+        .bind(&customer.digest)
+        .execute(&mut connection)
+        .await
+        .unwrap();
+    connection.close().await.unwrap();
+    assert_eq!(
+        ledger.status(&child_key.bytes().unwrap()).await,
+        Err(ServiceError::IntegrityFailure)
+    );
+    ledger.close().await;
+}
+
+#[tokio::test]
+async fn local_continuation_consumes_completed_proof_without_driver_reentry() {
+    let (_directory, ledger, key, original) = installed().await;
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    let ((), counts) = verify::audit_origins(with_proofs(&mut tx, &key, |tx| {
+        Box::pin(async {
+            let expected = verify::retained(tx, &key, &original).await?;
+            // A synthetic *driver identity*, not a certificate or authority,
+            // permits isolated lifecycle testing without manufacturing a proof.
+            let parent = b"private-local-phase-test";
+            let Entry::Started(guard) = enter(tx, &key, parent, "test-parent".into(), false)?
+            else {
+                return Err(ServiceError::IntegrityFailure);
+            };
+            let local = begin_local(tx, &key, parent)?;
+            assert_eq!(verify::retained(tx, &key, &original).await?, expected);
+            let reference = original
+                .members
+                .iter()
+                .find(|r| r.kind == "workflow-evidence")
+                .unwrap();
+            verify::document_origin(tx, &key, reference).await?;
+            local.finish()?;
+            guard.finish(true)?;
+            Ok(())
+        })
+    }))
+    .await
+    .unwrap();
+    assert_eq!(counts.get(&original.identity), Some(&1));
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+}
+
+#[tokio::test]
+async fn unmet_local_demand_or_cancelled_local_phase_cannot_be_caught_then_committed() {
+    let (_directory, ledger, key, original) = installed().await;
+    for cancel in [false, true] {
+        let mut tx = ledger.store.begin(deadline()).await.unwrap();
+        let result: Result<()> = with_proofs(&mut tx, &key, |tx| {
+            Box::pin(async {
+                let parent = b"private-local-phase-test";
+                let Entry::Started(guard) = enter(tx, &key, parent, "test-parent".into(), false)?
+                else {
+                    return Err(ServiceError::IntegrityFailure);
+                };
+                let local = begin_local(tx, &key, parent)?;
+                if !cancel {
+                    // The real retained original has not completed in this session.
+                    assert_eq!(
+                        verify::retained(tx, &key, &original).await,
+                        Err(ServiceError::IntegrityFailure)
+                    );
+                }
+                drop(local);
+                drop(guard);
+                Ok(())
+            })
+        })
+        .await;
+        assert_eq!(result, Err(ServiceError::IntegrityFailure));
+        cannot_commit(tx).await;
+    }
+    ledger.close().await;
 }
 
 #[tokio::test]
