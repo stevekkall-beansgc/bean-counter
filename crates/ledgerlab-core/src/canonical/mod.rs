@@ -58,11 +58,71 @@ pub fn parse(bytes: &[u8]) -> Result<Value> {
     parse_bounded(bytes, CANDIDATE_LIMIT)
 }
 pub fn parse_bounded(bytes: &[u8], limit: usize) -> Result<Value> {
+    parse_bounded_with_allocations(bytes, limit, &mut NoopParseAllocationWork)
+}
+
+/// Allocation requests made before the corresponding library operation. These
+/// describe payload capacity, not allocator bookkeeping or a physical RSS cap.
+/// An audited caller must account for transient old/new array storage, pinned
+/// serde string scratch/copy growth, and the pinned Map implementation's nodes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ParseAllocation {
+    ArrayCapacity {
+        current_capacity: usize,
+        requested_capacity: usize,
+        element_size: usize,
+    },
+    ObjectEntry {
+        current_len: usize,
+        key_bytes: usize,
+        value_size: usize,
+        string_size: usize,
+    },
+    StringDecode {
+        encoded_bytes: usize,
+    },
+}
+
+/// Mandatory allocation admission for the audited parser entry. Callback
+/// errors propagate unchanged. A successful finish reports retained payload
+/// capacity after old array storage or decoder scratch has been released.
+/// Object inserts have no observable node capacity: their conservative admitted
+/// node reservation stays live until the caller discards the parsed tree.
+pub trait ParseAllocationWork {
+    fn before_allocation(&mut self, request: ParseAllocation) -> Result<()>;
+    fn finish_allocation(
+        &mut self,
+        request: ParseAllocation,
+        retained_capacity_bytes: usize,
+    ) -> Result<()>;
+}
+struct NoopParseAllocationWork;
+impl ParseAllocationWork for NoopParseAllocationWork {
+    fn before_allocation(&mut self, _: ParseAllocation) -> Result<()> {
+        Ok(())
+    }
+    fn finish_allocation(&mut self, _: ParseAllocation, _: usize) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// The same lexical parser with explicit fallible allocation admission. It
+/// never selects a Noop adapter internally. Pinned opaque allocation bounds
+/// remain the audited caller's proof obligation; this hook alone proves none.
+pub fn parse_bounded_with_allocations(
+    bytes: &[u8],
+    limit: usize,
+    allocations: &mut dyn ParseAllocationWork,
+) -> Result<Value> {
     if bytes.len() > limit {
         return Err(Error::new("LIMIT", "JSON bytes"));
     }
     std::str::from_utf8(bytes).map_err(|_| Error::new("JSON", "invalid UTF-8"))?;
-    let mut p = Parser { bytes, pos: 0 };
+    let mut p = Parser {
+        bytes,
+        pos: 0,
+        allocations,
+    };
     let result = p.value(0)?;
     p.space();
     if p.pos != bytes.len() {
@@ -70,11 +130,12 @@ pub fn parse_bounded(bytes: &[u8], limit: usize) -> Result<Value> {
     }
     Ok(result)
 }
-struct Parser<'a> {
+struct Parser<'a, 'w> {
     bytes: &'a [u8],
     pos: usize,
+    allocations: &'w mut dyn ParseAllocationWork,
 }
-impl Parser<'_> {
+impl Parser<'_, '_> {
     fn space(&mut self) {
         while self
             .bytes
@@ -109,8 +170,18 @@ impl Parser<'_> {
                 None => return Err(Error::new("JSON", "unterminated string")),
             }
         }
-        serde_json::from_slice(&self.bytes[start..self.pos])
-            .map_err(|e| Error::new("JSON", e.to_string()))
+        let request = ParseAllocation::StringDecode {
+            encoded_bytes: self.pos - start,
+        };
+        // serde_json1.0.151 owns escape scratch and the returned String. Admit
+        // their complete source-derived live bound before entering that decoder;
+        // do not replace its Unicode, escape or error semantics with a new one.
+        self.allocations.before_allocation(request)?;
+        let decoded: String = serde_json::from_slice(&self.bytes[start..self.pos])
+            .map_err(|e| Error::new("JSON", e.to_string()))?;
+        self.allocations
+            .finish_allocation(request, decoded.capacity())?;
+        Ok(decoded)
     }
     fn value(&mut self, depth: usize) -> Result<Value> {
         self.space();
@@ -130,6 +201,13 @@ impl Parser<'_> {
                     let key = self.string()?;
                     self.take(b':')?;
                     let value = self.value(depth + 1)?;
+                    self.allocations
+                        .before_allocation(ParseAllocation::ObjectEntry {
+                            current_len: map.len(),
+                            key_bytes: key.len(),
+                            value_size: std::mem::size_of::<Value>(),
+                            string_size: std::mem::size_of::<String>(),
+                        })?;
                     if map.insert(key, value).is_some() {
                         return Err(Error::new("JSON_DUPLICATE_KEY", "duplicate object key"));
                     }
@@ -154,7 +232,27 @@ impl Parser<'_> {
                     return Ok(Value::Array(out));
                 }
                 loop {
-                    out.push(self.value(depth + 1)?);
+                    let value = self.value(depth + 1)?;
+                    if out.len() == out.capacity() {
+                        let capacity = out.capacity();
+                        let requested = capacity.saturating_mul(2).max(4);
+                        let request = ParseAllocation::ArrayCapacity {
+                            current_capacity: capacity,
+                            requested_capacity: requested,
+                            element_size: std::mem::size_of::<Value>(),
+                        };
+                        self.allocations.before_allocation(request)?;
+                        out.try_reserve_exact(requested - out.len())
+                            .map_err(|_| Error::new("LIMIT", "JSON array allocation"))?;
+                        self.allocations.finish_allocation(
+                            request,
+                            out.capacity()
+                                .checked_mul(std::mem::size_of::<Value>())
+                                .ok_or_else(|| Error::new("LIMIT", "JSON array allocation"))?,
+                        )?;
+                    }
+                    // The admitted capacity is already present; push cannot grow.
+                    out.push(value);
                     self.space();
                     if self.bytes.get(self.pos) == Some(&b']') {
                         self.pos += 1;
@@ -584,6 +682,9 @@ pub fn outcome_digest(profile: &str, domain: &str, value: &impl Serialize) -> Re
 }
 
 pub mod outcome;
+
+#[cfg(test)]
+mod parser_allocation_tests;
 
 #[cfg(test)]
 mod executing_work_tests {
