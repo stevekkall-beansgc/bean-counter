@@ -1,0 +1,165 @@
+{
+  "schema": "ledger-operation-registry-contract/1",
+  "contract": "workflow/1",
+  "operation_envelope": "ledger-operation/1",
+  "receipt_profile": "ledger-operation-receipt/2",
+  "evidence_profile": "ledger-operation-request-evidence/2",
+  "normalization_profile": "ledger-operation-normalization/2",
+  "entries": [
+    {
+      "kind": "evidence.retain",
+      "payload_schemas": [
+        "ledger-workflow-fact-attest/1"
+      ],
+      "recipe_id": "evidence.retain/economic-3",
+      "exposure": "external"
+    },
+    {
+      "kind": "link.assert",
+      "payload_schemas": [
+        "ledger-workflow-link-assert/1"
+      ],
+      "recipe_id": "link.assert/economic-3",
+      "exposure": "external"
+    },
+    {
+      "kind": "outcome.close",
+      "payload_schemas": [
+        "ledger-workflow-outcome-close/1"
+      ],
+      "recipe_id": "outcome.close/economic-3",
+      "exposure": "external"
+    },
+    {
+      "kind": "outcome.correct",
+      "payload_schemas": [
+        "ledger-workflow-outcome-correction/1"
+      ],
+      "recipe_id": "outcome.correct/economic-3",
+      "exposure": "external"
+    },
+    {
+      "kind": "outcome.submit",
+      "payload_schemas": [
+        "ledger-workflow-outcome/1"
+      ],
+      "recipe_id": "outcome.submit/economic-3",
+      "exposure": "external"
+    },
+    {
+      "kind": "quantity.correct",
+      "payload_schemas": [
+        "ledger-workflow-quantity-correction/1"
+      ],
+      "recipe_id": "quantity.correct/economic-3",
+      "exposure": "external"
+    },
+    {
+      "kind": "work.accept",
+      "payload_schemas": [
+        "ledger-workflow-work/1"
+      ],
+      "recipe_id": "work.accept/economic-3",
+      "exposure": "external"
+    },
+    {
+      "kind": "work.reverse",
+      "payload_schemas": [
+        "ledger-workflow-work-reverse/1"
+      ],
+      "recipe_id": "work.reverse/economic-3",
+      "exposure": "external"
+    }
+  ],
+  "record_kinds": [
+    "workflow-action",
+    "workflow-authority-audit-verifier",
+    "workflow-authority-prefix-observation",
+    "workflow-capacity-retirement",
+    "workflow-chain-state",
+    "workflow-correction-capacity",
+    "workflow-decision",
+    "workflow-dependency",
+    "workflow-economic-authority",
+    "workflow-evaluation",
+    "workflow-evidence-verification",
+    "workflow-fact-attestation",
+    "workflow-family-state",
+    "workflow-financial-history-observation",
+    "workflow-link",
+    "workflow-manifest",
+    "workflow-operation",
+    "workflow-outcome-claim",
+    "workflow-receipt",
+    "workflow-target",
+    "workflow-verified-fact",
+    "workflow-work",
+    "workflow-work-claim"
+  ],
+  "errors": [
+    "ACTIVATION_SCHEDULE_CONFLICT",
+    "AGREEMENT_OWNERSHIP_CONFLICT",
+    "ASSENT_TERMS_MISMATCH",
+    "AUDIT_CANCELLED",
+    "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+    "AUTHORITY_REQUIRED",
+    "BASIS_NOT_TOTAL",
+    "CAPACITY_EXCEEDED",
+    "CLOCK_REGRESSION",
+    "CORRECTION_CAPACITY_EXCEEDED",
+    "CORRECTION_TERMS_UNSPECIFIED",
+    "CORRECTION_WINDOW_CLOSED",
+    "DESCRIPTOR_DEPENDENCY_MISSING",
+    "DESCRIPTOR_SCOPE_MISMATCH",
+    "DOCUMENT_DIGEST_MISMATCH",
+    "HISTORICAL_VERIFIER_UNAVAILABLE",
+    "IDENTITY_CONFLICT",
+    "INSTALLATION_MODE_MISMATCH",
+    "INTEGRITY_FAILURE",
+    "INVALID_REFERENCE",
+    "INVALID_SCALAR",
+    "INVALID_SHAPE",
+    "LINK_CARDINALITY",
+    "LINK_CYCLE",
+    "MISSING_DEPENDENCY",
+    "MISSING_FINANCIAL_ORIGIN",
+    "OCCURRENCE_EVIDENCE_REQUIRED",
+    "ORIGINAL_TERMS_MISMATCH",
+    "PLAN_DIGEST_MISMATCH",
+    "PREDICATE_ANALYSIS_LIMIT",
+    "PROGRAM_BUDGET_EXCEEDED",
+    "REQUEST_EVIDENCE_MISMATCH",
+    "REVERSAL_DEPENDENTS_REQUIRED",
+    "SEMANTIC_CONFLICT",
+    "SLOT_SEMANTICS_CHANGED",
+    "SOURCE_CEILING_EXCEEDED",
+    "STALE_REVISION",
+    "TARGET_CLOSED",
+    "UNSUPPORTED_COMPOSITION",
+    "UNSUPPORTED_SCHEMA_PROFILE"
+  ],
+  "status_input": "OperationKey",
+  "status_output": "OperationStatus",
+  "read_inputs": [
+    "EconomicRead",
+    "DescriptorPrepare"
+  ],
+  "read_outputs": [
+    "CorrectionPreparation",
+    "EconomicRecordEnvelope",
+    "DescriptorResolution",
+    "OperationStatus",
+    "ReadError"
+  ],
+  "result_kinds": [
+    "economic",
+    "administrative",
+    "semantic_alias"
+  ],
+  "economic_authority_schema": "ledger-workflow-economic-authority/2",
+  "economic_manifest_schema": "ledger-workflow-economic-manifest/3",
+  "economic_closure_profile": "ledger-economic-resolved-inputs/3",
+  "authority_audit_profile": "ledger-authority-origin-audit/1",
+  "economic_operation_schema": "ledger-workflow-economic-operation/3",
+  "financial_audit_profile": "ledger-financial-origin-audit/1"
+}
