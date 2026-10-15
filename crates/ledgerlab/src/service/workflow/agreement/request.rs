@@ -80,6 +80,20 @@ impl Request {
             raw: raw.to_vec(),
         })
     }
+    /// Lexical financial-envelope routing only. The pure core owns complete
+    /// version-aware payload normalization; this cannot create eligible inputs.
+    pub(super) fn parse_financial(raw: &[u8]) -> Result<Self> {
+        let outer = parse_outer(raw)?;
+        require(
+            super::financial::is_kind(&outer.kind),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+        require(outer.payload.is_object(), "INVALID_SHAPE")?;
+        Ok(Self {
+            outer,
+            raw: raw.to_vec(),
+        })
+    }
     pub(super) fn key(&self) -> &OperationKey {
         &self.outer.key
     }

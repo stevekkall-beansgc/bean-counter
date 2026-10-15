@@ -204,6 +204,9 @@ impl LocalWorkflowLedger {
                         .ok_or(ServiceError::IntegrityFailure)?;
                     records::verify_retained(tx, &key, &original).await
                 }
+                Some(kind) if agreement::financial::is_kind(&kind) => {
+                    agreement::financial::original_status(tx, &key).await
+                }
                 Some(_) => agreement::status(tx, &key).await,
                 None => Ok(
                     json!({"schema":"ledger-operation-status/1","status":"not_observed","key":key}),

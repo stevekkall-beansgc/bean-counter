@@ -5,6 +5,7 @@ mod alias04;
 mod activation_verify;
 mod context;
 mod descriptor;
+pub(super) mod financial;
 mod journal;
 mod origin_driver;
 pub(super) mod proof_session;
