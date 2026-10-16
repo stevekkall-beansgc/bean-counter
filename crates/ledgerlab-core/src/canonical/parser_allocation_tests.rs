@@ -2,6 +2,7 @@ use super::*;
 
 #[derive(Default)]
 struct Recorder {
+    work: Option<NoopValidationWork>,
     before: Vec<ParseAllocation>,
     finished: Vec<(ParseAllocation, usize)>,
     remaining: Option<usize>,
@@ -15,6 +16,9 @@ fn refused() -> Error {
     )
 }
 impl ParseAllocationWork for Recorder {
+    fn validation_work(&mut self) -> &mut dyn ValidationWork {
+        self.work.get_or_insert(NoopValidationWork)
+    }
     fn before_allocation(&mut self, request: ParseAllocation) -> Result<()> {
         self.before.push(request);
         let kind = match request {
@@ -211,4 +215,94 @@ fn parser_allocation_reports_actual_retained_capacity_and_exact_callback_refusal
         refused()
     );
     assert!(finish.finished.is_empty()); // No parsed tree escapes a failed finish.
+}
+
+struct PaidRecorder {
+    work: crate::validation_work::tests::CountingWork,
+    object_insertions: usize,
+}
+impl PaidRecorder {
+    fn new(maximum: usize) -> Self {
+        Self {
+            work: crate::validation_work::tests::CountingWork::new(maximum),
+            object_insertions: 0,
+        }
+    }
+}
+impl ParseAllocationWork for PaidRecorder {
+    fn validation_work(&mut self) -> &mut dyn ValidationWork {
+        &mut self.work
+    }
+    fn before_allocation(&mut self, request: ParseAllocation) -> Result<()> {
+        if matches!(request, ParseAllocation::ObjectEntry { .. }) {
+            self.object_insertions += 1;
+        }
+        Ok(())
+    }
+    fn finish_allocation(&mut self, _: ParseAllocation, _: usize) -> Result<()> {
+        Ok(())
+    }
+}
+#[test]
+fn audited_parser_executes_same_structural_number_work_at_exact_budget() {
+    let raw = br#"{"array":[-123,0,9007199254740991],"text":"a\u0000\ud83d\ude00","empty":{}}"#;
+    let expected = parse_bounded(raw, raw.len()).unwrap();
+    let mut measured = PaidRecorder::new(100_000);
+    let actual = parse_bounded_with_allocations(raw, raw.len(), &mut measured).unwrap();
+    assert_eq!(actual, expected);
+    assert!(measured.work.visits.contains(&Visit::Value));
+    assert!(measured.work.visits.contains(&Visit::Field));
+    assert!(measured.work.visits.contains(&Visit::Element));
+    assert!(measured.work.visits.contains(&Visit::ScalarDigit));
+    assert!(measured.work.visits.contains(&Visit::MemberCompare));
+    let n = measured.work.used;
+    let mut exact = PaidRecorder::new(n);
+    assert_eq!(
+        parse_bounded_with_allocations(raw, raw.len(), &mut exact).unwrap(),
+        expected
+    );
+    let mut short = PaidRecorder::new(n - 1);
+    assert_eq!(
+        parse_bounded_with_allocations(raw, raw.len(), &mut short)
+            .unwrap_err()
+            .code,
+        "TEST_EXHAUSTED"
+    );
+    assert_eq!(exact.work.used, n);
+}
+#[test]
+fn audited_parser_duplicate_depth_and_numeric_refusals_preserve_error_order() {
+    for raw in [
+        br#"{"a":0,"\u0061":1}"#.as_slice(),
+        br#"{"a":0,"a":1e0}"#,
+        b"9223372036854775808",
+        b"-9223372036854775808",
+        b"9007199254740992",
+        b"-0",
+        b"01",
+    ] {
+        let expected = parse_bounded(raw, raw.len()).unwrap_err();
+        let mut paid = PaidRecorder::new(100_000);
+        let actual = parse_bounded_with_allocations(raw, raw.len(), &mut paid).unwrap_err();
+        assert_eq!(actual, expected);
+        if expected.code == "JSON_DUPLICATE_KEY" {
+            assert_eq!(paid.object_insertions, 1);
+            assert!(paid.work.visits.contains(&Visit::MemberCompare));
+        }
+    }
+    let raw = format!("{}0{}", "[".repeat(33), "]".repeat(33));
+    let mut paid = PaidRecorder::new(100_000);
+    assert_eq!(
+        parse_bounded_with_allocations(raw.as_bytes(), raw.len(), &mut paid).unwrap_err(),
+        parse_bounded(raw.as_bytes(), raw.len()).unwrap_err()
+    );
+    assert_eq!(paid.object_insertions, 0);
+    assert_eq!(
+        paid.work
+            .visits
+            .iter()
+            .filter(|v| **v == Visit::Value)
+            .count(),
+        33
+    );
 }

@@ -1,5 +1,7 @@
 //! The integer-only ledger-canonical-v1 profile of RFC 8785.
 //! Strings are JSON escaped; object keys compare UTF-16 code units, not UTF-8.
+pub mod audit_arena;
+
 use crate::validation_work::{
     self as vw, ArithmeticOperation as Op, NoopValidationWork, ValidationVisit as Visit,
     ValidationWork,
@@ -14,8 +16,6 @@ const SAFE: i64 = 9_007_199_254_740_991;
 pub const CANDIDATE_LIMIT: usize = 262_144;
 pub const BUNDLE_LIMIT: usize = 4 * 1024 * 1024;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CanonicalBytes(Vec<u8>);
 /// Existing journal framing limits, selected only by the owning resource
 /// implementation. These do not widen the public canonical record/body API.
 pub(crate) enum CanonicalContainerBound {
@@ -33,6 +33,8 @@ impl CanonicalContainerBound {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CanonicalBytes(Vec<u8>);
 impl CanonicalBytes {
     pub fn from_value(value: &impl Serialize) -> Result<Self> {
         Self::from_value_with_work(value, &mut NoopValidationWork)
@@ -62,8 +64,6 @@ impl CanonicalBytes {
         emit(value, &mut destination, 0, work)?;
         Ok(Self(destination.bytes))
     }
-    pub fn as_slice(&self) -> &[u8] {
-        &self.0
     /// The identical executing emitter for code-owned journal containers.
     /// Ownership/reservation must already have been admitted by the resource
     /// session; this entry alone provides no arena or authentication guarantee.
@@ -76,6 +76,8 @@ impl CanonicalBytes {
         emit(value, &mut destination, 0, work)?;
         Ok(Self(destination.bytes))
     }
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
     }
     pub fn into_vec(self) -> Vec<u8> {
         self.0
@@ -87,7 +89,12 @@ pub fn parse(bytes: &[u8]) -> Result<Value> {
     parse_bounded(bytes, CANDIDATE_LIMIT)
 }
 pub fn parse_bounded(bytes: &[u8], limit: usize) -> Result<Value> {
-    parse_bounded_with_allocations(bytes, limit, &mut NoopParseAllocationWork)
+    parse_bounded_impl(
+        bytes,
+        limit,
+        &mut NoopParseAllocationWork(NoopValidationWork),
+        false,
+    )
 }
 
 /// Allocation requests made before the corresponding library operation. These
@@ -118,6 +125,9 @@ pub enum ParseAllocation {
 /// Object inserts have no observable node capacity: their conservative admitted
 /// node reservation stays live until the caller discards the parsed tree.
 pub trait ParseAllocationWork {
+    /// The SAME resource session used for allocation and semantic parser work.
+    /// An audited caller cannot substitute an implicit compatibility counter.
+    fn validation_work(&mut self) -> &mut dyn ValidationWork;
     fn before_allocation(&mut self, request: ParseAllocation) -> Result<()>;
     fn finish_allocation(
         &mut self,
@@ -125,8 +135,11 @@ pub trait ParseAllocationWork {
         retained_capacity_bytes: usize,
     ) -> Result<()>;
 }
-struct NoopParseAllocationWork;
+struct NoopParseAllocationWork(NoopValidationWork);
 impl ParseAllocationWork for NoopParseAllocationWork {
+    fn validation_work(&mut self) -> &mut dyn ValidationWork {
+        &mut self.0
+    }
     fn before_allocation(&mut self, _: ParseAllocation) -> Result<()> {
         Ok(())
     }
@@ -143,14 +156,28 @@ pub fn parse_bounded_with_allocations(
     limit: usize,
     allocations: &mut dyn ParseAllocationWork,
 ) -> Result<Value> {
-    if bytes.len() > limit {
+    parse_bounded_impl(bytes, limit, allocations, true)
+}
+fn parse_bounded_impl(
+    bytes: &[u8],
+    limit: usize,
+    allocations: &mut dyn ParseAllocationWork,
+    audit_duplicates: bool,
+) -> Result<Value> {
+    let work = allocations.validation_work();
+    if vw::compare(work, bytes.len(), limit)? == Ordering::Greater {
         return Err(Error::new("LIMIT", "JSON bytes"));
     }
+    // Token, UTF-8, escape and delimiter scanning are byte-domain work; do not
+    // introduce per-character Value charges. Structural validity below is paid
+    // where it executes, including refusals before allocation callbacks.
+    work.scan_bytes(bytes.len())?;
     std::str::from_utf8(bytes).map_err(|_| Error::new("JSON", "invalid UTF-8"))?;
     let mut p = Parser {
         bytes,
         pos: 0,
         allocations,
+        audit_duplicates,
     };
     let result = p.value(0)?;
     p.space();
@@ -163,6 +190,7 @@ struct Parser<'a, 'w> {
     bytes: &'a [u8],
     pos: usize,
     allocations: &'w mut dyn ParseAllocationWork,
+    audit_duplicates: bool,
 }
 impl Parser<'_, '_> {
     fn space(&mut self) {
@@ -213,10 +241,13 @@ impl Parser<'_, '_> {
         Ok(decoded)
     }
     fn value(&mut self, depth: usize) -> Result<Value> {
+        self.allocations.validation_work().visit(Visit::Value)?;
         self.space();
         match self.bytes.get(self.pos).copied() {
             Some(b'{') => {
-                if depth >= 32 {
+                if vw::compare(self.allocations.validation_work(), depth, 32usize)?
+                    != Ordering::Less
+                {
                     return Err(Error::new("LIMIT", "JSON depth"));
                 }
                 self.pos += 1;
@@ -227,9 +258,29 @@ impl Parser<'_, '_> {
                     return Ok(Value::Object(map));
                 }
                 loop {
+                    self.allocations.validation_work().visit(Visit::Field)?;
                     let key = self.string()?;
                     self.take(b':')?;
-                    let value = self.value(depth + 1)?;
+                    let child = vw::usize_add(self.allocations.validation_work(), depth, 1)?;
+                    let value = self.value(child)?;
+                    // Expose the actual duplicate-key constraint. Map's private
+                    // balancing/storage comparisons are not semantic proof work.
+                    // Preserve the original order: nested value validity precedes
+                    // duplicate-key refusal (e.g. a malformed duplicate value).
+                    if self.audit_duplicates {
+                        for existing in map.keys() {
+                            self.allocations
+                                .validation_work()
+                                .visit(Visit::MemberCompare)?;
+                            key_comparison_bytes(existing, &key, self.allocations.validation_work())?;
+                            if existing == &key {
+                                return Err(Error::new(
+                                    "JSON_DUPLICATE_KEY",
+                                    "duplicate object key",
+                                ));
+                            }
+                        }
+                    }
                     self.allocations
                         .before_allocation(ParseAllocation::ObjectEntry {
                             current_len: map.len(),
@@ -237,7 +288,10 @@ impl Parser<'_, '_> {
                             value_size: std::mem::size_of::<Value>(),
                             string_size: std::mem::size_of::<String>(),
                         })?;
-                    if map.insert(key, value).is_some() {
+                    // Compatibility keeps its original logarithmic map insertion;
+                    // it is never selected by the audited entry.
+                    let old = map.insert(key, value);
+                    if !self.audit_duplicates && old.is_some() {
                         return Err(Error::new("JSON_DUPLICATE_KEY", "duplicate object key"));
                     }
                     self.space();
@@ -250,7 +304,9 @@ impl Parser<'_, '_> {
                 Ok(Value::Object(map))
             }
             Some(b'[') => {
-                if depth >= 32 {
+                if vw::compare(self.allocations.validation_work(), depth, 32usize)?
+                    != Ordering::Less
+                {
                     return Err(Error::new("LIMIT", "JSON depth"));
                 }
                 self.pos += 1;
@@ -261,18 +317,43 @@ impl Parser<'_, '_> {
                     return Ok(Value::Array(out));
                 }
                 loop {
-                    let value = self.value(depth + 1)?;
-                    if out.len() == out.capacity() {
+                    self.allocations.validation_work().visit(Visit::Element)?;
+                    let child = vw::usize_add(self.allocations.validation_work(), depth, 1)?;
+                    let value = self.value(child)?;
+                    if vw::compare(
+                        self.allocations.validation_work(),
+                        out.len(),
+                        out.capacity(),
+                    )? == Ordering::Equal
+                    {
                         let capacity = out.capacity();
-                        let requested = capacity.saturating_mul(2).max(4);
+                        self.allocations
+                            .validation_work()
+                            .arithmetic(Op::Multiply, &[&capacity.into(), &2usize.into()])?;
+                        let doubled = capacity.saturating_mul(2);
+                        let requested =
+                            if vw::compare(self.allocations.validation_work(), doubled, 4usize)?
+                                == Ordering::Less
+                            {
+                                4
+                            } else {
+                                doubled
+                            };
                         let request = ParseAllocation::ArrayCapacity {
                             current_capacity: capacity,
                             requested_capacity: requested,
                             element_size: std::mem::size_of::<Value>(),
                         };
                         self.allocations.before_allocation(request)?;
+                        self.allocations
+                            .validation_work()
+                            .arithmetic(Op::Subtract, &[&requested.into(), &out.len().into()])?;
                         out.try_reserve_exact(requested - out.len())
                             .map_err(|_| Error::new("LIMIT", "JSON array allocation"))?;
+                        self.allocations.validation_work().arithmetic(
+                            Op::Multiply,
+                            &[&out.capacity().into(), &std::mem::size_of::<Value>().into()],
+                        )?;
                         self.allocations.finish_allocation(
                             request,
                             out.capacity()
@@ -306,18 +387,47 @@ impl Parser<'_, '_> {
                 let token = std::str::from_utf8(&self.bytes[start..self.pos])
                     .map_err(|_| Error::new("JSON", "number"))?;
                 let digits = token.strip_prefix('-').unwrap_or(token);
-                if digits.is_empty()
-                    || (digits.len() > 1 && digits.starts_with('0'))
-                    || token == "-0"
-                {
+                let work = self.allocations.validation_work();
+                work.visit(Visit::Constraint)?;
+                let empty = digits.is_empty();
+                let leading =
+                    if !empty && vw::compare(work, digits.len(), 1usize)? == Ordering::Greater {
+                        work.visit(Visit::Constraint)?;
+                        digits.starts_with('0')
+                    } else {
+                        false
+                    };
+                work.visit(Visit::Constraint)?;
+                if empty || leading || token == "-0" {
                     return Err(Error::new("JSON_NUMBER", "noncanonical numeric token"));
                 }
-                let n: i64 = token
-                    .parse()
-                    .map_err(|_| Error::new("JSON_NUMBER", "unsafe integer"))?;
-                if !(-SAFE..=SAFE).contains(&n)
-                    || self.bytes.get(self.pos).is_some_and(|b| b".eE".contains(b))
-                {
+                // Same signed-i64 language/error class, but execute each digit's
+                // multiply/add (or subtract) through the actual work schedule.
+                work.visit(Visit::Constraint)?;
+                let negative = token.starts_with('-');
+                let mut n = 0i64;
+                for digit in digits.bytes() {
+                    work.visit(Visit::ScalarDigit)?;
+                    work.arithmetic(Op::Multiply, &[&n.into(), &10i64.into()])?;
+                    n = n
+                        .checked_mul(10)
+                        .ok_or_else(|| Error::new("JSON_NUMBER", "unsafe integer"))?;
+                    let digit = i64::from(digit - b'0'); // byte-token decoding, not value arithmetic
+                    work.arithmetic(
+                        if negative { Op::Subtract } else { Op::Add },
+                        &[&n.into(), &digit.into()],
+                    )?;
+                    n = if negative {
+                        n.checked_sub(digit)
+                    } else {
+                        n.checked_add(digit)
+                    }
+                    .ok_or_else(|| Error::new("JSON_NUMBER", "unsafe integer"))?;
+                }
+                let lower = vw::compare(work, n, -SAFE)?;
+                let unsafe_range =
+                    lower == Ordering::Less || vw::compare(work, n, SAFE)? == Ordering::Greater;
+                if unsafe_range || self.bytes.get(self.pos).is_some_and(|b| b".eE".contains(b)) {
                     return Err(Error::new(
                         "JSON_NUMBER",
                         "only safe integer tokens allowed",
@@ -339,6 +449,14 @@ impl Parser<'_, '_> {
 struct Destination {
     bytes: Vec<u8>,
     maximum: Option<usize>,
+}
+
+// Reserve the full possible byte pass before each actually executed key
+// comparison. This is a conservative deterministic charge, not a measurement
+// of the comparison's short-circuit reads. The comparison algorithm is unchanged.
+fn key_comparison_bytes(left: &str, right: &str, work: &mut dyn ValidationWork) -> Result<()> {
+    let possible = vw::usize_add(work, left.len(), right.len())?;
+    work.scan_bytes(possible)
 }
 impl Destination {
     fn legacy() -> Self {
@@ -498,6 +616,7 @@ fn emit(
             let mut keys: Vec<_> = map.keys().collect();
             vw::try_sort_by(&mut keys, work, |a, b, w| {
                 w.visit(Visit::MemberCompare)?;
+                key_comparison_bytes(a, b, w)?;
                 Ok(a.encode_utf16().cmp(b.encode_utf16()))
             })?;
             append(out, b"{", work)?;
@@ -722,6 +841,91 @@ mod executing_work_tests {
     use num_bigint::BigInt;
 
     #[test]
+    fn key_comparison_reservation_is_full_pass_before_unchanged_comparison() {
+        struct Scans { used: usize, maximum: usize }
+        impl ValidationWork for Scans {
+            fn visit(&mut self, _: Visit) -> Result<()> { Ok(()) }
+            fn arithmetic(&mut self, _: Op, _: &[&BigInt]) -> Result<()> { Ok(()) }
+            fn write_bytes(&mut self, _: usize) -> Result<()> { Ok(()) }
+            fn hash_bytes(&mut self, _: usize) -> Result<()> { Ok(()) }
+            fn scan_bytes(&mut self, n: usize) -> Result<()> {
+                if n > self.maximum - self.used {
+                    return Err(Error::new("TEST_SCAN", "comparison bytes"));
+                }
+                self.used += n;
+                Ok(())
+            }
+        }
+        let mut enough = Scans { used: 0, maximum: 16 };
+        key_comparison_bytes("a-secret", "b-secret", &mut enough).unwrap();
+        assert_eq!(enough.used,16); // full reserved pass, despite first-byte mismatch
+        let mut short = Scans { used: 0, maximum: 15 };
+        assert_eq!(key_comparison_bytes("a-secret", "b-secret", &mut short).unwrap_err(), Error::new("TEST_SCAN","comparison bytes"));
+        assert_eq!(short.used,0);
+        let value = serde_json::json!({"\u{e000}":1,"😀":2});
+        let mut work = CountingWork::new(usize::MAX);
+        assert_eq!(CanonicalBytes::from_value_with_work(&value, &mut work).unwrap().as_slice(), "{\"😀\":2,\"\u{e000}\":1}".as_bytes());
+    }
+
+    #[test]
+    fn journal_container_emitter_preserves_closed_bounds_and_body_limit() {
+        assert_eq!(CanonicalContainerBound::Operation.maximum(), 8 * 1024 * 1024);
+        assert_eq!(CanonicalContainerBound::Manifest.maximum(), BUNDLE_LIMIT);
+        assert_eq!(CanonicalContainerBound::Receipt.maximum(), 1024 * 1024);
+        let value = Value::String("x".repeat(BUNDLE_LIMIT));
+        let mut paid = CountingWork::new(usize::MAX);
+        let encoded = CanonicalBytes::from_container_with_work(
+            &value,
+            &mut paid,
+            CanonicalContainerBound::Operation,
+        )
+        .unwrap();
+        assert_eq!(encoded.as_slice().len(), BUNDLE_LIMIT + 2);
+        assert_eq!(encoded.as_slice().first(), Some(&b'"'));
+        assert_eq!(encoded.as_slice().last(), Some(&b'"'));
+        let mut public_work = CountingWork::new(usize::MAX);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(
+                &value,
+                &mut public_work,
+                usize::MAX,
+            )
+            .unwrap_err(),
+            Error::new("PROGRAM_BUDGET_EXCEEDED", "canonical destination bound"),
+        );
+    }
+
+    #[test]
+    fn journal_container_emitter_keeps_exact_work_refusal_and_bytes() {
+        let value = serde_json::json!({"escaped":"\n\u{1f600}","integer":-9});
+        let mut paid = CountingWork::new(usize::MAX);
+        let bytes = CanonicalBytes::from_container_with_work(
+            &value,
+            &mut paid,
+            CanonicalContainerBound::Receipt,
+        )
+        .unwrap();
+        assert_eq!(bytes, CanonicalBytes::from_value(&value).unwrap());
+        let required = paid.used;
+        let mut exact = CountingWork::new(required);
+        assert_eq!(
+            CanonicalBytes::from_container_with_work(
+                &value,
+                &mut exact,
+                CanonicalContainerBound::Receipt,
+            )
+            .unwrap(),
+            bytes,
+        );
+        let mut short = CountingWork::new(required - 1);
+        assert!(CanonicalBytes::from_container_with_work(
+            &value,
+            &mut short,
+            CanonicalContainerBound::Receipt,
+        ).is_err());
+    }
+
+    #[test]
     fn string_formatting_pays_one_typed_value_and_every_scanned_written_byte() {
         let value = Value::String("a\n\u{000b}é😀\"\\".into());
         let expected = "\"a\\n\\u000bé😀\\\"\\\\\"";
@@ -830,64 +1034,6 @@ mod executing_work_tests {
         assert_eq!(destination.bytes, b"-123");
         assert!(destination.bytes.capacity() <= 4);
         let mut destination = Destination::bounded(3);
-    #[test]
-    fn journal_container_emitter_preserves_closed_bounds_and_body_limit() {
-        assert_eq!(CanonicalContainerBound::Operation.maximum(), 8 * 1024 * 1024);
-        assert_eq!(CanonicalContainerBound::Manifest.maximum(), BUNDLE_LIMIT);
-        assert_eq!(CanonicalContainerBound::Receipt.maximum(), 1024 * 1024);
-        let value = Value::String("x".repeat(BUNDLE_LIMIT));
-        let mut paid = CountingWork::new(usize::MAX);
-        let encoded = CanonicalBytes::from_container_with_work(
-            &value,
-            &mut paid,
-            CanonicalContainerBound::Operation,
-        )
-        .unwrap();
-        assert_eq!(encoded.as_slice().len(), BUNDLE_LIMIT + 2);
-        assert_eq!(encoded.as_slice().first(), Some(&b'"'));
-        assert_eq!(encoded.as_slice().last(), Some(&b'"'));
-        let mut public_work = CountingWork::new(usize::MAX);
-        assert_eq!(
-            CanonicalBytes::from_value_with_work_bounded(
-                &value,
-                &mut public_work,
-                usize::MAX,
-            )
-            .unwrap_err(),
-            Error::new("PROGRAM_BUDGET_EXCEEDED", "canonical destination bound"),
-        );
-    }
-
-    #[test]
-    fn journal_container_emitter_keeps_exact_work_refusal_and_bytes() {
-        let value = serde_json::json!({"escaped":"\n\u{1f600}","integer":-9});
-        let mut paid = CountingWork::new(usize::MAX);
-        let bytes = CanonicalBytes::from_container_with_work(
-            &value,
-            &mut paid,
-            CanonicalContainerBound::Receipt,
-        )
-        .unwrap();
-        assert_eq!(bytes, CanonicalBytes::from_value(&value).unwrap());
-        let required = paid.used;
-        let mut exact = CountingWork::new(required);
-        assert_eq!(
-            CanonicalBytes::from_container_with_work(
-                &value,
-                &mut exact,
-                CanonicalContainerBound::Receipt,
-            )
-            .unwrap(),
-            bytes,
-        );
-        let mut short = CountingWork::new(required - 1);
-        assert!(CanonicalBytes::from_container_with_work(
-            &value,
-            &mut short,
-            CanonicalContainerBound::Receipt,
-        ).is_err());
-    }
-
         assert_eq!(
             emit(&Value::from(-123), &mut destination, 0, &mut work).unwrap_err(),
             destination_limit()
