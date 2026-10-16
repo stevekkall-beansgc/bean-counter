@@ -354,3 +354,152 @@ mod tests {
         store.close().await;
     }
 }
+
+#[cfg(test)]
+mod statement_source_tests {
+    use super::super::append::{INSERT_DOCUMENT, INSERT_OPERATION, MATCH_DOCUMENT};
+    use sqlx::{Connection, Executor, Row, SqliteConnection, sqlite::SqliteConnectOptions};
+    #[tokio::test]
+    async fn direct_document_values_keep_preflight_and_check_failures() {
+        let mut conn = SqliteConnection::connect_with(
+            &SqliteConnectOptions::new()
+                .in_memory(true)
+                .foreign_keys(true),
+        )
+        .await
+        .unwrap();
+        conn.execute(sqlx::AssertSqlSafe(concat!(
+            include_str!("../schema.sql"),
+            "\n",
+            include_str!("../agreement/schema.sql"),
+            "\n",
+            include_str!("../agreement/transport/schema.sql"),
+            "\n",
+            include_str!("../agreement/acceptance/schema.sql")
+        )))
+        .await
+        .unwrap();
+        conn.execute(sqlx::AssertSqlSafe(include_str!("schema.sql")))
+            .await
+            .unwrap();
+        // Opaque mechanical table witness, never a valid Product or origin.
+        let append = sqlx::query(INSERT_DOCUMENT)
+            .bind("workflow-product")
+            .bind("id")
+            .bind("digest")
+            .bind("opaque")
+            .bind(&[1u8][..])
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(append.rows_affected(), 1);
+        let reused = sqlx::query(INSERT_DOCUMENT)
+            .bind("workflow-product")
+            .bind("id")
+            .bind("digest")
+            .bind("opaque")
+            .bind(&[1u8][..])
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(reused.rows_affected(), 0);
+        let different: Option<bool> = sqlx::query_scalar(MATCH_DOCUMENT)
+            .bind("workflow-product")
+            .bind("digest")
+            .bind("opaque")
+            .bind(&[2u8][..])
+            .bind("id")
+            .fetch_optional(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(different, Some(false)); // caller's immutable preflight refuses
+        // ON CONFLICT(id) must not suppress kind or byte-size CHECK failures,
+        // including when that id already exists.
+        for (kind, bytes) in [
+            ("workflow-unknown", &[1u8][..]),
+            ("workflow-product", &[][..]),
+        ] {
+            assert!(
+                sqlx::query(INSERT_DOCUMENT)
+                    .bind(kind)
+                    .bind("id")
+                    .bind("digest")
+                    .bind("opaque")
+                    .bind(bytes)
+                    .execute(&mut conn)
+                    .await
+                    .is_err()
+            );
+        }
+    }
+    #[tokio::test]
+    async fn pinned_large_payload_statements_expose_exact_virtual_machine() {
+        let mut conn = SqliteConnection::connect_with(
+            &SqliteConnectOptions::new()
+                .in_memory(true)
+                .foreign_keys(true),
+        )
+        .await
+        .unwrap();
+        let version: String = sqlx::query_scalar("SELECT sqlite_version()")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(version, crate::store::sqlite::connect::SQLITE_VERSION);
+        conn.execute(sqlx::AssertSqlSafe(concat!(
+            include_str!("../schema.sql"),
+            "\n",
+            include_str!("../agreement/schema.sql"),
+            "\n",
+            include_str!("../agreement/transport/schema.sql"),
+            "\n",
+            include_str!("../agreement/acceptance/schema.sql")
+        )))
+        .await
+        .unwrap();
+        conn.execute(sqlx::AssertSqlSafe(include_str!("schema.sql")))
+            .await
+            .unwrap();
+        // EXPLAIN compiles actual production statements; it performs no
+        // financial INSERT and supplies no economic result/authority operand.
+        for (name, sql) in [
+            ("match_document", MATCH_DOCUMENT),
+            ("insert_document", INSERT_DOCUMENT),
+            ("insert_operation", INSERT_OPERATION),
+        ] {
+            let explain = format!("EXPLAIN {sql}");
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(explain));
+            for _ in 0..sql.bytes().filter(|b| *b == b'?').count() {
+                query = query.bind(Option::<String>::None);
+            }
+            let rows = query.fetch_all(&mut conn).await.unwrap();
+            if name == "insert_document" {
+                assert!(
+                    !rows
+                        .iter()
+                        .any(|row| row.get::<&str, _>("opcode") == "InitCoroutine"),
+                    "full-body INSERT SELECT spool must stay absent"
+                );
+            }
+            println!("SQL-VM-BEGIN {name}");
+            for row in rows {
+                println!(
+                    "{} {} {} {} {} {} {}",
+                    row.get::<i64, _>("addr"),
+                    row.get::<&str, _>("opcode"),
+                    row.get::<i64, _>("p1"),
+                    row.get::<i64, _>("p2"),
+                    row.get::<i64, _>("p3"),
+                    row.get::<Option<&str>, _>("p4").unwrap_or(""),
+                    row.get::<i64, _>("p5")
+                );
+            }
+            println!("SQL-VM-END {name}");
+        }
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM workflow_operations")
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(rows, 0);
+    }
+}

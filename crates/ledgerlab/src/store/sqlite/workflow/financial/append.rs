@@ -4,6 +4,10 @@ use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{EconomicCandidate, ExactRef};
 use serde_json::Value;
 
+pub(super) const MATCH_DOCUMENT: &str = "SELECT kind=? AND digest=? AND schema_name=? AND canonical_bytes=? FROM workflow_documents WHERE id=?";
+pub(super) const INSERT_DOCUMENT: &str = "INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING";
+pub(super) const INSERT_OPERATION: &str = "INSERT INTO workflow_operations(identity_key,logical_store_id,tenant,environment,source,operation_id,operation_record_id,operation_digest,operation_bytes,normalized_request_hash,manifest_id,manifest_digest,manifest_bytes,receipt_id,receipt_digest,receipt_bytes,publication_id,plan_id,commit_sequence,accepted_at_us,operation_kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,?)";
+
 pub(crate) struct FinancialDocument<'a> {
     pub reference: &'a ExactRef,
     pub schema: &'a str,
@@ -133,9 +137,14 @@ impl SqliteTx {
             }
             // SQLite performs the exact comparison; no unleased multi-MiB
             // retained BLOB is fetched into Rust merely to compare it.
-            let retained:Option<bool>=sqlx::query_scalar("SELECT kind=? AND digest=? AND schema_name=? AND canonical_bytes=? FROM workflow_documents WHERE id=?")
-                .bind(&d.reference.kind).bind(&d.reference.digest).bind(d.schema).bind(d.canonical_bytes).bind(&d.reference.id)
-                .fetch_optional(self.conn()).await?;
+            let retained: Option<bool> = sqlx::query_scalar(MATCH_DOCUMENT)
+                .bind(&d.reference.kind)
+                .bind(&d.reference.digest)
+                .bind(d.schema)
+                .bind(d.canonical_bytes)
+                .bind(&d.reference.id)
+                .fetch_optional(self.conn())
+                .await?;
             match retained {
                 Some(false) => {
                     return Err(StoreError::Integrity(
@@ -153,16 +162,38 @@ impl SqliteTx {
             return Err(StoreError::Integrity("financial journal sequence gap"));
         }
         for d in p.documents {
-            sqlx::query("INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) SELECT ?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM workflow_documents WHERE id=?)")
-                .bind(&d.reference.kind).bind(&d.reference.id).bind(&d.reference.digest).bind(d.schema).bind(d.canonical_bytes).bind(&d.reference.id)
-                .execute(self.conn()).await?;
+            sqlx::query(INSERT_DOCUMENT)
+                .bind(&d.reference.kind)
+                .bind(&d.reference.id)
+                .bind(&d.reference.digest)
+                .bind(d.schema)
+                .bind(d.canonical_bytes)
+                .bind(&d.reference.id)
+                .execute(self.conn())
+                .await?;
         }
-        sqlx::query("INSERT INTO workflow_operations(identity_key,logical_store_id,tenant,environment,source,operation_id,operation_record_id,operation_digest,operation_bytes,normalized_request_hash,manifest_id,manifest_digest,manifest_bytes,receipt_id,receipt_digest,receipt_bytes,publication_id,plan_id,commit_sequence,accepted_at_us,operation_kind) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,?,?,?)")
-            .bind(o.identity).bind(&key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1])
-            .bind(&key.source).bind(&key.operation_id).bind(&o.operation_ref.id).bind(&o.operation_ref.digest).bind(o.operation_bytes)
-            .bind(o.request_hash).bind(&o.manifest_ref.id).bind(&o.manifest_ref.digest).bind(o.manifest_bytes)
-            .bind(&o.receipt_ref.id).bind(&o.receipt_ref.digest).bind(o.receipt_bytes)
-            .bind(o.sequence).bind(o.accepted_at_us).bind(o.kind).execute(self.conn()).await?;
+        sqlx::query(INSERT_OPERATION)
+            .bind(o.identity)
+            .bind(&key.logical_store_id)
+            .bind(&key.scope[0])
+            .bind(&key.scope[1])
+            .bind(&key.source)
+            .bind(&key.operation_id)
+            .bind(&o.operation_ref.id)
+            .bind(&o.operation_ref.digest)
+            .bind(o.operation_bytes)
+            .bind(o.request_hash)
+            .bind(&o.manifest_ref.id)
+            .bind(&o.manifest_ref.digest)
+            .bind(o.manifest_bytes)
+            .bind(&o.receipt_ref.id)
+            .bind(&o.receipt_ref.digest)
+            .bind(o.receipt_bytes)
+            .bind(o.sequence)
+            .bind(o.accepted_at_us)
+            .bind(o.kind)
+            .execute(self.conn())
+            .await?;
         let mut own_operation_members = 0;
         for value in o.members {
             let (kind, id, digest) = member(value)?;
