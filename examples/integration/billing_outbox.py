@@ -8,6 +8,7 @@ Run one caller process per outbox; do not use real customer data here.
 
 import json
 import os
+import re
 from pathlib import Path
 import stat
 import subprocess
@@ -75,7 +76,59 @@ def run_json(argv):
     return result.returncode, value
 
 
-def verified_receipt(ledger, installation, customer, operation_id, receipt):
+def verify_projection(history, entry, customer, source, event, receipt):
+    """Reconcile presentation with the request and retained member descriptors.
+
+    This is not a canonical hash implementation or an independent price oracle.
+    The pinned local CLI and private installation remain trusted.
+    """
+    if history.get("customer") != customer or history.get("scope") != receipt.get("scope") or entry.get("source") != source:
+        stop("explanation customer/source/scope differs from the pending request")
+    records = entry["records"]
+    events = [r for r in records if r.get("kind") == "event"]
+    if len(events) != 1:
+        stop("expected one retained base event")
+    data = events[0]["body"]["data"]
+    wanted = {"customer": customer, "source": source, "operation_id": event["operation_id"],
+              "work_type": event["type"], "occurred_at": event["occurred_at"],
+              "quantity": event.get("quantity", "1"), "unit": event.get("unit", "call"),
+              "status": event.get("status", "succeeded")}
+    if any(data.get(k) != v for k, v in wanted.items()):
+        stop("retained work facts differ from the pending request")
+    if records.count(receipt) != 1:
+        stop("expected the original acceptance record once")
+    descriptors = [{k: r[k] for k in ("kind", "id", "content_hash")} for r in records if r != receipt]
+    members = receipt["body"]["members"]
+    key = lambda r: (r["kind"], r["id"], r["content_hash"])
+    if (len({(r["kind"], r["id"]) for r in descriptors}) != len(descriptors)
+            or sorted(descriptors, key=key) != sorted(members, key=key)
+            or any(r.get("scope") != receipt["scope"] for r in records)
+            or entry["postings"] != [r for r in records if r["kind"] == "base-posting"]):
+        stop("retained records/postings differ from receipt membership")
+    def atoms(value):
+        if not isinstance(value, str) or not re.fullmatch(r"(?:0|-[1-9][0-9]*|[1-9][0-9]*)", value):
+            stop("noncanonical integer total")
+        return int(value)
+    scale = {"ledger-billing-statement/2": 2, "ledger-billing-statement/3": 18}[history["schema"]]
+    if history.get("scale") != scale or not isinstance(history.get("currency"), str):
+        stop("invalid statement money identity")
+    total = 0
+    for item in history["entries"]:
+        posting_total = 0
+        for posting in item["postings"]:
+            amount = posting["body"]["amount"]
+            posting_scale = amount["scale"]
+            if amount["currency"] != history["currency"] or type(posting_scale) is not int or posting_scale not in (2, 18) or posting_scale > scale:
+                stop("posting currency/scale differs from statement")
+            posting_total += atoms(amount["atoms"]) * 10 ** (scale - posting_scale)
+        if posting_total != atoms(item["net_atoms"]):
+            stop("entry total differs from retained postings")
+        total += posting_total
+    if total != atoms(history["net_atoms"]):
+        stop("statement total differs from retained entries")
+
+
+def verified_receipt(ledger, installation, customer, source, event, receipt):
     if not isinstance(receipt, dict) or receipt.get("kind") != "base-acceptance":
         stop("missing base-acceptance receipt")
     target = receipt.get("body", {}).get("target")
@@ -89,9 +142,10 @@ def verified_receipt(ledger, installation, customer, operation_id, receipt):
                and entry["receipt"].get("id") == receipt["id"]
                and len([record for record in entry.get("records", [])
                         if record.get("kind") == "event"
-                        and record.get("body", {}).get("data", {}).get("operation_id") == operation_id]) == 1]
+                        and record.get("body", {}).get("data", {}).get("operation_id") == event["operation_id"]]) == 1]
     if len(matches) != 1:
         stop("receipt does not match the retained original operation")
+    verify_projection(history, matches[0], customer, source, event, receipt)
     return receipt
 
 
@@ -148,7 +202,7 @@ def main():
     if code != 0 or response.get("status") not in ("accepted", "duplicate"):
         print(f"Accept not acknowledged (exit {code}): {response}", file=sys.stderr)
         return code or 1
-    receipt = verified_receipt(ledger, installation, customer, event["operation_id"], response.get("receipt"))
+    receipt = verified_receipt(ledger, installation, customer, source, event, response.get("receipt"))
     save_receipt(outbox / "receipt.json", receipt)
     print(f"Acknowledged {response['status']} with original receipt {receipt['id']}")
     return 0
