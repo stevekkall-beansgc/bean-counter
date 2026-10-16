@@ -34,19 +34,32 @@ impl OriginInput {
         tx: &mut SqliteTx,
         session: &mut OriginalAuditSession,
     ) -> Result<FinancialInput> {
-        require(is_kind(self.frame.kind), "UNSUPPORTED_SCHEMA_PROFILE")?;
-        let OriginInput {
-            key,
-            identity,
-            frame,
-        } = self;
-        let wrappers =
-            wrappers::validate_frame(tx, &key.key, identity.bytes(), frame, session).await?;
-        Ok(FinancialInput {
-            key,
-            identity,
-            wrappers,
-        })
+        let mut attempt = InputAttempt {
+            failure: tx.workflow_proof_failure_handle(),
+            finished: false,
+        };
+        let result = async {
+            require(is_kind(self.frame.kind), "UNSUPPORTED_SCHEMA_PROFILE")?;
+            let OriginInput {
+                key,
+                identity,
+                frame,
+            } = self;
+            let wrappers =
+                wrappers::validate_frame(tx, &key.key, identity.bytes(), frame, session).await?;
+            Ok(FinancialInput {
+                key,
+                identity,
+                wrappers,
+            })
+        }
+        .await;
+        if result.is_ok() {
+            attempt.finish();
+        } else {
+            session.invalidate();
+        }
+        result
     }
 }
 pub(super) struct FinancialInput {
@@ -232,10 +245,50 @@ async fn next_inner(
     else {
         return Ok(None);
     };
-    let key = origin_key(locator.identity.bytes(), root, session)?;
+    let input = target_inner(tx, root, locator.identity, session).await?;
+    session
+        .semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&input.frame.sequence.into(), &locator.sequence.into()],
+        )
+        .map_err(core_error)?;
+    require(
+        input.frame.sequence == locator.sequence,
+        "INTEGRITY_FAILURE",
+    )?;
+    Ok(Some(input))
+}
+
+pub(super) async fn target(
+    tx: &mut SqliteTx,
+    root: &OperationKey,
+    identity: ledgerlab_core::canonical::audit_arena::AuditedBytes,
+    session: &mut OriginalAuditSession,
+) -> Result<OriginInput> {
+    let mut attempt = InputAttempt {
+        failure: tx.workflow_proof_failure_handle(),
+        finished: false,
+    };
+    let result = target_inner(tx, root, identity, session).await;
+    if result.is_ok() {
+        attempt.finish();
+    } else {
+        session.invalidate();
+    }
+    result
+}
+async fn target_inner(
+    tx: &mut SqliteTx,
+    root: &OperationKey,
+    identity: ledgerlab_core::canonical::audit_arena::AuditedBytes,
+    session: &mut OriginalAuditSession,
+) -> Result<OriginInput> {
+    require(proof_session::present(tx, root)?, "INTEGRITY_FAILURE")?;
+    let key = origin_key(identity.bytes(), root, session)?;
     let frame = tx
         .workflow_original_frame(
-            locator.identity.bytes(),
+            identity.bytes(),
             &root.logical_store_id,
             &root.scope,
             session,
@@ -243,19 +296,11 @@ async fn next_inner(
         .await
         .map_err(read_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
-    session
-        .semantic_work()
-        .arithmetic(
-            Op::Compare,
-            &[&frame.sequence.into(), &locator.sequence.into()],
-        )
-        .map_err(core_error)?;
-    require(frame.sequence == locator.sequence, "INTEGRITY_FAILURE")?;
-    Ok(Some(OriginInput {
+    Ok(OriginInput {
         key,
-        identity: locator.identity,
+        identity,
         frame,
-    }))
+    })
 }
 
 #[cfg(test)]

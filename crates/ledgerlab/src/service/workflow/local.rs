@@ -205,7 +205,7 @@ impl LocalWorkflowLedger {
                     records::verify_retained(tx, &key, &original).await
                 }
                 Some(kind) if agreement::financial::is_kind(&kind) => {
-                    agreement::financial::original_status(tx, &key).await
+                    agreement::financial::original_status(tx, &key, raw_key).await
                 }
                 Some(_) => agreement::status(tx, &key).await,
                 None => Ok(

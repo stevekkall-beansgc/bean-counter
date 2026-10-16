@@ -124,26 +124,61 @@ impl Drop for AttemptCancellation {
     }
 }
 
-/// Never returns saved financial success without the complete version-aware
-/// original financial auditor. Current compiler/grant/time are not consulted.
+/// Submission retry retains the actual incoming request until ORIGINAL intent
+/// normalization/comparison; key-only status never manufactures that intent.
+enum OriginalQuery<'a> {
+    Status(&'a [u8]),
+    Retry(&'a request::Request),
+}
+
 pub(in crate::service::workflow) async fn original_status(
     tx: &mut SqliteTx,
     key: &OperationKey,
+    raw_key: &[u8],
 ) -> Result<Value> {
-    // One owner for this entire audit attempt. Every per-origin session in the
-    // chronological driver will share this same arena, not create another pool.
+    original_query(tx, key, OriginalQuery::Status(raw_key)).await
+}
+async fn original_retry(tx: &mut SqliteTx, incoming: &request::Request) -> Result<Value> {
+    original_query(tx, incoming.key(), OriginalQuery::Retry(incoming)).await
+}
+
+/// Never returns saved success without full original financial semantics. The
+/// incoming request selects only the global identity; saved evidence supplies
+/// the ORIGINAL literal request. No current compiler/grant/time is consulted.
+async fn original_query(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    input: OriginalQuery<'_>,
+) -> Result<Value> {
+    use ledgerlab_core::validation_work::{OriginalAuditSession, RepresentationKind};
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
     let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
-    let mut session =
-        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
-            .map_err(core_error)?;
-    let identity = key.bytes()?;
-    let original = wrappers::load(tx, key, &identity, &mut session).await?;
-    // Mechanical wrappers are unresolved DATA. The full prefix/descriptor and
-    // same-constructor semantic/capacity/funding completion is still mandatory;
-    // no receipt or CompletedOrigin is returned from this partial path.
-    let _unresolved = original;
-
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+    // Same canonical emitter over borrowed input fields; no naked key.bytes()
+    // allocation occurs outside the audit owner in this original branch.
+    let (raw, kind) = match &input {
+        OriginalQuery::Status(raw) => (*raw, RepresentationKind::Record),
+        OriginalQuery::Retry(incoming) => (incoming.raw(), RepresentationKind::OriginalRequest),
+    };
+    let incoming = session
+        .parse_representation(raw, kind)
+        .map_err(core_error)?;
+    let key_value = match &input {
+        OriginalQuery::Status(_) => incoming.value(),
+        OriginalQuery::Retry(_) => request_wrapper::field(incoming.value(), "key", &mut session)?,
+    };
+    request_wrapper::key(key_value, key, &mut session)?;
+    let identity = session
+        .canonical_representation(key_value, RepresentationKind::Record)
+        .map_err(core_error)?;
+    let acquired = prefix::target(tx, key, identity, &mut session).await?;
+    let original = acquired.financial_wrappers(tx, &mut session).await?;
+    // The chronological recipe driver must finish the exact saved program,
+    // original prestate, full wrapper/result closure and all capacity/funding
+    // obligations first. For Retry, normalize_saved_intent receives this SAME
+    // incoming request and that completed candidate's normalized bytes before
+    // any receipt can return. No current retry bytes replace saved raw evidence.
+    let _unresolved = (original, incoming, input);
     Err(ServiceError::Unavailable)
 }
 
@@ -170,7 +205,7 @@ impl LocalWorkflowLedger {
                     require(kind == req.kind(), "IDENTITY_CONFLICT")?;
                     // No fresh selection, grant check, compiler or capacity admission
                     // precedes this original identity branch.
-                    return original_status(tx, key).await;
+                    return original_retry(tx, &req).await;
                 }
                 let management = ManagementObservation::capture(self, tx, key).await?;
                 management.recheck(self, tx, key).await?;
