@@ -50,8 +50,11 @@ pub struct SelectedProgram {
     policy: Policy,
     schemas: Vec<(DefinitionRef, FactSchema)>,
     analysis: StaticAnalysis,
+    execution_registry: Option<&'static str>,
 }
 impl SelectedProgram {
+    /// Immutable code-owned recipe registry; old draft support has none.
+    pub fn execution_registry(&self) -> Option<&'static str> { self.execution_registry }
     pub fn root_policy_ref(&self) -> &DefinitionRef {
         &self.root
     }
@@ -171,6 +174,22 @@ fn require_retail_selected_v1(support: &SelectedCompilerSupport, m: &mut CoreMet
         }
     }
     Ok(())
+}
+/// Fresh publication compilation under the SAME per-origin work owner.
+/// No caller allowance, saved-plan substitution, or independent child reset.
+pub fn compile_selected_publication(
+    input: SelectedSourceInput,
+    support: &SelectedCompilerSupport,
+    session: &mut crate::validation_work::OriginalAuditSession,
+) -> Result<SelectedProgram> {
+    let result = (|| {
+        let mut compiler = session.meter_mut().original_compile_meter()?;
+        let program = compile_selected_program(input, support, &mut compiler)?;
+        session.meter_mut().finish_original_compile(compiler)?;
+        Ok(program)
+    })();
+    if result.is_err() { session.invalidate(); }
+    result
 }
 pub fn restore_selected_program(
     input: SelectedSourceInput,
@@ -723,5 +742,6 @@ fn compile_retail_selected_v1(
         policy,
         schemas: prepared_schemas,
         analysis,
+        execution_registry: None,
     })
 }

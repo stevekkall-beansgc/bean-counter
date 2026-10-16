@@ -32,9 +32,12 @@ pub use construct::{draft_transition, replay_draft};
 #[cfg(test)]
 mod first_work_tests;
 
+mod intent;
 #[cfg(test)]
 mod repair_tests;
 mod representation;
+pub use intent::normalize_saved_intent;
+mod owned_facts;
 
 #[cfg(test)]
 mod calibration_tests;

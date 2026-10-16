@@ -129,6 +129,23 @@ pub(super) fn evidence(
         "ledger-workflow-policy-publication/2" => include_bytes!(
             "../../../../../contracts/candidates/full-suite-v1/core/family-close-01/registry.json"
         ),
+        "ledger-workflow-policy-publication/3" => {
+            // A schema/descriptor declaration never selects executable support.
+            // Only the actual selected program's private binary-owned recipe
+            // can supply this exact identity; old draft programs return None.
+            match sources.execution_registry() {
+                Some("sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93") => include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/registry.json"
+                ),
+                Some("sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da") => include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/deadline-close-01/registry.json"
+                ),
+                Some("sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2") => include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/delayed-cost-work-target-01/registry.json"
+                ),
+                _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+            }
+        }
         _ => return Err(ServiceError::IntegrityFailure),
     };
     let registry = ledgerlab_core::canonical::parse_bounded(

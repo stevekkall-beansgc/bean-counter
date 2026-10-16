@@ -50,6 +50,11 @@ pub(in crate::service::workflow) trait SourceView {
     fn documents(&self) -> impl Iterator<Item = SourceDocument<'_>>;
     fn root(&self) -> &core::DefinitionRef;
     fn compiler(&self) -> &core::DefinitionRef;
+    /// Only an actual code-owned selected compiler may supply this identity.
+    /// Legacy source/plan data and a public payload never select latest support.
+    fn execution_registry(&self) -> Option<&'static str> {
+        None
+    }
     fn descriptors(&self) -> Result<Vec<core::DefinitionRef>> {
         let mut refs: Vec<_> = self
             .documents()
@@ -113,6 +118,9 @@ impl SourceView for core::selected_program::SelectedProgram {
     }
     fn compiler(&self) -> &core::DefinitionRef {
         self.compiler_descriptor_ref()
+    }
+    fn execution_registry(&self) -> Option<&'static str> {
+        self.execution_registry()
     }
 }
 impl CompiledView for core::selected_program::SelectedProgram {

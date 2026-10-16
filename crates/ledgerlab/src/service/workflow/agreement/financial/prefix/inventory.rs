@@ -633,6 +633,15 @@ impl IntroductionIndex {
         consume: &mut impl FnMut(usize, Option<Entry>, &mut OriginalAuditSession) -> Result<()>,
     ) -> Result<()> {
         require(!self.invalid, "INTEGRITY_FAILURE")?;
+        // Sorted-demand validation executes key comparisons as well. Reserve
+        // them in the SAME aggregate index ledger before executing them;
+        // the per-level binary-search allowance below covers searches only.
+        let adjacent = if compare(keys.len() as u64, 0, session)?.is_gt() {
+            subtract(keys.len() as u64, 1, session)?
+        } else {
+            0
+        };
+        self.reserve_comparisons(adjacent, 1, session)?;
         for adjacent in keys.windows(2) {
             session
                 .semantic_work()

@@ -13,7 +13,8 @@ pub(crate) struct RetainedDocument {
 // Keep the predicates identical between the nonmaterializing size probe and
 // fetch. The same held writer prevents a different value between these calls.
 const LENGTHS: &str = "SELECT octet_length(d.schema_name),length(d.canonical_bytes) FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.digest=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=? AND o.commit_sequence<?)";
-const VALUE: &str = "SELECT d.schema_name,d.canonical_bytes FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.digest=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=? AND o.commit_sequence<?)";
+const SCHEMA: &str = "SELECT d.schema_name FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.digest=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=? AND o.commit_sequence<?)";
+const CHUNK: &str = "SELECT substr(d.canonical_bytes,?,?) AS chunk FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.digest=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=? AND o.commit_sequence<?)";
 
 fn bind<'a>(
     sql: &'static str,
@@ -136,38 +137,70 @@ impl SqliteTx {
         drop(lengths);
         self.financial_finish_io(session).await?;
 
-        // Direct BLOB fetch: statement-held body + SQLx row duplicate, each
-        // at most the probed length. The separate owning artifact is admitted
-        // by copy_representation below. TEXT conversion uses the reviewed8M
-        // overlap bound (M128); fixed terminators/headers use the I/O envelope.
-        session.semantic_work().arithmetic(
-            ArithmeticOperation::Multiply,
-            &[&body_bytes.into(), &2i64.into()],
-        )?;
-        let body_overlap = body_bytes.checked_mul(2).ok_or_else(invalid)?;
-        let materialized = resource_add(session, body_overlap, 8 * 128)?;
-        let payload = io::binding_payload(&bindings, &[], 0, materialized as usize, session)?;
-        // Conservative result-column byte passes, not observed examined bytes.
-        // SQL/driver work stays outside the private codec callback scope.
-        session.semantic_work().scan_bytes(materialized as usize)?;
-        session.semantic_work().write_bytes(materialized as usize)?;
+        // Fetch schema separately: direct octet probe already bounded its
+        // stored UTF16 representation. Keep the reviewed8M conversion overlap
+        // (M128); the I/O envelope covers fixed terminators/headers.
+        let payload = io::binding_payload(&bindings, &[], 0, 8 * 128, session)?;
         self.financial_reserve_io(session, payload)?;
         session.semantic_work().visit(ValidationVisit::RefLookup)?;
-        let row = bind(VALUE, reference, store, scope, before)
+        let row = bind(SCHEMA, reference, store, scope, before)
             .fetch_optional(self.conn())
             .await?
             .ok_or_else(invalid)?;
         let schema = row.try_get::<&str, _>(0)?;
-        let body = row.try_get::<&[u8], _>(1)?;
-        if resource_compare(session, schema.len() as i64, 128)?.is_gt()
-            || !resource_compare(session, body.len() as i64, body_bytes)?.is_eq()
-        {
+        if resource_compare(session, schema.len() as i64, 128)?.is_gt() {
             return Err(invalid());
         }
         let schema = session.copy_representation(schema.as_bytes(), RepresentationKind::Record)?;
-        let body = session.copy_representation(body, RepresentationKind::Record)?;
         drop(row);
         self.financial_finish_io(session).await?;
+
+        // The output is admitted before the first chunk, and owns every byte
+        // after worker finalization. A chunk limit is not a record-size limit:
+        // SQLite substr can still materialize its full4MiB source argument.
+        let mut output = {
+            let (arena, work) = session.parts();
+            arena.byte_builder(body_bytes as usize, work)?
+        };
+        let mut offset = 0i64;
+        while resource_compare(session, offset, body_bytes)?.is_lt() {
+            let start = resource_add(session, offset, 1)?;
+            let materialized = resource_add(session, body_bytes, 2 * 262144)?;
+            let payload = io::binding_payload(&bindings, &[], 0, materialized as usize, session)?;
+            // Conservative complete source/result pass reservation per actual
+            // chunk statement, not observed examined bytes or a C relabel.
+            session.semantic_work().scan_bytes(materialized as usize)?;
+            session.semantic_work().write_bytes(materialized as usize)?;
+            self.financial_reserve_io(session, payload)?;
+            session.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let row = sqlx::query(CHUNK)
+                .bind(start)
+                .bind(262144i64)
+                .bind(&reference.kind)
+                .bind(&reference.id)
+                .bind(&reference.digest)
+                .bind(store)
+                .bind(&scope[0])
+                .bind(&scope[1])
+                .bind(before)
+                .fetch_optional(self.conn())
+                .await?
+                .ok_or_else(invalid)?;
+            let chunk = row.try_get::<&[u8], _>("chunk")?;
+            if !resource_compare(session, chunk.len() as i64, 0)?.is_gt()
+                || resource_compare(session, chunk.len() as i64, 262144)?.is_gt()
+            {
+                return Err(invalid());
+            }
+            output.append(chunk, session.semantic_work())?;
+            offset = resource_add(session, offset, chunk.len() as i64)?;
+            drop(row);
+            self.financial_finish_io(session).await?;
+        }
+        if !resource_compare(session, offset, body_bytes)?.is_eq() {
+            return Err(invalid());
+        }
+        let body = output.finish(session.semantic_work())?;
         Ok(Some(RetainedDocument { schema, body }))
     }
 }

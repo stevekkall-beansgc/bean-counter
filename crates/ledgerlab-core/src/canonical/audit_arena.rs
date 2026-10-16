@@ -430,6 +430,103 @@ impl AuditedValue {
     pub fn reserved_bytes(&self) -> usize {
         self.reservation.bytes
     }
+    /// Apply an owned caller's pre-admitted permutation without allocating or
+    /// extracting Values. A complete bijection is checked before the first move.
+    pub(crate) fn reorder_existing_array(
+        &mut self,
+        key: &str,
+        destination_for_original: &mut [usize],
+        work: &mut dyn ValidationWork,
+    ) -> Result<()> {
+        work.visit(ValidationVisit::RefLookup)?;
+        let object = self
+            .value
+            .as_object_mut()
+            .ok_or_else(|| failure("owned array object"))?;
+        let mut selected = None;
+        for (candidate, value) in object.iter_mut() {
+            work.visit(ValidationVisit::MemberCompare)?;
+            let n = add(work, candidate.len(), key.len())?;
+            work.scan_bytes(n)?;
+            if candidate == key {
+                selected = Some(value);
+                break;
+            }
+        }
+        let values = selected
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| failure("owned array member"))?;
+        if !w::compare(work, values.len(), destination_for_original.len())?.is_eq() {
+            return Err(failure("owned permutation length"));
+        }
+        for (i, &position) in destination_for_original.iter().enumerate() {
+            work.visit(ValidationVisit::Element)?;
+            if !w::compare(work, position, values.len())?.is_lt() {
+                return Err(failure("owned permutation index"));
+            }
+            for prior in &destination_for_original[..i] {
+                if w::compare(work, *prior, position)?.is_eq() {
+                    return Err(failure("owned permutation duplicate"));
+                }
+            }
+        }
+        for i in 0..values.len() {
+            while !w::compare(work, destination_for_original[i], i)?.is_eq() {
+                let next = destination_for_original[i];
+                work.visit(ValidationVisit::SortMove)?;
+                work.visit(ValidationVisit::SortMove)?;
+                let n = mul(work, 2, mem::size_of::<Value>())?;
+                work.write_bytes(n)?;
+                let n = mul(work, 2, mem::size_of::<usize>())?;
+                work.write_bytes(n)?;
+                values.swap(i, next);
+                destination_for_original.swap(i, next);
+            }
+        }
+        Ok(())
+    }
+    /// Move an already owning value into an EXISTING object member. The two
+    /// leases must belong to this same attempt; retained bytes are transferred,
+    /// never released beside an escaping payload. This creates no new key/node.
+    pub(crate) fn replace_existing_owned(
+        &mut self,
+        key: &str,
+        replacement: AuditedValue,
+        work: &mut dyn ValidationWork,
+    ) -> Result<()> {
+        work.visit(ValidationVisit::Constraint)?;
+        if !Arc::ptr_eq(&self.reservation.ledger, &replacement.reservation.ledger) {
+            return Err(failure("different owning value attempts"));
+        }
+        let object = self
+            .value
+            .as_object_mut()
+            .ok_or_else(|| failure("owned replacement object"))?;
+        work.visit(ValidationVisit::RefLookup)?;
+        let mut found = None;
+        for (candidate, value) in object.iter_mut() {
+            work.visit(ValidationVisit::MemberCompare)?;
+            let bytes = add(work, candidate.len(), key.len())?;
+            work.scan_bytes(bytes)?;
+            if candidate == key {
+                found = Some(value);
+                break;
+            }
+        }
+        let destination = found.ok_or_else(|| failure("owned replacement absent member"))?;
+        let combined = add(work, self.reservation.bytes, replacement.reservation.bytes)?;
+        // Both original leases prepaid their eventual infallible cleanup.
+        // The donor now releases zero; the receiver later releases the union.
+        work.write_bytes(mem::size_of::<Value>())?;
+        let AuditedValue {
+            value,
+            reservation: mut donor,
+        } = replacement;
+        *destination = value;
+        self.reservation.bytes = combined;
+        donor.bytes = 0;
+        Ok(())
+    }
 }
 /// Bytes MUST precede reservation. No unchecked into_vec or Clone/Serde escape.
 pub struct AuditedBytes {

@@ -75,6 +75,12 @@ fn count(m: &mut Meter, v: &Value, total: &mut usize, maximum: usize, depth: usi
     }
     Ok(())
 }
+/// Selected decoded-domain guards remain semantic even when lexical parsing
+/// used the named owning representation path. This borrows, never clones.
+pub(super) fn validate_selected_value(m: &mut Meter, value: &Value, maximum: usize) -> Result<()> {
+    let mut n = 0;
+    count(m, value, &mut n, maximum, 0)
+}
 pub(in crate::policy::workflow) fn encode(
     m: &mut Meter,
     v: &Value,

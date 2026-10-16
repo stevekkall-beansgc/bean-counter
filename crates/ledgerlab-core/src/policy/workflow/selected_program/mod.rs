@@ -6,7 +6,7 @@ pub use support::SelectedCompilerSupport;
 mod compiler;
 pub use compiler::{
     SelectedDocument, SelectedProgram, SelectedSourceInput, StaticAnalysis,
-    compile_selected_program, restore_selected_program,
+    compile_selected_program, compile_selected_publication, restore_selected_program,
 };
 
 #[cfg(test)]

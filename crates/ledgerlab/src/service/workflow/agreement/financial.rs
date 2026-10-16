@@ -12,6 +12,7 @@ use crate::{
 };
 mod current;
 mod prefix;
+mod recovery;
 mod request_wrapper;
 mod wire;
 mod wrappers;
@@ -136,6 +137,69 @@ enum OriginalQuery<'a> {
     Retry(&'a request::Request),
 }
 
+// This disposition is private to the coordinator. A core DATA result is never
+// converted into Appended: that branch is reserved for the actual prepared
+// append's successful return under the held proof scope. It has no public
+// factory, caller flag or serialization. No present fresh branch produces it.
+enum TransactionResult {
+    Original(Value),
+    Appended(Value),
+}
+
+#[cfg(test)]
+static LOST_REPLY_KEY: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+#[cfg(test)]
+pub(super) fn inject_committed_reply_loss(key: Vec<u8>) {
+    let mut selected = LOST_REPLY_KEY.lock().unwrap();
+    assert!(selected.is_none());
+    *selected = Some(key);
+}
+
+/// Same commit outcome semantics as the administrative coordinator. This does
+/// not decide whether a candidate is eligible, nor append anything itself.
+/// In particular a timed-out/unknown COMMIT is never followed by a claim that
+/// ROLLBACK undid it. The next submission resolves the original identity.
+async fn finish_transaction(
+    tx: SqliteTx,
+    key: &OperationKey,
+    attempted: Result<TransactionResult>,
+) -> Result<Value> {
+    match attempted {
+        Err(error) => {
+            tx.rollback().await.map_err(crate::service::store_error)?;
+            Err(error)
+        }
+        Ok(TransactionResult::Original(mut response)) => {
+            tx.rollback().await.map_err(crate::service::store_error)?;
+            response["schema"] = json!("ledger-operation-result/1");
+            response["duplicate_kind"] = json!("identity");
+            Ok(response)
+        }
+        Ok(TransactionResult::Appended(mut response)) => {
+            tx.commit().await.map_err(|error| match error {
+                crate::store::errors::CommitError::RolledBack(error) => {
+                    crate::service::store_error(error)
+                }
+                crate::store::errors::CommitError::OutcomeUnknown => ServiceError::OutcomeUnknown {
+                    scope: key.scope.clone(),
+                    source: key.source.clone(),
+                    external_id: key.operation_id.clone(),
+                },
+            })?;
+            #[cfg(test)]
+            {
+                let mut selected = LOST_REPLY_KEY.lock().unwrap();
+                if selected.as_ref() == Some(&key.bytes()?) {
+                    *selected = None;
+                    return Err(ServiceError::ResponseLost);
+                }
+            }
+            response["schema"] = json!("ledger-operation-result/1");
+            Ok(response)
+        }
+    }
+}
+
 pub(in crate::service::workflow) async fn original_status(
     tx: &mut SqliteTx,
     key: &OperationKey,
@@ -210,7 +274,7 @@ impl LocalWorkflowLedger {
                     require(kind == req.kind(), "IDENTITY_CONFLICT")?;
                     // No fresh selection, grant check, compiler or capacity admission
                     // precedes this original identity branch.
-                    return original_retry(tx, &req).await;
+                    return original_retry(tx, &req).await.map(TransactionResult::Original);
                 }
                 let management = ManagementObservation::capture(self, tx, key).await?;
                 management.recheck(self, tx, key).await?;
@@ -234,11 +298,10 @@ impl LocalWorkflowLedger {
             })
         })
         .await;
-        // Always rollback. Failed/cancelled proof scopes poison the same held
-        // transaction; existing SQLx drop/cleanup and commit-unknown machinery
-        // remains unchanged. No financial commit branch exists while gates remain closed.
-        tx.rollback().await.map_err(crate::service::store_error)?;
-        attempted
+        // Fresh admission remains unavailable: no current path can construct
+        // the Appended disposition. Failure always rolls back. The original
+        // path retains its incoming intent and also rolls back read-only work.
+        finish_transaction(tx, key, attempted).await
     }
 }
 
