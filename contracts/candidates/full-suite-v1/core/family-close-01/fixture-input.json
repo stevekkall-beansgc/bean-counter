@@ -1,0 +1,876 @@
+{
+  "schema": "family-close-input/1",
+  "qualification": "Synthetic closed-shape, byte/identity and conditional relation inputs only; unresolved anchors/context booleans are NOT runtime authority, admitted history or completeness proof. No expected outputs in this file.",
+  "policy2_body": {
+    "schema": "ledger-workflow-policy/2",
+    "policy_id": "fixture.measure:policy",
+    "version": "1",
+    "product_ref": {
+      "kind": "workflow-product",
+      "id": "wdoc_21065af2d46fab3c88b67726f38ce7cf0dc2e70dab968279f07d69e50ab8087c",
+      "digest": "sha256:21065af2d46fab3c88b67726f38ce7cf0dc2e70dab968279f07d69e50ab8087c"
+    },
+    "context_schema_ref": {
+      "kind": "workflow-fact-schema",
+      "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+      "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+    },
+    "slot_template_ref": {
+      "kind": "workflow-slot-template",
+      "id": "wdoc_76cda256e6a5eaef864597482c46c606a4dc526b3a43afc4f84968f0afdf4610",
+      "digest": "sha256:76cda256e6a5eaef864597482c46c606a4dc526b3a43afc4f84968f0afdf4610"
+    },
+    "compiler_ref": {
+      "kind": "workflow-compiler-descriptor",
+      "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+      "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "currency": "USD",
+    "scale": 18,
+    "rounding": "nearest_ties_away",
+    "mode": "component_workflow",
+    "binding_slots": [
+      {
+        "name": "fixture.measure:retail",
+        "book": "retail",
+        "funding_leg": "fixture.measure:customer",
+        "allowed_activities": [
+          "fixture.measure:assessed",
+          "fixture.measure:measured",
+          "fixture.measure:setup"
+        ],
+        "correction_source_slot": "fixture.measure:worker"
+      }
+    ],
+    "rules": [
+      {
+        "rule_id": "fixture.measure:setup-charge",
+        "activity": "fixture.measure:setup",
+        "component_name": "fixture.measure:setup",
+        "component_key": "fixture.measure:setup",
+        "binding_slot": "fixture.measure:retail",
+        "phase": "base",
+        "when": {
+          "op": "true"
+        },
+        "formula": {
+          "kind": "fixed",
+          "amount": "0.41"
+        },
+        "dependency": "on_missing_refuse"
+      },
+      {
+        "rule_id": "fixture.measure:unit-charge",
+        "activity": "fixture.measure:measured",
+        "component_name": "fixture.measure:base",
+        "component_key": "fixture.measure:base",
+        "binding_slot": "fixture.measure:retail",
+        "phase": "base",
+        "when": {
+          "op": "true"
+        },
+        "formula": {
+          "kind": "unit",
+          "quantity_field": "fixture.measure:quantity",
+          "unit": "fixture.measure:item",
+          "rate": "0.37"
+        },
+        "dependency": "on_missing_refuse"
+      },
+      {
+        "rule_id": "fixture.measure:volume-rebate",
+        "activity": "fixture.measure:measured",
+        "component_name": "fixture.measure:discount",
+        "component_key": "fixture.measure:discount",
+        "binding_slot": "fixture.measure:retail",
+        "phase": "discount",
+        "when": {
+          "op": "true"
+        },
+        "formula": {
+          "kind": "discount",
+          "basis": {
+            "component_key": "fixture.measure:base",
+            "view": "booked_base"
+          },
+          "mode": "additive",
+          "amount": {
+            "kind": "percent",
+            "percent": "10"
+          }
+        },
+        "dependency": "on_missing_refuse"
+      }
+    ],
+    "families": [
+      {
+        "family_name": "fixture.measure:assessment",
+        "family_key": "fixture.measure:assessment",
+        "trigger_activity": "fixture.measure:assessed",
+        "target_link_slot": "fixture.measure:assesses",
+        "selector": {
+          "path": [
+            "fixture.measure:assesses"
+          ],
+          "target_activity": "fixture.measure:measured",
+          "binding_slot": "fixture.measure:retail",
+          "component_key": "fixture.measure:base",
+          "basis": "booked_original_net"
+        },
+        "source_slot": "fixture.measure:assessor",
+        "code_field": "fixture.measure:code",
+        "codes": [
+          {
+            "code": "fixture.measure:none",
+            "effect": {
+              "kind": "none"
+            }
+          },
+          {
+            "code": "fixture.measure:rebate",
+            "effect": {
+              "kind": "discount",
+              "amount": {
+                "kind": "percent",
+                "percent": "10"
+              }
+            }
+          },
+          {
+            "code": "fixture.measure:success",
+            "effect": {
+              "kind": "premium",
+              "amount": {
+                "kind": "percent",
+                "percent": "20"
+              }
+            }
+          }
+        ],
+        "window": {
+          "anchor": "work_accepted_at",
+          "anchor_path": [],
+          "start_offset_us": "0",
+          "occurrence_us": "3600000000",
+          "receipt_grace_us": "60000000",
+          "acceptance_grace_us": "60000000",
+          "activation_deadline_us": "0",
+          "correction_us": "86400000000"
+        },
+        "maximum_premium": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "10000000000000000000"
+        },
+        "maximum_discount": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "10000000000000000000"
+        },
+        "correction_source_slot": "fixture.measure:assessor",
+        "no_success_close": {
+          "close_source_slot": "fixture.measure:assessor"
+        }
+      }
+    ],
+    "stages": [],
+    "delayed_costs": []
+  },
+  "terms3_body": {
+    "schema": "ledger-workflow-slot-binding-terms/3",
+    "scope": [
+      "fixture",
+      "sandbox"
+    ],
+    "agreement_id": "agreement-A",
+    "customer": "customer-A",
+    "slot": "fixture.measure:retail",
+    "book": "retail",
+    "role_slot": "fixture.measure:retail",
+    "role_ref": {
+      "kind": "workflow-roles",
+      "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+      "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+    },
+    "funding_leg": "fixture.measure:customer",
+    "allowed_activities": [
+      "fixture.measure:assessed",
+      "fixture.measure:measured",
+      "fixture.measure:setup"
+    ],
+    "quantity_ceilings": [
+      {
+        "activity": "fixture.measure:measured",
+        "field": "fixture.measure:quantity",
+        "unit": "fixture.measure:item",
+        "maximum": "100"
+      }
+    ],
+    "exposure_ceiling": {
+      "currency": "USD",
+      "scale": 18,
+      "atoms": "100000000000000000000"
+    },
+    "source_grant_refs": [
+      {
+        "kind": "workflow-source-grant",
+        "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+        "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+      }
+    ],
+    "correction_source_slot": "fixture.measure:worker",
+    "causal_reversal_clauses": [
+      {
+        "family_slot": "A-assessment",
+        "correction_source_slot": "fixture.measure:assessor",
+        "root_component_slot": "A-base",
+        "mode": "exact_inverse_and_permanent_close",
+        "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+      }
+    ],
+    "exposure_scope": "original_work"
+  },
+  "publication_template": {
+    "schema": "ledger-workflow-publication/1",
+    "root_policy_ref": {
+      "kind": "workflow-policy",
+      "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "source_refs": [
+      {
+        "kind": "workflow-policy",
+        "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    ],
+    "compiled_plan_ref": {
+      "kind": "workflow-compiled-plan",
+      "id": "wplan_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "compiler_ref": {
+      "kind": "workflow-compiler-descriptor",
+      "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+      "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "provenance": {
+      "source_sha": "0000000000000000000000000000000000000000",
+      "binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "build_manifest_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "acceptance_terms_template": {
+    "schema": "ledger-workflow-acceptance-terms/1",
+    "scope": [
+      "fixture",
+      "sandbox"
+    ],
+    "publication_ref": {
+      "kind": "workflow-publication",
+      "id": "wpub_756bc4e84537f3760f6fc2311db335a4b0238ddfb419736f65b737df7e53023d",
+      "digest": "sha256:2845467d6a85060173e5dcbfa765bf6b48b9f69294d5391861dc14f75e93b6b1"
+    },
+    "agreement_id": "agreement-A",
+    "customer": "customer-A",
+    "version": "1",
+    "binding_inputs": {
+      "agreement_id": "agreement-A",
+      "version": "1",
+      "customer": "customer-A",
+      "source_namespace": "urn:fixture:publisher",
+      "slot_catalog_ref": {
+        "kind": "workflow-slot-catalog",
+        "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+        "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+      },
+      "slot_instantiation_ref": {
+        "kind": "workflow-slot-instantiation",
+        "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+        "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+      },
+      "roles_refs": [
+        {
+          "kind": "workflow-roles",
+          "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+          "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+        }
+      ],
+      "source_slots": [
+        {
+          "name": "fixture.measure:assessor",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": [
+            "occurrence",
+            "outcome"
+          ]
+        },
+        {
+          "name": "fixture.measure:worker",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": []
+        }
+      ],
+      "accepted_context": {
+        "fact_schema_ref": {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+          "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+        },
+        "facts": {}
+      },
+      "bindings": [
+        {
+          "slot": "fixture.measure:retail",
+          "binding_ref": {
+            "kind": "workflow-slot-terms",
+            "id": "wdoc_670dd0b7634dacacf70b84f485877e7b1d465bbfd7f1dbf35923ed4309746d2b",
+            "digest": "sha256:670dd0b7634dacacf70b84f485877e7b1d465bbfd7f1dbf35923ed4309746d2b"
+          }
+        }
+      ],
+      "funding_legs": [
+        {
+          "name": "fixture.measure:customer",
+          "mode": "customer_local",
+          "resource_owner": "customer-A",
+          "payer": "customer-A",
+          "evidence_refs": [
+            {
+              "kind": "workflow-evidence",
+              "id": "wdoc_7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84",
+              "digest": "sha256:7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84"
+            }
+          ]
+        }
+      ],
+      "starts_at": "2026-10-13T00:00:00.000000Z",
+      "quantity_ceilings": [
+        {
+          "activity": "fixture.measure:measured",
+          "field": "fixture.measure:quantity",
+          "unit": "fixture.measure:item",
+          "maximum": "100"
+        }
+      ],
+      "exposure_ceilings": [
+        {
+          "binding_slot": "fixture.measure:retail",
+          "maximum": {
+            "currency": "USD",
+            "scale": 18,
+            "atoms": "100000000000000000000"
+          }
+        }
+      ]
+    }
+  },
+  "assertion": {
+    "schema": "ledger-workflow-family-close-attestation/1",
+    "attestation_id": "close-A-1",
+    "source": "urn:fixture:publisher",
+    "evidence_kind": "outcome",
+    "purpose": "family_no_success",
+    "assertion": "no_success",
+    "subject": {
+      "logical_store_id": "fixture-store",
+      "scope": [
+        "fixture",
+        "sandbox"
+      ],
+      "original_binding_ref": {
+        "kind": "workflow-binding",
+        "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "target_ref": {
+        "kind": "workflow-target",
+        "id": "wtarget_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "family_slot": "A-assessment",
+      "expected_family_revision": "1"
+    },
+    "issued_at": "2026-10-16T13:00:00.000000Z",
+    "supporting_evidence_refs": []
+  },
+  "verification_template": {
+    "schema": "ledger-workflow-evidence-verification/1",
+    "attestation_ref": {
+      "kind": "workflow-fact-attestation",
+      "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "attestation_raw_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "attestation_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "verified_source": "urn:fixture:publisher",
+    "verification_primitive": "authenticated-nominated-source-retention/1",
+    "source_grant_ref": {
+      "kind": "workflow-source-grant",
+      "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+      "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+    },
+    "source_grant_revision": "1",
+    "authenticated_principal_ref": {
+      "kind": "workflow-authority",
+      "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "trusted_received_at": "2026-10-16T13:00:01.000000Z",
+    "subject_binding_refs": [
+      {
+        "kind": "workflow-binding",
+        "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "kind": "workflow-target",
+        "id": "wtarget_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "verification_evidence_refs": []
+  },
+  "close_template": {
+    "schema": "ledger-workflow-outcome-close/2",
+    "target_ref": {
+      "kind": "workflow-target",
+      "id": "wtarget_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "family_slot": "A-assessment",
+    "expected_revision": "1",
+    "reason": "no_success",
+    "evidence_refs": [],
+    "close_proof": {
+      "attestation_ref": {
+        "kind": "workflow-fact-attestation",
+        "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "verification_ref": {
+        "kind": "workflow-evidence-verification",
+        "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    }
+  },
+  "dependency": {
+    "schema": "ledger-workflow-dependency/1",
+    "ancestor_decision_id": "wdecision_root_A",
+    "dependent_decision_id": "wdecision_family_A",
+    "kind": "outcome_family",
+    "target_ref": {
+      "kind": "workflow-target",
+      "id": "wtarget_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "family_slot": "A-assessment",
+    "original_terms_ref": {
+      "kind": "workflow-binding",
+      "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "maximum_actions": "1",
+    "maximum_records": "4",
+    "maximum_bytes": "4096",
+    "maximum_work": "100",
+    "operation_key": {
+      "logical_store_id": "fixture-store",
+      "scope": [
+        "fixture",
+        "sandbox"
+      ],
+      "source": "urn:fixture:publisher",
+      "operation_id": "work-A"
+    }
+  },
+  "context": {
+    "original_nomination": {
+      "close_source_slot": "fixture.measure:assessor",
+      "sources": [
+        "urn:fixture:publisher"
+      ],
+      "evidence_kinds": [
+        "outcome"
+      ]
+    },
+    "original_grant": {
+      "source": "urn:fixture:publisher",
+      "source_slots": [
+        "fixture.measure:assessor"
+      ],
+      "operations": [
+        "evidence.retain",
+        "outcome.close"
+      ],
+      "permissions": [
+        "submit"
+      ],
+      "evidence_kinds": [
+        "outcome"
+      ]
+    },
+    "current_grant": {
+      "source": "urn:fixture:publisher",
+      "source_slots": [
+        "fixture.measure:assessor"
+      ],
+      "operations": [
+        "evidence.retain",
+        "outcome.close"
+      ],
+      "permissions": [
+        "submit"
+      ],
+      "evidence_kinds": [
+        "outcome"
+      ],
+      "status": "active",
+      "ends_at": "2026-10-17T00:00:00.000000Z"
+    },
+    "family_status": "open",
+    "family_revision": "1",
+    "current_binding_ref": {
+      "kind": "workflow-binding",
+      "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "accepted_at": "2026-10-16T13:00:02.000000Z",
+    "previous_trusted_at": "2026-10-16T13:00:01.000000Z",
+    "authenticated_source": "urn:fixture:publisher",
+    "authenticated_principal_ref": {
+      "kind": "workflow-authority",
+      "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "verified_retention_origin": true,
+    "subject_bindings": [
+      {
+        "kind": "workflow-binding",
+        "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      {
+        "kind": "workflow-target",
+        "id": "wtarget_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "accepted_by": "2026-10-16T14:00:00.000000Z",
+    "activation_deadline": "2026-10-16T12:00:00.000000Z"
+  },
+  "cases": [
+    {
+      "name": "open_valid",
+      "patches": []
+    },
+    {
+      "name": "awaiting_valid",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "family_status"
+          ],
+          "value": "awaiting_anchor"
+        }
+      ]
+    },
+    {
+      "name": "missing_opt_in",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_nomination"
+          ],
+          "value": null
+        }
+      ]
+    },
+    {
+      "name": "wrong_slot",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "source_slots"
+          ],
+          "value": [
+            "other"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_source",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "authenticated_source"
+          ],
+          "value": "urn:fixture:other"
+        }
+      ]
+    },
+    {
+      "name": "revoked",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "status"
+          ],
+          "value": "revoked"
+        }
+      ]
+    },
+    {
+      "name": "expired",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "ends_at"
+          ],
+          "value": "2026-10-16T13:00:01.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "wrong_operation",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "operations"
+          ],
+          "value": [
+            "outcome.submit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "original_missing_operation",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_grant",
+            "operations"
+          ],
+          "value": [
+            "outcome.submit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_purpose",
+      "patches": [
+        {
+          "path": [
+            "assertion",
+            "purpose"
+          ],
+          "value": "ordinary_outcome"
+        }
+      ]
+    },
+    {
+      "name": "wrong_subject",
+      "patches": [
+        {
+          "path": [
+            "assertion",
+            "subject",
+            "family_slot"
+          ],
+          "value": "other-family"
+        }
+      ]
+    },
+    {
+      "name": "wrong_binding",
+      "patches": [
+        {
+          "path": [
+            "assertion",
+            "subject",
+            "original_binding_ref"
+          ],
+          "value": {
+            "kind": "workflow-binding",
+            "id": "wbinding_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "stale_revision",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "family_revision"
+          ],
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "name": "claimed",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "family_status"
+          ],
+          "value": "claimed"
+        }
+      ]
+    },
+    {
+      "name": "already_closed",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "family_status"
+          ],
+          "value": "closed_no_success"
+        }
+      ]
+    },
+    {
+      "name": "unverified_upload",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "verified_retention_origin"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "wrong_verified_source",
+      "patches": [
+        {
+          "path": [
+            "verification",
+            "verified_source"
+          ],
+          "value": "urn:fixture:other"
+        }
+      ]
+    },
+    {
+      "name": "wrong_actor",
+      "patches": [
+        {
+          "path": [
+            "verification",
+            "authenticated_principal_ref"
+          ],
+          "value": {
+            "kind": "workflow-authority",
+            "id": "wdoc_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "clock_regression",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "accepted_at"
+          ],
+          "value": "2026-10-16T12:59:59.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "future_assertion",
+      "patches": [
+        {
+          "path": [
+            "assertion",
+            "issued_at"
+          ],
+          "value": "2026-10-16T13:01:00.000000Z"
+        }
+      ]
+    }
+  ],
+  "schema_negative_mutations": [
+    {
+      "definition": "OutcomeFamily2",
+      "path": [
+        "no_success_close"
+      ],
+      "value": null
+    },
+    {
+      "definition": "OutcomeFamily2",
+      "path": [
+        "no_success_close",
+        "extra"
+      ],
+      "value": true
+    },
+    {
+      "definition": "FamilyCloseAttestation",
+      "path": [
+        "purpose"
+      ],
+      "value": "ordinary_outcome"
+    },
+    {
+      "definition": "FamilyCloseAttestation",
+      "path": [
+        "subject",
+        "original_binding_ref",
+        "kind"
+      ],
+      "value": "workflow-slot-terms"
+    },
+    {
+      "definition": "OutcomeClose2",
+      "delete": [
+        "close_proof"
+      ]
+    },
+    {
+      "definition": "OutcomeClose2",
+      "path": [
+        "reason"
+      ],
+      "value": "deadline"
+    },
+    {
+      "definition": "OutcomeFamilyDependency",
+      "path": [
+        "original_terms_ref",
+        "kind"
+      ],
+      "value": "workflow-slot-terms"
+    }
+  ]
+}

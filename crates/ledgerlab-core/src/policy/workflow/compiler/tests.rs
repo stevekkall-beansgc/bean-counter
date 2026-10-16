@@ -1,5 +1,54 @@
 use super::*;
 
+#[test]
+fn family_close_descriptor_data_is_exact_and_does_not_widen_legacy_support() {
+    let (_, _, legacy) = input();
+    let original = legacy.descriptor().canonical_bytes().to_vec();
+    let mut body = legacy.descriptor().canonical_value().clone();
+    body["schema"] = json!("ledger-workflow-compiler-descriptor/2");
+    body["compiler_semantics"] = json!("ledger-policy-compiler/family-close-1");
+    body["plan_schema"] = json!("ledger-workflow-compiled-plan/2");
+    body["primitive_versions"] = json!([
+        "unit/1",
+        "outcome_family_binding_dependency/1",
+        "family_no_success_close/1"
+    ]);
+    let bytes = CanonicalBytes::from_value(&body).unwrap();
+    let parsed = CompilerDescriptor::parse(bytes.as_slice()).unwrap();
+    assert_eq!(parsed.canonical_value()["schema"], body["schema"]);
+    assert_ne!(parsed.reference(), legacy.descriptor().reference());
+    assert!(normalize_definition(bytes.as_slice(), &[], &legacy).is_err());
+    assert_eq!(
+        CompilerDescriptor::parse(&original)
+            .unwrap()
+            .canonical_bytes(),
+        original
+    );
+    for (field, wrong) in [
+        ("compiler_semantics", json!("ledger-policy-compiler/1")),
+        ("plan_schema", json!("ledger-workflow-compiled-plan/1")),
+        ("primitive_versions", json!(["family_no_success_close/1"])),
+        (
+            "primitive_versions",
+            json!([
+                "family_no_success_close/1",
+                "outcome_family_binding_dependency/1",
+                "unit/1",
+                "unit/1"
+            ]),
+        ),
+        ("unknown", json!(true)),
+    ] {
+        let mut bad = body.clone();
+        bad[field] = wrong;
+        assert!(
+            CompilerDescriptor::parse(CanonicalBytes::from_value(&bad).unwrap().as_slice())
+                .is_err()
+        );
+    }
+}
+
+
 // Independently derived and reviewed PUB-ENC-01 snapshot. Test inputs are the
 // sealed source bodies, not production output or author fixture generation.
 fn fixture() -> Value {

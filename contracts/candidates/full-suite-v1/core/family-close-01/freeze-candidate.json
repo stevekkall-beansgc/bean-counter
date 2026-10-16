@@ -1,0 +1,77 @@
+{
+  "schema": "family-close-author-freeze-candidate/1",
+  "status": "AWAITING_ROOT_INDEPENDENT_REVIEWED_FREEZE",
+  "authority": "Owner approval of QUEUED-CONTRACT-AND-INDEX-DISPOSITION.md choices; no implementation or qualification conferred",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 604,
+      "sha256": "bd9ea32cdfa4766519c1c81bebba29f674ee3b35158b9698e602640d98ba2363"
+    },
+    {
+      "path": "SPEC.md",
+      "bytes": 17421,
+      "sha256": "d31cf6a7155442193041a559390d937a9c06200cdee5720802037d3f805a747f"
+    },
+    {
+      "path": "author-check.json",
+      "bytes": 413,
+      "sha256": "5d68630e3a786daf7bc2a2279442ab0c63d294e771904b2a8f40c592d8af9806"
+    },
+    {
+      "path": "check_fixture.py",
+      "bytes": 3677,
+      "sha256": "002d0b75a8d785c0c94064b509bbda0109211ce32806c05411a1b3029f89242c"
+    },
+    {
+      "path": "definition-provenance.json",
+      "bytes": 16299,
+      "sha256": "6064cb6bc4fc17bfb84aa3e028a542f047904fef8c7757e19ca573a71f9cacb2"
+    },
+    {
+      "path": "derive_author.py",
+      "bytes": 5429,
+      "sha256": "da912a06b71bfe11b7de59d6734ffd371ad6016dc074492029325f57649160dd"
+    },
+    {
+      "path": "family-close.schema.json",
+      "bytes": 287358,
+      "sha256": "5bd67f039c067becfb762c11f48de93131e9015a59f487d0e6a1887acb030f6d"
+    },
+    {
+      "path": "fixture-author-expected.json",
+      "bytes": 178689,
+      "sha256": "9adff4f2a51e5dc323fecf9cc93c7114da797daa41aeadb06cae8fa40046776c"
+    },
+    {
+      "path": "fixture-input.json",
+      "bytes": 25506,
+      "sha256": "171e977ac5ce8ce2f2fdc9ef7721d4437285eaea0edb06ec1909e5d679e01f03"
+    },
+    {
+      "path": "profile.json",
+      "bytes": 1130,
+      "sha256": "ba778536d9ec548082387cc90e4fd5b0521d92b6742d2e8984dc74056d4ba31e"
+    },
+    {
+      "path": "profile.schema.json",
+      "bytes": 1248,
+      "sha256": "2f630fefb350a995514fe8af2e53422e8791f9b55bb4ae13a07636747c35ce6a"
+    },
+    {
+      "path": "registry.json",
+      "bytes": 9640,
+      "sha256": "ec9d76be031a0a5232c1047aef5652d9da28b1b4880253745fccdec76c42e951"
+    },
+    {
+      "path": "registry.schema.json",
+      "bytes": 10276,
+      "sha256": "9a6c48a664fcdcceeee554a2ce63b1dfea801cea7e2ffd6753f472b1464e1002"
+    },
+    {
+      "path": "source-pins.json",
+      "bytes": 2080,
+      "sha256": "e4d86e15fcd83b77ed868bc8971977ab21611bc124d8700dc7d3ac33b865045e"
+    }
+  ]
+}

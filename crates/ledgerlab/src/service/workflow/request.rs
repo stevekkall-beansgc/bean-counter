@@ -136,13 +136,34 @@ impl PublicationRequest {
             ),
         };
         require(
-            schema == "ledger-workflow-policy-publication/1"
-                && (1..=128).contains(&count)
+            matches!(
+                schema.as_str(),
+                "ledger-workflow-policy-publication/1" | "ledger-workflow-policy-publication/2"
+            ) && (1..=128).contains(&count)
                 && root.kind == "workflow-policy"
                 && valid_digest(digest)
                 && valid_reference(root),
             "INVALID_SHAPE",
         )?;
+        if schema == "ledger-workflow-policy-publication/2" {
+            if let Payload::Inline { documents, .. } = payload {
+                require(
+                    documents.iter().all(|document| {
+                        matches!(
+                            document["schema"].as_str(),
+                            Some(
+                                "ledger-workflow-fact-schema/1"
+                                    | "ledger-workflow-product/1"
+                                    | "ledger-workflow-slot-template/1"
+                                    | "ledger-workflow-policy/2"
+                                    | "ledger-workflow-compiler-descriptor/2"
+                            )
+                        )
+                    }),
+                    "INVALID_SHAPE",
+                )?;
+            }
+        }
         if let Payload::Retained { document_refs, .. } = payload {
             require(document_refs.iter().all(valid_reference), "INVALID_SHAPE")?;
         }
@@ -153,6 +174,11 @@ impl PublicationRequest {
     }
     pub(crate) fn raw(&self) -> &[u8] {
         &self.raw
+    }
+    pub(crate) fn payload_schema(&self) -> &str {
+        match &self.outer.payload {
+            Payload::Inline { schema, .. } | Payload::Retained { schema, .. } => schema,
+        }
     }
     pub(crate) fn value(&self) -> Result<Value> {
         serde_json::to_value(&self.outer).map_err(|_| reject("INVALID_SHAPE"))
@@ -248,11 +274,13 @@ mod tests {
         let null = text.replacen("\"documents\":[", "\"documents\":[null,", 1);
         assert!(PublicationRequest::parse(null.as_bytes()).is_err());
         for number in ["18.0", "18e0", "-0", "9007199254740992"] {
-            assert!(PublicationRequest::parse(
-                text.replace("\"scale\":18", &format!("\"scale\":{number}"))
-                    .as_bytes()
-            )
-            .is_err());
+            assert!(
+                PublicationRequest::parse(
+                    text.replace("\"scale\":18", &format!("\"scale\":{number}"))
+                        .as_bytes()
+                )
+                .is_err()
+            );
         }
         let mut bom = vec![0xef, 0xbb, 0xbf];
         bom.extend(&raw);
@@ -268,6 +296,37 @@ mod tests {
         assert!(PublicationRequest::parse(&raw).is_ok());
         raw.push(b' ');
         assert!(PublicationRequest::parse(&raw).is_err());
+    }
+    #[test]
+    fn publication_two_ingress_preserves_versions_and_retained_locators() {
+        let mut value: Value = serde_json::from_slice(&original()).unwrap();
+        value["payload"]["schema"] = serde_json::json!("ledger-workflow-policy-publication/2");
+        // Publication2 never smuggles a Policy1/Descriptor1 through its new
+        // inline union. This is ingress only, not executable support.
+        assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_err());
+        for document in value["payload"]["documents"].as_array_mut().unwrap() {
+            if document["schema"] == "ledger-workflow-policy/1" {
+                document["schema"] = serde_json::json!("ledger-workflow-policy/2");
+            } else if document["schema"] == "ledger-workflow-compiler-descriptor/1" {
+                document["schema"] = serde_json::json!("ledger-workflow-compiler-descriptor/2");
+            }
+        }
+        let parsed = PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(
+            parsed.payload_schema(),
+            "ledger-workflow-policy-publication/2"
+        );
+        assert!(super::super::publication::normalized(&parsed, &[]).is_err());
+        value["payload"]["mode"] = serde_json::json!("retained");
+        value["payload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("documents");
+        value["payload"]["document_refs"] =
+            serde_json::json!([value["payload"]["root_policy_ref"].clone()]);
+        assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
+        value["payload"]["unknown"] = Value::Bool(true);
+        assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_err());
     }
     #[test]
     fn read_candidate_checks_closed_payload_without_charging_write_wrapper() {

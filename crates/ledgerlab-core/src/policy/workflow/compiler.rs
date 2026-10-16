@@ -523,6 +523,9 @@ impl CompilerDescriptor {
         let value = canonical::parse(bytes)?;
         reject_null(&value)?;
         let mut dto: DescriptorDto = canonical::dto(value)?;
+        if dto.schema == "ledger-workflow-compiler-descriptor/2" {
+            return Self::family_close_data(dto);
+        }
         if dto.schema != "ledger-workflow-compiler-descriptor/1"
             || dto.compiler_semantics != "ledger-policy-compiler/1"
             || dto.evaluator != "ledger-workflow-evaluator/1"
@@ -548,6 +551,70 @@ impl CompilerDescriptor {
                 return Err(fail(
                     "PROGRAM_UNSUPPORTED_PRIMITIVE",
                     "selected compiler supports integer/unit/true only",
+                ));
+            }
+        }
+        for digest in [
+            &dto.limits_digest,
+            &dto.mode_matrix_digest,
+            &dto.contract_manifest_digest,
+        ] {
+            crate::domain::prefixed(digest, "sha256:")?;
+        }
+        let body = serde_json::to_value(dto).map_err(|e| fail("JSON", &e.to_string()))?;
+        Ok(Self {
+            document: DefinitionDocument::document("workflow-compiler-descriptor", body)?,
+        })
+    }
+    /// Closed Descriptor2 DATA only. Its declarations never become a binary
+    /// support anchor through this parser. The selected compiler must compare
+    /// the entire descriptor with its own actually implemented capability.
+    fn family_close_data(mut dto: DescriptorDto) -> Result<Self> {
+        if dto.compiler_semantics != "ledger-policy-compiler/family-close-1"
+            || dto.evaluator != "ledger-workflow-evaluator/1"
+            || dto.grammar != "ledger-policy-grammar/1"
+            || dto.facts_normalization != "ledger-facts-normalization/1"
+            || dto.operation_normalization != "ledger-operation-normalization/2"
+            || dto.limits_profile != "workflow-limits/1"
+            || dto.plan_schema != "ledger-workflow-compiled-plan/2"
+        {
+            return Err(fail(
+                "UNSUPPORTED_SCHEMA_PROFILE",
+                "family-close descriptor profiles",
+            ));
+        }
+        for values in [
+            &mut dto.primitive_versions,
+            &mut dto.fact_types,
+            &mut dto.predicate_ops,
+            &mut dto.formula_kinds,
+        ] {
+            if values.len() > 64
+                || values.iter().any(|value| {
+                    value.is_empty()
+                        || value.chars().count() > 128
+                        || value.chars().any(|c| c <= '\u{001f}' || c == '\u{007f}')
+                })
+            {
+                return Err(fail(
+                    "INVALID_SHAPE",
+                    "family-close descriptor declaration set",
+                ));
+            }
+            canonical::sort_set(values)?;
+        }
+        for required in [
+            "family_no_success_close/1",
+            "outcome_family_binding_dependency/1",
+        ] {
+            if !dto
+                .primitive_versions
+                .iter()
+                .any(|primitive| primitive == required)
+            {
+                return Err(fail(
+                    "PROGRAM_UNSUPPORTED_PRIMITIVE",
+                    "family-close descriptor declaration",
                 ));
             }
         }

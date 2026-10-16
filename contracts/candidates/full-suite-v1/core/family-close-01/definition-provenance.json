@@ -1,0 +1,678 @@
+{
+  "schema": "family-close-definition-provenance/1",
+  "merge": "First source wins; later setdefault only. New names are the only amended shapes.",
+  "precedence": [
+    "exposure-scope-01/exposure-scope.schema.json",
+    "economic-boundary.schema.json",
+    "workflow.schema.json"
+  ],
+  "copied_definitions": [
+    {
+      "name": "AcceptanceTerms",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "AcceptedContext",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "ActivityDef",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "AgreementAccept",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "AgreementAccept2",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "AgreementAccept3",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "AgreementAccept4",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "AgreementActivate",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "AgreementActivationReplace",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "AgreementRevoke",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Amount",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "AssentBindingInputs",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "AssentRecord",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "AuthorityChange",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Binding",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "BindingInputs",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "BindingSlot",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "CapacityRetirement",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "CausalClause",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "CausalClosureCause",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "CausalClosureCheck",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "CausalEnvelope",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "CausalRequestEvidence",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "ChainState",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "ClosedOperationKind",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "CompiledPlan",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "CompilerDescriptor",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "ComponentTarget",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "CorrectionCapacity",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "CorrectionClosure",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "CorrectionPreparation",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Counter",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Decimal",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "DecisionRevision",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "DependencyRecord",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "DescriptorAnchor",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "DescriptorLocator",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "DescriptorPrepare",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "DescriptorResolution",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "DescriptorRole",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Digest",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "DocRef",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Document",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicAction",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicAuthority",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicAuthority2",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "EconomicAuthority3",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "EconomicEnvelope",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicLink",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicManifest",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicManifest4",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "EconomicOperation4",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "EconomicOperationRecord",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicRead",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicRecordEnvelope",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EconomicSubject",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "ErrorCode",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EvaluationProof",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EvaluationStep",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EvidenceKind",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "EvidenceRetain",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EvidenceSubject",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "EvidenceVerification",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "FactAttest",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "FactProof",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "FactScalar",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "FactSchema",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Facts",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "FamilyClosureInput",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "FamilyState",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "FamilyState2",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "FieldAttestation",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "FieldDef",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "FixedOrPercent",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Formula",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "FrozenWindow",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "FundingLeg",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "HeadTransition",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "Id",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Labels",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "LinkAssert",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "LinkDef",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "LinkInput",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "LocalAuthorityBasis",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "LocalAuthoritySnapshot",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "Name",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "NameSelector",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "NonnegativeAmount",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Offer",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Operand",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OperationEnvelope",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OperationKey",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "OperationReceipt",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OperationRecord",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "OperationResult",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "OperationStatus",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OutcomeClaim",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OutcomeClose",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OutcomeCorrect",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OutcomeFamily",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "OutcomeSubmit",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "PlanActivity",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "PlanFactSlot",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "Policy",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "PolicyPublish",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "PositiveInt",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Predicate",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "PrivateAgreementDocument",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "PrivateAgreementDocument3",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "PrivateAgreementDocument4",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Product",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Provenance",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Publication",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "PublicationAuthority",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "PublicationBoundaryEnvelope",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "PublicationManifest",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "PublicationRead",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "PublicationReadResult",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "QuantityCorrection",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "QuantityCorrection2",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Ratio",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "RationalInt",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "RationalPositiveInt",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "RawSha256",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "ReadError",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "RecordKind",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Ref",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "RequestEvidence",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "RoleAssignment",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Rule",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Scope",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Selector",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "SelfBasis",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "SignedDecimal",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "SignedInt",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "SlotBindingTerms",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "SlotBindingTerms2",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "SlotBindingTerms3",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "SlotCatalog",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "SlotInstantiation",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "SlotTemplate",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "SourceCeiling",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "SourceGrant",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "SourceId",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "StageDef",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "TargetFamily",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "TemplateComponent",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "TemplateFamily",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Time",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "TypeDef",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "TypedInstruction",
+      "source": "workflow.schema.json"
+    },
+    {
+      "name": "UnitDef",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "UnsignedInt",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "VerifiedFact",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Version",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "Window",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "Work",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "WorkClaim",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "WorkRecord",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "WorkReverse",
+      "source": "economic-boundary.schema.json"
+    },
+    {
+      "name": "WorkReverse2",
+      "source": "exposure-scope-01/exposure-scope.schema.json"
+    },
+    {
+      "name": "WorstCase",
+      "source": "workflow.schema.json"
+    }
+  ],
+  "new_definitions": [
+    "AttestationRef",
+    "BindingRef",
+    "CloseProof",
+    "CompiledPlan2",
+    "CompilerDescriptor2",
+    "FamilyCloseAttest",
+    "FamilyCloseAttestation",
+    "FamilyCloseSubject",
+    "NoSuccessClose",
+    "OutcomeClose2",
+    "OutcomeFamily2",
+    "OutcomeFamilyDependency",
+    "Policy2",
+    "PolicyPublish2",
+    "TargetRef",
+    "TypedInstruction2",
+    "VerificationRef"
+  ]
+}

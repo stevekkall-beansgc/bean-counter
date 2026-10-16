@@ -1,0 +1,9 @@
+{
+  "status": "AUTHOR_CONTRACT_CHECK_PASS",
+  "checks": 236,
+  "conditional_cases": 20,
+  "schema_negatives": 7,
+  "environment": "/private/tmp/bean-counter-schema-review-20261012/bin/python",
+  "command": "check_fixture.py",
+  "qualification": "Recorded author tool result; schema/source-copy/conditional relation/hash checks only; not independent review, authentication, resource proof or product execution."
+}
