@@ -1,4 +1,4 @@
-//! Exact mechanical saved wrappers under their original economic recipe.
+//! Exact saved wire relationships for chronological recipe dispatch.
 //! A valid frame remains unresolved DATA until full prefix, semantic replay,
 //! authorization, dependency/capacity/funding and resource obligations succeed.
 use super::request_wrapper::{self as request, SavedRequest};
@@ -13,7 +13,18 @@ use ledgerlab_core::{
 };
 use sha2::{Digest, Sha256};
 
+/// Mechanical grouping only. Every class still needs its original semantic
+/// recipe, descriptor and introduction completion; this is not support.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WireClass {
+    Publication,
+    Prerequisite,
+    Agreement,
+    AgreementAlias,
+    Financial,
+}
 pub(super) struct OriginalWrappers {
+    class: WireClass,
     // Parsed trees drop before the retained raw storage. Each owns its own
     // reservation in the SAME attempt arena; no borrowed Value escapes it.
     operation: AuditedValue,
@@ -23,6 +34,9 @@ pub(super) struct OriginalWrappers {
     frame: OriginalFrame,
 }
 impl OriginalWrappers {
+    pub(super) fn class(&self) -> WireClass {
+        self.class
+    }
     pub(super) fn operation(&self) -> &Value {
         self.operation.value()
     }
@@ -463,39 +477,77 @@ pub(super) async fn validate_frame(
     let op = operation.value();
     let man = manifest.value();
     let rec = receipt.value();
-    request::closed(
-        op,
-        &[
-            "schema",
-            "key",
-            "kind",
-            "contract",
-            "request_evidence",
-            "authority_snapshot",
-            "received_at",
-            "accepted_at",
-            "commit_sequence",
-            "result_refs",
-            "closure_profile",
-            "source_observation_refs",
-            "financial_observation_ref",
-            "combined_audit_digest",
-        ],
-        session,
-    )?;
-    request::closed(
-        man,
-        &[
-            "schema",
-            "key",
-            "members",
-            "closure_profile",
-            "source_observation_refs",
-            "financial_observation_ref",
-            "combined_audit_digest",
-        ],
-        session,
-    )?;
+    let class = match frame.kind {
+        "policy.publish" => WireClass::Publication,
+        "evidence.retain" | "authority.change" => WireClass::Prerequisite,
+        "agreement.accept" | "agreement.activate" | "agreement.revoke" => {
+            session
+                .semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            if request::text(op, "schema", session)?
+                == "ledger-workflow-agreement-alias-operation/1"
+            {
+                WireClass::AgreementAlias
+            } else {
+                WireClass::Agreement
+            }
+        }
+        kind if is_kind(kind) => WireClass::Financial,
+        _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+    };
+    if class == WireClass::Financial {
+        request::closed(
+            op,
+            &[
+                "schema",
+                "key",
+                "kind",
+                "contract",
+                "request_evidence",
+                "authority_snapshot",
+                "received_at",
+                "accepted_at",
+                "commit_sequence",
+                "result_refs",
+                "closure_profile",
+                "source_observation_refs",
+                "financial_observation_ref",
+                "combined_audit_digest",
+            ],
+            session,
+        )?;
+        request::closed(
+            man,
+            &[
+                "schema",
+                "key",
+                "members",
+                "closure_profile",
+                "source_observation_refs",
+                "financial_observation_ref",
+                "combined_audit_digest",
+            ],
+            session,
+        )?;
+    } else {
+        request::closed(
+            op,
+            &[
+                "schema",
+                "key",
+                "kind",
+                "contract",
+                "request_evidence",
+                "authority_snapshot",
+                "accepted_at",
+                "commit_sequence",
+                "result_refs",
+            ],
+            session,
+        )?;
+        request::closed(man, &["schema", "key", "members"], session)?;
+    }
     request::closed(
         rec,
         &[
@@ -529,46 +581,94 @@ pub(super) async fn validate_frame(
     let request = request::parse_saved(evidence, frame.kind, key, session)?;
     let payload = request::field(request.value(), "payload", session)?;
     let descriptors = request::field(evidence, "descriptor_resolution", session)?;
-    let selected = recipe(
-        frame.kind,
-        request::text(payload, "schema", session)?,
-        request::text(descriptors, "registry_digest", session)?,
-        session,
-    )?;
-    request::same_text(
-        request::text(op, "schema", session)?,
-        selected.operation,
-        session,
-    )?;
-    request::same_text(
-        request::text(man, "schema", session)?,
-        selected.manifest,
-        session,
-    )?;
-    for body in [op, man] {
-        request::same_text(
-            request::text(body, "closure_profile", session)?,
-            selected.closure,
+    if class == WireClass::Financial {
+        let selected = recipe(
+            frame.kind,
+            request::text(payload, "schema", session)?,
+            request::text(descriptors, "registry_digest", session)?,
             session,
         )?;
-    }
-    request::same_text(
-        request::text(
-            request::field(op, "authority_snapshot", session)?,
-            "schema",
+        request::same_text(
+            request::text(op, "schema", session)?,
+            selected.operation,
             session,
-        )?,
-        selected.authority,
-        session,
-    )?;
-    for name in [
-        "source_observation_refs",
-        "financial_observation_ref",
-        "combined_audit_digest",
-    ] {
-        same_value(
-            request::field(op, name, session)?,
-            request::field(man, name, session)?,
+        )?;
+        request::same_text(
+            request::text(man, "schema", session)?,
+            selected.manifest,
+            session,
+        )?;
+        for body in [op, man] {
+            request::same_text(
+                request::text(body, "closure_profile", session)?,
+                selected.closure,
+                session,
+            )?;
+        }
+        request::same_text(
+            request::text(
+                request::field(op, "authority_snapshot", session)?,
+                "schema",
+                session,
+            )?,
+            selected.authority,
+            session,
+        )?;
+        for name in [
+            "source_observation_refs",
+            "financial_observation_ref",
+            "combined_audit_digest",
+        ] {
+            same_value(
+                request::field(op, name, session)?,
+                request::field(man, name, session)?,
+                session,
+            )?;
+        }
+    } else {
+        // These are the already-existing administrative WIRE shapes, not a
+        // registry-support grant. Each dedicated semantic handler must still
+        // reproduce its own original descriptor/normalization/alias recipe.
+        let (operation_schema, manifest_schema, authority_schema) = match class {
+            WireClass::Publication => (
+                "ledger-workflow-operation-record/1",
+                "ledger-workflow-publication-manifest/1",
+                "ledger-workflow-publication-authority/1",
+            ),
+            WireClass::Prerequisite => (
+                "ledger-workflow-operation-record/1",
+                "ledger-workflow-agreement-manifest/1",
+                "ledger-workflow-publication-authority/1",
+            ),
+            WireClass::Agreement => (
+                "ledger-workflow-operation-record/1",
+                "ledger-workflow-agreement-manifest/1",
+                "ledger-workflow-agreement-authority/2",
+            ),
+            WireClass::AgreementAlias => (
+                "ledger-workflow-agreement-alias-operation/1",
+                "ledger-workflow-agreement-alias-manifest/1",
+                "ledger-workflow-agreement-authority/3",
+            ),
+            WireClass::Financial => unreachable!(),
+        };
+        request::same_text(
+            request::text(op, "schema", session)?,
+            operation_schema,
+            session,
+        )?;
+        request::same_text(
+            request::text(man, "schema", session)?,
+            manifest_schema,
+            session,
+        )?;
+        request::same_text(
+            request::text(
+                request::field(op, "authority_snapshot", session)?,
+                "schema",
+                session,
+            )?,
+            authority_schema,
             session,
         )?;
     }
@@ -577,13 +677,21 @@ pub(super) async fn validate_frame(
         "ledger-operation-receipt/2",
         session,
     )?;
-    // Dedicated semantic-alias verification is required; never certify one as
-    // an original by accepting a generic economic wrapper.
-    request::same_text(
-        request::text(rec, "result_kind", session)?,
-        "economic",
-        session,
-    )?;
+    let result_kind = request::text(rec, "result_kind", session)?;
+    session
+        .semantic_work()
+        .visit(Visit::Constraint)
+        .map_err(core_error)?;
+    match class {
+        WireClass::Financial => request::same_text(result_kind, "economic", session)?,
+        WireClass::AgreementAlias => request::same_text(result_kind, "semantic_alias", session)?,
+        _ => require(
+            matches!(result_kind, "administrative" | "semantic_alias"),
+            "INTEGRITY_FAILURE",
+        )?,
+    }
+    // Aliasness is unresolved until its dedicated original relationship and
+    // semantic intent check succeeds. This mechanical layer never completes it.
     request::same_text(
         request::text(rec, "request_hash_profile", session)?,
         "bean-counter/operation-request/2",
@@ -709,6 +817,7 @@ pub(super) async fn validate_frame(
     // exact complete result/member sets and all economic/auth/capacity claims
     // remain mandatory in the full original reconstruction; this is NOT proof.
     Ok(OriginalWrappers {
+        class,
         operation,
         manifest,
         receipt,

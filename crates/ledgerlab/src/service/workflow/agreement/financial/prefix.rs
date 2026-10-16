@@ -27,19 +27,18 @@ impl OriginInput {
     pub(super) fn key(&self) -> &OperationKey {
         &self.key.key
     }
-    /// The financial recipe can consume this exact acquired frame. Neither
+    /// The selected recipe can consume this exact acquired frame. Neither
     /// this dispatch nor the mechanical wrapper result credits provenance.
-    pub(super) async fn financial_wrappers(
+    pub(super) async fn checked_wrappers(
         self,
         tx: &mut SqliteTx,
         session: &mut OriginalAuditSession,
-    ) -> Result<FinancialInput> {
+    ) -> Result<LocatedWrappers> {
         let mut attempt = InputAttempt {
             failure: tx.workflow_proof_failure_handle(),
             finished: false,
         };
         let result = async {
-            require(is_kind(self.frame.kind), "UNSUPPORTED_SCHEMA_PROFILE")?;
             let OriginInput {
                 key,
                 identity,
@@ -47,7 +46,7 @@ impl OriginInput {
             } = self;
             let wrappers =
                 wrappers::validate_frame(tx, &key.key, identity.bytes(), frame, session).await?;
-            Ok(FinancialInput {
+            Ok(LocatedWrappers {
                 key,
                 identity,
                 wrappers,
@@ -62,12 +61,12 @@ impl OriginInput {
         result
     }
 }
-pub(super) struct FinancialInput {
+pub(super) struct LocatedWrappers {
     key: OriginKey,
     identity: ledgerlab_core::canonical::audit_arena::AuditedBytes,
     wrappers: wrappers::OriginalWrappers,
 }
-impl FinancialInput {
+impl LocatedWrappers {
     pub(super) fn key(&self) -> &OperationKey {
         &self.key.key
     }

@@ -142,3 +142,77 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     first.close().await;
     second.close().await;
 }
+
+#[tokio::test]
+async fn chronological_owning_frames_follow_actual_public_prerequisite_history() {
+    use ledgerlab_core::{
+        canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession,
+    };
+    let (_directory, ledger, _path) = installation("actual-prefix").await;
+    let mut receipts = Vec::new();
+    for (operation, content) in [
+        ("first", b"Original customer evidence".as_slice()),
+        ("second", b"Second original customer evidence".as_slice()),
+    ] {
+        let mut input = envelope(&key("actual-prefix", operation));
+        input["kind"] = json!("evidence.retain");
+        input["payload"] = json!({"schema":"ledger-workflow-evidence-retain/1","purpose":"customer_registration","subject":{"customer":"prefix-customer"},"media_type":"text/plain;charset=utf-8","content_base64":super::super::super::publication::base64(content),"content_sha256":records::raw_hash(content),"metadata":{"acceptor":"prefix-acceptor"}});
+        receipts.push(
+            ledger
+                .prerequisite(&records::bytes(&input).unwrap())
+                .await
+                .unwrap(),
+        );
+    }
+    let through = receipts[1]["receipt"]["commit_sequence"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    let root = key("actual-prefix", "prefix-reader");
+    let arena = AuditArena::new().unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    let before = tx.workflow_test_meter().await.unwrap();
+    proof_session::with_proofs(&mut tx, &root, |tx| {
+        Box::pin(async {
+            let mut after = 0;
+            for (operation, receipt) in [("first", &receipts[0]), ("second", &receipts[1])] {
+                let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                let next = prefix::next(tx, &root, after, through, &mut session)
+                    .await?
+                    .unwrap();
+                assert_eq!(next.key(), &key("actual-prefix", operation));
+                after = next.frame.sequence;
+                let resolved = next.checked_wrappers(tx, &mut session).await?;
+                assert_eq!(
+                    resolved.wrappers().class(),
+                    wrappers::WireClass::Prerequisite
+                );
+                assert_eq!(resolved.wrappers().receipt(), &receipt["receipt"]);
+                // Exact saved request is read from the original row, not recreated
+                // from the receipt or supplied as an expected construction operand.
+                assert_eq!(
+                    resolved.wrappers().original_request().value()["key"]["operation_id"],
+                    operation
+                );
+                drop(resolved);
+            }
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(
+                prefix::next(tx, &root, after, through, &mut session)
+                    .await?
+                    .is_none()
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
+    tx.rollback().await.unwrap();
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+    // This test qualifies mechanical chronological acquisition only. It creates
+    // neither an AUTH02 CompletedOrigin nor a financial receipt/candidate.
+    ledger.close().await;
+}

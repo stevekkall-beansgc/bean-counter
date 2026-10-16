@@ -172,7 +172,7 @@ async fn original_query(
         .canonical_representation(key_value, RepresentationKind::Record)
         .map_err(core_error)?;
     let acquired = prefix::target(tx, key, identity, &mut session).await?;
-    let original = acquired.financial_wrappers(tx, &mut session).await?;
+    let original = acquired.checked_wrappers(tx, &mut session).await?;
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
     // obligations first. For Retry, normalize_saved_intent receives this SAME
