@@ -1,0 +1,40 @@
+{
+  "sources": [
+    {
+      "path": "../causal-reversal-02.schema.json",
+      "sha256": "5ce993d53a2f42c97e7ec53b08800e724bb5a4bf4a36f98ccaf5b4d4cebb928e",
+      "bytes": 57519
+    },
+    {
+      "path": "../causal-reversal-02-registry.json",
+      "sha256": "c9e66e69eabffe296a0ab5cd309640c1928f9a4409e3f98c5d6b1f2063ccd633",
+      "bytes": 8979
+    },
+    {
+      "path": "../causal-reversal-02-author.json",
+      "sha256": "e95cfd438debd3ded31846ddc274cf9dd1f2aa6079fba6b9f047f2b0ebea344e",
+      "bytes": 1256747
+    },
+    {
+      "path": "../economic-sources-author.json",
+      "sha256": "a88f6fb38005cf2b78ecbd21e45881b816b8e429ec47ffed8412da4d4fa855a1",
+      "bytes": 1728430
+    },
+    {
+      "path": "../AGREEMENT-READY-AMENDMENT.md",
+      "sha256": "2e99c1dc27e597c4c6a5c416d9e448b714827d463a43bfd323ea06b769373aa6",
+      "bytes": 26070
+    },
+    {
+      "path": "../AGREEMENT-EXPOSURE-CEILINGS-CLARIFICATION.md",
+      "sha256": "b68a70085122fe541808ade5ab2d288e651f5d69bc6af2b72a7225b3b5e01fdc",
+      "bytes": 2592
+    },
+    {
+      "path": "../ECONOMIC-BOUNDARY.md",
+      "sha256": "045e5a7c00c33e5f76e3cf9eca8b2c6a3514f6531f2314d274695bc55add50e0",
+      "bytes": 36664
+    }
+  ],
+  "old_fixtures_unchanged": true
+}

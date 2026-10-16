@@ -1,0 +1,19 @@
+{
+  "schema": "ledger-retail-exposure-scope/1",
+  "scope": "original_work",
+  "book": "retail",
+  "selected_funding_mode": "customer_local",
+  "terms_schema": "ledger-workflow-slot-binding-terms/3",
+  "accept_payload_schema": "ledger-workflow-agreement-accept/4",
+  "aggregation_key": [
+    "logical_store_id",
+    "scope",
+    "original_work_claim_ref",
+    "binding_slot"
+  ],
+  "registry_digest": "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4",
+  "amount_profile": "USD-scale18",
+  "independent_work_shares_allowance": false,
+  "cash_balance": false,
+  "implicit_reset": false
+}

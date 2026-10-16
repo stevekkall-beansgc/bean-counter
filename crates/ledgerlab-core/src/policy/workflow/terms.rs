@@ -150,13 +150,27 @@ struct CausalReversalClause {
 }
 fn causal_clauses(input: &mut SlotInput) -> Result<()> {
     match input.schema.as_str() {
-        "ledger-workflow-slot-binding-terms/1" if input.causal_reversal_clauses.is_none() => Ok(()),
-        "ledger-workflow-slot-binding-terms/2" => {
+        "ledger-workflow-slot-binding-terms/1"
+            if input.causal_reversal_clauses.is_none() && input.exposure_scope.is_none() =>
+        {
+            Ok(())
+        }
+        "ledger-workflow-slot-binding-terms/2" | "ledger-workflow-slot-binding-terms/3" => {
+            let original_work = input.schema == "ledger-workflow-slot-binding-terms/3";
+            if original_work {
+                if input.exposure_scope.as_deref() != Some("original_work")
+                    || input.book != TemplateBook::Retail
+                {
+                    return Err(fail("retail original-work exposure scope"));
+                }
+            } else if input.exposure_scope.is_some() {
+                return Err(fail("old terms cannot acquire exposure scope"));
+            }
             let rows = input
                 .causal_reversal_clauses
                 .as_mut()
                 .ok_or_else(|| fail("causal clauses required"))?;
-            if !(1..=64).contains(&rows.len()) {
+            if rows.len() > 64 || (!original_work && rows.is_empty()) {
                 return Err(fail("causal clause count"));
             }
             let mut keys = BTreeSet::new();
@@ -198,6 +212,8 @@ struct SlotInput {
     correction_source_slot: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     causal_reversal_clauses: Option<Vec<CausalReversalClause>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exposure_scope: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct SlotBindingTerms {

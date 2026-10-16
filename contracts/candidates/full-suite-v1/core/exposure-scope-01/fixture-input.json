@@ -1,0 +1,684 @@
+{
+  "schema": "exposure-scope-fixture-input/1",
+  "qualification": "synthetic conditional shape/finite-state arithmetic only; no origins, assent or capacity",
+  "terms2_body": {
+    "schema": "ledger-workflow-slot-binding-terms/2",
+    "scope": [
+      "fixture",
+      "sandbox"
+    ],
+    "agreement_id": "agreement-A",
+    "customer": "customer-A",
+    "slot": "fixture.measure:retail",
+    "book": "retail",
+    "role_slot": "fixture.measure:retail",
+    "role_ref": {
+      "kind": "workflow-roles",
+      "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+      "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+    },
+    "funding_leg": "fixture.measure:customer",
+    "allowed_activities": [
+      "fixture.measure:assessed",
+      "fixture.measure:measured",
+      "fixture.measure:setup"
+    ],
+    "quantity_ceilings": [
+      {
+        "activity": "fixture.measure:measured",
+        "field": "fixture.measure:quantity",
+        "unit": "fixture.measure:item",
+        "maximum": "100"
+      }
+    ],
+    "exposure_ceiling": {
+      "currency": "USD",
+      "scale": 18,
+      "atoms": "100000000000000000000"
+    },
+    "source_grant_refs": [
+      {
+        "kind": "workflow-source-grant",
+        "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+        "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+      }
+    ],
+    "correction_source_slot": "fixture.measure:worker",
+    "causal_reversal_clauses": [
+      {
+        "family_slot": "A-assessment",
+        "correction_source_slot": "fixture.measure:assessor",
+        "root_component_slot": "A-base",
+        "mode": "exact_inverse_and_permanent_close",
+        "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+      }
+    ]
+  },
+  "terms3_body": {
+    "schema": "ledger-workflow-slot-binding-terms/3",
+    "scope": [
+      "fixture",
+      "sandbox"
+    ],
+    "agreement_id": "agreement-A",
+    "customer": "customer-A",
+    "slot": "fixture.measure:retail",
+    "book": "retail",
+    "role_slot": "fixture.measure:retail",
+    "role_ref": {
+      "kind": "workflow-roles",
+      "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+      "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+    },
+    "funding_leg": "fixture.measure:customer",
+    "allowed_activities": [
+      "fixture.measure:assessed",
+      "fixture.measure:measured",
+      "fixture.measure:setup"
+    ],
+    "quantity_ceilings": [
+      {
+        "activity": "fixture.measure:measured",
+        "field": "fixture.measure:quantity",
+        "unit": "fixture.measure:item",
+        "maximum": "100"
+      }
+    ],
+    "exposure_ceiling": {
+      "currency": "USD",
+      "scale": 18,
+      "atoms": "100000000000000000000"
+    },
+    "source_grant_refs": [
+      {
+        "kind": "workflow-source-grant",
+        "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+        "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+      }
+    ],
+    "correction_source_slot": "fixture.measure:worker",
+    "causal_reversal_clauses": [
+      {
+        "family_slot": "A-assessment",
+        "correction_source_slot": "fixture.measure:assessor",
+        "root_component_slot": "A-base",
+        "mode": "exact_inverse_and_permanent_close",
+        "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+      }
+    ],
+    "exposure_scope": "original_work"
+  },
+  "acceptance_terms_template": {
+    "schema": "ledger-workflow-acceptance-terms/1",
+    "scope": [
+      "fixture",
+      "sandbox"
+    ],
+    "publication_ref": {
+      "kind": "workflow-publication",
+      "id": "wpub_756bc4e84537f3760f6fc2311db335a4b0238ddfb419736f65b737df7e53023d",
+      "digest": "sha256:2845467d6a85060173e5dcbfa765bf6b48b9f69294d5391861dc14f75e93b6b1"
+    },
+    "agreement_id": "agreement-A",
+    "customer": "customer-A",
+    "version": "1",
+    "binding_inputs": {
+      "agreement_id": "agreement-A",
+      "version": "1",
+      "customer": "customer-A",
+      "source_namespace": "urn:fixture:publisher",
+      "slot_catalog_ref": {
+        "kind": "workflow-slot-catalog",
+        "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+        "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+      },
+      "slot_instantiation_ref": {
+        "kind": "workflow-slot-instantiation",
+        "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+        "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+      },
+      "roles_refs": [
+        {
+          "kind": "workflow-roles",
+          "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+          "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+        }
+      ],
+      "source_slots": [
+        {
+          "name": "fixture.measure:assessor",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": [
+            "occurrence",
+            "outcome"
+          ]
+        },
+        {
+          "name": "fixture.measure:worker",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": []
+        }
+      ],
+      "accepted_context": {
+        "fact_schema_ref": {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+          "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+        },
+        "facts": {}
+      },
+      "bindings": [
+        {
+          "slot": "fixture.measure:retail",
+          "binding_ref": {
+            "kind": "workflow-slot-terms",
+            "id": "wdoc_670dd0b7634dacacf70b84f485877e7b1d465bbfd7f1dbf35923ed4309746d2b",
+            "digest": "sha256:670dd0b7634dacacf70b84f485877e7b1d465bbfd7f1dbf35923ed4309746d2b"
+          }
+        }
+      ],
+      "funding_legs": [
+        {
+          "name": "fixture.measure:customer",
+          "mode": "customer_local",
+          "resource_owner": "customer-A",
+          "payer": "customer-A",
+          "evidence_refs": [
+            {
+              "kind": "workflow-evidence",
+              "id": "wdoc_7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84",
+              "digest": "sha256:7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84"
+            }
+          ]
+        }
+      ],
+      "starts_at": "2026-10-13T00:00:00.000000Z",
+      "quantity_ceilings": [
+        {
+          "activity": "fixture.measure:measured",
+          "field": "fixture.measure:quantity",
+          "unit": "fixture.measure:item",
+          "maximum": "100"
+        }
+      ],
+      "exposure_ceilings": [
+        {
+          "binding_slot": "fixture.measure:retail",
+          "maximum": {
+            "currency": "USD",
+            "scale": 18,
+            "atoms": "100000000000000000000"
+          }
+        }
+      ]
+    }
+  },
+  "accept4_shape_template": {
+    "schema": "ledger-workflow-agreement-accept/4",
+    "agreement_id": "agreement-A",
+    "expected_revision": "0",
+    "publication_ref": {
+      "kind": "workflow-publication",
+      "id": "wpub_756bc4e84537f3760f6fc2311db335a4b0238ddfb419736f65b737df7e53023d",
+      "digest": "sha256:2845467d6a85060173e5dcbfa765bf6b48b9f69294d5391861dc14f75e93b6b1"
+    },
+    "slot_catalog_ref": {
+      "kind": "workflow-slot-catalog",
+      "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+      "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+    },
+    "slot_instantiation_ref": {
+      "kind": "workflow-slot-instantiation",
+      "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+      "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+    },
+    "binding_inputs": {
+      "agreement_id": "agreement-A",
+      "version": "1",
+      "customer": "customer-A",
+      "source_namespace": "urn:fixture:publisher",
+      "slot_catalog_ref": {
+        "kind": "workflow-slot-catalog",
+        "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+        "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+      },
+      "slot_instantiation_ref": {
+        "kind": "workflow-slot-instantiation",
+        "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+        "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+      },
+      "roles_refs": [
+        {
+          "kind": "workflow-roles",
+          "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+          "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+        }
+      ],
+      "assent_refs": [
+        {
+          "kind": "workflow-assent",
+          "id": "wdoc_b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308",
+          "digest": "sha256:b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308"
+        }
+      ],
+      "authority_refs": [
+        {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+          "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+        }
+      ],
+      "source_slots": [
+        {
+          "name": "fixture.measure:assessor",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": [
+            "occurrence",
+            "outcome"
+          ]
+        },
+        {
+          "name": "fixture.measure:worker",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": []
+        }
+      ],
+      "accepted_context": {
+        "fact_schema_ref": {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+          "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+        },
+        "facts": {}
+      },
+      "bindings": [
+        {
+          "slot": "fixture.measure:retail",
+          "binding_ref": {
+            "kind": "workflow-slot-terms",
+            "id": "wdoc_670dd0b7634dacacf70b84f485877e7b1d465bbfd7f1dbf35923ed4309746d2b",
+            "digest": "sha256:670dd0b7634dacacf70b84f485877e7b1d465bbfd7f1dbf35923ed4309746d2b"
+          }
+        }
+      ],
+      "funding_legs": [
+        {
+          "name": "fixture.measure:customer",
+          "mode": "customer_local",
+          "resource_owner": "customer-A",
+          "payer": "customer-A",
+          "evidence_refs": [
+            {
+              "kind": "workflow-evidence",
+              "id": "wdoc_7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84",
+              "digest": "sha256:7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84"
+            }
+          ]
+        }
+      ],
+      "starts_at": "2026-10-13T00:00:00.000000Z",
+      "quantity_ceilings": [
+        {
+          "activity": "fixture.measure:measured",
+          "field": "fixture.measure:quantity",
+          "unit": "fixture.measure:item",
+          "maximum": "100"
+        }
+      ],
+      "exposure_ceilings": [
+        {
+          "binding_slot": "fixture.measure:retail",
+          "maximum": {
+            "currency": "USD",
+            "scale": 18,
+            "atoms": "100000000000000000000"
+          }
+        }
+      ]
+    },
+    "assent_refs": [
+      {
+        "kind": "workflow-assent",
+        "id": "wdoc_b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308",
+        "digest": "sha256:b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308"
+      }
+    ],
+    "authority_refs": [
+      {
+        "kind": "workflow-source-grant",
+        "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+        "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+      }
+    ],
+    "documents": [
+      {
+        "schema": "ledger-workflow-slot-binding-terms/3",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "agreement_id": "agreement-A",
+        "customer": "customer-A",
+        "slot": "fixture.measure:retail",
+        "book": "retail",
+        "role_slot": "fixture.measure:retail",
+        "role_ref": {
+          "kind": "workflow-roles",
+          "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+          "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+        },
+        "funding_leg": "fixture.measure:customer",
+        "allowed_activities": [
+          "fixture.measure:assessed",
+          "fixture.measure:measured",
+          "fixture.measure:setup"
+        ],
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.measure:measured",
+            "field": "fixture.measure:quantity",
+            "unit": "fixture.measure:item",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceiling": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "100000000000000000000"
+        },
+        "source_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+            "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+          }
+        ],
+        "correction_source_slot": "fixture.measure:worker",
+        "causal_reversal_clauses": [
+          {
+            "family_slot": "A-assessment",
+            "correction_source_slot": "fixture.measure:assessor",
+            "root_component_slot": "A-base",
+            "mode": "exact_inverse_and_permanent_close",
+            "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+          }
+        ],
+        "exposure_scope": "original_work"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "two_independent_works",
+      "ceiling_atoms": "10",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": []
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "same_work_two_roots",
+      "ceiling_atoms": "10",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6",
+                "6"
+              ],
+              "family_alternatives_atoms": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two_simultaneous_families",
+      "ceiling_atoms": "10",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": [
+                [
+                  "0",
+                  "3"
+                ],
+                [
+                  "0",
+                  "2"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "one_exclusive_family",
+      "ceiling_atoms": "10",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": [
+                [
+                  "-2",
+                  "0",
+                  "3"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "none_retains_future_premium",
+      "ceiling_atoms": "8",
+      "works": [
+        {
+          "id": "A",
+          "current_family_atoms": [
+            "0"
+          ],
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": [
+                [
+                  "0",
+                  "3"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "causal_root_replacement_closes_family",
+      "ceiling_atoms": "10",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": [
+                [
+                  "0",
+                  "3"
+                ]
+              ]
+            },
+            {
+              "root_nets_atoms": [
+                "9"
+              ],
+              "family_alternatives_atoms": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "discount_not_premium_headroom",
+      "ceiling_atoms": "8",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": [
+                [
+                  "-3",
+                  "0",
+                  "3"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "discount_bound_separate",
+      "ceiling_atoms": "10",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": [
+                [
+                  "-7",
+                  "0",
+                  "1"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "zero_family_permanent",
+      "ceiling_atoms": "6",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "6"
+              ],
+              "family_alternatives_atoms": [
+                [
+                  "0"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "immutable_closed_no_future_family",
+      "ceiling_atoms": "9",
+      "conditional_irrevocable_closure": true,
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "root_nets_atoms": [
+                "9"
+              ],
+              "family_alternatives_atoms": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "negative_mutations": [
+    {
+      "name": "scope_absent",
+      "action": "remove",
+      "field": "exposure_scope"
+    },
+    {
+      "name": "lifetime_scope",
+      "action": "replace",
+      "field": "exposure_scope",
+      "value": "binding_lifetime"
+    },
+    {
+      "name": "supplier_book",
+      "action": "replace",
+      "field": "book",
+      "value": "supplier"
+    },
+    {
+      "name": "unknown_field",
+      "action": "add",
+      "field": "reset_period",
+      "value": "monthly"
+    },
+    {
+      "name": "old_schema_new_field",
+      "action": "replace",
+      "field": "schema",
+      "value": "ledger-workflow-slot-binding-terms/2"
+    }
+  ]
+}

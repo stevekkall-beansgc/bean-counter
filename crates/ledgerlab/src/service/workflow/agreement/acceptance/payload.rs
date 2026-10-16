@@ -40,7 +40,9 @@ impl AcceptInput {
         require(
             matches!(
                 input.schema.as_str(),
-                "ledger-workflow-agreement-accept/2" | "ledger-workflow-agreement-accept/3"
+                "ledger-workflow-agreement-accept/2"
+                    | "ledger-workflow-agreement-accept/3"
+                    | "ledger-workflow-agreement-accept/4"
             ) && input.documents.len() <= 128,
             "INVALID_SHAPE",
         )?;
@@ -272,8 +274,17 @@ impl AcceptInput {
             }
             if r.kind == "workflow-slot-terms" {
                 require(
-                    body["schema"] != "ledger-workflow-slot-binding-terms/2"
-                        || self.input.schema == "ledger-workflow-agreement-accept/3",
+                    match body["schema"].as_str() {
+                        Some("ledger-workflow-slot-binding-terms/2") => matches!(
+                            self.input.schema.as_str(),
+                            "ledger-workflow-agreement-accept/3"
+                                | "ledger-workflow-agreement-accept/4"
+                        ),
+                        Some("ledger-workflow-slot-binding-terms/3") => {
+                            self.input.schema == "ledger-workflow-agreement-accept/4"
+                        }
+                        _ => true,
+                    },
                     "UNSUPPORTED_SCHEMA_PROFILE",
                 )?;
                 let role: RecordRef = serde_json::from_value(body["role_ref"].clone())
@@ -333,7 +344,11 @@ fn normalize_leaf(v: &Value, terms: &AcceptanceTerms, context: &FactSchema) -> R
                 .canonical_value()
                 .clone(),
         ),
-        Some("ledger-workflow-slot-binding-terms/1" | "ledger-workflow-slot-binding-terms/2") => (
+        Some(
+            "ledger-workflow-slot-binding-terms/1"
+            | "ledger-workflow-slot-binding-terms/2"
+            | "ledger-workflow-slot-binding-terms/3",
+        ) => (
             "workflow-slot-terms",
             SlotBindingTerms::parse(&bytes)
                 .map_err(typed_error)?
@@ -360,9 +375,9 @@ fn private_kind(v: &Value) -> Option<&'static str> {
         "ledger-workflow-role-assignment/1" => Some("workflow-roles"),
         "ledger-workflow-slot-catalog/1" => Some("workflow-slot-catalog"),
         "ledger-workflow-slot-instantiation/1" => Some("workflow-slot-instantiation"),
-        "ledger-workflow-slot-binding-terms/1" | "ledger-workflow-slot-binding-terms/2" => {
-            Some("workflow-slot-terms")
-        }
+        "ledger-workflow-slot-binding-terms/1"
+        | "ledger-workflow-slot-binding-terms/2"
+        | "ledger-workflow-slot-binding-terms/3" => Some("workflow-slot-terms"),
         "ledger-workflow-acceptance-terms/1" => Some("workflow-acceptance-terms"),
         "ledger-workflow-assent/1" => Some("workflow-assent"),
         _ => None,

@@ -172,6 +172,13 @@ fn causal_clauses_resolve_original_stable_slots_and_every_selected_family() {
     let docs = vec![catalog, instantiation];
     let terms = customer["slot_terms"].clone();
     causal_coverage(&binding, &terms, &definitions, &docs).unwrap();
+    let mut exposure = terms.clone();
+    exposure["schema"] = json!("ledger-workflow-slot-binding-terms/3");
+    exposure["exposure_scope"] = json!("original_work");
+    causal_coverage(&binding, &exposure, &definitions, &docs).unwrap();
+    let mut omitted = exposure.clone();
+    omitted["causal_reversal_clauses"] = json!([]);
+    assert!(causal_coverage(&binding, &omitted, &definitions, &docs).is_err());
     for field in [
         "root_component_slot",
         "family_slot",

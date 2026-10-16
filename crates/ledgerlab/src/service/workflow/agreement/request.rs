@@ -68,7 +68,9 @@ impl Request {
         let valid = match outer.kind.as_str() {
             "agreement.accept" => matches!(
                 schema,
-                "ledger-workflow-agreement-accept/2" | "ledger-workflow-agreement-accept/3"
+                "ledger-workflow-agreement-accept/2"
+                    | "ledger-workflow-agreement-accept/3"
+                    | "ledger-workflow-agreement-accept/4"
             ),
             "agreement.activate" => matches!(
                 schema,

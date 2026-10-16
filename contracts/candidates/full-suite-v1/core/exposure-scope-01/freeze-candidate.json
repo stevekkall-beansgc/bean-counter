@@ -1,0 +1,64 @@
+{
+  "schema": "exposure-scope-freeze-candidate/1",
+  "status": "PENDING_INDEPENDENT_REVIEW",
+  "scope": "owner-approved additive commercial scope; shape/hash/conditional math only, no runtime/admission qualification",
+  "author_checks": 37,
+  "files": [
+    {
+      "path": "EXPOSURE-SCOPE-01.md",
+      "bytes": 12271,
+      "sha256": "7b6485a124c2228c4bd4dd56a26954de1c8465b82cb48f5dd34681fe21bc04bf"
+    },
+    {
+      "path": "README.md",
+      "bytes": 697,
+      "sha256": "abc5a15c79a37fd057f8bdc0919abda46f5c6d0e122bd163fcf6262a55d86831"
+    },
+    {
+      "path": "check_fixture.py",
+      "bytes": 3638,
+      "sha256": "988efb86d12d7b6dbb59b217db3f69e8b2a958eff18b9e772dda010363d05b0b"
+    },
+    {
+      "path": "exposure-scope.schema.json",
+      "bytes": 62087,
+      "sha256": "387936021db7a7b807319780689b573a88d734dc20fea69e7c1aceeb5fc683ba"
+    },
+    {
+      "path": "fixture-author-expected.json",
+      "bytes": 39867,
+      "sha256": "fca6bd5a6df7e9eb028150a1ea3ec780b070af6855983bab814a1662e97f19da"
+    },
+    {
+      "path": "fixture-input.json",
+      "bytes": 19540,
+      "sha256": "426321ce6cf96d3fecb6cf91e26b6012e632628b6131e9c3eb122ab4af6dd4eb"
+    },
+    {
+      "path": "profile.json",
+      "bytes": 609,
+      "sha256": "eec34e9824ecbb1e8c1c7a54ff48fc75e07bc61b680735c9b3cc471af392a46d"
+    },
+    {
+      "path": "profile.schema.json",
+      "bytes": 776,
+      "sha256": "9876cceeccb52fddfe4b1f4392c8f5c6dd343586f1987917c4fdc11ccf438fec"
+    },
+    {
+      "path": "registry.json",
+      "bytes": 8985,
+      "sha256": "8d5f1aa81ac62e56f83778cc8afa2e4b2548f18b41d80ded434a034e4feb5923"
+    },
+    {
+      "path": "registry.schema.json",
+      "bytes": 9643,
+      "sha256": "3de4758ae1c41cdf1120708e99c606d37912424de0fe649ec860f0267a5fe50a"
+    },
+    {
+      "path": "source-pins.json",
+      "bytes": 1243,
+      "sha256": "5ede463697542fda977c97667eaa9898f31c5ed5628b180c0665563984cadd91"
+    }
+  ],
+  "independent_review": null
+}

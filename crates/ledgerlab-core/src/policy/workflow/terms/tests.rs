@@ -334,3 +334,49 @@ fn causal_terms_v2_are_closed_sorted_and_do_not_upgrade_v1() {
     let b = SlotBindingTerms::parse(&serde_json::to_vec(&body).unwrap()).unwrap();
     assert_eq!(a.canonical_bytes(), b.canonical_bytes());
 }
+
+#[test]
+fn original_work_terms_v3_match_frozen_bytes_and_do_not_reinterpret_old_terms() {
+    let input:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/exposure-scope-01/fixture-input.json")).unwrap();
+    let expected:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/exposure-scope-01/fixture-author-expected.json")).unwrap();
+    let body = &input["terms3_body"];
+    let parsed = SlotBindingTerms::parse(&serde_json::to_vec(body).unwrap()).unwrap();
+    exact(
+        parsed.canonical_bytes(),
+        parsed.reference(),
+        &expected["terms3"],
+    );
+    let old = SlotBindingTerms::parse(&serde_json::to_vec(&input["terms2_body"]).unwrap()).unwrap();
+    exact(
+        old.canonical_bytes(),
+        old.reference(),
+        &expected["old_terms2"],
+    );
+    assert_ne!(parsed.reference(), old.reference());
+    let mut absent = body.clone();
+    absent.as_object_mut().unwrap().remove("exposure_scope");
+    let mut wrong = body.clone();
+    wrong["exposure_scope"] = json!("agreement_lifetime");
+    let mut supplier = body.clone();
+    supplier["book"] = json!("supplier");
+    let mut v2 = body.clone();
+    v2["schema"] = json!("ledger-workflow-slot-binding-terms/2");
+    let mut v1 = body.clone();
+    v1["schema"] = json!("ledger-workflow-slot-binding-terms/1");
+    v1.as_object_mut()
+        .unwrap()
+        .remove("causal_reversal_clauses");
+    for invalid in [absent, wrong, supplier, v2, v1] {
+        assert!(SlotBindingTerms::parse(&serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
+    // Empty shape is legal only in /3. Host policy coverage separately proves
+    // no promised family was omitted; this parser creates no authority.
+    let mut empty = body.clone();
+    empty["causal_reversal_clauses"] = json!([]);
+    assert!(SlotBindingTerms::parse(&serde_json::to_vec(&empty).unwrap()).is_ok());
+    empty
+        .as_object_mut()
+        .unwrap()
+        .remove("causal_reversal_clauses");
+    assert!(SlotBindingTerms::parse(&serde_json::to_vec(&empty).unwrap()).is_err());
+}

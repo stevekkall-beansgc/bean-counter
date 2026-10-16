@@ -119,6 +119,12 @@ pub(super) fn evidence(
     }
     canonical::sort_set(&mut anchors).map_err(|_| ServiceError::IntegrityFailure)?;
     let registry_raw: &[u8] = if req.kind() == "agreement.accept"
+        && payload["schema"] == "ledger-workflow-agreement-accept/4"
+    {
+        include_bytes!(
+            "../../../../../../contracts/candidates/full-suite-v1/core/exposure-scope-01/registry.json"
+        )
+    } else if req.kind() == "agreement.accept"
         && payload["schema"] == "ledger-workflow-agreement-accept/3"
     {
         include_bytes!(
@@ -162,6 +168,27 @@ mod tests {
             old["request_evidence"]["request_hash"]
         );
         assert_eq!(evidence["normalized_request"], envelope);
+    }
+    #[test]
+    fn exposure_acceptance_uses_only_its_frozen_registry() {
+        let f: Value =
+            serde_json::from_slice(include_bytes!("testdata/descriptor-independent.json")).unwrap();
+        let old = &f["operations"][0];
+        let mut envelope = old["request_evidence"]["normalized_request"].clone();
+        envelope["payload"]["schema"] = json!("ledger-workflow-agreement-accept/4");
+        let req = request::Request::parse_agreement(&records::bytes(&envelope).unwrap()).unwrap();
+        let descriptors: Vec<RecordRef> =
+            serde_json::from_value(old["descriptor_resolution"]["descriptors"].clone()).unwrap();
+        let result = evidence(&req, req.payload(), &descriptors).unwrap();
+        assert_eq!(
+            result["descriptor_resolution"]["registry_digest"],
+            "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4"
+        );
+        assert_ne!(
+            result["request_hash"],
+            old["request_evidence"]["request_hash"]
+        );
+        assert_eq!(result["normalized_request"], envelope);
     }
     #[test]
     fn five_independent_agreement_descriptor_and_raw_evidence_vectors() {

@@ -62,6 +62,8 @@ fn recipe(
 ) -> Result<Recipe> {
     const ECON: &str = "sha256:5d9c1c2b3719978693927dd72264aa3c402daaf62800d9e11bb49b0d0868ec1e";
     const CAUSAL: &str = "sha256:b9397d8545fccefeb32ff9c320f1f70c96b1c89d6bd58f7aba37068862ab6d54";
+    const EXPOSURE: &str =
+        "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4";
     // Dispatch EACH kind/payload/registry tuple, never 'known registry=>latest'.
     const ORDINARY: &[(&str, &str)] = &[
         ("work.accept", "ledger-workflow-work/1"),
@@ -77,7 +79,10 @@ fn recipe(
             .semantic_work()
             .visit(Visit::MemberCompare)
             .map_err(core_error)?;
-        if kind == *k && payload == *p && (registry == ECON || registry == CAUSAL) {
+        if kind == *k
+            && payload == *p
+            && (registry == ECON || registry == CAUSAL || registry == EXPOSURE)
+        {
             return Ok(Recipe {
                 operation: "ledger-workflow-economic-operation/3",
                 manifest: "ledger-workflow-economic-manifest/3",
@@ -94,7 +99,7 @@ fn recipe(
             .semantic_work()
             .visit(Visit::MemberCompare)
             .map_err(core_error)?;
-        if kind == k && payload == p && registry == CAUSAL {
+        if kind == k && payload == p && (registry == CAUSAL || registry == EXPOSURE) {
             return Ok(Recipe {
                 operation: "ledger-workflow-economic-operation/4",
                 manifest: "ledger-workflow-economic-manifest/4",
@@ -665,4 +670,60 @@ pub(super) async fn load(
         request,
         frame,
     })
+}
+
+#[cfg(test)]
+mod recipe_tests {
+    use super::*;
+    #[test]
+    fn exposure_dispatch_retains_exact_original_wrapper_versions() {
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let registry = "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4";
+        let ordinary = recipe(
+            "work.accept",
+            "ledger-workflow-work/1",
+            registry,
+            &mut session,
+        )
+        .unwrap();
+        assert_eq!(ordinary.operation, "ledger-workflow-economic-operation/3");
+        assert_eq!(ordinary.authority, "ledger-workflow-economic-authority/2");
+        let causal = recipe(
+            "quantity.correct",
+            "ledger-workflow-quantity-correction/2",
+            registry,
+            &mut session,
+        )
+        .unwrap();
+        assert_eq!(causal.operation, "ledger-workflow-economic-operation/4");
+        assert_eq!(causal.authority, "ledger-workflow-economic-authority/3");
+        assert!(
+            recipe(
+                "work.accept",
+                "ledger-workflow-quantity-correction/2",
+                registry,
+                &mut session
+            )
+            .is_err()
+        );
+        assert!(
+            recipe(
+                "agreement.accept",
+                "ledger-workflow-agreement-accept/4",
+                registry,
+                &mut session
+            )
+            .is_err()
+        );
+        assert!(
+            recipe(
+                "quantity.correct",
+                "ledger-workflow-quantity-correction/2",
+                "sha256:5d9c1c2b3719978693927dd72264aa3c402daaf62800d9e11bb49b0d0868ec1e",
+                &mut session
+            )
+            .is_err()
+        );
+    }
 }

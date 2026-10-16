@@ -58,7 +58,10 @@ fn causal_coverage(
     definitions: &PublicationInputs,
     docs: &[Document],
 ) -> Result<()> {
-    if terms["schema"] != "ledger-workflow-slot-binding-terms/2" {
+    if !matches!(
+        terms["schema"].as_str(),
+        Some("ledger-workflow-slot-binding-terms/2" | "ledger-workflow-slot-binding-terms/3")
+    ) {
         return Ok(());
     }
     let body = |field: &str| -> Result<Value> {

@@ -1,0 +1,762 @@
+{
+  "status": "AUTHOR_CONDITIONAL_ONLY_NOT_INDEPENDENT_OR_RUNTIME",
+  "profile_digest": "sha256:779f00193d8453b11c2aebbb9e07df471a8dcc5f55bd1b21030c81578d533951",
+  "registry_digest": "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4",
+  "terms3": {
+    "ref": {
+      "kind": "workflow-slot-terms",
+      "id": "wdoc_a37ff85542c4a44301da02abfd1689328707d65441958e078a4ea50fe559f476",
+      "digest": "sha256:a37ff85542c4a44301da02abfd1689328707d65441958e078a4ea50fe559f476"
+    },
+    "body": {
+      "schema": "ledger-workflow-slot-binding-terms/3",
+      "scope": [
+        "fixture",
+        "sandbox"
+      ],
+      "agreement_id": "agreement-A",
+      "customer": "customer-A",
+      "slot": "fixture.measure:retail",
+      "book": "retail",
+      "role_slot": "fixture.measure:retail",
+      "role_ref": {
+        "kind": "workflow-roles",
+        "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+        "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+      },
+      "funding_leg": "fixture.measure:customer",
+      "allowed_activities": [
+        "fixture.measure:assessed",
+        "fixture.measure:measured",
+        "fixture.measure:setup"
+      ],
+      "quantity_ceilings": [
+        {
+          "activity": "fixture.measure:measured",
+          "field": "fixture.measure:quantity",
+          "unit": "fixture.measure:item",
+          "maximum": "100"
+        }
+      ],
+      "exposure_ceiling": {
+        "currency": "USD",
+        "scale": 18,
+        "atoms": "100000000000000000000"
+      },
+      "source_grant_refs": [
+        {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+          "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+        }
+      ],
+      "correction_source_slot": "fixture.measure:worker",
+      "causal_reversal_clauses": [
+        {
+          "family_slot": "A-assessment",
+          "correction_source_slot": "fixture.measure:assessor",
+          "root_component_slot": "A-base",
+          "mode": "exact_inverse_and_permanent_close",
+          "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+        }
+      ],
+      "exposure_scope": "original_work"
+    },
+    "canonical_hex": "7b2261677265656d656e745f6964223a2261677265656d656e742d41222c22616c6c6f7765645f61637469766974696573223a5b22666978747572652e6d6561737572653a6173736573736564222c22666978747572652e6d6561737572653a6d65617375726564222c22666978747572652e6d6561737572653a7365747570225d2c22626f6f6b223a2272657461696c222c2263617573616c5f726576657273616c5f636c6175736573223a5b7b22636f7272656374696f6e5f736f757263655f736c6f74223a22666978747572652e6d6561737572653a6173736573736f72222c2266616d696c795f736c6f74223a22412d6173736573736d656e74222c226d6f6465223a2265786163745f696e76657273655f616e645f7065726d616e656e745f636c6f7365222c22726f6f745f636f6d706f6e656e745f736c6f74223a22412d62617365222c227374616e64616c6f6e655f646561646c696e655f656666656374223a22646f65735f6e6f745f6578706972655f70726561636365707465645f63617573616c5f726576657273616c227d5d2c22636f7272656374696f6e5f736f757263655f736c6f74223a22666978747572652e6d6561737572653a776f726b6572222c22637573746f6d6572223a22637573746f6d65722d41222c226578706f737572655f6365696c696e67223a7b2261746f6d73223a22313030303030303030303030303030303030303030222c2263757272656e6379223a22555344222c227363616c65223a31387d2c226578706f737572655f73636f7065223a226f726967696e616c5f776f726b222c2266756e64696e675f6c6567223a22666978747572652e6d6561737572653a637573746f6d6572222c227175616e746974795f6365696c696e6773223a5b7b226163746976697479223a22666978747572652e6d6561737572653a6d65617375726564222c226669656c64223a22666978747572652e6d6561737572653a7175616e74697479222c226d6178696d756d223a22313030222c22756e6974223a22666978747572652e6d6561737572653a6974656d227d5d2c22726f6c655f726566223a7b22646967657374223a227368613235363a38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226964223a2277646f635f38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226b696e64223a22776f726b666c6f772d726f6c6573227d2c22726f6c655f736c6f74223a22666978747572652e6d6561737572653a72657461696c222c22736368656d61223a226c65646765722d776f726b666c6f772d736c6f742d62696e64696e672d7465726d732f33222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c22736c6f74223a22666978747572652e6d6561737572653a72657461696c222c22736f757263655f6772616e745f72656673223a5b7b22646967657374223a227368613235363a33653638663439626661393461373439336535363734663766323765346133393061343834386330626238656261316431386364373561303665316233393031222c226964223a2277646f635f33653638663439626661393461373439336535363734663766323765346133393061343834386330626238656261316431386364373561303665316233393031222c226b696e64223a22776f726b666c6f772d736f757263652d6772616e74227d5d7d"
+  },
+  "old_terms2": {
+    "ref": {
+      "kind": "workflow-slot-terms",
+      "id": "wdoc_4ecae0521dd72b3ccd5d9de0e934f85bb630bbe79167b005be6d51a1c7877795",
+      "digest": "sha256:4ecae0521dd72b3ccd5d9de0e934f85bb630bbe79167b005be6d51a1c7877795"
+    },
+    "body": {
+      "schema": "ledger-workflow-slot-binding-terms/2",
+      "scope": [
+        "fixture",
+        "sandbox"
+      ],
+      "agreement_id": "agreement-A",
+      "customer": "customer-A",
+      "slot": "fixture.measure:retail",
+      "book": "retail",
+      "role_slot": "fixture.measure:retail",
+      "role_ref": {
+        "kind": "workflow-roles",
+        "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+        "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+      },
+      "funding_leg": "fixture.measure:customer",
+      "allowed_activities": [
+        "fixture.measure:assessed",
+        "fixture.measure:measured",
+        "fixture.measure:setup"
+      ],
+      "quantity_ceilings": [
+        {
+          "activity": "fixture.measure:measured",
+          "field": "fixture.measure:quantity",
+          "unit": "fixture.measure:item",
+          "maximum": "100"
+        }
+      ],
+      "exposure_ceiling": {
+        "currency": "USD",
+        "scale": 18,
+        "atoms": "100000000000000000000"
+      },
+      "source_grant_refs": [
+        {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+          "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+        }
+      ],
+      "correction_source_slot": "fixture.measure:worker",
+      "causal_reversal_clauses": [
+        {
+          "family_slot": "A-assessment",
+          "correction_source_slot": "fixture.measure:assessor",
+          "root_component_slot": "A-base",
+          "mode": "exact_inverse_and_permanent_close",
+          "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+        }
+      ]
+    },
+    "canonical_hex": "7b2261677265656d656e745f6964223a2261677265656d656e742d41222c22616c6c6f7765645f61637469766974696573223a5b22666978747572652e6d6561737572653a6173736573736564222c22666978747572652e6d6561737572653a6d65617375726564222c22666978747572652e6d6561737572653a7365747570225d2c22626f6f6b223a2272657461696c222c2263617573616c5f726576657273616c5f636c6175736573223a5b7b22636f7272656374696f6e5f736f757263655f736c6f74223a22666978747572652e6d6561737572653a6173736573736f72222c2266616d696c795f736c6f74223a22412d6173736573736d656e74222c226d6f6465223a2265786163745f696e76657273655f616e645f7065726d616e656e745f636c6f7365222c22726f6f745f636f6d706f6e656e745f736c6f74223a22412d62617365222c227374616e64616c6f6e655f646561646c696e655f656666656374223a22646f65735f6e6f745f6578706972655f70726561636365707465645f63617573616c5f726576657273616c227d5d2c22636f7272656374696f6e5f736f757263655f736c6f74223a22666978747572652e6d6561737572653a776f726b6572222c22637573746f6d6572223a22637573746f6d65722d41222c226578706f737572655f6365696c696e67223a7b2261746f6d73223a22313030303030303030303030303030303030303030222c2263757272656e6379223a22555344222c227363616c65223a31387d2c2266756e64696e675f6c6567223a22666978747572652e6d6561737572653a637573746f6d6572222c227175616e746974795f6365696c696e6773223a5b7b226163746976697479223a22666978747572652e6d6561737572653a6d65617375726564222c226669656c64223a22666978747572652e6d6561737572653a7175616e74697479222c226d6178696d756d223a22313030222c22756e6974223a22666978747572652e6d6561737572653a6974656d227d5d2c22726f6c655f726566223a7b22646967657374223a227368613235363a38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226964223a2277646f635f38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226b696e64223a22776f726b666c6f772d726f6c6573227d2c22726f6c655f736c6f74223a22666978747572652e6d6561737572653a72657461696c222c22736368656d61223a226c65646765722d776f726b666c6f772d736c6f742d62696e64696e672d7465726d732f32222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c22736c6f74223a22666978747572652e6d6561737572653a72657461696c222c22736f757263655f6772616e745f72656673223a5b7b22646967657374223a227368613235363a33653638663439626661393461373439336535363734663766323765346133393061343834386330626238656261316431386364373561303665316233393031222c226964223a2277646f635f33653638663439626661393461373439336535363734663766323765346133393061343834386330626238656261316431386364373561303665316233393031222c226b696e64223a22776f726b666c6f772d736f757263652d6772616e74227d5d7d"
+  },
+  "new_acceptance_terms": {
+    "ref": {
+      "kind": "workflow-acceptance-terms",
+      "id": "wdoc_ad542240dc2c2ac582fddc20098eff4af4b60e9c77bb5c418d059e86cbd3a8e0",
+      "digest": "sha256:ad542240dc2c2ac582fddc20098eff4af4b60e9c77bb5c418d059e86cbd3a8e0"
+    },
+    "body": {
+      "schema": "ledger-workflow-acceptance-terms/1",
+      "scope": [
+        "fixture",
+        "sandbox"
+      ],
+      "publication_ref": {
+        "kind": "workflow-publication",
+        "id": "wpub_756bc4e84537f3760f6fc2311db335a4b0238ddfb419736f65b737df7e53023d",
+        "digest": "sha256:2845467d6a85060173e5dcbfa765bf6b48b9f69294d5391861dc14f75e93b6b1"
+      },
+      "agreement_id": "agreement-A",
+      "customer": "customer-A",
+      "version": "1",
+      "binding_inputs": {
+        "agreement_id": "agreement-A",
+        "version": "1",
+        "customer": "customer-A",
+        "source_namespace": "urn:fixture:publisher",
+        "slot_catalog_ref": {
+          "kind": "workflow-slot-catalog",
+          "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+          "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+        },
+        "slot_instantiation_ref": {
+          "kind": "workflow-slot-instantiation",
+          "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+          "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+        },
+        "roles_refs": [
+          {
+            "kind": "workflow-roles",
+            "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+            "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+          }
+        ],
+        "source_slots": [
+          {
+            "name": "fixture.measure:assessor",
+            "sources": [
+              "urn:fixture:publisher"
+            ],
+            "evidence_kinds": [
+              "occurrence",
+              "outcome"
+            ]
+          },
+          {
+            "name": "fixture.measure:worker",
+            "sources": [
+              "urn:fixture:publisher"
+            ],
+            "evidence_kinds": []
+          }
+        ],
+        "accepted_context": {
+          "fact_schema_ref": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+            "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+          },
+          "facts": {}
+        },
+        "bindings": [
+          {
+            "slot": "fixture.measure:retail",
+            "binding_ref": {
+              "kind": "workflow-slot-terms",
+              "id": "wdoc_a37ff85542c4a44301da02abfd1689328707d65441958e078a4ea50fe559f476",
+              "digest": "sha256:a37ff85542c4a44301da02abfd1689328707d65441958e078a4ea50fe559f476"
+            }
+          }
+        ],
+        "funding_legs": [
+          {
+            "name": "fixture.measure:customer",
+            "mode": "customer_local",
+            "resource_owner": "customer-A",
+            "payer": "customer-A",
+            "evidence_refs": [
+              {
+                "kind": "workflow-evidence",
+                "id": "wdoc_7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84",
+                "digest": "sha256:7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84"
+              }
+            ]
+          }
+        ],
+        "starts_at": "2026-10-13T00:00:00.000000Z",
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.measure:measured",
+            "field": "fixture.measure:quantity",
+            "unit": "fixture.measure:item",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceilings": [
+          {
+            "binding_slot": "fixture.measure:retail",
+            "maximum": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "100000000000000000000"
+            }
+          }
+        ]
+      }
+    },
+    "canonical_hex": "7b2261677265656d656e745f6964223a2261677265656d656e742d41222c2262696e64696e675f696e70757473223a7b2261636365707465645f636f6e74657874223a7b22666163745f736368656d615f726566223a7b22646967657374223a227368613235363a39396163363264616661643738323164656264303336363533376231303965373366343839303131663766356464343230366432643262373031653465343862222c226964223a2277646f635f39396163363264616661643738323164656264303336363533376231303965373366343839303131663766356464343230366432643262373031653465343862222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c226661637473223a7b7d7d2c2261677265656d656e745f6964223a2261677265656d656e742d41222c2262696e64696e6773223a5b7b2262696e64696e675f726566223a7b22646967657374223a227368613235363a61333766663835353432633461343433303164613032616266643136383933323837303764363534343139353865303738613465613530666535353966343736222c226964223a2277646f635f61333766663835353432633461343433303164613032616266643136383933323837303764363534343139353865303738613465613530666535353966343736222c226b696e64223a22776f726b666c6f772d736c6f742d7465726d73227d2c22736c6f74223a22666978747572652e6d6561737572653a72657461696c227d5d2c22637573746f6d6572223a22637573746f6d65722d41222c226578706f737572655f6365696c696e6773223a5b7b2262696e64696e675f736c6f74223a22666978747572652e6d6561737572653a72657461696c222c226d6178696d756d223a7b2261746f6d73223a22313030303030303030303030303030303030303030222c2263757272656e6379223a22555344222c227363616c65223a31387d7d5d2c2266756e64696e675f6c656773223a5b7b2265766964656e63655f72656673223a5b7b22646967657374223a227368613235363a37666361336436613535373839353232363364396139363835353537346433356234656263353239326236396333666332636265343232653137366334643834222c226964223a2277646f635f37666361336436613535373839353232363364396139363835353537346433356234656263353239326236396333666332636265343232653137366334643834222c226b696e64223a22776f726b666c6f772d65766964656e6365227d5d2c226d6f6465223a22637573746f6d65725f6c6f63616c222c226e616d65223a22666978747572652e6d6561737572653a637573746f6d6572222c227061796572223a22637573746f6d65722d41222c227265736f757263655f6f776e6572223a22637573746f6d65722d41227d5d2c227175616e746974795f6365696c696e6773223a5b7b226163746976697479223a22666978747572652e6d6561737572653a6d65617375726564222c226669656c64223a22666978747572652e6d6561737572653a7175616e74697479222c226d6178696d756d223a22313030222c22756e6974223a22666978747572652e6d6561737572653a6974656d227d5d2c22726f6c65735f72656673223a5b7b22646967657374223a227368613235363a38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226964223a2277646f635f38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226b696e64223a22776f726b666c6f772d726f6c6573227d5d2c22736c6f745f636174616c6f675f726566223a7b22646967657374223a227368613235363a30376234383663396137633235633236666532383062303964636230363466313331383833363764363331393966616137373938333865666633353132393230222c226964223a2277646f635f30376234383663396137633235633236666532383062303964636230363466313331383833363764363331393966616137373938333865666633353132393230222c226b696e64223a22776f726b666c6f772d736c6f742d636174616c6f67227d2c22736c6f745f696e7374616e74696174696f6e5f726566223a7b22646967657374223a227368613235363a62333937643964376338346131336135353536383862633762653035633335623034333835323631333661353234393161636662636562303230386537313165222c226964223a2277646f635f62333937643964376338346131336135353536383862633762653035633335623034333835323631333661353234393161636662636562303230386537313165222c226b696e64223a22776f726b666c6f772d736c6f742d696e7374616e74696174696f6e227d2c22736f757263655f6e616d657370616365223a2275726e3a666978747572653a7075626c6973686572222c22736f757263655f736c6f7473223a5b7b2265766964656e63655f6b696e6473223a5b226f6363757272656e6365222c226f7574636f6d65225d2c226e616d65223a22666978747572652e6d6561737572653a6173736573736f72222c22736f7572636573223a5b2275726e3a666978747572653a7075626c6973686572225d7d2c7b2265766964656e63655f6b696e6473223a5b5d2c226e616d65223a22666978747572652e6d6561737572653a776f726b6572222c22736f7572636573223a5b2275726e3a666978747572653a7075626c6973686572225d7d5d2c227374617274735f6174223a22323032362d31302d31335430303a30303a30302e3030303030305a222c2276657273696f6e223a2231227d2c22637573746f6d6572223a22637573746f6d65722d41222c227075626c69636174696f6e5f726566223a7b22646967657374223a227368613235363a32383435343637643661383530363031373365356463626661373635626636623438623966363932393464353339313836316463313466373565393362366231222c226964223a22777075625f37353662633465383435333766333736306636666332333131646233333561346230323338646466623431393733366636356237333764663765353330323364222c226b696e64223a22776f726b666c6f772d7075626c69636174696f6e227d2c22736368656d61223a226c65646765722d776f726b666c6f772d616363657074616e63652d7465726d732f31222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c2276657273696f6e223a2231227d"
+  },
+  "old_terms2_acceptance_terms": {
+    "ref": {
+      "kind": "workflow-acceptance-terms",
+      "id": "wdoc_bf9a47a7634e7b60d85365e187132a866594e1ef350ed6389ea2d7725627adfa",
+      "digest": "sha256:bf9a47a7634e7b60d85365e187132a866594e1ef350ed6389ea2d7725627adfa"
+    },
+    "body": {
+      "schema": "ledger-workflow-acceptance-terms/1",
+      "scope": [
+        "fixture",
+        "sandbox"
+      ],
+      "publication_ref": {
+        "kind": "workflow-publication",
+        "id": "wpub_756bc4e84537f3760f6fc2311db335a4b0238ddfb419736f65b737df7e53023d",
+        "digest": "sha256:2845467d6a85060173e5dcbfa765bf6b48b9f69294d5391861dc14f75e93b6b1"
+      },
+      "agreement_id": "agreement-A",
+      "customer": "customer-A",
+      "version": "1",
+      "binding_inputs": {
+        "agreement_id": "agreement-A",
+        "version": "1",
+        "customer": "customer-A",
+        "source_namespace": "urn:fixture:publisher",
+        "slot_catalog_ref": {
+          "kind": "workflow-slot-catalog",
+          "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+          "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+        },
+        "slot_instantiation_ref": {
+          "kind": "workflow-slot-instantiation",
+          "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+          "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+        },
+        "roles_refs": [
+          {
+            "kind": "workflow-roles",
+            "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+            "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+          }
+        ],
+        "source_slots": [
+          {
+            "name": "fixture.measure:assessor",
+            "sources": [
+              "urn:fixture:publisher"
+            ],
+            "evidence_kinds": [
+              "occurrence",
+              "outcome"
+            ]
+          },
+          {
+            "name": "fixture.measure:worker",
+            "sources": [
+              "urn:fixture:publisher"
+            ],
+            "evidence_kinds": []
+          }
+        ],
+        "accepted_context": {
+          "fact_schema_ref": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+            "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+          },
+          "facts": {}
+        },
+        "bindings": [
+          {
+            "slot": "fixture.measure:retail",
+            "binding_ref": {
+              "kind": "workflow-slot-terms",
+              "id": "wdoc_4ecae0521dd72b3ccd5d9de0e934f85bb630bbe79167b005be6d51a1c7877795",
+              "digest": "sha256:4ecae0521dd72b3ccd5d9de0e934f85bb630bbe79167b005be6d51a1c7877795"
+            }
+          }
+        ],
+        "funding_legs": [
+          {
+            "name": "fixture.measure:customer",
+            "mode": "customer_local",
+            "resource_owner": "customer-A",
+            "payer": "customer-A",
+            "evidence_refs": [
+              {
+                "kind": "workflow-evidence",
+                "id": "wdoc_7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84",
+                "digest": "sha256:7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84"
+              }
+            ]
+          }
+        ],
+        "starts_at": "2026-10-13T00:00:00.000000Z",
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.measure:measured",
+            "field": "fixture.measure:quantity",
+            "unit": "fixture.measure:item",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceilings": [
+          {
+            "binding_slot": "fixture.measure:retail",
+            "maximum": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "100000000000000000000"
+            }
+          }
+        ]
+      }
+    },
+    "canonical_hex": "7b2261677265656d656e745f6964223a2261677265656d656e742d41222c2262696e64696e675f696e70757473223a7b2261636365707465645f636f6e74657874223a7b22666163745f736368656d615f726566223a7b22646967657374223a227368613235363a39396163363264616661643738323164656264303336363533376231303965373366343839303131663766356464343230366432643262373031653465343862222c226964223a2277646f635f39396163363264616661643738323164656264303336363533376231303965373366343839303131663766356464343230366432643262373031653465343862222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c226661637473223a7b7d7d2c2261677265656d656e745f6964223a2261677265656d656e742d41222c2262696e64696e6773223a5b7b2262696e64696e675f726566223a7b22646967657374223a227368613235363a34656361653035323164643732623363636435643964653065393334663835626236333062626537393136376230303562653664353161316337383737373935222c226964223a2277646f635f34656361653035323164643732623363636435643964653065393334663835626236333062626537393136376230303562653664353161316337383737373935222c226b696e64223a22776f726b666c6f772d736c6f742d7465726d73227d2c22736c6f74223a22666978747572652e6d6561737572653a72657461696c227d5d2c22637573746f6d6572223a22637573746f6d65722d41222c226578706f737572655f6365696c696e6773223a5b7b2262696e64696e675f736c6f74223a22666978747572652e6d6561737572653a72657461696c222c226d6178696d756d223a7b2261746f6d73223a22313030303030303030303030303030303030303030222c2263757272656e6379223a22555344222c227363616c65223a31387d7d5d2c2266756e64696e675f6c656773223a5b7b2265766964656e63655f72656673223a5b7b22646967657374223a227368613235363a37666361336436613535373839353232363364396139363835353537346433356234656263353239326236396333666332636265343232653137366334643834222c226964223a2277646f635f37666361336436613535373839353232363364396139363835353537346433356234656263353239326236396333666332636265343232653137366334643834222c226b696e64223a22776f726b666c6f772d65766964656e6365227d5d2c226d6f6465223a22637573746f6d65725f6c6f63616c222c226e616d65223a22666978747572652e6d6561737572653a637573746f6d6572222c227061796572223a22637573746f6d65722d41222c227265736f757263655f6f776e6572223a22637573746f6d65722d41227d5d2c227175616e746974795f6365696c696e6773223a5b7b226163746976697479223a22666978747572652e6d6561737572653a6d65617375726564222c226669656c64223a22666978747572652e6d6561737572653a7175616e74697479222c226d6178696d756d223a22313030222c22756e6974223a22666978747572652e6d6561737572653a6974656d227d5d2c22726f6c65735f72656673223a5b7b22646967657374223a227368613235363a38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226964223a2277646f635f38643264623838396339303331386334373161373836623366646663643562623335326466303166646135616639326431363438366164363537623564663335222c226b696e64223a22776f726b666c6f772d726f6c6573227d5d2c22736c6f745f636174616c6f675f726566223a7b22646967657374223a227368613235363a30376234383663396137633235633236666532383062303964636230363466313331383833363764363331393966616137373938333865666633353132393230222c226964223a2277646f635f30376234383663396137633235633236666532383062303964636230363466313331383833363764363331393966616137373938333865666633353132393230222c226b696e64223a22776f726b666c6f772d736c6f742d636174616c6f67227d2c22736c6f745f696e7374616e74696174696f6e5f726566223a7b22646967657374223a227368613235363a62333937643964376338346131336135353536383862633762653035633335623034333835323631333661353234393161636662636562303230386537313165222c226964223a2277646f635f62333937643964376338346131336135353536383862633762653035633335623034333835323631333661353234393161636662636562303230386537313165222c226b696e64223a22776f726b666c6f772d736c6f742d696e7374616e74696174696f6e227d2c22736f757263655f6e616d657370616365223a2275726e3a666978747572653a7075626c6973686572222c22736f757263655f736c6f7473223a5b7b2265766964656e63655f6b696e6473223a5b226f6363757272656e6365222c226f7574636f6d65225d2c226e616d65223a22666978747572652e6d6561737572653a6173736573736f72222c22736f7572636573223a5b2275726e3a666978747572653a7075626c6973686572225d7d2c7b2265766964656e63655f6b696e6473223a5b5d2c226e616d65223a22666978747572652e6d6561737572653a776f726b6572222c22736f7572636573223a5b2275726e3a666978747572653a7075626c6973686572225d7d5d2c227374617274735f6174223a22323032362d31302d31335430303a30303a30302e3030303030305a222c2276657273696f6e223a2231227d2c22637573746f6d6572223a22637573746f6d65722d41222c227075626c69636174696f6e5f726566223a7b22646967657374223a227368613235363a32383435343637643661383530363031373365356463626661373635626636623438623966363932393464353339313836316463313466373565393362366231222c226964223a22777075625f37353662633465383435333766333736306636666332333131646233333561346230323338646466623431393733366636356237333764663765353330323364222c226b696e64223a22776f726b666c6f772d7075626c69636174696f6e227d2c22736368656d61223a226c65646765722d776f726b666c6f772d616363657074616e63652d7465726d732f31222c2273636f7065223a5b2266697874757265222c2273616e64626f78225d2c2276657273696f6e223a2231227d"
+  },
+  "old_assent_digest_matches_new": false,
+  "accept4_shape": {
+    "schema": "ledger-workflow-agreement-accept/4",
+    "agreement_id": "agreement-A",
+    "expected_revision": "0",
+    "publication_ref": {
+      "kind": "workflow-publication",
+      "id": "wpub_756bc4e84537f3760f6fc2311db335a4b0238ddfb419736f65b737df7e53023d",
+      "digest": "sha256:2845467d6a85060173e5dcbfa765bf6b48b9f69294d5391861dc14f75e93b6b1"
+    },
+    "slot_catalog_ref": {
+      "kind": "workflow-slot-catalog",
+      "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+      "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+    },
+    "slot_instantiation_ref": {
+      "kind": "workflow-slot-instantiation",
+      "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+      "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+    },
+    "binding_inputs": {
+      "agreement_id": "agreement-A",
+      "version": "1",
+      "customer": "customer-A",
+      "source_namespace": "urn:fixture:publisher",
+      "slot_catalog_ref": {
+        "kind": "workflow-slot-catalog",
+        "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+        "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+      },
+      "slot_instantiation_ref": {
+        "kind": "workflow-slot-instantiation",
+        "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+        "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+      },
+      "roles_refs": [
+        {
+          "kind": "workflow-roles",
+          "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+          "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+        }
+      ],
+      "assent_refs": [
+        {
+          "kind": "workflow-assent",
+          "id": "wdoc_b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308",
+          "digest": "sha256:b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308"
+        }
+      ],
+      "authority_refs": [
+        {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+          "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+        }
+      ],
+      "source_slots": [
+        {
+          "name": "fixture.measure:assessor",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": [
+            "occurrence",
+            "outcome"
+          ]
+        },
+        {
+          "name": "fixture.measure:worker",
+          "sources": [
+            "urn:fixture:publisher"
+          ],
+          "evidence_kinds": []
+        }
+      ],
+      "accepted_context": {
+        "fact_schema_ref": {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+          "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+        },
+        "facts": {}
+      },
+      "bindings": [
+        {
+          "slot": "fixture.measure:retail",
+          "binding_ref": {
+            "kind": "workflow-slot-terms",
+            "id": "wdoc_a37ff85542c4a44301da02abfd1689328707d65441958e078a4ea50fe559f476",
+            "digest": "sha256:a37ff85542c4a44301da02abfd1689328707d65441958e078a4ea50fe559f476"
+          }
+        }
+      ],
+      "funding_legs": [
+        {
+          "name": "fixture.measure:customer",
+          "mode": "customer_local",
+          "resource_owner": "customer-A",
+          "payer": "customer-A",
+          "evidence_refs": [
+            {
+              "kind": "workflow-evidence",
+              "id": "wdoc_7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84",
+              "digest": "sha256:7fca3d6a5578952263d9a96855574d35b4ebc5292b69c3fc2cbe422e176c4d84"
+            }
+          ]
+        }
+      ],
+      "starts_at": "2026-10-13T00:00:00.000000Z",
+      "quantity_ceilings": [
+        {
+          "activity": "fixture.measure:measured",
+          "field": "fixture.measure:quantity",
+          "unit": "fixture.measure:item",
+          "maximum": "100"
+        }
+      ],
+      "exposure_ceilings": [
+        {
+          "binding_slot": "fixture.measure:retail",
+          "maximum": {
+            "currency": "USD",
+            "scale": 18,
+            "atoms": "100000000000000000000"
+          }
+        }
+      ]
+    },
+    "assent_refs": [
+      {
+        "kind": "workflow-assent",
+        "id": "wdoc_b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308",
+        "digest": "sha256:b63e8972b7612127970c539fc1399e16dc806a4618f464443e4ccb3e5a247308"
+      }
+    ],
+    "authority_refs": [
+      {
+        "kind": "workflow-source-grant",
+        "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+        "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+      }
+    ],
+    "documents": [
+      {
+        "schema": "ledger-workflow-slot-binding-terms/3",
+        "scope": [
+          "fixture",
+          "sandbox"
+        ],
+        "agreement_id": "agreement-A",
+        "customer": "customer-A",
+        "slot": "fixture.measure:retail",
+        "book": "retail",
+        "role_slot": "fixture.measure:retail",
+        "role_ref": {
+          "kind": "workflow-roles",
+          "id": "wdoc_8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35",
+          "digest": "sha256:8d2db889c90318c471a786b3fdfcd5bb352df01fda5af92d16486ad657b5df35"
+        },
+        "funding_leg": "fixture.measure:customer",
+        "allowed_activities": [
+          "fixture.measure:assessed",
+          "fixture.measure:measured",
+          "fixture.measure:setup"
+        ],
+        "quantity_ceilings": [
+          {
+            "activity": "fixture.measure:measured",
+            "field": "fixture.measure:quantity",
+            "unit": "fixture.measure:item",
+            "maximum": "100"
+          }
+        ],
+        "exposure_ceiling": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "100000000000000000000"
+        },
+        "source_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901",
+            "digest": "sha256:3e68f49bfa94a7493e5674f7f27e4a390a4848c0bb8eba1d18cd75a06e1b3901"
+          }
+        ],
+        "correction_source_slot": "fixture.measure:worker",
+        "causal_reversal_clauses": [
+          {
+            "family_slot": "A-assessment",
+            "correction_source_slot": "fixture.measure:assessor",
+            "root_component_slot": "A-base",
+            "mode": "exact_inverse_and_permanent_close",
+            "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+          }
+        ],
+        "exposure_scope": "original_work"
+      }
+    ]
+  },
+  "external_anchors": "Every retained anchor, publication, role, source and assent in these specimens is unresolved fixture DATA. Template assent refs intentionally are not asserted valid for the new terms digest.",
+  "cases": [
+    {
+      "name": "two_independent_works",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "6",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "6",
+          "admissible": true
+        },
+        {
+          "id": "B",
+          "states": [
+            {
+              "positive_exposure_atoms": "6",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "6",
+          "admissible": true
+        }
+      ],
+      "all_admissible": true
+    },
+    {
+      "name": "same_work_two_roots",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "12",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "12",
+          "admissible": false
+        }
+      ],
+      "all_admissible": false
+    },
+    {
+      "name": "two_simultaneous_families",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "11",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "11",
+          "admissible": false
+        }
+      ],
+      "all_admissible": false
+    },
+    {
+      "name": "one_exclusive_family",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "9",
+              "discount_max_atoms": "2",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "9",
+          "admissible": true
+        }
+      ],
+      "all_admissible": true
+    },
+    {
+      "name": "none_retains_future_premium",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "9",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "9",
+          "admissible": false
+        }
+      ],
+      "all_admissible": false
+    },
+    {
+      "name": "causal_root_replacement_closes_family",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "9",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            },
+            {
+              "positive_exposure_atoms": "9",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "9",
+          "admissible": true
+        }
+      ],
+      "all_admissible": true
+    },
+    {
+      "name": "discount_not_premium_headroom",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "9",
+              "discount_max_atoms": "3",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "9",
+          "admissible": false
+        }
+      ],
+      "all_admissible": false
+    },
+    {
+      "name": "discount_bound_separate",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "7",
+              "discount_max_atoms": "7",
+              "discount_valid": false
+            }
+          ],
+          "maximum_exposure_atoms": "7",
+          "admissible": false
+        }
+      ],
+      "all_admissible": false
+    },
+    {
+      "name": "zero_family_permanent",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "6",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "6",
+          "admissible": true
+        }
+      ],
+      "all_admissible": true
+    },
+    {
+      "name": "immutable_closed_no_future_family",
+      "works": [
+        {
+          "id": "A",
+          "states": [
+            {
+              "positive_exposure_atoms": "9",
+              "discount_max_atoms": "0",
+              "discount_valid": true
+            }
+          ],
+          "maximum_exposure_atoms": "9",
+          "admissible": true
+        }
+      ],
+      "all_admissible": true
+    }
+  ],
+  "negative_mutations_expected": "all refuse shape; old schema additionally checked against old closed terms2 schema"
+}

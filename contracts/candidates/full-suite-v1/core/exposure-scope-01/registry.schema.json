@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:exposure-scope-01-registry",
+  "const": {
+    "schema": "ledger-operation-registry-contract/2",
+    "contract": "workflow/1",
+    "operation_envelope": "ledger-operation/1",
+    "receipt_profile": "ledger-operation-receipt/2",
+    "evidence_profile": "ledger-operation-request-evidence/2",
+    "normalization_profile": "ledger-operation-normalization/2",
+    "entries": [
+      {
+        "kind": "agreement.accept",
+        "payload_schemas": [
+          "ledger-workflow-agreement-accept/4"
+        ],
+        "recipe_id": "agreement.accept/exposure-4",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-agreement-authority/2",
+          "operation_schema": "ledger-workflow-operation-record/1",
+          "manifest_schema": "ledger-workflow-agreement-manifest/1",
+          "closure_profile": "absent",
+          "authority_audit_profile": "none",
+          "financial_audit_profile": "none"
+        }
+      },
+      {
+        "kind": "evidence.retain",
+        "payload_schemas": [
+          "ledger-workflow-fact-attest/1"
+        ],
+        "recipe_id": "evidence.retain/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/2",
+          "operation_schema": "ledger-workflow-economic-operation/3",
+          "manifest_schema": "ledger-workflow-economic-manifest/3",
+          "closure_profile": "ledger-economic-resolved-inputs/3",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      },
+      {
+        "kind": "link.assert",
+        "payload_schemas": [
+          "ledger-workflow-link-assert/1"
+        ],
+        "recipe_id": "link.assert/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/2",
+          "operation_schema": "ledger-workflow-economic-operation/3",
+          "manifest_schema": "ledger-workflow-economic-manifest/3",
+          "closure_profile": "ledger-economic-resolved-inputs/3",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      },
+      {
+        "kind": "outcome.close",
+        "payload_schemas": [
+          "ledger-workflow-outcome-close/1"
+        ],
+        "recipe_id": "outcome.close/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/2",
+          "operation_schema": "ledger-workflow-economic-operation/3",
+          "manifest_schema": "ledger-workflow-economic-manifest/3",
+          "closure_profile": "ledger-economic-resolved-inputs/3",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      },
+      {
+        "kind": "outcome.correct",
+        "payload_schemas": [
+          "ledger-workflow-outcome-correction/1"
+        ],
+        "recipe_id": "outcome.correct/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/2",
+          "operation_schema": "ledger-workflow-economic-operation/3",
+          "manifest_schema": "ledger-workflow-economic-manifest/3",
+          "closure_profile": "ledger-economic-resolved-inputs/3",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      },
+      {
+        "kind": "outcome.submit",
+        "payload_schemas": [
+          "ledger-workflow-outcome/1"
+        ],
+        "recipe_id": "outcome.submit/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/2",
+          "operation_schema": "ledger-workflow-economic-operation/3",
+          "manifest_schema": "ledger-workflow-economic-manifest/3",
+          "closure_profile": "ledger-economic-resolved-inputs/3",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      },
+      {
+        "kind": "quantity.correct",
+        "payload_schemas": [
+          "ledger-workflow-quantity-correction/2"
+        ],
+        "recipe_id": "quantity.correct/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/3",
+          "operation_schema": "ledger-workflow-economic-operation/4",
+          "manifest_schema": "ledger-workflow-economic-manifest/4",
+          "closure_profile": "ledger-economic-resolved-inputs/4",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      },
+      {
+        "kind": "work.accept",
+        "payload_schemas": [
+          "ledger-workflow-work/1"
+        ],
+        "recipe_id": "work.accept/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/2",
+          "operation_schema": "ledger-workflow-economic-operation/3",
+          "manifest_schema": "ledger-workflow-economic-manifest/3",
+          "closure_profile": "ledger-economic-resolved-inputs/3",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      },
+      {
+        "kind": "work.reverse",
+        "payload_schemas": [
+          "ledger-workflow-work-reverse/2"
+        ],
+        "recipe_id": "work.reverse/exposure-1",
+        "exposure": "external",
+        "saved_recipe": {
+          "authority_schema": "ledger-workflow-economic-authority/3",
+          "operation_schema": "ledger-workflow-economic-operation/4",
+          "manifest_schema": "ledger-workflow-economic-manifest/4",
+          "closure_profile": "ledger-economic-resolved-inputs/4",
+          "authority_audit_profile": "ledger-authority-origin-audit/1",
+          "financial_audit_profile": "ledger-financial-origin-audit/1"
+        }
+      }
+    ],
+    "record_kinds": [
+      "workflow-acceptance-terms",
+      "workflow-accepted-agreement",
+      "workflow-action",
+      "workflow-activation",
+      "workflow-agreement-intent",
+      "workflow-assent",
+      "workflow-authority",
+      "workflow-authority-audit-verifier",
+      "workflow-authority-prefix-observation",
+      "workflow-binding",
+      "workflow-build-manifest",
+      "workflow-capacity-retirement",
+      "workflow-chain-state",
+      "workflow-compiled-plan",
+      "workflow-compiler-descriptor",
+      "workflow-correction-capacity",
+      "workflow-customer",
+      "workflow-decision",
+      "workflow-dependency",
+      "workflow-economic-authority",
+      "workflow-evaluation",
+      "workflow-evidence",
+      "workflow-evidence-verification",
+      "workflow-fact-attestation",
+      "workflow-fact-schema",
+      "workflow-family-state",
+      "workflow-financial-history-observation",
+      "workflow-head-transition",
+      "workflow-link",
+      "workflow-manifest",
+      "workflow-operation",
+      "workflow-outcome-claim",
+      "workflow-policy",
+      "workflow-product",
+      "workflow-publication",
+      "workflow-receipt",
+      "workflow-roles",
+      "workflow-slot-catalog",
+      "workflow-slot-instantiation",
+      "workflow-slot-template",
+      "workflow-slot-terms",
+      "workflow-source-enrollment",
+      "workflow-source-grant",
+      "workflow-source-state",
+      "workflow-target",
+      "workflow-verified-fact",
+      "workflow-work",
+      "workflow-work-claim"
+    ],
+    "errors": [
+      "ACTIVATION_SCHEDULE_CONFLICT",
+      "AGREEMENT_OWNERSHIP_CONFLICT",
+      "ASSENT_TERMS_MISMATCH",
+      "AUDIT_CANCELLED",
+      "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+      "AUTHORITY_REQUIRED",
+      "BASIS_NOT_TOTAL",
+      "CAPACITY_EXCEEDED",
+      "CLOCK_REGRESSION",
+      "CORRECTION_CAPACITY_EXCEEDED",
+      "CORRECTION_TERMS_UNSPECIFIED",
+      "CORRECTION_WINDOW_CLOSED",
+      "DESCRIPTOR_DEPENDENCY_MISSING",
+      "DESCRIPTOR_SCOPE_MISMATCH",
+      "DOCUMENT_DIGEST_MISMATCH",
+      "HISTORICAL_VERIFIER_UNAVAILABLE",
+      "IDENTITY_CONFLICT",
+      "INSTALLATION_MODE_MISMATCH",
+      "INTEGRITY_FAILURE",
+      "INVALID_REFERENCE",
+      "INVALID_SCALAR",
+      "INVALID_SHAPE",
+      "LINK_CARDINALITY",
+      "LINK_CYCLE",
+      "MISSING_DEPENDENCY",
+      "MISSING_FINANCIAL_ORIGIN",
+      "OCCURRENCE_EVIDENCE_REQUIRED",
+      "ORIGINAL_TERMS_MISMATCH",
+      "PLAN_DIGEST_MISMATCH",
+      "PREDICATE_ANALYSIS_LIMIT",
+      "PROGRAM_BUDGET_EXCEEDED",
+      "REQUEST_EVIDENCE_MISMATCH",
+      "REVERSAL_DEPENDENTS_REQUIRED",
+      "SEMANTIC_CONFLICT",
+      "SLOT_SEMANTICS_CHANGED",
+      "SOURCE_CEILING_EXCEEDED",
+      "STALE_REVISION",
+      "TARGET_CLOSED",
+      "UNSUPPORTED_COMPOSITION",
+      "UNSUPPORTED_SCHEMA_PROFILE"
+    ],
+    "status_input": "OperationKey",
+    "status_output": "OperationStatus",
+    "read_inputs": [
+      "EconomicRead",
+      "DescriptorPrepare"
+    ],
+    "read_outputs": [
+      "CorrectionPreparation",
+      "EconomicRecordEnvelope",
+      "DescriptorResolution",
+      "OperationStatus",
+      "ReadError"
+    ],
+    "result_kinds": [
+      "economic",
+      "administrative",
+      "semantic_alias"
+    ]
+  }
+}
