@@ -7,6 +7,7 @@ use sqlx::Row;
 use tokio::time::timeout_at;
 pub(crate) mod capacity;
 pub(crate) mod agreement;
+pub(crate) mod financial;
 
 impl super::SqliteStore {
     /// Mechanical instance binding; this confers no caller authority.
@@ -152,7 +153,7 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if version != 12 {
+        if version != 12 && version != 13 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())

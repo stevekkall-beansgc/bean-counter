@@ -16,6 +16,32 @@ const CUSTOMERS: &str = include_str!("../../../migrations/sqlite/0009_customer_a
 const M3_HISTORY: &str = include_str!("../../../migrations/sqlite/0010_m3_history.sql");
 const M5_LIFECYCLE: &str = include_str!("../../../migrations/sqlite/0011_m5_lifecycle.sql");
 const WORKFLOW: &str = concat!(include_str!("workflow/schema.sql"), "\n", include_str!("workflow/agreement/schema.sql"), "\n", include_str!("workflow/agreement/transport/schema.sql"), "\n", include_str!("workflow/agreement/acceptance/schema.sql"));
+const FINANCIAL_WORKFLOW: &str = include_str!("workflow/financial/schema.sql");
+fn financial_workflow_migration() -> Migration {
+    Migration::new(
+        13,
+        "workflow financial projections".into(),
+        MigrationType::Simple,
+        FINANCIAL_WORKFLOW.into_sql_str(),
+        false,
+    )
+}
+async fn finish_financial_schema(conn: &mut SqliteConnection) -> Result<(), StoreError> {
+    let failure = sqlx::query("PRAGMA foreign_key_check")
+        .fetch_optional(&mut *conn).await?;
+    if failure.is_some() {
+        return Err(StoreError::Integrity("financial upgrade foreign key mismatch"));
+    }
+    // DROP/replace can leave SQLite's deferred counter referring to the old
+    // table instance, despite every current reference resolving. Reset only
+    // AFTER checking all actual foreign keys under the same exclusive writer.
+    // Foreign-key enforcement itself remains enabled throughout the upgrade.
+    sqlx::query("PRAGMA defer_foreign_keys=OFF").execute(conn).await?;
+    Ok(())
+}
+#[cfg(test)]
+#[path = "financial_upgrade_tests.rs"]
+mod financial_upgrade_tests;
 fn workflow_migration() -> Migration {
     Migration::new(
         12,
@@ -124,14 +150,14 @@ pub(super) async fn verify(conn: &mut SqliteConnection) -> Result<(), StoreError
         .await?;
     // Ordinary open never upgrades. The M5 coordinator owns schema-11 billing
     // writes; the historical schema-10 billing writer still refuses version 11.
-    if current != 9 && current != 10 && current != 11 && current != 12 {
+    if !(9..=13).contains(&current) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     version(conn).await?;
-    if current == 11 || current == 12 {
+    if current >= 11 {
         super::m5::verify(conn).await?;
     }
-    if current == 12 {
+    if current >= 12 {
         super::workflow::capacity::check(conn, 0, 0).await?;
     }
     Ok(())
@@ -140,7 +166,7 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
     let v: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if !(1..=12).contains(&v) {
+    if !(1..=13).contains(&v) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     let migrations = migrator();
@@ -150,7 +176,9 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
             .await?;
     if rows.len() != v as usize
         || rows.iter().enumerate().any(|(i, row)| {
-            let expected = if i == 11 {
+            let expected = if i == 12 {
+                financial_workflow_migration()
+            } else if i == 11 {
                 workflow_migration()
             } else if i == 10 {
                 m5_migration()
@@ -1450,6 +1478,56 @@ mod billing_upgrade_tests;
 mod m5_upgrade_tests;
 
 impl super::SqliteTx {
+    /// Explicit mechanical upgrade under the existing exclusive writer. The
+    /// coordinator must first authenticate its complete chronological prefix.
+    /// This does not make any financial candidate eligible or append a record.
+    pub(crate) async fn workflow_enable_financial_schema(&mut self) -> Result<(), StoreError> {
+        if self.failed {
+            return Err(StoreError::InvalidStore("poisoned financial upgrade"));
+        }
+        self.failed = true;
+        let result = tokio::time::timeout_at(self.deadline, async {
+            let from = version(self.conn()).await?;
+            if from == 13 {
+                return super::workflow::capacity::check(self.conn(), 0, 0).await.map(|_| ());
+            }
+            if from != 12 {
+                return Err(StoreError::BillingUpgradeRequired);
+            }
+            let installation = super::read::installation(self.conn()).await?;
+            if installation.mode != "real" || installation.admission != "open"
+                || !installation.dispatch_hold || installation.dispatch_enabled {
+                return Err(StoreError::InvalidStore("financial upgrade requires held real installation"));
+            }
+            super::m5::verify(self.conn()).await?;
+            super::workflow::capacity::check(self.conn(), 0, 0).await?;
+            super::connect::integrity(self.conn()).await?;
+            let collision: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name LIKE 'workflow_financial_%' OR name IN ('workflow_documents_financial_upgrade','workflow_operations_financial_upgrade'))")
+                .fetch_one(self.conn()).await?;
+            if collision {
+                return Err(StoreError::InvalidStore("financial schema name collision"));
+            }
+            let migration = financial_workflow_migration();
+            // INSERT SELECT preserves every original column/BLOB. Deferred
+            // references must all resolve after replacement, before commit.
+            sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref()))
+                .execute(self.conn()).await?;
+            finish_financial_schema(self.conn()).await?;
+            sqlx::query("INSERT INTO _sqlx_migrations(version,description,success,checksum,execution_time) VALUES(?,?,TRUE,?,0)")
+                .bind(migration.version).bind(migration.description.as_ref())
+                .bind(migration.checksum.as_ref()).execute(self.conn()).await?;
+            sqlx::query("PRAGMA user_version=13").execute(self.conn()).await?;
+            version(self.conn()).await?;
+            super::workflow::capacity::check(self.conn(), 0, 0).await?;
+            super::connect::integrity(self.conn()).await?;
+            Ok::<_, StoreError>(())
+        }).await.map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = false;
+        }
+        result
+    }
+
     /// Mechanical opt-in only. The trusted coordinator must validate the entire
     /// billing snapshot and its local actor in this same writer transaction.
     pub(crate) async fn workflow_enable_profile_b(&mut self) -> Result<(), StoreError> {
@@ -1460,7 +1538,7 @@ impl super::SqliteTx {
         let deadline = self.deadline;
         let result = tokio::time::timeout_at(deadline, async {
             let from = version(self.conn()).await?;
-            if from == 12 {
+            if from == 12 || from == 13 {
                 super::m5::verify(self.conn()).await?;
                 super::workflow::capacity::check(self.conn(), 0, 0).await?;
                 return Ok(());
