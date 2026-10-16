@@ -132,3 +132,21 @@ async fn financial_upgrade_cannot_reset_a_real_missing_foreign_key() {
         .unwrap();
     assert_eq!(count, 1);
 }
+
+#[tokio::test]
+async fn financial_dependency_and_retirement_kinds_have_closed_physical_storage() {
+    let mut c = prior().await;
+    let mut tx = c.begin().await.unwrap();
+    tx.execute(sqlx::AssertSqlSafe(FINANCIAL_WORKFLOW)).await.unwrap();
+    finish_financial_schema(&mut tx).await.unwrap();
+    tx.commit().await.unwrap();
+    // These opaque physical witnesses test the exact admitted kind/FK only;
+    // they are not constructor outputs or authenticated financial history.
+    c.execute("INSERT INTO workflow_documents VALUES('workflow-dependency','dep','digest','ledger-workflow-dependency/1',X'01'),('workflow-capacity-retirement','retirement','digest','ledger-workflow-capacity-retirement/1',X'02'),('workflow-target','target','digest','opaque',X'03'),('workflow-slot-terms','terms','digest','opaque',X'04'),('workflow-correction-capacity','capacity','digest','opaque',X'05')").await.unwrap();
+    c.execute("INSERT INTO workflow_financial_dependencies VALUES('store','tenant','environment','ancestor','dependent','outcome_family','workflow-target','target','digest','family','workflow-slot-terms','terms','digest','workflow-correction-capacity','capacity','digest','workflow-dependency','dep','digest')").await.unwrap();
+    let dependency: String = sqlx::query_scalar("SELECT record_kind FROM workflow_financial_dependencies")
+        .fetch_one(&mut c).await.unwrap();
+    assert_eq!(dependency,"workflow-dependency");
+    assert!(c.execute("INSERT INTO workflow_documents VALUES('workflow-unknown-financial','unknown','digest','opaque',X'01')").await.is_err());
+    assert!(c.execute("INSERT INTO workflow_financial_dependencies VALUES('store','tenant','environment','other','dependent','outcome_family','workflow-target','target','digest','family','workflow-slot-terms','terms','digest','workflow-correction-capacity','capacity','digest','workflow-capacity-retirement','retirement','digest')").await.is_err());
+}

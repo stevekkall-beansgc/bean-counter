@@ -229,6 +229,9 @@ impl SqliteTx {
         }
         for dependency in candidate.dependencies() {
             let r = dependency.record_ref();
+            if r.kind != "workflow-dependency" {
+                return Err(StoreError::Integrity("financial dependency record kind"));
+            }
             let target = dependency.target_ref();
             let terms = dependency.original_terms_ref();
             let capacity = dependency.capacity_ref();
