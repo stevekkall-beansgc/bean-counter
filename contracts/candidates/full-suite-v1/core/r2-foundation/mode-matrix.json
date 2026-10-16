@@ -1,0 +1,22 @@
+{
+  "schema": "ledger-workflow-builtin-mode-matrix/2",
+  "profile": "retail-selected-draft/1",
+  "scope": "compile-and-draft-only",
+  "policy_modes": ["component_workflow"],
+  "books": ["retail"],
+  "primitives": ["discount/1", "fixed/1", "outcome/1", "unit/1"],
+  "fact_types": ["enum/1", "integer/1", "timestamp/1"],
+  "predicate_ops": ["true/1"],
+  "formula_kinds": ["discount/1", "fixed/1", "unit/1"],
+  "discount_modes": ["additive"],
+  "activity_primitives": ["outcome", "work"],
+  "unit_normalization": "terminal-only",
+  "family_basis": "frozen-original-selected-root-net",
+  "family_effects": ["discount", "none", "premium"],
+  "window_anchors": ["work_accepted_at"],
+  "monetary_paths": {"min_hops": 1, "max_hops": 4, "max_per_slot": 1},
+  "admission_enabled": false,
+  "future_capacity_qualified": false,
+  "original_auditor_qualified": false,
+  "excluded": ["caps", "delayed-cost", "predicate-expressions", "shares", "stages", "supplier-book", "unit-conversion", "verified-predecessor-window-anchor"]
+}

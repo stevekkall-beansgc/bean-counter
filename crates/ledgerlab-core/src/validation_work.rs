@@ -1,7 +1,12 @@
 //! Fallible work callbacks for executing pure validators. No callback grants
 //! authority or changes a validator's accepted language.
+pub(crate) mod economic_meter;
+mod original_audit;
+pub use original_audit::{OriginalAuditSession, OriginalAuditUsage};
+
 use crate::Result;
-use num_bigint::BigInt;
+// Same existing operand type across the pure/facade callback boundary.
+pub use num_bigint::BigInt;
 use std::cmp::Ordering;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

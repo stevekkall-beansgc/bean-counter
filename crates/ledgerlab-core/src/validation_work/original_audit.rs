@@ -1,0 +1,125 @@
+//! One original-recipe resource owner, shared by host framing and core replay.
+//! It conveys no source/origin authority. The containing host attempt owns one
+//! arena; each per-origin session shares that SAME quota, never a fresh pool.
+use super::{ValidationWork, economic_meter::Meter};
+use crate::{Result, canonical::audit_arena::AuditArena};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OriginalAuditUsage {
+    pub semantic_work: u64,
+    pub remaining_work: u64,
+    pub framing_scanned_bytes: u64,
+    pub framing_hashed_bytes: u64,
+    pub framing_written_bytes: u64,
+}
+/// No Clone/Serde/maximum/reset/paid-credit or replacement setters. The same
+/// mutable session passes from host framing through core replay to completion.
+pub struct OriginalAuditSession {
+    arena: AuditArena,
+    meter: Meter,
+}
+impl OriginalAuditSession {
+    pub fn new(attempt_arena: &AuditArena) -> Result<Self> {
+        let _active_arena = attempt_arena.usage()?;
+        Ok(Self {
+            arena: attempt_arena.shared_handle(),
+            meter: Meter::original_audit()?,
+        })
+    }
+    pub fn parts(&mut self) -> (&AuditArena, &mut dyn ValidationWork) {
+        (&self.arena, &mut self.meter)
+    }
+    pub fn work(&mut self) -> &mut dyn ValidationWork {
+        &mut self.meter
+    }
+    pub fn arena(&self) -> &AuditArena {
+        &self.arena
+    }
+    pub fn usage(&self) -> OriginalAuditUsage {
+        let remaining = self.meter.original_remaining_work();
+        let u = self.meter.usage();
+        OriginalAuditUsage {
+            semantic_work: 1_048_576 - remaining,
+            remaining_work: remaining,
+            framing_scanned_bytes: u.scanned_bytes,
+            framing_hashed_bytes: u.hashed_bytes,
+            framing_written_bytes: u.canonical_bytes_written,
+        }
+    }
+    pub(crate) fn meter_mut(&mut self) -> &mut Meter {
+        &mut self.meter
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn host_core_child_and_host_post_share_one_allowance_and_arena() {
+        use crate::validation_work::ValidationVisit;
+        fn must_send<T: Send>() {}
+        must_send::<OriginalAuditSession>();
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::new(&arena).unwrap();
+        session.work().visit(ValidationVisit::Constraint).unwrap();
+        let mut child = session.meter_mut().original_economic_meter().unwrap();
+        child.visit("test.economic_child").unwrap();
+        let _completed_child = session.meter_mut().finish_original_economic(child).unwrap();
+        session.work().visit(ValidationVisit::Constraint).unwrap();
+        assert_eq!(session.usage().semantic_work, 3);
+        assert_eq!(session.usage().remaining_work, 1_048_573);
+        assert!(session.meter_mut().original_economic_meter().is_err());
+        let (owned, work) = session.parts();
+        let bytes = owned.copy_bytes(b"same owner", work).unwrap();
+        assert_eq!(owned.usage().unwrap(), arena.usage().unwrap());
+        drop(bytes);
+    }
+    #[test]
+    fn historical_compile_child_consumes_origin_allowance_before_host_completion() {
+        use crate::validation_work::ValidationVisit;
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::new(&arena).unwrap();
+        session.work().visit(ValidationVisit::Constraint).unwrap();
+        let mut compile = session.meter_mut().original_compile_meter().unwrap();
+        compile.enter_compile().unwrap();
+        compile.visit("test.saved_compiler").unwrap();
+        let usage = session
+            .meter_mut()
+            .finish_original_compile(compile)
+            .unwrap();
+        assert_eq!(usage.semantic_work, 1);
+        session.work().visit(ValidationVisit::Constraint).unwrap();
+        assert_eq!(session.usage().semantic_work, 3);
+        assert!(session.meter_mut().original_economic_meter().is_err());
+        assert!(session.meter_mut().original_compile_meter().is_err());
+    }
+    #[test]
+    fn outstanding_dropped_or_failed_child_cannot_leave_parent_spendable() {
+        use crate::validation_work::ValidationVisit;
+        let arena = AuditArena::new().unwrap();
+        let mut dropped = OriginalAuditSession::new(&arena).unwrap();
+        let child = dropped.meter_mut().original_economic_meter().unwrap();
+        drop(child);
+        assert!(dropped.work().visit(ValidationVisit::Constraint).is_err());
+        assert!(dropped.work().scan_bytes(1).is_err());
+        let mut outstanding = OriginalAuditSession::new(&arena).unwrap();
+        let mut child = outstanding.meter_mut().original_economic_meter().unwrap();
+        assert!(outstanding.work().hash_bytes(1).is_err());
+        assert!(child.visit("test.after_parent_violation").is_err());
+        assert!(
+            outstanding
+                .meter_mut()
+                .finish_original_economic(child)
+                .is_err()
+        );
+        assert!(
+            outstanding
+                .work()
+                .visit(ValidationVisit::Constraint)
+                .is_err()
+        );
+        let mut wrong = OriginalAuditSession::new(&arena).unwrap();
+        let child = wrong.meter_mut().original_compile_meter().unwrap();
+        assert!(wrong.meter_mut().finish_original_economic(child).is_err());
+        assert!(wrong.work().write_bytes(1).is_err());
+    }
+}
