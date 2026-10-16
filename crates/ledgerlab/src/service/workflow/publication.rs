@@ -3,10 +3,10 @@ use crate::service::billing::Setup;
 use crate::store::sqlite::workflow::{
     Document, PublicationAppend, RecordRef, RegistryEntry, StoredOperation,
 };
-use ledgerlab_core::policy::workflow::{
-    self as core, NormalizedPublicationSources, PreparedPublication,
-};
+use ledgerlab_core::policy::workflow::{self as core, NormalizedPublicationSources};
 use serde_json::json;
+mod view;
+use view::{CompiledView, SourceDocument, SourceView};
 
 fn reference(r: &core::DefinitionRef) -> RecordRef {
     RecordRef {
@@ -15,7 +15,7 @@ fn reference(r: &core::DefinitionRef) -> RecordRef {
         digest: r.digest().into(),
     }
 }
-fn document(d: &core::DefinitionDocument) -> Document {
+fn document(d: SourceDocument<'_>) -> Document {
     Document {
         reference: reference(d.reference()),
         schema: d.canonical_value()["schema"]
@@ -27,14 +27,13 @@ fn document(d: &core::DefinitionDocument) -> Document {
 }
 pub(super) fn normalize_request(
     req: &request::PublicationRequest,
-    sources: &NormalizedPublicationSources,
+    sources: &impl SourceView,
 ) -> Result<Value> {
     let mut v = req.value()?;
     if req.inline_documents().is_some() {
         v["payload"]["documents"] = json!(
             sources
-                .source_documents()
-                .iter()
+                .documents()
                 .map(|d| d.canonical_value())
                 .collect::<Vec<_>>()
         );
@@ -77,13 +76,12 @@ pub(super) fn base64(raw: &[u8]) -> String {
 }
 pub(super) fn evidence(
     req: &request::PublicationRequest,
-    sources: &NormalizedPublicationSources,
+    sources: &impl SourceView,
 ) -> Result<Value> {
     let normalized = normalize_request(req, sources)?;
     let mut locators: Vec<Value> = if req.inline_documents().is_some() {
         sources
-            .source_documents()
-            .iter()
+            .documents()
             .map(|d| json!({"role":"inline_document","inline_document":d.canonical_value()}))
             .collect()
     } else {
@@ -95,15 +93,14 @@ pub(super) fn evidence(
     };
     ledgerlab_core::canonical::sort_set(&mut locators)
         .map_err(|_| ServiceError::IntegrityFailure)?;
-    let descriptors = sources.descriptor_refs().map_err(core_error)?;
+    let descriptors = sources.descriptors()?;
     let mut anchors = vec![];
-    for d in sources.source_documents() {
+    for d in sources.documents() {
         let mut refs: Vec<Value> = vec![];
         if d.kind() == "workflow-policy" {
             let policy = d.canonical_value();
             let product = sources
-                .source_documents()
-                .iter()
+                .documents()
                 .find(|p| json!(p.reference()) == policy["product_ref"])
                 .ok_or(ServiceError::IntegrityFailure)?;
             refs = product.canonical_value()["activities"]
@@ -161,7 +158,7 @@ impl BuildProvenance {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn assemble(
     req: &request::PublicationRequest,
-    prepared: &PreparedPublication,
+    prepared: &impl CompiledView,
     evidence: Value,
     setup: &Setup,
     at: &ledgerlab_core::domain::Timestamp,
@@ -170,13 +167,13 @@ pub(super) fn assemble(
     existing: Option<(Document, Option<Document>)>,
 ) -> Result<PublicationAppend> {
     let key = req.key();
-    let mut docs: Vec<Document> = prepared.source_documents().iter().map(document).collect();
+    let mut docs: Vec<Document> = prepared.documents().map(document).collect();
     let mut source_refs: Vec<RecordRef> = docs.iter().map(|d| d.reference.clone()).collect();
     records::sort_refs(&mut source_refs)?;
-    let plan = document(prepared.compiled_plan());
+    let plan = document(prepared.plan());
     let plan_ref = plan.reference.clone();
     docs.push(plan);
-    let publication_body = json!({"schema":"ledger-workflow-publication/1","root_policy_ref":prepared.root_policy_ref(),"source_refs":source_refs,"compiled_plan_ref":plan_ref,"compiler_ref":prepared.compiler_descriptor().reference(),"provenance":provenance.projection});
+    let publication_body = json!({"schema":"ledger-workflow-publication/1","root_policy_ref":prepared.root(),"source_refs":source_refs,"compiled_plan_ref":plan_ref,"compiler_ref":prepared.compiler(),"provenance":provenance.projection});
     let is_alias = existing.is_some();
     let publication = if let Some((old, old_build)) = existing {
         let body = ledgerlab_core::canonical::parse_bounded(&old.bytes, 1024 * 1024)
@@ -244,8 +241,7 @@ pub(super) fn assemble(
     receipt["receipt_hash"] = json!(records::hash("operation-receipt", 2, &receipt)?);
     let receipt_ref = records::record_reference("workflow-receipt", &key.scope, &receipt)?;
     let registry = prepared
-        .source_documents()
-        .iter()
+        .documents()
         .filter_map(|d| {
             let body = d.canonical_value();
             let field = match d.kind() {

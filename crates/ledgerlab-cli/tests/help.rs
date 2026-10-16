@@ -269,3 +269,30 @@ fn legacy_help_is_specific_to_the_generation_profile() {
         assert!(!text.contains("Usage: ledger billing"));
     }
 }
+
+#[test]
+fn workflow_help_is_local_and_does_not_open_a_missing_installation() {
+    let root = tempfile::tempdir().unwrap();
+    let expected = help(root.path(), &["workflow", "--help"]);
+    assert!(expected.contains("submit FILE|-"));
+    assert!(expected.contains("status KEYFILE|-"));
+    for command in ["enable", "submit", "status", "read"] {
+        assert_eq!(
+            help(
+                root.path(),
+                &["workflow", command, "--directory", "missing", "--help"]
+            ),
+            expected
+        );
+    }
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    let rejected = Command::new(ledger_binary())
+        .current_dir(root.path())
+        .args(["workflow", "unknown", "--help", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(rejected.status.code(), Some(2));
+    let result: Value = serde_json::from_slice(&rejected.stdout).unwrap();
+    assert_eq!(result["code"], "USAGE");
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}

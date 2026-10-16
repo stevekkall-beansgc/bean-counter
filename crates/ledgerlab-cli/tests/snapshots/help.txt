@@ -13,6 +13,9 @@ Current billing profile:
   billing explain --help    Read retained target history
   billing statement --help  Read a reconciled customer statement
 
+Generic local workflow:
+  workflow --help           Policies, agreements, original receipts and recovery
+
 Legacy synthetic generation profile (separate installation):
   init [DIR] --demo          Create the Phase 1 generation demo
   accept FILE|-             Accept a legacy generation event
@@ -22,7 +25,7 @@ Legacy synthetic generation profile (separate installation):
   Use ledger COMMAND --help for that legacy command's limitations.
 
 Global options may appear before or after the command:
-  --format text|json        Output format; billing results are JSON in either mode
+  --format text|json        Output format; billing/workflow results are JSON in either mode
   --json                    Alias for --format json
   --config PATH             Legacy profile config (default: ./ledger.json)
   --no-color                Accepted; output is always plain text

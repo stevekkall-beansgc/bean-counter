@@ -2,10 +2,11 @@
 #![forbid(unsafe_code)]
 mod billing;
 mod output;
+mod workflow;
 #[cfg(feature = "zen-charge-candidate")]
 mod zen_candidate;
 use ledgerlab::local::{self, ExplainTarget, LocalError, LocalLedger};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     env,
     path::{Path, PathBuf},
@@ -27,6 +28,9 @@ Current billing profile:
   billing explain --help    Read retained target history
   billing statement --help  Read a reconciled customer statement
 
+Generic local workflow:
+  workflow --help           Policies, agreements, original receipts and recovery
+
 Legacy synthetic generation profile (separate installation):
   init [DIR] --demo          Create the Phase 1 generation demo
   accept FILE|-             Accept a legacy generation event
@@ -36,7 +40,7 @@ Legacy synthetic generation profile (separate installation):
   Use ledger COMMAND --help for that legacy command's limitations.
 
 Global options may appear before or after the command:
-  --format text|json        Output format; billing results are JSON in either mode
+  --format text|json        Output format; billing/workflow results are JSON in either mode
   --json                    Alias for --format json
   --config PATH             Legacy profile config (default: ./ledger.json)
   --no-color                Accepted; output is always plain text
@@ -61,6 +65,12 @@ Linked events, outcomes and reversals cannot be saved or previewed in this profi
 Dispatch is held; no payment is executed. See docs/quickstart.md.
 ";
 fn help(a: &Args) -> Result<String, &'static str> {
+    if a.command == "workflow" {
+        if a.config != Path::new("ledger.json") {
+            return Err("workflow uses --directory DIR, not --config");
+        }
+        return workflow::help(&a.rest);
+    }
     if a.command == "billing" {
         if a.config != Path::new("ledger.json") {
             return Err("billing uses --directory DIR, not --config");
@@ -77,7 +87,9 @@ fn help(a: &Args) -> Result<String, &'static str> {
         "zen-charge-candidate" => return Ok("Usage: ledger zen-charge-candidate init|submit DIR FILE --json\n       ledger zen-charge-candidate statement DIR --json\nExperimental candidate profile; DIR must be absolute.\n".into()),
         _ => return Err("unknown command; use ledger --help"),
     };
-    Ok(format!("{usage}\n{LEGACY_NOTES}\nGlobal options: --config PATH, --format text|json, --json, --no-color, --help, -h.\nFile inputs are regular files of at most 256 KiB; legacy config is strict JSON.\n"))
+    Ok(format!(
+        "{usage}\n{LEGACY_NOTES}\nGlobal options: --config PATH, --format text|json, --json, --no-color, --help, -h.\nFile inputs are regular files of at most 256 KiB; legacy config is strict JSON.\n"
+    ))
 }
 struct Args {
     command: String,
@@ -156,6 +168,9 @@ fn error(code: &str, message: &str, exit: u8) -> (Value, u8) {
     )
 }
 async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
+    if a.command == "workflow" {
+        return workflow::run(a).await;
+    }
     #[cfg(feature = "zen-charge-candidate")]
     if a.command == "zen-charge-candidate" {
         return zen_candidate::run(a).await;
@@ -207,7 +222,7 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
                 "USAGE",
                 "unknown command or arguments; use ledger --help",
                 2,
-            ))
+            ));
         }
     }
     // Read before opening so stdin is never held under the SQLite owner lock.
@@ -219,18 +234,26 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
         };
         match read {
             Ok(bytes) => Some(bytes),
-            Err(e) => return Ok(output::file_error(
-                e,
-                Path::new(&a.rest[0]),
-                "supply a readable regular JSON event file of at most 256 KiB, or use - for stdin",
-            )),
+            Err(e) => {
+                return Ok(output::file_error(
+                    e,
+                    Path::new(&a.rest[0]),
+                    "supply a readable regular JSON event file of at most 256 KiB, or use - for stdin",
+                ));
+            }
         }
     } else {
         None
     };
     let ledger = match LocalLedger::open(&a.config).await {
         Ok(ledger) => ledger,
-        Err(e) => return Ok(output::file_error(e, &a.config, "check this config and storage.data_dir; use --config PATH for an existing config or ledger init NEW_DIR --demo")),
+        Err(e) => {
+            return Ok(output::file_error(
+                e,
+                &a.config,
+                "check this config and storage.data_dir; use --config PATH for an existing config or ledger init NEW_DIR --demo",
+            ));
+        }
     };
     let mut result = match a.command.as_str() {
         "accept" => ledger.accept(input.unwrap()).await.map(output::accept),
@@ -267,7 +290,11 @@ async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
             if let Some(id) = value["receipt"]["event_id"].as_str() {
                 match ledger.explain(ExplainTarget::Event(id.into())).await {
                     Ok(history) => value["human_history"] = history,
-                    Err(_) => value["human_warning"] = json!("Receipt committed, but its breakdown could not be read. Retry identical input with --json to retrieve the receipt, then ledger explain EVENT_ID."),
+                    Err(_) => {
+                        value["human_warning"] = json!(
+                            "Receipt committed, but its breakdown could not be read. Retry identical input with --json to retrieve the receipt, then ledger explain EVENT_ID."
+                        )
+                    }
                 }
             }
         }
@@ -308,7 +335,12 @@ fn main() -> ExitCode {
                     .unwrap_or_else(output::local_error),
                 Err(_) => error("UNAVAILABLE", "could not start local runtime", 7),
             };
-            (result.0, result.1, a.json, a.command == "billing")
+            (
+                result.0,
+                result.1,
+                a.json,
+                matches!(a.command.as_str(), "billing" | "workflow"),
+            )
         }
     };
     if json_output {
