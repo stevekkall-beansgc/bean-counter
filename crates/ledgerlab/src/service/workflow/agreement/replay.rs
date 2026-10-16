@@ -234,6 +234,30 @@ pub(super) async fn acceptance_data(
             retained.push(d);
         }
     }
+    if input.supplier_recipe() {
+        require(
+            publication.original_registry().is_some(),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+        for r in input.resolved_private_refs(&retained)? {
+            if retained.iter().any(|d| d.reference == r) {
+                continue;
+            }
+            if let Some(d) = tx
+                .workflow_document(
+                    &r,
+                    &key.logical_store_id,
+                    &key.scope[0],
+                    &key.scope[1],
+                    None,
+                )
+                .await
+                .map_err(crate::service::store_error)?
+            {
+                retained.push(d);
+            }
+        }
+    }
     let private_documents = input.normalize_private_documents(
         &definitions.template,
         &definitions.product,

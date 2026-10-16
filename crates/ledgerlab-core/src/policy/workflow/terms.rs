@@ -691,3 +691,6 @@ fn fail(s: &str) -> Error {
 }
 #[cfg(test)]
 mod tests;
+
+mod offer;
+pub use offer::SupplierOffer;

@@ -14,10 +14,10 @@ mod compiler;
 pub mod selected_program;
 pub mod transition_constructor;
 pub use compiler::{
+    CompilerDescriptor, DefinitionDocument, DefinitionRef, NormalizedDefinition,
+    NormalizedPublicationSources, PreparedPublication, VerifiedCompilerSupport,
     candidate_dependency_refs, compile_publication, normalize_definition,
-    normalize_publication_sources, normalize_retained_definition, CompilerDescriptor,
-    DefinitionDocument, DefinitionRef, NormalizedDefinition, NormalizedPublicationSources,
-    PreparedPublication, VerifiedCompilerSupport,
+    normalize_publication_sources, normalize_retained_definition,
 };
 
 fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<String> {
@@ -70,4 +70,4 @@ pub use transport::{
     DefinitionFinalizeInput, DefinitionFragment, DefinitionFragmentInput, SourceRetentionInput,
 };
 mod terms;
-pub use terms::{AcceptanceTerms, AssentRecord, SlotBindingTerms};
+pub use terms::{AcceptanceTerms, AssentRecord, SlotBindingTerms, SupplierOffer};

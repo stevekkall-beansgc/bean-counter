@@ -384,6 +384,31 @@ fn original_work_terms_v3_match_frozen_bytes_and_do_not_reinterpret_old_terms() 
 #[test]
 fn supplier_terms_and_descriptor_are_additive_data_not_legacy_support() {
     let frozen:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/fixture-author-expected.json")).unwrap();
+    let offer = &frozen["records"]["offer"];
+    let parsed_offer = SupplierOffer::parse(
+        canonical::CanonicalBytes::from_value(&offer["body"])
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
+    exact(
+        parsed_offer.canonical_bytes(),
+        parsed_offer.reference(),
+        offer,
+    );
+    let mut duplicate_offer = offer["body"].clone();
+    duplicate_offer["source_slots"]
+        .as_array_mut()
+        .unwrap()
+        .push(offer["body"]["source_slots"][0].clone());
+    assert!(
+        SupplierOffer::parse(
+            canonical::CanonicalBytes::from_value(&duplicate_offer)
+                .unwrap()
+                .as_slice()
+        )
+        .is_err()
+    );
     let row = &frozen["records"]["supplier_terms"];
     let raw = canonical::CanonicalBytes::from_value(&row["body"]).unwrap();
     let parsed = SlotBindingTerms::parse(raw.as_slice()).unwrap();

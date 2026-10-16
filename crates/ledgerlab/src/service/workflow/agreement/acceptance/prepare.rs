@@ -2,7 +2,7 @@
 //! No public append or successful facade is exposed by this preparer. Commit
 //! still requires the original-recipe verifier after the atomic append.
 use super::super::*;
-use super::{authority, construct, AcceptInput, PublicationInputs};
+use super::{AcceptInput, PublicationInputs, authority, construct};
 use crate::service::workflow::local::LocalWorkflowLedger;
 use crate::store::sqlite::workflow::agreement::acceptance::HeadKind;
 
@@ -32,6 +32,33 @@ pub(super) async fn normalized(
         {
             verify::document_origin(tx, req.key(), &r).await?;
             retained.push(d);
+        }
+    }
+    if input.supplier_recipe() {
+        require(
+            publication.original_registry().is_some(),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+        // Terms4 may itself have been retained. Resolve its exact Offer2 edge
+        // after acquiring that body; never substitute a current offer/version.
+        for r in input.resolved_private_refs(&retained)? {
+            if retained.iter().any(|d| d.reference == r) {
+                continue;
+            }
+            if let Some(d) = tx
+                .workflow_document(
+                    &r,
+                    &req.key().logical_store_id,
+                    &req.key().scope[0],
+                    &req.key().scope[1],
+                    None,
+                )
+                .await
+                .map_err(crate::service::store_error)?
+            {
+                verify::document_origin(tx, req.key(), &r).await?;
+                retained.push(d);
+            }
         }
     }
     let private = input.normalize_private_documents(
@@ -195,7 +222,7 @@ pub(super) async fn fresh(
         })
         .map(|d| d.reference.clone())
         .collect();
-    let evidence = descriptor::evidence(req, &payload, &descriptors)?;
+    let evidence = descriptor::acceptance_evidence(req, &payload, &descriptors, &publication)?;
     let mut documents = admitted.documents;
     documents.extend(predecessors);
     documents.extend(publication.documents().iter().map(|d| Document {

@@ -1,7 +1,7 @@
 use super::super::*;
 use ledgerlab_core::policy::workflow::{
     AcceptanceTerms, AgreementRef, AssentRecord, FactSchema, Product, RoleAssignment,
-    SlotBindingTerms, SlotCatalog, SlotInstantiation, SlotTemplate,
+    SlotBindingTerms, SlotCatalog, SlotInstantiation, SlotTemplate, SupplierOffer,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,6 +43,7 @@ impl AcceptInput {
                 "ledger-workflow-agreement-accept/2"
                     | "ledger-workflow-agreement-accept/3"
                     | "ledger-workflow-agreement-accept/4"
+                    | "ledger-workflow-agreement-accept/5"
             ) && input.documents.len() <= 128,
             "INVALID_SHAPE",
         )?;
@@ -104,6 +105,9 @@ impl AcceptInput {
             context: context.clone(),
         })
     }
+    pub(in crate::service::workflow::agreement) fn supplier_recipe(&self) -> bool {
+        self.input.schema == "ledger-workflow-agreement-accept/5"
+    }
     pub(in crate::service::workflow::agreement) fn terms(&self) -> &AcceptanceTerms {
         &self.terms
     }
@@ -144,12 +148,52 @@ impl AcceptInput {
             validate_ref(&r, "workflow-slot-terms")?;
             refs.push(r);
         }
+        if self.input.schema == "ledger-workflow-agreement-accept/5" {
+            for body in &self.input.documents {
+                if body["schema"] == "ledger-workflow-slot-binding-terms/4" {
+                    let terms =
+                        SlotBindingTerms::parse(&records::bytes(body)?).map_err(typed_error)?;
+                    let r: RecordRef =
+                        serde_json::from_value(terms.canonical_value()["offer_ref"].clone())
+                            .map_err(|_| reject("INVALID_REFERENCE"))?;
+                    validate_ref(&r, "workflow-offer")?;
+                    refs.push(r);
+                }
+            }
+        }
         let mut map = BTreeMap::new();
         for r in refs {
             map.insert(records::bytes(&r)?, r);
         }
         let mut refs: Vec<_> = map.into_values().collect();
         records::sort_refs(&mut refs)?;
+        Ok(refs)
+    }
+    /// Resolve the additional immutable Offer2 edge from an actual retained
+    /// Terms4 body. These are locators only; the coordinator still authenticates
+    /// retained origins, including offers not supplied inline by this request.
+    pub(in crate::service::workflow::agreement) fn resolved_private_refs(
+        &self,
+        retained: &[Document],
+    ) -> Result<Vec<RecordRef>> {
+        let mut refs = self.private_refs()?;
+        if self.input.schema == "ledger-workflow-agreement-accept/5" {
+            for d in retained {
+                let value = canonical::parse_bounded(&d.bytes, 262144)
+                    .map_err(|_| ServiceError::IntegrityFailure)?;
+                if value["schema"] == "ledger-workflow-slot-binding-terms/4" {
+                    let terms = SlotBindingTerms::parse(&d.bytes).map_err(typed_error)?;
+                    let r: RecordRef =
+                        serde_json::from_value(terms.canonical_value()["offer_ref"].clone())
+                            .map_err(|_| reject("INVALID_REFERENCE"))?;
+                    validate_ref(&r, "workflow-offer")?;
+                    if !refs.contains(&r) {
+                        refs.push(r);
+                    }
+                }
+            }
+            records::sort_refs(&mut refs)?;
+        }
         Ok(refs)
     }
     /// Supplied candidates are scoped byte assertions until the coordinator
@@ -231,7 +275,7 @@ impl AcceptInput {
             );
             normalized.push(d);
         }
-        let required = self.private_refs()?;
+        let required = self.resolved_private_refs(retained)?;
         require(
             inline_ids
                 .iter()
@@ -259,9 +303,30 @@ impl AcceptInput {
             require(d.reference == *r, "INVALID_REFERENCE")?;
             let body = canonical::parse(&d.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
             require(
-                body["agreement_id"] == self.agreement_id() && body["customer"] == self.customer(),
+                body["agreement_id"] == self.agreement_id(),
                 "INVALID_REFERENCE",
             )?;
+            if r.kind == "workflow-offer" {
+                require(
+                    self.input.schema == "ledger-workflow-agreement-accept/5",
+                    "UNSUPPORTED_SCHEMA_PROFILE",
+                )?;
+                let offer = SupplierOffer::parse(&d.bytes).map_err(typed_error)?;
+                offer.validate_product(product).map_err(typed_error)?;
+                for role in body["role_refs"]
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                {
+                    let role: RecordRef = serde_json::from_value(role.clone())
+                        .map_err(|_| reject("INVALID_REFERENCE"))?;
+                    require(
+                        role.kind == "workflow-roles" && required.contains(&role),
+                        "INVALID_REFERENCE",
+                    )?;
+                }
+            } else {
+                require(body["customer"] == self.customer(), "INVALID_REFERENCE")?;
+            }
             if r.kind == "workflow-roles"
                 || r.kind == "workflow-slot-terms"
                 || r.kind == "workflow-acceptance-terms"
@@ -279,9 +344,17 @@ impl AcceptInput {
                             self.input.schema.as_str(),
                             "ledger-workflow-agreement-accept/3"
                                 | "ledger-workflow-agreement-accept/4"
+                                | "ledger-workflow-agreement-accept/5"
                         ),
                         Some("ledger-workflow-slot-binding-terms/3") => {
-                            self.input.schema == "ledger-workflow-agreement-accept/4"
+                            matches!(
+                                self.input.schema.as_str(),
+                                "ledger-workflow-agreement-accept/4"
+                                    | "ledger-workflow-agreement-accept/5"
+                            )
+                        }
+                        Some("ledger-workflow-slot-binding-terms/4") => {
+                            self.input.schema == "ledger-workflow-agreement-accept/5"
                         }
                         _ => true,
                     },
@@ -347,10 +420,18 @@ fn normalize_leaf(v: &Value, terms: &AcceptanceTerms, context: &FactSchema) -> R
         Some(
             "ledger-workflow-slot-binding-terms/1"
             | "ledger-workflow-slot-binding-terms/2"
-            | "ledger-workflow-slot-binding-terms/3",
+            | "ledger-workflow-slot-binding-terms/3"
+            | "ledger-workflow-slot-binding-terms/4",
         ) => (
             "workflow-slot-terms",
             SlotBindingTerms::parse(&bytes)
+                .map_err(typed_error)?
+                .canonical_value()
+                .clone(),
+        ),
+        Some("ledger-workflow-offer/2") => (
+            "workflow-offer",
+            SupplierOffer::parse(&bytes)
                 .map_err(typed_error)?
                 .canonical_value()
                 .clone(),
@@ -377,7 +458,9 @@ fn private_kind(v: &Value) -> Option<&'static str> {
         "ledger-workflow-slot-instantiation/1" => Some("workflow-slot-instantiation"),
         "ledger-workflow-slot-binding-terms/1"
         | "ledger-workflow-slot-binding-terms/2"
-        | "ledger-workflow-slot-binding-terms/3" => Some("workflow-slot-terms"),
+        | "ledger-workflow-slot-binding-terms/3"
+        | "ledger-workflow-slot-binding-terms/4" => Some("workflow-slot-terms"),
+        "ledger-workflow-offer/2" => Some("workflow-offer"),
         "ledger-workflow-acceptance-terms/1" => Some("workflow-acceptance-terms"),
         "ledger-workflow-assent/1" => Some("workflow-assent"),
         _ => None,

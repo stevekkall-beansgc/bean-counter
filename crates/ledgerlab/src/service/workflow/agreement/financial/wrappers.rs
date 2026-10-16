@@ -146,13 +146,15 @@ pub(super) fn descriptor_schema(
     if equal_text(registry, SUPPLIER_REGISTRY, session)?
         || equal_text(registry, DEADLINE_REGISTRY, session)?
     {
-        if supplier_recipe(kind, payload, session)?.is_some()
-            || (equal_text(kind, "policy.publish", session)?
-                && equal_text(payload, "ledger-workflow-policy-publication/3", session)?)
+        if supplier_recipe(kind, payload, session)?.is_some() {
+            return Ok("ledger-operation-descriptors/2");
+        }
+        if (equal_text(kind, "policy.publish", session)?
+            && equal_text(payload, "ledger-workflow-policy-publication/3", session)?)
             || (equal_text(kind, "agreement.accept", session)?
                 && equal_text(payload, "ledger-workflow-agreement-accept/5", session)?)
         {
-            return Ok("ledger-operation-descriptors/2");
+            return Ok("ledger-operation-descriptors/1");
         }
         return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
     }
@@ -1272,6 +1274,16 @@ mod supplier_dispatch_tests {
                 }
             }
             assert_eq!(rows, 15);
+            for (kind, payload) in [
+                ("policy.publish", "ledger-workflow-policy-publication/3"),
+                ("agreement.accept", "ledger-workflow-agreement-accept/5"),
+            ] {
+                assert_eq!(
+                    descriptor_schema(kind, payload, registry, &mut session).unwrap(),
+                    "ledger-operation-descriptors/1"
+                );
+            }
+
             for (kind, payload) in [
                 ("quantity.correct", "ledger-workflow-quantity-correction/1"),
                 ("work.reverse", "ledger-workflow-work-reverse/1"),

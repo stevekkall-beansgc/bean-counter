@@ -149,7 +149,8 @@ pub(super) async fn retained_local(
     {
         return Err(ServiceError::IntegrityFailure);
     }
-    let evidence = descriptor::evidence(&req, &payload, &data.descriptors)?;
+    let evidence =
+        descriptor::acceptance_evidence(&req, &payload, &data.descriptors, &data.publication)?;
     if evidence != op["request_evidence"] || evidence["request_hash"] != o.request_hash {
         return Err(ServiceError::IntegrityFailure);
     }

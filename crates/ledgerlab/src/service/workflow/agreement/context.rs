@@ -169,10 +169,16 @@ pub(super) async fn source_as_of(
 ) -> Result<RecordRef> {
     // Data only until the complete original revision1 birth certificate below
     // authenticates this exact enrollment. Avoid reproving that same origin.
-    let document=loaded(tx,key,enrollment_ref).await?;
-    let enrollment=SourceEnrollment::parse(&document.bytes).map_err(|_|ServiceError::IntegrityFailure)?;
-    if enrollment.scope()!=&key.scope || json!(enrollment.reference())!=json!(enrollment_ref)
-        || enrollment.canonical_value().map_err(|_|ServiceError::IntegrityFailure)?!=canonical_body(&document)? {
+    let document = loaded(tx, key, enrollment_ref).await?;
+    let enrollment =
+        SourceEnrollment::parse(&document.bytes).map_err(|_| ServiceError::IntegrityFailure)?;
+    if enrollment.scope() != &key.scope
+        || json!(enrollment.reference()) != json!(enrollment_ref)
+        || enrollment
+            .canonical_value()
+            .map_err(|_| ServiceError::IntegrityFailure)?
+            != canonical_body(&document)?
+    {
         return Err(ServiceError::IntegrityFailure);
     }
     #[cfg(test)]
@@ -295,8 +301,15 @@ pub(super) struct ObservedPublication {
     publication_index: usize,
     plan_index: usize,
     source_indices: Vec<usize>,
+    // Only the additive supplier publication carries this selection here.
+    // It is extracted AFTER the actual original publication certificate, never
+    // from a current catalog or an incoming acceptance assertion.
+    original_registry: Option<String>,
 }
 impl ObservedPublication {
+    pub(super) fn original_registry(&self) -> Option<&str> {
+        self.original_registry.as_deref()
+    }
     pub(super) fn body(&self) -> &Value {
         &self.body
     }
@@ -395,7 +408,28 @@ pub(super) async fn observe_publication(
                 .ok_or(ServiceError::IntegrityFailure)
         })
         .collect::<Result<Vec<_>>>()?;
+    let original_registry = if source_indices
+        .iter()
+        .any(|&i| documents[i].schema == "ledger-workflow-compiler-descriptor/3")
+    {
+        let op = canonical::parse_bounded(&origin.operation_bytes, 8388608)
+            .map_err(|_| ServiceError::IntegrityFailure)?;
+        require(
+            op["request_evidence"]["normalized_request"]["payload"]["schema"]
+                == "ledger-workflow-policy-publication/3",
+            "INTEGRITY_FAILURE",
+        )?;
+        let resolution = &op["request_evidence"]["descriptor_resolution"];
+        require(
+            resolution["schema"] == "ledger-operation-descriptors/1",
+            "INTEGRITY_FAILURE",
+        )?;
+        Some(text(resolution, "registry_digest")?.to_owned())
+    } else {
+        None
+    };
     Ok(ObservedPublication {
+        original_registry,
         body,
         documents,
         publication_index,

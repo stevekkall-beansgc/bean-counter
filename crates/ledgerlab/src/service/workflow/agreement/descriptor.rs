@@ -75,12 +75,50 @@ pub(super) fn locators(kind: &str, payload: &Value) -> Result<Vec<Value>> {
     canonical::sort_set(&mut out).map_err(|_| ServiceError::IntegrityFailure)?;
     Ok(out)
 }
+/// New management descriptors derive exact registry selection from the
+/// already authenticated ORIGINAL publication, never a current 'latest' alias.
+pub(super) fn acceptance_evidence(
+    req: &request::Request,
+    payload: &Value,
+    descriptors: &[RecordRef],
+    publication: &context::ObservedPublication,
+) -> Result<Value> {
+    if req.kind() == "agreement.accept" && payload["schema"] == "ledger-workflow-agreement-accept/5"
+    {
+        let registry = publication
+            .original_registry()
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+        require(
+            matches!(
+                registry,
+                "sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93"
+                    | "sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da"
+            ),
+            "UNSUPPORTED_SCHEMA_PROFILE",
+        )?;
+        evidence_inner(req, payload, descriptors, Some(registry))
+    } else {
+        evidence(req, payload, descriptors)
+    }
+}
 /// `descriptors` must come from the original origin-authenticated publication
 /// (or accepted binding). This encoder cannot turn supplied refs into proof.
 pub(super) fn evidence(
     req: &request::Request,
     payload: &Value,
     descriptors: &[RecordRef],
+) -> Result<Value> {
+    require(
+        payload["schema"] != "ledger-workflow-agreement-accept/5",
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
+    evidence_inner(req, payload, descriptors, None)
+}
+fn evidence_inner(
+    req: &request::Request,
+    payload: &Value,
+    descriptors: &[RecordRef],
+    original_registry: Option<&str>,
 ) -> Result<Value> {
     let locators = locators(req.kind(), payload)?;
     let mut descriptors = descriptors.to_vec();
@@ -137,7 +175,11 @@ pub(super) fn evidence(
     };
     let registry = canonical::parse_bounded(registry_raw, 65536)
         .map_err(|_| ServiceError::IntegrityFailure)?;
-    let mut resolution = json!({"schema":"ledger-operation-descriptors/1","registry_digest":format!("sha256:{}",records::raw_hash(&records::bytes(&registry)?)),"operation_kind":req.kind(),"payload_schema":payload["schema"],"locator_digest":records::hash("descriptor-locators",1,&json!([req.kind(),payload["schema"],locators]))?,"anchors":anchors,"descriptors":descriptors,"normalization_profile":"ledger-operation-normalization/2"});
+    let registry_digest = match original_registry {
+        Some(original) => original.to_owned(),
+        None => format!("sha256:{}", records::raw_hash(&records::bytes(&registry)?)),
+    };
+    let mut resolution = json!({"schema":"ledger-operation-descriptors/1","registry_digest":registry_digest,"operation_kind":req.kind(),"payload_schema":payload["schema"],"locator_digest":records::hash("descriptor-locators",1,&json!([req.kind(),payload["schema"],locators]))?,"anchors":anchors,"descriptors":descriptors,"normalization_profile":"ledger-operation-normalization/2"});
     resolution["closure_digest"] = json!(records::hash("descriptor-closure", 1, &resolution)?);
     let normalized = req.normalized_envelope(payload);
     Ok(

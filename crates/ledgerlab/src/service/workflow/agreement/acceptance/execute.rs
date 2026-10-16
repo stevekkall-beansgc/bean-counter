@@ -3,7 +3,7 @@
 use super::super::*;
 use super::prepare;
 use crate::{
-    service::workflow::local::{deadline, LocalWorkflowLedger},
+    service::workflow::local::{LocalWorkflowLedger, deadline},
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
 
@@ -77,7 +77,12 @@ pub(super) async fn execute(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<
                         if alias {
                             alias04::evidence(&req, &data.input.value()?, &data.descriptors)?
                         } else {
-                            descriptor::evidence(&req, &data.input.value()?, &data.descriptors)?
+                            descriptor::acceptance_evidence(
+                                &req,
+                                &data.input.value()?,
+                                &data.descriptors,
+                                &data.publication,
+                            )?
                         }
                     } else {
                         require(
