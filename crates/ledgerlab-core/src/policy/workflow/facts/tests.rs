@@ -584,6 +584,30 @@ fn complete_normalization_pays_copies_and_preserves_legacy_paid_trace() {
 }
 
 #[test]
+fn attested_subset_uses_same_field_type_without_inventing_required_facts() {
+    use crate::validation_work::tests::CountingWork;
+    let s = schema(json!([
+        {"name":"example:attested","required":true,
+         "type":{"kind":"enum","values":["example:a"]},
+         "provenance":{"kind":"attested","source_slot":"example:source","evidence_kind":"outcome"}},
+        field("example:other", true, json!({"kind":"boolean"}))
+    ]));
+    error(s.normalize(br#"{"example:attested":"example:a"}"#), "FACT_REQUIRED");
+    let value = json!("example:a");
+    let mut work = CountingWork::new(usize::MAX);
+    let result = s.normalize_attested_field_complete_with_work("example:attested", &value, &mut work).unwrap();
+    assert_eq!(result, FactValue::Enum("example:a".into()));
+    assert_eq!(work.written, "example:a".len());
+    let mut exact = CountingWork::new(work.used);
+    assert_eq!(s.normalize_attested_field_complete_with_work("example:attested", &value, &mut exact).unwrap(), result);
+    let mut short = CountingWork::new(work.used - 1);
+    error(s.normalize_attested_field_complete_with_work("example:attested", &value, &mut short), "TEST_EXHAUSTED");
+    error(s.normalize_attested_field_complete_with_work("example:other", &json!(true), &mut NoopValidationWork), "FACT_PROVENANCE");
+    error(s.normalize_attested_field_complete_with_work("example:unknown", &value, &mut NoopValidationWork), "FACT_UNKNOWN");
+    error(s.normalize_attested_field_complete_with_work("example:attested", &json!("example:wrong"), &mut NoopValidationWork), "FACT_RANGE");
+}
+
+#[test]
 fn complete_normalization_accounts_attested_vector_relocation_and_scalar_bodies() {
     use crate::validation_work::tests::CountingWork;
     let fields: Vec<_> = (0..6)

@@ -513,6 +513,23 @@ impl FactSchema {
     ) -> Result<NormalizedFacts> {
         self.normalize_value_mode(value, work, true)
     }
+    /// One claimed attested field uses this SAME immutable field definition.
+    /// Unrelated required facts are not invented to normalize a proof subset.
+    /// The caller still authenticates source/subject/provenance and pre-admits
+    /// the returned scalar/string storage before invoking this DATA function.
+    pub(crate) fn normalize_attested_field_complete_with_work(
+        &self,
+        name: &str,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<FactValue> {
+        let field = self.field_with_work(name, work)?;
+        work.visit(Visit::Constraint)?;
+        if !field.attested {
+            return Err(fail("FACT_PROVENANCE", "field is not attested"));
+        }
+        normalize_value_mode(&field.field_type, value, work, true)
+    }
     fn normalize_value_mode(
         &self,
         value: &Value,
