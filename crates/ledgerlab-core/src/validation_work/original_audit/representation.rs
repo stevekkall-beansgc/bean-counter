@@ -388,7 +388,7 @@ impl OriginalAuditSession {
     ) -> Result<AuditedValue> {
         let envelope = OperationEnvelope::parse(raw.len(), kind.maximum())?;
         run(&self.arena, &mut self.meter, envelope, |arena, w| {
-            arena.parse_bounded(raw, kind.maximum(), w)
+            arena.parse_representation_bounded(raw, kind.maximum(), w)
         })
     }
     pub fn canonical_representation(
@@ -409,7 +409,7 @@ impl OriginalAuditSession {
                 RepresentationKind::ReceiptFrame => {
                     arena.canonical_container_bytes(value, w, Bound::Receipt)
                 }
-                _ => arena.canonical_bytes(value, w, kind.maximum()),
+                _ => arena.canonical_representation_bytes(value, w, kind.maximum()),
             }
         })
     }

@@ -173,6 +173,25 @@ impl AuditArena {
             .ok_or_else(|| failure("parser lease missing"))?;
         Ok(AuditedValue { value, reservation })
     }
+    /// Closed RP01 parser accounting; legacy parse_bounded is unchanged.
+    pub(crate) fn parse_representation_bounded(
+        &self,
+        raw: &[u8],
+        maximum: usize,
+        work: &mut dyn ValidationWork,
+    ) -> Result<AuditedValue> {
+        let mut scope = ParseScope {
+            held: Some(self.reserve(0, work)?),
+            work,
+            pending: None,
+        };
+        let value = canonical::parse_bounded_with_allocations_complete(raw, maximum, &mut scope)?;
+        let reservation = scope
+            .held
+            .take()
+            .ok_or_else(|| failure("parser lease missing"))?;
+        Ok(AuditedValue { value, reservation })
+    }
     pub fn copy_bytes(&self, raw: &[u8], work: &mut dyn ValidationWork) -> Result<AuditedBytes> {
         let reservation = self.reserve(raw.len(), work)?;
         work.scan_bytes(raw.len())?;
@@ -214,7 +233,7 @@ impl AuditArena {
         maximum: usize,
     ) -> Result<AuditedBytes> {
         let maximum = minimum(work, maximum, canonical::BUNDLE_LIMIT)?;
-        self.canonical_owned(value, work, maximum, None)
+        self.canonical_owned(value, work, maximum, None, false)
     }
     /// Only the resource owner's closed container selector can select these
     /// existing framing bounds. Ordinary canonical records retain their cap.
@@ -224,7 +243,17 @@ impl AuditArena {
         work: &mut dyn ValidationWork,
         bound: canonical::CanonicalContainerBound,
     ) -> Result<AuditedBytes> {
-        self.canonical_owned(value, work, bound.maximum(), Some(bound))
+        self.canonical_owned(value, work, bound.maximum(), Some(bound), true)
+    }
+    /// RP01-only resource walk. Legacy callers retain their exact paid trace.
+    pub(crate) fn canonical_representation_bytes(
+        &self,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        maximum: usize,
+    ) -> Result<AuditedBytes> {
+        let maximum = minimum(work, maximum, canonical::BUNDLE_LIMIT)?;
+        self.canonical_owned(value, work, maximum, None, true)
     }
     fn canonical_owned(
         &self,
@@ -232,9 +261,14 @@ impl AuditArena {
         work: &mut dyn ValidationWork,
         maximum: usize,
         container: Option<canonical::CanonicalContainerBound>,
+        complete_representation: bool,
     ) -> Result<AuditedBytes> {
-        let mut minimum_output = 0;
-        let keys = emission_key_storage(value, work, 0, maximum, &mut minimum_output)?;
+        let keys = if complete_representation {
+            let mut minimum_output = 0;
+            bounded_emission_key_storage(value, work, 0, maximum, &mut minimum_output)?
+        } else {
+            emission_key_storage(value, work, 0)?
+        };
         // Bounded Destination uses reserve_exact, so retained capacity<=maximum
         // and each reallocation's old+new requested payload<=2*maximum.
         // All object key vectors are retained conservatively even after their
@@ -247,9 +281,21 @@ impl AuditArena {
         let peak = add(work, destination, keys)?;
         let peak = add(work, peak, integer_scratch + escape_scratch)?;
         let mut reservation = self.reserve(peak, work)?;
-        let bytes = match container {
-            Some(bound) => canonical::CanonicalBytes::from_container_with_work(value, work, bound)?,
-            None => canonical::CanonicalBytes::from_value_with_work_bounded(value, work, maximum)?,
+        let bytes = match (complete_representation, container) {
+            (true, Some(bound)) => {
+                canonical::CanonicalBytes::from_representation_container_with_work(
+                    value, work, bound,
+                )?
+            }
+            (true, None) => {
+                canonical::CanonicalBytes::from_representation_with_work(value, work, maximum)?
+            }
+            (false, Some(bound)) => {
+                canonical::CanonicalBytes::from_container_with_work(value, work, bound)?
+            }
+            (false, None) => {
+                canonical::CanonicalBytes::from_value_with_work_bounded(value, work, maximum)?
+            }
         }
         .into_vec();
         if greater(work, bytes.capacity(), maximum)? {
@@ -642,6 +688,48 @@ fn emission_key_storage(
     value: &Value,
     work: &mut dyn ValidationWork,
     depth: usize,
+) -> Result<usize> {
+    work.visit(ValidationVisit::Value)?;
+    if w::compare(work, depth, 32usize)? == std::cmp::Ordering::Greater {
+        return Err(Error::new(
+            "PROGRAM_BUDGET_EXCEEDED",
+            "canonical resource depth",
+        ));
+    }
+    let mut total = 0;
+    match value {
+        Value::Array(values) => {
+            for child in values {
+                work.visit(ValidationVisit::Element)?;
+                let next = w::usize_add(work, depth, 1)?;
+                let child = emission_key_storage(child, work, next)?;
+                total = add(work, total, child)?;
+            }
+        }
+        Value::Object(values) => {
+            let count = if w::compare(work, values.len(), 0usize)?.is_eq() {
+                0
+            } else {
+                maximum(work, values.len(), 4)?
+            };
+            let payload = mul(work, count, mem::size_of::<&String>())?;
+            total = add(work, payload, mem::size_of::<Vec<&String>>())?;
+            for child in values.values() {
+                work.visit(ValidationVisit::Field)?;
+                let next = w::usize_add(work, depth, 1)?;
+                let child = emission_key_storage(child, work, next)?;
+                total = add(work, total, child)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(total)
+}
+
+fn bounded_emission_key_storage(
+    value: &Value,
+    work: &mut dyn ValidationWork,
+    depth: usize,
     output_maximum: usize,
     minimum_output: &mut usize,
 ) -> Result<usize> {
@@ -662,7 +750,13 @@ fn emission_key_storage(
             for child in values {
                 work.visit(ValidationVisit::Element)?;
                 let next = w::usize_add(work, depth, 1)?;
-                let child = emission_key_storage(child, work, next, output_maximum, minimum_output)?;
+                let child = bounded_emission_key_storage(
+                    child,
+                    work,
+                    next,
+                    output_maximum,
+                    minimum_output,
+                )?;
                 total = add(work, total, child)?;
             }
         }
@@ -678,7 +772,13 @@ fn emission_key_storage(
                 minimum_emission(work, minimum_output, key.len(), output_maximum)?;
                 work.visit(ValidationVisit::Field)?;
                 let next = w::usize_add(work, depth, 1)?;
-                let child = emission_key_storage(child, work, next, output_maximum, minimum_output)?;
+                let child = bounded_emission_key_storage(
+                    child,
+                    work,
+                    next,
+                    output_maximum,
+                    minimum_output,
+                )?;
                 total = add(work, total, child)?;
             }
         }
@@ -714,15 +814,19 @@ mod tests {
         let arena = AuditArena::new().unwrap();
         let before = arena.usage().unwrap().live_bytes;
         let tree = serde_json::json!([null, null, null, null]);
+        // Old paid path still reaches its original null refusal; only the
+        // separately selected RP01 path has the bounded pre-footprint guard.
+        let legacy=arena.canonical_bytes(&tree,&mut NoopValidationWork,2).err().unwrap();
+        assert_eq!(legacy.code,"INVALID_SHAPE");
         let error = arena
-            .canonical_bytes(&tree, &mut NoopValidationWork, 2)
+            .canonical_representation_bytes(&tree, &mut NoopValidationWork, 2)
             .err()
             .unwrap();
         assert_eq!(error.code, "PROGRAM_BUDGET_EXCEEDED");
         assert_eq!(error.detail, "canonical output lower bound");
         assert_eq!(arena.usage().unwrap().live_bytes, before);
         let error = arena
-            .canonical_bytes(
+            .canonical_representation_bytes(
                 &serde_json::json!({"long-key": 0}),
                 &mut NoopValidationWork,
                 4,
