@@ -2,6 +2,7 @@
 //! eligibility. No pure DATA draft, caller flag, hash-only certificate or demo
 //! acknowledgement can enter an append/commit path through this module.
 use super::*;
+use crate::service::workflow::core_error;
 use crate::{
     service::workflow::{
         local::{LocalWorkflowLedger, deadline},
@@ -9,6 +10,8 @@ use crate::{
     },
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
+mod request_wrapper;
+mod wrappers;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -98,15 +101,19 @@ pub(in crate::service::workflow) async fn original_status(
     tx: &mut SqliteTx,
     key: &OperationKey,
 ) -> Result<Value> {
-    let original = tx
-        .workflow_agreement_lookup(&key.bytes()?)
-        .await
-        .map_err(crate::service::store_error)?
-        .ok_or(ServiceError::IntegrityFailure)?;
-    require(is_kind(&original.kind), "INTEGRITY_FAILURE")?;
-    // Defined economic3/causal4 dictionaries exist, but the actual original
-    // financial auditor, proof operands and custody gate are not implemented.
-    // Mechanical journal lookup and retained hashes cannot discharge that gate.
+    // One owner for this entire audit attempt. Every per-origin session in the
+    // chronological driver will share this same arena, not create another pool.
+    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+    let mut session =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .map_err(core_error)?;
+    let identity = key.bytes()?;
+    let original = wrappers::load(tx, key, &identity, &mut session).await?;
+    // Mechanical wrappers are unresolved DATA. The full prefix/descriptor and
+    // same-constructor semantic/capacity/funding completion is still mandatory;
+    // no receipt or CompletedOrigin is returned from this partial path.
+    let _unresolved = original;
+
     Err(ServiceError::Unavailable)
 }
 
