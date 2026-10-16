@@ -1,4 +1,4 @@
-use super::{read, write, Inner};
+use super::{Inner, read, write};
 use crate::store::{
     errors::{CommitError, StoreError},
     ports::AcceptanceTx,
@@ -6,12 +6,12 @@ use crate::store::{
 };
 use sqlx::{Sqlite, SqliteConnection, Transaction};
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 use tokio::{
-    sync::{oneshot, OwnedRwLockWriteGuard, OwnedSemaphorePermit},
-    time::{timeout_at, Instant},
+    sync::{OwnedRwLockWriteGuard, OwnedSemaphorePermit, oneshot},
+    time::{Instant, timeout_at},
 };
 
 // Set the poison bit before every database await. If its future is dropped the
@@ -49,6 +49,7 @@ pub(crate) struct SqliteTx {
     pub(super) slot: Option<OwnedSemaphorePermit>,
     pub(super) deadline: Instant,
     pub(super) failed: bool,
+    pub(super) financial_io: Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
     // Service proof scopes can poison this transaction on pure failure/cancel.
     pub(super) workflow_proof_failed: Arc<std::sync::atomic::AtomicBool>,
     pub(super) outcome_locks: Vec<crate::store::outcomes::OutcomeLock>,
@@ -58,9 +59,14 @@ pub(crate) struct SqliteTx {
     pub(super) fence_start_changes: Option<i64>,
     pub(super) start_changes: Option<i64>,
     #[cfg(test)]
+    pub(super) financial_drain_pause: Option<Arc<super::workflow::financial::io::DrainPause>>,
+    #[cfg(test)]
     pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
 impl SqliteTx {
+    pub(crate) fn workflow_deadline(&self) -> Instant {
+        self.deadline
+    }
     pub(crate) fn workflow_proof_failure_handle(&self) -> Arc<std::sync::atomic::AtomicBool> {
         Arc::clone(&self.workflow_proof_failed)
     }
@@ -590,6 +596,12 @@ impl AcceptanceTx for SqliteTx {
         )
     }
     async fn rollback(mut self) -> Result<(), StoreError> {
+        if self.financial_io.is_some() {
+            return self
+                .financial_drain()
+                .await
+                .unwrap_or(Err(StoreError::WritesDisabled));
+        }
         let tx = self.transaction.take().expect("live transaction");
         let drain_deadline = Instant::now() + Duration::from_secs(5);
         match timeout_at(drain_deadline, tx.rollback()).await {
@@ -602,7 +614,8 @@ impl AcceptanceTx for SqliteTx {
         }
     }
     async fn commit(mut self) -> Result<(), CommitError> {
-        self.failed |= self.workflow_proof_failed.load(Ordering::Acquire);
+        self.failed |=
+            self.workflow_proof_failed.load(Ordering::Acquire) || self.financial_io.is_some();
         if !self.failed && Instant::now() < self.deadline && self.adjudication.is_none() {
             if let Some(before) = self.physical_start_pages {
                 self.failed = true;
@@ -643,7 +656,7 @@ impl AcceptanceTx for SqliteTx {
                         _ => {
                             return Err(StoreError::InvalidStore(
                                 "unsupported guarded workflow schema",
-                            ))
+                            ));
                         }
                     }
                 }

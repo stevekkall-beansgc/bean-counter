@@ -52,6 +52,7 @@ struct Inner {
     // set it stays conservative across rollback/cancellation/unknown commit.
     workflow_guard_enabled: AtomicBool,
     commit_task: Mutex<Option<JoinHandle<()>>>,
+    financial_drain_failed: AtomicBool,
     _owner: Arc<owner::Owner>,
     adjudication_enabled: Arc<AtomicBool>,
     adjudication_gate: Arc<RwLock<()>>,
@@ -207,6 +208,7 @@ impl SqliteStore {
                 comparison_queue: Arc::new(Semaphore::new(1)),
                 disabled: AtomicBool::new(false),
                 commit_task: Mutex::new(None),
+                financial_drain_failed: AtomicBool::new(false),
                 workflow_guard_enabled: AtomicBool::new(schema_version == 12 || schema_version == 13),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),
@@ -236,6 +238,11 @@ impl SqliteStore {
             .take();
         if let Some(task) = task {
             let _ = task.await;
+        }
+        if self.inner.financial_drain_failed.load(Ordering::Acquire) {
+            // Terminal retained cleanup owns the writer/OS lock until process
+            // restart. Do not hang close or claim that ownership was released.
+            return;
         }
         self.inner.writer.close().await;
         self.inner.readers.close().await;
@@ -420,6 +427,7 @@ impl SqliteStore {
             slot: Some(slot),
             deadline,
             failed: false,
+            financial_io: None,
             workflow_proof_failed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             outcome_locks: Vec::new(),
             physical_lane,
@@ -427,6 +435,8 @@ impl SqliteStore {
             physical_start_pages,
             fence_start_changes,
             start_changes,
+            #[cfg(test)]
+            financial_drain_pause: None,
             #[cfg(test)]
             outcome_fault: None,
         })

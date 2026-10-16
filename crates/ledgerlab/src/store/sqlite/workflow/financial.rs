@@ -9,9 +9,11 @@ use ledgerlab_core::{
 use sqlx::Row;
 use tokio::time::timeout_at;
 mod effects;
+pub(crate) mod io;
 mod append;
 pub(crate) use append::{FinancialAppend, FinancialDocument, FinancialJournal};
 
+#[derive(Debug)]
 pub(crate) enum FinancialReadError {
     Store(StoreError),
     Resource(ledgerlab_core::Error),
@@ -89,6 +91,18 @@ impl SqliteTx {
     ) -> Result<Option<FinancialFrame>, FinancialReadError> {
         let prior = self.failed;
         self.failed = true;
+        // substr may materialize its source SQLite value; a 256KiB returned
+        // chunk is NOT proof that the VM holds only 256KiB. Reserve the existing
+        // maximum operation field plus both result/owned-row chunk copies.
+        let mut argument_bytes=identity.len();
+        for text in [store,scope[0].as_str(),scope[1].as_str()] {
+            session.semantic_work().arithmetic(ArithmeticOperation::Add,&[&argument_bytes.into(),&text.len().into()])?;
+            argument_bytes=argument_bytes.checked_add(text.len()).ok_or_else(invalid)?;
+        }
+        session.semantic_work().arithmetic(ArithmeticOperation::Multiply,&[&argument_bytes.into(),&3usize.into()])?;
+        let arguments=argument_bytes.checked_mul(3).ok_or_else(invalid)?;
+        session.semantic_work().arithmetic(ArithmeticOperation::Add,&[&arguments.into(),&(8388608usize+2*262144).into()])?;
+        self.financial_reserve_io(session,arguments.checked_add(8388608+2*262144).ok_or_else(invalid)?)?;
         let result=timeout_at(self.deadline, async {
             self.workflow_schema().await?;
             session.work().visit(ValidationVisit::RefLookup)?;
@@ -137,9 +151,8 @@ impl SqliteTx {
             let receipt=self.financial_blob(identity,store,scope,2,rb,session).await?;
             Ok(Some(FinancialFrame {kind,operation,manifest,receipt,operation_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,request_hash,sequence,accepted_at_us,member_count}))
         }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
-        if result.is_ok() {
-            self.failed = prior;
-        }
+        self.financial_finish_io(session).await?;
+        if result.is_ok() { self.failed = prior; }
         result
     }
     async fn financial_blob(

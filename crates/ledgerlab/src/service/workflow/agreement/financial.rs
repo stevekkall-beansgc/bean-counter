@@ -96,6 +96,33 @@ async fn management_fingerprint(
     ]))
 }
 
+/// The actual request lifetime and held-writer deadline feed the same terminal
+/// core cancellation flag. This creates no proof state or additional budget.
+struct AttemptCancellation {
+    flag: ledgerlab_core::canonical::audit_arena::AuditCancellation,
+    timer: tokio::task::JoinHandle<()>,
+}
+impl AttemptCancellation {
+    fn new(
+        arena: &ledgerlab_core::canonical::audit_arena::AuditArena,
+        deadline: tokio::time::Instant,
+    ) -> Self {
+        let flag = arena.cancellation_handle();
+        let timed = flag.clone();
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep_until(deadline).await;
+            timed.cancel();
+        });
+        Self { flag, timer }
+    }
+}
+impl Drop for AttemptCancellation {
+    fn drop(&mut self) {
+        self.flag.cancel();
+        self.timer.abort();
+    }
+}
+
 /// Never returns saved financial success without the complete version-aware
 /// original financial auditor. Current compiler/grant/time are not consulted.
 pub(in crate::service::workflow) async fn original_status(
@@ -105,6 +132,7 @@ pub(in crate::service::workflow) async fn original_status(
     // One owner for this entire audit attempt. Every per-origin session in the
     // chronological driver will share this same arena, not create another pool.
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+    let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
     let mut session =
         ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
             .map_err(core_error)?;
