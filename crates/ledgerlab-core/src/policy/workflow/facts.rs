@@ -444,7 +444,7 @@ impl FactSchema {
                     return Err(fail(
                         "FACT_UNSUPPORTED_TYPE",
                         "reference descriptors not implemented",
-                    ))
+                    ));
                 }
             };
             fields.push(Field {
@@ -501,6 +501,24 @@ impl FactSchema {
         value: &Value,
         work: &mut dyn ValidationWork,
     ) -> Result<NormalizedFacts> {
+        self.normalize_value_mode(value, work, false)
+    }
+    /// Financial caller pre-admits the exact output/transient arena footprint;
+    /// this same normalizer additionally pays executing copies before making
+    /// them. This is DATA normalization, not custody or a resource allowance.
+    pub(crate) fn normalize_value_complete_with_work(
+        &self,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<NormalizedFacts> {
+        self.normalize_value_mode(value, work, true)
+    }
+    fn normalize_value_mode(
+        &self,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        complete: bool,
+    ) -> Result<NormalizedFacts> {
         work.visit(Visit::Value)?;
         let object = value
             .as_object()
@@ -515,7 +533,11 @@ impl FactSchema {
                 }
             }
             if !known {
-                return Err(fail("FACT_UNKNOWN", key));
+                return Err(if complete {
+                    Error::new("FACT_UNKNOWN", copy_text(key, work)?)
+                } else {
+                    fail("FACT_UNKNOWN", key)
+                });
             }
         }
         let mut values = BTreeMap::new();
@@ -525,19 +547,47 @@ impl FactSchema {
             work.visit(Visit::Field)?;
             work.visit(Visit::RefLookup)?;
             let fact = match object.get(&field.name) {
-                None if field.required => return Err(fail("FACT_REQUIRED", &field.name)),
+                None if field.required => {
+                    return Err(if complete {
+                        Error::new("FACT_REQUIRED", copy_text(&field.name, work)?)
+                    } else {
+                        fail("FACT_REQUIRED", &field.name)
+                    });
+                }
                 None => FactValue::Missing,
                 Some(value) => {
                     if field.attested {
-                        required_proofs.push(field.name.clone());
+                        if complete {
+                            grow_proof_fields(&mut required_proofs, work)?;
+                            let copied = copy_text(&field.name, work)?;
+                            work.write_bytes(std::mem::size_of::<String>())?;
+                            required_proofs.push(copied);
+                        } else {
+                            required_proofs.push(field.name.clone());
+                        }
                     }
-                    normalize_value_with_work(&field.field_type, value, work)?
+                    normalize_value_mode(&field.field_type, value, work, complete)?
                 }
             };
-            if let Some(value) = fact.canonical_value() {
-                canonical.insert(field.name.clone(), value);
+            let body = if complete {
+                fact.canonical_value_complete_with_work(work)?
+            } else {
+                fact.canonical_value()
+            };
+            if let Some(value) = body {
+                let key = if complete {
+                    copy_text(&field.name, work)?
+                } else {
+                    field.name.clone()
+                };
+                canonical.insert(key, value);
             }
-            values.insert(field.name.clone(), fact);
+            let key = if complete {
+                copy_text(&field.name, work)?
+            } else {
+                field.name.clone()
+            };
+            values.insert(key, fact);
         }
         Ok(NormalizedFacts {
             values,
@@ -652,6 +702,20 @@ pub enum FactValue {
     Timestamp(Timestamp),
 }
 impl FactValue {
+    fn canonical_value_complete_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Option<Value>> {
+        Ok(Some(match self {
+            Self::Missing => return Ok(None),
+            Self::Boolean(value) => Value::Bool(*value),
+            Self::String(value) | Self::Enum(value) => Value::String(copy_text(value, work)?),
+            Self::Integer(value) | Self::Decimal(value) => {
+                Value::String(copy_text(value.as_str(), work)?)
+            }
+            Self::Timestamp(value) => Value::String(copy_text(value.as_str(), work)?),
+        }))
+    }
     fn canonical_value(&self) -> Option<Value> {
         Some(match self {
             Self::Missing => return None,
@@ -688,10 +752,44 @@ impl NormalizedFacts {
         &self.required_proofs
     }
 }
+fn copy_text(value: &str, work: &mut dyn ValidationWork) -> Result<String> {
+    work.scan_bytes(value.len())?;
+    work.write_bytes(value.len())?;
+    Ok(value.to_owned())
+}
+fn copy_size(work: &mut dyn ValidationWork, a: usize, b: usize) -> Result<usize> {
+    work.arithmetic(Op::Multiply, &[&BigInt::from(a), &BigInt::from(b)])?;
+    a.checked_mul(b)
+        .ok_or_else(|| fail("FACT_RANGE", "proof vector byte overflow"))
+}
+fn grow_proof_fields(values: &mut Vec<String>, work: &mut dyn ValidationWork) -> Result<()> {
+    if vw::compare(work, values.len(), values.capacity())? != Ordering::Equal {
+        return Ok(());
+    }
+    let next = if vw::compare(work, values.capacity(), 0usize)? == Ordering::Equal {
+        4
+    } else {
+        copy_size(work, values.capacity(), 2)?
+    };
+    let moved = copy_size(work, values.len(), std::mem::size_of::<String>())?;
+    work.scan_bytes(moved)?;
+    work.write_bytes(moved)?;
+    let additional = vw::usize_sub(work, next, values.len())?;
+    values.reserve_exact(additional);
+    Ok(())
+}
 fn normalize_value_with_work(
     kind: &FactType,
     value: &Value,
     work: &mut dyn ValidationWork,
+) -> Result<FactValue> {
+    normalize_value_mode(kind, value, work, false)
+}
+fn normalize_value_mode(
+    kind: &FactType,
+    value: &Value,
+    work: &mut dyn ValidationWork,
+    complete: bool,
 ) -> Result<FactValue> {
     work.visit(Visit::Value)?;
     let text = || {
@@ -713,7 +811,11 @@ fn normalize_value_with_work(
             {
                 return Err(fail("FACT_RANGE", "string bytes/controls"));
             }
-            FactValue::String(s.to_owned())
+            FactValue::String(if complete {
+                copy_text(s, work)?
+            } else {
+                s.to_owned()
+            })
         }
         FactType::Enum(values) => {
             let s = text()?;
@@ -728,7 +830,11 @@ fn normalize_value_with_work(
             if !found {
                 return Err(fail("FACT_RANGE", "enum value"));
             }
-            FactValue::Enum(s.to_owned())
+            FactValue::Enum(if complete {
+                copy_text(s, work)?
+            } else {
+                s.to_owned()
+            })
         }
         FactType::Number {
             min,

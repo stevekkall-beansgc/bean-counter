@@ -79,9 +79,10 @@ fn integer_limits_and_signed_bounds_are_exact() {
     );
     error(s.normalize(br#"{"example:quantity":"-1"}"#), "FACT_RANGE");
     for value in ["-0", "-00", "1.0", "+1", "1e1"] {
-        assert!(s
-            .normalize(&serde_json::to_vec(&json!({"example:quantity":value})).unwrap())
-            .is_err());
+        assert!(
+            s.normalize(&serde_json::to_vec(&json!({"example:quantity":value})).unwrap())
+                .is_err()
+        );
     }
     let s = schema(json!([field(
         "example:delta",
@@ -370,10 +371,12 @@ fn executing_signed_scalar_preserves_normalization_and_exact_budget() {
         assert_eq!(scalar.as_str(), expected);
         assert_eq!(scalar, SignedScalar::parse(raw, scale).unwrap());
         if expected != "0" {
-            assert!(probe
-                .operations
-                .iter()
-                .any(|(kind, _)| *kind == Op::Multiply));
+            assert!(
+                probe
+                    .operations
+                    .iter()
+                    .any(|(kind, _)| *kind == Op::Multiply)
+            );
         }
         let mut exact = CountingWork::new(probe.used);
         assert_eq!(
@@ -423,11 +426,13 @@ fn executing_scalar_comparison_and_reduction_use_actual_operands() {
         serde_json::to_value(ratio).unwrap(),
         json!({"numerator":"-6","denominator":"5"})
     );
-    assert!(ratio_work
-        .operations
-        .iter()
-        .any(|(kind, operands)| *kind == Op::DivideRemainder
-            && operands == &[BigInt::from(12), BigInt::from(10)]));
+    assert!(
+        ratio_work
+            .operations
+            .iter()
+            .any(|(kind, operands)| *kind == Op::DivideRemainder
+                && operands == &[BigInt::from(12), BigInt::from(10)])
+    );
     let mut short = CountingWork::new(ratio_work.used - 1);
     assert_eq!(
         a.ratio_with_work(&mut short).unwrap_err().code,
@@ -455,10 +460,11 @@ fn executing_schema_and_facts_cover_selected_types_without_redecoding() {
         json!(["example:a", "example:z"])
     );
     assert!(work.visits.contains(&Visit::SortMove));
-    assert!(work
-        .operations
-        .iter()
-        .any(|(op, _)| *op == Op::DivideRemainder));
+    assert!(
+        work.operations
+            .iter()
+            .any(|(op, _)| *op == Op::DivideRemainder)
+    );
     let mut exact = CountingWork::new(work.used);
     assert_eq!(
         FactSchema::parse_with_work(&raw, &mut exact).unwrap().body,
@@ -505,4 +511,129 @@ fn executing_schema_and_facts_cover_selected_types_without_redecoding() {
         schema.normalize(br#"{"unknown:field":"x"}"#),
         "FACT_UNKNOWN",
     );
+}
+
+#[test]
+fn complete_normalization_pays_copies_and_preserves_legacy_paid_trace() {
+    use crate::validation_work::tests::CountingWork;
+    let s = schema(json!([{"name":"example:code","required":true,
+        "type":{"kind":"enum","values":["example:a"]},
+        "provenance":{"kind":"attested","source_slot":"example:source","evidence_kind":"outcome"}}]));
+    let input = json!({"example:code":"example:a"});
+    let mut old = CountingWork::new(usize::MAX);
+    let legacy = s.normalize_value_with_work(&input, &mut old).unwrap();
+    assert_eq!((old.used, old.scanned, old.written), (8, 0, 0));
+    assert!(old.operations.is_empty());
+    let mut full = CountingWork::new(usize::MAX);
+    let result = s
+        .normalize_value_complete_with_work(&input, &mut full)
+        .unwrap();
+    assert_eq!(result.body, legacy.body);
+    assert_eq!(result.values, legacy.values);
+    assert_eq!(result.required_proofs, legacy.required_proofs);
+    assert_eq!((full.scanned, full.written), (54, 78));
+    assert!(full.used > old.used);
+    struct CopyLimit {
+        inner: CountingWork,
+        maximum: usize,
+    }
+    impl ValidationWork for CopyLimit {
+        fn visit(&mut self, k: Visit) -> Result<()> {
+            self.inner.visit(k)
+        }
+        fn arithmetic(&mut self, k: Op, v: &[&BigInt]) -> Result<()> {
+            self.inner.arithmetic(k, v)
+        }
+        fn scan_bytes(&mut self, n: usize) -> Result<()> {
+            self.inner.scan_bytes(n)
+        }
+        fn write_bytes(&mut self, n: usize) -> Result<()> {
+            if n > self.maximum - self.inner.written {
+                return Err(Error::new("TEST_COPY_REFUSED", "pre-copy callback"));
+            }
+            self.inner.write_bytes(n)
+        }
+        fn hash_bytes(&mut self, n: usize) -> Result<()> {
+            self.inner.hash_bytes(n)
+        }
+    }
+    let mut exact = CopyLimit {
+        inner: CountingWork::new(usize::MAX),
+        maximum: full.written,
+    };
+    assert_eq!(
+        s.normalize_value_complete_with_work(&input, &mut exact)
+            .unwrap()
+            .body,
+        result.body
+    );
+    let mut short = CopyLimit {
+        inner: CountingWork::new(usize::MAX),
+        maximum: full.written - 1,
+    };
+    error(
+        s.normalize_value_complete_with_work(&input, &mut short),
+        "TEST_COPY_REFUSED",
+    );
+    assert!(short.inner.written < full.written);
+    let mut semantic_short = CountingWork::new(full.used - 1);
+    error(
+        s.normalize_value_complete_with_work(&input, &mut semantic_short),
+        "TEST_EXHAUSTED",
+    );
+}
+
+#[test]
+fn complete_normalization_accounts_attested_vector_relocation_and_scalar_bodies() {
+    use crate::validation_work::tests::CountingWork;
+    let fields: Vec<_> = (0..6)
+        .map(|i| {
+            json!({"name":format!("example:f{i}"),"required":true,
+        "type":{"kind":"enum","values":["example:a"]},
+        "provenance":{"kind":"attested","source_slot":"example:source","evidence_kind":"outcome"}})
+        })
+        .collect();
+    let s = schema(json!(fields));
+    let input = Value::Object(
+        (0..6)
+            .map(|i| (format!("example:f{i}"), json!("example:a")))
+            .collect(),
+    );
+    let mut old = CountingWork::new(usize::MAX);
+    let legacy = s.normalize_value_with_work(&input, &mut old).unwrap();
+    let mut work = CountingWork::new(usize::MAX);
+    let result = s
+        .normalize_value_complete_with_work(&input, &mut work)
+        .unwrap();
+    assert_eq!(result.body, legacy.body);
+    assert_eq!(result.required_proofs.len(), 6);
+    assert!(work.written >= 4 * std::mem::size_of::<String>() + 6 * std::mem::size_of::<String>());
+    let mixed = schema(json!([
+        field(
+            "example:int",
+            true,
+            json!({"kind":"integer","min":"0","max":"10","unit":"example:unit"})
+        ),
+        field(
+            "example:time",
+            true,
+            json!({"kind":"timestamp","min":"2000-01-01T00:00:00Z","max":"2001-01-01T00:00:00Z"})
+        ),
+        field(
+            "example:string",
+            true,
+            json!({"kind":"string","min_bytes":"1","max_bytes":"32"})
+        ),
+        field("example:bool", true, json!({"kind":"boolean"}))
+    ]));
+    let value = json!({"example:int":"0002","example:time":"2000-01-01T01:00:00+01:00","example:string":"hi","example:bool":false});
+    let mut old = CountingWork::new(usize::MAX);
+    let legacy = mixed.normalize_value_with_work(&value, &mut old).unwrap();
+    let mut full = CountingWork::new(usize::MAX);
+    let result = mixed
+        .normalize_value_complete_with_work(&value, &mut full)
+        .unwrap();
+    assert_eq!(result.body, legacy.body);
+    assert_eq!(result.values, legacy.values);
+    assert!(full.written > old.written);
 }
