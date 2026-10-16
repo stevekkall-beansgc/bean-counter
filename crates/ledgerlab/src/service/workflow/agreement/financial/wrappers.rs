@@ -258,6 +258,7 @@ fn without_hash(
     domain: &[u8],
     value: &Value,
     excluded: &str,
+    value_kind: RepresentationKind,
     session: &mut OriginalAuditSession,
 ) -> Result<[u8; 32]> {
     let object = value.as_object().ok_or(ServiceError::IntegrityFailure)?;
@@ -290,7 +291,7 @@ fn without_hash(
         update(&mut h, b"\"", session)?;
         update(&mut h, name.as_bytes(), session)?;
         update(&mut h, b"\":", session)?;
-        update_value(&mut h, v, RepresentationKind::ReceiptFrame, session)?;
+        update_value(&mut h, v, value_kind, session)?;
     }
     update(&mut h, b"}", session)?;
     Ok(h.finalize().into())
@@ -344,6 +345,134 @@ fn reference<'a>(
         require(text.is_ascii(), "INTEGRITY_FAILURE")?;
     }
     Ok((digest, id, kind))
+}
+/// Recompute captured framing commitments without treating saved anchors as
+/// their own provenance. The semantic handler must separately extract anchors
+/// from authenticated original inputs and reproduce the normalized payload.
+fn descriptor_hashes(
+    evidence: &Value,
+    key: &OperationKey,
+    kind: &str,
+    original: &SavedRequest,
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
+    let normalized = request::field(evidence, "normalized_request", session)?;
+    request::closed(
+        normalized,
+        &["schema", "key", "kind", "contract", "payload"],
+        session,
+    )?;
+    request::same_text(
+        request::text(normalized, "schema", session)?,
+        "ledger-operation/1",
+        session,
+    )?;
+    request::same_text(
+        request::text(normalized, "contract", session)?,
+        "workflow/1",
+        session,
+    )?;
+    request::same_text(request::text(normalized, "kind", session)?, kind, session)?;
+    request::key(request::field(normalized, "key", session)?, key, session)?;
+    let payload = request::field(normalized, "payload", session)?;
+    let payload_schema = request::text(payload, "schema", session)?;
+    let raw_payload = request::field(original.value(), "payload", session)?;
+    request::same_text(
+        payload_schema,
+        request::text(raw_payload, "schema", session)?,
+        session,
+    )?;
+    let resolution = request::field(evidence, "descriptor_resolution", session)?;
+    request::closed(
+        resolution,
+        &[
+            "schema",
+            "registry_digest",
+            "operation_kind",
+            "payload_schema",
+            "locator_digest",
+            "anchors",
+            "descriptors",
+            "normalization_profile",
+            "closure_digest",
+        ],
+        session,
+    )?;
+    request::same_text(
+        request::text(resolution, "schema", session)?,
+        "ledger-operation-descriptors/1",
+        session,
+    )?;
+    request::same_text(
+        request::text(resolution, "operation_kind", session)?,
+        kind,
+        session,
+    )?;
+    request::same_text(
+        request::text(resolution, "payload_schema", session)?,
+        payload_schema,
+        session,
+    )?;
+    request::same_text(
+        request::text(resolution, "normalization_profile", session)?,
+        "ledger-operation-normalization/2",
+        session,
+    )?;
+    // The enclosing operation remains subject to its existing8MiB container
+    // bound. These nested values are not new independently admitted records.
+    let closure = without_hash(
+        b"bean-counter/descriptor-closure/1\0",
+        resolution,
+        "closure_digest",
+        RepresentationKind::OperationFrame,
+        session,
+    )?;
+    request::digest_text(
+        &closure,
+        request::text(resolution, "closure_digest", session)?,
+        true,
+        session,
+    )?;
+    let mut schema_hash = Sha256::new();
+    update(&mut schema_hash, b"bean-counter/schema-bundle/1\0", session)?;
+    update_value(
+        &mut schema_hash,
+        request::field(resolution, "descriptors", session)?,
+        RepresentationKind::OperationFrame,
+        session,
+    )?;
+    request::digest_text(
+        &schema_hash.finalize().into(),
+        request::text(evidence, "schema_bundle_digest", session)?,
+        true,
+        session,
+    )?;
+    let mut intent_hash = Sha256::new();
+    update(
+        &mut intent_hash,
+        b"bean-counter/operation-request/2\0[",
+        session,
+    )?;
+    update_value(
+        &mut intent_hash,
+        request::field(resolution, "closure_digest", session)?,
+        RepresentationKind::OperationFrame,
+        session,
+    )?;
+    update(&mut intent_hash, b",", session)?;
+    update_value(
+        &mut intent_hash,
+        normalized,
+        RepresentationKind::OperationFrame,
+        session,
+    )?;
+    update(&mut intent_hash, b"]", session)?;
+    request::digest_text(
+        &intent_hash.finalize().into(),
+        request::text(evidence, "request_hash", session)?,
+        true,
+        session,
+    )
 }
 async fn indexed_sets(
     tx: &mut SqliteTx,
@@ -579,6 +708,7 @@ pub(super) async fn validate_frame(
     )?;
     let evidence = request::field(op, "request_evidence", session)?;
     let request = request::parse_saved(evidence, frame.kind, key, session)?;
+    descriptor_hashes(evidence, key, frame.kind, &request, session)?;
     let payload = request::field(request.value(), "payload", session)?;
     let descriptors = request::field(evidence, "descriptor_resolution", session)?;
     if class == WireClass::Financial {
@@ -785,6 +915,7 @@ pub(super) async fn validate_frame(
         b"bean-counter/operation-receipt/2\0",
         rec,
         "receipt_hash",
+        RepresentationKind::ReceiptFrame,
         session,
     )?;
     id(
