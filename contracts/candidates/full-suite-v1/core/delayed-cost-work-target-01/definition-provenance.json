@@ -1,0 +1,9 @@
+{
+  "base": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/deadline-close-01/deadline-close.schema.json",
+  "base_sha256": "76a2008cecb0fc7e290c5c1f50ef6d7fcd9f91715466c10e5f642a500f5f0b1b",
+  "copied_definitions": "all base $defs unchanged",
+  "new_definitions": [
+    "DelayedCostWorkDependency1"
+  ],
+  "top_level": "only package-specific validation entry points and $id replaced"
+}

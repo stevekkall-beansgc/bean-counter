@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:delayed-cost-work-target-profile-01",
+  "const": {
+    "schema": "ledger-delayed-cost-work-target-capability/1",
+    "base_capability_digest": "sha256:b01ac10a2b8ff2279affa6f617f6c9bd4e9576347ba40d95d163f18af1afc32a",
+    "base_registry_digest": "sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da",
+    "dependency_recipe": "delayed_cost/original-work-target-1",
+    "dependency_schema": "ledger-workflow-dependency/1",
+    "dependency_kind": "delayed_cost",
+    "target_kind": "workflow-work",
+    "target_selection": "exact_original_work_record_ref",
+    "original_terms_selection": "exact_original_binding_ref",
+    "reservation_stage": "before_original_delayed_work_becomes_billable",
+    "identity_recipe": "unchanged_workflow-dependency/1",
+    "changed_operation_recipes": [
+      "work.accept",
+      "quantity.correct",
+      "work.reverse",
+      "cost.finalize",
+      "cost.correct",
+      "invocation.authorize",
+      "invocation.close"
+    ],
+    "normalization_profile": "ledger-operation-normalization/2",
+    "resource_profile": "workflow-resource-vector/1",
+    "financial_enablement": "requires_complete_qualified_capability"
+  }
+}

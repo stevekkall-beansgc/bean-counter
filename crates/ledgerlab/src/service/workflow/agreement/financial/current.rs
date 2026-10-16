@@ -2,7 +2,15 @@
 //! This is NOT a completed financial prefix, eligibility or prepared commit.
 use super::*;
 use ledgerlab_core::policy::workflow::SourceGrant;
+use ledgerlab_core::{
+    canonical::audit_arena::{AuditedValue, ExternalBufferLease},
+    policy::workflow::transition_constructor::ExactRef,
+    validation_work::{ArithmeticOperation as Op, OriginalAuditSession, RepresentationKind},
+};
 use std::collections::BTreeMap;
+
+mod chain;
+pub(super) use chain::ObservedChain;
 
 pub(super) struct CurrentSelection {
     pub(super) setup: crate::service::billing::Setup,
@@ -11,6 +19,7 @@ pub(super) struct CurrentSelection {
     pub(super) sources: Vec<(RecordRef, context::ObservedSource)>,
     pub(super) at: Timestamp,
     pub(super) before_sequence: i64,
+    pub(super) chain: Option<ObservedChain>,
 }
 fn reference(value: &Value, kind: &str) -> Result<RecordRef> {
     ledgerlab_core::policy::workflow::AgreementRef::parse(&records::bytes(value)?)
@@ -29,6 +38,7 @@ pub(super) async fn work(
     tx: &mut SqliteTx,
     key: &OperationKey,
     payload: &Value,
+    session: &mut OriginalAuditSession,
 ) -> Result<CurrentSelection> {
     let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
     let installation = tx
@@ -105,6 +115,10 @@ pub(super) async fn work(
         let source = context::observe_source(tx, key, &r).await?;
         sources.push((r, source));
     }
+    // The chain projection is read under this SAME writer and original-audit
+    // owner. It remains DATA until the chronological inventory authenticates
+    // its exact immutable body and core validates the selected original joins.
+    let chain = chain::observe(tx, key, customer, payload, before_sequence, session).await?;
     Ok(CurrentSelection {
         setup,
         accepted,
@@ -112,5 +126,6 @@ pub(super) async fn work(
         sources,
         at,
         before_sequence,
+        chain,
     })
 }

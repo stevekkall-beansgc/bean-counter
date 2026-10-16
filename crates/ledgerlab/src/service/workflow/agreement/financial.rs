@@ -215,7 +215,12 @@ impl LocalWorkflowLedger {
                 let management = ManagementObservation::capture(self, tx, key).await?;
                 management.recheck(self, tx, key).await?;
                 if req.kind() == "work.accept" {
-                    let _observed = current::work(self, tx, key, req.payload()).await?;
+                    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new()
+                        .map_err(core_error)?;
+                    let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
+                    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+                        .map_err(core_error)?;
+                    let _observed = current::work(self, tx, key, req.payload(), &mut session).await?;
                     // Actual observed inputs remain noncommittable until full
                     // original audit, core candidate and capacity gates close.
                 }

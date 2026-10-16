@@ -79,6 +79,8 @@ const DEADLINE_REGISTRY: &str =
     "sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da";
 const SUPPLIER_REGISTRY: &str =
     "sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93";
+const WORK_TARGET_REGISTRY: &str =
+    "sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2";
 fn supplier_recipe(
     kind: &str,
     payload: &str,
@@ -145,6 +147,7 @@ pub(super) fn descriptor_schema(
 ) -> Result<&'static str> {
     if equal_text(registry, SUPPLIER_REGISTRY, session)?
         || equal_text(registry, DEADLINE_REGISTRY, session)?
+        || equal_text(registry, WORK_TARGET_REGISTRY, session)?
     {
         if supplier_recipe(kind, payload, session)?.is_some() {
             return Ok("ledger-operation-descriptors/2");
@@ -168,6 +171,7 @@ pub(super) fn recipe(
 ) -> Result<Recipe> {
     if equal_text(registry, SUPPLIER_REGISTRY, session)?
         || equal_text(registry, DEADLINE_REGISTRY, session)?
+        || equal_text(registry, WORK_TARGET_REGISTRY, session)?
     {
         return supplier_recipe(kind, payload, session)?
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
@@ -1238,6 +1242,13 @@ mod supplier_dispatch_tests {
                 include_str!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/../../contracts/candidates/full-suite-v1/core/deadline-close-01/registry.json"
+                )),
+            ),
+            (
+                WORK_TARGET_REGISTRY,
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../contracts/candidates/full-suite-v1/core/delayed-cost-work-target-01/registry.json"
                 )),
             ),
         ] {

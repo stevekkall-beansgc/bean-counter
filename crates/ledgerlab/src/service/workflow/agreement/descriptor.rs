@@ -93,6 +93,7 @@ pub(super) fn acceptance_evidence(
                 registry,
                 "sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93"
                     | "sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da"
+                    | "sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2"
             ),
             "UNSUPPORTED_SCHEMA_PROFILE",
         )?;

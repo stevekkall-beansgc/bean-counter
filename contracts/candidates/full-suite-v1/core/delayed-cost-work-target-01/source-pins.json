@@ -1,0 +1,39 @@
+{
+  "files": [
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/deadline-close-01/profile.json",
+      "bytes": 1119,
+      "sha256": "4efc8f55c2644b2b5b1dff9e874417d63227e2ec48809cd82b447d01f2717e8b"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/deadline-close-01/registry.json",
+      "bytes": 13849,
+      "sha256": "4a1696683d73889ed9b7709efebeab107819d00f599aa2020cb9ae11e9f1ac2f"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/deadline-close-01/deadline-close.schema.json",
+      "bytes": 369274,
+      "sha256": "76a2008cecb0fc7e290c5c1f50ef6d7fcd9f91715466c10e5f642a500f5f0b1b"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/owner-local-cost-01/SPEC.md",
+      "bytes": 33122,
+      "sha256": "054177515c365e6ce2abd041b9817ec0c30aadb033ef06ff9768fedb0a61d0e8"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/owner-local-cost-01/CLOSURE-AND-DESCRIPTORS.md",
+      "bytes": 14408,
+      "sha256": "998bdca17646b1d9ae5df6ba9b3e928665580c13f9d2881e7d47d56f8486a54f"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/ECONOMIC-BOUNDARY.md",
+      "bytes": 36664,
+      "sha256": "045e5a7c00c33e5f76e3cf9eca8b2c6a3514f6531f2314d274695bc55add50e0"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/economic-boundary.schema.json",
+      "bytes": 197142,
+      "sha256": "b17dc2ad76bd39802db0ec398739d004ff997310a9c4055585330a0174d3c4b0"
+    }
+  ]
+}

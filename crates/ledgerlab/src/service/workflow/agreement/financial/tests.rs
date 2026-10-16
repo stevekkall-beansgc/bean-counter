@@ -196,6 +196,69 @@ async fn chronological_owning_frames_follow_actual_public_prerequisite_history()
                     resolved.wrappers().original_request().value()["key"]["operation_id"],
                     operation
                 );
+                // The connected current/prefix document reader is exercised
+                // only with a genuine public prerequisite's retained member.
+                // No synthetic financial history or provenance token is made.
+                let reference: ledgerlab_core::policy::workflow::transition_constructor::ExactRef =
+                    serde_json::from_value(
+                        receipt["receipt"]["result_refs"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|r| r["kind"] == "workflow-evidence")
+                            .unwrap()
+                            .clone(),
+                    )
+                    .unwrap();
+                assert!(
+                    tx.workflow_financial_document(
+                        &reference,
+                        &root.logical_store_id,
+                        &root.scope,
+                        after,
+                        &mut session
+                    )
+                    .await
+                    .map_err(prefix::read_error)?
+                    .is_none()
+                );
+                let foreign = ["foreign-tenant".into(), root.scope[1].clone()];
+                assert!(
+                    tx.workflow_financial_document(
+                        &reference,
+                        &root.logical_store_id,
+                        &foreign,
+                        through + 1,
+                        &mut session
+                    )
+                    .await
+                    .map_err(prefix::read_error)?
+                    .is_none()
+                );
+                let live_before = arena.usage().unwrap().live_bytes;
+                let retained = tx
+                    .workflow_financial_document(
+                        &reference,
+                        &root.logical_store_id,
+                        &root.scope,
+                        after + 1,
+                        &mut session,
+                    )
+                    .await
+                    .map_err(prefix::read_error)?
+                    .unwrap();
+                assert_eq!(
+                    retained.schema.bytes(),
+                    b"ledger-workflow-retained-evidence/1"
+                );
+                let body = canonical::parse_bounded(retained.body.bytes(), 4194304).unwrap();
+                assert_eq!(
+                    body["content_sha256"],
+                    resolved.wrappers().original_request().value()["payload"]["content_sha256"]
+                );
+                assert!(arena.usage().unwrap().live_bytes > live_before);
+                drop(retained);
+                assert_eq!(arena.usage().unwrap().live_bytes, live_before);
                 drop(resolved);
             }
             let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();

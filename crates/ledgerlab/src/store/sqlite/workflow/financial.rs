@@ -9,10 +9,12 @@ use ledgerlab_core::{
 use sqlx::Row;
 use tokio::time::timeout_at;
 mod chronology;
+mod document;
 mod effects;
 mod heads;
 mod supplier;
 pub(crate) use chronology::OriginalLocator;
+pub(crate) use document::RetainedDocument;
 pub(crate) use heads::{HeadKey, HeadLocator};
 mod append;
 pub(crate) mod io;

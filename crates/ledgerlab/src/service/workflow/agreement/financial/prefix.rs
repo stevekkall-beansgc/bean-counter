@@ -78,7 +78,7 @@ impl LocatedWrappers {
         &self.wrappers
     }
 }
-fn read_error(error: FinancialReadError) -> ServiceError {
+pub(super) fn read_error(error: FinancialReadError) -> ServiceError {
     match error {
         FinancialReadError::Store(error) => crate::service::store_error(error),
         FinancialReadError::Resource(error) => core_error(error),

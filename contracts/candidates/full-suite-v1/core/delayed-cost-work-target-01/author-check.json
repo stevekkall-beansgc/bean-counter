@@ -1,0 +1,240 @@
+{
+  "schema": "delayed-work-target-author-check/1",
+  "checks": [
+    {
+      "name": "schema_work",
+      "passed": true
+    },
+    {
+      "name": "schema_claim",
+      "passed": true
+    },
+    {
+      "name": "schema_dependency",
+      "passed": true
+    },
+    {
+      "name": "schema_capacity",
+      "passed": true
+    },
+    {
+      "name": "case_valid_prebill",
+      "passed": true
+    },
+    {
+      "name": "case_valid_finalized",
+      "passed": true
+    },
+    {
+      "name": "case_valid_corrected",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_target_invocation",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_target_claim",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_target_work",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_claim",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_component",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_invocation",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_ancestor",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_terms",
+      "passed": true
+    },
+    {
+      "name": "case_cross_scope",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_store",
+      "passed": true
+    },
+    {
+      "name": "case_changed_work_digest",
+      "passed": true
+    },
+    {
+      "name": "case_family_slot_forbidden",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_kind",
+      "passed": true
+    },
+    {
+      "name": "case_missing_original_declaration",
+      "passed": true
+    },
+    {
+      "name": "case_late_reservation",
+      "passed": true
+    },
+    {
+      "name": "case_unauthenticated",
+      "passed": true
+    },
+    {
+      "name": "case_capacity_unproved",
+      "passed": true
+    },
+    {
+      "name": "case_rights_missing",
+      "passed": true
+    },
+    {
+      "name": "case_claim_points_elsewhere",
+      "passed": true
+    },
+    {
+      "name": "case_changed_business_id",
+      "passed": true
+    },
+    {
+      "name": "case_changed_namespace",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_cost_id",
+      "passed": true
+    },
+    {
+      "name": "stable_id_invocation",
+      "passed": true
+    },
+    {
+      "name": "different_digest_invocation",
+      "passed": true
+    },
+    {
+      "name": "different_root_invocation",
+      "passed": true
+    },
+    {
+      "name": "stable_id_work_claim",
+      "passed": true
+    },
+    {
+      "name": "different_digest_work_claim",
+      "passed": true
+    },
+    {
+      "name": "different_root_work_claim",
+      "passed": true
+    },
+    {
+      "name": "schema_negative_invocation_target",
+      "passed": true
+    },
+    {
+      "name": "schema_negative_family_slot",
+      "passed": true
+    },
+    {
+      "name": "schema_negative_extra_field",
+      "passed": true
+    },
+    {
+      "name": "profile_schema",
+      "passed": true
+    },
+    {
+      "name": "registry_schema",
+      "passed": true
+    },
+    {
+      "name": "all_old_definitions_unchanged",
+      "passed": true
+    },
+    {
+      "name": "registry_agreement.accept_ledger-workflow-agreement-accept/5",
+      "passed": true
+    },
+    {
+      "name": "registry_authority.change_ledger-cost-authority-enroll/1",
+      "passed": true
+    },
+    {
+      "name": "registry_cost.correct_ledger-workflow-cost-correct/1",
+      "passed": true
+    },
+    {
+      "name": "registry_cost.finalize_ledger-workflow-cost-finalize/1",
+      "passed": true
+    },
+    {
+      "name": "registry_evidence.retain_ledger-workflow-fact-attest/1",
+      "passed": true
+    },
+    {
+      "name": "registry_evidence.retain_ledger-workflow-supplier-cost-attest/1",
+      "passed": true
+    },
+    {
+      "name": "registry_invocation.authorize_ledger-workflow-invocation-authorize/1",
+      "passed": true
+    },
+    {
+      "name": "registry_invocation.close_ledger-workflow-invocation-close/1",
+      "passed": true
+    },
+    {
+      "name": "registry_link.assert_ledger-workflow-link-assert/1",
+      "passed": true
+    },
+    {
+      "name": "registry_outcome.close_ledger-workflow-outcome-close/2",
+      "passed": true
+    },
+    {
+      "name": "registry_outcome.correct_ledger-workflow-outcome-correction/1",
+      "passed": true
+    },
+    {
+      "name": "registry_outcome.submit_ledger-workflow-outcome/1",
+      "passed": true
+    },
+    {
+      "name": "registry_policy.publish_ledger-workflow-policy-publication/3",
+      "passed": true
+    },
+    {
+      "name": "registry_quantity.correct_ledger-workflow-quantity-correction/2",
+      "passed": true
+    },
+    {
+      "name": "registry_work.accept_ledger-workflow-work/1",
+      "passed": true
+    },
+    {
+      "name": "registry_work.reverse_ledger-workflow-work-reverse/2",
+      "passed": true
+    },
+    {
+      "name": "entry_count",
+      "passed": true
+    }
+  ],
+  "passed": 58,
+  "failed": 0,
+  "qualification": "contract DATA only; no product runtime/audit/resource/admission qualification"
+}

@@ -1,0 +1,426 @@
+{
+  "schema": "delayed-cost-work-target-input/1",
+  "qualification": "Synthetic typed body/hash and conditional join fixtures only. Literal anchors unresolved; numeric capacity fields are test inputs, not derived production bounds. No authenticated history, rights, capacity, complete operation or admission is proved. No expected outputs.",
+  "scope": [
+    "fixture",
+    "cost"
+  ],
+  "anchors": {
+    "binding": {
+      "kind": "workflow-binding",
+      "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "invocation": {
+      "kind": "workflow-invocation",
+      "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "product": {
+      "kind": "workflow-product",
+      "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "policy": {
+      "kind": "workflow-policy",
+      "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "fact_schema": {
+      "kind": "workflow-fact-schema",
+      "id": "wdoc_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "work_decision_revision": {
+      "kind": "workflow-decision",
+      "id": "wdrev_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  },
+  "supplier_component_slot": "support:model-supplier",
+  "work_template": {
+    "schema": "ledger-workflow-work-record/1",
+    "key": {
+      "logical_store_id": "fixture-owner",
+      "scope": [
+        "fixture",
+        "cost"
+      ],
+      "source": "urn:fixture:worker",
+      "operation_id": "accept-support-1"
+    },
+    "payload": {
+      "schema": "ledger-workflow-work/1",
+      "external_event_id": "event-1",
+      "business_operation_id": "support-work-1",
+      "customer": "customer-B",
+      "chain": "support-chain-1",
+      "activity": "support:complete",
+      "product_ref": {
+        "kind": "workflow-product",
+        "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "policy_ref": {
+        "kind": "workflow-policy",
+        "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "fact_schema_ref": {
+        "kind": "workflow-fact-schema",
+        "id": "wdoc_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      },
+      "binding_ref": {
+        "kind": "workflow-binding",
+        "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "status": "succeeded",
+      "facts": {
+        "support:quantity": "1"
+      },
+      "fact_proofs": [],
+      "links": [],
+      "evidence_refs": [],
+      "invocation_refs": [
+        {
+          "kind": "workflow-invocation",
+          "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    },
+    "claim_id": {
+      "$derived": "claim_id"
+    },
+    "received_at": "2026-10-16T17:00:00.000000Z",
+    "accepted_at": "2026-10-16T17:00:00.000001Z",
+    "source_namespace": "urn:fixture:worker-domain"
+  },
+  "claim_template": {
+    "schema": "ledger-workflow-work-claim/1",
+    "logical_store_id": "fixture-owner",
+    "scope": [
+      "fixture",
+      "cost"
+    ],
+    "source_namespace": "urn:fixture:worker-domain",
+    "business_operation_id": "support-work-1",
+    "completion": "completion",
+    "work_ref": {
+      "$derived": "work_ref"
+    },
+    "facts_digest": {
+      "$derived": "facts_digest"
+    }
+  },
+  "dependency_template": {
+    "schema": "ledger-workflow-dependency/1",
+    "ancestor_decision_id": {
+      "$derived": "ancestor_id"
+    },
+    "dependent_decision_id": {
+      "$derived": "cost_id"
+    },
+    "kind": "delayed_cost",
+    "target_ref": {
+      "$derived": "work_ref"
+    },
+    "original_terms_ref": {
+      "kind": "workflow-binding",
+      "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "maximum_actions": "8",
+    "maximum_records": "20",
+    "maximum_bytes": "2048",
+    "maximum_work": "1234",
+    "operation_key": {
+      "logical_store_id": "fixture-owner",
+      "scope": [
+        "fixture",
+        "cost"
+      ],
+      "source": "urn:fixture:worker",
+      "operation_id": "accept-support-1"
+    }
+  },
+  "capacity_template": {
+    "schema": "ledger-correction-capacity/1",
+    "root_ref": {
+      "kind": "workflow-decision",
+      "id": "wdrev_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    },
+    "revision": "1",
+    "dependency_root": {
+      "$derived": "dependency_root"
+    },
+    "affected_decisions": "2",
+    "maximum_actions": "10",
+    "maximum_records": "24",
+    "maximum_bytes": "3072",
+    "maximum_work": "1500",
+    "reserved_dependency_refs": [
+      {
+        "$derived": "dependency_ref"
+      }
+    ],
+    "retirement_refs": []
+  },
+  "context": {
+    "store": "fixture-owner",
+    "scope": [
+      "fixture",
+      "cost"
+    ],
+    "work_ref": {
+      "$derived": "work_ref"
+    },
+    "work_claim_id": {
+      "$derived": "claim_id"
+    },
+    "work_claim_ref": {
+      "$derived": "claim_ref"
+    },
+    "binding_ref": {
+      "kind": "workflow-binding",
+      "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "invocation_ref": {
+      "kind": "workflow-invocation",
+      "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "supplier_component_slot": "support:model-supplier",
+    "ancestor_decision_id": {
+      "$derived": "ancestor_id"
+    },
+    "dependent_decision_id": {
+      "$derived": "cost_id"
+    },
+    "original_declaration_present": true,
+    "prebill_reservation": true,
+    "authenticated_originals": true,
+    "all_ancestor_capacity_proved": true,
+    "original_and_current_rights": true
+  },
+  "cases": [
+    {
+      "name": "valid_prebill",
+      "patch": {}
+    },
+    {
+      "name": "valid_finalized",
+      "patch": {},
+      "stage": "finalized"
+    },
+    {
+      "name": "valid_corrected",
+      "patch": {},
+      "stage": "corrected"
+    },
+    {
+      "name": "wrong_target_invocation",
+      "patch": {
+        "dependency.target_ref": {
+          "kind": "workflow-invocation",
+          "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    },
+    {
+      "name": "wrong_target_claim",
+      "patch": {
+        "dependency.target_ref": {
+          "$derived": "claim_ref"
+        }
+      }
+    },
+    {
+      "name": "wrong_target_work",
+      "patch": {
+        "dependency.target_ref": {
+          "kind": "workflow-work",
+          "id": "wevent_1111111111111111111111111111111111111111111111111111111111111111",
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      }
+    },
+    {
+      "name": "wrong_claim",
+      "patch": {
+        "context.work_claim_id": "wclaim_2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    },
+    {
+      "name": "wrong_component",
+      "patch": {
+        "context.supplier_component_slot": "support:other"
+      }
+    },
+    {
+      "name": "wrong_invocation",
+      "patch": {
+        "context.invocation_ref": {
+          "kind": "workflow-invocation",
+          "id": "winv_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      }
+    },
+    {
+      "name": "wrong_ancestor",
+      "patch": {
+        "dependency.ancestor_decision_id": "wdecision_4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    },
+    {
+      "name": "wrong_terms",
+      "patch": {
+        "dependency.original_terms_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+          "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        }
+      }
+    },
+    {
+      "name": "cross_scope",
+      "patch": {
+        "context.scope": [
+          "fixture",
+          "other"
+        ]
+      }
+    },
+    {
+      "name": "wrong_store",
+      "patch": {
+        "context.store": "other-owner"
+      }
+    },
+    {
+      "name": "changed_work_digest",
+      "patch": {
+        "dependency.target_ref": {
+          "kind": "workflow-work",
+          "id": {
+            "$derived": "work_id"
+          },
+          "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      }
+    },
+    {
+      "name": "family_slot_forbidden",
+      "patch": {
+        "dependency.family_slot": "support:family"
+      }
+    },
+    {
+      "name": "wrong_kind",
+      "patch": {
+        "dependency.kind": "outcome_family"
+      }
+    },
+    {
+      "name": "missing_original_declaration",
+      "patch": {
+        "context.original_declaration_present": false
+      }
+    },
+    {
+      "name": "late_reservation",
+      "patch": {
+        "context.prebill_reservation": false
+      }
+    },
+    {
+      "name": "unauthenticated",
+      "patch": {
+        "context.authenticated_originals": false
+      }
+    },
+    {
+      "name": "capacity_unproved",
+      "patch": {
+        "context.all_ancestor_capacity_proved": false
+      }
+    },
+    {
+      "name": "rights_missing",
+      "patch": {
+        "context.original_and_current_rights": false
+      }
+    },
+    {
+      "name": "claim_points_elsewhere",
+      "patch": {
+        "claim.work_ref": {
+          "kind": "workflow-work",
+          "id": "wevent_7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+        }
+      }
+    },
+    {
+      "name": "changed_business_id",
+      "patch": {
+        "claim.business_operation_id": "support-work-2"
+      }
+    },
+    {
+      "name": "changed_namespace",
+      "patch": {
+        "claim.source_namespace": "urn:fixture:other"
+      }
+    },
+    {
+      "name": "wrong_cost_id",
+      "patch": {
+        "dependency.dependent_decision_id": "wdecision_8888888888888888888888888888888888888888888888888888888888888888"
+      }
+    }
+  ],
+  "diagnostic_target_alternatives": [
+    "invocation",
+    "work_claim"
+  ],
+  "lifecycle_stages": [
+    "prebill",
+    "finalized",
+    "corrected"
+  ],
+  "schema_negatives": [
+    {
+      "name": "invocation_target",
+      "patch": {
+        "target_ref": {
+          "kind": "workflow-invocation",
+          "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    },
+    {
+      "name": "family_slot",
+      "patch": {
+        "family_slot": "support:family"
+      }
+    },
+    {
+      "name": "extra_field",
+      "patch": {
+        "future_cost_ref": {
+          "kind": "workflow-invocation",
+          "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
+    }
+  ]
+}

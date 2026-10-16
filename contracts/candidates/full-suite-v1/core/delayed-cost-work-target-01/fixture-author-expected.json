@@ -1,0 +1,980 @@
+{
+  "records": {
+    "work": {
+      "body": {
+        "schema": "ledger-workflow-work-record/1",
+        "key": {
+          "logical_store_id": "fixture-owner",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "source": "urn:fixture:worker",
+          "operation_id": "accept-support-1"
+        },
+        "payload": {
+          "schema": "ledger-workflow-work/1",
+          "external_event_id": "event-1",
+          "business_operation_id": "support-work-1",
+          "customer": "customer-B",
+          "chain": "support-chain-1",
+          "activity": "support:complete",
+          "product_ref": {
+            "kind": "workflow-product",
+            "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          },
+          "policy_ref": {
+            "kind": "workflow-policy",
+            "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          },
+          "fact_schema_ref": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+          },
+          "binding_ref": {
+            "kind": "workflow-binding",
+            "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "status": "succeeded",
+          "facts": {
+            "support:quantity": "1"
+          },
+          "fact_proofs": [],
+          "links": [],
+          "evidence_refs": [],
+          "invocation_refs": [
+            {
+              "kind": "workflow-invocation",
+              "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          ]
+        },
+        "claim_id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "received_at": "2026-10-16T17:00:00.000000Z",
+        "accepted_at": "2026-10-16T17:00:00.000001Z",
+        "source_namespace": "urn:fixture:worker-domain"
+      },
+      "canonical_hex": "7b2261636365707465645f6174223a22323032362d31302d31365431373a30303a30302e3030303030315a222c22636c61696d5f6964223a2277636c61696d5f35633637386530363337313530333432323566326466343463663839633030363137666438313137326532666661653337346232363338306431646263356131222c226b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d6f776e6572222c226f7065726174696f6e5f6964223a226163636570742d737570706f72742d31222c2273636f7065223a5b2266697874757265222c22636f7374225d2c22736f75726365223a2275726e3a666978747572653a776f726b6572227d2c227061796c6f6164223a7b226163746976697479223a22737570706f72743a636f6d706c657465222c2262696e64696e675f726566223a7b22646967657374223a227368613235363a61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226964223a2277646f635f61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226b696e64223a22776f726b666c6f772d62696e64696e67227d2c22627573696e6573735f6f7065726174696f6e5f6964223a22737570706f72742d776f726b2d31222c22636861696e223a22737570706f72742d636861696e2d31222c22637573746f6d6572223a22637573746f6d65722d42222c2265766964656e63655f72656673223a5b5d2c2265787465726e616c5f6576656e745f6964223a226576656e742d31222c22666163745f70726f6f6673223a5b5d2c22666163745f736368656d615f726566223a7b22646967657374223a227368613235363a65656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565222c226964223a2277646f635f65656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565222c226b696e64223a22776f726b666c6f772d666163742d736368656d61227d2c226661637473223a7b22737570706f72743a7175616e74697479223a2231227d2c22696e766f636174696f6e5f72656673223a5b7b22646967657374223a227368613235363a62626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c226964223a2277696e765f62626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c226b696e64223a22776f726b666c6f772d696e766f636174696f6e227d5d2c226c696e6b73223a5b5d2c22706f6c6963795f726566223a7b22646967657374223a227368613235363a64646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464222c226964223a2277646f635f64646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464646464222c226b696e64223a22776f726b666c6f772d706f6c696379227d2c2270726f647563745f726566223a7b22646967657374223a227368613235363a63636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363222c226964223a2277646f635f63636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363636363222c226b696e64223a22776f726b666c6f772d70726f64756374227d2c22736368656d61223a226c65646765722d776f726b666c6f772d776f726b2f31222c22737461747573223a22737563636565646564227d2c2272656365697665645f6174223a22323032362d31302d31365431373a30303a30302e3030303030305a222c22736368656d61223a226c65646765722d776f726b666c6f772d776f726b2d7265636f72642f31222c22736f757263655f6e616d657370616365223a2275726e3a666978747572653a776f726b65722d646f6d61696e227d",
+      "raw_sha": "585936e5fc296d02a2bf12eca804cfceb12023c204a29a2f5c8e1263911817de",
+      "ref": {
+        "kind": "workflow-work",
+        "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+        "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+      }
+    },
+    "claim": {
+      "body": {
+        "schema": "ledger-workflow-work-claim/1",
+        "logical_store_id": "fixture-owner",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "source_namespace": "urn:fixture:worker-domain",
+        "business_operation_id": "support-work-1",
+        "completion": "completion",
+        "work_ref": {
+          "kind": "workflow-work",
+          "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+          "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+        },
+        "facts_digest": "sha256:b2c4187efab2f793c5d10eeb4e16e05b23b2a54af216f215d6860ebbe17155fd"
+      },
+      "canonical_hex": "7b22627573696e6573735f6f7065726174696f6e5f6964223a22737570706f72742d776f726b2d31222c22636f6d706c6574696f6e223a22636f6d706c6574696f6e222c2266616374735f646967657374223a227368613235363a62326334313837656661623266373933633564313065656234653136653035623233623261353461663231366632313564363836306562626531373135356664222c226c6f676963616c5f73746f72655f6964223a22666978747572652d6f776e6572222c22736368656d61223a226c65646765722d776f726b666c6f772d776f726b2d636c61696d2f31222c2273636f7065223a5b2266697874757265222c22636f7374225d2c22736f757263655f6e616d657370616365223a2275726e3a666978747572653a776f726b65722d646f6d61696e222c22776f726b5f726566223a7b22646967657374223a227368613235363a63663138306133326339633431656661306134363965656137653066616530306463616133663066356163366338386134643834376661326564666632376365222c226964223a22776576656e745f30653563376566386262636365646336383862336463336364336262333636623430356466363365326266373664363737383337383234353832613234323838222c226b696e64223a22776f726b666c6f772d776f726b227d7d",
+      "raw_sha": "4c82a2fdcc41b6de639829b8892df1e7366d0d33a4c72ff5430afc8967d57c19",
+      "ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    "dependency": {
+      "body": {
+        "schema": "ledger-workflow-dependency/1",
+        "ancestor_decision_id": "wdecision_064096efa545cf85ef3fe08946db137081f85b9bf32f3fa2e07cea4f2eeff9ea",
+        "dependent_decision_id": "wdecision_b58cfacbcec1df2b45ce8c5c06024c21b233cfee8aa2a4de62ad28638f7ed395",
+        "kind": "delayed_cost",
+        "target_ref": {
+          "kind": "workflow-work",
+          "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+          "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+        },
+        "original_terms_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "maximum_actions": "8",
+        "maximum_records": "20",
+        "maximum_bytes": "2048",
+        "maximum_work": "1234",
+        "operation_key": {
+          "logical_store_id": "fixture-owner",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "source": "urn:fixture:worker",
+          "operation_id": "accept-support-1"
+        }
+      },
+      "canonical_hex": "7b22616e636573746f725f6465636973696f6e5f6964223a22776465636973696f6e5f30363430393665666135343563663835656633666530383934366462313337303831663835623962663332663366613265303763656134663265656666396561222c22646570656e64656e745f6465636973696f6e5f6964223a22776465636973696f6e5f62353863666163626365633164663262343563653863356330363032346332316232333363666565386161326134646536326164323836333866376564333935222c226b696e64223a2264656c617965645f636f7374222c226d6178696d756d5f616374696f6e73223a2238222c226d6178696d756d5f6279746573223a2232303438222c226d6178696d756d5f7265636f726473223a223230222c226d6178696d756d5f776f726b223a2231323334222c226f7065726174696f6e5f6b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d6f776e6572222c226f7065726174696f6e5f6964223a226163636570742d737570706f72742d31222c2273636f7065223a5b2266697874757265222c22636f7374225d2c22736f75726365223a2275726e3a666978747572653a776f726b6572227d2c226f726967696e616c5f7465726d735f726566223a7b22646967657374223a227368613235363a61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226964223a2277646f635f61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226b696e64223a22776f726b666c6f772d62696e64696e67227d2c22736368656d61223a226c65646765722d776f726b666c6f772d646570656e64656e63792f31222c227461726765745f726566223a7b22646967657374223a227368613235363a63663138306133326339633431656661306134363965656137653066616530306463616133663066356163366338386134643834376661326564666632376365222c226964223a22776576656e745f30653563376566386262636365646336383862336463336364336262333636623430356466363365326266373664363737383337383234353832613234323838222c226b696e64223a22776f726b666c6f772d776f726b227d7d",
+      "raw_sha": "36f87897b2887a2aaace81a00245bf6e5da4d330940aa7599efff58b5298e77f",
+      "ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      }
+    },
+    "capacity": {
+      "body": {
+        "schema": "ledger-correction-capacity/1",
+        "root_ref": {
+          "kind": "workflow-decision",
+          "id": "wdrev_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "revision": "1",
+        "dependency_root": "sha256:ad52159d3e6911cf6dc6f4166102ae1f7e9264de59ee2672ee9a687cf6d4ccaa",
+        "affected_decisions": "2",
+        "maximum_actions": "10",
+        "maximum_records": "24",
+        "maximum_bytes": "3072",
+        "maximum_work": "1500",
+        "reserved_dependency_refs": [
+          {
+            "kind": "workflow-dependency",
+            "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+            "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+          }
+        ],
+        "retirement_refs": []
+      },
+      "canonical_hex": "7b2261666665637465645f6465636973696f6e73223a2232222c22646570656e64656e63795f726f6f74223a227368613235363a61643532313539643365363931316366366463366634313636313032616531663765393236346465353965653236373265653961363837636636643463636161222c226d6178696d756d5f616374696f6e73223a223130222c226d6178696d756d5f6279746573223a2233303732222c226d6178696d756d5f7265636f726473223a223234222c226d6178696d756d5f776f726b223a2231353030222c2272657365727665645f646570656e64656e63795f72656673223a5b7b22646967657374223a227368613235363a32373962613432396465336265323035363032323637353030313433393130623563643561636662303166333166313935646536613938393961366635653831222c226964223a22776465705f66313237323238366264386639656339363731323639303162656432373131363466346234643336653134633962303634616631623836376165633364353636222c226b696e64223a22776f726b666c6f772d646570656e64656e6379227d5d2c227265746972656d656e745f72656673223a5b5d2c227265766973696f6e223a2231222c22726f6f745f726566223a7b22646967657374223a227368613235363a66666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666222c226964223a2277647265765f66666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666222c226b696e64223a22776f726b666c6f772d6465636973696f6e227d2c22736368656d61223a226c65646765722d636f7272656374696f6e2d63617061636974792f31227d",
+      "raw_sha": "2c61ae28ecc7b78b03ae9990709d36a31589f23554e5ee36ac45daeeccfd7457",
+      "ref": {
+        "kind": "workflow-correction-capacity",
+        "id": "wcapacity_8501b029484ac3e0c1c36fd3b733b2b841ceb8401c4b4a48ace83d040f3780d7",
+        "digest": "sha256:c56e1b03a57fdee5b2e4d97a1f6ba2cc3f6ac3be125778cd53c4fd9a69fe70a9"
+      }
+    }
+  },
+  "identities": {
+    "claim_id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+    "work_id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+    "ancestor_id": "wdecision_064096efa545cf85ef3fe08946db137081f85b9bf32f3fa2e07cea4f2eeff9ea",
+    "cost_id": "wdecision_b58cfacbcec1df2b45ce8c5c06024c21b233cfee8aa2a4de62ad28638f7ed395"
+  },
+  "dependency_root": "sha256:ad52159d3e6911cf6dc6f4166102ae1f7e9264de59ee2672ee9a687cf6d4ccaa",
+  "cases": [
+    {
+      "name": "valid_prebill",
+      "stage": "prebill",
+      "accepted": true,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      },
+      "retained_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "retained_target_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+        "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+      }
+    },
+    {
+      "name": "valid_finalized",
+      "stage": "finalized",
+      "accepted": true,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      },
+      "retained_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "retained_target_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+        "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+      }
+    },
+    {
+      "name": "valid_corrected",
+      "stage": "corrected",
+      "accepted": true,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      },
+      "retained_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "retained_target_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+        "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+      }
+    },
+    {
+      "name": "wrong_target_invocation",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:268f32c289314cfaf5125440712707dd21fe57e5b3c79b281b607e4862f342fa"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_target_claim",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:d597bca1d337a8597f5096813bc3e44a644f54a86590b73716b56e96313c9618"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_target_work",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:80259d67603c0f0c14c905e0cedfb9dcbea2d378b1cae7adcca7f2deee5bfd41"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_claim",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_component",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_invocation",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_ancestor",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_55f3c64752caeecccd1bcfbc67d87dcf0ec50039a18b383bb960e48bc148ae4f",
+        "digest": "sha256:51e203167bae0937f19762822eed3f61595322153b08a22a11522a1fc53429d3"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_terms",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_87efccd0250da1e0cc023e9b718601a8d1af8b7009e23521a66c8d6432dc4e3a",
+        "digest": "sha256:7fff16851d07f3f9553523d4666e6aa56631b670ec2c5e6781d056df1b98ef87"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "cross_scope",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_store",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "changed_work_digest",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:4b8ff1c25b09d998b35b88a02e8d2724d4d81a52ef96cc790456f439724c27e2"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "family_slot_forbidden",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:2fab9899c612ea8563b505cb23282feac80d471e027c08b91d4610108817a8e8"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "wrong_kind",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:74090528e4432e904ece3258144a8faf9db5b792e66efd9f16d0a1514f08ce99"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "missing_original_declaration",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "late_reservation",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "unauthenticated",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "capacity_unproved",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "rights_missing",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    },
+    {
+      "name": "claim_points_elsewhere",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:de1332a5ca6f52b53af91f1f537f70ae2897185740efa689d294f2f04d4ad1e4"
+      }
+    },
+    {
+      "name": "changed_business_id",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:3dd1296bfaacfe8cb57970ce534138806f8803cf7079cf2a0d283123e450ab50"
+      }
+    },
+    {
+      "name": "changed_namespace",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:8508f037ca3d2909e424a3208a2917156047c8dd2d402d63a429980c30dc5f3d"
+      }
+    },
+    {
+      "name": "wrong_cost_id",
+      "stage": "prebill",
+      "accepted": false,
+      "candidate_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_b765ea060d4552bb738def534458d8c8725001a2335d0c7981875146c1174029",
+        "digest": "sha256:34441c872c3d35016d400c54fd72c270c2606f383ff4df9af7f477bd85196df2"
+      },
+      "candidate_claim_ref": {
+        "kind": "workflow-work-claim",
+        "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+        "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+      }
+    }
+  ],
+  "alternatives": {
+    "invocation": {
+      "body": {
+        "schema": "ledger-workflow-dependency/1",
+        "ancestor_decision_id": "wdecision_064096efa545cf85ef3fe08946db137081f85b9bf32f3fa2e07cea4f2eeff9ea",
+        "dependent_decision_id": "wdecision_b58cfacbcec1df2b45ce8c5c06024c21b233cfee8aa2a4de62ad28638f7ed395",
+        "kind": "delayed_cost",
+        "target_ref": {
+          "kind": "workflow-invocation",
+          "id": "winv_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "original_terms_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "maximum_actions": "8",
+        "maximum_records": "20",
+        "maximum_bytes": "2048",
+        "maximum_work": "1234",
+        "operation_key": {
+          "logical_store_id": "fixture-owner",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "source": "urn:fixture:worker",
+          "operation_id": "accept-support-1"
+        }
+      },
+      "canonical_hex": "7b22616e636573746f725f6465636973696f6e5f6964223a22776465636973696f6e5f30363430393665666135343563663835656633666530383934366462313337303831663835623962663332663366613265303763656134663265656666396561222c22646570656e64656e745f6465636973696f6e5f6964223a22776465636973696f6e5f62353863666163626365633164663262343563653863356330363032346332316232333363666565386161326134646536326164323836333866376564333935222c226b696e64223a2264656c617965645f636f7374222c226d6178696d756d5f616374696f6e73223a2238222c226d6178696d756d5f6279746573223a2232303438222c226d6178696d756d5f7265636f726473223a223230222c226d6178696d756d5f776f726b223a2231323334222c226f7065726174696f6e5f6b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d6f776e6572222c226f7065726174696f6e5f6964223a226163636570742d737570706f72742d31222c2273636f7065223a5b2266697874757265222c22636f7374225d2c22736f75726365223a2275726e3a666978747572653a776f726b6572227d2c226f726967696e616c5f7465726d735f726566223a7b22646967657374223a227368613235363a61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226964223a2277646f635f61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226b696e64223a22776f726b666c6f772d62696e64696e67227d2c22736368656d61223a226c65646765722d776f726b666c6f772d646570656e64656e63792f31222c227461726765745f726566223a7b22646967657374223a227368613235363a62626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c226964223a2277696e765f62626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262222c226b696e64223a22776f726b666c6f772d696e766f636174696f6e227d7d",
+      "raw_sha": "f397148533ec492c589a04867331a517af94a34f72ba3c0e76da5479d6452744",
+      "ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:268f32c289314cfaf5125440712707dd21fe57e5b3c79b281b607e4862f342fa"
+      },
+      "dependency_root": "sha256:dc024b5799038050cece85c4dbfeadf35ff547db4cc27a01a10fcaccb6aa8301"
+    },
+    "work_claim": {
+      "body": {
+        "schema": "ledger-workflow-dependency/1",
+        "ancestor_decision_id": "wdecision_064096efa545cf85ef3fe08946db137081f85b9bf32f3fa2e07cea4f2eeff9ea",
+        "dependent_decision_id": "wdecision_b58cfacbcec1df2b45ce8c5c06024c21b233cfee8aa2a4de62ad28638f7ed395",
+        "kind": "delayed_cost",
+        "target_ref": {
+          "kind": "workflow-work-claim",
+          "id": "wclaim_5c678e063715034225f2df44cf89c00617fd81172e2ffae374b26380d1dbc5a1",
+          "digest": "sha256:f301e42e02335adafa35021dfb01ee511a0024f836932921a1e096f0477a8323"
+        },
+        "original_terms_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "maximum_actions": "8",
+        "maximum_records": "20",
+        "maximum_bytes": "2048",
+        "maximum_work": "1234",
+        "operation_key": {
+          "logical_store_id": "fixture-owner",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "source": "urn:fixture:worker",
+          "operation_id": "accept-support-1"
+        }
+      },
+      "canonical_hex": "7b22616e636573746f725f6465636973696f6e5f6964223a22776465636973696f6e5f30363430393665666135343563663835656633666530383934366462313337303831663835623962663332663366613265303763656134663265656666396561222c22646570656e64656e745f6465636973696f6e5f6964223a22776465636973696f6e5f62353863666163626365633164663262343563653863356330363032346332316232333363666565386161326134646536326164323836333866376564333935222c226b696e64223a2264656c617965645f636f7374222c226d6178696d756d5f616374696f6e73223a2238222c226d6178696d756d5f6279746573223a2232303438222c226d6178696d756d5f7265636f726473223a223230222c226d6178696d756d5f776f726b223a2231323334222c226f7065726174696f6e5f6b6579223a7b226c6f676963616c5f73746f72655f6964223a22666978747572652d6f776e6572222c226f7065726174696f6e5f6964223a226163636570742d737570706f72742d31222c2273636f7065223a5b2266697874757265222c22636f7374225d2c22736f75726365223a2275726e3a666978747572653a776f726b6572227d2c226f726967696e616c5f7465726d735f726566223a7b22646967657374223a227368613235363a61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226964223a2277646f635f61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161222c226b696e64223a22776f726b666c6f772d62696e64696e67227d2c22736368656d61223a226c65646765722d776f726b666c6f772d646570656e64656e63792f31222c227461726765745f726566223a7b22646967657374223a227368613235363a66333031653432653032333335616461666133353032316466623031656535313161303032346638333639333239323161316530393666303437376138333233222c226964223a2277636c61696d5f35633637386530363337313530333432323566326466343463663839633030363137666438313137326532666661653337346232363338306431646263356131222c226b696e64223a22776f726b666c6f772d776f726b2d636c61696d227d7d",
+      "raw_sha": "475546b3b3a8f6567fd7658ef048c9699252451ea48e118ddf46d070b9281fc7",
+      "ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:d597bca1d337a8597f5096813bc3e44a644f54a86590b73716b56e96313c9618"
+      },
+      "dependency_root": "sha256:ce9a1fa112315f8995cb120f460e3155803192958617319479eb40376aa8e2ec"
+    }
+  },
+  "schema_negatives": [
+    {
+      "name": "invocation_target",
+      "valid": false
+    },
+    {
+      "name": "family_slot",
+      "valid": false
+    },
+    {
+      "name": "extra_field",
+      "valid": false
+    }
+  ],
+  "lifecycle": [
+    {
+      "stage": "prebill",
+      "retained_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "retained_target_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+        "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+      }
+    },
+    {
+      "stage": "finalized",
+      "retained_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "retained_target_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+        "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+      }
+    },
+    {
+      "stage": "corrected",
+      "retained_dependency_ref": {
+        "kind": "workflow-dependency",
+        "id": "wdep_f1272286bd8f9ec967126901bed271164f4b4d36e14c9b064af1b867aec3d566",
+        "digest": "sha256:279ba429de3be205602267500143910b5cd5acfb01f31f195de6a9899a6f5e81"
+      },
+      "retained_target_ref": {
+        "kind": "workflow-work",
+        "id": "wevent_0e5c7ef8bbccedc688b3dc3cd3bb366b405df63e2bf76d677837824582a24288",
+        "digest": "sha256:cf180a32c9c41efa0a469eea7e0fae00dcaa3f0f5ac6c88a4d847fa2edff27ce"
+      }
+    }
+  ],
+  "metadata": {
+    "profile.json": "499b151daa8d0a34d65b1ab96bc075b23918baaa796339a82aafa5990530789c",
+    "registry.json": "d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2",
+    "delayed-cost-work-target.schema.json": "f773e06b8889b3b132cf3ab88dd5a11ae644776e18beae4a99c0f7a2873d5a43"
+  },
+  "registry_entries": [
+    {
+      "kind": "agreement.accept",
+      "payload_schemas": [
+        "ledger-workflow-agreement-accept/5"
+      ],
+      "recipe_id": "agreement.accept/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-agreement-authority/2",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "kind": "authority.change",
+      "payload_schemas": [
+        "ledger-cost-authority-enroll/1"
+      ],
+      "recipe_id": "authority.change/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-cost-enrollment-authority/1",
+        "operation_schema": "ledger-workflow-economic-operation/5",
+        "manifest_schema": "ledger-workflow-economic-manifest/5",
+        "closure_profile": "ledger-economic-resolved-inputs/5",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "cost.correct",
+      "payload_schemas": [
+        "ledger-workflow-cost-correct/1"
+      ],
+      "recipe_id": "cost.correct/delayed-work-target-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/4",
+        "operation_schema": "ledger-workflow-economic-operation/5",
+        "manifest_schema": "ledger-workflow-economic-manifest/5",
+        "closure_profile": "ledger-economic-resolved-inputs/5",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "cost.finalize",
+      "payload_schemas": [
+        "ledger-workflow-cost-finalize/1"
+      ],
+      "recipe_id": "cost.finalize/delayed-work-target-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/4",
+        "operation_schema": "ledger-workflow-economic-operation/5",
+        "manifest_schema": "ledger-workflow-economic-manifest/5",
+        "closure_profile": "ledger-economic-resolved-inputs/5",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "evidence.retain",
+      "payload_schemas": [
+        "ledger-workflow-fact-attest/1",
+        "ledger-workflow-family-close-attest/1"
+      ],
+      "recipe_id": "evidence.retain/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "evidence.retain",
+      "payload_schemas": [
+        "ledger-workflow-supplier-cost-attest/1"
+      ],
+      "recipe_id": "evidence.retain/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/4",
+        "operation_schema": "ledger-workflow-economic-operation/5",
+        "manifest_schema": "ledger-workflow-economic-manifest/5",
+        "closure_profile": "ledger-economic-resolved-inputs/5",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "invocation.authorize",
+      "payload_schemas": [
+        "ledger-workflow-invocation-authorize/1"
+      ],
+      "recipe_id": "invocation.authorize/delayed-work-target-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/4",
+        "operation_schema": "ledger-workflow-economic-operation/5",
+        "manifest_schema": "ledger-workflow-economic-manifest/5",
+        "closure_profile": "ledger-economic-resolved-inputs/5",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "invocation.close",
+      "payload_schemas": [
+        "ledger-workflow-invocation-close/1"
+      ],
+      "recipe_id": "invocation.close/delayed-work-target-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/4",
+        "operation_schema": "ledger-workflow-economic-operation/5",
+        "manifest_schema": "ledger-workflow-economic-manifest/5",
+        "closure_profile": "ledger-economic-resolved-inputs/5",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "link.assert",
+      "payload_schemas": [
+        "ledger-workflow-link-assert/1"
+      ],
+      "recipe_id": "link.assert/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "outcome.close",
+      "payload_schemas": [
+        "ledger-workflow-outcome-close/2"
+      ],
+      "recipe_id": "outcome.close/deadline-authorized-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "outcome.correct",
+      "payload_schemas": [
+        "ledger-workflow-outcome-correction/1"
+      ],
+      "recipe_id": "outcome.correct/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "outcome.submit",
+      "payload_schemas": [
+        "ledger-workflow-outcome/1"
+      ],
+      "recipe_id": "outcome.submit/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "policy.publish",
+      "payload_schemas": [
+        "ledger-workflow-policy-publication/3"
+      ],
+      "recipe_id": "policy.publish/owner-local-cost-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-publication-authority/1",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-publication-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "kind": "quantity.correct",
+      "payload_schemas": [
+        "ledger-workflow-quantity-correction/2"
+      ],
+      "recipe_id": "quantity.correct/delayed-work-target-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "work.accept",
+      "payload_schemas": [
+        "ledger-workflow-work/1"
+      ],
+      "recipe_id": "work.accept/delayed-work-target-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "kind": "work.reverse",
+      "payload_schemas": [
+        "ledger-workflow-work-reverse/2"
+      ],
+      "recipe_id": "work.reverse/delayed-work-target-1",
+      "exposure": "external",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/5",
+        "operation_schema": "ledger-workflow-economic-operation/6",
+        "manifest_schema": "ledger-workflow-economic-manifest/6",
+        "closure_profile": "ledger-economic-resolved-inputs/6",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    }
+  ]
+}
