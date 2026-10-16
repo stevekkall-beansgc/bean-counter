@@ -306,3 +306,43 @@ fn audited_parser_duplicate_depth_and_numeric_refusals_preserve_error_order() {
         33
     );
 }
+
+#[test]
+fn audited_parser_reserves_distinct_byte_phases_before_their_execution() {
+    struct Phases { scans:Vec<usize>, writes:Vec<usize>, fail_scan:Option<usize> }
+    impl ValidationWork for Phases {
+        fn visit(&mut self,_:Visit)->Result<()>{Ok(())}
+        fn arithmetic(&mut self,_:Op,_:&[&num_bigint::BigInt])->Result<()>{Ok(())}
+        fn scan_bytes(&mut self,n:usize)->Result<()>{
+            if self.fail_scan==Some(self.scans.len()) {return Err(Error::new("TEST_SCAN_PHASE","before scan"));}
+            self.scans.push(n);Ok(())
+        }
+        fn write_bytes(&mut self,n:usize)->Result<()>{self.writes.push(n);Ok(())}
+        fn hash_bytes(&mut self,_:usize)->Result<()>{Ok(())}
+    }
+    impl ParseAllocationWork for Phases {
+        fn validation_work(&mut self)->&mut dyn ValidationWork {self}
+        fn before_allocation(&mut self,_:ParseAllocation)->Result<()>{Ok(())}
+        fn finish_allocation(&mut self,_:ParseAllocation,_:usize)->Result<()>{Ok(())}
+    }
+    let raw=br#"[12,"\u0061"]"#;
+    let mut paid=Phases{scans:vec![],writes:vec![],fail_scan:None};
+    assert_eq!(parse_bounded_with_allocations_complete(raw,262144,&mut paid).unwrap(),serde_json::json!([12,"a"]));
+    assert_eq!(paid.scans[..4],[raw.len(),32*raw.len()+16,2,2]);
+    assert_eq!(paid.scans[4],16*8+64); // exact eight-byte quoted serde token
+    assert_eq!(paid.writes,[8*8+64]);
+    let mut refused=Phases{scans:vec![],writes:vec![],fail_scan:Some(0)};
+    assert_eq!(parse_bounded_with_allocations_complete(&[0xff],1,&mut refused).unwrap_err().code,"TEST_SCAN_PHASE");
+    let mut refused=Phases{scans:vec![],writes:vec![],fail_scan:Some(4)};
+    assert_eq!(parse_bounded_with_allocations_complete(raw,262144,&mut refused).unwrap_err().code,"TEST_SCAN_PHASE");
+    assert!(refused.writes.is_empty());
+}
+
+#[test]
+fn old_paid_parse_entry_keeps_its_original_trace() {
+    let mut old=PaidRecorder::new(100);
+    assert_eq!(parse_bounded_with_allocations(br#""a""#,3,&mut old).unwrap(),Value::String("a".into()));
+    assert_eq!(old.work.visits,vec![Visit::Value]);
+    assert_eq!(old.work.operations,vec![(Op::Compare,vec![3.into(),3.into()])]);
+    assert_eq!((old.work.used,old.work.scanned,old.work.written),(4,3,0));
+}
