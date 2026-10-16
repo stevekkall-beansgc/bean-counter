@@ -121,6 +121,40 @@ pub struct DraftTransition {
     pub usage: super::MeterUsage,
     pub unresolved_admission_obligations: &'static [&'static str],
 }
+/// Internal output of the one economic interpreter, before either a legacy
+/// DATA projection or complete capacity/resource/funding derivation. It is not
+/// a DraftTransition and exposes no host capability or public conversion.
+pub(super) struct Construction {
+    pub normalized_payload: Vec<u8>,
+    pub new_envelopes: Vec<DraftEnvelope>,
+    pub evaluation_steps: Vec<serde_json::Value>,
+    pub proposed_heads: ProposedHeads,
+    pub claim_introductions: Vec<ExactRef>,
+    pub link_introductions: Vec<ExactRef>,
+    pub prospective_obligations: Vec<serde_json::Value>,
+    pub consumed_refs: Vec<ExactRef>,
+    pub history_edges: Vec<(ExactRef, ExactRef)>,
+}
+impl Construction {
+    pub(super) fn draft_projection(
+        self,
+        m: &mut super::CoreMeter,
+    ) -> crate::Result<DraftTransition> {
+        Ok(DraftTransition {
+            normalized_payload: self.normalized_payload,
+            new_envelopes: self.new_envelopes,
+            evaluation_steps: self.evaluation_steps,
+            proposed_heads: self.proposed_heads,
+            claim_introductions: self.claim_introductions,
+            link_introductions: self.link_introductions,
+            prospective_obligations: self.prospective_obligations,
+            consumed_refs: self.consumed_refs,
+            history_edges: self.history_edges,
+            usage: m.snapshot_usage()?,
+            unresolved_admission_obligations: UNRESOLVED_ADMISSION_OBLIGATIONS,
+        })
+    }
+}
 pub const UNRESOLVED_ADMISSION_OBLIGATIONS: &[&str] = &[
     "host-root-source-and-origin-authentication",
     "complete-index-absence",

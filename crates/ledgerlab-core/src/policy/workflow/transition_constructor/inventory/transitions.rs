@@ -676,13 +676,17 @@ fn validate_data(
         ],
         &[]
     )?;
-    invoke!(
-        eq,
-        m,
-        payload,
-        "schema",
-        &json!("ledger-workflow-agreement-accept/3")
-    )?;
+    let payload_schema = shape::text(m, payload, "schema")?;
+    let exposure = shape::same_text(m, payload_schema, "ledger-workflow-agreement-accept/4")?;
+    if !exposure {
+        eq(
+            m,
+            payload,
+            "schema",
+            &json!("ledger-workflow-agreement-accept/3"),
+        )?;
+    }
+
     invoke!(eq, m, payload, "expected_revision", &json!("0"))?;
     for key in [
         "agreement_id",
@@ -703,6 +707,14 @@ fn validate_data(
         m.visit("inventory.private_document_transport")?;
         let schema = invoke!(shape::text, m, document, "schema")?;
         let mut kind = None;
+        if shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/3")? {
+            if !exposure {
+                return Err(shape::fail("terms3 requires exact accept4 recipe"));
+            }
+            eq(m, document, "exposure_scope", &json!("original_work"))?;
+            eq(m, document, "book", &json!("retail"))?;
+            kind = Some("workflow-slot-terms");
+        }
         for (supported, record_kind) in [
             ("ledger-workflow-role-assignment/1", "workflow-roles"),
             ("ledger-workflow-slot-catalog/1", "workflow-slot-catalog"),

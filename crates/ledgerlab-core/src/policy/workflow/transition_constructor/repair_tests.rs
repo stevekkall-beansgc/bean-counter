@@ -201,3 +201,160 @@ fn byte_identity_counts_actual_mismatch_prefix_without_character_semantics() {
     );
     assert_eq!(zero.usage().scanned_bytes, 0);
 }
+#[test]
+fn connected_causal_repairs_effect_uses_original_work_claim_and_jcs_object_sets() {
+    let mut m = CoreMeter::new(65_536).unwrap();
+    let work = ExactRef {
+        kind: "workflow-work-claim".into(),
+        id: "wclaim_b8db304f23c38a48f9cd1b9fa1f211d383366e9bfeb87e3068f315ba34b48763".into(),
+        digest: format!("sha256:{}", "1".repeat(64)),
+    };
+    let link = ExactRef {
+        kind: "workflow-link".into(),
+        id: "wlink_030ff376439a99b38715616ce2da6a64ae4ea5fe28f0352b314905e2b1799750".into(),
+        digest: format!("sha256:{}", "2".repeat(64)),
+    };
+    let scope = ["fixture".into(), "sandbox".into()];
+    let effect = outcome::original_family_effect(
+        &mut m,
+        &scope,
+        &json!("agreement-A"),
+        "A-base",
+        &work,
+        &json!("A-assessment"),
+        &link,
+    )
+    .unwrap();
+    // Comparison-only identity from independently sealed A.success action.
+    assert_eq!(
+        effect,
+        "weffect_79fb509b5931f0122224b55cbf32e28b658cb869470697eaa82bb091ae8a433a"
+    );
+    let wrong = ExactRef {
+        kind: "workflow-outcome-claim".into(),
+        id: "woclaim_58353788ae61c0899ca753c27ea9db4e3d03a4d3c4d10f7c9dc0cbd5a41098b1".into(),
+        digest: work.digest.clone(),
+    };
+    let other = outcome::original_family_effect(
+        &mut m,
+        &scope,
+        &json!("agreement-A"),
+        "A-base",
+        &wrong,
+        &json!("A-assessment"),
+        &link,
+    )
+    .unwrap();
+    assert_ne!(effect, other);
+    let a = json!({"family_state_ref":{"id":"z"},"expected_revision":"2"});
+    let b = json!({"family_state_ref":{"id":"a"},"expected_revision":"1"});
+    assert_eq!(
+        body::object_set(&mut m, vec![a.clone(), b.clone()]).unwrap(),
+        vec![b, a.clone()]
+    );
+    assert_eq!(
+        body::object_set(&mut m, vec![a.clone(), a])
+            .unwrap_err()
+            .code,
+        "DUPLICATE"
+    );
+}
+#[test]
+fn connected_causal_repairs_chain_validates_actual_nonempty_immutable_links() {
+    fn rf(kind: &str, prefix: &str) -> ExactRef {
+        ExactRef {
+            kind: kind.into(),
+            id: format!("{prefix}{}", "1".repeat(64)),
+            digest: format!("sha256:{}", "2".repeat(64)),
+        }
+    }
+    let key = OperationKey {
+        logical_store_id: "s".into(),
+        scope: ["t".into(), "s".into()],
+        source: "source".into(),
+        operation_id: "current".into(),
+    };
+    let binding = rf("workflow-binding", "wdoc_");
+    let a = AuthorityContextData {
+        source_slot: "test:worker".into(),
+        enrollment_ref: rf("workflow-source-enrollment", "wdoc_"),
+        current_state_ref: rf("workflow-source-state", "wsource_"),
+        current_grant_ref: rf("workflow-source-grant", "wdoc_"),
+        original_grant_refs: vec![],
+        binding_ref: binding.clone(),
+        accepted_agreement_ref: rf("workflow-accepted-agreement", "waccepted_"),
+        activation_ref: rf("workflow-activation", "wactivation_"),
+        authority_observation_ref: rf("workflow-authority-prefix-observation", "wdoc_"),
+    };
+    let c = DraftContextData {
+        key: key.clone(),
+        actor: "actor".into(),
+        canonical_economic_namespace: "source".into(),
+        installation_mode: "isolated_synthetic".into(),
+        received_at: "2026-10-16T00:00:00.000000Z".into(),
+        accepted_at: "2026-10-16T00:00:01.000000Z".into(),
+        authorities: vec![a],
+        source_observation_inputs: vec![],
+    };
+    let mut m = CoreMeter::new(65_536).unwrap();
+    let link=body::record(&mut m,&key,"workflow-link",format!("wlink_{}","3".repeat(64)),json!({"schema":"ledger-workflow-link/1","scope":key.scope,"child":rf("workflow-outcome-claim","woclaim_"),"product_ref":rf("workflow-product","wdoc_"),"binding_ref":binding,"slot":"test:assesses","predecessor":rf("workflow-work","wevent_"),"classification":"monetary","authority_ref":rf("workflow-economic-authority","wdoc_"),"operation_key":key})).unwrap();
+    let root = records::hash(&mut m, "workflow-link-set", &json!([link.reference])).unwrap();
+    let p = json!({"customer":"customer","chain":"chain","binding_ref":binding});
+    let id = body::semantic_id(
+        &mut m,
+        "wchain_",
+        "workflow-chain-state",
+        &json!([key.logical_store_id, key.scope, "customer", "chain", "2"]),
+    )
+    .unwrap();
+    let mut prior = json!({"schema":"ledger-workflow-chain-state/1","logical_store_id":key.logical_store_id,"scope":key.scope,"customer":"customer","chain":"chain","binding_ref":binding,"accepted_agreement_ref":c.authorities[0].accepted_agreement_ref,"activation_ref":c.authorities[0].activation_ref,"revision":"2","admitted_events":"2","links_root":root,"operation_key":key,"accepted_at":c.received_at,"prior_ref":rf("workflow-chain-state","wchain_")});
+    let reference = body::record(&mut m, &key, "workflow-chain-state", id, prior.clone())
+        .unwrap()
+        .reference;
+    let mut r = records::Records::new(
+        &mut m,
+        &[RecordInput {
+            reference: link.reference.clone(),
+            canonical_body: link.canonical_body,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        inventory::entry::chain_head_with_links(
+            &mut m,
+            &mut r,
+            &c,
+            &p,
+            &reference,
+            &prior,
+            &[link.reference.clone()]
+        )
+        .unwrap()
+        .0,
+        2.into()
+    );
+    assert!(inventory::entry::chain_head(&mut m, &c, &p, &reference, &prior).is_err());
+    // Fully recomputed chain framing with the wrong empty root remains invalid
+    // against the actually supplied immutable link, rather than failing digest.
+    prior["links_root"] = json!(records::hash(&mut m, "workflow-link-set", &json!([])).unwrap());
+    let rebound = body::record(
+        &mut m,
+        &key,
+        "workflow-chain-state",
+        reference.id.clone(),
+        prior.clone(),
+    )
+    .unwrap();
+    assert!(
+        inventory::entry::chain_head_with_links(
+            &mut m,
+            &mut r,
+            &c,
+            &p,
+            &rebound.reference,
+            &prior,
+            &[link.reference]
+        )
+        .is_err()
+    );
+}

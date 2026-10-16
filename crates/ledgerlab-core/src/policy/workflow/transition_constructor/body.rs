@@ -85,8 +85,40 @@ pub(super) fn ref_set(m: &mut CoreMeter, refs: Vec<ExactRef>) -> Result<Vec<Exac
         }
         if !duplicate {
             m.visit("refset.insert")?;
+            for _ in position..result.len() {
+                m.visit("refset.move")?;
+            }
             result.insert(position, (bytes, reference));
         }
     }
     Ok(result.into_iter().map(|(_, r)| r).collect())
+}
+
+/// Generic named object sets are normalized by canonical JCS bytes. Semantic
+/// identity duplication (for example repeated family states) is checked before
+/// this representation normalization; an identical whole object also refuses.
+pub(super) fn object_set(m: &mut CoreMeter, values: Vec<Value>) -> Result<Vec<Value>> {
+    let mut ordered: Vec<(Vec<u8>, Value)> = vec![];
+    for value in values {
+        m.visit("object_set.element")?;
+        let key = codec::encode(m, &value, 4194304)?;
+        let mut position = ordered.len();
+        for (i, (prior, _)) in ordered.iter().enumerate() {
+            match super::shape::byte_order(m, &key, prior)? {
+                std::cmp::Ordering::Equal => {
+                    return Err(Error::new("DUPLICATE", "generic object set member"));
+                }
+                std::cmp::Ordering::Less => {
+                    position = i;
+                    break;
+                }
+                std::cmp::Ordering::Greater => {}
+            }
+        }
+        for _ in position..ordered.len() {
+            m.visit("object_set.move")?;
+        }
+        ordered.insert(position, (key, value));
+    }
+    Ok(ordered.into_iter().map(|(_, value)| value).collect())
 }

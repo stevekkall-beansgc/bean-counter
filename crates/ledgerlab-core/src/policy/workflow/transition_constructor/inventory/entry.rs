@@ -1,4 +1,4 @@
-use super::super::{CoreMeter, arithmetic, data::*, meter, shape};
+use super::super::{CoreMeter, arithmetic, data::*, meter, records::Records, shape};
 use super::{binding, check::*};
 use crate::{Error, Result, domain::Timestamp};
 use num_bigint::BigInt;
@@ -68,10 +68,40 @@ fn validate_data(
     ] {
         m.visit("inventory.initial_index")?;
         if !empty {
-            return Err(Error::new(
-                "UNSUPPORTED_COMPOSITION",
-                format!("noninitial A.setup index DATA {field}"),
-            ));
+            // Prior unrelated heads do not become this work's pricing basis.
+            // The host selects the exact snapshot; impacted dependencies are
+            // separately resolved by the complete-candidate capacity pass.
+            match field {
+                "decisions" => {
+                    bounds(m, state.decision_heads.len(), 0, 4096)?;
+                    for head in &state.decision_heads {
+                        shape::reference(m, &json!(head.reference))?;
+                        binding::id(m, &json!(head.decision_id), 128)?;
+                        crate::policy::workflow::transition_constructor::arithmetic::integer(
+                            m,
+                            &head.revision,
+                            false,
+                        )?;
+                    }
+                }
+                "families" => {
+                    bounds(m, state.family_heads.len(), 0, 4096)?;
+                    for head in &state.family_heads {
+                        shape::reference(m, &json!(head.reference))?;
+                        shape::reference(m, &json!(head.target_ref))?;
+                        binding::id(m, &json!(head.family_slot), 128)?;
+                        crate::policy::workflow::transition_constructor::arithmetic::integer(
+                            m,
+                            &head.revision,
+                            false,
+                        )?;
+                    }
+                }
+                "outcome_claims" => binding::refs(m, &json!(state.outcome_claims), 0, 4096)?,
+                "links" => binding::refs(m, &json!(state.links), 0, 4096)?,
+                "verification" => binding::refs(m, &json!(state.evidence_verifications), 0, 4096)?,
+                _ => return Err(shape::fail("unknown work index field")),
+            }
         }
     }
     Ok(())
@@ -225,6 +255,68 @@ pub(in crate::policy::workflow::transition_constructor) fn chain_head(
     reference: &ExactRef,
     old: &Value,
 ) -> Result<(BigInt, BigInt)> {
+    chain_head_data(m, c, p, reference, old, None)
+}
+/// The exact current immutable link set is supplied as DATA and each body is
+/// validated before deriving its root; snapshot completeness stays host-owned.
+pub(in crate::policy::workflow::transition_constructor) fn chain_head_with_links(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    p: &Value,
+    reference: &ExactRef,
+    old: &Value,
+    links: &[ExactRef],
+) -> Result<(BigInt, BigInt)> {
+    let mut current = vec![];
+    for link_ref in links {
+        m.visit("chain.current_immutable_link")?;
+        let link = r.get(
+            m,
+            &c.key,
+            link_ref,
+            "workflow-link",
+            "ledger-workflow-link/1",
+        )?;
+        shape::closed(
+            m,
+            &link,
+            &[
+                "schema",
+                "scope",
+                "child",
+                "product_ref",
+                "binding_ref",
+                "slot",
+                "predecessor",
+                "classification",
+                "authority_ref",
+                "operation_key",
+            ],
+            &[],
+        )?;
+        eq(m, &link, "scope", &json!(c.key.scope))?;
+        eq(m, &link, "binding_ref", &p["binding_ref"])?;
+        shape::reference(m, &link["child"])?;
+        shape::reference(m, &link["predecessor"])?;
+        shape::reference(m, &link["authority_ref"])?;
+        current.push(link_ref.clone());
+    }
+    let current = super::super::body::ref_set(m, current)?;
+    if !meter::cmp(m, &current.len().into(), &links.len().into())?.is_eq() {
+        return Err(shape::fail("duplicate current link identity"));
+    }
+    let links_root = super::super::records::hash(m, "workflow-link-set", &json!(current))?;
+    chain_head_data(m, c, p, reference, old, Some(&links_root))
+}
+fn chain_head_data(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    p: &Value,
+    reference: &ExactRef,
+    old: &Value,
+    actual_links_root: Option<&str>,
+) -> Result<(BigInt, BigInt)> {
     shape::closed(
         m,
         old,
@@ -297,7 +389,14 @@ pub(in crate::policy::workflow::transition_constructor) fn chain_head(
     if meter::cmp(m, &old_time, &new_time.into())?.is_gt() {
         return Err(Error::new("CLOCK_REGRESSION", "chain accepted time"));
     }
-    let links_root = super::super::records::hash(m, "workflow-link-set", &json!([]))?;
+    let legacy_empty;
+    let links_root = match actual_links_root {
+        Some(root) => root,
+        None => {
+            legacy_empty = super::super::records::hash(m, "workflow-link-set", &json!([]))?;
+            &legacy_empty
+        }
+    };
     eq(m, old, "links_root", &json!(links_root))?;
     Ok((revision, admitted))
 }

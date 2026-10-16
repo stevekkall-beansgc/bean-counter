@@ -88,7 +88,7 @@ pub(super) fn execute<'inv>(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
-) -> Result<DraftTransition> {
+) -> Result<Construction> {
     entry::context(m, c)?;
     shape::closed(
         m,
@@ -709,18 +709,14 @@ pub(super) fn execute<'inv>(
         link_id,
         json!({"schema":"ledger-workflow-link/1","scope":c.key.scope,"child":claim.reference,"product_ref":p["product_ref"],"binding_ref":p["binding_ref"],"slot":family["target_link_slot"],"predecessor":work_ref,"classification":"monetary","authority_ref":operands.authority.reference,"operation_key":c.key}),
     )?;
-    let effect_id = body::semantic_id(
+    let effect_id = original_family_effect(
         m,
-        "weffect_",
-        "workflow-effect",
-        &json!([
-            c.key.scope,
-            target["agreement_id"],
-            root_slot,
-            claim_ref.id,
-            [family_slot, [link.reference.id.clone()], root_slot],
-            "original"
-        ]),
+        &c.key.scope,
+        &target["agreement_id"],
+        root_slot,
+        &claim_ref,
+        &json!(family_slot),
+        &link.reference,
     )?;
     let nonzero = !call!(meter::cmp, m, &price.atoms.into(), &0.into())?.is_eq();
     let amount = json!({"currency":"USD","scale":18,"atoms":price.atoms.to_string()});
@@ -760,7 +756,7 @@ pub(super) fn execute<'inv>(
         &c.key,
         "workflow-decision",
         decision_ref,
-        json!({"schema":"ledger-workflow-decision-revision/1","decision_id":expected_decision,"revision":"1","subject_ref":claim.reference,"kind":"outcome","transition":"initial","status":if price.none{"none"}else{"active"},"original_terms_ref":p["binding_ref"],"authority_ref":operands.authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":action_refs,"active_action_refs":action_refs,"dependency_refs":[],"operation_key":c.key,"accepted_at":c.accepted_at}),
+        json!({"schema":"ledger-workflow-decision-revision/1","decision_id":expected_decision,"revision":"1","subject_ref":claim.reference,"kind":"outcome","transition":"initial","status":"active","original_terms_ref":p["binding_ref"],"authority_ref":operands.authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":action_refs,"active_action_refs":action_refs,"dependency_refs":[],"operation_key":c.key,"accepted_at":c.accepted_at}),
     )?;
     let revision = meter::add(m, &old_revision, &1.into())?;
     let family_id = body::semantic_id(
@@ -788,8 +784,19 @@ pub(super) fn execute<'inv>(
         "ledger-workflow-chain-state/1",
     )?;
     let chain_payload = json!({"customer":work_payload["customer"],"chain":work_payload["chain"],"binding_ref":p["binding_ref"]});
-    let (old_revision, admitted) =
-        entry::chain_head(m, c, &chain_payload, old_chain_ref, &old_chain)?;
+    let (old_revision, admitted) = if state.links.is_empty() {
+        entry::chain_head(m, c, &chain_payload, old_chain_ref, &old_chain)?
+    } else {
+        entry::chain_head_with_links(
+            m,
+            &mut r,
+            c,
+            &chain_payload,
+            old_chain_ref,
+            &old_chain,
+            &state.links,
+        )?
+    };
     let chain_revision = meter::add(m, &old_revision, &1.into())?;
     let admitted = meter::add(m, &admitted, &1.into())?;
     if call!(meter::cmp, m, &admitted, &1000.into())?.is_gt() {
@@ -837,7 +844,7 @@ pub(super) fn execute<'inv>(
     envelopes.push(decision);
     envelopes.push(family_state);
     envelopes.push(chain);
-    Ok(DraftTransition {
+    Ok(Construction {
         normalized_payload,
         new_envelopes: envelopes,
         evaluation_steps: vec![step],
@@ -847,8 +854,6 @@ pub(super) fn execute<'inv>(
         prospective_obligations: vec![],
         consumed_refs: body::ref_set(m, r.consumed())?,
         history_edges: vec![],
-        usage: m.snapshot_usage()?,
-        unresolved_admission_obligations: UNRESOLVED_ADMISSION_OBLIGATIONS,
     })
 }
 
@@ -861,7 +866,7 @@ pub(super) fn verify_original_actions(
     r: &mut Records,
     c: &DraftContextData,
     program: &SelectedProgram,
-    operands: &authority::Operands,
+    operands: &authority::Terms,
     work_ref: &ExactRef,
     work: &Value,
     claim_ref: &ExactRef,
@@ -1288,7 +1293,7 @@ pub(super) fn normalize_proofs(m: &mut CoreMeter, p: &mut Value) -> Result<()> {
 }
 pub(super) fn original_target_association(
     m: &mut CoreMeter,
-    o: &authority::Operands,
+    o: &authority::Terms,
     target: &Value,
     target_family: &Value,
     family: &Value,
@@ -1427,14 +1432,16 @@ mod relation_tests {
     fn operands() -> authority::Operands {
         let r = reference("workflow-authority", "wdoc_");
         authority::Operands {
-            binding: json!({"agreement_id":"agreement"}),
-            accepted: json!({}),
-            activation: json!({}),
-            catalog: json!({"components":[{"slot_id":"root","root_slot":"root","role_slot":"payer"}],"families":[{"slot_id":"assessment","target_component_slot":"root","role_slot":"payer"}]}),
-            instantiation: json!({"component_map":[{"template_key":"units","slot_id":"root"}],"family_map":[{"template_key":"assess","slot_id":"assessment"}]}),
-            slot_terms: json!({}),
-            slot_terms_ref: r.clone(),
-            role_ref: r.clone(),
+            terms: authority::Terms {
+                binding: json!({"agreement_id":"agreement"}),
+                accepted: json!({}),
+                activation: json!({}),
+                catalog: json!({"components":[{"slot_id":"root","root_slot":"root","role_slot":"payer"}],"families":[{"slot_id":"assessment","target_component_slot":"root","role_slot":"payer"}]}),
+                instantiation: json!({"component_map":[{"template_key":"units","slot_id":"root"}],"family_map":[{"template_key":"assess","slot_id":"assessment"}]}),
+                slot_terms: json!({}),
+                slot_terms_ref: r.clone(),
+                role_ref: r.clone(),
+            },
             authority: DraftEnvelope {
                 reference: r,
                 canonical_body: vec![],
@@ -1459,7 +1466,7 @@ mod relation_tests {
                 family["family_slot"] = json!("another-family")
             }
             if variant == 4 {
-                o.catalog["families"][0]["role_slot"] = json!("other-role")
+                o.terms.catalog["families"][0]["role_slot"] = json!("other-role")
             }
             // The synthetic body hash is rebound after each relation mutation;
             // this checks the join itself, not stale digest rejection.
@@ -1543,4 +1550,30 @@ mod relation_tests {
             );
         }
     }
+}
+
+/// One immutable original-effect tuple for submit and every later correction.
+/// Its work-claim identity never changes into the outcome-claim identity.
+pub(super) fn original_family_effect(
+    m: &mut CoreMeter,
+    scope: &[String; 2],
+    agreement: &Value,
+    root_slot: &str,
+    work_claim: &ExactRef,
+    family_slot: &Value,
+    link: &ExactRef,
+) -> Result<String> {
+    body::semantic_id(
+        m,
+        "weffect_",
+        "workflow-effect",
+        &json!([
+            scope,
+            agreement,
+            root_slot,
+            work_claim.id,
+            [family_slot, [link.id], root_slot],
+            "original"
+        ]),
+    )
 }

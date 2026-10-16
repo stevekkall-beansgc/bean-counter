@@ -351,53 +351,101 @@ impl OriginalAuditSession {
         bytes: &[u8],
         kind: RepresentationKind,
     ) -> Result<AuditedBytes> {
-        run(
-            &self.arena,
-            &mut self.meter,
-            OperationEnvelope::copy(),
-            |arena, w| {
-                if w::compare(w, bytes.len(), kind.maximum())?.is_gt() {
-                    return Err(failure("representation kind byte limit"));
-                }
-                arena.copy_bytes(bytes, w)
-            },
-        )
+        self.meter
+            .copy_owned_representation(&self.arena, bytes, kind)
     }
     pub fn hash_representation(
         &mut self,
         bytes: &[u8],
         kind: RepresentationKind,
     ) -> Result<[u8; 32]> {
-        run(
-            &self.arena,
-            &mut self.meter,
-            OperationEnvelope::hash(),
-            |_, w| {
-                if w::compare(w, bytes.len(), kind.maximum())?.is_gt() {
-                    return Err(failure("representation kind byte limit"));
-                }
-                w.hash_bytes(bytes.len())?;
-                Ok(Sha256::digest(bytes).into())
-            },
-        )
+        self.meter
+            .hash_owned_representation(&self.arena, bytes, kind)
     }
     pub fn parse_representation(
         &mut self,
         raw: &[u8],
         kind: RepresentationKind,
     ) -> Result<AuditedValue> {
-        let envelope = OperationEnvelope::parse(raw.len(), kind.maximum())?;
-        run(&self.arena, &mut self.meter, envelope, |arena, w| {
-            arena.parse_representation_bounded(raw, kind.maximum(), w)
-        })
+        self.meter
+            .parse_owned_representation(&self.arena, raw, kind)
     }
     pub fn canonical_representation(
         &mut self,
         value: &Value,
         kind: RepresentationKind,
     ) -> Result<AuditedBytes> {
+        self.meter
+            .canonical_owned_representation(&self.arena, value, kind)
+    }
+    pub fn encode_base64_representation(
+        &mut self,
+        raw: &[u8],
+        kind: RepresentationKind,
+    ) -> Result<AuditedBytes> {
+        self.meter
+            .encode_owned_base64_representation(&self.arena, raw, kind)
+    }
+    pub fn decode_base64_representation(
+        &mut self,
+        text: &str,
+        kind: RepresentationKind,
+    ) -> Result<AuditedBytes> {
+        self.meter
+            .decode_owned_base64_representation(&self.arena, text, kind)
+    }
+}
+
+// Named crate-private operations for the SAME original/economic meter.
+// The fixed financial caller borrows the one attempt arena; no C view or
+// arbitrary callback/allowance is exposed. Raw v1 meters refuse these methods.
+impl Meter {
+    pub(crate) fn copy_owned_representation(
+        &mut self,
+        arena: &AuditArena,
+        bytes: &[u8],
+        kind: RepresentationKind,
+    ) -> Result<AuditedBytes> {
+        run(arena, self, OperationEnvelope::copy(), |arena, w| {
+            if w::compare(w, bytes.len(), kind.maximum())?.is_gt() {
+                return Err(failure("representation kind byte limit"));
+            }
+            arena.copy_bytes(bytes, w)
+        })
+    }
+    pub(crate) fn hash_owned_representation(
+        &mut self,
+        arena: &AuditArena,
+        bytes: &[u8],
+        kind: RepresentationKind,
+    ) -> Result<[u8; 32]> {
+        run(arena, self, OperationEnvelope::hash(), |_, w| {
+            if w::compare(w, bytes.len(), kind.maximum())?.is_gt() {
+                return Err(failure("representation kind byte limit"));
+            }
+            w.hash_bytes(bytes.len())?;
+            Ok(Sha256::digest(bytes).into())
+        })
+    }
+    pub(crate) fn parse_owned_representation(
+        &mut self,
+        arena: &AuditArena,
+        raw: &[u8],
+        kind: RepresentationKind,
+    ) -> Result<AuditedValue> {
+        let envelope = OperationEnvelope::parse(raw.len(), kind.maximum())?;
+        run(arena, self, envelope, |arena, w| {
+            arena.parse_representation_bounded(raw, kind.maximum(), w)
+        })
+    }
+    pub(crate) fn canonical_owned_representation(
+        &mut self,
+        arena: &AuditArena,
+        value: &Value,
+        kind: RepresentationKind,
+    ) -> Result<AuditedBytes> {
         let envelope = OperationEnvelope::canonical(kind.maximum())?;
-        run(&self.arena, &mut self.meter, envelope, |arena, w| {
+        run(arena, self, envelope, |arena, w| {
             use crate::canonical::CanonicalContainerBound as Bound;
             match kind {
                 RepresentationKind::OperationFrame => {
@@ -413,16 +461,17 @@ impl OriginalAuditSession {
             }
         })
     }
-    pub fn encode_base64_representation(
+    pub(crate) fn encode_owned_base64_representation(
         &mut self,
+        arena: &AuditArena,
         raw: &[u8],
         kind: RepresentationKind,
     ) -> Result<AuditedBytes> {
         let maximum = kind
             .decoded_maximum()
-            .inspect_err(|_| self.meter.fail_original())?;
+            .inspect_err(|_| self.fail_original())?;
         let envelope = OperationEnvelope::encode(raw.len(), maximum)?;
-        run(&self.arena, &mut self.meter, envelope, |arena, work| {
+        run(arena, self, envelope, |arena, work| {
             use ArithmeticOperation as Op;
             if w::compare(work, raw.len(), maximum)?.is_gt() {
                 return Err(failure("base64 decoded kind byte limit"));
@@ -462,16 +511,17 @@ impl OriginalAuditSession {
             output.finish(work)
         })
     }
-    pub fn decode_base64_representation(
+    pub(crate) fn decode_owned_base64_representation(
         &mut self,
+        arena: &AuditArena,
         text: &str,
         kind: RepresentationKind,
     ) -> Result<AuditedBytes> {
         let maximum = kind
             .decoded_maximum()
-            .inspect_err(|_| self.meter.fail_original())?;
+            .inspect_err(|_| self.fail_original())?;
         let envelope = OperationEnvelope::decode(text.len(), maximum)?;
-        run(&self.arena, &mut self.meter, envelope, |arena, w| {
+        run(arena, self, envelope, |arena, w| {
             struct Sink {
                 output: AuditedByteBuilder,
                 written: usize,
@@ -553,6 +603,14 @@ mod tests {
             .unwrap();
         let mut child = session.meter.original_economic_meter().unwrap();
         child.visit("child.actual_semantic").unwrap();
+        let owned = child
+            .parse_owned_representation(&arena, br#"{"child":true}"#, RepresentationKind::Record)
+            .unwrap();
+        let emitted = child
+            .canonical_owned_representation(&arena, owned.value(), RepresentationKind::Record)
+            .unwrap();
+        assert_eq!(emitted.bytes(), br#"{"child":true}"#);
+        drop((owned, emitted));
         let usage = session.meter.finish_original_economic(child).unwrap();
         assert!(usage.trace.is_empty());
         session
@@ -561,7 +619,7 @@ mod tests {
             .unwrap();
         assert_eq!(session.usage().semantic_work, 3);
         assert_eq!(session.resource_usage().unwrap().semantic_work, 3);
-        assert_eq!(session.resource_usage().unwrap().representation_calls, 1);
+        assert_eq!(session.resource_usage().unwrap().representation_calls, 3);
     }
     #[test]
     fn strict_representation_padding_and_caught_refusal_poison() {

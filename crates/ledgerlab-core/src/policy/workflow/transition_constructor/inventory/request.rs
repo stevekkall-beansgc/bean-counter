@@ -63,6 +63,11 @@ const RECIPES: &[(&str, &str, &str)] = &[
         "sha256:b9397d8545fccefeb32ff9c320f1f70c96b1c89d6bd58f7aba37068862ab6d54",
     ),
     (
+        "agreement.accept",
+        "ledger-workflow-agreement-accept/4",
+        "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4",
+    ),
+    (
         "agreement.activate",
         "ledger-workflow-activation/1",
         "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169",

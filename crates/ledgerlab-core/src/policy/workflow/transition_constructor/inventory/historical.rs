@@ -174,15 +174,18 @@ fn source_and_root_data(
     )?;
     for binding in invoke!(shape::array, m, b, "bindings")? {
         m.visit("inventory.original_binding_slot")?;
-        let terms = invoke!(
-            load,
+        let terms_ref =
+            super::super::representation::ParsedRef::parse(m, o, &binding["binding_ref"])?;
+        let terms = r.get_parsed_schemas(
             m,
-            &mut *r,
-            c,
             o,
-            data_field!(m, binding, "binding_ref"),
+            &c.key,
+            &terms_ref,
             "workflow-slot-terms",
-            "ledger-workflow-slot-binding-terms/2"
+            &[
+                "ledger-workflow-slot-binding-terms/2",
+                "ledger-workflow-slot-binding-terms/3",
+            ],
         )?;
         invoke!(eq, m, &terms, "source_grant_refs", &json!(gr))?;
         for activity_name in invoke!(shape::array, m, &terms, "allowed_activities")? {

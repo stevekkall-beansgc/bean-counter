@@ -135,7 +135,7 @@ fn at(m: &mut CoreMeter, v: &Value, k: &str) -> Result<BigInt> {
 fn amount(n: &BigInt) -> Value {
     json!({"currency":"USD","scale":18,"atoms":n.to_string()})
 }
-fn dictionary_outcome(m: &mut CoreMeter, p: &Value) -> Result<()> {
+pub(super) fn dictionary_outcome(m: &mut CoreMeter, p: &Value) -> Result<()> {
     call!(
         shape::closed,
         m,
@@ -159,7 +159,7 @@ fn dictionary_outcome(m: &mut CoreMeter, p: &Value) -> Result<()> {
     )?;
     call!(equal, m, &p["schema"], &json!("ledger-workflow-outcome/1"))
 }
-fn dictionary_decision(m: &mut CoreMeter, p: &Value) -> Result<()> {
+pub(super) fn dictionary_decision(m: &mut CoreMeter, p: &Value) -> Result<()> {
     call!(
         shape::closed,
         m,
@@ -221,7 +221,7 @@ fn dictionary_action(m: &mut CoreMeter, a: &Value) -> Result<()> {
 /// Every inverse is an exact negation of the consumed current immutable action.
 /// The prior amount has already been repriced from the current evaluation facts
 /// under the original program; neither caller amounts nor invoice totals enter.
-fn inverse(
+pub(super) fn inverse(
     m: &mut CoreMeter,
     c: &DraftContextData,
     old_ref: &ExactRef,
@@ -263,7 +263,7 @@ pub(super) fn execute<'inv>(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
-) -> Result<DraftTransition> {
+) -> Result<Construction> {
     call!(entry::context, m, c)?;
     call!(
         shape::closed,
@@ -871,19 +871,14 @@ pub(super) fn execute<'inv>(
     if !call!(shape::same_text, m, &link_ref.id, &link_id)? {
         return Err(shape::fail("original selected link identity"));
     }
-    let effect = call!(
-        body::semantic_id,
+    let effect = outcome::original_family_effect(
         m,
-        "weffect_",
-        "workflow-effect",
-        &json!([
-            c.key.scope,
-            target["agreement_id"],
-            root_slot,
-            work_claim_ref.id,
-            [family_slot, [link_ref.id], root_slot],
-            "original"
-        ])
+        &c.key.scope,
+        &target["agreement_id"],
+        &root_slot,
+        &work_claim_ref,
+        &json!(family_slot),
+        &link_ref,
     )?;
     let active = call!(
         verify_current,
@@ -989,7 +984,7 @@ pub(super) fn execute<'inv>(
         &c.key,
         "workflow-decision",
         did,
-        json!({"schema":"ledger-workflow-decision-revision/1","decision_id":decision_id,"revision":revision,"subject_ref":claim_ref,"kind":"outcome","transition":"correct","status":if replacement_none{"none"}else{"active"},"original_terms_ref":p["binding_ref"],"authority_ref":operands.authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":appended,"active_action_refs":replacement_refs,"dependency_refs":old["dependency_refs"],"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":old_ref})
+        json!({"schema":"ledger-workflow-decision-revision/1","decision_id":decision_id,"revision":revision,"subject_ref":claim_ref,"kind":"outcome","transition":"outcome_correct","status":"active","original_terms_ref":p["binding_ref"],"authority_ref":operands.authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":appended,"active_action_refs":replacement_refs,"dependency_refs":old["dependency_refs"],"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":old_ref})
     )?;
     let frevision = call!(meter::add, m, &family_revision, &1.into())?.to_string();
     let fid = call!(
@@ -1019,13 +1014,14 @@ pub(super) fn execute<'inv>(
         "ledger-workflow-chain-state/1",
     )?;
     let chain_payload = json!({"customer":work["payload"]["customer"],"chain":work["payload"]["chain"],"binding_ref":p["binding_ref"]});
-    let (chain_revision, admitted) = call!(
-        entry::chain_head,
+    let (chain_revision, admitted) = entry::chain_head_with_links(
         m,
+        &mut r,
         c,
         &chain_payload,
         old_chain_ref,
-        &old_chain
+        &old_chain,
+        &state.links,
     )?;
     let crevision = call!(meter::add, m, &chain_revision, &1.into())?.to_string();
     let cid = call!(
@@ -1071,7 +1067,7 @@ pub(super) fn execute<'inv>(
     envelopes.push(decision);
     envelopes.push(next_family);
     envelopes.push(chain);
-    Ok(DraftTransition {
+    Ok(Construction {
         normalized_payload,
         new_envelopes: envelopes,
         evaluation_steps: steps,
@@ -1081,8 +1077,6 @@ pub(super) fn execute<'inv>(
         prospective_obligations: vec![],
         consumed_refs: call!(body::ref_set, m, r.consumed())?,
         history_edges: vec![],
-        usage: m.snapshot_usage()?,
-        unresolved_admission_obligations: UNRESOLVED_ADMISSION_OBLIGATIONS,
     })
 }
 fn inverse_value(m: &mut CoreMeter, v: &DraftEnvelope) -> Result<Value> {
@@ -1105,7 +1099,11 @@ fn select_head<'a>(
     }
     out.ok_or_else(|| shape::fail("required current decision missing"))
 }
-fn select_family<'a>(m: &mut CoreMeter, p: &'a SelectedProgram, key: &str) -> Result<&'a Value> {
+pub(super) fn select_family<'a>(
+    m: &mut CoreMeter,
+    p: &'a SelectedProgram,
+    key: &str,
+) -> Result<&'a Value> {
     let mut out = None;
     for i in call!(
         shape::array,
@@ -1153,7 +1151,7 @@ fn select_schema<'a>(
     }
     Err(shape::fail("original schema missing"))
 }
-fn verify_current(
+pub(super) fn verify_current(
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
@@ -1166,7 +1164,7 @@ fn verify_current(
     basis: &[ExactRef],
     effect: &str,
     root: &str,
-    operands: &authority::Operands,
+    operands: &authority::Terms,
 ) -> Result<Vec<(ExactRef, Value)>> {
     let (_, evaluation) = call!(
         load,
@@ -1213,10 +1211,15 @@ fn verify_current(
         call!(equal, m, &evaluation[k], &v)?;
     }
     let family = call!(select_family, m, program, key)?;
-    let status = call!(shape::text, m, old, "status")?;
-    let is_none = call!(shape::same_text, m, status, "none")?;
-    if !is_none && !call!(shape::same_text, m, status, "active")? {
-        return Err(shape::fail("current outcome status"));
+    if !call!(
+        shape::same_text,
+        m,
+        call!(shape::text, m, old, "status")?,
+        "active"
+    )? {
+        return Err(shape::fail(
+            "current outcome must remain active even for none/zero",
+        ));
     }
     let facts = call!(shape::field, m, &evaluation, "facts")?;
     let facts_object = facts
@@ -1227,14 +1230,12 @@ fn verify_current(
         // Only an explicit no-replacement correction has empty facts. Its
         // retained original recipe must establish that earlier transition;
         // this local use still checks its none status and original ordinal.
-        if !is_none
-            || !call!(
-                shape::same_text,
-                m,
-                call!(shape::text, m, old, "transition")?,
-                "correct"
-            )?
-        {
+        if !call!(
+            shape::same_text,
+            m,
+            call!(shape::text, m, old, "transition")?,
+            "outcome_correct"
+        )? {
             return Err(shape::fail(
                 "empty current facts require explicit none correction",
             ));
@@ -1252,18 +1253,12 @@ fn verify_current(
         )?;
         pricing::outcome(program, key, code, net, m)?
     };
-    if !m.check("correction.current_none_status", || is_none == price.none)? {
-        return Err(shape::fail(
-            "current outcome none status versus original effect",
-        ));
-    }
     let refs = call!(shape::array, m, old, "active_action_refs")?;
-    let expected =
-        if is_none || price.none || call!(meter::cmp, m, &price.atoms.into(), &0.into())?.is_eq() {
-            0
-        } else {
-            1
-        };
+    let expected = if price.none || call!(meter::cmp, m, &price.atoms.into(), &0.into())?.is_eq() {
+        0
+    } else {
+        1
+    };
     if !call!(meter::cmp, m, &refs.len().into(), &expected.into())?.is_eq() {
         return Err(shape::fail("current action count versus original pricing"));
     }

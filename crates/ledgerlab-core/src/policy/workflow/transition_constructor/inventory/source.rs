@@ -71,6 +71,74 @@ use super::super::{
 use super::{check::*, evidence};
 use crate::Result;
 use serde_json::{Value, json};
+pub(in crate::policy::workflow::transition_constructor) fn current_header(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    state: &Value,
+) -> Result<()> {
+    invoke!(key, m, data_field!(m, state, "operation_key"), c)?;
+    invoke!(name, m, state, "actor")
+}
+pub(in crate::policy::workflow::transition_constructor) fn current_sets(
+    m: &mut CoreMeter,
+    grant: &Value,
+) -> Result<()> {
+    for (field, minimum, maximum) in [
+        ("customer_scope", 1, 64),
+        ("operations", 1, 64),
+        ("source_slots", 0, 32),
+        ("permissions", 1, 8),
+    ] {
+        let values = invoke!(shape::array, m, grant, field)?;
+        bounds(m, values.len(), minimum, maximum)?;
+        super::binding::ordered(m, values)?;
+        set(m, values)?;
+    }
+    Ok(())
+}
+pub(in crate::policy::workflow::transition_constructor) fn selector_subset(
+    m: &mut CoreMeter,
+    narrowed: &[Value],
+    ceiling: &[Value],
+    maximum: usize,
+) -> Result<()> {
+    bounds(m, narrowed.len(), 0, maximum)?;
+    super::binding::ordered(m, narrowed)?;
+    set(m, narrowed)?;
+    for selected in narrowed {
+        m.visit("grant.narrowed_selector")?;
+        // The selected original profile admits explicit name selectors. A
+        // namespace cannot be introduced by narrowing those immutable names.
+        shape::closed(m, selected, &["names"], &[])?;
+        let names = invoke!(shape::array, m, selected, "names")?;
+        bounds(m, names.len(), 1, 64)?;
+        super::binding::ordered(m, names)?;
+        set(m, names)?;
+        for name in names {
+            let value = name
+                .as_str()
+                .ok_or_else(|| shape::fail("grant selector name"))?;
+            qualified(m, value)?;
+            let mut covered = false;
+            for original in ceiling {
+                m.visit("grant.original_selector")?;
+                shape::closed(m, original, &["names"], &[])?;
+                if invoke!(
+                    shape::member,
+                    m,
+                    invoke!(shape::array, m, original, "names")?,
+                    name
+                )? {
+                    covered = true;
+                }
+            }
+            if !covered {
+                return Err(shape::fail("current selector widens immutable ceiling"));
+            }
+        }
+    }
+    Ok(())
+}
 const CEILING: &[&str] = &[
     "principal_id",
     "source",
@@ -85,8 +153,8 @@ const CEILING: &[&str] = &[
     "starts_at",
     "ends_at",
 ];
-/// The selected initial state requires exact original ceiling, not a successor
-/// guessed from a hash. Later source revisions remain unsupported here.
+/// Validate the exact initial birth; later current heads use this immutable
+/// original independently, never substitute their narrowed grant as the birth.
 pub(in crate::policy::workflow::transition_constructor) fn initial(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -100,11 +168,64 @@ pub(in crate::policy::workflow::transition_constructor) fn initial(
     #[cfg(test)]
     {
         return m.diagnostic_scope("inventory::source::initial", |m| {
-            initial_data(m, r, c, o, enrollment, state, grant, customer)
+            initial_data(
+                m,
+                r,
+                c,
+                o,
+                enrollment,
+                state,
+                grant,
+                customer,
+                &c.authorities[0].enrollment_ref,
+                &c.authorities[0].current_state_ref,
+                &c.authorities[0].current_grant_ref,
+            )
         });
     }
     #[cfg(not(test))]
-    initial_data(m, r, c, o, enrollment, state, grant, customer)
+    initial_data(
+        m,
+        r,
+        c,
+        o,
+        enrollment,
+        state,
+        grant,
+        customer,
+        &c.authorities[0].enrollment_ref,
+        &c.authorities[0].current_state_ref,
+        &c.authorities[0].current_grant_ref,
+    )
+}
+/// Exact initial birth operands remain separate from a later current source
+/// head. All supplied records still require completed origin auditing in host.
+pub(in crate::policy::workflow::transition_constructor) fn birth(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    o: &InvocationToken,
+    enrollment: &Value,
+    state: &Value,
+    grant: &Value,
+    customer: &Value,
+    enrollment_ref: &ExactRef,
+    state_ref: &ExactRef,
+    grant_ref: &ExactRef,
+) -> Result<Value> {
+    initial_data(
+        m,
+        r,
+        c,
+        o,
+        enrollment,
+        state,
+        grant,
+        customer,
+        enrollment_ref,
+        state_ref,
+        grant_ref,
+    )
 }
 fn initial_data(
     m: &mut CoreMeter,
@@ -115,6 +236,9 @@ fn initial_data(
     state: &Value,
     grant: &Value,
     customer: &Value,
+    enrollment_ref: &ExactRef,
+    state_ref: &ExactRef,
+    grant_ref: &ExactRef,
 ) -> Result<Value> {
     invoke!(
         shape::closed,
@@ -242,27 +366,9 @@ fn initial_data(
     )?;
     invoke!(eq, m, state, "revision", &json!("1"))?;
     invoke!(eq, m, state, "status", &json!("active"))?;
-    invoke!(
-        eq,
-        m,
-        state,
-        "enrollment_ref",
-        &json!(c.authorities[0].enrollment_ref)
-    )?;
-    invoke!(
-        eq,
-        m,
-        state,
-        "current_grant_ref",
-        &json!(c.authorities[0].current_grant_ref)
-    )?;
-    invoke!(
-        eq,
-        m,
-        grant,
-        "original_ceiling_ref",
-        &json!(c.authorities[0].enrollment_ref)
-    )?;
+    invoke!(eq, m, state, "enrollment_ref", &json!(enrollment_ref))?;
+    invoke!(eq, m, state, "current_grant_ref", &json!(grant_ref))?;
+    invoke!(eq, m, grant, "original_ceiling_ref", &json!(enrollment_ref))?;
     invoke!(eq, m, grant, "revision", &json!("1"))?;
     invoke!(copy, m, grant, "grant_id", enrollment, "enrollment_id")?;
     invoke!(
@@ -425,12 +531,6 @@ fn initial_data(
             "1"
         ])
     )?;
-    invoke!(
-        eq,
-        m,
-        &json!({"id":c.authorities[0].current_state_ref.id}),
-        "id",
-        &json!(expected)
-    )?;
+    invoke!(eq, m, &json!({"id":state_ref.id}), "id", &json!(expected))?;
     Ok(registered)
 }

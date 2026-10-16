@@ -27,7 +27,7 @@ pub fn draft_transition(
     m: &mut CoreMeter,
 ) -> Result<DraftTransition> {
     m.enter_draft()?;
-    execute(program, c, payload, inputs, state, m, None)
+    execute(program, c, payload, inputs, state, m, None)?.draft_projection(m)
 }
 /// A separate pure DATA entry. Intrinsic evidence is not a host origin proof;
 /// outputs retain all unresolved admission gates. New/unmatched evidence still
@@ -51,7 +51,8 @@ pub(in crate::policy::workflow) fn draft_with_intrinsic_evidence<'inv>(
         state,
         m,
         Some((owner, evidence)),
-    )
+    )?
+    .draft_projection(m)
 }
 pub(in crate::policy::workflow) fn replay_with_intrinsic_evidence<'inv>(
     program: &SelectedProgram,
@@ -69,7 +70,7 @@ pub(in crate::policy::workflow) fn replay_with_intrinsic_evidence<'inv>(
     compare_drafts(&draft, expected, m)?;
     Ok(draft)
 }
-fn execute<'inv>(
+pub(super) fn execute<'inv>(
     program: &SelectedProgram,
     c: &DraftContextData,
     payload: &[u8],
@@ -80,7 +81,7 @@ fn execute<'inv>(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
-) -> Result<DraftTransition> {
+) -> Result<Construction> {
     m.begin_request(payload)?;
     m.phase(Phase::ParseNormalize);
     let mut p = codec::parse(m, payload, 262144)?;
@@ -95,6 +96,14 @@ fn execute<'inv>(
         return super::outcome::execute(program, c, p, inputs, state, m, intrinsic);
     }
     if !shape::same(m, &p["schema"], &json!("ledger-workflow-work/1"))? {
+        if shape::same(
+            m,
+            &p["schema"],
+            &json!("ledger-workflow-quantity-correction/2"),
+        )? || shape::same(m, &p["schema"], &json!("ledger-workflow-work-reverse/2"))?
+        {
+            return super::root_correction::execute(program, c, p, inputs, state, m, intrinsic);
+        }
         return Err(unsupported(
             "selected transition branch not implemented yet",
         ));
@@ -405,7 +414,19 @@ fn execute<'inv>(
             "workflow-chain-state",
             "ledger-workflow-chain-state/1",
         )?;
-        let (old_revision, old_events) = super::inventory::entry::chain_head(m, c, &p, head, &old)?;
+        let (old_revision, old_events) = if state.links.is_empty() {
+            super::inventory::entry::chain_head(m, c, &p, head, &old)?
+        } else {
+            super::inventory::entry::chain_head_with_links(
+                m,
+                &mut r,
+                c,
+                &p,
+                head,
+                &old,
+                &state.links,
+            )?
+        };
         revision = meter::add(m, &old_revision, &BigInt::from(1))?;
         admitted = meter::add(m, &old_events, &BigInt::from(1))?;
         if meter::cmp(m, &admitted, &1000.into())?.is_gt() {
@@ -413,10 +434,60 @@ fn execute<'inv>(
         }
         prior = Some(head.clone());
     }
-    if !meter::cmp(m, &state.links.len().into(), &0usize.into())?.is_eq() {
-        return Err(unsupported("selected link resolver pending"));
-    }
-    let links_root = records::hash(m, "workflow-link-set", &json!([]))?;
+    let links_root = if meter::cmp(m, &state.links.len().into(), &0usize.into())?.is_eq() {
+        records::hash(m, "workflow-link-set", &json!([]))?
+    } else {
+        let mut retained = vec![];
+        for reference in &state.links {
+            m.visit("work.existing_link")?;
+            let link = r.get(
+                m,
+                &c.key,
+                reference,
+                "workflow-link",
+                "ledger-workflow-link/1",
+            )?;
+            shape::closed(
+                m,
+                &link,
+                &[
+                    "schema",
+                    "scope",
+                    "child",
+                    "product_ref",
+                    "binding_ref",
+                    "slot",
+                    "predecessor",
+                    "classification",
+                    "authority_ref",
+                    "operation_key",
+                ],
+                &[],
+            )?;
+            if !shape::same(m, &link["scope"], &json!(c.key.scope))? {
+                return Err(shape::fail("work retained link scope"));
+            }
+            retained.push(reference.clone());
+        }
+        let retained = body::ref_set(m, retained)?;
+        let root = records::hash(m, "workflow-link-set", &json!(retained))?;
+        if let Some(prior) = &state.chain_head {
+            let prior = r.get(
+                m,
+                &c.key,
+                prior,
+                "workflow-chain-state",
+                "ledger-workflow-chain-state/1",
+            )?;
+            let prior_root = shape::text(m, &prior, "links_root")?;
+            if !shape::same_text(m, &root, prior_root)? {
+                return Err(shape::fail("work prior link root"));
+            }
+        } else {
+            return Err(shape::fail("retained links without chain"));
+        }
+        root
+    };
     let chain_id = body::semantic_id(
         m,
         "wchain_",
@@ -447,7 +518,7 @@ fn execute<'inv>(
     envelopes.push(decision);
     envelopes.extend(targets.records);
     envelopes.push(chain);
-    Ok(DraftTransition {
+    Ok(Construction {
         normalized_payload,
         new_envelopes: envelopes,
         evaluation_steps: steps,
@@ -457,8 +528,6 @@ fn execute<'inv>(
         prospective_obligations: targets.obligations,
         consumed_refs: body::ref_set(m, r.consumed())?,
         history_edges: vec![],
-        usage: m.snapshot_usage()?,
-        unresolved_admission_obligations: UNRESOLVED_ADMISSION_OBLIGATIONS,
     })
 }
 #[cfg(test)]
@@ -472,7 +541,7 @@ pub(super) fn calibrate(
 ) -> Result<DraftTransition> {
     m.enter_calibration()?;
     m.diagnostic_scope("selected.A.setup", |m| {
-        execute(program, c, payload, inputs, state, m, None)
+        execute(program, c, payload, inputs, state, m, None)?.draft_projection(m)
     })
 }
 pub fn replay_draft(

@@ -58,6 +58,8 @@ pub(super) enum EconomicMode {
     Work,
     OutcomeSubmit,
     OutcomeCorrect,
+    QuantityCorrect,
+    WorkReverse,
 }
 impl EconomicMode {
     fn operation(self) -> &'static str {
@@ -65,16 +67,20 @@ impl EconomicMode {
             Self::Work => "work.accept",
             Self::OutcomeSubmit => "outcome.submit",
             Self::OutcomeCorrect => "outcome.correct",
+            Self::QuantityCorrect => "quantity.correct",
+            Self::WorkReverse => "work.reverse",
         }
     }
     fn rights(self) -> &'static [&'static str] {
         match self {
             Self::Work | Self::OutcomeSubmit => &["read", "submit"],
-            Self::OutcomeCorrect => &["correct", "read"],
+            Self::OutcomeCorrect | Self::QuantityCorrect | Self::WorkReverse => {
+                &["correct", "read"]
+            }
         }
     }
 }
-pub(super) struct Operands {
+pub(super) struct Terms {
     pub binding: Value,
     pub accepted: Value,
     pub activation: Value,
@@ -83,9 +89,50 @@ pub(super) struct Operands {
     pub slot_terms: Value,
     pub slot_terms_ref: ExactRef,
     pub role_ref: ExactRef,
+}
+pub(super) struct Operands {
+    pub terms: Terms,
     pub authority: DraftEnvelope,
     pub introduced: Vec<DraftEnvelope>,
 }
+impl std::ops::Deref for Operands {
+    type Target = Terms;
+    fn deref(&self) -> &Terms {
+        &self.terms
+    }
+}
+pub(super) struct ResolvedOperands {
+    pub terms: Terms,
+    pub introduced: Vec<DraftEnvelope>,
+    authority_body: Value,
+}
+impl std::ops::Deref for ResolvedOperands {
+    type Target = Terms;
+    fn deref(&self) -> &Terms {
+        &self.terms
+    }
+}
+impl ResolvedOperands {
+    pub(super) fn authority_document(
+        &self,
+        m: &mut CoreMeter,
+        causal_checks: Option<&[Value]>,
+    ) -> Result<DraftEnvelope> {
+        let mut value = self.authority_body.clone();
+        if let Some(checks) = causal_checks {
+            let operation = shape::text(m, &value, "operation")?;
+            if !shape::same_text(m, operation, "quantity.correct")?
+                && !shape::same_text(m, operation, "work.reverse")?
+            {
+                return Err(fail("causal authority operation tuple"));
+            }
+            value["schema"] = json!("ledger-workflow-economic-authority/3");
+            value["causal_closure_checks"] = json!(body::object_set(m, checks.to_vec())?);
+        }
+        body::document(m, "workflow-economic-authority", value)
+    }
+}
+
 fn load(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -181,6 +228,7 @@ fn grant(
         invoke!(equal, m, invoke!(field, m, g, k)?, &want)?;
         invoke!(equal, m, invoke!(field, m, ceiling, k)?, &want)?;
     }
+    super::inventory::source::current_sets(m, g)?;
     for k in [
         "customer_scope",
         "operations",
@@ -195,11 +243,13 @@ fn grant(
         )?;
     }
     for k in ["product_selectors", "activity_selectors", "link_selectors"] {
-        invoke!(
-            subset,
+        let current_selectors = invoke!(array, m, g, k)?;
+        let original_selectors = invoke!(array, m, ceiling, k)?;
+        super::inventory::source::selector_subset(
             m,
-            invoke!(array, m, g, k)?,
-            invoke!(array, m, ceiling, k)?
+            current_selectors,
+            original_selectors,
+            if k == "link_selectors" { 32 } else { 64 },
         )?;
     }
     let prepared = ParsedGrantInterval::parse(m, owner, g)?;
@@ -280,6 +330,39 @@ pub(super) fn economic(
     mode: EconomicMode,
     verified_facts: &[ExactRef],
 ) -> Result<Operands> {
+    let resolved = resolve_economic(
+        m,
+        r,
+        c,
+        p,
+        activity,
+        product,
+        owner,
+        times,
+        program,
+        mode,
+        verified_facts,
+    )?;
+    let authority = resolved.authority_document(m, None)?;
+    Ok(Operands {
+        terms: resolved.terms,
+        authority,
+        introduced: resolved.introduced,
+    })
+}
+pub(super) fn resolve_economic(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    p: &Value,
+    activity: &Value,
+    product: &Value,
+    owner: &InvocationToken,
+    times: &ParsedDraftTimes<'_>,
+    program: &super::super::selected_program::SelectedProgram,
+    mode: EconomicMode,
+    verified_facts: &[ExactRef],
+) -> Result<ResolvedOperands> {
     m.phase(Phase::OriginalAuthority);
     if !meter::cmp(m, &c.authorities.len().into(), &1usize.into())?.is_eq() {
         return Err(fail("one required nominated work slot"));
@@ -565,38 +648,123 @@ pub(super) fn economic(
         )?,
         &json!(c.key.logical_store_id)
     )?;
-    // Initial lineage is implemented here; successors must supply the whole lineage
-    // through the pending explicit resolver, never be accepted by hash equality.
-    invoke!(
-        equal,
-        m,
-        invoke!(field, m, &state, "revision")?,
-        &json!("1")
-    )?;
+    // Current state/grant origin and monotonic lineage are audited by the host
+    // before these DATA operands can enter a prepared financial transition.
+    // Recheck their exact identity/current use here; never replace original
+    // accepted grant nominations with today's grant Ref.
     let enrollment_id = invoke!(text, m, &enrollment, "enrollment_id")?;
+    let revision_text = invoke!(text, m, &state, "revision")?;
+    let revision_u64 = super::super::facts::counter_with_work(revision_text, m)?;
+    let revision = num_bigint::BigInt::from(revision_u64);
+    if !super::shape::same_text(m, revision_text, &revision_u64.to_string())? {
+        return Err(fail("noncanonical current source revision"));
+    }
+    if !meter::cmp(m, &revision, &0.into())?.is_gt() {
+        return Err(fail("positive current source revision"));
+    }
+    closed(
+        m,
+        &state,
+        &[
+            "schema",
+            "enrollment_ref",
+            "revision",
+            "status",
+            "current_grant_ref",
+            "operation_key",
+            "actor",
+            "accepted_at",
+        ],
+        &["prior_state_ref"],
+    )?;
+    super::inventory::source::current_header(m, c, &state)?;
+    let state_at = invoke!(time, m, &state, "accepted_at")?;
+    if meter::cmp(m, &state_at, &at)?.is_gt() {
+        return Err(fail("current source cannot originate in the future"));
+    }
     let state_id = body::semantic_id(
+        m,
+        "wsource_",
+        "workflow-source-state",
+        &json!([
+            c.key.logical_store_id,
+            c.key.scope,
+            enrollment_id,
+            revision_text
+        ]),
+    )?;
+    invoke!(equal, m, &json!(state_id), &json!(a.current_state_ref.id))?;
+    let birth_id = body::semantic_id(
         m,
         "wsource_",
         "workflow-source-state",
         &json!([c.key.logical_store_id, c.key.scope, enrollment_id, "1"]),
     )?;
-    invoke!(equal, m, &json!(state_id), &json!(a.current_state_ref.id))?;
+    let (birth_ref, birth_state) = r.by_identity(
+        m,
+        &c.key,
+        "workflow-source-state",
+        &birth_id,
+        "ledger-workflow-source-state/1",
+    )?;
+    if meter::cmp(m, &revision, &1.into())?.is_eq() {
+        if state.get("prior_state_ref").is_some() || !same(m, &birth_state, &state)? {
+            return Err(fail("initial current source must be exact birth"));
+        }
+    } else {
+        let prior_value = invoke!(field, m, &state, "prior_state_ref")?;
+        let prior = super::shape::reference(m, prior_value)?;
+        let prior_revision = meter::sub(m, &revision, &1.into())?;
+        let prior_id = body::semantic_id(
+            m,
+            "wsource_",
+            "workflow-source-state",
+            &json!([
+                c.key.logical_store_id,
+                c.key.scope,
+                enrollment_id,
+                prior_revision.to_string()
+            ]),
+        )?;
+        if !super::shape::same_text(m, &prior.kind, "workflow-source-state")?
+            || !super::shape::same_text(m, &prior.id, &prior_id)?
+        {
+            return Err(fail("current source predecessor identity"));
+        }
+    }
+    if !meter::cmp(m, &a.original_grant_refs.len().into(), &1.into())?.is_eq() {
+        return Err(fail("selected original immutable grant nomination"));
+    }
+    if !same(m, &binding["authority_refs"], &json!(a.original_grant_refs))? {
+        return Err(fail("binding original grant nominations"));
+    }
+    let original_ref = &a.original_grant_refs[0];
+    let original_grant = r.get(
+        m,
+        &c.key,
+        original_ref,
+        "workflow-source-grant",
+        "ledger-workflow-source-grant/1",
+    )?;
+    let registered = super::inventory::source::birth(
+        m,
+        r,
+        c,
+        owner,
+        &enrollment,
+        &birth_state,
+        &original_grant,
+        &p["customer"],
+        &a.enrollment_ref,
+        &birth_ref,
+        original_ref,
+    )?;
     let current = r.get(
         m,
         &c.key,
         &a.current_grant_ref,
         "workflow-source-grant",
         "ledger-workflow-source-grant/1",
-    )?;
-    let registered = super::inventory::source::initial(
-        m,
-        r,
-        c,
-        owner,
-        &enrollment,
-        &state,
-        &current,
-        &p["customer"],
     )?;
     invoke!(
         equal,
@@ -608,13 +776,13 @@ pub(super) fn economic(
         equal,
         m,
         invoke!(field, m, &current, "revision")?,
-        &json!("1")
+        &state["revision"]
     )?;
     invoke!(
         equal,
         m,
         invoke!(field, m, &current, "grant_id")?,
-        invoke!(field, m, &enrollment, "enrollment_id")?
+        &enrollment["enrollment_id"]
     )?;
     invoke!(
         grant,
@@ -630,46 +798,22 @@ pub(super) fn economic(
         &at,
         mode
     )?;
-    if !same(
+    // Original accepted rights remain an independent intersection. A narrowed
+    // current grant cannot silently substitute a different original capability.
+    invoke!(
+        grant,
         m,
-        &json!(a.original_grant_refs),
-        &json!([a.current_grant_ref.clone()]),
-    )? {
-        return Err(fail("initial original grant nominations"));
-    }
-    if !same(m, &binding["authority_refs"], &json!(a.original_grant_refs))? {
-        return Err(fail("initial binding grant nominations"));
-    }
-    for gr in &a.original_grant_refs {
-        let g = r.get(
-            m,
-            &c.key,
-            gr,
-            "workflow-source-grant",
-            "ledger-workflow-source-grant/1",
-        )?;
-        invoke!(
-            equal,
-            m,
-            invoke!(field, m, &g, "original_ceiling_ref")?,
-            &json!(a.enrollment_ref)
-        )?;
-        equal(m, &g, &current)?;
-        invoke!(
-            grant,
-            m,
-            owner,
-            &g,
-            ceiling,
-            c,
-            invoke!(field, m, p, "customer")?,
-            invoke!(text, m, p, "activity")?,
-            invoke!(text, m, product, "product_id")?,
-            source_slot,
-            &at,
-            mode
-        )?;
-    }
+        owner,
+        &original_grant,
+        ceiling,
+        c,
+        invoke!(field, m, p, "customer")?,
+        invoke!(text, m, p, "activity")?,
+        invoke!(text, m, product, "product_id")?,
+        source_slot,
+        &at,
+        mode
+    )?;
     m.phase(Phase::CurrentAuthority);
     let nomination = invoke!(
         named,
@@ -725,16 +869,19 @@ pub(super) fn economic(
         return Err(fail("retail binding count"));
     }
     let binding_slot = invoke!(text, m, &bindings[0], "slot")?;
-    let (slot_terms_ref, slot_terms) = invoke!(
-        load,
+    let slot_terms_ref = ParsedRef::parse(m, owner, &bindings[0]["binding_ref"])?;
+    let slot_terms = r.get_parsed_schemas(
         m,
-        &mut *r,
-        c,
         owner,
-        invoke!(field, m, &bindings[0], "binding_ref")?,
+        &c.key,
+        &slot_terms_ref,
         "workflow-slot-terms",
-        "ledger-workflow-slot-binding-terms/2"
+        &[
+            "ledger-workflow-slot-binding-terms/2",
+            "ledger-workflow-slot-binding-terms/3",
+        ],
     )?;
+    let slot_terms_ref = slot_terms_ref.exact().clone();
     invoke!(
         equal,
         m,
@@ -1084,22 +1231,20 @@ pub(super) fn economic(
             });
         }
     }
-    let authority = body::document(
-        m,
-        "workflow-economic-authority",
-        json!({"schema":"ledger-workflow-economic-authority/2","operation":mode.operation(),"actor":c.actor,"source":c.key.source,"scope":c.key.scope,"customer":p["customer"],"canonical_economic_namespace":c.canonical_economic_namespace,"installation_mode":c.installation_mode,"enrollment_ref":a.enrollment_ref,"current_state_ref":a.current_state_ref,"current_grant_ref":a.current_grant_ref,"original_binding_ref":a.binding_ref,"original_accepted_agreement_ref":a.accepted_agreement_ref,"original_grant_refs":a.original_grant_refs,"source_slot":a.source_slot,"rights":mode.rights(),"evidence_refs":p["evidence_refs"],"verified_fact_refs":verified_facts,"observed_at":c.accepted_at,"authority_observation_ref":a.authority_observation_ref}),
-    )?;
+    let authority_body = json!({"schema":"ledger-workflow-economic-authority/2","operation":mode.operation(),"actor":c.actor,"source":c.key.source,"scope":c.key.scope,"customer":p["customer"],"canonical_economic_namespace":c.canonical_economic_namespace,"installation_mode":c.installation_mode,"enrollment_ref":a.enrollment_ref,"current_state_ref":a.current_state_ref,"current_grant_ref":a.current_grant_ref,"original_binding_ref":a.binding_ref,"original_accepted_agreement_ref":a.accepted_agreement_ref,"original_grant_refs":a.original_grant_refs,"source_slot":a.source_slot,"rights":mode.rights(),"evidence_refs":p["evidence_refs"],"verified_fact_refs":verified_facts,"observed_at":c.accepted_at,"authority_observation_ref":a.authority_observation_ref});
     let _ = terms_ref;
-    Ok(Operands {
-        binding,
-        accepted,
-        activation,
-        catalog,
-        instantiation,
-        slot_terms,
-        slot_terms_ref,
-        role_ref,
-        authority,
+    Ok(ResolvedOperands {
+        terms: Terms {
+            binding,
+            accepted,
+            activation,
+            catalog,
+            instantiation,
+            slot_terms,
+            slot_terms_ref,
+            role_ref,
+        },
+        authority_body,
         introduced,
     })
 }

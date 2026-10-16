@@ -178,29 +178,41 @@ fn validate_data(
             }
         }
     }
-    invoke!(
-        shape::closed,
-        m,
-        t,
-        &[
+    let terms_schema = shape::text(m, t, "schema")?;
+    let original_work_scope =
+        shape::same_text(m, terms_schema, "ledger-workflow-slot-binding-terms/3")?;
+    let mut required = vec![
+        "schema",
+        "scope",
+        "agreement_id",
+        "customer",
+        "slot",
+        "book",
+        "role_slot",
+        "role_ref",
+        "funding_leg",
+        "allowed_activities",
+        "quantity_ceilings",
+        "exposure_ceiling",
+        "source_grant_refs",
+        "correction_source_slot",
+        "causal_reversal_clauses",
+    ];
+    if original_work_scope {
+        required.push("exposure_scope");
+    }
+    shape::closed(m, t, &required, &[])?;
+    if original_work_scope {
+        eq(m, t, "exposure_scope", &json!("original_work"))?;
+        eq(m, t, "book", &json!("retail"))?;
+    } else {
+        eq(
+            m,
+            t,
             "schema",
-            "scope",
-            "agreement_id",
-            "customer",
-            "slot",
-            "book",
-            "role_slot",
-            "role_ref",
-            "funding_leg",
-            "allowed_activities",
-            "quantity_ceilings",
-            "exposure_ceiling",
-            "source_grant_refs",
-            "correction_source_slot",
-            "causal_reversal_clauses"
-        ],
-        &[]
-    )?;
+            &json!("ledger-workflow-slot-binding-terms/2"),
+        )?;
+    }
     let policy_slots = invoke!(shape::array, m, policy, "binding_slots")?;
     let selected = invoke!(
         shape::named,

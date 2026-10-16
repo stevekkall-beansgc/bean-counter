@@ -8,21 +8,23 @@ mod data;
 #[cfg(test)]
 mod tests;
 pub use data::{
-    AuthorityContextData, CapacityHead, DecisionHead, DraftContextData, DraftEnvelope, DraftStateData, EconomicStateData,
-    DraftTransition, EconomicRecordView, ExactRef, FamilyHead, OperationKey, ProposedHeads,
-    RecordInput, SavedFinancialInput,
+    AuthorityContextData, CapacityHead, DecisionHead, DraftContextData, DraftEnvelope,
+    DraftStateData, DraftTransition, EconomicRecordView, EconomicStateData, ExactRef, FamilyHead,
+    OperationKey, ProposedHeads, RecordInput, SavedFinancialInput,
 };
 mod authority;
 mod body;
 mod construct;
 mod correction;
 mod financial_observation;
+mod funding;
 pub(in crate::policy::workflow) mod original_financial;
 mod outcome;
 mod outcome_proofs;
 mod pricing;
 mod record_index;
 mod records;
+mod root_correction;
 mod shape;
 mod targets;
 pub use construct::{draft_transition, replay_draft};

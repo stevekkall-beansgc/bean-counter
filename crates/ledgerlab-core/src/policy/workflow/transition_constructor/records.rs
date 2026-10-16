@@ -289,6 +289,42 @@ impl<'inv> Records<'inv> {
         expected_kind: &str,
         expected_schema: &str,
     ) -> Result<Value> {
+        self.get_grammatical_schemas(m, key, r, expected_kind, &[expected_schema])
+    }
+    pub(super) fn get_parsed_schemas(
+        &mut self,
+        m: &mut CoreMeter,
+        owner: &super::representation::InvocationToken,
+        key: &OperationKey,
+        reference: &super::representation::ParsedRef<'_>,
+        kind: &str,
+        schemas: &[&str],
+    ) -> Result<Value> {
+        reference.require_owner(m, owner)?;
+        self.get_grammatical_schemas(m, key, reference.exact(), kind, schemas)
+    }
+    /// Exact closed saved-schema dispatch. The resolved body chooses only among
+    /// the caller's code-owned per-kind versions; kind/domain/hash checks are
+    /// identical, with the ACTUAL selected schema in the document hash tuple.
+    pub(super) fn get_schemas(
+        &mut self,
+        m: &mut CoreMeter,
+        key: &OperationKey,
+        r: &ExactRef,
+        expected_kind: &str,
+        schemas: &[&str],
+    ) -> Result<Value> {
+        reference(m, r)?;
+        self.get_grammatical_schemas(m, key, r, expected_kind, schemas)
+    }
+    fn get_grammatical_schemas(
+        &mut self,
+        m: &mut CoreMeter,
+        key: &OperationKey,
+        r: &ExactRef,
+        expected_kind: &str,
+        schemas: &[&str],
+    ) -> Result<Value> {
         m.visit("resolve.expected_kind")?;
         if !super::shape::same_text(m, &r.kind, expected_kind)? {
             return Err(invalid("wrong required kind"));
@@ -340,7 +376,14 @@ impl<'inv> Records<'inv> {
         let body = found.ok_or_else(|| invalid("missing exact required record"))?;
         m.visit("resolve.expected_schema")?;
         let schema = super::shape::text(m, &body, "schema")?;
-        if !super::shape::same_text(m, schema, expected_schema)? {
+        let mut selected = false;
+        for expected in schemas {
+            if super::shape::same_text(m, schema, expected)? {
+                selected = true;
+                break;
+            }
+        }
+        if !selected {
             return Err(invalid("wrong required schema"));
         }
         let prefix = match expected_kind {
@@ -355,6 +398,8 @@ impl<'inv> Records<'inv> {
             "workflow-link" => "wlink_",
             "workflow-chain-state" => "wchain_",
             "workflow-correction-capacity" => "wcapacity_",
+            "workflow-dependency" => "wdep_",
+            "workflow-capacity-retirement" => "wretire_",
             "workflow-source-state" => "wsource_",
             "workflow-accepted-agreement" => "waccepted_",
             "workflow-head-transition" => "whead_",
@@ -402,7 +447,7 @@ impl<'inv> Records<'inv> {
         if !intrinsic_reused {
             let raw = canonical_bytes.ok_or_else(|| invalid("missing canonical operand"))?;
             let digest = if doc {
-                let schema = codec::encode(m, &json!(expected_schema), 262144)?;
+                let schema = codec::encode(m, &json!(schema), 262144)?;
                 hash_parts(m, "workflow-document", &[&schema, &raw], true)?
             } else if prefix == "wplan_" {
                 hash_parts(m, "workflow-plan", &[&raw], false)?
