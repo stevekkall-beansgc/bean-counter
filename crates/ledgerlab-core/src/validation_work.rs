@@ -2,7 +2,9 @@
 //! authority or changes a validator's accepted language.
 pub(crate) mod economic_meter;
 mod original_audit;
-pub use original_audit::{OriginalAuditSession, OriginalAuditUsage};
+pub use original_audit::{
+    OriginalAuditSession, OriginalAuditUsage, RepresentationKind, ResourceVectorUsage,
+};
 
 use crate::Result;
 // Same existing operand type across the pure/facade callback boundary.

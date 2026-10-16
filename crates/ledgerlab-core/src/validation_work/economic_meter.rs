@@ -74,6 +74,8 @@ pub struct Meter {
     original_inner_started: bool,
     original_owner: Option<Arc<AtomicU8>>,
     original_child_token: Option<AuditChildToken>,
+    resource_v2: bool,
+    resource_vector: Option<super::original_audit::representation::ResourceLedger>,
     phase: Phase,
     usage: Usage,
     resolved: BTreeMap<String, Vec<u8>>,
@@ -96,6 +98,8 @@ impl Meter {
             original_inner_started: false,
             original_owner: None,
             original_child_token: None,
+            resource_v2: false,
+            resource_vector: None,
             phase: Phase::ParseNormalize,
             resolved: BTreeMap::new(),
             #[cfg(test)]
@@ -158,6 +162,8 @@ impl Meter {
         }
         inner.original_owner = Some(Arc::clone(owner));
         inner.original_child_token = Some(AuditChildToken(Arc::clone(owner)));
+        inner.resource_v2 = self.resource_v2;
+        inner.resource_vector = self.resource_vector.take();
         self.original_inner_started = true;
         Ok(inner)
     }
@@ -193,6 +199,8 @@ impl Meter {
         }
         inner.original_owner = Some(Arc::clone(owner));
         inner.original_child_token = Some(AuditChildToken(Arc::clone(owner)));
+        inner.resource_v2 = self.resource_v2;
+        inner.resource_vector = self.resource_vector.take();
         self.original_inner_started = true;
         Ok(inner)
     }
@@ -243,6 +251,8 @@ impl Meter {
             ));
         }
         self.maximum = allowance;
+        let mut inner = inner;
+        self.resource_vector = inner.resource_vector.take();
         Ok(inner.finish())
     }
     /// Subsequent framing retains only the actual remaining composed allowance.
@@ -292,6 +302,8 @@ impl Meter {
             ));
         }
         self.maximum = allowance;
+        let mut inner = inner;
+        self.resource_vector = inner.resource_vector.take();
         Ok(inner.finish())
     }
     pub fn for_compile(maximum: u64) -> Result<Self> {
@@ -307,6 +319,8 @@ impl Meter {
             original_inner_started: false,
             original_owner: None,
             original_child_token: None,
+            resource_v2: false,
+            resource_vector: None,
             phase: Phase::Compile,
             resolved: BTreeMap::new(),
             #[cfg(test)]
@@ -388,21 +402,41 @@ impl Meter {
     }
     pub fn scan_bytes(&mut self, n: usize) -> Result<()> {
         self.require_original_lifecycle()?;
-        self.usage.scanned_bytes = self
-            .usage
-            .scanned_bytes
-            .checked_add(n as u64)
-            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "scan overflow"))?;
-        Ok(())
+        let result = (|| {
+            let next = self
+                .usage
+                .scanned_bytes
+                .checked_add(n as u64)
+                .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "scan overflow"))?;
+            if let Some(vector) = self.resource_vector.as_mut() {
+                vector.bytes(n as u64, 0, 0)?;
+            }
+            self.usage.scanned_bytes = next;
+            Ok(())
+        })();
+        if result.is_err() {
+            self.fail_original();
+        }
+        result
     }
     pub fn hash_bytes(&mut self, n: usize) -> Result<()> {
         self.require_original_lifecycle()?;
-        self.usage.hashed_bytes = self
-            .usage
-            .hashed_bytes
-            .checked_add(n as u64)
-            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "hash overflow"))?;
-        Ok(())
+        let result = (|| {
+            let next = self
+                .usage
+                .hashed_bytes
+                .checked_add(n as u64)
+                .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "hash overflow"))?;
+            if let Some(vector) = self.resource_vector.as_mut() {
+                vector.bytes(0, 0, n as u64)?;
+            }
+            self.usage.hashed_bytes = next;
+            Ok(())
+        })();
+        if result.is_err() {
+            self.fail_original();
+        }
+        result
     }
     pub(crate) fn remaining_new_body(&self) -> Result<usize> {
         8388608u64
@@ -431,6 +465,105 @@ impl Meter {
     pub fn finish(self) -> Usage {
         self.usage
     }
+    pub(crate) fn enable_resource_profile_v2(&mut self) -> Result<()> {
+        self.require_original_lifecycle()?;
+        if self.domain != BudgetDomain::OriginalAudit
+            || self.usage.semantic_work != 0
+            || self.original_inner_started
+            || self.resource_v2
+        {
+            return Err(Error::new(
+                "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+                "resource profile selection must precede execution",
+            ));
+        }
+        self.resource_v2 = true;
+        self.resource_vector = Some(super::original_audit::representation::ResourceLedger::new());
+        Ok(())
+    }
+    pub(crate) fn begin_representation(&mut self) -> Result<()> {
+        self.require_original_lifecycle()?;
+        self.resource_vector
+            .as_mut()
+            .ok_or_else(|| {
+                Error::new(
+                    "UNSUPPORTED_SCHEMA_PROFILE",
+                    "representation operations require v2",
+                )
+            })?
+            .begin()
+    }
+    pub(crate) fn resource_vector_usage(
+        &self,
+    ) -> Option<super::original_audit::representation::ResourceVectorUsage> {
+        self.resource_vector.as_ref().map(|v| v.usage())
+    }
+    pub(crate) fn representation_event(
+        &mut self,
+        kind: &'static str,
+        operands: &[&BigInt],
+        cost: u64,
+    ) -> Result<()> {
+        self.require_original_lifecycle()?;
+        self.resource_vector
+            .as_mut()
+            .ok_or_else(|| {
+                Error::new(
+                    "UNSUPPORTED_SCHEMA_PROFILE",
+                    "representation operations require v2",
+                )
+            })?
+            .event(
+                true,
+                kind,
+                cost,
+                operands.iter().map(|v| v.bits().div_ceil(64).max(1)),
+            )
+    }
+    fn v2_semantic_event(
+        &mut self,
+        kind: &'static str,
+        cost: u64,
+        operands: impl Iterator<Item = u64>,
+    ) -> Result<()> {
+        self.require_original_lifecycle()?;
+        let next = self
+            .usage
+            .semantic_work
+            .checked_add(cost)
+            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "work overflow"))?;
+        if next > self.maximum {
+            self.fail_original();
+            return Err(Error::new(
+                "PROGRAM_BUDGET_EXCEEDED",
+                "selected semantic work exhausted",
+            ));
+        }
+        let result = self
+            .resource_vector
+            .as_mut()
+            .ok_or_else(|| {
+                Error::new(
+                    "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+                    "missing owned resource vector",
+                )
+            })?
+            .event(false, kind, cost, operands);
+        if result.is_err() {
+            self.fail_original();
+            return result;
+        }
+        self.usage.semantic_work = next;
+        Ok(())
+    }
+    pub(crate) fn fail_original(&self) {
+        if let Some(owner) = &self.original_owner {
+            owner.store(3, AtomicOrdering::SeqCst);
+        }
+    }
+    fn arithmetic_result(&self, value: BigInt) -> Result<BigInt> {
+        bounded(value).inspect_err(|_| self.fail_original())
+    }
     fn require_original_lifecycle(&self) -> Result<()> {
         if let Some(owner) = &self.original_owner {
             let state = owner.load(AtomicOrdering::SeqCst);
@@ -447,6 +580,9 @@ impl Meter {
     #[track_caller]
     fn charge(&mut self, kind: &'static str, operands: Vec<u64>, cost: u64) -> Result<()> {
         self.require_original_lifecycle()?;
+        if self.resource_v2 {
+            return self.v2_semantic_event(kind, cost, operands.into_iter());
+        }
         let next = self
             .usage
             .semantic_work
@@ -523,6 +659,7 @@ impl Meter {
             }
         }
         if next > self.maximum {
+            self.fail_original();
             return Err(Error::new(
                 "PROGRAM_BUDGET_EXCEEDED",
                 "selected semantic work exhausted",
@@ -548,10 +685,33 @@ impl Meter {
     }
     #[track_caller]
     pub fn arithmetic(&mut self, kind: &'static str, operands: &[&BigInt]) -> Result<()> {
+        if self.resource_v2 {
+            let mut cost = 1u64;
+            for value in operands {
+                if value.bits() > MAXIMUM_BITS {
+                    self.fail_original();
+                    return Err(Error::new(
+                        "ARITHMETIC_OVERFLOW",
+                        "512-bit selected operand",
+                    ));
+                }
+                cost = cost
+                    .checked_add(value.bits().div_ceil(64).max(1))
+                    .ok_or_else(|| {
+                        Error::new("PROGRAM_BUDGET_EXCEEDED", "arithmetic cost overflow")
+                    })?;
+            }
+            return self.v2_semantic_event(
+                kind,
+                cost,
+                operands.iter().map(|v| v.bits().div_ceil(64).max(1)),
+            );
+        }
         let limbs = operands
             .iter()
             .map(|n| {
                 if n.bits() > MAXIMUM_BITS {
+                    self.fail_original();
                     return Err(Error::new(
                         "ARITHMETIC_OVERFLOW",
                         "512-bit selected operand",
@@ -568,21 +728,35 @@ impl Meter {
     }
     pub fn read_bytes(&mut self, n: usize) -> Result<()> {
         self.require_original_lifecycle()?;
-        self.usage.body_bytes_read = self
+        let next = self
             .usage
             .body_bytes_read
             .checked_add(n as u64)
-            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "byte count overflow"))?;
+            .ok_or_else(|| {
+                self.fail_original();
+                Error::new("PROGRAM_BUDGET_EXCEEDED", "byte count overflow")
+            })?;
+        self.usage.body_bytes_read = next;
         Ok(())
     }
     pub fn write_bytes(&mut self, n: usize) -> Result<()> {
         self.require_original_lifecycle()?;
-        self.usage.canonical_bytes_written = self
-            .usage
-            .canonical_bytes_written
-            .checked_add(n as u64)
-            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "byte count overflow"))?;
-        Ok(())
+        let result = (|| {
+            let next = self
+                .usage
+                .canonical_bytes_written
+                .checked_add(n as u64)
+                .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "byte count overflow"))?;
+            if let Some(vector) = self.resource_vector.as_mut() {
+                vector.bytes(0, n as u64, 0)?;
+            }
+            self.usage.canonical_bytes_written = next;
+            Ok(())
+        })();
+        if result.is_err() {
+            self.fail_original();
+        }
+        result
     }
 }
 #[cfg(test)]
@@ -834,38 +1008,40 @@ pub(crate) fn bounded(n: BigInt) -> Result<BigInt> {
 #[track_caller]
 pub(crate) fn add(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<BigInt> {
     m.arithmetic("arith.add", &[a, b])?;
-    bounded(a + b)
+    m.arithmetic_result(a + b)
 }
 #[track_caller]
 pub(crate) fn sub(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<BigInt> {
     m.arithmetic("arith.sub", &[a, b])?;
-    bounded(a - b)
+    m.arithmetic_result(a - b)
 }
 #[track_caller]
 pub(crate) fn mul(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<BigInt> {
     m.arithmetic("arith.mul", &[a, b])?;
-    bounded(a * b)
+    m.arithmetic_result(a * b)
 }
 #[track_caller]
 pub(crate) fn div(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<BigInt> {
     m.arithmetic("arith.div", &[a, b])?;
     if cmp(m, b, &BigInt::from(0))? == std::cmp::Ordering::Equal {
+        m.fail_original();
         return Err(Error::new("ARITHMETIC_OVERFLOW", "zero divisor"));
     }
-    bounded(a / b)
+    m.arithmetic_result(a / b)
 }
 #[track_caller]
 pub(crate) fn rem(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<BigInt> {
     m.arithmetic("arith.rem", &[a, b])?;
     if cmp(m, b, &BigInt::from(0))? == std::cmp::Ordering::Equal {
+        m.fail_original();
         return Err(Error::new("ARITHMETIC_OVERFLOW", "zero divisor"));
     }
-    bounded(a % b)
+    m.arithmetic_result(a % b)
 }
 #[track_caller]
 pub(crate) fn neg(m: &mut Meter, a: &BigInt) -> Result<BigInt> {
     m.arithmetic("arith.neg", &[a])?;
-    bounded(-a)
+    m.arithmetic_result(-a)
 }
 #[track_caller]
 pub(crate) fn cmp(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<std::cmp::Ordering> {
@@ -882,10 +1058,11 @@ pub(crate) fn absolute(m: &mut Meter, a: &BigInt) -> Result<BigInt> {
 pub(crate) fn divmod(m: &mut Meter, a: &BigInt, b: &BigInt) -> Result<(BigInt, BigInt)> {
     m.arithmetic("arith.divmod", &[a, b])?;
     if cmp(m, b, &BigInt::from(0))? == std::cmp::Ordering::Equal {
+        m.fail_original();
         return Err(Error::new("ARITHMETIC_OVERFLOW", "zero divisor"));
     }
     let (q, r) = a.div_mod_floor(b);
-    Ok((bounded(q)?, bounded(r)?))
+    Ok((m.arithmetic_result(q)?, m.arithmetic_result(r)?))
 }
 
 impl crate::validation_work::ValidationWork for Meter {

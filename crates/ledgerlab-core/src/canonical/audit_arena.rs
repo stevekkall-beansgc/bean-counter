@@ -173,6 +173,25 @@ impl AuditArena {
         maximum: usize,
     ) -> Result<AuditedBytes> {
         let maximum = minimum(work, maximum, canonical::BUNDLE_LIMIT)?;
+        self.canonical_owned(value, work, maximum, None)
+    }
+    /// Only the resource owner's closed container selector can select these
+    /// existing framing bounds. Ordinary canonical records retain their cap.
+    pub(crate) fn canonical_container_bytes(
+        &self,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        bound: canonical::CanonicalContainerBound,
+    ) -> Result<AuditedBytes> {
+        self.canonical_owned(value, work, bound.maximum(), Some(bound))
+    }
+    fn canonical_owned(
+        &self,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        maximum: usize,
+        container: Option<canonical::CanonicalContainerBound>,
+    ) -> Result<AuditedBytes> {
         let keys = emission_key_storage(value, work, 0)?;
         // Bounded Destination uses reserve_exact, so retained capacity<=maximum
         // and each reallocation's old+new requested payload<=2*maximum.
@@ -186,8 +205,11 @@ impl AuditArena {
         let peak = add(work, destination, keys)?;
         let peak = add(work, peak, integer_scratch + escape_scratch)?;
         let mut reservation = self.reserve(peak, work)?;
-        let bytes = canonical::CanonicalBytes::from_value_with_work_bounded(value, work, maximum)?
-            .into_vec();
+        let bytes = match container {
+            Some(bound) => canonical::CanonicalBytes::from_container_with_work(value, work, bound)?,
+            None => canonical::CanonicalBytes::from_value_with_work_bounded(value, work, maximum)?,
+        }
+        .into_vec();
         if greater(work, bytes.capacity(), maximum)? {
             return Err(failure("unsupported canonical capacity implementation"));
         }

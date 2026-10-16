@@ -1,8 +1,10 @@
 //! One original-recipe resource owner, shared by host framing and core replay.
 //! It conveys no source/origin authority. The containing host attempt owns one
 //! arena; each per-origin session shares that SAME quota, never a fresh pool.
+pub(super) mod representation;
 use super::{ValidationWork, economic_meter::Meter};
 use crate::{Result, canonical::audit_arena::AuditArena};
+pub use representation::{RepresentationKind, ResourceVectorUsage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OriginalAuditUsage {
@@ -34,6 +36,11 @@ impl OriginalAuditSession {
     }
     pub fn arena(&self) -> &AuditArena {
         &self.arena
+    }
+    /// Irreversibly discard this resource attempt after any host/core failure.
+    /// This grants no success state and cannot restore its allowance.
+    pub fn invalidate(&mut self) {
+        self.meter.fail_original();
     }
     pub fn usage(&self) -> OriginalAuditUsage {
         let remaining = self.meter.original_remaining_work();
@@ -91,6 +98,26 @@ mod tests {
         assert_eq!(session.usage().semantic_work, 3);
         assert!(session.meter_mut().original_economic_meter().is_err());
         assert!(session.meter_mut().original_compile_meter().is_err());
+    }
+    #[test]
+    fn caught_arithmetic_failure_cannot_complete_or_resume_origin() {
+        use crate::validation_work::ValidationVisit;
+        use num_bigint::BigInt;
+        let arena = AuditArena::new().unwrap();
+        for result_overflow in [false, true] {
+            let mut session = OriginalAuditSession::new(&arena).unwrap();
+            let mut child = session.meter_mut().original_economic_meter().unwrap();
+            if result_overflow {
+                let operand = BigInt::from(1) << 511usize;
+                assert!(super::super::economic_meter::mul(&mut child, &operand, &operand).is_err());
+            } else {
+                let operand = BigInt::from(1) << 513usize;
+                assert!(child.arithmetic("test.overflow", &[&operand]).is_err());
+            }
+            assert!(session.meter_mut().finish_original_economic(child).is_err());
+            assert!(session.work().visit(ValidationVisit::Constraint).is_err());
+            assert!(session.work().scan_bytes(1).is_err());
+        }
     }
     #[test]
     fn outstanding_dropped_or_failed_child_cannot_leave_parent_spendable() {
