@@ -357,7 +357,10 @@ mod tests {
 
 #[cfg(test)]
 mod statement_source_tests {
-    use super::super::append::{INSERT_DOCUMENT, INSERT_OPERATION, MATCH_DOCUMENT};
+    use super::super::append::{
+        FinancialDocument, INSERT_DOCUMENT, INSERT_OPERATION, MATCH_DOCUMENT, insert_document,
+    };
+    use ledgerlab_core::policy::workflow::transition_constructor::ExactRef;
     use sqlx::{Connection, Executor, Row, SqliteConnection, sqlite::SqliteConnectOptions};
     #[tokio::test]
     async fn direct_document_values_keep_preflight_and_check_failures() {
@@ -383,25 +386,19 @@ mod statement_source_tests {
             .await
             .unwrap();
         // Opaque mechanical table witness, never a valid Product or origin.
-        let append = sqlx::query(INSERT_DOCUMENT)
-            .bind("workflow-product")
-            .bind("id")
-            .bind("digest")
-            .bind("opaque")
-            .bind(&[1u8][..])
-            .execute(&mut conn)
-            .await
-            .unwrap();
+        let reference = ExactRef {
+            kind: "workflow-product".into(),
+            id: "id".into(),
+            digest: "digest".into(),
+        };
+        let document = FinancialDocument {
+            reference: &reference,
+            schema: "opaque",
+            canonical_bytes: &[1u8],
+        };
+        let append = insert_document(&document).execute(&mut conn).await.unwrap();
         assert_eq!(append.rows_affected(), 1);
-        let reused = sqlx::query(INSERT_DOCUMENT)
-            .bind("workflow-product")
-            .bind("id")
-            .bind("digest")
-            .bind("opaque")
-            .bind(&[1u8][..])
-            .execute(&mut conn)
-            .await
-            .unwrap();
+        let reused = insert_document(&document).execute(&mut conn).await.unwrap();
         assert_eq!(reused.rows_affected(), 0);
         let different: Option<bool> = sqlx::query_scalar(MATCH_DOCUMENT)
             .bind("workflow-product")
@@ -419,17 +416,17 @@ mod statement_source_tests {
             ("workflow-unknown", &[1u8][..]),
             ("workflow-product", &[][..]),
         ] {
-            assert!(
-                sqlx::query(INSERT_DOCUMENT)
-                    .bind(kind)
-                    .bind("id")
-                    .bind("digest")
-                    .bind("opaque")
-                    .bind(bytes)
-                    .execute(&mut conn)
-                    .await
-                    .is_err()
-            );
+            let reference = ExactRef {
+                kind: kind.into(),
+                id: "id".into(),
+                digest: "digest".into(),
+            };
+            let document = FinancialDocument {
+                reference: &reference,
+                schema: "opaque",
+                canonical_bytes: bytes,
+            };
+            assert!(insert_document(&document).execute(&mut conn).await.is_err());
         }
     }
     #[tokio::test]

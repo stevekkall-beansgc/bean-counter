@@ -13,6 +13,18 @@ pub(crate) struct FinancialDocument<'a> {
     pub schema: &'a str,
     pub canonical_bytes: &'a [u8],
 }
+/// One production binding path shared by append and its physical table
+/// witness, so the test exercises the actual VALUES parameter list.
+pub(super) fn insert_document<'a>(
+    document: &'a FinancialDocument<'_>,
+) -> sqlx::query::Query<'a, sqlx::Sqlite, sqlx::sqlite::SqliteArguments> {
+    sqlx::query(INSERT_DOCUMENT)
+        .bind(&document.reference.kind)
+        .bind(&document.reference.id)
+        .bind(&document.reference.digest)
+        .bind(document.schema)
+        .bind(document.canonical_bytes)
+}
 pub(crate) struct FinancialJournal<'a> {
     pub identity: &'a [u8],
     pub kind: &'a str,
@@ -162,15 +174,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("financial journal sequence gap"));
         }
         for d in p.documents {
-            sqlx::query(INSERT_DOCUMENT)
-                .bind(&d.reference.kind)
-                .bind(&d.reference.id)
-                .bind(&d.reference.digest)
-                .bind(d.schema)
-                .bind(d.canonical_bytes)
-                .bind(&d.reference.id)
-                .execute(self.conn())
-                .await?;
+            insert_document(d).execute(self.conn()).await?;
         }
         sqlx::query(INSERT_OPERATION)
             .bind(o.identity)
