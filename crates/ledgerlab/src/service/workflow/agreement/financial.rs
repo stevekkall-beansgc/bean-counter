@@ -10,6 +10,7 @@ use crate::{
     },
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
+mod current;
 mod request_wrapper;
 mod wrappers;
 use std::sync::{
@@ -144,6 +145,12 @@ impl LocalWorkflowLedger {
                 }
                 let management = ManagementObservation::capture(self, tx, key).await?;
                 management.recheck(self, tx, key).await?;
+                if req.kind() == "work.accept" {
+                    let _observed = current::work(self, tx, key, req.payload()).await?;
+                    // Actual observed inputs remain noncommittable until full
+                    // original audit, core candidate and capacity gates close.
+                }
+
                 // No normalized economic selection is manufactured here. The current
                 // draft DATA layer is noncommittable; typed intrinsic/audit inputs,
                 // full contextual authority, funding/exposure, all-ancestor future
