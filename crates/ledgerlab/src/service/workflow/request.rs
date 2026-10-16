@@ -138,7 +138,9 @@ impl PublicationRequest {
         require(
             matches!(
                 schema.as_str(),
-                "ledger-workflow-policy-publication/1" | "ledger-workflow-policy-publication/2"
+                "ledger-workflow-policy-publication/1"
+                    | "ledger-workflow-policy-publication/2"
+                    | "ledger-workflow-policy-publication/3"
             ) && (1..=128).contains(&count)
                 && root.kind == "workflow-policy"
                 && valid_digest(digest)
@@ -157,6 +159,25 @@ impl PublicationRequest {
                                     | "ledger-workflow-slot-template/1"
                                     | "ledger-workflow-policy/2"
                                     | "ledger-workflow-compiler-descriptor/2"
+                            )
+                        )
+                    }),
+                    "INVALID_SHAPE",
+                )?;
+            }
+        }
+        if schema == "ledger-workflow-policy-publication/3" {
+            if let Payload::Inline { documents, .. } = payload {
+                require(
+                    documents.iter().all(|d| {
+                        matches!(
+                            d["schema"].as_str(),
+                            Some(
+                                "ledger-workflow-fact-schema/1"
+                                    | "ledger-workflow-product/1"
+                                    | "ledger-workflow-slot-template/1"
+                                    | "ledger-workflow-policy/2"
+                                    | "ledger-workflow-compiler-descriptor/3"
                             )
                         )
                     }),

@@ -149,6 +149,45 @@ struct CausalReversalClause {
     standalone_deadline_effect: String,
 }
 fn causal_clauses(input: &mut SlotInput) -> Result<()> {
+    let supplier_fields = input.offer_ref.is_some()
+        || input.cost_authority_ref.is_some()
+        || input.provider_account_identity.is_some()
+        || input.consumption_basis.is_some();
+    if input.schema == "ledger-workflow-slot-binding-terms/4" {
+        if input.book != TemplateBook::Supplier
+            || input.causal_reversal_clauses.is_some()
+            || input.exposure_scope.is_some()
+            || input.consumption_basis.as_deref() != Some("owned_obligation_high_water")
+        {
+            return Err(fail("supplier original high-water terms"));
+        }
+        reference(
+            input
+                .offer_ref
+                .as_mut()
+                .ok_or_else(|| fail("supplier offer required"))?,
+            "workflow-offer",
+        )?;
+        reference(
+            input
+                .cost_authority_ref
+                .as_mut()
+                .ok_or_else(|| fail("cost authority required"))?,
+            "workflow-authority",
+        )?;
+        let account = input
+            .provider_account_identity
+            .as_ref()
+            .ok_or_else(|| fail("provider account required"))?;
+        crate::domain::text(&account.provider_namespace, 256)?;
+        crate::domain::text(&account.provider_account_id, 128)?;
+        crate::domain::text(&account.environment, 128)?;
+        return Ok(());
+    }
+    // Additive fields may never widen any older wire recipe or its consent.
+    if supplier_fields {
+        return Err(fail("supplier fields require terms4"));
+    }
     match input.schema.as_str() {
         "ledger-workflow-slot-binding-terms/1"
             if input.causal_reversal_clauses.is_none() && input.exposure_scope.is_none() =>
@@ -195,6 +234,13 @@ fn causal_clauses(input: &mut SlotInput) -> Result<()> {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct SupplierAccount {
+    provider_namespace: String,
+    provider_account_id: String,
+    environment: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SlotInput {
     schema: String,
     scope: [String; 2],
@@ -214,6 +260,14 @@ struct SlotInput {
     causal_reversal_clauses: Option<Vec<CausalReversalClause>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     exposure_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    offer_ref: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cost_authority_ref: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_account_identity: Option<SupplierAccount>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    consumption_basis: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub struct SlotBindingTerms {

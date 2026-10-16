@@ -48,8 +48,10 @@ pub(crate) struct HeadLocator {
     pub id: AuditedBytes,
     pub digest: AuditedBytes,
 }
-const LENGTHS: &str = "SELECT length(revision),length(record_kind),length(record_id),length(record_digest) FROM workflow_financial_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND head_kind=? AND key_a=? AND key_b=? AND key_c=? AND key_d=?";
+const LENGTHS: &str = "SELECT octet_length(revision),octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_financial_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND head_kind=? AND key_a=? AND key_b=? AND key_c=? AND key_d=?";
 const VALUES: &str = "SELECT revision,record_kind,record_id,record_digest FROM workflow_financial_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND head_kind=? AND key_a=? AND key_b=? AND key_c=? AND key_d=?";
+const OWNER_LENGTHS: &str = "SELECT octet_length(revision),octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_supplier_cost_owner_heads WHERE cost_authority_id=? AND provider_namespace=? AND provider_account_id=? AND provider_environment=? AND original_document_id=? AND original_line_id=?";
+const OWNER_VALUES: &str = "SELECT revision,record_kind,record_id,record_digest FROM workflow_supplier_cost_owner_heads WHERE cost_authority_id=? AND provider_namespace=? AND provider_account_id=? AND provider_environment=? AND original_document_id=? AND original_line_id=?";
 fn bind<'q>(
     sql: &'static str,
     bindings: &[&'q str],
@@ -75,6 +77,45 @@ fn locator_text(
     for character in value.chars() {
         session.semantic_work().visit(ValidationVisit::Constraint)?;
         if character.is_control() {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+fn preflight_fields(
+    lengths: &sqlx::sqlite::SqliteRow,
+    session: &mut OriginalAuditSession,
+) -> Result<(), FinancialReadError> {
+    for (position, maximum) in [(0usize, 20i64), (1, 48), (2, 104), (3, 71)] {
+        session.semantic_work().visit(ValidationVisit::Field)?;
+        let n: i64 = lengths.try_get(position)?;
+        // octet_length reports the stored encoding's byte size without
+        // overflow materialization (pinned SQLite BYTELEN direct-column
+        // opcode). UTF16 ASCII may occupy twice its eventual UTF8 size.
+        // This is a prefetch allocation bound, NOT a larger Ref language.
+        session.semantic_work().arithmetic(
+            ArithmeticOperation::Multiply,
+            &[&maximum.into(), &2i64.into()],
+        )?;
+        let stored_maximum = maximum * 2;
+        if !resource_compare(session, n, 0)?.is_gt()
+            || resource_compare(session, n, stored_maximum)?.is_gt()
+        {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+fn utf8_fields(
+    row: &sqlx::sqlite::SqliteRow,
+    session: &mut OriginalAuditSession,
+) -> Result<(), FinancialReadError> {
+    for (position, maximum) in [(0usize, 20i64), (1, 48), (2, 104), (3, 71)] {
+        session.semantic_work().visit(ValidationVisit::Field)?;
+        let text = row.try_get::<&str, _>(position)?;
+        if !resource_compare(session, text.len() as i64, 0)?.is_gt()
+            || resource_compare(session, text.len() as i64, maximum)?.is_gt()
+        {
             return Err(invalid());
         }
     }
@@ -173,10 +214,9 @@ impl SqliteTx {
             for value in bindings {
                 locator_text(value, 128, session)?;
             }
-            return self.read_financial_head_projection(
-                "SELECT length(revision),length(record_kind),length(record_id),length(record_digest) FROM workflow_supplier_cost_owner_heads WHERE cost_authority_id=? AND provider_namespace=? AND provider_account_id=? AND provider_environment=? AND original_document_id=? AND original_line_id=?",
-                "SELECT revision,record_kind,record_id,record_digest FROM workflow_supplier_cost_owner_heads WHERE cost_authority_id=? AND provider_namespace=? AND provider_account_id=? AND provider_environment=? AND original_document_id=? AND original_line_id=?",
-                bindings,session).await;
+            return self
+                .read_financial_head_projection(OWNER_LENGTHS, OWNER_VALUES, bindings, session)
+                .await;
         }
         let (kind, parts) = key.parts()?;
         for part in parts {
@@ -209,26 +249,23 @@ impl SqliteTx {
             self.financial_finish_io(session).await?;
             return Ok(None);
         };
-        for (position, maximum) in [(0usize, 20i64), (1, 48), (2, 104), (3, 71)] {
-            session.semantic_work().visit(ValidationVisit::Field)?;
-            let n: i64 = lengths.try_get(position)?;
-            if !resource_compare(session, n, 0)?.is_gt()
-                || resource_compare(session, n, maximum)?.is_gt()
-            {
-                return Err(invalid());
-            }
-        }
+        preflight_fields(&lengths, session)?;
         drop(lengths);
         self.financial_finish_io(session).await?;
-        // Finalize the length probe before the value query, so one statement's
-        // known input payload and at most two copies of the four probed text
-        // fields are the request-scaled live payload for this lease.
-        let payload = io::binding_payload(&bytes, &[], 0, 2 * (20 + 48 + 104 + 71), session)?;
+        // Finalize the probe before fetching text. For a UTF16 database, the
+        // stored bound is2M. Pinned MemTranslate requests2*n+1 (at most
+        // 4M+1), while the statement and duplicated row can retain2M each:
+        // 8M+1 total requested payload, including conversion overlap. The
+        // per-cell terminators/headers fit the fixed I/O metadata reservation.
+        // The complete SQLx/SQLite copy-lifetime certificate remains mandatory
+        // at the caller; these fixed field bounds are not a process/RSS claim.
+        let payload = io::binding_payload(&bytes, &[], 0, 8 * (20 + 48 + 104 + 71), session)?;
         self.financial_reserve_io(session, payload)?;
         let row = bind(value_sql, &bindings)
             .fetch_optional(self.conn())
             .await?
             .ok_or_else(invalid)?;
+        utf8_fields(&row, session)?;
         let revision = session.copy_representation(
             row.try_get::<&str, _>(0)?.as_bytes(),
             ledgerlab_core::validation_work::RepresentationKind::Record,
@@ -255,5 +292,95 @@ impl SqliteTx {
             id,
             digest,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::{Connection, Executor};
+    #[tokio::test]
+    async fn direct_octet_probes_bound_unicode_nul_and_utf16_before_owned_copy() {
+        for encoding in ["UTF-8", "UTF-16le"] {
+            let mut c = sqlx::SqliteConnection::connect("sqlite::memory:")
+                .await
+                .unwrap();
+            if encoding == "UTF-16le" {
+                c.execute("PRAGMA encoding='UTF-16le'").await.unwrap();
+            }
+            c.execute("CREATE TABLE workflow_financial_heads(logical_store_id TEXT,tenant TEXT,environment TEXT,head_kind TEXT,key_a TEXT,key_b TEXT,key_c TEXT,key_d TEXT,revision TEXT,record_kind TEXT,record_id TEXT,record_digest TEXT); CREATE TABLE workflow_supplier_cost_owner_heads(cost_authority_id TEXT,provider_namespace TEXT,provider_account_id TEXT,provider_environment TEXT,original_document_id TEXT,original_line_id TEXT,revision TEXT,record_kind TEXT,record_id TEXT,record_digest TEXT)").await.unwrap();
+            for (probe, values, bindings, table) in [
+                (
+                    LENGTHS,
+                    VALUES,
+                    &[
+                        "store",
+                        "tenant",
+                        "environment",
+                        "decision",
+                        "key",
+                        "",
+                        "",
+                        "",
+                    ][..],
+                    "workflow_financial_heads",
+                ),
+                (
+                    OWNER_LENGTHS,
+                    OWNER_VALUES,
+                    &[
+                        "authority",
+                        "provider",
+                        "account",
+                        "environment",
+                        "document",
+                        "line",
+                    ][..],
+                    "workflow_supplier_cost_owner_heads",
+                ),
+            ] {
+                for text in [
+                    "workflow-cost".to_owned(),
+                    "é".repeat(29),
+                    format!("x\0{}", "z".repeat(1024)),
+                ] {
+                    let sql = if table == "workflow_financial_heads" {
+                        "INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','decision','key','','','','1',?,'id','digest')"
+                    } else {
+                        "INSERT INTO workflow_supplier_cost_owner_heads VALUES('authority','provider','account','environment','document','line','1',?,'id','digest')"
+                    };
+                    sqlx::query(sql).bind(&text).execute(&mut c).await.unwrap();
+                    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+                    let mut session =
+                        OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                    let lengths = bind(probe, bindings).fetch_one(&mut c).await.unwrap();
+                    let expected = text.len() * if encoding == "UTF-8" { 1 } else { 2 };
+                    // All tested non-ASCII characters have one UTF16 unit and
+                    // two UTF8 bytes, so derive exact stored bytes independently.
+                    let expected = if encoding == "UTF-16le" {
+                        text.encode_utf16().count() * 2
+                    } else {
+                        expected
+                    };
+                    assert_eq!(lengths.try_get::<i64, _>(1).unwrap(), expected as i64);
+                    if text.contains('\0') {
+                        assert!(preflight_fields(&lengths, &mut session).is_err());
+                    } else {
+                        preflight_fields(&lengths, &mut session).unwrap();
+                        let row = bind(values, bindings).fetch_one(&mut c).await.unwrap();
+                        assert_eq!(
+                            utf8_fields(&row, &mut session).is_ok(),
+                            text == "workflow-cost"
+                        );
+                    }
+                    let delete = if table == "workflow_financial_heads" {
+                        "DELETE FROM workflow_financial_heads"
+                    } else {
+                        "DELETE FROM workflow_supplier_cost_owner_heads"
+                    };
+                    c.execute(delete).await.unwrap();
+                }
+            }
+        }
     }
 }

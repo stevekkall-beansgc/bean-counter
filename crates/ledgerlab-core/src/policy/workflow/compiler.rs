@@ -8,7 +8,7 @@ use crate::canonical::{self, CanonicalBytes};
 use crate::money::Decimal;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -277,7 +277,7 @@ pub fn normalize_retained_definition(
             return Err(fail(
                 "UNSUPPORTED_SCHEMA_PROFILE",
                 "source definition family/private data",
-            ))
+            ));
         }
     };
     if document.canonical_bytes().len() > 262144 {
@@ -523,6 +523,9 @@ impl CompilerDescriptor {
         let value = canonical::parse(bytes)?;
         reject_null(&value)?;
         let mut dto: DescriptorDto = canonical::dto(value)?;
+        if dto.schema == "ledger-workflow-compiler-descriptor/3" {
+            return Self::supplier_cost_data(dto);
+        }
         if dto.schema == "ledger-workflow-compiler-descriptor/2" {
             return Self::family_close_data(dto);
         }
@@ -630,6 +633,65 @@ impl CompilerDescriptor {
             document: DefinitionDocument::document("workflow-compiler-descriptor", body)?,
         })
     }
+    /// Closed Descriptor3 DATA, never proof of a compiler or financial support.
+    /// The real selected compiler must bind its complete code-owned capability
+    /// and resource envelope independently before publication/admission.
+    fn supplier_cost_data(mut dto: DescriptorDto) -> Result<Self> {
+        if dto.compiler_semantics != "ledger-policy-compiler/owner-local-cost-1"
+            || dto.evaluator != "ledger-workflow-evaluator/1"
+            || dto.grammar != "ledger-policy-grammar/1"
+            || dto.facts_normalization != "ledger-facts-normalization/1"
+            || dto.operation_normalization != "ledger-operation-normalization/2"
+            || dto.limits_profile != "workflow-limits/1"
+            || dto.plan_schema != "ledger-workflow-compiled-plan/3"
+        {
+            return Err(fail(
+                "UNSUPPORTED_SCHEMA_PROFILE",
+                "supplier descriptor profiles",
+            ));
+        }
+        for values in [
+            &mut dto.primitive_versions,
+            &mut dto.fact_types,
+            &mut dto.predicate_ops,
+            &mut dto.formula_kinds,
+        ] {
+            if values.len() > 64
+                || values.iter().any(|v| {
+                    v.is_empty()
+                        || v.chars().count() > 128
+                        || v.chars().any(|c| c <= '\u{001f}' || c == '\u{007f}')
+                })
+            {
+                return Err(fail("INVALID_SHAPE", "supplier descriptor declarations"));
+            }
+            canonical::sort_set(values)?;
+        }
+        for required in [
+            "family_no_success_close/1",
+            "outcome_family_binding_dependency/1",
+            "owner_local_supplier_cost/1",
+            "owned_obligation_high_water/1",
+        ] {
+            if !dto.primitive_versions.iter().any(|p| p == required) {
+                return Err(fail(
+                    "PROGRAM_UNSUPPORTED_PRIMITIVE",
+                    "supplier descriptor declaration",
+                ));
+            }
+        }
+        for digest in [
+            &dto.limits_digest,
+            &dto.mode_matrix_digest,
+            &dto.contract_manifest_digest,
+        ] {
+            crate::domain::prefixed(digest, "sha256:")?;
+        }
+        let body = serde_json::to_value(dto).map_err(|e| fail("JSON", &e.to_string()))?;
+        Ok(Self {
+            document: DefinitionDocument::document("workflow-compiler-descriptor", body)?,
+        })
+    }
     pub fn reference(&self) -> &DefinitionRef {
         self.document.reference()
     }
@@ -655,8 +717,12 @@ impl VerifiedCompilerSupport {
         let limits = canonical::parse(include_bytes!(
             "../../../../../contracts/candidates/full-suite-v1/core/runtime-support/limits.json"
         ))?;
-        let mode=canonical::parse(include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/runtime-support/mode-matrix.json"))?;
-        let contract=canonical::parse(include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/runtime-support/contract-profile.json"))?;
+        let mode = canonical::parse(include_bytes!(
+            "../../../../../contracts/candidates/full-suite-v1/core/runtime-support/mode-matrix.json"
+        ))?;
+        let contract = canonical::parse(include_bytes!(
+            "../../../../../contracts/candidates/full-suite-v1/core/runtime-support/contract-profile.json"
+        ))?;
         let expected_limits = json!({"schema":"ledger-workflow-builtin-limits/1","profile":"workflow-limits/1","document_bytes":262144,"source_documents":128,"source_closure_bytes":1048576,"fact_slots":1088,"ast_nodes":256,"predicate_depth":8,"predicate_cells":4096,"rules":64,"graph_hops":16,"loaded_refs":4096,"actions":128,"explanations":256,"canonical_decision_bytes":4194304,"resolved_bytes":8388608,"compile_visits":1048576,"runtime_visits":65536,"max_atoms":"999999999999999999999999999999"});
         let expected_mode = json!({"schema":"ledger-workflow-builtin-mode-matrix/1","profile":"retail-unit-publication/1","scope":"compile-publication-only","policy_modes":["component_workflow"],"books":["retail"],"phases":["base"],"primitives":["unit/1"],"fact_types":["integer/1"],"predicate_ops":["true/1"],"formula_kinds":["unit/1"],"fact_constraints":["bounded-nonnegative","caller","required"],"activity_primitives":["work"],"excluded":["basis","caps","delayed-cost","families","links","optional-facts","shares","stages","unit-conversion"],"supports_previous_sources":false,"requires_terminal_units":true,"aggregate_proof":"positive-root-maxima-by-activity-book-slot-and-activity-book/1"});
         if limits != expected_limits || mode != expected_mode {
@@ -665,12 +731,37 @@ impl VerifiedCompilerSupport {
                 "embedded catalog differs from implemented support",
             ));
         }
-        let files:[(&str,&[u8]);5]=[
-            ("normative-amendment.md",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/normative-amendment.md")),
-            ("publication-boundary.md",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/publication-boundary.md")),
-            ("registry-contract.json",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/registry-contract.json")),
-            ("workflow.schema.json",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/workflow.schema.json")),
-            ("publication-runtime-seams.md",include_bytes!("../../../../../contracts/candidates/full-suite-v1/core/publication-runtime-seams.md")),
+        let files: [(&str, &[u8]); 5] = [
+            (
+                "normative-amendment.md",
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/normative-amendment.md"
+                ),
+            ),
+            (
+                "publication-boundary.md",
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/publication-boundary.md"
+                ),
+            ),
+            (
+                "registry-contract.json",
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/registry-contract.json"
+                ),
+            ),
+            (
+                "workflow.schema.json",
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/workflow.schema.json"
+                ),
+            ),
+            (
+                "publication-runtime-seams.md",
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/publication-runtime-seams.md"
+                ),
+            ),
         ];
         let expected_contract = json!({"schema":"ledger-workflow-builtin-contract-profile/1","profile":"PUB-ENC-01+PUB-RUNTIME-SEAMS-01","encoding_files":files[..4].iter().map(|(path,bytes)|json!({"path":path,"sha256":raw_digest(bytes)})).collect::<Vec<_>>(),"semantic_amendment":{"path":files[4].0,"sha256":raw_digest(files[4].1)}});
         if contract != expected_contract {
@@ -811,7 +902,10 @@ fn normalize_policy(value: Value) -> Result<Value> {
         || dto.allocation.is_some()
         || dto.previous.is_some()
     {
-        return Err(fail("PROGRAM_UNSUPPORTED_PRIMITIVE","selected publication compiler excludes outcomes/stages/costs/allocation/previous policy closure"));
+        return Err(fail(
+            "PROGRAM_UNSUPPORTED_PRIMITIVE",
+            "selected publication compiler excludes outcomes/stages/costs/allocation/previous policy closure",
+        ));
     }
     name(&dto.policy_id)?;
     let version = counter(&dto.version)?;
@@ -964,7 +1058,7 @@ pub fn normalize_publication_sources(
                 return Err(fail(
                     "UNSUPPORTED_SCHEMA_PROFILE",
                     "source definition family/private data",
-                ))
+                ));
             }
         }
     }
@@ -1250,7 +1344,7 @@ pub fn compile_publication(
                 return Err(fail(
                     "UNIT_MISMATCH",
                     "explicit terminal unit normalization required",
-                ))
+                ));
             }
         }
         let maximum = ratio

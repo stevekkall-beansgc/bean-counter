@@ -380,3 +380,67 @@ fn original_work_terms_v3_match_frozen_bytes_and_do_not_reinterpret_old_terms() 
         .remove("causal_reversal_clauses");
     assert!(SlotBindingTerms::parse(&serde_json::to_vec(&empty).unwrap()).is_err());
 }
+
+#[test]
+fn supplier_terms_and_descriptor_are_additive_data_not_legacy_support() {
+    let frozen:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/fixture-author-expected.json")).unwrap();
+    let row = &frozen["records"]["supplier_terms"];
+    let raw = canonical::CanonicalBytes::from_value(&row["body"]).unwrap();
+    let parsed = SlotBindingTerms::parse(raw.as_slice()).unwrap();
+    exact(parsed.canonical_bytes(), parsed.reference(), row);
+    for (field, value) in [
+        ("consumption_basis", json!("cumulative_positive_deltas")),
+        ("book", json!("retail")),
+        ("schema", json!("ledger-workflow-slot-binding-terms/3")),
+        (
+            "offer_ref",
+            json!({"kind":"workflow-policy","id":row["body"]["offer_ref"]["id"],"digest":row["body"]["offer_ref"]["digest"]}),
+        ),
+        ("unknown", json!(true)),
+    ] {
+        let mut bad = row["body"].clone();
+        bad[field] = value;
+        assert!(
+            SlotBindingTerms::parse(
+                canonical::CanonicalBytes::from_value(&bad)
+                    .unwrap()
+                    .as_slice()
+            )
+            .is_err()
+        );
+    }
+    let old = record("A.slot_terms");
+    let old_parsed = SlotBindingTerms::parse(&serde_json::to_vec(&old["body"]).unwrap()).unwrap();
+    exact(old_parsed.canonical_bytes(), old_parsed.reference(), &old);
+    let mut old_with_supplier = old["body"].clone();
+    old_with_supplier["consumption_basis"] = json!("owned_obligation_high_water");
+    assert!(SlotBindingTerms::parse(&serde_json::to_vec(&old_with_supplier).unwrap()).is_err());
+    let support = super::super::VerifiedCompilerSupport::builtin().unwrap();
+    let old_descriptor = support.descriptor().canonical_bytes().to_vec();
+    let mut descriptor = support.descriptor().canonical_value().clone();
+    descriptor["schema"] = json!("ledger-workflow-compiler-descriptor/3");
+    descriptor["compiler_semantics"] = json!("ledger-policy-compiler/owner-local-cost-1");
+    descriptor["plan_schema"] = json!("ledger-workflow-compiled-plan/3");
+    descriptor["primitive_versions"] = json!([
+        "unit/1",
+        "family_no_success_close/1",
+        "outcome_family_binding_dependency/1",
+        "owner_local_supplier_cost/1",
+        "owned_obligation_high_water/1"
+    ]);
+    canonical::sort_set(descriptor["primitive_versions"].as_array_mut().unwrap()).unwrap();
+    let raw = canonical::CanonicalBytes::from_value(&descriptor).unwrap();
+    let d = super::super::CompilerDescriptor::parse(raw.as_slice()).unwrap();
+    assert_eq!(d.canonical_bytes(), raw.as_slice());
+    assert!(super::super::normalize_definition(raw.as_slice(), &[], &support).is_err());
+    assert_eq!(support.descriptor().canonical_bytes(), old_descriptor);
+    descriptor["plan_schema"] = json!("ledger-workflow-compiled-plan/2");
+    assert!(
+        super::super::CompilerDescriptor::parse(
+            canonical::CanonicalBytes::from_value(&descriptor)
+                .unwrap()
+                .as_slice()
+        )
+        .is_err()
+    );
+}

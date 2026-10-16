@@ -1,6 +1,6 @@
 //! References to the reviewed administrative and agreement data families.
 //! A checked reference is a locator, never proof of retained membership/auth.
-use crate::{canonical, Error, Result};
+use crate::{Error, Result, canonical};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -41,6 +41,7 @@ impl AgreementRef {
             | "workflow-slot-catalog"
             | "workflow-slot-instantiation"
             | "workflow-slot-terms"
+            | "workflow-offer"
             | "workflow-acceptance-terms"
             | "workflow-assent"
             | "workflow-agreement-intent" => ("wdoc_", true),
