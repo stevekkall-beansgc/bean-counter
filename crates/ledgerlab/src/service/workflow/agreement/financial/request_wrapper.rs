@@ -209,12 +209,17 @@ pub(super) fn parse_saved(
         .parse_representation(raw.bytes(), RepresentationKind::OriginalRequest)
         .map_err(core_error)?;
     let envelope = parsed.value();
-    closed(envelope, &["schema", "key", "kind", "payload"], session)?;
+    closed(
+        envelope,
+        &["schema", "key", "kind", "contract", "payload"],
+        session,
+    )?;
     same_text(
         text(envelope, "schema", session)?,
         "ledger-operation/1",
         session,
     )?;
+    same_text(text(envelope, "contract", session)?, "workflow/1", session)?;
     same_text(text(envelope, "kind", session)?, kind, session)?;
     key(field(envelope, "key", session)?, expected, session)?;
     session
@@ -256,11 +261,20 @@ mod tests {
     fn literal_original_wire_is_owned_and_duplicate_hash_key_or_padding_mismatch_refuses() {
         // Raw-envelope DATA only; neither empty descriptor evidence nor this
         // helper's successful result can become a completed origin.
-        let envelope = json!({"schema":"ledger-operation/1","key":key(),"kind":"work.accept","payload":{"schema":"ledger-workflow-work/1"}});
+        let envelope = json!({"schema":"ledger-operation/1","key":key(),"kind":"work.accept","contract":"workflow/1","payload":{"schema":"ledger-workflow-work/1"}});
         let raw = serde_json::to_vec_pretty(&envelope).unwrap();
         let saved = attempt(&evidence(&raw)).unwrap();
         assert_eq!(saved.raw(), raw);
         assert_eq!(saved.value(), &envelope);
+        for bad_contract in [None, Some("workflow/other")] {
+            let mut wrong = envelope.clone();
+            if let Some(contract) = bad_contract {
+                wrong["contract"] = json!(contract);
+            } else {
+                wrong.as_object_mut().unwrap().remove("contract");
+            }
+            assert!(attempt(&evidence(&serde_json::to_vec(&wrong).unwrap())).is_err());
+        }
         let mut wrong = evidence(&raw);
         wrong["original_request_bytes_sha256"] = json!("0".repeat(64));
         assert!(attempt(&wrong).is_err());

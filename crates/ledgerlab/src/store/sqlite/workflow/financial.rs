@@ -8,9 +8,11 @@ use ledgerlab_core::{
 };
 use sqlx::Row;
 use tokio::time::timeout_at;
+mod chronology;
 mod effects;
-pub(crate) mod io;
+pub(crate) use chronology::OriginalLocator;
 mod append;
+pub(crate) mod io;
 pub(crate) use append::{FinancialAppend, FinancialDocument, FinancialJournal};
 
 #[derive(Debug)]
@@ -35,7 +37,7 @@ impl From<ledgerlab_core::Error> for FinancialReadError {
 }
 /// Raw scoped frame. Owning resource artifacts are not origin capabilities.
 /// No parsed graph or indexed member list is copied into this structure.
-pub(crate) struct FinancialFrame {
+pub(crate) struct OriginalFrame {
     pub kind: &'static str,
     pub operation: AuditedBytes,
     pub manifest: AuditedBytes,
@@ -50,6 +52,8 @@ pub(crate) struct FinancialFrame {
     pub sequence: i64,
     pub accepted_at_us: i64,
     pub member_count: i64,
+    pub publication_id: Option<AuditedBytes>,
+    pub plan_id: Option<AuditedBytes>,
 }
 fn resource_compare(
     session: &mut OriginalAuditSession,
@@ -82,50 +86,80 @@ impl SqliteTx {
     /// Preadmitted chunked BLOB read for the actual original-audit caller. SQL
     /// row storage is the separate bounded I/O lane; destination bytes remain
     /// owned by the caller's SINGLE attempt arena across subsequent awaits.
-    pub(crate) async fn workflow_financial_frame(
+    pub(crate) async fn workflow_original_frame(
         &mut self,
         identity: &[u8],
         store: &str,
         scope: &[String; 2],
         session: &mut OriginalAuditSession,
-    ) -> Result<Option<FinancialFrame>, FinancialReadError> {
+    ) -> Result<Option<OriginalFrame>, FinancialReadError> {
         let prior = self.failed;
         self.failed = true;
         // substr may materialize its source SQLite value; a 256KiB returned
         // chunk is NOT proof that the VM holds only 256KiB. Reserve the existing
         // maximum operation field plus both result/owned-row chunk copies.
-        let mut argument_bytes=identity.len();
-        for text in [store,scope[0].as_str(),scope[1].as_str()] {
-            session.semantic_work().arithmetic(ArithmeticOperation::Add,&[&argument_bytes.into(),&text.len().into()])?;
-            argument_bytes=argument_bytes.checked_add(text.len()).ok_or_else(invalid)?;
+        let mut argument_bytes = identity.len();
+        for text in [store, scope[0].as_str(), scope[1].as_str()] {
+            session.semantic_work().arithmetic(
+                ArithmeticOperation::Add,
+                &[&argument_bytes.into(), &text.len().into()],
+            )?;
+            argument_bytes = argument_bytes.checked_add(text.len()).ok_or_else(invalid)?;
         }
-        session.semantic_work().arithmetic(ArithmeticOperation::Multiply,&[&argument_bytes.into(),&3usize.into()])?;
-        let arguments=argument_bytes.checked_mul(3).ok_or_else(invalid)?;
-        session.semantic_work().arithmetic(ArithmeticOperation::Add,&[&arguments.into(),&(8388608usize+2*262144).into()])?;
-        self.financial_reserve_io(session,arguments.checked_add(8388608+2*262144).ok_or_else(invalid)?)?;
+        session.semantic_work().arithmetic(
+            ArithmeticOperation::Multiply,
+            &[&argument_bytes.into(), &3usize.into()],
+        )?;
+        let arguments = argument_bytes.checked_mul(3).ok_or_else(invalid)?;
+        session.semantic_work().arithmetic(
+            ArithmeticOperation::Add,
+            &[&arguments.into(), &(8388608usize + 2 * 262144).into()],
+        )?;
+        self.financial_reserve_io(
+            session,
+            arguments
+                .checked_add(8388608 + 2 * 262144)
+                .ok_or_else(invalid)?,
+        )?;
         let result=timeout_at(self.deadline, async {
             self.workflow_schema().await?;
             session.work().visit(ValidationVisit::RefLookup)?;
             // No BLOB or potentially unbounded text is selected by this probe.
-            let sizes=sqlx::query("SELECT length(CAST(operation_kind AS BLOB)) AS kl,length(operation_bytes) AS ob,length(manifest_bytes) AS mb,length(receipt_bytes) AS rb,length(CAST(operation_record_id AS BLOB)) AS oi,length(CAST(operation_digest AS BLOB)) AS od,length(CAST(manifest_id AS BLOB)) AS mi,length(CAST(manifest_digest AS BLOB)) AS md,length(CAST(receipt_id AS BLOB)) AS ri,length(CAST(receipt_digest AS BLOB)) AS rd,length(CAST(normalized_request_hash AS BLOB)) AS rh,publication_id IS NULL AS pn,plan_id IS NULL AS qn FROM workflow_operations WHERE identity_key=? AND logical_store_id=? AND tenant=? AND environment=?")
+            let sizes=sqlx::query("SELECT length(CAST(operation_kind AS BLOB)) AS kl,length(operation_bytes) AS ob,length(manifest_bytes) AS mb,length(receipt_bytes) AS rb,length(CAST(operation_record_id AS BLOB)) AS oi,length(CAST(operation_digest AS BLOB)) AS od,length(CAST(manifest_id AS BLOB)) AS mi,length(CAST(manifest_digest AS BLOB)) AS md,length(CAST(receipt_id AS BLOB)) AS ri,length(CAST(receipt_digest AS BLOB)) AS rd,length(CAST(normalized_request_hash AS BLOB)) AS rh,publication_id IS NULL AS pn,plan_id IS NULL AS qn,coalesce(length(CAST(publication_id AS BLOB)),0) AS pl,coalesce(length(CAST(plan_id AS BLOB)),0) AS ql FROM workflow_operations WHERE identity_key=? AND logical_store_id=? AND tenant=? AND environment=?")
                 .bind(identity).bind(store).bind(&scope[0]).bind(&scope[1]).fetch_optional(self.conn()).await?;
             let Some(sizes)=sizes else { return Ok(None) };
             for (field,maximum) in [("kl",32),("ob",8388608),("mb",4194304),("rb",1048576),("oi",68),("od",71),("mi",74),("md",71),("ri",73),("rd",71),("rh",71)] {
                 let n=sizes.try_get::<i64,_>(field)?;
                 if !resource_compare(session,n,0)?.is_gt() || resource_compare(session,n,maximum)?.is_gt() { return Err(invalid()); }
             }
-            for field in ["pn","qn"] { if !resource_compare(session,sizes.try_get::<i64,_>(field)?,1)?.is_eq() {return Err(invalid());} }
+            let publication_none=sizes.try_get::<i64,_>("pn")?;
+            let plan_none=sizes.try_get::<i64,_>("qn")?;
+            let publication_length=sizes.try_get::<i64,_>("pl")?;
+            let plan_length=sizes.try_get::<i64,_>("ql")?;
+            for (none,length,maximum) in [(publication_none,publication_length,69),(plan_none,plan_length,70)] {
+                if resource_compare(session,none,0)?.is_lt() || resource_compare(session,none,1)?.is_gt() || resource_compare(session,length,0)?.is_lt() || resource_compare(session,length,maximum)?.is_gt() {return Err(invalid());}
+            }
             let ob=sizes.try_get::<i64,_>("ob")?;
             let mb=sizes.try_get::<i64,_>("mb")?;
             let rb=sizes.try_get::<i64,_>("rb")?;
             drop(sizes);
             session.work().visit(ValidationVisit::RefLookup)?;
-            let row=sqlx::query("SELECT operation_kind,operation_record_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,normalized_request_hash,commit_sequence,accepted_at_us FROM workflow_operations WHERE identity_key=? AND logical_store_id=? AND tenant=? AND environment=?")
+            let row=sqlx::query("SELECT operation_kind,operation_record_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,normalized_request_hash,commit_sequence,accepted_at_us,publication_id,plan_id FROM workflow_operations WHERE identity_key=? AND logical_store_id=? AND tenant=? AND environment=?")
                 .bind(identity).bind(store).bind(&scope[0]).bind(&scope[1]).fetch_one(self.conn()).await?;
             session.work().visit(ValidationVisit::Constraint)?;
             let kind=match row.try_get::<&str,_>("operation_kind")? {
-                "work.accept"=>"work.accept", "work.reverse"=>"work.reverse", "quantity.correct"=>"quantity.correct", "outcome.submit"=>"outcome.submit", "outcome.correct"=>"outcome.correct", "outcome.close"=>"outcome.close", "link.assert"=>"link.assert", _=>return Err(invalid()),
+                "policy.publish"=>"policy.publish", "evidence.retain"=>"evidence.retain", "authority.change"=>"authority.change", "agreement.accept"=>"agreement.accept", "agreement.activate"=>"agreement.activate", "agreement.revoke"=>"agreement.revoke", "work.accept"=>"work.accept", "work.reverse"=>"work.reverse", "quantity.correct"=>"quantity.correct", "outcome.submit"=>"outcome.submit", "outcome.correct"=>"outcome.correct", "outcome.close"=>"outcome.close", "link.assert"=>"link.assert", _=>return Err(invalid()),
             };
+            session.semantic_work().visit(ValidationVisit::Constraint)?;
+            if kind=="policy.publish" {
+                for (none,length,maximum) in [(publication_none,publication_length,69),(plan_none,plan_length,70)] {
+                    if !resource_compare(session,none,0)?.is_eq() || !resource_compare(session,length,0)?.is_gt() || resource_compare(session,length,maximum)?.is_gt() { return Err(invalid()); }
+                }
+            } else {
+                for (none,length) in [(publication_none,publication_length),(plan_none,plan_length)] {
+                    if !resource_compare(session,none,1)?.is_eq() || !resource_compare(session,length,0)?.is_eq() {return Err(invalid());}
+                }
+            }
             let sequence=row.try_get::<i64,_>("commit_sequence")?;
             let accepted_at_us=row.try_get::<i64,_>("accepted_at_us")?;
             let copy=|field:&str, session:&mut OriginalAuditSession| -> Result<AuditedBytes,FinancialReadError> {
@@ -141,6 +175,7 @@ impl SqliteTx {
             let receipt_id=copy("receipt_id",session)?;
             let receipt_digest=copy("receipt_digest",session)?;
             let request_hash=copy("normalized_request_hash",session)?;
+            let (publication_id,plan_id)=if kind=="policy.publish" {(Some(copy("publication_id",session)?),Some(copy("plan_id",session)?))} else {(None,None)};
             drop(row);
             session.work().visit(ValidationVisit::RefLookup)?;
             let member_count:i64=sqlx::query_scalar("SELECT count(*) FROM workflow_manifest_members WHERE identity_key=?")
@@ -149,10 +184,12 @@ impl SqliteTx {
             let operation=self.financial_blob(identity,store,scope,0,ob,session).await?;
             let manifest=self.financial_blob(identity,store,scope,1,mb,session).await?;
             let receipt=self.financial_blob(identity,store,scope,2,rb,session).await?;
-            Ok(Some(FinancialFrame {kind,operation,manifest,receipt,operation_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,request_hash,sequence,accepted_at_us,member_count}))
+            Ok(Some(OriginalFrame {kind,operation,manifest,receipt,operation_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,request_hash,sequence,accepted_at_us,member_count,publication_id,plan_id}))
         }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
         self.financial_finish_io(session).await?;
-        if result.is_ok() { self.failed = prior; }
+        if result.is_ok() {
+            self.failed = prior;
+        }
         result
     }
     async fn financial_blob(

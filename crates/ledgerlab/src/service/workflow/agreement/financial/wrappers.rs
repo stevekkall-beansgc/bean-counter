@@ -3,7 +3,7 @@
 //! authorization, dependency/capacity/funding and resource obligations succeed.
 use super::request_wrapper::{self as request, SavedRequest};
 use super::*;
-use crate::store::sqlite::workflow::financial::FinancialFrame;
+use crate::store::sqlite::workflow::financial::OriginalFrame;
 use ledgerlab_core::{
     canonical::audit_arena::AuditedValue,
     validation_work::{
@@ -20,7 +20,7 @@ pub(super) struct OriginalWrappers {
     manifest: AuditedValue,
     receipt: AuditedValue,
     request: SavedRequest,
-    frame: FinancialFrame,
+    frame: OriginalFrame,
 }
 impl OriginalWrappers {
     pub(super) fn operation(&self) -> &Value {
@@ -334,7 +334,7 @@ fn reference<'a>(
 async fn indexed_sets(
     tx: &mut SqliteTx,
     identity: &[u8],
-    frame: &FinancialFrame,
+    frame: &OriginalFrame,
     op: &Value,
     manifest: &Value,
     session: &mut OriginalAuditSession,
@@ -429,10 +429,22 @@ pub(super) async fn load(
     session: &mut OriginalAuditSession,
 ) -> Result<OriginalWrappers> {
     let frame = tx
-        .workflow_financial_frame(identity, &key.logical_store_id, &key.scope, session)
+        .workflow_original_frame(identity, &key.logical_store_id, &key.scope, session)
         .await
         .map_err(resource)?
         .ok_or(ServiceError::IntegrityFailure)?;
+    validate_frame(tx, key, identity, frame, session).await
+}
+
+/// Consume the exact chronological frame without loading a second copy or
+/// selecting it through another hint. This remains unresolved mechanical DATA.
+pub(super) async fn validate_frame(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    identity: &[u8],
+    frame: OriginalFrame,
+    session: &mut OriginalAuditSession,
+) -> Result<OriginalWrappers> {
     let operation = checked(
         frame.operation.bytes(),
         RepresentationKind::OperationFrame,
@@ -608,6 +620,22 @@ pub(super) async fn load(
         request::field(op, "accepted_at", session)?,
         session,
     )?;
+    let accepted_at = ledgerlab_core::domain::Timestamp::parse_with_work(
+        request::text(op, "accepted_at", session)?,
+        session.semantic_work(),
+    )
+    .map_err(core_error)?;
+    session
+        .semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&accepted_at.micros().into(), &frame.accepted_at_us.into()],
+        )
+        .map_err(core_error)?;
+    require(
+        accepted_at.micros() == frame.accepted_at_us,
+        "INTEGRITY_FAILURE",
+    )?;
     let op_sequence = counter(request::text(op, "commit_sequence", session)?, session)?;
     session
         .semantic_work()
@@ -677,7 +705,7 @@ pub(super) async fn load(
         "INTEGRITY_FAILURE",
     )?;
     indexed_sets(tx, identity, &frame, op, man, session).await?;
-    // Accepted-time epoch, freshly extracted descriptors, normalized intent,
+    // Freshly extracted descriptors, normalized intent,
     // exact complete result/member sets and all economic/auth/capacity claims
     // remain mandatory in the full original reconstruction; this is NOT proof.
     Ok(OriginalWrappers {
