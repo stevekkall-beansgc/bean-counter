@@ -209,7 +209,7 @@ impl SqliteStore {
                 disabled: AtomicBool::new(false),
                 commit_task: Mutex::new(None),
                 financial_drain_failed: AtomicBool::new(false),
-                workflow_guard_enabled: AtomicBool::new(schema_version == 12 || schema_version == 13),
+                workflow_guard_enabled: AtomicBool::new(schema_version == 12 || schema_version == 13 || schema_version == 14),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),
                 #[cfg(test)]

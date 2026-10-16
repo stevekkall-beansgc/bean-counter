@@ -1,0 +1,70 @@
+{
+  "schema": "owner-local-cost-source-pins/1",
+  "files": [
+    {
+      "path": "family-close-01/SPEC.md",
+      "bytes": 17421,
+      "sha256": "d31cf6a7155442193041a559390d937a9c06200cdee5720802037d3f805a747f"
+    },
+    {
+      "path": "family-close-01/family-close.schema.json",
+      "bytes": 287358,
+      "sha256": "5bd67f039c067becfb762c11f48de93131e9015a59f487d0e6a1887acb030f6d"
+    },
+    {
+      "path": "family-close-01/registry.json",
+      "bytes": 9640,
+      "sha256": "ec9d76be031a0a5232c1047aef5652d9da28b1b4880253745fccdec76c42e951"
+    },
+    {
+      "path": "family-close-01/profile.json",
+      "bytes": 1130,
+      "sha256": "ba778536d9ec548082387cc90e4fd5b0521d92b6742d2e8984dc74056d4ba31e"
+    },
+    {
+      "path": "exposure-scope-01/EXPOSURE-SCOPE-01.md",
+      "bytes": 12271,
+      "sha256": "7b6485a124c2228c4bd4dd56a26954de1c8465b82cb48f5dd34681fe21bc04bf"
+    },
+    {
+      "path": "authority-audit-03.schema.json",
+      "bytes": 58050,
+      "sha256": "c2d50718592e7d4ac824a62f0f9635b9472b0dbf0b4b3d9c658ee7333a1b213b"
+    },
+    {
+      "path": "ECONOMIC-BOUNDARY.md",
+      "bytes": 36664,
+      "sha256": "045e5a7c00c33e5f76e3cf9eca8b2c6a3514f6531f2314d274695bc55add50e0"
+    },
+    {
+      "path": "ECON-01-PROOF-AND-IMPLEMENTATION-INVENTORY.md",
+      "bytes": 16079,
+      "sha256": "4cf5a5f60974bbb7e6bdac239e547c8b8686556775ff152b73418f6c97916b46"
+    },
+    {
+      "path": "resource-profile-01/RESOURCE-PROFILE-01.md",
+      "bytes": 13409,
+      "sha256": "fbc9826acebe2941e0e0fd43ef2ad248f0759d92febd9532165deeaff68e1fec"
+    },
+    {
+      "path": "publication-boundary.md",
+      "bytes": 21283,
+      "sha256": "b9c0fbc6d37cc7c8d0225621fca19915d935a2ec67f5203dacc9e5c9312b2a8e"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-full-product-design-20261007/docs/plans/full-product-launch-2026-10-07/technical-design/S12-TECHNICAL-PLAN.md",
+      "bytes": 156180,
+      "sha256": "ed553ae22fd0fe95dfac0ce6564d097e21bb7006174633c49ebfb9feb74f72d7"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-full-product-design-20261007/docs/plans/full-product-launch-2026-10-07/technical-design/CORE-AND-CONTRACTS.md",
+      "bytes": 59069,
+      "sha256": "4e6f25abe2da1ca99913464ee41c727dae9832f7fdae4aa6976aaacca8138f20"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-full-product-design-20261007/docs/plans/full-product-launch-2026-10-07/technical-design/FINANCIAL-AND-RECOVERY-AMENDMENT.md",
+      "bytes": 44406,
+      "sha256": "e6bc96b63d52dfad3abe8ff31993fe38972a4492169db893ac43af14c1b82b3a"
+    }
+  ]
+}

@@ -90,7 +90,18 @@ impl Request {
     pub(super) fn parse_financial(raw: &[u8]) -> Result<Self> {
         let outer = parse_outer(raw)?;
         require(
-            super::financial::is_kind(&outer.kind),
+            super::financial::is_kind(&outer.kind)
+                || (outer.kind == "authority.change"
+                    && outer.payload["schema"] == "ledger-cost-authority-enroll/1")
+                || (outer.kind == "evidence.retain"
+                    && matches!(
+                        outer.payload["schema"].as_str(),
+                        Some(
+                            "ledger-workflow-fact-attest/1"
+                                | "ledger-workflow-family-close-attest/1"
+                                | "ledger-workflow-supplier-cost-attest/1"
+                        )
+                    )),
             "UNSUPPORTED_SCHEMA_PROFILE",
         )?;
         require(outer.payload.is_object(), "INVALID_SHAPE")?;

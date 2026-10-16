@@ -1,0 +1,800 @@
+{
+  "schema": "deadline-close-input/1",
+  "qualification": "Synthetic conditional authority/vector inputs, not authenticated history or runtime trust flags. No expected outputs.",
+  "scope": [
+    "fixture-tenant",
+    "fixture"
+  ],
+  "payload": {
+    "schema": "ledger-workflow-outcome-close/2",
+    "target_ref": {
+      "kind": "workflow-target",
+      "id": "wtarget_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "family_slot": "fixture:assessment",
+    "expected_revision": "1",
+    "reason": "deadline",
+    "evidence_refs": []
+  },
+  "context": {
+    "authenticated": true,
+    "authenticated_source": "urn:fixture:deadline-service",
+    "principal": "fixture-operator",
+    "current_state": "active",
+    "source_namespace": "urn:fixture:deadline",
+    "source_association_verified": true,
+    "original_binding_ref": {
+      "kind": "workflow-binding",
+      "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "target_ref": {
+      "kind": "workflow-target",
+      "id": "wtarget_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "family_slot": "fixture:assessment",
+    "family_state": "open",
+    "family_revision": "1",
+    "accepted_by": "2026-10-16T17:00:00.000000Z",
+    "activation_deadline": "2026-10-16T16:00:00.000000Z",
+    "received_at": "2026-10-16T17:00:00.000001Z",
+    "accepted_at": "2026-10-16T17:00:00.000002Z",
+    "previous_trusted_at": "2026-10-16T16:59:00.000000Z",
+    "snapshot_current": true,
+    "original_history_verified": true,
+    "remaining_obligations_protected": true,
+    "eligible_release_atoms": "100000000000000000",
+    "held_atoms": "150000000000000000",
+    "original_slots": [
+      {
+        "name": "fixture:zeta",
+        "sources": [
+          "urn:fixture:deadline-service"
+        ],
+        "original_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          }
+        ],
+        "nomination_original": true,
+        "role_terms_original": true,
+        "original_ceiling": true,
+        "original_scope_selectors": true,
+        "current_scope_selectors": true,
+        "same_source_role_association": true
+      },
+      {
+        "name": "fixture:alpha",
+        "sources": [
+          "urn:fixture:deadline-service"
+        ],
+        "original_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+          }
+        ],
+        "nomination_original": true,
+        "role_terms_original": true,
+        "original_ceiling": true,
+        "original_scope_selectors": true,
+        "current_scope_selectors": true,
+        "same_source_role_association": true
+      }
+    ],
+    "original_grant": {
+      "source": "urn:fixture:deadline-service",
+      "principal": "fixture-operator",
+      "source_slots": [
+        "fixture:zeta",
+        "fixture:alpha"
+      ],
+      "operations": [
+        "outcome.close"
+      ],
+      "permissions": [
+        "read",
+        "close"
+      ],
+      "starts_at": "2026-10-16T00:00:00.000000Z",
+      "ends_at": "2026-10-18T00:00:00.000000Z"
+    },
+    "current_grant": {
+      "source": "urn:fixture:deadline-service",
+      "principal": "fixture-operator",
+      "source_slots": [
+        "fixture:zeta",
+        "fixture:alpha"
+      ],
+      "operations": [
+        "outcome.close"
+      ],
+      "permissions": [
+        "read",
+        "close"
+      ],
+      "starts_at": "2026-10-16T00:00:00.000000Z",
+      "ends_at": "2026-10-18T00:00:00.000000Z"
+    },
+    "family_assessor_slot": "fixture:assessor",
+    "no_success_slot": "fixture:early-closer",
+    "local_owner_admin": false,
+    "scheduler_label": false
+  },
+  "fixed_original_binding_ref": {
+    "kind": "workflow-binding",
+    "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "authority_template": {
+    "schema": "ledger-workflow-economic-authority/5",
+    "operation": "outcome.close",
+    "actor": "fixture-operator",
+    "source": "urn:fixture:deadline-service",
+    "scope": [
+      "fixture-tenant",
+      "fixture"
+    ],
+    "customer": "fixture-customer",
+    "canonical_economic_namespace": "urn:fixture:deadline",
+    "installation_mode": "isolated_synthetic",
+    "enrollment_ref": {
+      "kind": "workflow-source-enrollment",
+      "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    "current_state_ref": {
+      "kind": "workflow-source-state",
+      "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    "current_grant_ref": {
+      "kind": "workflow-source-grant",
+      "id": "wdoc_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "original_binding_ref": {
+      "kind": "workflow-binding",
+      "id": "wbinding_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "original_accepted_agreement_ref": {
+      "kind": "workflow-accepted-agreement",
+      "id": "wdoc_1111111111111111111111111111111111111111111111111111111111111111",
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "original_grant_refs": [
+      {
+        "kind": "workflow-source-grant",
+        "id": "wdoc_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    ],
+    "source_slot": {
+      "$selected_slot": true
+    },
+    "rights": [
+      "close",
+      "read"
+    ],
+    "evidence_refs": [],
+    "verified_fact_refs": [],
+    "observed_at": "2026-10-16T17:00:00.000002Z",
+    "authority_observation_ref": {
+      "kind": "workflow-authority-prefix-observation",
+      "id": "wdoc_2222222222222222222222222222222222222222222222222222222222222222",
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "causal_closure_checks": [],
+    "original_invocation_refs": [],
+    "current_invocation_refs": [],
+    "current_cost_revision_refs": [],
+    "cost_authority_refs": [],
+    "cost_closure_checks": []
+  },
+  "cases": [
+    {
+      "name": "ordinary_sufficient_no_submit",
+      "patches": []
+    },
+    {
+      "name": "same_authority_scheduler_label",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "scheduler_label"
+          ],
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "awaiting_anchor_expired",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "family_state"
+          ],
+          "value": "awaiting_anchor"
+        }
+      ]
+    },
+    {
+      "name": "original_slots_reordered",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_slots"
+          ],
+          "value": [
+            {
+              "name": "fixture:alpha",
+              "sources": [
+                "urn:fixture:deadline-service"
+              ],
+              "original_grant_refs": [
+                {
+                  "kind": "workflow-source-grant",
+                  "id": "wdoc_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                }
+              ],
+              "nomination_original": true,
+              "role_terms_original": true,
+              "original_ceiling": true,
+              "original_scope_selectors": true,
+              "current_scope_selectors": true,
+              "same_source_role_association": true
+            },
+            {
+              "name": "fixture:zeta",
+              "sources": [
+                "urn:fixture:deadline-service"
+              ],
+              "original_grant_refs": [
+                {
+                  "kind": "workflow-source-grant",
+                  "id": "wdoc_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                  "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                }
+              ],
+              "nomination_original": true,
+              "role_terms_original": true,
+              "original_ceiling": true,
+              "original_scope_selectors": true,
+              "current_scope_selectors": true,
+              "same_source_role_association": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "only_zeta_sufficient",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_slots",
+            1,
+            "role_terms_original"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "no_current_close",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "permissions"
+          ],
+          "value": [
+            "read",
+            "submit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_original_close",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_grant",
+            "permissions"
+          ],
+          "value": [
+            "read",
+            "submit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_current_read",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "permissions"
+          ],
+          "value": [
+            "close"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_original_read",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_grant",
+            "permissions"
+          ],
+          "value": [
+            "close"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_current_operation",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "operations"
+          ],
+          "value": [
+            "outcome.submit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_original_operation",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_grant",
+            "operations"
+          ],
+          "value": [
+            "outcome.submit"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "revoked",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_state"
+          ],
+          "value": "revoked"
+        }
+      ]
+    },
+    {
+      "name": "grant_ends_at_accept",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "ends_at"
+          ],
+          "value": "2026-10-16T17:00:00.000002Z"
+        }
+      ]
+    },
+    {
+      "name": "deadline_equal",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "accepted_at"
+          ],
+          "value": "2026-10-16T17:00:00.000000Z"
+        },
+        {
+          "path": [
+            "context",
+            "received_at"
+          ],
+          "value": "2026-10-16T17:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "awaiting_deadline_equal",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "accepted_at"
+          ],
+          "value": "2026-10-16T16:00:00.000000Z"
+        },
+        {
+          "path": [
+            "context",
+            "family_state"
+          ],
+          "value": "awaiting_anchor"
+        },
+        {
+          "path": [
+            "context",
+            "received_at"
+          ],
+          "value": "2026-10-16T16:00:00.000000Z"
+        },
+        {
+          "path": [
+            "context",
+            "previous_trusted_at"
+          ],
+          "value": "2026-10-16T15:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "claimed",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "family_state"
+          ],
+          "value": "claimed"
+        }
+      ]
+    },
+    {
+      "name": "already_expired",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "family_state"
+          ],
+          "value": "expired"
+        }
+      ]
+    },
+    {
+      "name": "stale_revision",
+      "patches": [
+        {
+          "path": [
+            "payload",
+            "expected_revision"
+          ],
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "name": "wrong_target",
+      "patches": [
+        {
+          "path": [
+            "payload",
+            "target_ref"
+          ],
+          "value": {
+            "kind": "workflow-target",
+            "id": "wtarget_3333333333333333333333333333333333333333333333333333333333333333",
+            "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_binding",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_binding_ref"
+          ],
+          "value": {
+            "kind": "workflow-binding",
+            "id": "wbinding_4444444444444444444444444444444444444444444444444444444444444444",
+            "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_family",
+      "patches": [
+        {
+          "path": [
+            "payload",
+            "family_slot"
+          ],
+          "value": "fixture:other"
+        }
+      ]
+    },
+    {
+      "name": "clock_regression",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "previous_trusted_at"
+          ],
+          "value": "2026-10-17T00:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "wrong_current_principal",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "principal"
+          ],
+          "value": "intruder"
+        }
+      ]
+    },
+    {
+      "name": "wrong_original_source",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_grant",
+            "source"
+          ],
+          "value": "urn:fixture:intruder"
+        }
+      ]
+    },
+    {
+      "name": "unverified_history",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_history_verified"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "stale_snapshot",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "snapshot_current"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "future_hold_not_protected",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "remaining_obligations_protected"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "unauthenticated",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "authenticated"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "release_exceeds_hold",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "eligible_release_atoms"
+          ],
+          "value": "200000000000000000"
+        }
+      ]
+    },
+    {
+      "name": "no_sufficient_slot",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "source_slots"
+          ],
+          "value": [
+            "fixture:assessor"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no_success_slot_not_default",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "source_slots"
+          ],
+          "value": [
+            "fixture:early-closer"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "admin_cannot_fill_missing_close",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "local_owner_admin"
+          ],
+          "value": true
+        },
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "permissions"
+          ],
+          "value": [
+            "read",
+            "admin"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "scheduler_cannot_fill_missing_close",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "scheduler_label"
+          ],
+          "value": true
+        },
+        {
+          "path": [
+            "context",
+            "current_grant",
+            "permissions"
+          ],
+          "value": [
+            "read"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "partial_slots_cannot_combine",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_slots",
+            0,
+            "original_ceiling"
+          ],
+          "value": false
+        },
+        {
+          "path": [
+            "context",
+            "original_slots",
+            1,
+            "current_scope_selectors"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "current_only_slot_cannot_backfill",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_slots"
+          ],
+          "value": []
+        }
+      ]
+    },
+    {
+      "name": "original_grant_expired_at_accept",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "original_grant",
+            "ends_at"
+          ],
+          "value": "2026-10-16T17:00:00.000002Z"
+        }
+      ]
+    },
+    {
+      "name": "changed_source_association",
+      "patches": [
+        {
+          "path": [
+            "context",
+            "source_association_verified"
+          ],
+          "value": false
+        }
+      ]
+    }
+  ],
+  "schema_negative_mutations": [
+    {
+      "name": "caller_slot_forbidden",
+      "field": "source_slot",
+      "value": "fixture:alpha"
+    },
+    {
+      "name": "deadline_proof_forbidden",
+      "field": "close_proof",
+      "value": {
+        "attestation_ref": {
+          "kind": "workflow-fact-attestation",
+          "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+          "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        },
+        "verification_ref": {
+          "kind": "workflow-evidence-verification",
+          "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+          "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      }
+    }
+  ]
+}

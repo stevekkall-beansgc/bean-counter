@@ -10,7 +10,10 @@ use sqlx::Row;
 use tokio::time::timeout_at;
 mod chronology;
 mod effects;
+mod heads;
+mod supplier;
 pub(crate) use chronology::OriginalLocator;
+pub(crate) use heads::{HeadKey, HeadLocator};
 mod append;
 pub(crate) mod io;
 pub(crate) use append::{FinancialAppend, FinancialDocument, FinancialJournal};
@@ -148,7 +151,7 @@ impl SqliteTx {
                 .bind(identity).bind(store).bind(&scope[0]).bind(&scope[1]).fetch_one(self.conn()).await?;
             session.work().visit(ValidationVisit::Constraint)?;
             let kind=match row.try_get::<&str,_>("operation_kind")? {
-                "policy.publish"=>"policy.publish", "evidence.retain"=>"evidence.retain", "authority.change"=>"authority.change", "agreement.accept"=>"agreement.accept", "agreement.activate"=>"agreement.activate", "agreement.revoke"=>"agreement.revoke", "work.accept"=>"work.accept", "work.reverse"=>"work.reverse", "quantity.correct"=>"quantity.correct", "outcome.submit"=>"outcome.submit", "outcome.correct"=>"outcome.correct", "outcome.close"=>"outcome.close", "link.assert"=>"link.assert", _=>return Err(invalid()),
+                "policy.publish"=>"policy.publish", "evidence.retain"=>"evidence.retain", "authority.change"=>"authority.change", "agreement.accept"=>"agreement.accept", "agreement.activate"=>"agreement.activate", "agreement.revoke"=>"agreement.revoke", "work.accept"=>"work.accept", "work.reverse"=>"work.reverse", "quantity.correct"=>"quantity.correct", "outcome.submit"=>"outcome.submit", "outcome.correct"=>"outcome.correct", "outcome.close"=>"outcome.close", "link.assert"=>"link.assert", "invocation.authorize"=>"invocation.authorize", "invocation.close"=>"invocation.close", "cost.finalize"=>"cost.finalize", "cost.correct"=>"cost.correct", _=>return Err(invalid()),
             };
             session.semantic_work().visit(ValidationVisit::Constraint)?;
             if kind=="policy.publish" {

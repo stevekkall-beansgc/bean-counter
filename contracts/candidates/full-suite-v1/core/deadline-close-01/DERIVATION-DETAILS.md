@@ -1,0 +1,9 @@
+# Exact output conventions
+
+Handed-off SPEC/INPUT remain unchanged. These conventions fix output formatting, not authority semantics.
+
+For each case compute individually sufficient eligible_slots from its patched slot/grant/source/time predicates even if another global predicate later refuses. Sort that exact set by JCS(name). Global grant identity/active authentication are acceptance conjuncts, so an eligible diagnostic slot on a refused case is not authority. selected_slot is first eligible slot only when the whole case accepts, otherwise null. Emit `{name,accepted,eligible_slots,selected_slot}` for every case. Append authority and proposed_state fields only for accepted cases; omit them for refused cases (not null placeholder proof).
+
+`authority` is `{body,canonical_hex,raw_sha,ref}`. Ref kind workflow-economic-authority; ID wdoc_ plus H_workflow-document([schema,body]); digest sha256: plus same hash. Substitute exactly the selected slot, context principal/source/source_namespace/original_binding_ref/accepted_at and selected slot.original_grant_refs into the template; order original_grant_refs by full JCS. Template’s other fields/sets are fixed literal synthetic anchors. proposed_state is `{family_state:"expired",revision:<decimal-string>,released_delta_atoms:<decimal-string>,remaining_held_atoms:<decimal-string>}`.
+
+Top-level output keys: cases; normalized_payload `{canonical_hex,raw_sha}` from base payload; metadata mapping profile.json/registry.json/deadline-close.schema.json to raw JCS SHA256 hex; registry_entries exact new registry.entries array. Return no other derived history/trust assertion. JCS is standard UTF-16 object-key order; all these literal fixture keys/strings are ASCII, so sorted-key UTF-8 encoding produces identical bytes. Dates use fixed six-digit UTC microseconds; compare exact instants. Counters/atoms use unbounded host integers only for this pure fixture derivation, never runtime budget permission.

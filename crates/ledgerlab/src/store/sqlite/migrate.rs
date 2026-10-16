@@ -1,8 +1,8 @@
 use crate::store::errors::StoreError;
 use sha2::{Digest, Sha256};
 use sqlx::{
-    migrate::{Migration, MigrationType, Migrator},
     SqlSafeStr, SqliteConnection,
+    migrate::{Migration, MigrationType, Migrator},
 };
 const SQL: &str = include_str!("../../../migrations/sqlite/0001_first_slice.sql");
 const OUTBOX: &str = include_str!("../../../migrations/sqlite/0002_outbox.sql");
@@ -15,8 +15,26 @@ const BILLING_ALIASES: &str = include_str!("../../../migrations/sqlite/0008_bill
 const CUSTOMERS: &str = include_str!("../../../migrations/sqlite/0009_customer_agreements.sql");
 const M3_HISTORY: &str = include_str!("../../../migrations/sqlite/0010_m3_history.sql");
 const M5_LIFECYCLE: &str = include_str!("../../../migrations/sqlite/0011_m5_lifecycle.sql");
-const WORKFLOW: &str = concat!(include_str!("workflow/schema.sql"), "\n", include_str!("workflow/agreement/schema.sql"), "\n", include_str!("workflow/agreement/transport/schema.sql"), "\n", include_str!("workflow/agreement/acceptance/schema.sql"));
+const WORKFLOW: &str = concat!(
+    include_str!("workflow/schema.sql"),
+    "\n",
+    include_str!("workflow/agreement/schema.sql"),
+    "\n",
+    include_str!("workflow/agreement/transport/schema.sql"),
+    "\n",
+    include_str!("workflow/agreement/acceptance/schema.sql")
+);
 const FINANCIAL_WORKFLOW: &str = include_str!("workflow/financial/schema.sql");
+const SUPPLIER_WORKFLOW: &str = include_str!("workflow/financial/supplier_schema.sql");
+fn supplier_workflow_migration() -> Migration {
+    Migration::new(
+        14,
+        "workflow supplier projections".into(),
+        MigrationType::Simple,
+        SUPPLIER_WORKFLOW.into_sql_str(),
+        false,
+    )
+}
 fn financial_workflow_migration() -> Migration {
     Migration::new(
         13,
@@ -28,15 +46,20 @@ fn financial_workflow_migration() -> Migration {
 }
 async fn finish_financial_schema(conn: &mut SqliteConnection) -> Result<(), StoreError> {
     let failure = sqlx::query("PRAGMA foreign_key_check")
-        .fetch_optional(&mut *conn).await?;
+        .fetch_optional(&mut *conn)
+        .await?;
     if failure.is_some() {
-        return Err(StoreError::Integrity("financial upgrade foreign key mismatch"));
+        return Err(StoreError::Integrity(
+            "financial upgrade foreign key mismatch",
+        ));
     }
     // DROP/replace can leave SQLite's deferred counter referring to the old
     // table instance, despite every current reference resolving. Reset only
     // AFTER checking all actual foreign keys under the same exclusive writer.
     // Foreign-key enforcement itself remains enabled throughout the upgrade.
-    sqlx::query("PRAGMA defer_foreign_keys=OFF").execute(conn).await?;
+    sqlx::query("PRAGMA defer_foreign_keys=OFF")
+        .execute(conn)
+        .await?;
     Ok(())
 }
 #[cfg(test)]
@@ -166,7 +189,7 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
     let v: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if !(1..=13).contains(&v) {
+    if !(1..=14).contains(&v) {
         return Err(StoreError::InvalidStore("unsupported SQLite write schema"));
     }
     let migrations = migrator();
@@ -176,7 +199,9 @@ async fn version(conn: &mut SqliteConnection) -> Result<i64, StoreError> {
             .await?;
     if rows.len() != v as usize
         || rows.iter().enumerate().any(|(i, row)| {
-            let expected = if i == 12 {
+            let expected = if i == 13 {
+                supplier_workflow_migration()
+            } else if i == 12 {
                 financial_workflow_migration()
             } else if i == 11 {
                 workflow_migration()
@@ -1488,7 +1513,7 @@ impl super::SqliteTx {
         self.failed = true;
         let result = tokio::time::timeout_at(self.deadline, async {
             let from = version(self.conn()).await?;
-            if from == 13 {
+            if from == 13 || from == 14 {
                 return super::workflow::capacity::check(self.conn(), 0, 0).await.map(|_| ());
             }
             if from != 12 {
@@ -1528,6 +1553,41 @@ impl super::SqliteTx {
         result
     }
 
+    /// Additive supplier projection upgrade. No financial record or authority
+    /// is established here; the coordinator must authenticate the complete
+    /// actual history under this same held writer before opting in.
+    pub(crate) async fn workflow_enable_supplier_schema(&mut self) -> Result<(), StoreError> {
+        if self.failed {
+            return Err(StoreError::InvalidStore("poisoned supplier upgrade"));
+        }
+        self.failed = true;
+        let result=tokio::time::timeout_at(self.deadline,async {
+            let from=version(self.conn()).await?;
+            if from==14 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
+            if from!=13 {return Err(StoreError::BillingUpgradeRequired);}
+            let installation=super::read::installation(self.conn()).await?;
+            if installation.mode!="real" || installation.admission!="open" || !installation.dispatch_hold || installation.dispatch_enabled {return Err(StoreError::InvalidStore("supplier upgrade requires held real installation"));}
+            super::m5::verify(self.conn()).await?;
+            super::workflow::capacity::check(self.conn(),0,0).await?;
+            super::connect::integrity(self.conn()).await?;
+            let collision:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name LIKE 'workflow_supplier_%' OR name IN ('workflow_documents_supplier_upgrade','workflow_operations_supplier_upgrade','workflow_financial_heads_supplier_upgrade'))").fetch_one(self.conn()).await?;
+            if collision {return Err(StoreError::InvalidStore("supplier schema name collision"));}
+            let migration=supplier_workflow_migration();
+            sqlx::raw_sql(sqlx::AssertSqlSafe(migration.sql.as_ref())).execute(self.conn()).await?;
+            finish_financial_schema(self.conn()).await?;
+            sqlx::query("INSERT INTO _sqlx_migrations(version,description,success,checksum,execution_time) VALUES(?,?,TRUE,?,0)").bind(migration.version).bind(migration.description.as_ref()).bind(migration.checksum.as_ref()).execute(self.conn()).await?;
+            sqlx::query("PRAGMA user_version=14").execute(self.conn()).await?;
+            version(self.conn()).await?;
+            super::workflow::capacity::check(self.conn(),0,0).await?;
+            super::connect::integrity(self.conn()).await?;
+            Ok::<_,StoreError>(())
+        }).await.map_err(|_|StoreError::Deadline)?;
+        if result.is_ok() {
+            self.failed = false;
+        }
+        result
+    }
+
     /// Mechanical opt-in only. The trusted coordinator must validate the entire
     /// billing snapshot and its local actor in this same writer transaction.
     pub(crate) async fn workflow_enable_profile_b(&mut self) -> Result<(), StoreError> {
@@ -1538,7 +1598,7 @@ impl super::SqliteTx {
         let deadline = self.deadline;
         let result = tokio::time::timeout_at(deadline, async {
             let from = version(self.conn()).await?;
-            if from == 12 || from == 13 {
+            if from == 12 || from == 13 || from == 14 {
                 super::m5::verify(self.conn()).await?;
                 super::workflow::capacity::check(self.conn(), 0, 0).await?;
                 return Ok(());

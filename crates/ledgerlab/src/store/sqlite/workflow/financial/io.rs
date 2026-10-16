@@ -73,6 +73,82 @@ impl Drain {
         }
     }
 }
+/// Additional worker-owned requested payload, never an authority or another
+/// quota. Sources remain separately arena-owned by the coordinator. Each item
+/// here is an actually bound value: SQLx owns one copied argument and SQLite
+/// owns one TRANSIENT binding (minimum32). `packed_fields` is the explicit sum
+/// of VM MakeRecord inputs for this exact statement, including repeated index
+/// keys. Column materialization is supplied separately from its existing cap.
+/// Reserve the existing256KiB I/O envelope in addition to those payloads.
+/// Its fixed metadata bound and the complete connected source/caller remain
+/// separate eligibility obligations; this is not a whole-memory proof.
+pub(super) fn binding_payload(
+    bound: &[&[u8]],
+    packed_fields: &[&[u8]],
+    packed_integer_fields: usize,
+    materialized_columns: usize,
+    session: &mut OriginalAuditSession,
+) -> Result<usize, FinancialReadError> {
+    binding_payload_sets(
+        bound,
+        &[packed_fields],
+        packed_integer_fields,
+        materialized_columns,
+        session,
+    )
+}
+pub(super) fn binding_payload_sets(
+    bound: &[&[u8]],
+    packed_records: &[&[&[u8]]],
+    packed_integer_fields: usize,
+    materialized_columns: usize,
+    session: &mut OriginalAuditSession,
+) -> Result<usize, FinancialReadError> {
+    use ledgerlab_core::validation_work::ArithmeticOperation as Op;
+    let work = session.semantic_work();
+    for raw in bound {
+        work.arithmetic(Op::Compare, &[&raw.len().into(), &32usize.into()])?;
+        work.scan_bytes(raw.len())?;
+        work.write_bytes(raw.len())?;
+        work.scan_bytes(raw.len())?;
+        work.write_bytes(raw.len())?;
+    }
+    for fields in packed_records {
+        for raw in *fields {
+            work.scan_bytes(raw.len())?;
+            work.write_bytes(raw.len())?;
+        }
+    }
+    let mut bytes = 262144usize;
+    let mut add = |amount: usize| -> Result<(), FinancialReadError> {
+        work.arithmetic(Op::Add, &[&bytes.into(), &amount.into()])?;
+        bytes = bytes
+            .checked_add(amount)
+            .ok_or_else(|| StoreError::Integrity("financial I/O payload overflow"))?;
+        Ok(())
+    };
+    // Reserve before any bind constructs its copied Arc<Vec>/Arc<String>.
+    for raw in bound {
+        add(raw.len())?;
+        // MAX(n,32) is the pinned sqlite3VdbeMemSetStr TRANSIENT request.
+        add(raw.len().max(32))?;
+    }
+    for fields in packed_records {
+        for raw in *fields {
+            add(raw.len())?;
+            // <=9-byte serial type per field; reserve the header-length
+            // varint explicitly for every declared packed record as well.
+            add(9)?;
+        }
+        add(9)?;
+    }
+    for _ in 0..packed_integer_fields {
+        add(8 + 9)?;
+    }
+    add(materialized_columns)?;
+    Ok(bytes)
+}
+
 impl SqliteTx {
     pub(crate) fn financial_reserve_io(
         &mut self,

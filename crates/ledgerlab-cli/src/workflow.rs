@@ -89,13 +89,41 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, Servi
     // closed request and global original identity before fresh authorization.
     let header: Value =
         serde_json::from_slice(raw).map_err(|_| ServiceError::Rejection("INVALID_SHAPE".into()))?;
+    let payload_schema = header
+        .get("payload")
+        .and_then(|p| p.get("schema"))
+        .and_then(Value::as_str);
     let kind = match header.get("kind").and_then(Value::as_str) {
         Some("policy.publish") => "policy.publish",
+        Some("evidence.retain")
+            if matches!(
+                payload_schema,
+                Some(
+                    "ledger-workflow-fact-attest/1"
+                        | "ledger-workflow-family-close-attest/1"
+                        | "ledger-workflow-supplier-cost-attest/1"
+                )
+            ) =>
+        {
+            "financial"
+        }
+        Some("authority.change") if payload_schema == Some("ledger-cost-authority-enroll/1") => {
+            "financial"
+        }
         Some("evidence.retain" | "authority.change") => "prerequisite",
         Some("agreement.accept" | "agreement.activate" | "agreement.revoke") => "agreement",
         Some(
-            "work.accept" | "work.reverse" | "quantity.correct" | "outcome.submit"
-            | "outcome.correct" | "outcome.close" | "link.assert",
+            "work.accept"
+            | "work.reverse"
+            | "quantity.correct"
+            | "outcome.submit"
+            | "outcome.correct"
+            | "outcome.close"
+            | "link.assert"
+            | "invocation.authorize"
+            | "invocation.close"
+            | "cost.finalize"
+            | "cost.correct",
         ) => "financial",
         _ => return Err(ServiceError::Rejection("INVALID_SHAPE".into())),
     };

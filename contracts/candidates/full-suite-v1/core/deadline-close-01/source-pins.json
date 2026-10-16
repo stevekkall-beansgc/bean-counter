@@ -1,0 +1,44 @@
+{
+  "files": [
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/owner-local-cost-01/SPEC.md",
+      "bytes": 33122,
+      "sha256": "054177515c365e6ce2abd041b9817ec0c30aadb033ef06ff9768fedb0a61d0e8"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/owner-local-cost-01/CLOSURE-AND-DESCRIPTORS.md",
+      "bytes": 14408,
+      "sha256": "998bdca17646b1d9ae5df6ba9b3e928665580c13f9d2881e7d47d56f8486a54f"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/owner-local-cost-01/owner-local-cost.schema.json",
+      "bytes": 370629,
+      "sha256": "aff25b3d71f2e780ad4b0b93161d01933a800a787ce0bf28dfafef388ee3126a"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/owner-local-cost-01/profile.json",
+      "bytes": 1887,
+      "sha256": "19bbb319fb94763ec1af19079fdd1a95fe9ac9cced404a035db763c5aad19965"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/owner-local-cost-01/registry.json",
+      "bytes": 13846,
+      "sha256": "dd7c4bb11d510679a13f158e5164020d52aae842163fc3bdb2b08cdbea68d3b4"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/family-close-01/SPEC.md",
+      "bytes": 17421,
+      "sha256": "d31cf6a7155442193041a559390d937a9c06200cdee5720802037d3f805a747f"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/DEADLINE-CLOSE-AUTHORITY-DISPOSITION.md",
+      "bytes": 9430,
+      "sha256": "df924d2636f38faf55533f94cda092b4047325a3d1747a21bb9bbe7bfb774162"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/DEADLINE-CLOSE-APPROVAL-AND-RESUME.md",
+      "bytes": 2253,
+      "sha256": "75c79d38ee9b05def9fbf8bc011f8ac36616c6e087fdff1536b06577ca7e40a5"
+    }
+  ]
+}

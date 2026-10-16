@@ -2,7 +2,6 @@
 //! artifacts and their resource session remain alive in that coordinator.
 use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{EconomicCandidate, ExactRef};
-use serde_json::Value;
 
 pub(super) const MATCH_DOCUMENT: &str = "SELECT kind=? AND digest=? AND schema_name=? AND canonical_bytes=? FROM workflow_documents WHERE id=?";
 pub(super) const INSERT_DOCUMENT: &str = "INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING";
@@ -35,8 +34,10 @@ pub(crate) struct FinancialJournal<'a> {
     pub manifest_bytes: &'a [u8],
     pub receipt_ref: &'a ExactRef,
     pub receipt_bytes: &'a [u8],
-    /// Borrowed from the owning, closed canonical manifest; no cloned Ref set.
-    pub members: &'a [Value],
+    /// Borrowed exact candidate closure, excluding this new operation. The
+    /// coordinator emits its canonical union with operation_ref in the manifest;
+    /// storage adds that same Ref without a second parsed manifest tree.
+    pub members: &'a [&'a ExactRef],
     pub sequence: i64,
     pub accepted_at_us: i64,
 }
@@ -47,21 +48,6 @@ pub(crate) struct FinancialAppend<'a> {
     pub candidate: &'a EconomicCandidate,
     pub documents: &'a [FinancialDocument<'a>],
     pub journal: FinancialJournal<'a>,
-}
-fn member(value: &Value) -> Result<(&str, &str, &str), StoreError> {
-    let object = value
-        .as_object()
-        .ok_or(StoreError::Integrity("financial member object"))?;
-    if object.len() != 3 {
-        return Err(StoreError::Integrity("financial member fields"));
-    }
-    let text = |key| {
-        object
-            .get(key)
-            .and_then(Value::as_str)
-            .ok_or(StoreError::Integrity("financial member reference"))
-    };
-    Ok((text("kind")?, text("id")?, text("digest")?))
 }
 fn extra(total: i64, amount: usize) -> Result<i64, StoreError> {
     total
@@ -74,25 +60,47 @@ impl SqliteTx {
     pub(crate) async fn workflow_financial_append(
         &mut self,
         prepared: &FinancialAppend<'_>,
-    ) -> Result<(), StoreError> {
+        session: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
         if self.failed {
-            return Err(StoreError::Integrity("poisoned financial transaction"));
+            return Err(StoreError::Integrity("poisoned financial transaction").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, self.financial_append_inner(prepared))
-            .await
-            .map_err(|_| StoreError::Deadline)?;
+        let result = timeout_at(
+            self.deadline,
+            self.financial_append_inner(prepared, session),
+        )
+        .await
+        .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {
+            // An Ok SQL result cannot erase a failed/cancelled child, a caught
+            // proof error or a worker payload still awaiting finalization.
+            // The executing guard uses this SAME original session lifecycle.
+            session.semantic_work().visit(ValidationVisit::Constraint)?;
+            session.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(
+                    StoreError::Integrity("financial completion retains poisoned work").into(),
+                );
+            }
             self.failed = false;
         }
         result
     }
-    async fn financial_append_inner(&mut self, p: &FinancialAppend<'_>) -> Result<(), StoreError> {
+    async fn financial_append_inner(
+        &mut self,
+        p: &FinancialAppend<'_>,
+        session: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if version != 13 {
-            return Err(StoreError::BillingUpgradeRequired);
+        if version != 13 && version != 14 {
+            return Err(StoreError::BillingUpgradeRequired.into());
         }
         let key = p.candidate.key();
         let o = &p.journal;
@@ -105,6 +113,12 @@ impl SqliteTx {
                 | "outcome.correct"
                 | "outcome.close"
                 | "link.assert"
+                | "evidence.retain"
+                | "authority.change"
+                | "invocation.authorize"
+                | "invocation.close"
+                | "cost.finalize"
+                | "cost.correct"
         ) || o.operation_ref.kind != "workflow-operation"
             || o.manifest_ref.kind != "workflow-manifest"
             || o.receipt_ref.kind != "workflow-receipt"
@@ -117,19 +131,21 @@ impl SqliteTx {
             || o.receipt_bytes.is_empty()
             || o.receipt_bytes.len() > 1048576
             || p.documents.len() > 4095
-            || o.members.is_empty()
-            || o.members.len() > 4096
+            || o.members.len() > 4095
         {
-            return Err(StoreError::Integrity("financial prepared framing"));
+            return Err(StoreError::Integrity("financial prepared framing").into());
         }
+        let payload = io::binding_payload(&[o.identity], &[], 0, 0, session)?;
+        self.financial_reserve_io(session, payload)?;
         let occupied: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM workflow_operations WHERE identity_key=?)",
         )
         .bind(o.identity)
         .fetch_one(self.conn())
         .await?;
+        self.financial_finish_io(session).await?;
         if occupied {
-            return Err(StoreError::ExpectedCurrent);
+            return Err(StoreError::ExpectedCurrent.into());
         }
         let mut additional = 0;
         for bytes in [
@@ -145,10 +161,21 @@ impl SqliteTx {
                 || d.canonical_bytes.is_empty()
                 || d.canonical_bytes.len() > 4194304
             {
-                return Err(StoreError::Integrity("financial prepared document bounds"));
+                return Err(StoreError::Integrity("financial prepared document bounds").into());
             }
             // SQLite performs the exact comparison; no unleased multi-MiB
             // retained BLOB is fetched into Rust merely to compare it.
+            let bindings = [
+                d.reference.kind.as_bytes(),
+                d.reference.digest.as_bytes(),
+                d.schema.as_bytes(),
+                d.canonical_bytes,
+                d.reference.id.as_bytes(),
+            ];
+            // MATCH materializes at most the existing4MiB canonical document,
+            // returns only a boolean and has no request-sized packed result.
+            let payload = io::binding_payload(&bindings, &[], 0, 4194304, session)?;
+            self.financial_reserve_io(session, payload)?;
             let retained: Option<bool> = sqlx::query_scalar(MATCH_DOCUMENT)
                 .bind(&d.reference.kind)
                 .bind(&d.reference.digest)
@@ -157,11 +184,12 @@ impl SqliteTx {
                 .bind(&d.reference.id)
                 .fetch_optional(self.conn())
                 .await?;
+            self.financial_finish_io(session).await?;
             match retained {
                 Some(false) => {
-                    return Err(StoreError::Integrity(
-                        "immutable financial document conflict",
-                    ));
+                    return Err(
+                        StoreError::Integrity("immutable financial document conflict").into(),
+                    );
                 }
                 Some(true) => {}
                 None => {
@@ -171,11 +199,86 @@ impl SqliteTx {
         }
         let before = super::super::capacity::check(self.conn(), 1, additional).await?;
         if before.operations.checked_add(1) != Some(o.sequence) {
-            return Err(StoreError::Integrity("financial journal sequence gap"));
+            return Err(StoreError::Integrity("financial journal sequence gap").into());
         }
         for d in p.documents {
+            let r = d.reference;
+            let bound = [
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+                d.schema.as_bytes(),
+                d.canonical_bytes,
+            ];
+            // Exact three MakeRecord sites in the pinned direct VALUES VM:
+            // full row, (kind,id,digest,rowid), (id,rowid). SCopy is shallow.
+            let packed = [
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+                d.schema.as_bytes(),
+                d.canonical_bytes,
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+                r.id.as_bytes(),
+            ];
+            let payload = io::binding_payload(&bound, &packed, 2, 0, session)?;
+            self.financial_reserve_io(session, payload)?;
             insert_document(d).execute(self.conn()).await?;
+            self.financial_finish_io(session).await?;
         }
+        let bound = [
+            o.identity,
+            key.logical_store_id.as_bytes(),
+            key.scope[0].as_bytes(),
+            key.scope[1].as_bytes(),
+            key.source.as_bytes(),
+            key.operation_id.as_bytes(),
+            o.operation_ref.id.as_bytes(),
+            o.operation_ref.digest.as_bytes(),
+            o.operation_bytes,
+            o.request_hash.as_bytes(),
+            o.manifest_ref.id.as_bytes(),
+            o.manifest_ref.digest.as_bytes(),
+            o.manifest_bytes,
+            o.receipt_ref.id.as_bytes(),
+            o.receipt_ref.digest.as_bytes(),
+            o.receipt_bytes,
+            o.kind.as_bytes(),
+        ];
+        // The full row plus the six unique-index records from the exact pinned
+        // INSERT VM. Main row has two integers; index records add seven.
+        let packed = [
+            o.identity,
+            key.logical_store_id.as_bytes(),
+            key.scope[0].as_bytes(),
+            key.scope[1].as_bytes(),
+            key.source.as_bytes(),
+            key.operation_id.as_bytes(),
+            o.operation_ref.id.as_bytes(),
+            o.operation_ref.digest.as_bytes(),
+            o.operation_bytes,
+            o.request_hash.as_bytes(),
+            o.manifest_ref.id.as_bytes(),
+            o.manifest_ref.digest.as_bytes(),
+            o.manifest_bytes,
+            o.receipt_ref.id.as_bytes(),
+            o.receipt_ref.digest.as_bytes(),
+            o.receipt_bytes,
+            o.kind.as_bytes(),
+            key.logical_store_id.as_bytes(),
+            key.scope[0].as_bytes(),
+            key.scope[1].as_bytes(),
+            key.source.as_bytes(),
+            key.operation_id.as_bytes(),
+            o.receipt_ref.id.as_bytes(),
+            o.manifest_ref.id.as_bytes(),
+            o.operation_ref.id.as_bytes(),
+            o.identity,
+        ];
+        let payload = io::binding_payload(&bound, &packed, 9, 0, session)?;
+        self.financial_reserve_io(session, payload)?;
         sqlx::query(INSERT_OPERATION)
             .bind(o.identity)
             .bind(&key.logical_store_id)
@@ -198,31 +301,77 @@ impl SqliteTx {
             .bind(o.kind)
             .execute(self.conn())
             .await?;
+        self.financial_finish_io(session).await?;
         let mut own_operation_members = 0;
-        for value in o.members {
-            let (kind, id, digest) = member(value)?;
+        for reference in o
+            .members
+            .iter()
+            .copied()
+            .chain(std::iter::once(o.operation_ref))
+        {
+            session.semantic_work().visit(ValidationVisit::Element)?;
+            let (kind, id, digest) = (
+                reference.kind.as_str(),
+                reference.id.as_str(),
+                reference.digest.as_str(),
+            );
             if kind == "workflow-operation" {
                 if id == o.operation_ref.id && digest == o.operation_ref.digest {
                     own_operation_members += 1;
                 } else {
+                    let bound = [
+                        key.logical_store_id.as_bytes(),
+                        key.scope[0].as_bytes(),
+                        key.scope[1].as_bytes(),
+                        id.as_bytes(),
+                        digest.as_bytes(),
+                    ];
+                    let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
+                    self.financial_reserve_io(session, payload)?;
                     let original:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_record_id=? AND operation_digest=? AND commit_sequence<?)")
                         .bind(&key.logical_store_id).bind(&key.scope[0]).bind(&key.scope[1])
                         .bind(id).bind(digest).bind(o.sequence).fetch_one(self.conn()).await?;
+                    self.financial_finish_io(session).await?;
                     if !original {
                         return Err(StoreError::Integrity(
                             "financial operation member not an earlier scoped original",
-                        ));
+                        )
+                        .into());
                     }
                 }
             } else {
+                let bound = [kind.as_bytes(), id.as_bytes(), digest.as_bytes()];
+                let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
+                self.financial_reserve_io(session, payload)?;
                 let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_documents WHERE kind=? AND id=? AND digest=?)")
                     .bind(kind).bind(id).bind(digest).fetch_one(self.conn()).await?;
+                self.financial_finish_io(session).await?;
                 if !present {
-                    return Err(StoreError::Integrity("financial manifest missing document"));
+                    return Err(StoreError::Integrity("financial manifest missing document").into());
                 }
             }
             // The primary key rejects repeated full Refs, inside this same
             // poisoned transaction. No unleased host BTree/Ref clone is made.
+            let bound = [
+                o.identity,
+                kind.as_bytes(),
+                id.as_bytes(),
+                digest.as_bytes(),
+            ];
+            // The member table and its composite primary-key index each hold
+            // this exact four-field identity; no body/financial pricing input.
+            let packed = [
+                o.identity,
+                kind.as_bytes(),
+                id.as_bytes(),
+                digest.as_bytes(),
+                o.identity,
+                kind.as_bytes(),
+                id.as_bytes(),
+                digest.as_bytes(),
+            ];
+            let payload = io::binding_payload(&bound, &packed, 1, 0, session)?;
+            self.financial_reserve_io(session, payload)?;
             sqlx::query("INSERT INTO workflow_manifest_members VALUES(?,?,?,?)")
                 .bind(o.identity)
                 .bind(kind)
@@ -230,52 +379,89 @@ impl SqliteTx {
                 .bind(digest)
                 .execute(self.conn())
                 .await?;
+            self.financial_finish_io(session).await?;
         }
         if own_operation_members != 1 {
-            return Err(StoreError::Integrity(
-                "financial operation manifest membership",
-            ));
+            return Err(StoreError::Integrity("financial operation manifest membership").into());
         }
         for r in p.candidate.consumed_refs() {
+            session.semantic_work().visit(ValidationVisit::Element)?;
+            let bound = [
+                o.identity,
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+            ];
+            let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
+            self.financial_reserve_io(session, payload)?;
             let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_manifest_members WHERE identity_key=? AND kind=? AND id=? AND digest=?)")
                 .bind(o.identity).bind(&r.kind).bind(&r.id).bind(&r.digest).fetch_one(self.conn()).await?;
+            self.financial_finish_io(session).await?;
             if !present {
                 return Err(StoreError::Integrity(
                     "financial consumed reference absent from manifest",
-                ));
+                )
+                .into());
             }
         }
         for d in p.documents {
+            let bound = [
+                o.identity,
+                d.reference.kind.as_bytes(),
+                d.reference.id.as_bytes(),
+                d.reference.digest.as_bytes(),
+            ];
+            let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
+            self.financial_reserve_io(session, payload)?;
             let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_manifest_members WHERE identity_key=? AND kind=? AND id=? AND digest=?)")
                 .bind(o.identity).bind(&d.reference.kind).bind(&d.reference.id).bind(&d.reference.digest).fetch_one(self.conn()).await?;
+            self.financial_finish_io(session).await?;
             if !present {
-                return Err(StoreError::Integrity(
-                    "financial prepared document outside manifest",
-                ));
+                return Err(
+                    StoreError::Integrity("financial prepared document outside manifest").into(),
+                );
             }
         }
         for d in p.candidate.introduced() {
+            session.semantic_work().visit(ValidationVisit::Element)?;
             let r = d.reference();
+            let bound = [
+                o.identity,
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+                d.schema().as_bytes(),
+                d.canonical_body(),
+            ];
+            let payload = io::binding_payload(&bound, &[], 0, 4194304, session)?;
+            self.financial_reserve_io(session, payload)?;
             let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest WHERE m.identity_key=? AND d.kind=? AND d.id=? AND d.digest=? AND d.schema_name=? AND d.canonical_bytes=?)")
                 .bind(o.identity).bind(&r.kind).bind(&r.id).bind(&r.digest).bind(d.schema()).bind(d.canonical_body()).fetch_one(self.conn()).await?;
+            self.financial_finish_io(session).await?;
             if !present {
-                return Err(StoreError::Integrity(
-                    "financial introduced result absent or changed",
-                ));
+                return Err(
+                    StoreError::Integrity("financial introduced result absent or changed").into(),
+                );
             }
         }
-        self.apply_financial_effects(p.candidate, o.identity, o.sequence)
+        self.apply_financial_effects(p.candidate, o.identity, o.sequence, session)
             .await?;
+        let payload = io::binding_payload(&[o.identity], &[o.identity, o.identity], 3, 0, session)?;
+        self.financial_reserve_io(session, payload)?;
         sqlx::query("INSERT INTO workflow_feed VALUES(?,?)")
             .bind(o.sequence)
             .bind(o.identity)
             .execute(self.conn())
             .await?;
+        self.financial_finish_io(session).await?;
+        let payload = io::binding_payload(&[], &[], 4, 0, session)?;
+        self.financial_reserve_io(session, payload)?;
         let changed=sqlx::query("UPDATE workflow_state SET operation_count=?,payload_bytes=? WHERE singleton=1 AND operation_count=? AND payload_bytes=?")
             .bind(o.sequence).bind(before.payload_bytes.checked_add(additional).ok_or(StoreError::BillingHistoryLimit)?)
             .bind(before.operations).bind(before.payload_bytes).execute(self.conn()).await?.rows_affected();
+        self.financial_finish_io(session).await?;
         if changed != 1 {
-            return Err(StoreError::ExpectedCurrent);
+            return Err(StoreError::ExpectedCurrent.into());
         }
         // Exact counted final state catches duplicate preflight documents and
         // any mismatch before this append may clear its poison bit.

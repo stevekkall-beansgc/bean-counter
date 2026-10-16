@@ -62,22 +62,120 @@ fn resource(e: crate::store::sqlite::workflow::financial::FinancialReadError) ->
     }
 }
 #[derive(Clone, Copy)]
-struct Recipe {
-    operation: &'static str,
-    manifest: &'static str,
-    closure: &'static str,
-    authority: &'static str,
+pub(super) struct Recipe {
+    pub(super) operation: &'static str,
+    pub(super) manifest: &'static str,
+    pub(super) closure: &'static str,
+    pub(super) authority: &'static str,
 }
-fn recipe(
+fn equal_text(left: &str, right: &str, session: &mut OriginalAuditSession) -> Result<bool> {
+    let work = session.semantic_work();
+    work.visit(Visit::MemberCompare).map_err(core_error)?;
+    work.scan_bytes(left.len()).map_err(core_error)?;
+    work.scan_bytes(right.len()).map_err(core_error)?;
+    Ok(left == right)
+}
+const DEADLINE_REGISTRY: &str =
+    "sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da";
+const SUPPLIER_REGISTRY: &str =
+    "sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93";
+fn supplier_recipe(
+    kind: &str,
+    payload: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<Option<Recipe>> {
+    // Exact disjoint (kind,payload) rows from the frozen owner-local registry.
+    // Ordinary/root rows do not inherit supplier authority4 or old closure3/4.
+    for (k, p) in [
+        ("evidence.retain", "ledger-workflow-fact-attest/1"),
+        ("evidence.retain", "ledger-workflow-family-close-attest/1"),
+        ("work.accept", "ledger-workflow-work/1"),
+        ("link.assert", "ledger-workflow-link-assert/1"),
+        ("outcome.submit", "ledger-workflow-outcome/1"),
+        ("outcome.correct", "ledger-workflow-outcome-correction/1"),
+        ("outcome.close", "ledger-workflow-outcome-close/2"),
+        ("quantity.correct", "ledger-workflow-quantity-correction/2"),
+        ("work.reverse", "ledger-workflow-work-reverse/2"),
+    ] {
+        if equal_text(kind, k, session)? && equal_text(payload, p, session)? {
+            return Ok(Some(Recipe {
+                operation: "ledger-workflow-economic-operation/6",
+                manifest: "ledger-workflow-economic-manifest/6",
+                closure: "ledger-economic-resolved-inputs/6",
+                authority: "ledger-workflow-economic-authority/5",
+            }));
+        }
+    }
+    for (k, p) in [
+        ("evidence.retain", "ledger-workflow-supplier-cost-attest/1"),
+        (
+            "invocation.authorize",
+            "ledger-workflow-invocation-authorize/1",
+        ),
+        ("invocation.close", "ledger-workflow-invocation-close/1"),
+        ("cost.finalize", "ledger-workflow-cost-finalize/1"),
+        ("cost.correct", "ledger-workflow-cost-correct/1"),
+    ] {
+        if equal_text(kind, k, session)? && equal_text(payload, p, session)? {
+            return Ok(Some(Recipe {
+                operation: "ledger-workflow-economic-operation/5",
+                manifest: "ledger-workflow-economic-manifest/5",
+                closure: "ledger-economic-resolved-inputs/5",
+                authority: "ledger-workflow-economic-authority/4",
+            }));
+        }
+    }
+    if equal_text(kind, "authority.change", session)?
+        && equal_text(payload, "ledger-cost-authority-enroll/1", session)?
+    {
+        return Ok(Some(Recipe {
+            operation: "ledger-workflow-economic-operation/5",
+            manifest: "ledger-workflow-economic-manifest/5",
+            closure: "ledger-economic-resolved-inputs/5",
+            authority: "ledger-cost-enrollment-authority/1",
+        }));
+    }
+    Ok(None)
+}
+pub(super) fn descriptor_schema(
+    kind: &str,
+    payload: &str,
+    registry: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<&'static str> {
+    if equal_text(registry, SUPPLIER_REGISTRY, session)?
+        || equal_text(registry, DEADLINE_REGISTRY, session)?
+    {
+        if supplier_recipe(kind, payload, session)?.is_some()
+            || (equal_text(kind, "policy.publish", session)?
+                && equal_text(payload, "ledger-workflow-policy-publication/3", session)?)
+            || (equal_text(kind, "agreement.accept", session)?
+                && equal_text(payload, "ledger-workflow-agreement-accept/5", session)?)
+        {
+            return Ok("ledger-operation-descriptors/2");
+        }
+        return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
+    Ok("ledger-operation-descriptors/1")
+}
+pub(super) fn recipe(
     kind: &str,
     payload: &str,
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<Recipe> {
+    if equal_text(registry, SUPPLIER_REGISTRY, session)?
+        || equal_text(registry, DEADLINE_REGISTRY, session)?
+    {
+        return supplier_recipe(kind, payload, session)?
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     const ECON: &str = "sha256:5d9c1c2b3719978693927dd72264aa3c402daaf62800d9e11bb49b0d0868ec1e";
     const CAUSAL: &str = "sha256:b9397d8545fccefeb32ff9c320f1f70c96b1c89d6bd58f7aba37068862ab6d54";
     const EXPOSURE: &str =
         "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4";
+    const FAMILY_CLOSE: &str =
+        "sha256:3aae5efefe5a28f8e1bd5382609652e67d9cf710250c8d29874715399f9449dc";
     // Dispatch EACH kind/payload/registry tuple, never 'known registry=>latest'.
     const ORDINARY: &[(&str, &str)] = &[
         ("work.accept", "ledger-workflow-work/1"),
@@ -87,13 +185,13 @@ fn recipe(
         ("link.assert", "ledger-workflow-link-assert/1"),
     ];
     for (k, p) in ORDINARY {
-        session
-            .semantic_work()
-            .visit(Visit::MemberCompare)
-            .map_err(core_error)?;
-        if kind == *k
-            && payload == *p
-            && (registry == ECON || registry == CAUSAL || registry == EXPOSURE)
+        if equal_text(kind, k, session)?
+            && equal_text(payload, p, session)?
+            && (equal_text(registry, ECON, session)?
+                || equal_text(registry, CAUSAL, session)?
+                || equal_text(registry, EXPOSURE, session)?
+                || (equal_text(registry, FAMILY_CLOSE, session)?
+                    && !equal_text(kind, "outcome.close", session)?))
         {
             return Ok(Recipe {
                 operation: "ledger-workflow-economic-operation/3",
@@ -109,11 +207,10 @@ fn recipe(
         ("quantity.correct", "ledger-workflow-quantity-correction/1"),
         ("work.reverse", "ledger-workflow-work-reverse/1"),
     ] {
-        session
-            .semantic_work()
-            .visit(Visit::MemberCompare)
-            .map_err(core_error)?;
-        if kind == k && payload == p && registry == ECON {
+        if equal_text(kind, k, session)?
+            && equal_text(payload, p, session)?
+            && equal_text(registry, ECON, session)?
+        {
             return Ok(Recipe {
                 operation: "ledger-workflow-economic-operation/3",
                 manifest: "ledger-workflow-economic-manifest/3",
@@ -126,11 +223,12 @@ fn recipe(
         ("quantity.correct", "ledger-workflow-quantity-correction/2"),
         ("work.reverse", "ledger-workflow-work-reverse/2"),
     ] {
-        session
-            .semantic_work()
-            .visit(Visit::MemberCompare)
-            .map_err(core_error)?;
-        if kind == k && payload == p && (registry == CAUSAL || registry == EXPOSURE) {
+        if equal_text(kind, k, session)?
+            && equal_text(payload, p, session)?
+            && (equal_text(registry, CAUSAL, session)?
+                || equal_text(registry, EXPOSURE, session)?
+                || equal_text(registry, FAMILY_CLOSE, session)?)
+        {
             return Ok(Recipe {
                 operation: "ledger-workflow-economic-operation/4",
                 manifest: "ledger-workflow-economic-manifest/4",
@@ -138,6 +236,17 @@ fn recipe(
                 authority: "ledger-workflow-economic-authority/3",
             });
         }
+    }
+    if equal_text(kind, "outcome.close", session)?
+        && equal_text(payload, "ledger-workflow-outcome-close/2", session)?
+        && equal_text(registry, FAMILY_CLOSE, session)?
+    {
+        return Ok(Recipe {
+            operation: "ledger-workflow-economic-operation/3",
+            manifest: "ledger-workflow-economic-manifest/3",
+            closure: "ledger-economic-resolved-inputs/3",
+            authority: "ledger-workflow-economic-authority/2",
+        });
     }
     Err(reject("UNSUPPORTED_SCHEMA_PROFILE"))
 }
@@ -398,9 +507,15 @@ fn descriptor_hashes(
         ],
         session,
     )?;
+    let expected_descriptor = descriptor_schema(
+        kind,
+        payload_schema,
+        request::text(resolution, "registry_digest", session)?,
+        session,
+    )?;
     request::same_text(
         request::text(resolution, "schema", session)?,
-        "ledger-operation-descriptors/1",
+        expected_descriptor,
         session,
     )?;
     request::same_text(
@@ -606,24 +721,41 @@ pub(super) async fn validate_frame(
     let op = operation.value();
     let man = manifest.value();
     let rec = receipt.value();
-    let class = match frame.kind {
-        "policy.publish" => WireClass::Publication,
-        "evidence.retain" | "authority.change" => WireClass::Prerequisite,
-        "agreement.accept" | "agreement.activate" | "agreement.revoke" => {
-            session
-                .semantic_work()
-                .visit(Visit::MemberCompare)
-                .map_err(core_error)?;
-            if request::text(op, "schema", session)?
-                == "ledger-workflow-agreement-alias-operation/1"
-            {
-                WireClass::AgreementAlias
-            } else {
-                WireClass::Agreement
-            }
+    let operation_schema = request::text(op, "schema", session)?;
+    let mut economic = false;
+    for schema in [
+        "ledger-workflow-economic-operation/3",
+        "ledger-workflow-economic-operation/4",
+        "ledger-workflow-economic-operation/5",
+        "ledger-workflow-economic-operation/6",
+    ] {
+        if equal_text(operation_schema, schema, session)? {
+            economic = true;
+            break;
         }
-        kind if is_kind(kind) => WireClass::Financial,
-        _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+    }
+    let class = if economic {
+        WireClass::Financial
+    } else {
+        match frame.kind {
+            "policy.publish" => WireClass::Publication,
+            "evidence.retain" | "authority.change" => WireClass::Prerequisite,
+            "agreement.accept" | "agreement.activate" | "agreement.revoke" => {
+                session
+                    .semantic_work()
+                    .visit(Visit::MemberCompare)
+                    .map_err(core_error)?;
+                if request::text(op, "schema", session)?
+                    == "ledger-workflow-agreement-alias-operation/1"
+                {
+                    WireClass::AgreementAlias
+                } else {
+                    WireClass::Agreement
+                }
+            }
+            kind if is_kind(kind) => WireClass::Financial,
+            _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+        }
     };
     if class == WireClass::Financial {
         request::closed(
@@ -968,6 +1100,7 @@ mod recipe_tests {
         for registry in [
             registry,
             "sha256:b9397d8545fccefeb32ff9c320f1f70c96b1c89d6bd58f7aba37068862ab6d54",
+            "sha256:3aae5efefe5a28f8e1bd5382609652e67d9cf710250c8d29874715399f9449dc",
         ] {
             for (kind, old, new) in [
                 (
@@ -1000,6 +1133,24 @@ mod recipe_tests {
                 ("outcome.close", "ledger-workflow-outcome-close/1"),
                 ("link.assert", "ledger-workflow-link-assert/1"),
             ] {
+                if registry
+                    == "sha256:3aae5efefe5a28f8e1bd5382609652e67d9cf710250c8d29874715399f9449dc"
+                    && kind == "outcome.close"
+                {
+                    assert!(recipe(kind, payload, registry, &mut session).is_err());
+                    assert_eq!(
+                        recipe(
+                            kind,
+                            "ledger-workflow-outcome-close/2",
+                            registry,
+                            &mut session
+                        )
+                        .unwrap()
+                        .operation,
+                        "ledger-workflow-economic-operation/3"
+                    );
+                    continue;
+                }
                 assert_eq!(
                     recipe(kind, payload, registry, &mut session)
                         .unwrap()
@@ -1008,6 +1159,15 @@ mod recipe_tests {
                 );
             }
         }
+        assert!(
+            recipe(
+                "outcome.close",
+                "ledger-workflow-outcome-close/2",
+                registry,
+                &mut session
+            )
+            .is_err()
+        );
         let ordinary = recipe(
             "work.accept",
             "ledger-workflow-work/1",
@@ -1053,5 +1213,75 @@ mod recipe_tests {
             )
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod supplier_dispatch_tests {
+    use super::*;
+    #[test]
+    fn frozen_supplier_and_deadline_rows_dispatch_exact_saved_tuples() {
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        for (registry, raw) in [
+            (
+                SUPPLIER_REGISTRY,
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/registry.json"
+                )),
+            ),
+            (
+                DEADLINE_REGISTRY,
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../contracts/candidates/full-suite-v1/core/deadline-close-01/registry.json"
+                )),
+            ),
+        ] {
+            let frozen: Value = serde_json::from_str(raw).unwrap();
+            let mut rows = 0;
+            for entry in frozen["entries"].as_array().unwrap() {
+                let saved = &entry["saved_recipe"];
+                let kind = entry["kind"].as_str().unwrap();
+                if !saved["operation_schema"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("ledger-workflow-economic-operation/")
+                {
+                    continue;
+                }
+                for payload in entry["payload_schemas"].as_array().unwrap() {
+                    let payload = payload.as_str().unwrap();
+                    let actual = recipe(kind, payload, registry, &mut session).unwrap();
+                    assert_eq!(
+                        actual.operation,
+                        saved["operation_schema"].as_str().unwrap()
+                    );
+                    assert_eq!(actual.manifest, saved["manifest_schema"].as_str().unwrap());
+                    assert_eq!(
+                        actual.authority,
+                        saved["authority_schema"].as_str().unwrap()
+                    );
+                    assert_eq!(actual.closure, saved["closure_profile"].as_str().unwrap());
+                    assert_eq!(
+                        descriptor_schema(kind, payload, registry, &mut session).unwrap(),
+                        "ledger-operation-descriptors/2"
+                    );
+                    rows += 1;
+                }
+            }
+            assert_eq!(rows, 15);
+            for (kind, payload) in [
+                ("quantity.correct", "ledger-workflow-quantity-correction/1"),
+                ("work.reverse", "ledger-workflow-work-reverse/1"),
+                ("outcome.close", "ledger-workflow-outcome-close/1"),
+                ("evidence.retain", "ledger-workflow-evidence-retain/1"),
+                ("authority.change", "ledger-workflow-source-enroll/1"),
+                ("cost.finalize", "ledger-workflow-cost-correct/1"),
+            ] {
+                assert!(recipe(kind, payload, registry, &mut session).is_err());
+            }
+        }
     }
 }

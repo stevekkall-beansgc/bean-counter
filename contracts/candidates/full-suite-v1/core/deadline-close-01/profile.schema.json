@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:deadline-close-profile-01",
+  "const": {
+    "schema": "ledger-deadline-close-capability/1",
+    "base_capability_digest": "sha256:6d1b36a8de3340c6b393373b52c3469c31300719c6f8a4643da6cd4cbb11c8ca",
+    "base_registry_digest": "sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93",
+    "deadline_recipe": "outcome.close/deadline-authorized-1",
+    "payload_schema": "ledger-workflow-outcome-close/2",
+    "authority_schema": "ledger-workflow-economic-authority/5",
+    "operation_schema": "ledger-workflow-economic-operation/6",
+    "manifest_schema": "ledger-workflow-economic-manifest/6",
+    "closure_profile": "ledger-economic-resolved-inputs/6",
+    "normalization_profile": "ledger-operation-normalization/2",
+    "deadline_slot_selection": "first_jcs_name_of_complete_individually_sufficient_original_accepted_slot_set",
+    "deadline_required_permissions": [
+      "close",
+      "read"
+    ],
+    "deadline_required_operation": "outcome.close",
+    "no_success_recipe": "unchanged_explicit_original_nomination_and_verified_family_no_success",
+    "resource_profile": "workflow-resource-vector/1",
+    "financial_enablement": "requires_complete_qualified_capability"
+  }
+}

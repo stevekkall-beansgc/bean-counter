@@ -225,7 +225,7 @@ impl SqliteTx {
     }
     async fn require_m3_billing_schema(&mut self) -> Result<(), StoreError> {
         let version = self.billing_schema_version().await?;
-        if version != 10 && version != 11 && version != 12 && version != 13 {
+        if version != 10 && version != 11 && version != 12 && version != 13 && version != 14 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -233,7 +233,7 @@ impl SqliteTx {
 
     async fn require_m5_billing_schema(&mut self) -> Result<(), StoreError> {
         let version = self.billing_schema_version().await?;
-        if version != 11 && version != 12 && version != 13 {
+        if version != 11 && version != 12 && version != 13 && version != 14 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -247,7 +247,7 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
         match version {
-            11 | 12 | 13 => {
+            11 | 12 | 13 | 14 => {
                 super::m5::append_boundary(self.conn()).await?;
                 Ok(())
             }
@@ -1066,7 +1066,7 @@ impl SqliteTx {
             let ordinal = entry_count + 1;
             let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
                 .fetch_one(self.conn()).await?;
-            let assignment = if schema == 11 || schema == 12 || schema == 13 {
+            let assignment = if schema == 11 || schema == 12 || schema == 13 || schema == 14 {
                 super::m5::assignment_for_m3(self.conn(), plan).await?
             } else {
                 None

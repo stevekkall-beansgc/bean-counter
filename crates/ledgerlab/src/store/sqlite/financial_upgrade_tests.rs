@@ -137,16 +137,79 @@ async fn financial_upgrade_cannot_reset_a_real_missing_foreign_key() {
 async fn financial_dependency_and_retirement_kinds_have_closed_physical_storage() {
     let mut c = prior().await;
     let mut tx = c.begin().await.unwrap();
-    tx.execute(sqlx::AssertSqlSafe(FINANCIAL_WORKFLOW)).await.unwrap();
+    tx.execute(sqlx::AssertSqlSafe(FINANCIAL_WORKFLOW))
+        .await
+        .unwrap();
     finish_financial_schema(&mut tx).await.unwrap();
     tx.commit().await.unwrap();
     // These opaque physical witnesses test the exact admitted kind/FK only;
     // they are not constructor outputs or authenticated financial history.
     c.execute("INSERT INTO workflow_documents VALUES('workflow-dependency','dep','digest','ledger-workflow-dependency/1',X'01'),('workflow-capacity-retirement','retirement','digest','ledger-workflow-capacity-retirement/1',X'02'),('workflow-target','target','digest','opaque',X'03'),('workflow-slot-terms','terms','digest','opaque',X'04'),('workflow-correction-capacity','capacity','digest','opaque',X'05')").await.unwrap();
     c.execute("INSERT INTO workflow_financial_dependencies VALUES('store','tenant','environment','ancestor','dependent','outcome_family','workflow-target','target','digest','family','workflow-slot-terms','terms','digest','workflow-correction-capacity','capacity','digest','workflow-dependency','dep','digest')").await.unwrap();
-    let dependency: String = sqlx::query_scalar("SELECT record_kind FROM workflow_financial_dependencies")
-        .fetch_one(&mut c).await.unwrap();
-    assert_eq!(dependency,"workflow-dependency");
+    let dependency: String =
+        sqlx::query_scalar("SELECT record_kind FROM workflow_financial_dependencies")
+            .fetch_one(&mut c)
+            .await
+            .unwrap();
+    assert_eq!(dependency, "workflow-dependency");
     assert!(c.execute("INSERT INTO workflow_documents VALUES('workflow-unknown-financial','unknown','digest','opaque',X'01')").await.is_err());
     assert!(c.execute("INSERT INTO workflow_financial_dependencies VALUES('store','tenant','environment','other','dependent','outcome_family','workflow-target','target','digest','family','workflow-slot-terms','terms','digest','workflow-correction-capacity','capacity','digest','workflow-capacity-retirement','retirement','digest')").await.is_err());
+}
+
+#[tokio::test]
+async fn supplier_additive_schema_preserves_history_and_distinct_global_claims() {
+    let mut c = prior().await;
+    let before: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT operation_bytes,manifest_bytes,receipt_bytes FROM workflow_operations",
+    )
+    .fetch_one(&mut c)
+    .await
+    .unwrap();
+    let mut tx = c.begin().await.unwrap();
+    tx.execute(sqlx::AssertSqlSafe(FINANCIAL_WORKFLOW))
+        .await
+        .unwrap();
+    finish_financial_schema(&mut tx).await.unwrap();
+    tx.commit().await.unwrap();
+    // Physical schema witness only: these opaque bytes are not financial
+    // originals, authentication, economic values or successful admission.
+    let mut tx = c.begin().await.unwrap();
+    tx.execute(sqlx::AssertSqlSafe(super::SUPPLIER_WORKFLOW))
+        .await
+        .unwrap();
+    tx.execute("INSERT INTO workflow_documents VALUES('workflow-cost','cost1','digest','opaque',X'01'),('workflow-cost','cost2','digest','opaque',X'02'),('workflow-invocation','inv','digest','opaque',X'03'),('workflow-authority','authority1','digest','opaque',X'04'),('workflow-authority','activation','digest','opaque',X'05')").await.unwrap();
+    tx.execute("INSERT INTO workflow_supplier_account_enrollments VALUES('provider','account','production','workflow-authority','authority1','digest','workflow-authority','activation','digest')").await.unwrap();
+    assert!(tx.execute("INSERT INTO workflow_supplier_account_enrollments VALUES('provider','account','production','workflow-authority','activation','digest','workflow-authority','activation','digest')").await.is_err());
+    tx.execute("INSERT INTO workflow_supplier_cost_line_claims VALUES('authority','provider','account','production','document','line','workflow-cost','cost1','digest')").await.unwrap();
+    // A different invocation/scope cannot reclaim an installation-owned line;
+    // those fields deliberately do not participate in this key.
+    assert!(tx.execute("INSERT INTO workflow_supplier_cost_line_claims VALUES('authority','provider','account','production','document','line','workflow-cost','cost2','digest')").await.is_err());
+    tx.execute("INSERT INTO workflow_supplier_cost_component_claims VALUES('store','tenant','environment','original-work','supplier-slot','workflow-cost','cost1','digest')").await.unwrap();
+    assert!(tx.execute("INSERT INTO workflow_supplier_cost_component_claims VALUES('store','tenant','environment','original-work','supplier-slot','workflow-cost','cost2','digest')").await.is_err());
+    tx.execute("INSERT INTO workflow_supplier_cost_component_claims VALUES('store','tenant','other','original-work','supplier-slot','workflow-cost','cost2','digest')").await.unwrap();
+    tx.execute("INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','invocation','invocation-id','','','','1','workflow-invocation','inv','digest')").await.unwrap();
+    tx.execute("INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','cost','workflow-cost','cost1','digest','','1','workflow-cost','cost1','digest')").await.unwrap();
+    assert!(tx.execute("INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','cost_consumption','workflow-cost','cost1','digest','','1','workflow-authority','authority1','digest')").await.is_err());
+    assert!(tx.execute("INSERT INTO workflow_documents VALUES('workflow-unknown','bad','digest','opaque',X'01')").await.is_err());
+    assert!(
+        tx.execute("DELETE FROM workflow_supplier_cost_line_claims")
+            .await
+            .is_err()
+    );
+    finish_financial_schema(&mut tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let after: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT operation_bytes,manifest_bytes,receipt_bytes FROM workflow_operations",
+    )
+    .fetch_one(&mut c)
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    assert!(
+        sqlx::query("PRAGMA foreign_key_check")
+            .fetch_optional(&mut c)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }

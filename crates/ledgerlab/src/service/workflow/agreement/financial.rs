@@ -13,6 +13,7 @@ use crate::{
 mod current;
 mod prefix;
 mod request_wrapper;
+mod wire;
 mod wrappers;
 use std::sync::{
     Arc,
@@ -29,6 +30,10 @@ pub(in crate::service::workflow) fn is_kind(kind: &str) -> bool {
             | "outcome.correct"
             | "outcome.close"
             | "link.assert"
+            | "invocation.authorize"
+            | "invocation.close"
+            | "cost.finalize"
+            | "cost.correct"
     )
 }
 

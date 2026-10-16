@@ -122,14 +122,21 @@ pub(super) fn evidence(
     }
     ledgerlab_core::canonical::sort_set(&mut anchors)
         .map_err(|_| ServiceError::IntegrityFailure)?;
-    let registry = ledgerlab_core::canonical::parse_bounded(
-        include_bytes!(
+    let registry_raw: &[u8] = match req.payload_schema() {
+        "ledger-workflow-policy-publication/1" => include_bytes!(
             "../../../../../contracts/candidates/full-suite-v1/core/registry-contract.json"
         ),
+        "ledger-workflow-policy-publication/2" => include_bytes!(
+            "../../../../../contracts/candidates/full-suite-v1/core/family-close-01/registry.json"
+        ),
+        _ => return Err(ServiceError::IntegrityFailure),
+    };
+    let registry = ledgerlab_core::canonical::parse_bounded(
+        registry_raw,
         1024 * 1024,
     )
     .map_err(|_| ServiceError::IntegrityFailure)?;
-    let mut resolution = json!({"schema":"ledger-operation-descriptors/1","registry_digest":format!("sha256:{}",records::raw_hash(&records::bytes(&registry)?)),"operation_kind":"policy.publish","payload_schema":"ledger-workflow-policy-publication/1","locator_digest":records::hash("descriptor-locators",1,&json!(["policy.publish","ledger-workflow-policy-publication/1",locators]))?,"anchors":anchors,"descriptors":descriptors,"normalization_profile":"ledger-operation-normalization/2"});
+    let mut resolution = json!({"schema":"ledger-operation-descriptors/1","registry_digest":format!("sha256:{}",records::raw_hash(&records::bytes(&registry)?)),"operation_kind":"policy.publish","payload_schema":req.payload_schema(),"locator_digest":records::hash("descriptor-locators",1,&json!(["policy.publish",req.payload_schema(),locators]))?,"anchors":anchors,"descriptors":descriptors,"normalization_profile":"ledger-operation-normalization/2"});
     resolution["closure_digest"] = json!(records::hash("descriptor-closure", 1, &resolution)?);
     Ok(
         json!({"schema":"ledger-operation-request-evidence/2","normalization_profile":"ledger-operation-normalization/2","original_request_bytes_base64":base64(req.raw()),"original_request_bytes_sha256":records::raw_hash(req.raw()),"normalized_request":normalized,"request_hash":records::hash("operation-request",2,&json!([resolution["closure_digest"],normalized]))?,"schema_bundle_digest":records::hash("schema-bundle",1,&json!(descriptors))?,"descriptor_resolution":resolution}),

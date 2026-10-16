@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "const": {
+    "schema": "ledger-owner-local-cost-capability/1",
+    "topology": "owner_local",
+    "funding_mode": "platform",
+    "supplier_offer_schema": "ledger-workflow-offer/2",
+    "supplier_terms_schema": "ledger-workflow-slot-binding-terms/4",
+    "retail_terms_schema": "ledger-workflow-slot-binding-terms/3",
+    "accept_payload_schema": "ledger-workflow-agreement-accept/5",
+    "policy_schema": "ledger-workflow-policy/2",
+    "compiler_descriptor_schema": "ledger-workflow-compiler-descriptor/3",
+    "compiler_semantics": "ledger-policy-compiler/owner-local-cost-1",
+    "plan_schema": "ledger-workflow-compiled-plan/3",
+    "publication_payload_schema": "ledger-workflow-policy-publication/3",
+    "verification_primitive": "authenticated-nominated-source-retention/1",
+    "evidence_kind": "supplier_final_cost",
+    "purpose": "supplier_line_final",
+    "line_identity": [
+      "cost_authority_id",
+      "provider_account_identity",
+      "original_document_id",
+      "original_line_id"
+    ],
+    "reservation": "authorized=consumed+held+released;never_replenish",
+    "consumption_basis": "owned_obligation_high_water",
+    "resource_profile": "workflow-resource-vector/1",
+    "financial_enablement": "requires_complete_qualified_capability",
+    "not_qualified_by_this_fixture": [
+      "host_authority",
+      "complete_history",
+      "whole_path_resources",
+      "future_capacity",
+      "cross_store_import",
+      "transfer"
+    ],
+    "connected_authority_schema": "ledger-workflow-economic-authority/5",
+    "connected_operation_schema": "ledger-workflow-economic-operation/6",
+    "connected_manifest_schema": "ledger-workflow-economic-manifest/6",
+    "connected_closure_profile": "ledger-economic-resolved-inputs/6",
+    "cost_closure_profile": "ledger-economic-resolved-inputs/5",
+    "financial_observation_schema": "ledger-workflow-financial-history-observation/2",
+    "descriptor_resolution_schema": "ledger-operation-descriptors/2"
+  }
+}

@@ -2,6 +2,7 @@
 //! cursor nor this parsed key establishes an origin, an introduction or a head.
 //! Recipe semantics and their complete inputs must finish before inventory use.
 use super::*;
+mod inventory;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
 use ledgerlab_core::{
     canonical::audit_arena::ExternalBufferLease,

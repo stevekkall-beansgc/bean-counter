@@ -8,9 +8,10 @@ mod data;
 #[cfg(test)]
 mod tests;
 pub use data::{
-    AuthorityContextData, CapacityHead, DecisionHead, DraftContextData, DraftEnvelope,
-    DraftStateData, DraftTransition, EconomicRecordView, EconomicStateData, ExactRef, FamilyHead,
-    OperationKey, ProposedHeads, RecordInput, SavedFinancialInput,
+    AuthorityContextData, CapacityHead, CostHead, CostOwnerHead, DecisionHead, DraftContextData,
+    DraftEnvelope, DraftStateData, DraftTransition, EconomicRecordView, EconomicStateData,
+    ExactRef, FamilyHead, InvocationHead, OperationKey, ProposedHeads, RecordInput,
+    SavedFinancialInput, SupplierStateData,
 };
 mod authority;
 mod body;
@@ -44,6 +45,8 @@ pub(in crate::policy::workflow) mod intrinsic_record;
 
 mod candidate;
 pub use candidate::{
-    CandidateEnvelope, ClaimEffect, CustomerLocalFundingEffect, DependencyEffect, DependencyKind,
-    EconomicCandidate, FinancialHeadKey, HeadEffect, LinkEffect, PermanentClaimKey,
+    AccountEnrollmentEffect, CandidateEnvelope, CandidateResultKind, CandidateResultMetadata,
+    ClaimEffect, CostLineKey, CustomerLocalFundingEffect, DependencyEffect, DependencyKind,
+    EconomicCandidate, FinancialHeadKey, HeadEffect, LinkEffect, ObservationAssociation,
+    PermanentClaimKey, ProviderAccountIdentity,
 };

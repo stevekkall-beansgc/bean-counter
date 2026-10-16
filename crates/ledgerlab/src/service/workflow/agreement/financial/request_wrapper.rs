@@ -28,9 +28,33 @@ pub(super) fn field<'a>(
 ) -> Result<&'a Value> {
     session
         .semantic_work()
-        .visit(Visit::RefLookup)
+        .visit(Visit::Constraint)
         .map_err(core_error)?;
-    value.get(name).ok_or(ServiceError::IntegrityFailure)
+    let object = value.as_object().ok_or(ServiceError::IntegrityFailure)?;
+    // Expose each actual candidate comparison instead of attributing an
+    // opaque BTreeMap lookup to one paid visit. No Value/key clone is made.
+    for (candidate, field) in object {
+        session
+            .semantic_work()
+            .visit(Visit::RefLookup)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(candidate.len())
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(name.len())
+            .map_err(core_error)?;
+        if candidate == name {
+            return Ok(field);
+        }
+    }
+    Err(ServiceError::IntegrityFailure)
 }
 pub(super) fn text<'a>(
     value: &'a Value,

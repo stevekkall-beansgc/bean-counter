@@ -79,12 +79,39 @@ pub struct CapacityHead {
     pub revision: String,
     pub reference: ExactRef,
 }
+#[derive(Clone,Debug)]
+pub struct InvocationHead {
+    pub invocation_id:String,
+    pub revision:String,
+    pub reference:ExactRef,
+}
+#[derive(Clone,Debug)]
+pub struct CostHead {
+    pub cost_claim_ref:ExactRef,
+    pub revision:String,
+    pub reference:ExactRef,
+}
+#[derive(Clone,Debug)]
+pub struct CostOwnerHead {
+    pub revision:String,
+    pub reference:ExactRef,
+}
+/// Held-snapshot DATA, not index completeness, owner custody or a caller proof.
+/// Each consumer derives the exact key from actual original records and checks
+/// the selected head's full body/identity/lineage before constructing effects.
+pub struct SupplierStateData<'a> {
+    pub invocation_heads:&'a [InvocationHead],
+    pub cost_heads:&'a [CostHead],
+    pub cost_consumption_heads:&'a [CostHead],
+    pub cost_owner_heads:&'a [CostOwnerHead],
+}
 /// The complete candidate's extra projection DATA. The host must select these
 /// exact capacity heads under the same snapshot/locks as financial heads;
 /// neither a payload nor this view asserts completeness or currentness.
 pub struct EconomicStateData<'a> {
     pub financial: &'a DraftStateData,
     pub capacity_heads: &'a [CapacityHead],
+    pub supplier:Option<&'a SupplierStateData<'a>>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct DraftStateData {

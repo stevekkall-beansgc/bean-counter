@@ -1,0 +1,1068 @@
+//! Invocation-local introduction inventory. This is ephemeral DATA storage;
+//! only the chronological semantic driver may credit an introduction. No file,
+//! offset, index row or matching digest is an origin capability.
+use super::*;
+use std::{
+    cmp::Ordering as Cmp,
+    fs::File,
+    io::{Read, Seek, SeekFrom, Write},
+};
+
+const ENTRY_BYTES: usize = 256;
+const KEY_BYTES: usize = 216;
+
+/// The closed saved recipes generate ASCII digest-derived IDs. This key is
+/// their exact (digest,id,kind) JCS set order, with zero padding after strings.
+/// A lookup never degrades to digest-only identity.
+#[derive(Clone, Copy)]
+struct Entry([u8; ENTRY_BYTES]);
+/// Untrusted lookup key. This is representation only: an exact byte match can
+/// select DATA from the same attempt, never finish an originating certificate.
+struct Locator([u8; KEY_BYTES]);
+trait Key {
+    fn key(&self) -> &[u8];
+}
+impl Key for Entry {
+    fn key(&self) -> &[u8] {
+        &self.0[..KEY_BYTES]
+    }
+}
+impl Key for Locator {
+    fn key(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl Entry {
+    fn compare(&self, other: &impl Key, session: &mut OriginalAuditSession) -> Result<Cmp> {
+        session
+            .semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        Ok(self.key().cmp(other.key()))
+    }
+}
+impl Locator {
+    fn from_ref(
+        kind: &str,
+        id: &str,
+        digest: &str,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        // These checks only make the fixed representation injective. The
+        // digest's hex grammar is NOT authenticated here. A malformed locator
+        // cannot equal the fully validated key of a completed introduction.
+        session
+            .semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(digest.len())
+            .map_err(core_error)?;
+        let hex = digest
+            .strip_prefix("sha256:")
+            .ok_or(ServiceError::IntegrityFailure)?;
+        require(
+            compare(hex.len() as u64, 64, session)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
+        for (text, maximum) in [(id, 104usize), (kind, 48usize)] {
+            session
+                .semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(text.len())
+                .map_err(core_error)?;
+            require(
+                !text.is_empty()
+                    && !compare(text.len() as u64, maximum as u64, session)?.is_gt()
+                    && text.bytes().all(|b| b.is_ascii() && b != 0),
+                "INTEGRITY_FAILURE",
+            )?;
+        }
+        session
+            .semantic_work()
+            .write_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        let mut output = Self([0; KEY_BYTES]);
+        for (position, bytes) in [
+            (0, hex.as_bytes()),
+            (64, id.as_bytes()),
+            (168, kind.as_bytes()),
+        ] {
+            let end = add(position as u64, bytes.len() as u64, session)? as usize;
+            copied(bytes.len(), session)?;
+            output.0[position..end].copy_from_slice(bytes);
+        }
+        Ok(output)
+    }
+}
+// A degree-eight B-tree fits an entire node in one sub-4 KiB disk page.
+// Root splits and child splits move only these pages, never the prior history.
+const DEGREE: usize = 8;
+const MAX_KEYS: usize = DEGREE * 2 - 1;
+const HEADER: usize = 16;
+const CHILDREN: usize = HEADER + MAX_KEYS * ENTRY_BYTES;
+const PAGE_BYTES: usize = CHILDREN + (MAX_KEYS + 1) * 8;
+
+fn io(error: std::io::Error) -> ServiceError {
+    crate::service::store_error(crate::store::errors::StoreError::Io(error))
+}
+fn arithmetic(kind: Op, left: u64, right: u64, session: &mut OriginalAuditSession) -> Result<()> {
+    session
+        .semantic_work()
+        .arithmetic(kind, &[&left.into(), &right.into()])
+        .map_err(core_error)
+}
+fn add(left: u64, right: u64, session: &mut OriginalAuditSession) -> Result<u64> {
+    arithmetic(Op::Add, left, right, session)?;
+    left.checked_add(right)
+        .ok_or(ServiceError::IntegrityFailure)
+}
+fn subtract(left: u64, right: u64, session: &mut OriginalAuditSession) -> Result<u64> {
+    arithmetic(Op::Subtract, left, right, session)?;
+    left.checked_sub(right)
+        .ok_or(ServiceError::IntegrityFailure)
+}
+fn multiply(left: u64, right: u64, session: &mut OriginalAuditSession) -> Result<u64> {
+    arithmetic(Op::Multiply, left, right, session)?;
+    left.checked_mul(right)
+        .ok_or(ServiceError::IntegrityFailure)
+}
+fn compare(left: u64, right: u64, session: &mut OriginalAuditSession) -> Result<Cmp> {
+    arithmetic(Op::Compare, left, right, session)?;
+    Ok(left.cmp(&right))
+}
+fn copied(bytes: usize, session: &mut OriginalAuditSession) -> Result<()> {
+    let work = session.semantic_work();
+    work.scan_bytes(bytes).map_err(core_error)?;
+    work.write_bytes(bytes).map_err(core_error)
+}
+
+// Each payload has one same-attempt arena reservation, acquired before Vec
+// allocation. Declaration order drops the payload before its reservation.
+struct Page {
+    bytes: Vec<u8>,
+    _lease: ExternalBufferLease,
+}
+impl Page {
+    fn new(session: &mut OriginalAuditSession) -> Result<Self> {
+        let lease = session
+            .reserve_external_payload(PAGE_BYTES + std::mem::size_of::<Vec<u8>>())
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .write_bytes(PAGE_BYTES)
+            .map_err(core_error)?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(PAGE_BYTES)
+            .map_err(|_| ServiceError::Unavailable)?;
+        bytes.resize(PAGE_BYTES, 0);
+        Ok(Self {
+            bytes,
+            _lease: lease,
+        })
+    }
+    fn count(&self) -> usize {
+        u16::from_le_bytes([self.bytes[0], self.bytes[1]]) as usize
+    }
+    fn leaf(&self) -> bool {
+        self.bytes[2] == 1
+    }
+    fn initialize(&mut self, leaf: bool, session: &mut OriginalAuditSession) -> Result<()> {
+        session
+            .semantic_work()
+            .write_bytes(PAGE_BYTES)
+            .map_err(core_error)?;
+        self.bytes.fill(0);
+        session
+            .semantic_work()
+            .write_bytes(CHILDREN - HEADER)
+            .map_err(core_error)?;
+        self.bytes[HEADER..CHILDREN].fill(255);
+        self.bytes[2] = u8::from(leaf);
+        Ok(())
+    }
+    fn set_count(&mut self, n: usize, session: &mut OriginalAuditSession) -> Result<()> {
+        require(
+            !compare(n as u64, MAX_KEYS as u64, session)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        session.semantic_work().write_bytes(2).map_err(core_error)?;
+        self.bytes[..2].copy_from_slice(&(n as u16).to_le_bytes());
+        let start = Self::key_offset(n, session)?;
+        let length = subtract(CHILDREN as u64, start as u64, session)? as usize;
+        session
+            .semantic_work()
+            .write_bytes(length)
+            .map_err(core_error)?;
+        self.bytes[start..CHILDREN].fill(255);
+        Ok(())
+    }
+    fn key_offset(index: usize, session: &mut OriginalAuditSession) -> Result<usize> {
+        Ok(add(
+            HEADER as u64,
+            multiply(index as u64, ENTRY_BYTES as u64, session)?,
+            session,
+        )? as usize)
+    }
+    fn child_offset(index: usize, session: &mut OriginalAuditSession) -> Result<usize> {
+        Ok(add(
+            CHILDREN as u64,
+            multiply(index as u64, 8, session)?,
+            session,
+        )? as usize)
+    }
+    fn entry(&self, index: usize, session: &mut OriginalAuditSession) -> Result<Entry> {
+        require(
+            compare(index as u64, self.count() as u64, session)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let start = Self::key_offset(index, session)?;
+        let end = add(start as u64, ENTRY_BYTES as u64, session)? as usize;
+        copied(ENTRY_BYTES, session)?;
+        let mut entry = Entry([0; ENTRY_BYTES]);
+        entry.0.copy_from_slice(&self.bytes[start..end]);
+        Ok(entry)
+    }
+    fn child(&self, index: usize, session: &mut OriginalAuditSession) -> Result<u64> {
+        require(
+            !compare(index as u64, self.count() as u64, session)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let start = Self::child_offset(index, session)?;
+        let end = add(start as u64, 8, session)? as usize;
+        session.semantic_work().scan_bytes(8).map_err(core_error)?;
+        let mut encoded = [0; 8];
+        encoded.copy_from_slice(&self.bytes[start..end]);
+        Ok(u64::from_le_bytes(encoded))
+    }
+    fn set_child(
+        &mut self,
+        index: usize,
+        page: u64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        require(
+            !compare(index as u64, MAX_KEYS as u64, session)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let start = Self::child_offset(index, session)?;
+        let end = add(start as u64, 8, session)? as usize;
+        copied(8, session)?;
+        self.bytes[start..end].copy_from_slice(&page.to_le_bytes());
+        Ok(())
+    }
+    fn compare_at<const POSITION: usize>(
+        &self,
+        key: &impl Key,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Cmp> {
+        // Both offsets are compile-time constants, not an uncharged runtime
+        // search-index multiplication. Unused slots are private +infinity
+        // sentinels; all constructed keys begin with an ASCII hex digit.
+        let start = const { HEADER + POSITION * ENTRY_BYTES };
+        let end = const { HEADER + POSITION * ENTRY_BYTES + KEY_BYTES };
+        session
+            .semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        Ok(self.bytes[start..end].cmp(key.key()))
+    }
+    fn placement<const POSITION: usize>(
+        &self,
+        found: bool,
+        session: &mut OriginalAuditSession,
+    ) -> Result<(usize, bool, u64)> {
+        session
+            .semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        let child = if found || self.leaf() {
+            0
+        } else {
+            let start = const { CHILDREN + POSITION * 8 };
+            let end = const { CHILDREN + POSITION * 8 + 8 };
+            copied(8, session)?;
+            let mut bytes = [0; 8];
+            bytes.copy_from_slice(&self.bytes[start..end]);
+            u64::from_le_bytes(bytes)
+        };
+        Ok((POSITION, found, child))
+    }
+    fn position(
+        &self,
+        key: &impl Key,
+        session: &mut OriginalAuditSession,
+    ) -> Result<(usize, bool, u64)> {
+        // Exact ordinary binary-search decision tree over 15 slots. Offsets
+        // are constants, including the selected child pointer. Runtime index
+        // arithmetic is not executed then waived from accounting.
+        macro_rules! last {
+            ($p:literal,$next:literal) => {
+                match self.compare_at::<$p>(key, session)? {
+                    Cmp::Equal => self.placement::<$p>(true, session),
+                    Cmp::Less => self.placement::<$next>(false, session),
+                    Cmp::Greater => self.placement::<$p>(false, session),
+                }
+            };
+        }
+        macro_rules! branch {
+            ($p:literal,$left:expr,$right:expr) => {
+                match self.compare_at::<$p>(key, session)? {
+                    Cmp::Equal => self.placement::<$p>(true, session),
+                    Cmp::Greater => $left,
+                    Cmp::Less => $right,
+                }
+            };
+        }
+        branch!(
+            7,
+            branch!(
+                3,
+                branch!(1, last!(0, 1), last!(2, 3)),
+                branch!(5, last!(4, 5), last!(6, 7))
+            ),
+            branch!(
+                11,
+                branch!(9, last!(8, 9), last!(10, 11)),
+                branch!(13, last!(12, 13), last!(14, 15))
+            )
+        )
+    }
+    fn insert(
+        &mut self,
+        index: usize,
+        key: &Entry,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let count = self.count();
+        require(
+            compare(count as u64, MAX_KEYS as u64, session)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        require(
+            !compare(index as u64, count as u64, session)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let start = Self::key_offset(index, session)?;
+        let end = Self::key_offset(count, session)?;
+        let destination = add(start as u64, ENTRY_BYTES as u64, session)? as usize;
+        let shifted = subtract(end as u64, start as u64, session)? as usize;
+        copied(shifted, session)?;
+        self.bytes.copy_within(start..end, destination);
+        let key_end = add(start as u64, ENTRY_BYTES as u64, session)? as usize;
+        copied(ENTRY_BYTES, session)?;
+        self.bytes[start..key_end].copy_from_slice(&key.0);
+        self.set_count(add(count as u64, 1, session)? as usize, session)
+    }
+    fn insert_child(
+        &mut self,
+        index: usize,
+        page: u64,
+        old_count: usize,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let start = Self::child_offset(index, session)?;
+        let end = Self::child_offset(add(old_count as u64, 1, session)? as usize, session)?;
+        let destination = add(start as u64, 8, session)? as usize;
+        copied(
+            subtract(end as u64, start as u64, session)? as usize,
+            session,
+        )?;
+        self.bytes.copy_within(start..end, destination);
+        self.set_child(index, page, session)
+    }
+}
+
+// The shared-path request stack contains only page/range locators. It never
+// retains a transitive document graph or an authenticated/completed flag.
+#[derive(Clone, Copy)]
+struct DemandRange {
+    page: u64,
+    first: usize,
+    end: usize,
+    remaining: u64,
+}
+struct DemandStack {
+    ranges: Vec<DemandRange>,
+    maximum: usize,
+    _lease: ExternalBufferLease,
+}
+impl DemandStack {
+    fn new(maximum: usize, session: &mut OriginalAuditSession) -> Result<Self> {
+        let payload = multiply(
+            maximum as u64,
+            std::mem::size_of::<DemandRange>() as u64,
+            session,
+        )?;
+        let bytes = add(
+            payload,
+            std::mem::size_of::<Vec<DemandRange>>() as u64,
+            session,
+        )?;
+        let lease = session
+            .reserve_external_payload(bytes as usize)
+            .map_err(core_error)?;
+        let mut ranges = Vec::new();
+        ranges
+            .try_reserve_exact(maximum)
+            .map_err(|_| ServiceError::Unavailable)?;
+        Ok(Self {
+            ranges,
+            maximum,
+            _lease: lease,
+        })
+    }
+    fn push(&mut self, range: DemandRange, session: &mut OriginalAuditSession) -> Result<()> {
+        require(
+            compare(self.ranges.len() as u64, self.maximum as u64, session)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        session
+            .semantic_work()
+            .visit(Visit::Edge)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .write_bytes(std::mem::size_of::<DemandRange>())
+            .map_err(core_error)?;
+        self.ranges.push(range);
+        Ok(())
+    }
+    fn pop(&mut self, session: &mut OriginalAuditSession) -> Result<Option<DemandRange>> {
+        session
+            .semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(std::mem::size_of::<DemandRange>())
+            .map_err(core_error)?;
+        Ok(self.ranges.pop())
+    }
+}
+
+/// Private, non-restartable B-tree. The caller supplies a newly created empty
+/// private file; no offset or index content is accepted from an incoming cursor.
+/// A repeated key preserves the FIRST completed introduction, never replaces it.
+struct IntroductionIndex {
+    file: File,
+    root: u64,
+    pages: u64,
+    height: u64,
+    entries: u64,
+    comparisons_reserved: u64,
+    buffers: [Page; 3],
+    scratch: ScratchSpace,
+    invalid: bool,
+}
+impl IntroductionIndex {
+    fn new(
+        file: File,
+        operations: u64,
+        payload_bytes: u64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        session.check_cancelled().map_err(core_error)?;
+        require(file.metadata().map_err(io)?.len() == 0, "INTEGRITY_FAILURE")?;
+        let buffers = [
+            Page::new(session)?,
+            Page::new(session)?,
+            Page::new(session)?,
+        ];
+        let mut output = Self {
+            file,
+            root: 0,
+            pages: 0,
+            height: 1,
+            entries: 0,
+            comparisons_reserved: 0,
+            buffers,
+            scratch: ScratchSpace::for_profile(operations, payload_bytes, session)?,
+            invalid: false,
+        };
+        let root = output.allocate(session)?;
+        output.buffers[0].initialize(true, session)?;
+        output.write(root, 0, session)?;
+        Ok(output)
+    }
+    fn reserve_comparisons(
+        &mut self,
+        levels: u64,
+        per_level: u64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let next = add(
+            self.comparisons_reserved,
+            multiply(levels, per_level, session)?,
+            session,
+        )?;
+        if compare(next, self.scratch.comparison_limit, session)?.is_gt() {
+            return Err(ServiceError::Unavailable);
+        }
+        self.comparisons_reserved = next;
+        Ok(())
+    }
+    fn allocate(&mut self, session: &mut OriginalAuditSession) -> Result<u64> {
+        self.scratch.admit(PAGE_BYTES as u64, session)?;
+        let page = self.pages;
+        self.pages = add(self.pages, 1, session)?;
+        Ok(page)
+    }
+    fn read(&mut self, page: u64, buffer: usize, session: &mut OriginalAuditSession) -> Result<()> {
+        require(
+            compare(page, self.pages, session)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let offset = multiply(page, PAGE_BYTES as u64, session)?;
+        session.check_cancelled().map_err(core_error)?;
+        self.file.seek(SeekFrom::Start(offset)).map_err(io)?;
+        session
+            .semantic_work()
+            .write_bytes(PAGE_BYTES)
+            .map_err(core_error)?;
+        self.file
+            .read_exact(&mut self.buffers[buffer].bytes)
+            .map_err(io)?;
+        session.check_cancelled().map_err(core_error)?;
+        let p = &self.buffers[buffer];
+        require(
+            !compare(p.count() as u64, MAX_KEYS as u64, session)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        session
+            .semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        require(p.bytes[2] <= 1, "INTEGRITY_FAILURE")
+    }
+    fn write(
+        &mut self,
+        page: u64,
+        buffer: usize,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        require(
+            compare(page, self.pages, session)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let offset = multiply(page, PAGE_BYTES as u64, session)?;
+        session.check_cancelled().map_err(core_error)?;
+        self.file.seek(SeekFrom::Start(offset)).map_err(io)?;
+        copied(PAGE_BYTES, session)?;
+        self.file
+            .write_all(&self.buffers[buffer].bytes)
+            .map_err(io)?;
+        session.check_cancelled().map_err(core_error)
+    }
+    fn find(&mut self, key: &Locator, session: &mut OriginalAuditSession) -> Result<Option<Entry>> {
+        let result = self.find_inner(key, session);
+        if result.is_err() {
+            self.invalid = true;
+            session.invalidate();
+        }
+        result
+    }
+    fn find_inner(
+        &mut self,
+        key: &Locator,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<Entry>> {
+        require(!self.invalid, "INTEGRITY_FAILURE")?;
+        // Four comparisons per level is an admission bound, not a measurement
+        // of short-circuit comparisons; the executing comparisons still pay S.
+        self.reserve_comparisons(self.height, 4, session)?;
+        let (mut page, mut remaining) = (self.root, self.height);
+        loop {
+            require(compare(remaining, 0, session)?.is_gt(), "INTEGRITY_FAILURE")?;
+            self.read(page, 0, session)?;
+            let (position, found, child) = self.buffers[0].position(key, session)?;
+            if found {
+                return self.buffers[0].entry(position, session).map(Some);
+            }
+            if self.buffers[0].leaf() {
+                return Ok(None);
+            }
+            page = child;
+            remaining = subtract(remaining, 1, session)?;
+        }
+    }
+    /// Resolve a sorted manifest/recipe demand set by its shared tree paths.
+    /// Each visited page is read once for this batch, rather than once for
+    /// every member. Results identify the original demand POSITION; callback
+    /// order is intentionally unspecified. Neither a hit nor the callback
+    /// proves an origin. Only the driver may consume an already-completed
+    /// introduction and every absent entry still needs actual local semantics.
+    fn find_sorted(
+        &mut self,
+        keys: &[Locator],
+        session: &mut OriginalAuditSession,
+        mut consume: impl FnMut(usize, Option<Entry>, &mut OriginalAuditSession) -> Result<()>,
+    ) -> Result<()> {
+        let result = self.find_sorted_inner(keys, session, &mut consume);
+        if result.is_err() {
+            self.invalid = true;
+            session.invalidate();
+        }
+        result
+    }
+    fn find_sorted_inner(
+        &mut self,
+        keys: &[Locator],
+        session: &mut OriginalAuditSession,
+        consume: &mut impl FnMut(usize, Option<Entry>, &mut OriginalAuditSession) -> Result<()>,
+    ) -> Result<()> {
+        require(!self.invalid, "INTEGRITY_FAILURE")?;
+        for adjacent in keys.windows(2) {
+            session
+                .semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(KEY_BYTES)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(KEY_BYTES)
+                .map_err(core_error)?;
+            require(adjacent[0].key() < adjacent[1].key(), "INTEGRITY_FAILURE")?;
+        }
+        if keys.is_empty() {
+            return Ok(());
+        }
+        // Same aggregate comparison ledger as point reads, with no refund or
+        // extra S allowance. Executing comparisons below still pay actual S.
+        self.reserve_comparisons(
+            multiply(self.height, keys.len() as u64, session)?,
+            4,
+            session,
+        )?;
+        // At most15 pending siblings per active tree level, and no more
+        // nonempty ranges than input demands. No arbitrary semantic depth cap.
+        let path_max = add(multiply(self.height, MAX_KEYS as u64, session)?, 1, session)?;
+        let maximum = if compare(path_max, keys.len() as u64, session)?.is_lt() {
+            path_max as usize
+        } else {
+            keys.len()
+        };
+        let mut pending = DemandStack::new(maximum, session)?;
+        pending.push(
+            DemandRange {
+                page: self.root,
+                first: 0,
+                end: keys.len(),
+                remaining: self.height,
+            },
+            session,
+        )?;
+        while let Some(range) = pending.pop(session)? {
+            require(
+                compare(range.remaining, 0, session)?.is_gt(),
+                "INTEGRITY_FAILURE",
+            )?;
+            self.read(range.page, 0, session)?;
+            let remaining = subtract(range.remaining, 1, session)?;
+            let mut child_group: Option<(usize, usize, u64)> = None;
+            let mut last_end = range.first;
+            for (relative, key) in keys[range.first..range.end].iter().enumerate() {
+                session
+                    .semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                let index = add(range.first as u64, relative as u64, session)? as usize;
+                let (position, found, child) = self.buffers[0].position(key, session)?;
+                let leaf = self.buffers[0].leaf();
+                let new_group = match child_group {
+                    Some((old_position, _, _)) => {
+                        !compare(old_position as u64, position as u64, session)?.is_eq() || found
+                    }
+                    None => false,
+                };
+                if new_group {
+                    let (_, first, old_child) = child_group.take().expect("present range");
+                    pending.push(
+                        DemandRange {
+                            page: old_child,
+                            first,
+                            end: index,
+                            remaining,
+                        },
+                        session,
+                    )?;
+                }
+                if found {
+                    let entry = self.buffers[0].entry(position, session)?;
+                    consume(index, Some(entry), session)?;
+                } else if leaf {
+                    consume(index, None, session)?;
+                } else if child_group.is_none() {
+                    child_group = Some((position, index, child));
+                }
+                last_end = add(index as u64, 1, session)? as usize;
+            }
+            if let Some((_, first, child)) = child_group {
+                pending.push(
+                    DemandRange {
+                        page: child,
+                        first,
+                        end: last_end,
+                        remaining,
+                    },
+                    session,
+                )?;
+            }
+        }
+        Ok(())
+    }
+    fn insert(&mut self, key: &Entry, session: &mut OriginalAuditSession) -> Result<Option<Entry>> {
+        let result = self.insert_inner(key, session);
+        if result.is_err() {
+            self.invalid = true;
+            session.invalidate();
+        }
+        result
+    }
+    fn insert_inner(
+        &mut self,
+        key: &Entry,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<Entry>> {
+        require(!self.invalid, "INTEGRITY_FAILURE")?;
+        // At most four binary-search comparisons and one split comparison per
+        // descended level, including the possible additional root level; unused reservations
+        // are not refunded or described as observed comparisons.
+        let maximum_levels = add(self.height, 1, session)?;
+        self.reserve_comparisons(maximum_levels, 5, session)?;
+        self.read(self.root, 0, session)?;
+        if compare(self.buffers[0].count() as u64, MAX_KEYS as u64, session)?.is_eq() {
+            let old_root = self.root;
+            let root = self.allocate(session)?;
+            self.buffers[1].initialize(false, session)?;
+            self.buffers.swap(0, 1);
+            self.buffers[0].set_child(0, old_root, session)?;
+            self.split(root, 0, old_root, session)?;
+            self.root = root;
+            self.height = add(self.height, 1, session)?;
+        }
+        let (mut page, mut remaining) = (self.root, self.height);
+        loop {
+            require(compare(remaining, 0, session)?.is_gt(), "INTEGRITY_FAILURE")?;
+            let (mut position, found, mut child) = self.buffers[0].position(key, session)?;
+            if found {
+                return self.buffers[0].entry(position, session).map(Some);
+            }
+            if self.buffers[0].leaf() {
+                self.buffers[0].insert(position, key, session)?;
+                self.write(page, 0, session)?;
+                self.entries = add(self.entries, 1, session)?;
+                return Ok(None);
+            }
+            self.read(child, 1, session)?;
+            if compare(self.buffers[1].count() as u64, MAX_KEYS as u64, session)?.is_eq() {
+                let right = self.split(page, position, child, session)?;
+                let middle = self.buffers[0].entry(position, session)?;
+                match middle.compare(key, session)? {
+                    Cmp::Equal => return Ok(Some(middle)),
+                    Cmp::Less => {
+                        child = right;
+                        self.buffers.swap(1, 2);
+                        position = add(position as u64, 1, session)? as usize;
+                    }
+                    Cmp::Greater => {}
+                }
+            }
+            // The child buffer is already loaded (or is the split output).
+            let _selected_position = position;
+            self.buffers.swap(0, 1);
+            page = child;
+            remaining = subtract(remaining, 1, session)?;
+        }
+    }
+    // buffer0=nonfull parent, buffer1=full child; buffer2=new right sibling.
+    fn split(
+        &mut self,
+        parent: u64,
+        position: usize,
+        left: u64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<u64> {
+        let median = self.buffers[1].entry(DEGREE - 1, session)?;
+        let leaf = self.buffers[1].leaf();
+        self.buffers[2].initialize(leaf, session)?;
+        let right_start = Page::key_offset(DEGREE, session)?;
+        let right_end = Page::key_offset(MAX_KEYS, session)?;
+        let length = subtract(right_end as u64, right_start as u64, session)? as usize;
+        let target_end = add(HEADER as u64, length as u64, session)? as usize;
+        copied(length, session)?;
+        let [_, left_buffer, right_buffer] = &mut self.buffers;
+        right_buffer.bytes[HEADER..target_end]
+            .copy_from_slice(&left_buffer.bytes[right_start..right_end]);
+        if !leaf {
+            let source = Page::child_offset(DEGREE, session)?;
+            let length = multiply(DEGREE as u64, 8, session)? as usize;
+            let end = add(source as u64, length as u64, session)? as usize;
+            let target_end = add(CHILDREN as u64, length as u64, session)? as usize;
+            copied(length, session)?;
+            right_buffer.bytes[CHILDREN..target_end]
+                .copy_from_slice(&left_buffer.bytes[source..end]);
+        }
+        self.buffers[1].set_count(DEGREE - 1, session)?;
+        self.buffers[2].set_count(DEGREE - 1, session)?;
+        let right = self.allocate(session)?;
+        let count = self.buffers[0].count();
+        self.buffers[0].insert(position, &median, session)?;
+        let child_position = add(position as u64, 1, session)? as usize;
+        self.buffers[0].insert_child(child_position, right, count, session)?;
+        self.write(left, 1, session)?;
+        self.write(right, 2, session)?;
+        self.write(parent, 0, session)?;
+        Ok(right)
+    }
+}
+
+impl Entry {
+    fn from_ref(
+        kind: &str,
+        id: &str,
+        digest: &str,
+        offset: u64,
+        length: u32,
+        sequence: u32,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let hex = digest
+            .strip_prefix("sha256:")
+            .ok_or(ServiceError::IntegrityFailure)?;
+        session
+            .semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        require(hex.len() == 64, "INTEGRITY_FAILURE")?;
+        session
+            .semantic_work()
+            .scan_bytes(hex.len())
+            .map_err(core_error)?;
+        for byte in hex.bytes() {
+            session
+                .semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            require(
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
+                "INTEGRITY_FAILURE",
+            )?;
+        }
+        // These are representation bounds of the closed digest-derived record
+        // recipes, not limits on policy/business identifiers inside their body.
+        for (text, maximum) in [(id, 104usize), (kind, 48usize)] {
+            session
+                .semantic_work()
+                .arithmetic(Op::Compare, &[&text.len().into(), &maximum.into()])
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(text.len())
+                .map_err(core_error)?;
+            require(
+                !text.is_empty()
+                    && text.len() <= maximum
+                    && text.bytes().all(|b| b.is_ascii() && b != 0),
+                "INTEGRITY_FAILURE",
+            )?;
+        }
+        session
+            .semantic_work()
+            .write_bytes(ENTRY_BYTES)
+            .map_err(core_error)?;
+        let mut output = Self([0; ENTRY_BYTES]);
+        for (position, bytes) in [
+            (0, hex.as_bytes()),
+            (64, id.as_bytes()),
+            (168, kind.as_bytes()),
+            (216, &offset.to_le_bytes()),
+            (224, &length.to_le_bytes()),
+            (228, &sequence.to_le_bytes()),
+        ] {
+            session
+                .semantic_work()
+                .scan_bytes(bytes.len())
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .write_bytes(bytes.len())
+                .map_err(core_error)?;
+            let end = add(position as u64, bytes.len() as u64, session)? as usize;
+            output.0[position..end].copy_from_slice(bytes);
+        }
+        Ok(output)
+    }
+}
+
+/// Exact logical scratch-byte admission. This is a private disk reservation,
+/// independent of (and never credit to) the unchanged semantic/arena allowance.
+/// Its limit is computed from actual checked W/WB, not supplied in an ingress.
+struct ScratchSpace {
+    limit: u64,
+    live: u64,
+    peak: u64,
+    comparison_limit: u64,
+}
+impl ScratchSpace {
+    fn for_profile(
+        operations: u64,
+        payload_bytes: u64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        require(
+            !compare(operations, 100000, session)?.is_gt()
+                && !compare(payload_bytes, 268435456, session)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Multiply, &[&payload_bytes.into(), &16u64.into()])
+            .map_err(core_error)?;
+        let bodies = payload_bytes
+            .checked_mul(16)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Multiply, &[&operations.into(), &4096u64.into()])
+            .map_err(core_error)?;
+        let wrappers = operations
+            .checked_mul(4096)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        Ok(Self {
+            limit: add(bodies, wrappers, session)?,
+            comparison_limit: multiply(add(payload_bytes, operations, session)?, 32, session)?,
+            live: 0,
+            peak: 0,
+        })
+    }
+    fn admit(&mut self, bytes: u64, session: &mut OriginalAuditSession) -> Result<()> {
+        let next = add(self.live, bytes, session)?;
+        if compare(next, self.limit, session)?.is_gt() {
+            return Err(ServiceError::Unavailable);
+        }
+        let peak = if compare(next, self.peak, session)?.is_gt() {
+            next
+        } else {
+            self.peak
+        };
+        self.live = next;
+        self.peak = peak;
+        Ok(())
+    }
+    fn release(&mut self, bytes: u64, session: &mut OriginalAuditSession) -> Result<()> {
+        self.live = subtract(self.live, bytes, session)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ledgerlab_core::canonical::audit_arena::AuditArena;
+
+    fn session(arena: &AuditArena) -> OriginalAuditSession {
+        OriginalAuditSession::for_resource_profile_v2(arena).unwrap()
+    }
+    fn entry(n: u32, sequence: u32, work: &mut OriginalAuditSession) -> Entry {
+        Entry::from_ref(
+            "workflow-evidence",
+            &format!("evidence-{n:064x}"),
+            &format!("sha256:{n:064x}"),
+            n as u64,
+            120,
+            sequence,
+            work,
+        )
+        .unwrap()
+    }
+    #[test]
+    fn paged_split_lookup_first_introduction_and_terminal_failure() {
+        let arena = AuditArena::new().unwrap();
+        let before = arena.usage().unwrap().live_bytes;
+        let mut work = session(&arena);
+        let mut index =
+            IntroductionIndex::new(tempfile::tempfile().unwrap(), 1000, 1_000_000, &mut work)
+                .unwrap();
+        // A coprime permutation forces both left/right splits and internal
+        // descent. Each small group is a distinct original operation, not a
+        // maintenance session funded outside that operation's allowance.
+        for group in 0..16 {
+            let mut work = session(&arena);
+            for ordinal in group * 16..((group + 1) * 16).min(251) {
+                let n = (ordinal * 37) % 251;
+                let value = entry(n, n + 1, &mut work);
+                assert!(index.insert(&value, &mut work).unwrap().is_none());
+            }
+        }
+        assert!(index.height >= 3);
+        assert_eq!(index.entries, 251);
+        for group in 0..16 {
+            let mut work = session(&arena);
+            for n in group * 16..((group + 1) * 16).min(251) {
+                let value = entry(n, 999, &mut work);
+                let locator = Locator::from_ref(
+                    "workflow-evidence",
+                    &format!("evidence-{n:064x}"),
+                    &format!("sha256:{n:064x}"),
+                    &mut work,
+                )
+                .unwrap();
+                let found = index.find(&locator, &mut work).unwrap().unwrap();
+                assert_eq!(found.0, entry(n, n + 1, &mut work).0);
+                let repeated = index.insert(&value, &mut work).unwrap().unwrap();
+                assert_eq!(repeated.0, found.0);
+            }
+        }
+        assert_eq!(index.entries, 251);
+        let mut work = session(&arena);
+        let absent = Locator::from_ref(
+            "workflow-evidence",
+            &format!("evidence-{:064x}", 1000),
+            &format!("sha256:{:064x}", 1000),
+            &mut work,
+        )
+        .unwrap();
+        assert!(index.find(&absent, &mut work).unwrap().is_none());
+        let file_length = index.file.metadata().unwrap().len();
+        assert_eq!(file_length, index.pages * PAGE_BYTES as u64);
+        assert_eq!(index.scratch.live, file_length);
+        // A failed operation cannot be caught and followed by trusted use of
+        // this partially updated index under another origin's fresh allowance.
+        index.scratch.comparison_limit = index.comparisons_reserved;
+        assert!(index.find(&absent, &mut work).is_err());
+        let mut later = session(&arena);
+        assert!(index.find(&absent, &mut later).is_err());
+        assert_eq!(index.file.metadata().unwrap().len(), file_length);
+        drop(index);
+        assert_eq!(arena.usage().unwrap().live_bytes, before);
+    }
+}
