@@ -123,3 +123,74 @@ fn priced_rule_coverage_requires_original_role_activity_source_and_funding() {
         "fixture.report:completed"
     ));
 }
+
+#[test]
+fn causal_clauses_resolve_original_stable_slots_and_every_selected_family() {
+    // Published synthetic source data only: this relationship test constructs
+    // no ObservedPublication, completed origin, assent or grant capability.
+    let source:Value=serde_json::from_slice(include_bytes!("../../../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
+    let source_docs: Vec<_> = source["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            let kind = match v["schema"].as_str().unwrap() {
+                "ledger-workflow-product/1" => "workflow-product",
+                "ledger-workflow-fact-schema/1" => "workflow-fact-schema",
+                "ledger-workflow-slot-template/1" => "workflow-slot-template",
+                "ledger-workflow-policy/1" => "workflow-policy",
+                "ledger-workflow-compiler-descriptor/1" => "workflow-compiler-descriptor",
+                other => panic!("{other}"),
+            };
+            records::source_document(kind, v.clone()).unwrap()
+        })
+        .collect();
+    let policy = source_docs
+        .iter()
+        .find(|d| d.reference.kind == "workflow-policy")
+        .unwrap();
+    let definitions = PublicationInputs::fixture(
+        &json!({"root_policy_ref":policy.reference}),
+        &source_docs.iter().collect::<Vec<_>>(),
+    )
+    .unwrap();
+    let customer = &source["customers"][0];
+    let catalog =
+        records::source_document("workflow-slot-catalog", customer["catalog"].clone()).unwrap();
+    let mut instantiation = customer["instantiation"].clone();
+    instantiation["catalog_ref"] = json!(catalog.reference);
+    instantiation["template_ref"] = json!(
+        source_docs
+            .iter()
+            .find(|d| d.reference.kind == "workflow-slot-template")
+            .unwrap()
+            .reference
+    );
+    let instantiation =
+        records::source_document("workflow-slot-instantiation", instantiation).unwrap();
+    let binding = json!({"slot_catalog_ref":catalog.reference,"slot_instantiation_ref":instantiation.reference});
+    let docs = vec![catalog, instantiation];
+    let terms = customer["slot_terms"].clone();
+    causal_coverage(&binding, &terms, &definitions, &docs).unwrap();
+    for field in [
+        "root_component_slot",
+        "family_slot",
+        "correction_source_slot",
+    ] {
+        let mut invalid = terms.clone();
+        invalid["causal_reversal_clauses"][0][field] = json!("fixture:unrelated");
+        assert!(
+            causal_coverage(&binding, &invalid, &definitions, &docs).is_err(),
+            "{field}"
+        );
+    }
+    let mut missing = terms.clone();
+    missing["causal_reversal_clauses"] = json!([]);
+    assert!(causal_coverage(&binding, &missing, &definitions, &docs).is_err());
+    let mut child = terms.clone();
+    child["causal_reversal_clauses"][0]["root_component_slot"] = json!("A-discount");
+    assert!(causal_coverage(&binding, &child, &definitions, &docs).is_err());
+    let mut foreign = terms.clone();
+    foreign["book"] = json!("supplier");
+    assert!(causal_coverage(&binding, &foreign, &definitions, &docs).is_err());
+}

@@ -1,7 +1,10 @@
 use super::*;
 use serde_json::json;
 fn record(name: &str) -> Value {
-    let f:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/agreement-03-primary-author.json")).unwrap();
+    let f: Value = serde_json::from_slice(include_bytes!(
+        "../../../../../../contracts/candidates/full-suite-v1/core/agreement-03-primary-author.json"
+    ))
+    .unwrap();
     f["records"]
         .as_array()
         .unwrap()
@@ -81,11 +84,13 @@ fn terms_context_and_copied_identities_cannot_be_substituted() {
     assert!(AcceptanceTerms::parse(&serde_json::to_vec(&value).unwrap(), &context()).is_err());
     let facts =
         super::super::FactSchema::parse(&serde_json::to_vec(&source("facts")).unwrap()).unwrap();
-    assert!(AcceptanceTerms::parse(
-        &serde_json::to_vec(&record("A.terms")["body"]).unwrap(),
-        &facts
-    )
-    .is_err());
+    assert!(
+        AcceptanceTerms::parse(
+            &serde_json::to_vec(&record("A.terms")["body"]).unwrap(),
+            &facts
+        )
+        .is_err()
+    );
 }
 #[test]
 fn quantities_money_and_role_ownership_are_data_constraints_only() {
@@ -277,4 +282,55 @@ fn eight_reviewed_exposure_cases_keep_exact_bounded_amounts_and_jcs_order() {
             Err(error) => assert_eq!(result.unwrap_err().code, error),
         }
     }
+}
+
+#[test]
+fn causal_terms_v2_are_closed_sorted_and_do_not_upgrade_v1() {
+    let old = record("A.slot_terms")["body"].clone();
+    let clause = json!({"root_component_slot":"root-a", "family_slot":"family-a",
+        "correction_source_slot":"fixture:corrector", "mode":"exact_inverse_and_permanent_close",
+        "standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"});
+    let mut body = old.clone();
+    body["schema"] = json!("ledger-workflow-slot-binding-terms/2");
+    body["causal_reversal_clauses"] = json!([clause]);
+    let normalized = SlotBindingTerms::parse(&serde_json::to_vec(&body).unwrap()).unwrap();
+    assert_eq!(normalized.canonical_value(), &body);
+    assert_ne!(
+        normalized.reference(),
+        SlotBindingTerms::parse(&serde_json::to_vec(&old).unwrap())
+            .unwrap()
+            .reference()
+    );
+    let mut variants = vec![];
+    let mut v = body.clone();
+    v.as_object_mut().unwrap().remove("causal_reversal_clauses");
+    variants.push(v);
+    let mut v = body.clone();
+    v["causal_reversal_clauses"] = json!([]);
+    variants.push(v);
+    let mut v = body.clone();
+    v["causal_reversal_clauses"] = json!([clause, clause]);
+    variants.push(v);
+    let mut v = body.clone();
+    v["causal_reversal_clauses"][0]["mode"] = json!("delegate");
+    variants.push(v);
+    let mut v = body.clone();
+    v["causal_reversal_clauses"][0]["unknown"] = json!(true);
+    variants.push(v);
+    let mut v = body.clone();
+    v["schema"] = old["schema"].clone();
+    variants.push(v);
+    for invalid in variants {
+        assert!(SlotBindingTerms::parse(&serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
+    let mut other = clause.clone();
+    other["family_slot"] = json!("family-b");
+    body["causal_reversal_clauses"] = json!([other, clause]);
+    let a = SlotBindingTerms::parse(&serde_json::to_vec(&body).unwrap()).unwrap();
+    body["causal_reversal_clauses"]
+        .as_array_mut()
+        .unwrap()
+        .reverse();
+    let b = SlotBindingTerms::parse(&serde_json::to_vec(&body).unwrap()).unwrap();
+    assert_eq!(a.canonical_bytes(), b.canonical_bytes());
 }

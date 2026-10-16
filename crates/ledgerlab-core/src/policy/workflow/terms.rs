@@ -1,13 +1,13 @@
 //! Normalized agreement constraint assertions, not authenticated acceptance,
 //! funding, grants, spend reservations or execution authority.
 use super::{
-    facts::{name, reject_null},
     AgreementRef, Product, RoleAssignment, TemplateBook,
+    facts::{name, reject_null},
 };
 use crate::{
+    Error, Result,
     canonical::{self, CanonicalBytes},
     domain::Timestamp,
-    Error, Result,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -141,6 +141,46 @@ impl Document {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct CausalReversalClause {
+    root_component_slot: String,
+    family_slot: String,
+    correction_source_slot: String,
+    mode: String,
+    standalone_deadline_effect: String,
+}
+fn causal_clauses(input: &mut SlotInput) -> Result<()> {
+    match input.schema.as_str() {
+        "ledger-workflow-slot-binding-terms/1" if input.causal_reversal_clauses.is_none() => Ok(()),
+        "ledger-workflow-slot-binding-terms/2" => {
+            let rows = input
+                .causal_reversal_clauses
+                .as_mut()
+                .ok_or_else(|| fail("causal clauses required"))?;
+            if !(1..=64).contains(&rows.len()) {
+                return Err(fail("causal clause count"));
+            }
+            let mut keys = BTreeSet::new();
+            for row in rows.iter() {
+                crate::domain::text(&row.root_component_slot, 128)
+                    .map_err(|_| fail("causal root slot"))?;
+                crate::domain::text(&row.family_slot, 128)
+                    .map_err(|_| fail("causal family slot"))?;
+                name(&row.correction_source_slot).map_err(|_| fail("causal correction source"))?;
+                if row.mode != "exact_inverse_and_permanent_close"
+                    || row.standalone_deadline_effect
+                        != "does_not_expire_preaccepted_causal_reversal"
+                    || !keys.insert((&row.root_component_slot, &row.family_slot))
+                {
+                    return Err(fail("causal clause semantics or duplicate identity"));
+                }
+            }
+            canonical::sort_set(rows)
+        }
+        _ => Err(fail("slot terms schema")),
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SlotInput {
     schema: String,
     scope: [String; 2],
@@ -156,6 +196,8 @@ struct SlotInput {
     exposure_ceiling: Amount,
     source_grant_refs: Vec<Value>,
     correction_source_slot: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    causal_reversal_clauses: Option<Vec<CausalReversalClause>>,
 }
 #[derive(Clone, Debug)]
 pub struct SlotBindingTerms {
@@ -167,9 +209,7 @@ impl SlotBindingTerms {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
         let mut input: SlotInput = canonical::dto(value)?;
-        if input.schema != "ledger-workflow-slot-binding-terms/1" {
-            return Err(fail("slot terms schema"));
-        }
+        causal_clauses(&mut input)?;
         ids(&input.scope, &input.agreement_id, &input.customer)?;
         for s in [
             &input.slot,

@@ -31,6 +31,13 @@ pub(super) fn evidence(
     payload: &Value,
     descriptors: &[RecordRef],
 ) -> Result<Value> {
+    // Alias04 freezes its own payload tuple; accept3 has a distinct original
+    // recipe and cannot be silently relabelled as the older alias recipe.
+    require(
+        req.kind() != "agreement.accept"
+            || payload["schema"] == "ledger-workflow-agreement-accept/2",
+        "UNSUPPORTED_SCHEMA_PROFILE",
+    )?;
     let mut v = descriptor::evidence(req, payload, descriptors)?;
     let registry=canonical::parse_bounded(include_bytes!("../../../../../../../contracts/candidates/full-suite-v1/core/agreement-alias-04-registry.json"),65536).map_err(|_|ServiceError::IntegrityFailure)?;
     let resolution = &mut v["descriptor_resolution"];

@@ -118,7 +118,19 @@ pub(super) fn evidence(
         );
     }
     canonical::sort_set(&mut anchors).map_err(|_| ServiceError::IntegrityFailure)?;
-    let registry = canonical::parse_bounded(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/agreement-ready-registry.json"),65536).map_err(|_|ServiceError::IntegrityFailure)?;
+    let registry_raw: &[u8] = if req.kind() == "agreement.accept"
+        && payload["schema"] == "ledger-workflow-agreement-accept/3"
+    {
+        include_bytes!(
+            "../../../../../../contracts/candidates/full-suite-v1/core/causal-reversal-02-registry.json"
+        )
+    } else {
+        include_bytes!(
+            "../../../../../../contracts/candidates/full-suite-v1/core/agreement-ready-registry.json"
+        )
+    };
+    let registry = canonical::parse_bounded(registry_raw, 65536)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
     let mut resolution = json!({"schema":"ledger-operation-descriptors/1","registry_digest":format!("sha256:{}",records::raw_hash(&records::bytes(&registry)?)),"operation_kind":req.kind(),"payload_schema":payload["schema"],"locator_digest":records::hash("descriptor-locators",1,&json!([req.kind(),payload["schema"],locators]))?,"anchors":anchors,"descriptors":descriptors,"normalization_profile":"ledger-operation-normalization/2"});
     resolution["closure_digest"] = json!(records::hash("descriptor-closure", 1, &resolution)?);
     let normalized = req.normalized_envelope(payload);
@@ -129,6 +141,28 @@ pub(super) fn evidence(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn causal_acceptance_uses_its_exact_additive_registry() {
+        let f: Value =
+            serde_json::from_slice(include_bytes!("testdata/descriptor-independent.json")).unwrap();
+        let old = &f["operations"][0];
+        let mut envelope = old["request_evidence"]["normalized_request"].clone();
+        assert_eq!(envelope["kind"], "agreement.accept");
+        envelope["payload"]["schema"] = json!("ledger-workflow-agreement-accept/3");
+        let req = request::Request::parse_agreement(&records::bytes(&envelope).unwrap()).unwrap();
+        let descriptors: Vec<RecordRef> =
+            serde_json::from_value(old["descriptor_resolution"]["descriptors"].clone()).unwrap();
+        let evidence = evidence(&req, req.payload(), &descriptors).unwrap();
+        assert_eq!(
+            evidence["descriptor_resolution"]["registry_digest"],
+            "sha256:b9397d8545fccefeb32ff9c320f1f70c96b1c89d6bd58f7aba37068862ab6d54"
+        );
+        assert_ne!(
+            evidence["request_hash"],
+            old["request_evidence"]["request_hash"]
+        );
+        assert_eq!(evidence["normalized_request"], envelope);
+    }
     #[test]
     fn five_independent_agreement_descriptor_and_raw_evidence_vectors() {
         let f: Value =

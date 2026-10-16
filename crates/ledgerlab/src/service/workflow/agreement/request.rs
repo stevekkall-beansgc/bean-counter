@@ -66,7 +66,10 @@ impl Request {
             .and_then(Value::as_str)
             .ok_or_else(|| reject("INVALID_SHAPE"))?;
         let valid = match outer.kind.as_str() {
-            "agreement.accept" => schema == "ledger-workflow-agreement-accept/2",
+            "agreement.accept" => matches!(
+                schema,
+                "ledger-workflow-agreement-accept/2" | "ledger-workflow-agreement-accept/3"
+            ),
             "agreement.activate" => matches!(
                 schema,
                 "ledger-workflow-activation/1" | "ledger-workflow-activation-replace/1"

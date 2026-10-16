@@ -38,7 +38,10 @@ impl AcceptInput {
         let mut input: Payload =
             serde_json::from_value(value).map_err(|_| reject("INVALID_SHAPE"))?;
         require(
-            input.schema == "ledger-workflow-agreement-accept/2" && input.documents.len() <= 128,
+            matches!(
+                input.schema.as_str(),
+                "ledger-workflow-agreement-accept/2" | "ledger-workflow-agreement-accept/3"
+            ) && input.documents.len() <= 128,
             "INVALID_SHAPE",
         )?;
         input.expected_revision = counter(&input.expected_revision)?;
@@ -268,6 +271,11 @@ impl AcceptInput {
                 )?;
             }
             if r.kind == "workflow-slot-terms" {
+                require(
+                    body["schema"] != "ledger-workflow-slot-binding-terms/2"
+                        || self.input.schema == "ledger-workflow-agreement-accept/3",
+                    "UNSUPPORTED_SCHEMA_PROFILE",
+                )?;
                 let role: RecordRef = serde_json::from_value(body["role_ref"].clone())
                     .map_err(|_| ServiceError::IntegrityFailure)?;
                 require(required.contains(&role), "INVALID_REFERENCE")?;
@@ -325,7 +333,7 @@ fn normalize_leaf(v: &Value, terms: &AcceptanceTerms, context: &FactSchema) -> R
                 .canonical_value()
                 .clone(),
         ),
-        Some("ledger-workflow-slot-binding-terms/1") => (
+        Some("ledger-workflow-slot-binding-terms/1" | "ledger-workflow-slot-binding-terms/2") => (
             "workflow-slot-terms",
             SlotBindingTerms::parse(&bytes)
                 .map_err(typed_error)?
@@ -352,7 +360,9 @@ fn private_kind(v: &Value) -> Option<&'static str> {
         "ledger-workflow-role-assignment/1" => Some("workflow-roles"),
         "ledger-workflow-slot-catalog/1" => Some("workflow-slot-catalog"),
         "ledger-workflow-slot-instantiation/1" => Some("workflow-slot-instantiation"),
-        "ledger-workflow-slot-binding-terms/1" => Some("workflow-slot-terms"),
+        "ledger-workflow-slot-binding-terms/1" | "ledger-workflow-slot-binding-terms/2" => {
+            Some("workflow-slot-terms")
+        }
         "ledger-workflow-acceptance-terms/1" => Some("workflow-acceptance-terms"),
         "ledger-workflow-assent/1" => Some("workflow-assent"),
         _ => None,

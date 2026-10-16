@@ -1,7 +1,7 @@
 //! Fresh admission checks under the actual held local writer. No caller supplies
 //! an authenticated grant, current head, actor, clock or installation mode.
 use super::super::*;
-use super::{resolve::PublicationInputs, AcceptInput};
+use super::{AcceptInput, resolve::PublicationInputs};
 use crate::store::ports::AcceptanceTx;
 use crate::{
     service::billing::Setup,
@@ -50,6 +50,86 @@ fn selected(v: &Value, name: &str) -> bool {
         })
     })
 }
+/// Original accepted causal rights are constrained by the exact same selected
+/// catalog/instantiation/policy. This is data compatibility, never a grant.
+fn causal_coverage(
+    binding: &Value,
+    terms: &Value,
+    definitions: &PublicationInputs,
+    docs: &[Document],
+) -> Result<()> {
+    if terms["schema"] != "ledger-workflow-slot-binding-terms/2" {
+        return Ok(());
+    }
+    let body = |field: &str| -> Result<Value> {
+        let r = ref_value(&binding[field])?;
+        canonical::parse(&private_body(docs, &r)?.bytes).map_err(|_| ServiceError::IntegrityFailure)
+    };
+    let catalog = body("slot_catalog_ref")?;
+    let instantiated = body("slot_instantiation_ref")?;
+    fn array(v: &Value) -> Result<&Vec<Value>> {
+        v.as_array().ok_or(ServiceError::IntegrityFailure)
+    }
+    let clauses = array(&terms["causal_reversal_clauses"])?;
+    let components = array(&catalog["components"])?;
+    let families = array(&catalog["families"])?;
+    let component_map = array(&instantiated["component_map"])?;
+    let family_map = array(&instantiated["family_map"])?;
+    let selected = array(&definitions.policy["families"])?;
+    for clause in clauses {
+        let root = components
+            .iter()
+            .find(|c| c["slot_id"] == clause["root_component_slot"])
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let family = families
+            .iter()
+            .find(|f| f["slot_id"] == clause["family_slot"])
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let root_mapping = component_map
+            .iter()
+            .find(|m| m["slot_id"] == root["slot_id"])
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let family_mapping = family_map
+            .iter()
+            .find(|m| m["slot_id"] == family["slot_id"])
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let policy_family = selected
+            .iter()
+            .find(|f| f["family_key"] == family_mapping["template_key"])
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        require(
+            root["root_slot"] == root["slot_id"]
+                && root["book"] == terms["book"]
+                && root["role_slot"] == terms["role_slot"]
+                && family["target_component_slot"] == root["slot_id"]
+                && policy_family["selector"]["component_key"] == root_mapping["template_key"]
+                && policy_family["selector"]["binding_slot"] == terms["slot"]
+                && policy_family["correction_source_slot"] == clause["correction_source_slot"],
+            "AUTHORITY_REQUIRED",
+        )?;
+    }
+    // Presence is required even for a potentially zero/none/unclaimed family.
+    for family in selected
+        .iter()
+        .filter(|f| f["selector"]["binding_slot"] == terms["slot"])
+    {
+        let root = component_map
+            .iter()
+            .find(|m| m["template_key"] == family["selector"]["component_key"])
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let mapped = family_map
+            .iter()
+            .find(|m| m["template_key"] == family["family_key"])
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        require(
+            clauses.iter().any(|c| {
+                c["root_component_slot"] == root["slot_id"] && c["family_slot"] == mapped["slot_id"]
+            }),
+            "AUTHORITY_REQUIRED",
+        )?;
+    }
+    Ok(())
+}
 /// Data compatibility only; the caller has separately normalized the private
 /// documents and authenticated source/assent/funding dependencies.
 fn coverage(binding: &Value, definitions: &PublicationInputs, docs: &[Document]) -> Result<()> {
@@ -89,6 +169,7 @@ fn coverage(binding: &Value, definitions: &PublicationInputs, docs: &[Document])
                     .is_some_and(|legs| legs.iter().any(|leg| leg["name"] == terms["funding_leg"])),
             "INVALID_REFERENCE",
         )?;
+        causal_coverage(binding, &terms, definitions, docs)?;
         for rule in definitions.policy["rules"]
             .as_array()
             .ok_or(ServiceError::IntegrityFailure)?
