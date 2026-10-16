@@ -671,4 +671,42 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn attempt_cancellation_is_send_terminal_and_shared_by_origins_and_child() {
+        fn send<T: Send>() {}
+        send::<crate::canonical::audit_arena::AuditCancellation>();
+        send::<crate::canonical::audit_arena::ExternalBufferLease>();
+        let arena = AuditArena::new().unwrap();
+        let handle = arena.cancellation_handle();
+        let mut first = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut second = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let external = first.reserve_external_payload(4096).unwrap();
+        assert_eq!(external.reserved_payload_bytes(), 4096);
+        assert_eq!(first.resource_usage().unwrap().semantic_work, 19);
+        let mut child = first.meter.original_economic_meter().unwrap();
+        child.visit("before_cancel").unwrap();
+        handle.cancel();
+        assert_eq!(
+            child.visit("after_cancel").unwrap_err().code,
+            "AUDIT_CANCELLED"
+        );
+        assert!(first.meter.finish_original_economic(child).is_err());
+        assert_eq!(
+            second
+                .copy_representation(b"no allocation", RepresentationKind::Record)
+                .err()
+                .unwrap()
+                .code,
+            "AUDIT_CANCELLED"
+        );
+        assert_eq!(
+            second.check_cancelled().unwrap_err().code,
+            "AUDIT_CANCELLED"
+        );
+        assert!(second.semantic_work().scan_bytes(1).is_err());
+        // Request cancellation cannot prematurely release worker-owned payload.
+        assert_eq!(arena.usage().unwrap().live_bytes, 1024 + 4096);
+        drop(external);
+        assert_eq!(arena.usage().unwrap().live_bytes, 1024);
+    }
 }

@@ -23,10 +23,25 @@ pub struct OriginalAuditSession {
 impl OriginalAuditSession {
     pub fn new(attempt_arena: &AuditArena) -> Result<Self> {
         let _active_arena = attempt_arena.usage()?;
+        let mut meter = Meter::original_audit()?;
+        meter.set_attempt_cancellation(attempt_arena.cancellation_handle());
         Ok(Self {
             arena: attempt_arena.shared_handle(),
-            meter: Meter::original_audit()?,
+            meter,
         })
+    }
+    /// Host checks this same terminal flag at every I/O boundary. Callback paths
+    /// poll before EVERY S/C operation, tighter than the required4096 cadence.
+    pub fn check_cancelled(&mut self) -> Result<()> {
+        self.meter.check_attempt_cancellation()
+    }
+    pub fn reserve_external_payload(
+        &mut self,
+        bytes: usize,
+    ) -> Result<crate::canonical::audit_arena::ExternalBufferLease> {
+        self.arena
+            .reserve_external_payload(bytes, &mut self.meter)
+            .inspect_err(|_| self.meter.fail_original())
     }
     pub fn parts(&mut self) -> (&AuditArena, &mut dyn ValidationWork) {
         (&self.arena, &mut self.meter)

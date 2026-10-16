@@ -34,7 +34,7 @@ pub struct SavedFinancialInput<'a> {
     pub operation: EconomicRecordView<'a>,
     pub original_request_bytes: &'a [u8],
     pub activation_ref: &'a ExactRef,
-    pub original_state: &'a DraftStateData,
+    pub original_state: &'a EconomicStateData<'a>,
     pub original_inputs: &'a [EconomicRecordView<'a>],
 }
 #[derive(Clone, Debug)]
@@ -72,6 +72,19 @@ pub struct FamilyHead {
     pub family_slot: String,
     pub revision: String,
     pub reference: ExactRef,
+}
+#[derive(Clone, Debug)]
+pub struct CapacityHead {
+    pub root_decision_id: String,
+    pub revision: String,
+    pub reference: ExactRef,
+}
+/// The complete candidate's extra projection DATA. The host must select these
+/// exact capacity heads under the same snapshot/locks as financial heads;
+/// neither a payload nor this view asserts completeness or currentness.
+pub struct EconomicStateData<'a> {
+    pub financial: &'a DraftStateData,
+    pub capacity_heads: &'a [CapacityHead],
 }
 #[derive(Clone, Debug, Default)]
 pub struct DraftStateData {

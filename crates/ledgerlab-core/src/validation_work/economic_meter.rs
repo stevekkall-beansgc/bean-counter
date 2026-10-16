@@ -75,6 +75,7 @@ pub struct Meter {
     original_owner: Option<Arc<AtomicU8>>,
     original_child_token: Option<AuditChildToken>,
     resource_v2: bool,
+    cancellation: Option<crate::canonical::audit_arena::AuditCancellation>,
     resource_vector: Option<super::original_audit::representation::ResourceLedger>,
     phase: Phase,
     usage: Usage,
@@ -99,6 +100,7 @@ impl Meter {
             original_owner: None,
             original_child_token: None,
             resource_v2: false,
+            cancellation: None,
             resource_vector: None,
             phase: Phase::ParseNormalize,
             resolved: BTreeMap::new(),
@@ -163,6 +165,7 @@ impl Meter {
         inner.original_owner = Some(Arc::clone(owner));
         inner.original_child_token = Some(AuditChildToken(Arc::clone(owner)));
         inner.resource_v2 = self.resource_v2;
+        inner.cancellation = self.cancellation.clone();
         inner.resource_vector = self.resource_vector.take();
         self.original_inner_started = true;
         Ok(inner)
@@ -200,6 +203,7 @@ impl Meter {
         inner.original_owner = Some(Arc::clone(owner));
         inner.original_child_token = Some(AuditChildToken(Arc::clone(owner)));
         inner.resource_v2 = self.resource_v2;
+        inner.cancellation = self.cancellation.clone();
         inner.resource_vector = self.resource_vector.take();
         self.original_inner_started = true;
         Ok(inner)
@@ -320,6 +324,7 @@ impl Meter {
             original_owner: None,
             original_child_token: None,
             resource_v2: false,
+            cancellation: None,
             resource_vector: None,
             phase: Phase::Compile,
             resolved: BTreeMap::new(),
@@ -564,7 +569,28 @@ impl Meter {
     fn arithmetic_result(&self, value: BigInt) -> Result<BigInt> {
         bounded(value).inspect_err(|_| self.fail_original())
     }
+    pub(crate) fn set_attempt_cancellation(
+        &mut self,
+        handle: crate::canonical::audit_arena::AuditCancellation,
+    ) {
+        self.cancellation = Some(handle);
+    }
+    pub(crate) fn check_attempt_cancellation(&self) -> Result<()> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|handle| handle.is_cancelled())
+        {
+            self.fail_original();
+            return Err(Error::new(
+                "AUDIT_CANCELLED",
+                "audit attempt interrupted without financial effect",
+            ));
+        }
+        Ok(())
+    }
     fn require_original_lifecycle(&self) -> Result<()> {
+        self.check_attempt_cancellation()?;
         if let Some(owner) = &self.original_owner {
             let state = owner.load(AtomicOrdering::SeqCst);
             if state == 3 || (self.domain == BudgetDomain::OriginalAudit && state == 1) {

@@ -8,7 +8,7 @@ mod data;
 #[cfg(test)]
 mod tests;
 pub use data::{
-    AuthorityContextData, DecisionHead, DraftContextData, DraftEnvelope, DraftStateData,
+    AuthorityContextData, CapacityHead, DecisionHead, DraftContextData, DraftEnvelope, DraftStateData, EconomicStateData,
     DraftTransition, EconomicRecordView, ExactRef, FamilyHead, OperationKey, ProposedHeads,
     RecordInput, SavedFinancialInput,
 };

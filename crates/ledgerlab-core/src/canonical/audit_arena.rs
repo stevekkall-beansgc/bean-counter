@@ -10,7 +10,10 @@ use crate::{
 use serde_json::Value;
 use std::{
     mem,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 const LIMIT: usize = 64 * 1024 * 1024;
 // Fixed ledger/owner/error propagation reservation. Allocator/RSS overhead is
@@ -60,6 +63,21 @@ struct Ledger {
 /// origin state or financial commit conversion exists.
 pub struct AuditArena {
     ledger: Arc<Mutex<Ledger>>,
+    cancelled: Arc<AtomicBool>,
+}
+/// Operational cancellation only. Handles may set the attempt's terminal flag;
+/// no clear/reset, quota access, or proof completion operation is available.
+#[derive(Clone)]
+pub struct AuditCancellation {
+    cancelled: Arc<AtomicBool>,
+}
+impl AuditCancellation {
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 impl AuditArena {
     pub fn new() -> Result<Self> {
@@ -67,6 +85,7 @@ impl AuditArena {
             return Err(failure("arena fixed reservation"));
         }
         Ok(Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
             ledger: Arc::new(Mutex::new(Ledger {
                 live: FIXED,
                 peak: FIXED,
@@ -78,6 +97,12 @@ impl AuditArena {
     pub(crate) fn shared_handle(&self) -> Self {
         Self {
             ledger: Arc::clone(&self.ledger),
+            cancelled: Arc::clone(&self.cancelled),
+        }
+    }
+    pub fn cancellation_handle(&self) -> AuditCancellation {
+        AuditCancellation {
+            cancelled: Arc::clone(&self.cancelled),
         }
     }
     pub fn usage(&self) -> Result<ArenaUsage> {
@@ -162,6 +187,22 @@ impl AuditArena {
         bytes.extend_from_slice(raw);
         Ok(AuditedBytes { bytes, reservation })
     }
+    /// Reserve an exactly derived external producer's requested payload BEFORE
+    /// execution. This is a requested allocation size, never a caller-selected
+    /// quota/ceiling: all producers share the fixed64MiB attempt allowance.
+    /// Caller source must establish size/copy/lifetime truth and all I/O/grammar
+    /// bounds; this resource object cannot prove those obligations. Host SQL
+    /// leases live until actual worker completion/reset, even after cancellation.
+    /// Size/lease arithmetic executes on ordinary S, never a C callback view.
+    pub(crate) fn reserve_external_payload(
+        &self,
+        bytes: usize,
+        work: &mut dyn ValidationWork,
+    ) -> Result<ExternalBufferLease> {
+        Ok(ExternalBufferLease {
+            reservation: self.reserve(bytes, work)?,
+        })
+    }
     /// Encode a borrowed tree with the SAME paid bounded emitter. The output,
     /// old/new destination growth overlap and all key/small formatting scratch
     /// are admitted before emission; successful bytes keep an owning lease.
@@ -192,7 +233,8 @@ impl AuditArena {
         maximum: usize,
         container: Option<canonical::CanonicalContainerBound>,
     ) -> Result<AuditedBytes> {
-        let keys = emission_key_storage(value, work, 0)?;
+        let mut minimum_output = 0;
+        let keys = emission_key_storage(value, work, 0, maximum, &mut minimum_output)?;
         // Bounded Destination uses reserve_exact, so retained capacity<=maximum
         // and each reallocation's old+new requested payload<=2*maximum.
         // All object key vectors are retained conservatively even after their
@@ -253,6 +295,16 @@ impl AuditArena {
             value: value.clone(),
             reservation,
         })
+    }
+}
+/// A resource reservation, never authority or an indication of SQL completion.
+/// No Clone/Serde/reset or ability to extract a payload/allocation is exposed.
+pub struct ExternalBufferLease {
+    reservation: Lease,
+}
+impl ExternalBufferLease {
+    pub fn reserved_payload_bytes(&self) -> usize {
+        self.reservation.bytes
     }
 }
 struct Lease {
@@ -590,6 +642,8 @@ fn emission_key_storage(
     value: &Value,
     work: &mut dyn ValidationWork,
     depth: usize,
+    output_maximum: usize,
+    minimum_output: &mut usize,
 ) -> Result<usize> {
     work.visit(ValidationVisit::Value)?;
     if w::compare(work, depth, 32usize)? == std::cmp::Ordering::Greater {
@@ -598,13 +652,17 @@ fn emission_key_storage(
             "canonical resource depth",
         ));
     }
+    // Every JSON value emits at least one byte. Raw UTF-8 string/key bytes
+    // are a lower bound even when escaping expands them. Stop this paid walk
+    // before an oversized borrowed tree can consume an unbounded refusal path.
+    minimum_emission(work, minimum_output, 1, output_maximum)?;
     let mut total = 0;
     match value {
         Value::Array(values) => {
             for child in values {
                 work.visit(ValidationVisit::Element)?;
                 let next = w::usize_add(work, depth, 1)?;
-                let child = emission_key_storage(child, work, next)?;
+                let child = emission_key_storage(child, work, next, output_maximum, minimum_output)?;
                 total = add(work, total, child)?;
             }
         }
@@ -616,22 +674,64 @@ fn emission_key_storage(
             };
             let payload = mul(work, count, mem::size_of::<&String>())?;
             total = add(work, payload, mem::size_of::<Vec<&String>>())?;
-            for child in values.values() {
+            for (key, child) in values {
+                minimum_emission(work, minimum_output, key.len(), output_maximum)?;
                 work.visit(ValidationVisit::Field)?;
                 let next = w::usize_add(work, depth, 1)?;
-                let child = emission_key_storage(child, work, next)?;
+                let child = emission_key_storage(child, work, next, output_maximum, minimum_output)?;
                 total = add(work, total, child)?;
             }
         }
+        Value::String(text) => minimum_emission(work, minimum_output, text.len(), output_maximum)?,
         _ => {}
     }
     Ok(total)
+}
+
+fn minimum_emission(
+    work: &mut dyn ValidationWork,
+    running: &mut usize,
+    additional: usize,
+    maximum: usize,
+) -> Result<()> {
+    let next = add(work, *running, additional)?;
+    if greater(work, next, maximum)? {
+        return Err(Error::new(
+            "PROGRAM_BUDGET_EXCEEDED",
+            "canonical output lower bound",
+        ));
+    }
+    *running = next;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::validation_work::NoopValidationWork;
+    #[test]
+    fn oversized_borrowed_tree_refuses_during_paid_preallocation_walk() {
+        let arena = AuditArena::new().unwrap();
+        let before = arena.usage().unwrap().live_bytes;
+        let tree = serde_json::json!([null, null, null, null]);
+        let error = arena
+            .canonical_bytes(&tree, &mut NoopValidationWork, 2)
+            .err()
+            .unwrap();
+        assert_eq!(error.code, "PROGRAM_BUDGET_EXCEEDED");
+        assert_eq!(error.detail, "canonical output lower bound");
+        assert_eq!(arena.usage().unwrap().live_bytes, before);
+        let error = arena
+            .canonical_bytes(
+                &serde_json::json!({"long-key": 0}),
+                &mut NoopValidationWork,
+                4,
+            )
+            .err()
+            .unwrap();
+        assert_eq!(error.detail, "canonical output lower bound");
+        assert_eq!(arena.usage().unwrap().live_bytes, before);
+    }
     #[test]
     fn parsed_artifact_and_explicit_copy_own_shared_reservations_until_drop() {
         let arena = AuditArena::new().unwrap();
