@@ -16,6 +16,23 @@ pub const BUNDLE_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanonicalBytes(Vec<u8>);
+/// Existing journal framing limits, selected only by the owning resource
+/// implementation. These do not widen the public canonical record/body API.
+pub(crate) enum CanonicalContainerBound {
+    Operation,
+    Manifest,
+    Receipt,
+}
+impl CanonicalContainerBound {
+    pub(crate) fn maximum(&self) -> usize {
+        match self {
+            Self::Operation => 8 * 1024 * 1024,
+            Self::Manifest => 4 * 1024 * 1024,
+            Self::Receipt => 1024 * 1024,
+        }
+    }
+}
+
 impl CanonicalBytes {
     pub fn from_value(value: &impl Serialize) -> Result<Self> {
         Self::from_value_with_work(value, &mut NoopValidationWork)
@@ -47,6 +64,18 @@ impl CanonicalBytes {
     }
     pub fn as_slice(&self) -> &[u8] {
         &self.0
+    /// The identical executing emitter for code-owned journal containers.
+    /// Ownership/reservation must already have been admitted by the resource
+    /// session; this entry alone provides no arena or authentication guarantee.
+    pub(crate) fn from_container_with_work(
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        bound: CanonicalContainerBound,
+    ) -> Result<Self> {
+        let mut destination = Destination::bounded(bound.maximum());
+        emit(value, &mut destination, 0, work)?;
+        Ok(Self(destination.bytes))
+    }
     }
     pub fn into_vec(self) -> Vec<u8> {
         self.0
@@ -801,6 +830,64 @@ mod executing_work_tests {
         assert_eq!(destination.bytes, b"-123");
         assert!(destination.bytes.capacity() <= 4);
         let mut destination = Destination::bounded(3);
+    #[test]
+    fn journal_container_emitter_preserves_closed_bounds_and_body_limit() {
+        assert_eq!(CanonicalContainerBound::Operation.maximum(), 8 * 1024 * 1024);
+        assert_eq!(CanonicalContainerBound::Manifest.maximum(), BUNDLE_LIMIT);
+        assert_eq!(CanonicalContainerBound::Receipt.maximum(), 1024 * 1024);
+        let value = Value::String("x".repeat(BUNDLE_LIMIT));
+        let mut paid = CountingWork::new(usize::MAX);
+        let encoded = CanonicalBytes::from_container_with_work(
+            &value,
+            &mut paid,
+            CanonicalContainerBound::Operation,
+        )
+        .unwrap();
+        assert_eq!(encoded.as_slice().len(), BUNDLE_LIMIT + 2);
+        assert_eq!(encoded.as_slice().first(), Some(&b'"'));
+        assert_eq!(encoded.as_slice().last(), Some(&b'"'));
+        let mut public_work = CountingWork::new(usize::MAX);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(
+                &value,
+                &mut public_work,
+                usize::MAX,
+            )
+            .unwrap_err(),
+            Error::new("PROGRAM_BUDGET_EXCEEDED", "canonical destination bound"),
+        );
+    }
+
+    #[test]
+    fn journal_container_emitter_keeps_exact_work_refusal_and_bytes() {
+        let value = serde_json::json!({"escaped":"\n\u{1f600}","integer":-9});
+        let mut paid = CountingWork::new(usize::MAX);
+        let bytes = CanonicalBytes::from_container_with_work(
+            &value,
+            &mut paid,
+            CanonicalContainerBound::Receipt,
+        )
+        .unwrap();
+        assert_eq!(bytes, CanonicalBytes::from_value(&value).unwrap());
+        let required = paid.used;
+        let mut exact = CountingWork::new(required);
+        assert_eq!(
+            CanonicalBytes::from_container_with_work(
+                &value,
+                &mut exact,
+                CanonicalContainerBound::Receipt,
+            )
+            .unwrap(),
+            bytes,
+        );
+        let mut short = CountingWork::new(required - 1);
+        assert!(CanonicalBytes::from_container_with_work(
+            &value,
+            &mut short,
+            CanonicalContainerBound::Receipt,
+        ).is_err());
+    }
+
         assert_eq!(
             emit(&Value::from(-123), &mut destination, 0, &mut work).unwrap_err(),
             destination_limit()
