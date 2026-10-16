@@ -67,8 +67,6 @@ fn recipe(
     // Dispatch EACH kind/payload/registry tuple, never 'known registry=>latest'.
     const ORDINARY: &[(&str, &str)] = &[
         ("work.accept", "ledger-workflow-work/1"),
-        ("work.reverse", "ledger-workflow-work-reverse/1"),
-        ("quantity.correct", "ledger-workflow-quantity-correction/1"),
         ("outcome.submit", "ledger-workflow-outcome/1"),
         ("outcome.correct", "ledger-workflow-outcome-correction/1"),
         ("outcome.close", "ledger-workflow-outcome-close/1"),
@@ -83,6 +81,25 @@ fn recipe(
             && payload == *p
             && (registry == ECON || registry == CAUSAL || registry == EXPOSURE)
         {
+            return Ok(Recipe {
+                operation: "ledger-workflow-economic-operation/3",
+                manifest: "ledger-workflow-economic-manifest/3",
+                closure: "ledger-economic-resolved-inputs/3",
+                authority: "ledger-workflow-economic-authority/2",
+            });
+        }
+    }
+    // The old /1 correction tuples exist ONLY in economic-audit03. Neither
+    // additive registry inherits them merely by keeping ordinary schemas3.
+    for (k, p) in [
+        ("quantity.correct", "ledger-workflow-quantity-correction/1"),
+        ("work.reverse", "ledger-workflow-work-reverse/1"),
+    ] {
+        session
+            .semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        if kind == k && payload == p && registry == ECON {
             return Ok(Recipe {
                 operation: "ledger-workflow-economic-operation/3",
                 manifest: "ledger-workflow-economic-manifest/3",
@@ -680,6 +697,49 @@ mod recipe_tests {
         let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let registry = "sha256:5fd45e8ac7af2bc4079e14074c935f30982fb88ac09765500ba67666a73fc4f4";
+        for registry in [
+            registry,
+            "sha256:b9397d8545fccefeb32ff9c320f1f70c96b1c89d6bd58f7aba37068862ab6d54",
+        ] {
+            for (kind, old, new) in [
+                (
+                    "quantity.correct",
+                    "ledger-workflow-quantity-correction/1",
+                    "ledger-workflow-quantity-correction/2",
+                ),
+                (
+                    "work.reverse",
+                    "ledger-workflow-work-reverse/1",
+                    "ledger-workflow-work-reverse/2",
+                ),
+            ] {
+                assert!(recipe(kind, old, registry, &mut session).is_err());
+                let correct = recipe(kind, new, registry, &mut session).unwrap();
+                assert_eq!(correct.operation, "ledger-workflow-economic-operation/4");
+                let legacy = recipe(
+                    kind,
+                    old,
+                    "sha256:5d9c1c2b3719978693927dd72264aa3c402daaf62800d9e11bb49b0d0868ec1e",
+                    &mut session,
+                )
+                .unwrap();
+                assert_eq!(legacy.operation, "ledger-workflow-economic-operation/3");
+            }
+            for (kind, payload) in [
+                ("work.accept", "ledger-workflow-work/1"),
+                ("outcome.submit", "ledger-workflow-outcome/1"),
+                ("outcome.correct", "ledger-workflow-outcome-correction/1"),
+                ("outcome.close", "ledger-workflow-outcome-close/1"),
+                ("link.assert", "ledger-workflow-link-assert/1"),
+            ] {
+                assert_eq!(
+                    recipe(kind, payload, registry, &mut session)
+                        .unwrap()
+                        .operation,
+                    "ledger-workflow-economic-operation/3"
+                );
+            }
+        }
         let ordinary = recipe(
             "work.accept",
             "ledger-workflow-work/1",
