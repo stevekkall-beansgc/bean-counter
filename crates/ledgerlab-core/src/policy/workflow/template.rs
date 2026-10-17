@@ -293,7 +293,7 @@ impl SlotTemplate {
             )?
             .ok_or_else(|| fail("TEMPLATE_MISSING_ROOT", "family target"))?;
             work.visit(Visit::Constraint)?;
-            if target.root_key != target.key {
+            if super::facts::source::different(&target.root_key, &target.key, work, complete)? {
                 return Err(fail(
                     "TEMPLATE_FAMILY_TARGET",
                     "family requires original root component",
