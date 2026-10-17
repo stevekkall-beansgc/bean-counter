@@ -9,6 +9,14 @@ use ledgerlab_core::{
     },
 };
 
+// Closed parser selection belongs to the real saved recipe, not to an
+// untrusted schema's request for admission or an arbitrary validation bypass.
+#[derive(Clone, Copy)]
+enum IngressRecipe {
+    Current,
+    OriginalAdministration,
+}
+
 pub(super) struct IncomingRequest {
     parsed: AuditedValue,
     raw: AuditedBytes,
@@ -19,13 +27,27 @@ pub(super) struct IncomingRequest {
 }
 impl IncomingRequest {
     pub(super) fn parse(raw: &[u8], session: &mut OriginalAuditSession) -> Result<Self> {
-        let result = Self::parse_inner(raw, session);
+        let result = Self::parse_inner(raw, session, IngressRecipe::Current);
         if result.is_err() {
             session.invalidate();
         }
         result
     }
-    fn parse_inner(raw: &[u8], session: &mut OriginalAuditSession) -> Result<Self> {
+    pub(super) fn parse_original_administration(
+        raw: &[u8],
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let result = Self::parse_inner(raw, session, IngressRecipe::OriginalAdministration);
+        if result.is_err() {
+            session.invalidate();
+        }
+        result
+    }
+    fn parse_inner(
+        raw: &[u8],
+        session: &mut OriginalAuditSession,
+        recipe: IngressRecipe,
+    ) -> Result<Self> {
         let raw = session
             .copy_representation(raw, RepresentationKind::OriginalRequest)
             .map_err(core_error)?;
@@ -131,6 +153,9 @@ impl IncomingRequest {
             }
         }
         let kind = kind.ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+        if matches!(recipe, IngressRecipe::OriginalAdministration) {
+            request_wrapper::same_text(kind, "authority.change", session)?;
+        }
         let payload = request_wrapper::field(value, "payload", session)?;
         session
             .semantic_work()
@@ -166,6 +191,13 @@ impl IncomingRequest {
                     "ledger-workflow-app-cost-attest/1",
                     "ledger-workflow-party-evidence-retain/1",
                     "ledger-workflow-party-evidence-retain/2",
+                ]
+            } else if matches!(recipe, IngressRecipe::OriginalAdministration) {
+                &[
+                    "ledger-workflow-customer-register/1",
+                    "ledger-workflow-source-enroll/1",
+                    "ledger-workflow-source-restrict/1",
+                    "ledger-workflow-source-revoke/1",
                 ]
             } else {
                 &[

@@ -9,6 +9,7 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
+const R1_REGISTRY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
 const COMMITMENT_REGISTRY: &str =
     "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276";
 const REGISTRY: &str = "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2";
@@ -28,8 +29,8 @@ struct Entry {
     locator: AuditedBytes,
     anchor: AuditedBytes,
 }
-struct Anchors {
-    entries: [Option<Entry>; 4],
+struct Anchors<const MAXIMUM: usize = 4> {
+    entries: [Option<Entry>; MAXIMUM],
     len: usize,
 }
 fn cmp(a: &[u8], b: &[u8], s: &mut OriginalAuditSession) -> Result<std::cmp::Ordering> {
@@ -84,7 +85,7 @@ fn join(parts: &[&[u8]], s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     b.append(b"]", s.semantic_work()).map_err(core_error)?;
     b.finish(s.semantic_work()).map_err(core_error)
 }
-impl Anchors {
+impl<const MAXIMUM: usize> Anchors<MAXIMUM> {
     fn new() -> Self {
         Self {
             entries: std::array::from_fn(|_| None),
@@ -141,9 +142,9 @@ impl Anchors {
             }
         }
         s.semantic_work()
-            .arithmetic(Op::Compare, &[&self.len.into(), &4usize.into()])
+            .arithmetic(Op::Compare, &[&self.len.into(), &MAXIMUM.into()])
             .map_err(core_error)?;
-        require(self.len < 4, "REFERENCE_LIMIT")?;
+        require(self.len < MAXIMUM, "REFERENCE_LIMIT")?;
         let mut i = self.len;
         while {
             s.semantic_work()
@@ -175,8 +176,8 @@ impl Anchors {
         Ok(())
     }
     fn arrays(&self, s: &mut OriginalAuditSession) -> Result<(AuditedBytes, AuditedBytes)> {
-        let mut locators: [&[u8]; 4] = [b""; 4];
-        let mut anchors: [&[u8]; 4] = [b""; 4];
+        let mut locators: [&[u8]; MAXIMUM] = [b""; MAXIMUM];
+        let mut anchors: [&[u8]; MAXIMUM] = [b""; MAXIMUM];
         for (i, item) in self.entries[..self.len].iter().enumerate() {
             s.semantic_work()
                 .visit(Visit::Element)
@@ -388,9 +389,32 @@ fn party_with_registry(
             .parse_representation(pending.normalized_payload(), Kind::OriginalRequest)
             .map_err(core_error)?;
         let set = party_anchors(req, payload.value(), registry, s)?;
+        request_evidence(
+            req,
+            pending.normalized_payload(),
+            payload.value(),
+            &set,
+            registry,
+            s,
+        )
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
+fn request_evidence<const MAXIMUM: usize>(
+    req: &ingress::IncomingRequest,
+    normalized_payload: &[u8],
+    payload: &Value,
+    set: &Anchors<MAXIMUM>,
+    registry: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<RequestEvidence> {
+    let result = (|| {
         let (locators, anchors) = set.arrays(s)?;
         let kind = wire::string(req.kind(), s)?;
-        let schema = encode(request_wrapper::field(payload.value(), "schema", s)?, s)?;
+        let schema = encode(request_wrapper::field(payload, "schema", s)?, s)?;
         let locator_digest = wire::domain_digest(
             b"bean-counter/descriptor-locators/1\0",
             &[
@@ -407,7 +431,7 @@ fn party_with_registry(
         let descriptor_schema = wire::string(
             wrappers::descriptor_schema(
                 req.kind(),
-                request_wrapper::text(payload.value(), "schema", s)?,
+                request_wrapper::text(payload, "schema", s)?,
                 registry,
                 s,
             )?,
@@ -457,7 +481,7 @@ fn party_with_registry(
                 ("contract", br#""workflow/1""#),
                 ("key", key.bytes()),
                 ("kind", kind.bytes()),
-                ("payload", pending.normalized_payload()),
+                ("payload", normalized_payload),
                 ("schema", br#""ledger-operation/1""#),
             ],
             262144,
@@ -527,6 +551,114 @@ pub(super) fn original_party(
             "INTEGRITY_FAILURE",
         )?;
         Ok(reproduced)
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
+
+/// R1 administration uses its original immutable registry and literal original
+/// request. Anchors are freshly extracted from the normalized operands, never
+/// from the stored resolution. This does not certify an earlier dependency.
+pub(super) fn original_administration(
+    origin: &prefix::LocatedWrappers,
+    normalized_payload: &[u8],
+    s: &mut OriginalAuditSession,
+) -> Result<RequestEvidence> {
+    let result = (|| {
+        let saved = request_wrapper::field(origin.wrappers().operation(), "request_evidence", s)?;
+        let resolution = request_wrapper::field(saved, "descriptor_resolution", s)?;
+        request_wrapper::same_text(
+            request_wrapper::text(resolution, "registry_digest", s)?,
+            R1_REGISTRY,
+            s,
+        )?;
+        let req = ingress::IncomingRequest::parse_original_administration(
+            origin.wrappers().original_request().raw(),
+            s,
+        )?;
+        request_wrapper::key(
+            request_wrapper::field(req.value(), "key", s)?,
+            origin.key(),
+            s,
+        )?;
+        let reproduced = administration(&req, normalized_payload, s)?;
+        let saved = s
+            .canonical_representation(saved, Kind::Record)
+            .map_err(core_error)?;
+        require(
+            cmp(saved.bytes(), reproduced.bytes(), s)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
+        Ok(reproduced)
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
+pub(super) fn administration(
+    req: &ingress::IncomingRequest,
+    normalized_payload: &[u8],
+    s: &mut OriginalAuditSession,
+) -> Result<RequestEvidence> {
+    let result = (|| {
+        request_wrapper::same_text(req.kind(), "authority.change", s)?;
+        let payload = s
+            .parse_representation(normalized_payload, Kind::OriginalRequest)
+            .map_err(core_error)?;
+        let p = payload.value();
+        let mut set = Anchors::<65>::new();
+        let schema = request_wrapper::text(p, "schema", s)?;
+        if cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/1", s)?.is_eq() {
+            let refs = request_wrapper::field(p, "customer_refs", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            s.semantic_work()
+                .arithmetic(Op::Compare, &[&refs.len().into(), &64usize.into()])
+                .map_err(core_error)?;
+            require(refs.len() <= 64, "INTEGRITY_FAILURE")?;
+            for reference in refs {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                set.add(
+                    "customer",
+                    "customer_registration",
+                    reference,
+                    "workflow-customer",
+                    s,
+                )?;
+            }
+            set.add(
+                "evidence",
+                "evidence_input",
+                request_wrapper::field(p, "evidence_ref", s)?,
+                "workflow-evidence",
+                s,
+            )?;
+        } else if cmp(schema.as_bytes(), b"ledger-workflow-customer-register/1", s)?.is_eq() {
+            set.add(
+                "evidence",
+                "evidence_input",
+                request_wrapper::field(p, "registration_evidence_ref", s)?,
+                "workflow-evidence",
+                s,
+            )?;
+        } else {
+            if !cmp(schema.as_bytes(), b"ledger-workflow-source-restrict/1", s)?.is_eq() {
+                request_wrapper::same_text(schema, "ledger-workflow-source-revoke/1", s)?;
+            }
+            set.add(
+                "source_enrollment",
+                "source_enrollment",
+                request_wrapper::field(p, "enrollment_ref", s)?,
+                "workflow-source-enrollment",
+                s,
+            )?;
+        }
+        request_evidence(req, normalized_payload, p, &set, R1_REGISTRY, s)
     })();
     if result.is_err() {
         s.invalidate();

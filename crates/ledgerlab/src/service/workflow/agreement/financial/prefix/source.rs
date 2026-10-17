@@ -241,6 +241,11 @@ pub(in super::super) fn original_request(
             result.payload.bytes() == expected.bytes(),
             "INTEGRITY_FAILURE",
         )?;
+        let _evidence = super::super::evidence::original_administration(
+            origin,
+            result.normalized_payload(),
+            s,
+        )?;
         Ok(result)
     })();
     if result.is_err() {
@@ -252,6 +257,82 @@ pub(in super::super) fn original_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn registration_and_source_evidence_preserve_existing_r1_domains_and_literal_raw() {
+        let reference = |kind: &str, digit: char| serde_json::json!({"kind":kind,"id":format!("wdoc_{}",digit.to_string().repeat(64)),"digest":format!("sha256:{}",digit.to_string().repeat(64))});
+        let registration = serde_json::json!({"schema":"ledger-workflow-customer-register/1","action":"customer.register","expected_revision":"0","customer":"customer-é","acceptor":"acceptor-é","registration_evidence_ref":reference("workflow-evidence", 'c')});
+        let fixture: Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/candidates/full-suite-v1/core/agreement-ready-fixture-input.json"
+        )))
+        .unwrap();
+        let mut enroll = fixture["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["payload"]["action"] == "source.enroll")
+            .unwrap()["payload"]
+            .clone();
+        enroll["customer_refs"] = serde_json::json!([
+            reference("workflow-customer", 'b'),
+            reference("workflow-customer", 'a')
+        ]);
+        enroll["evidence_ref"] = reference("workflow-evidence", 'c');
+        let enrollment = reference("workflow-source-enrollment", 'd');
+        let restrict = serde_json::json!({"schema":"ledger-workflow-source-restrict/1","action":"source.restrict","enrollment_ref":enrollment,"expected_revision":"1","replacement_ceiling":enroll["ceiling"]});
+        let revoke = serde_json::json!({"schema":"ledger-workflow-source-revoke/1","action":"source.revoke","enrollment_ref":enrollment,"expected_revision":"2","reason":"keep original\nreason"});
+        for (index, payload) in [registration, enroll, restrict, revoke]
+            .into_iter()
+            .enumerate()
+        {
+            let raw = serde_json::to_vec_pretty(&serde_json::json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"authority.change","key":{"logical_store_id":"test-store","scope":["test","local"],"source":"source","operation_id":"saved-original"},"payload":payload})).unwrap();
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let req = ingress::IncomingRequest::parse_original_administration(&raw, &mut session)
+                .unwrap();
+            let input = req.payload(&mut session).unwrap();
+            let normalized = if index == 0 {
+                registration_payload(input, &mut session).unwrap()
+            } else {
+                normalize(input, &mut session).unwrap().payload
+            };
+            let legacy =
+                crate::service::workflow::agreement::request::Request::parse(&raw).unwrap();
+            let normalized_value: Value = serde_json::from_slice(normalized.bytes()).unwrap();
+            let expected =
+                crate::service::workflow::agreement::journal::evidence(&legacy, &normalized_value)
+                    .unwrap();
+            let actual = super::super::super::evidence::administration(
+                &req,
+                normalized.bytes(),
+                &mut session,
+            )
+            .unwrap();
+            assert_eq!(actual.value(), &expected, "case {index}");
+            if index == 0 {
+                let root = ledgerlab_core::policy::workflow::transition_constructor::ExactRef {
+                    kind: "workflow-authority".into(),
+                    id: format!("wdoc_{}", "e".repeat(64)),
+                    digest: format!("sha256:{}", "e".repeat(64)),
+                };
+                let at = Timestamp::parse("2026-10-17T00:00:00Z").unwrap();
+                let generated = registration_record(
+                    input,
+                    &serde_json::json!(["test", "local"]),
+                    "owner",
+                    &at,
+                    &root,
+                    &mut session,
+                )
+                .unwrap();
+                let expected = crate::service::workflow::records::source_document("workflow-customer", serde_json::json!({"schema":"ledger-workflow-customer-registration/1","scope":["test","local"],"customer":input["customer"],"acceptor":input["acceptor"],"evidence_ref":input["registration_evidence_ref"],"registered_by":"owner","registered_at":at,"authority_ref":root,"installation_mode":"real_local"})).unwrap();
+                assert_eq!(generated.bytes(), expected.bytes);
+                assert_eq!(generated.reference().kind, expected.reference.kind);
+                assert_eq!(generated.reference().id, expected.reference.id);
+                assert_eq!(generated.reference().digest, expected.reference.digest);
+            }
+        }
+    }
     #[test]
     fn original_source_request_normalization_matches_existing_r1_for_all_three_transitions() {
         let fixture: Value = serde_json::from_slice(include_bytes!(concat!(
@@ -294,6 +375,202 @@ mod tests {
             assert_eq!(baseline, arena.usage().unwrap().live_bytes);
         }
     }
+}
+
+/// SAME R1 customer-register input. No SourceCeiling or current source is
+/// inferred from an administrative registration request.
+fn registration_payload(p: &Value, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+    request_wrapper::closed(
+        p,
+        &[
+            "schema",
+            "action",
+            "expected_revision",
+            "customer",
+            "acceptor",
+            "registration_evidence_ref",
+        ],
+        s,
+    )?;
+    for (field, expected) in [
+        ("schema", "ledger-workflow-customer-register/1"),
+        ("action", "customer.register"),
+        ("expected_revision", "0"),
+    ] {
+        request_wrapper::same_text(request_wrapper::text(p, field, s)?, expected, s)?;
+    }
+    for field in ["customer", "acceptor"] {
+        ingress::identifier(request_wrapper::text(p, field, s)?, 128, s)?;
+    }
+    acceptance::validate_reference(
+        request_wrapper::field(p, "registration_evidence_ref", s)?,
+        "workflow-evidence",
+        s,
+    )?;
+    // The normalized shape contains no decimal/time/set field. SAME JCS over
+    // the checked borrowed fields preserves the legacy Registration DTO bytes.
+    encode(p, s)
+}
+/// A recomputed permanent registration is DATA until chronological absence,
+/// evidence/root custody and earliest-introduction checks have all completed.
+pub(in super::super) struct CustomerRegistration<'a> {
+    payload: AuditedBytes,
+    management: Management<'a>,
+    evidence: current::source::SourceRecord,
+    registration: wire::SourceRecord,
+}
+fn registration_record(
+    p: &Value,
+    scope: &Value,
+    actor: &str,
+    at: &Timestamp,
+    root: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
+    let acceptor = value(p, "acceptor", s)?;
+    let customer = value(p, "customer", s)?;
+    let evidence = value(p, "registration_evidence_ref", s)?;
+    let actor = wire::string(actor, s)?;
+    let at = wire::string(at.as_str(), s)?;
+    let root = wire::reference(root, s)?;
+    let scope = encode(scope, s)?;
+    let body = wire::object(
+        &[
+            ("acceptor", acceptor.bytes()),
+            ("authority_ref", root.bytes()),
+            ("customer", customer.bytes()),
+            ("evidence_ref", evidence.bytes()),
+            ("installation_mode", b"\"real_local\""),
+            ("registered_at", at.bytes()),
+            ("registered_by", actor.bytes()),
+            ("schema", b"\"ledger-workflow-customer-registration/1\""),
+            ("scope", scope.bytes()),
+        ],
+        262144,
+        s,
+    )?;
+    wire::source_record(
+        "workflow-customer",
+        "ledger-workflow-customer-registration/1",
+        body,
+        s,
+    )
+}
+pub(in super::super) async fn reconstruct_registration<'a>(
+    tx: &mut SqliteTx,
+    origin: &'a LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<CustomerRegistration<'a>> {
+    let result = registration_inner(tx, origin, s).await;
+    if result.is_err() {
+        s.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, Ordering::Release);
+    }
+    result
+}
+async fn registration_inner<'a>(
+    tx: &mut SqliteTx,
+    origin: &'a LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<CustomerRegistration<'a>> {
+    let operation = origin.wrappers().operation();
+    request_wrapper::same_text(
+        request_wrapper::text(operation, "kind", s)?,
+        "authority.change",
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(origin.wrappers().receipt(), "result_kind", s)?,
+        "administrative",
+        s,
+    )?;
+    let literal =
+        request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+    let payload = registration_payload(literal, s)?;
+    let saved = request_wrapper::field(
+        request_wrapper::field(operation, "request_evidence", s)?,
+        "normalized_request",
+        s,
+    )?;
+    let saved = value(saved, "payload", s)?;
+    same_bytes(payload.bytes(), saved.bytes(), s)?;
+    let _evidence = super::super::evidence::original_administration(origin, payload.bytes(), s)?;
+    let p = s
+        .parse_representation(payload.bytes(), RepresentationKind::SourceDefinition)
+        .map_err(core_error)?;
+    let p = p.value();
+    let management = management(tx, origin, s).await?;
+    let evidence_ref = request_wrapper::field(p, "registration_evidence_ref", s)?;
+    origin.require_member(evidence_ref, s)?;
+    let evidence = current::source::retained_record(
+        tx,
+        origin.key(),
+        evidence_ref,
+        "workflow-evidence",
+        "ledger-workflow-retained-evidence/1",
+        origin.wrappers().sequence(),
+        s,
+    )
+    .await?;
+    let proof = evidence.body();
+    // Evidence's full literal producer is an earlier chronological obligation;
+    // these are the SAME registration-specific consumer checks from R1.
+    request_wrapper::same_text(
+        request_wrapper::text(proof, "purpose", s)?,
+        "customer_registration",
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(proof, "installation_mode", s)?,
+        "real_local",
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(request_wrapper::field(proof, "subject", s)?, "customer", s)?,
+        request_wrapper::text(p, "customer", s)?,
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(request_wrapper::field(proof, "metadata", s)?, "acceptor", s)?,
+        request_wrapper::text(p, "acceptor", s)?,
+        s,
+    )?;
+    let scope = request_wrapper::field(request_wrapper::field(operation, "key", s)?, "scope", s)?;
+    let registration = registration_record(
+        p,
+        scope,
+        management.actor,
+        &management.at,
+        management.root.reference(),
+        s,
+    )?;
+    let results =
+        wire::RefSet::new([registration.reference()].into_iter(), 1, true, s)?.encode(s)?;
+    let expected = value(operation, "result_refs", s)?;
+    same_bytes(results.bytes(), expected.bytes(), s)?;
+    let reference = wire::reference(registration.reference(), s)?;
+    let reference = s
+        .parse_representation(reference.bytes(), RepresentationKind::SourceDefinition)
+        .map_err(core_error)?;
+    origin.require_member(reference.value(), s)?;
+    let stored = current::source::retained_record(
+        tx,
+        origin.key(),
+        reference.value(),
+        "workflow-customer",
+        "ledger-workflow-customer-registration/1",
+        management.own_before,
+        s,
+    )
+    .await?;
+    same_bytes(stored.canonical_body(), registration.bytes(), s)?;
+    Ok(CustomerRegistration {
+        payload,
+        management,
+        evidence,
+        registration,
+    })
 }
 
 /// Actual recomputed initial birth. It does not credit source identity, current

@@ -269,6 +269,10 @@ async fn original_query_in(
             session,
         )?;
         let schema = request_wrapper::text(p, "schema", session)?;
+        if acceptance::same_recipe_text(schema, "ledger-workflow-customer-register/1", session)? {
+            let _registration =
+                prefix::source::reconstruct_registration(tx, &original, session).await?;
+        }
         for expected in [
             "ledger-workflow-source-enroll/1",
             "ledger-workflow-source-restrict/1",
