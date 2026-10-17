@@ -325,7 +325,7 @@ async fn evidence_inputs(
     }
 }
 #[allow(clippy::too_many_arguments)]
-async fn authorization_inputs(
+async fn authorization_evidence(
     tx: &mut SqliteTx,
     req: &IncomingRequest,
     payload: &Value,
@@ -416,6 +416,20 @@ async fn authorization_inputs(
         &time(attested, "retained_at", session)?,
         session,
     )?;
+    Ok([Some(retained), Some(attestation)])
+}
+#[allow(clippy::too_many_arguments)]
+async fn authorization_inputs(
+    tx: &mut SqliteTx,
+    req: &IncomingRequest,
+    payload: &Value,
+    actor: &str,
+    at: &Timestamp,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<[Option<PartyRecord>; 2]> {
+    let dependencies = authorization_evidence(tx, req, payload, actor, at, before, session).await?;
+    let spec = check::field(payload, "authorization", session)?;
     let head = tx
         .workflow_party_authorization_head(
             &PartyHeadKey {
@@ -430,7 +444,7 @@ async fn authorization_inputs(
         .await
         .map_err(prefix::read_error)?;
     require(head.is_none(), "SEMANTIC_CONFLICT")?;
-    Ok([Some(retained), Some(attestation)])
+    Ok(dependencies)
 }
 fn dependency_count(
     dependencies: &[Option<PartyRecord>; 2],
@@ -598,6 +612,37 @@ async fn prepare_inner(
     };
     let scope_value = check::field(check::field(req.value(), "key", session)?, "scope", session)?;
     let root = root(&setup, scope_value, &at, session)?;
+    construct(
+        req,
+        payload,
+        root,
+        &setup.operator,
+        at,
+        before,
+        dependencies,
+        prior,
+        session,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn construct(
+    req: &IncomingRequest,
+    payload: &Value,
+    root: wire::SourceRecord,
+    actor: &str,
+    at: Timestamp,
+    before: i64,
+    dependencies: [Option<PartyRecord>; 2],
+    prior: Option<PartyRecord>,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingPartyOperation> {
+    let is_evidence = equal_text(
+        check::text(payload, "schema", session)?,
+        "ledger-workflow-party-evidence-retain/1",
+        session,
+    )?;
+    let scope_value = check::field(check::field(req.value(), "key", session)?, "scope", session)?;
     let subject = if let Some(prior) = &prior {
         check::field(prior.body(), "authorization", session)?
     } else if is_evidence {
@@ -605,18 +650,10 @@ async fn prepare_inner(
     } else {
         check::field(payload, "authorization", session)?
     };
-    let authority = management_authority(
-        req,
-        &root,
-        &setup.operator,
-        &at,
-        &dependencies,
-        subject,
-        session,
-    )?;
+    let authority = management_authority(req, &root, actor, &at, &dependencies, subject, session)?;
     let authority_ref = wire::reference(authority.reference(), session)?;
     let mode = wire::string("real_local", session)?;
-    let actor = wire::string(&setup.operator, session)?;
+    let actor = wire::string(actor, session)?;
     let timestamp = wire::string(at.as_str(), session)?;
     let body = if is_evidence {
         let content = encode(check::field(payload, "content_base64", session)?, session)?;
@@ -716,4 +753,317 @@ async fn prepare_inner(
         at,
         before,
     })
+}
+
+/// Saved recipe replay uses captured original material and the SAME constructor.
+/// It deliberately has no LocalWorkflowLedger/current mapping argument. Exact
+/// historical head/absence and every earlier origin remain driver obligations.
+pub(in super::super::super) async fn reconstruct(
+    tx: &mut SqliteTx,
+    origin: &prefix::LocatedWrappers,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingPartyOperation> {
+    let result = reconstruct_inner(tx, origin, session).await;
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
+}
+async fn reconstruct_inner(
+    tx: &mut SqliteTx,
+    origin: &prefix::LocatedWrappers,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingPartyOperation> {
+    session
+        .semantic_work()
+        .visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)
+        .map_err(core_error)?;
+    require(
+        origin.wrappers().class() == wrappers::WireClass::Prerequisite,
+        "INTEGRITY_FAILURE",
+    )?;
+    let request = IncomingRequest::parse(origin.wrappers().original_request().raw(), session)?;
+    check::key(
+        check::field(request.value(), "key", session)?,
+        origin.key(),
+        session,
+    )?;
+    let payload = request.payload(session)?;
+    let schema = check::text(payload, "schema", session)?;
+    let is_evidence = equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?;
+    let is_revoke = equal_text(schema, "ledger-workflow-party-revoke/1", session)?;
+    if is_evidence {
+        check::same_text(request.kind(), "evidence.retain", session)?;
+    } else {
+        check::same_text(request.kind(), "authority.change", session)?;
+        if !is_revoke {
+            check::same_text(schema, "ledger-workflow-party-authorize/1", session)?;
+        }
+    }
+    let operation = origin.wrappers().operation();
+    let at = time(operation, "accepted_at", session)?;
+    let before = origin.wrappers().sequence();
+    session
+        .semantic_work()
+        .arithmetic(Op::Add, &[&before.into(), &1i64.into()])
+        .map_err(core_error)?;
+    let own_before = before
+        .checked_add(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let management = check::field(operation, "authority_snapshot", session)?;
+    check::closed(
+        management,
+        &[
+            "schema",
+            "operation",
+            "actor",
+            "scope",
+            "customer",
+            "agreement_id",
+            "local_admin_ref",
+            "evidence_refs",
+            "observed_at",
+            "installation_mode",
+        ],
+        session,
+    )?;
+    check::same_text(
+        check::text(management, "schema", session)?,
+        "ledger-workflow-party-management-authority/1",
+        session,
+    )?;
+    check::same_text(
+        check::text(management, "operation", session)?,
+        request.kind(),
+        session,
+    )?;
+    check::same_text(
+        check::text(management, "installation_mode", session)?,
+        "real_local",
+        session,
+    )?;
+    scope(
+        check::field(management, "scope", session)?,
+        request.key(),
+        session,
+    )?;
+    let actor = id(management, "actor", 128, session)?;
+    same_value(
+        check::field(management, "observed_at", session)?,
+        check::field(operation, "accepted_at", session)?,
+        session,
+    )?;
+    let root_ref = check::field(management, "local_admin_ref", session)?;
+    origin.require_member(root_ref, session)?;
+    let retained_root = record(
+        tx,
+        request.key(),
+        root_ref,
+        "workflow-authority",
+        own_before,
+        session,
+    )
+    .await?;
+    let body = retained_root.body();
+    check::closed(
+        body,
+        &[
+            "schema",
+            "basis",
+            "basis_digest",
+            "verification_profile",
+            "verified_at",
+        ],
+        session,
+    )?;
+    check::same_text(
+        check::text(body, "schema", session)?,
+        "ledger-workflow-local-authority-snapshot/1",
+        session,
+    )?;
+    check::same_text(
+        check::text(body, "verification_profile", session)?,
+        "local-private-directory-owner/1",
+        session,
+    )?;
+    at_most(&time(body, "verified_at", session)?, &at, session)?;
+    let basis = check::field(body, "basis", session)?;
+    check::closed(
+        basis,
+        &[
+            "schema",
+            "logical_store_id",
+            "scope",
+            "principal_id",
+            "source",
+            "canonical_economic_namespace",
+            "rights",
+            "source_grant_revision",
+        ],
+        session,
+    )?;
+    for (name, expected) in [
+        ("schema", "ledger-workflow-local-authority-basis/1"),
+        ("logical_store_id", request.key().logical_store_id.as_str()),
+        ("principal_id", actor),
+        ("source", request.key().source.as_str()),
+        (
+            "canonical_economic_namespace",
+            request.key().source.as_str(),
+        ),
+    ] {
+        check::same_text(check::text(basis, name, session)?, expected, session)?;
+    }
+    scope(
+        check::field(basis, "scope", session)?,
+        request.key(),
+        session,
+    )?;
+    let rights = encode(check::field(basis, "rights", session)?, session)?;
+    same(rights.bytes(), b"[\"admin\",\"read\"]", session)?;
+    let revision = check::text(basis, "source_grant_revision", session)?;
+    size(revision.len(), 1, 20, session)?;
+    let mut numeric = 0u64;
+    for (index, byte) in revision.bytes().enumerate() {
+        session
+            .semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)
+            .map_err(core_error)?;
+        session.semantic_work().scan_bytes(1).map_err(core_error)?;
+        require(byte.is_ascii_digit(), "INTEGRITY_FAILURE")?;
+        if index == 0 {
+            require(byte != b'0', "INTEGRITY_FAILURE")?;
+        }
+        session
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&byte.into(), &b'0'.into()])
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Multiply, &[&numeric.into(), &10u8.into()])
+            .map_err(core_error)?;
+        numeric = numeric
+            .checked_mul(10)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Add, &[&numeric.into(), &(byte - b'0').into()])
+            .map_err(core_error)?;
+        numeric = numeric
+            .checked_add(u64::from(byte - b'0'))
+            .ok_or(ServiceError::IntegrityFailure)?;
+    }
+    let basis_bytes = encode(basis, session)?;
+    let basis_digest = wire::domain_digest(
+        b"bean-counter/local-authority-basis/1\0",
+        &[basis_bytes.bytes()],
+        session,
+    )?;
+    let supplied = encode(check::field(body, "basis_digest", session)?, session)?;
+    same(basis_digest.bytes(), supplied.bytes(), session)?;
+    let root_bytes = session
+        .copy_representation(
+            retained_root.stored.body.bytes(),
+            RepresentationKind::Authority,
+        )
+        .map_err(core_error)?;
+    let root = wire::source_record(
+        "workflow-authority",
+        "ledger-workflow-local-authority-snapshot/1",
+        root_bytes,
+        session,
+    )?;
+    let mut prior = None;
+    let dependencies = if is_evidence {
+        evidence_inputs(tx, &request, payload, actor, &at, before, session).await?
+    } else if is_revoke {
+        check::closed(
+            payload,
+            &["schema", "authorization_ref", "expected_revision", "reason"],
+            session,
+        )?;
+        check::same_text(
+            check::text(payload, "expected_revision", session)?,
+            "1",
+            session,
+        )?;
+        id(payload, "reason", 1024, session)?;
+        let (original, evidence, attestation) = original_authorization(
+            tx,
+            request.key(),
+            check::field(payload, "authorization_ref", session)?,
+            &at,
+            before,
+            session,
+        )
+        .await?;
+        prior = Some(original);
+        [Some(evidence), Some(attestation)]
+    } else {
+        authorization_evidence(tx, &request, payload, actor, &at, before, session).await?
+    };
+    let derived = construct(
+        &request,
+        payload,
+        root,
+        actor,
+        at,
+        before,
+        dependencies,
+        prior,
+        session,
+    )?;
+    let authority = wire::reference(derived.authority.reference(), session)?;
+    let authority = session
+        .parse_representation(authority.bytes(), RepresentationKind::Record)
+        .map_err(core_error)?;
+    origin.require_member(authority.value(), session)?;
+    let retained_authority = record(
+        tx,
+        request.key(),
+        authority.value(),
+        "workflow-authority",
+        own_before,
+        session,
+    )
+    .await?;
+    let canonical_management = encode(management, session)?;
+    same(
+        derived.authority.bytes(),
+        canonical_management.bytes(),
+        session,
+    )?;
+    same(
+        derived.authority.bytes(),
+        retained_authority.stored.body.bytes(),
+        session,
+    )?;
+    let results = check::field(operation, "result_refs", session)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    size(results.len(), 1, 1, session)?;
+    let result_ref = wire::reference(derived.result.reference(), session)?;
+    let result_ref = session
+        .parse_representation(result_ref.bytes(), RepresentationKind::Record)
+        .map_err(core_error)?;
+    same_value(&results[0], result_ref.value(), session)?;
+    origin.require_member(&results[0], session)?;
+    let retained_result = record(
+        tx,
+        request.key(),
+        &results[0],
+        derived.result.reference().kind.as_str(),
+        own_before,
+        session,
+    )
+    .await?;
+    same(
+        derived.result.bytes(),
+        retained_result.stored.body.bytes(),
+        session,
+    )?;
+    // Resource data is returned without crediting a party head or earliest
+    // introduction. Those become usable only after the enclosing history driver
+    // validates exact original custody, all dependencies and historical prestate.
+    Ok(derived)
 }

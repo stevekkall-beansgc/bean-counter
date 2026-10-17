@@ -22,7 +22,7 @@ struct Record {
 /// Holds actual immutable operands and the recompiled DATA program. No constructor
 /// for CompletedOrigin/PreparedFinancialCommit exists here. The input-copy lease
 /// covers only the host's compiler input; the core must also own its outputs.
-pub(super) struct RecompiledPublication {
+pub(in crate::service::workflow::agreement::financial) struct RecompiledPublication {
     program: SelectedProgram,
     publication: Record,
     plan: Record,
@@ -33,10 +33,12 @@ pub(super) struct RecompiledPublication {
     _compiler_input: ExternalBufferLease,
 }
 impl RecompiledPublication {
-    pub(super) fn program(&self) -> &SelectedProgram {
+    pub(in crate::service::workflow::agreement::financial) fn program(&self) -> &SelectedProgram {
         &self.program
     }
-    pub(super) fn publication(&self) -> (&ExactRef, &Value) {
+    pub(in crate::service::workflow::agreement::financial) fn publication(
+        &self,
+    ) -> (&ExactRef, &Value) {
         (&self.publication.reference, self.publication.parsed.value())
     }
     pub(super) fn plan(&self) -> (&ExactRef, &[u8]) {
@@ -127,7 +129,11 @@ fn reference_cmp(
     }
     Ok(std::cmp::Ordering::Equal)
 }
-fn member(reference: &Value, manifest: &Value, session: &mut OriginalAuditSession) -> Result<()> {
+pub(super) fn member(
+    reference: &Value,
+    manifest: &Value,
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
     // validate_frame already proved the manifest's strict Ref order and exact
     // indexed association. Use its actual order without copying/re-sorting it.
     let members = request_wrapper::field(manifest, "members", session)?

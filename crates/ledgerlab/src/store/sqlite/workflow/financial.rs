@@ -12,6 +12,8 @@ mod chronology;
 mod document;
 mod effects;
 mod heads;
+mod source;
+pub(crate) use source::SourceHeadLocator;
 mod app;
 mod party;
 pub(crate) use party::{PartyHeadKey,PartyHeadEffect};

@@ -675,7 +675,7 @@ fn equal_text(a: &str, b: &str, session: &mut OriginalAuditSession) -> Result<bo
 pub(in super::super) async fn platform_consent(
     tx: &mut SqliteTx,
     key: &OperationKey,
-    terms: &ledgerlab_core::policy::workflow::AcceptanceTerms,
+    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
     resource_leg: &str,
     assent: &Value,
     at: &Timestamp,
@@ -695,7 +695,7 @@ pub(in super::super) async fn platform_consent(
 async fn platform_consent_inner(
     tx: &mut SqliteTx,
     key: &OperationKey,
-    terms: &ledgerlab_core::policy::workflow::AcceptanceTerms,
+    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
     resource_leg: &str,
     assent: &Value,
     at: &Timestamp,

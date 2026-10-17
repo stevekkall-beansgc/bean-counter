@@ -99,6 +99,7 @@ impl IncomingRequest {
         let mut kind = None;
         for candidate in [
             "work.accept",
+            "agreement.accept",
             "work.reverse",
             "quantity.correct",
             "outcome.submit",
@@ -136,6 +137,13 @@ impl IncomingRequest {
             .visit(Visit::Constraint)
             .map_err(core_error)?;
         require(payload.is_object(), "INVALID_SHAPE")?;
+        if kind == "agreement.accept" {
+            request_wrapper::same_text(
+                request_wrapper::text(payload, "schema", session)?,
+                "ledger-workflow-agreement-accept/8",
+                session,
+            )?;
+        }
         if kind == "evidence.retain" || kind == "authority.change" {
             let schema = request_wrapper::text(payload, "schema", session)?;
             let allowed: &[&str] = if kind == "evidence.retain" {

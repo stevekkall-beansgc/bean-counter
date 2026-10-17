@@ -123,6 +123,11 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, Servi
             "financial"
         }
         Some("evidence.retain" | "authority.change") => "prerequisite",
+        Some("agreement.accept")
+            if payload_schema == Some("ledger-workflow-agreement-accept/8") =>
+        {
+            "financial"
+        }
         Some("agreement.accept" | "agreement.activate" | "agreement.revoke") => "agreement",
         Some(
             "work.accept"

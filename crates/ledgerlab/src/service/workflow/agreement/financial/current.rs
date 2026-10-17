@@ -1,7 +1,6 @@
 //! Actual original-binding/current-source observations under the held writer.
 //! This is NOT a completed financial prefix, eligibility or prepared commit.
 use super::*;
-use ledgerlab_core::policy::workflow::SourceGrant;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedValue, ExternalBufferLease},
     policy::workflow::transition_constructor::ExactRef,
@@ -11,13 +10,15 @@ use std::collections::BTreeMap;
 
 mod chain;
 pub(super) mod party;
+mod source;
 pub(super) use chain::ObservedChain;
 
 pub(super) struct CurrentSelection {
     pub(super) setup: crate::service::billing::Setup,
     pub(super) accepted: context::ObservedAcceptedBinding,
     pub(super) activation: RecordRef,
-    pub(super) sources: Vec<(RecordRef, context::ObservedSource)>,
+    pub(super) sources: Vec<source::ObservedSource>,
+    _source_control: ExternalBufferLease,
     pub(super) at: Timestamp,
     pub(super) before_sequence: i64,
     pub(super) chain: Option<ObservedChain>,
@@ -98,23 +99,37 @@ pub(super) async fn work(
             .ok_or(ServiceError::IntegrityFailure)?;
         add(&canonical_body(terms)?["source_grant_refs"])?;
     }
-    let mut enrollments = BTreeMap::new();
-    for grant_ref in grants.into_values() {
-        verify::document_origin(tx, key, &grant_ref).await?;
-        let grant = loaded(tx, key, &grant_ref).await?;
-        let typed = SourceGrant::parse(&grant.bytes).map_err(typed_error)?;
-        let r = reference(
-            &json!(typed.original_ceiling_ref()),
-            "workflow-source-enrollment",
-        )?;
-        if let Some(old) = enrollments.insert(r.id.clone(), r.clone()) {
-            require(old == r, "INVALID_REFERENCE")?;
-        }
-    }
+    session
+        .semantic_work()
+        .arithmetic(
+            Op::Multiply,
+            &[
+                &grants.len().into(),
+                &std::mem::size_of::<source::ObservedSource>().into(),
+            ],
+        )
+        .map_err(core_error)?;
+    let bytes = grants
+        .len()
+        .checked_mul(std::mem::size_of::<source::ObservedSource>())
+        .ok_or(ServiceError::Unavailable)?;
+    let source_control = session
+        .reserve_external_payload(bytes)
+        .map_err(core_error)?;
     let mut sources = Vec::new();
-    for r in enrollments.into_values() {
-        let source = context::observe_source(tx, key, &r).await?;
-        sources.push((r, source));
+    sources
+        .try_reserve_exact(grants.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    for grant in grants.into_values() {
+        let observed = source::observe(tx, key, &grant, before_sequence, session).await?;
+        // Revocation is real stop evidence; it is never converted into an active
+        // current grant or bypassed with the original saved grant.
+        require(observed.current_grant_ref().is_some(), "AUTHORITY_REQUIRED")?;
+        session
+            .semantic_work()
+            .write_bytes(std::mem::size_of::<source::ObservedSource>())
+            .map_err(core_error)?;
+        sources.push(observed);
     }
     // The chain projection is read under this SAME writer and original-audit
     // owner. It remains DATA until the chronological inventory authenticates
@@ -125,6 +140,7 @@ pub(super) async fn work(
         accepted,
         activation,
         sources,
+        _source_control: source_control,
         at,
         before_sequence,
         chain,

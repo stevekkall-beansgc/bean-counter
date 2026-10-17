@@ -12,6 +12,7 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
+pub(super) use publication::RecompiledPublication;
 
 /// String payloads are allocated only after admission; their owner drops them
 /// before returning the reservation. No borrowed parsed field escapes its tree.
@@ -78,6 +79,45 @@ impl LocatedWrappers {
     pub(super) fn wrappers(&self) -> &wrappers::OriginalWrappers {
         &self.wrappers
     }
+    pub(super) fn require_member(
+        &self,
+        reference: &Value,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        publication::member(reference, self.wrappers.manifest(), session)
+    }
+    /// SAME party recipe recomputation from original captured operands only.
+    /// This does not consult today's party head or complete original custody.
+    pub(super) async fn reconstruct_party(
+        &self,
+        tx: &mut SqliteTx,
+        session: &mut OriginalAuditSession,
+    ) -> Result<current::party::produce::PendingPartyOperation> {
+        let mut attempt = InputAttempt {
+            failure: tx.workflow_proof_failure_handle(),
+            finished: false,
+        };
+        let result = current::party::produce::reconstruct(tx, self, session).await;
+        if result.is_ok() {
+            attempt.finish();
+        } else {
+            session.invalidate();
+        }
+        result
+    }
+
+    /// SAME AppAccept8 normalization against the original compiled program.
+    /// Every earlier introduction/assent/head remains the chronological driver's
+    /// obligation; this result has no completed-origin or receipt capability.
+    pub(super) async fn reconstruct_app_acceptance(
+        &self,
+        tx: &mut SqliteTx,
+        publication: &RecompiledPublication,
+        session: &mut OriginalAuditSession,
+    ) -> Result<super::acceptance::ReconstructedAcceptance> {
+        super::acceptance::reconstruct(tx, self, publication, session).await
+    }
+
     /// Actual saved source/compiler replay only. This DATA result still needs
     /// chronological introduction/authority/build completion by the driver.
     pub(super) async fn recompile_publication(
