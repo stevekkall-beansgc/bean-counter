@@ -2,8 +2,11 @@
 //! cursor nor this parsed key establishes an origin, an introduction or a head.
 //! Recipe semantics and their complete inputs must finish before inventory use.
 use super::*;
+mod dependencies;
 pub(super) mod inventory;
+mod members;
 mod publication;
+pub(super) use members::ResolvedMembers;
 pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
 use ledgerlab_core::{
@@ -607,7 +610,7 @@ mod tests {
 /// Owning transient DATA after the supported chronological recipes have run.
 /// No constructor/export turns this inventory into a prepared commit.
 pub(super) struct FoldedInventory {
-    _inventory: inventory::Inventory,
+    pub(super) _inventory: inventory::Inventory,
 }
 /// Reuse the selected origin's SAME parent session, including its already-paid
 /// framing/identity work. Each earlier origin receives exactly its own session.
@@ -634,7 +637,8 @@ pub(super) async fn fold_original_prefix(
             .checked_sub(1)
             .ok_or(ServiceError::IntegrityFailure)?;
         let mut after = 0i64;
-        let mut inventory = None;
+        let mut inventory: Option<FoldedInventory> = None;
+        let mut publication = None;
         loop {
             let mut session = OriginalAuditSession::for_resource_profile_v2(parent.arena())
                 .map_err(core_error)?;
@@ -651,46 +655,57 @@ pub(super) async fn fold_original_prefix(
                 .map_err(core_error)?;
             require(origin.wrappers().sequence() > after, "INTEGRITY_FAILURE")?;
             match &mut inventory {
-                Some(inventory) => {
-                    inventory::Inventory::next_origin(inventory, &origin, &mut session)?
-                }
+                Some(inventory) => inventory::Inventory::next_origin(
+                    &mut inventory._inventory,
+                    &origin,
+                    &mut session,
+                )?,
                 None => {
                     let files = tx
                         .workflow_original_scratch(&mut session)
                         .map_err(read_error)?;
-                    inventory = Some(inventory::Inventory::new(files, &origin, &mut session)?);
+                    inventory = Some(FoldedInventory {
+                        _inventory: inventory::Inventory::new(files, &origin, &mut session)?,
+                    });
                 }
             }
-            source::fold(
+            if let Some(program) = fold_origin(
                 tx,
                 &origin,
                 inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
                 &setup,
+                publication.as_ref(),
                 &mut session,
             )
-            .await?;
+            .await?
+            {
+                publication = Some(program);
+            }
             after = origin.wrappers().sequence();
             session.check_cancelled().map_err(core_error)?;
         }
         match &mut inventory {
-            Some(inventory) => inventory::Inventory::next_origin(inventory, selected, parent)?,
+            Some(inventory) => {
+                inventory::Inventory::next_origin(&mut inventory._inventory, selected, parent)?
+            }
             None => {
                 let files = tx.workflow_original_scratch(parent).map_err(read_error)?;
-                inventory = Some(inventory::Inventory::new(files, selected, parent)?);
+                inventory = Some(FoldedInventory {
+                    _inventory: inventory::Inventory::new(files, selected, parent)?,
+                });
             }
         }
-        source::fold(
+        fold_origin(
             tx,
             selected,
             inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
             &setup,
+            publication.as_ref(),
             parent,
         )
         .await?;
         parent.check_cancelled().map_err(core_error)?;
-        Ok(FoldedInventory {
-            _inventory: inventory.ok_or(ServiceError::IntegrityFailure)?,
-        })
+        Ok(inventory.ok_or(ServiceError::IntegrityFailure)?)
     }
     .await;
     if result.is_ok() {
@@ -728,7 +743,7 @@ pub(super) async fn publication_before(
         let through = before
             .checked_sub(1)
             .ok_or(ServiceError::IntegrityFailure)?;
-        let mut inventory = None;
+        let mut inventory: Option<FoldedInventory> = None;
         let mut publication = None;
         let mut after = 0i64;
         loop {
@@ -747,21 +762,26 @@ pub(super) async fn publication_before(
                 .map_err(core_error)?;
             require(origin.wrappers().sequence() > after, "INTEGRITY_FAILURE")?;
             match &mut inventory {
-                Some(inventory) => {
-                    inventory::Inventory::next_origin(inventory, &origin, &mut session)?
-                }
+                Some(inventory) => inventory::Inventory::next_origin(
+                    &mut inventory._inventory,
+                    &origin,
+                    &mut session,
+                )?,
                 None => {
                     let files = tx
                         .workflow_original_scratch(&mut session)
                         .map_err(read_error)?;
-                    inventory = Some(inventory::Inventory::new(files, &origin, &mut session)?);
+                    inventory = Some(FoldedInventory {
+                        _inventory: inventory::Inventory::new(files, &origin, &mut session)?,
+                    });
                 }
             }
-            if let Some(program) = source::fold(
+            if let Some(program) = fold_origin(
                 tx,
                 &origin,
                 inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
                 &setup,
+                publication.as_ref(),
                 &mut session,
             )
             .await?
@@ -796,9 +816,7 @@ pub(super) async fn publication_before(
         }
         parent.check_cancelled().map_err(core_error)?;
         Ok((
-            FoldedInventory {
-                _inventory: inventory.ok_or(ServiceError::IntegrityFailure)?,
-            },
+            inventory.ok_or(ServiceError::IntegrityFailure)?,
             publication.ok_or_else(|| reject("INVALID_REFERENCE"))?,
         ))
     }
@@ -1061,5 +1079,62 @@ impl FoldedInventory {
         .await?;
         self.match_customer(&record, s)?;
         Ok(record)
+    }
+}
+
+impl FoldedInventory {
+    pub(super) fn resolve_members<'a>(
+        &mut self,
+        records: &[&wire::SourceRecord],
+        old: impl Iterator<
+            Item = &'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        >,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ResolvedMembers> {
+        members::ResolvedMembers::resolve(self, records, old, s)
+    }
+}
+
+/// Consume an exact completed-in-this-fold PUB owner for its immediate
+/// agreement consumers. Older interleaved PUB execution-view reload remains a
+/// required enclosing bridge; no current/builtin compiler can fill that gap.
+async fn fold_origin(
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    prefix: &mut FoldedInventory,
+    setup: &crate::service::billing::Setup,
+    publication: Option<&RecompiledPublication>,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<RecompiledPublication>> {
+    s.semantic_work()
+        .visit(Visit::Constraint)
+        .map_err(core_error)?;
+    if origin.wrappers().class() == wrappers::WireClass::Agreement {
+        let publication = publication.ok_or(ServiceError::Unavailable)?;
+        let literal =
+            request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+        let wanted = request_wrapper::field(literal, "publication_ref", s)?;
+        let actual = wire::reference(publication.publication().0, s)?;
+        let wanted = s
+            .canonical_representation(wanted, RepresentationKind::Record)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(actual.bytes().len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(wanted.bytes().len())
+            .map_err(core_error)?;
+        if actual.bytes() != wanted.bytes() {
+            return Err(ServiceError::Unavailable);
+        }
+        let reconstructed =
+            super::acceptance::reconstruct_held(tx, origin, publication, prefix, setup, s).await?;
+        reconstructed.fold_original(origin, prefix, s)?;
+        Ok(None)
+    } else {
+        source::fold(tx, origin, &mut prefix._inventory, setup, s).await
     }
 }

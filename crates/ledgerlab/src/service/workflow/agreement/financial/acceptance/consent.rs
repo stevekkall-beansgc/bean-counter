@@ -518,6 +518,12 @@ async fn observe_all_at(
 }
 
 impl Coverage {
+    pub(super) fn generated_records(&self) -> impl Iterator<Item = &wire::SourceRecord> {
+        self.observations
+            .iter()
+            .flat_map(|o| [o.customer().assent(), o.party_assent(), o.verification()])
+    }
+
     /// Select the already normalized, fully checked material for one literal
     /// inline assent. Retained-only material does not enter inline documents.
     pub(super) fn normalized_inline<'a>(

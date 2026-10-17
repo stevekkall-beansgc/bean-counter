@@ -2354,83 +2354,11 @@ pub(super) fn complete_manifest_references<'a>(
         let body = s
             .parse_representation(body.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
-        let schema = request_wrapper::text(body.value(), "schema", s)?;
-        let mut allowed = false;
-        for expected in [
-            "ledger-workflow-local-authority-snapshot/1",
-            "ledger-workflow-source-enrollment/1",
-            "ledger-workflow-source-grant/1",
-            "ledger-workflow-source-state/1",
-            "ledger-workflow-customer-registration/1",
-            "ledger-workflow-retained-evidence/1",
-            "ledger-workflow-party-management-authority/1",
-            "ledger-workflow-party-authorization/1",
-            "ledger-workflow-party-evidence/1",
-            "ledger-workflow-party-evidence/2",
-            "ledger-workflow-publication/1",
-            "ledger-workflow-build-manifest/1",
-            "ledger-workflow-policy/1",
-            "ledger-workflow-policy/2",
-            "ledger-workflow-policy/3",
-            "ledger-workflow-policy/4",
-            "ledger-workflow-product/1",
-            "ledger-workflow-fact-schema/1",
-            "ledger-workflow-slot-template/1",
-            "ledger-workflow-compiler-descriptor/1",
-            "ledger-workflow-compiler-descriptor/2",
-            "ledger-workflow-compiler-descriptor/3",
-            "ledger-workflow-compiler-descriptor/4",
-            "ledger-workflow-compiler-descriptor/5",
-            "ledger-workflow-compiler-descriptor/6",
-            "ledger-workflow-compiled-plan/1",
-            "ledger-workflow-compiled-plan/2",
-            "ledger-workflow-compiled-plan/3",
-            "ledger-workflow-compiled-plan/4",
-            "ledger-workflow-compiled-plan/5",
-            "ledger-workflow-compiled-plan/6",
-        ] {
-            if same(schema, expected, s)? {
-                allowed = true;
-                break;
-            }
-        }
-        if !allowed {
-            return Err(ServiceError::Unavailable);
-        }
-        if same(schema, "ledger-workflow-party-evidence/2", s)? {
-            // The exact new consent recipe has only this named deferred edge.
-            // Actual authorization and operator target remain immediate.
-            enqueue(
-                request_wrapper::field(body.value(), "authority_ref", s)?,
-                manifest,
-                &mut queue,
-                &mut seen,
-                s,
-            )?;
-            let metadata = request_wrapper::field(body.value(), "metadata", s)?;
-            let purpose = request_wrapper::text(metadata, "purpose", s)?;
-            if same(purpose, "party_consent", s)? {
-                let consent = request_wrapper::field(metadata, "consent", s)?;
-                enqueue(
-                    request_wrapper::field(consent, "authorization_ref", s)?,
-                    manifest,
-                    &mut queue,
-                    &mut seen,
-                    s,
-                )?;
-            } else {
-                request_wrapper::same_text(purpose, "party_operator_attestation", s)?;
-                enqueue(
-                    request_wrapper::field(metadata, "target_evidence_ref", s)?,
-                    manifest,
-                    &mut queue,
-                    &mut seen,
-                    s,
-                )?;
-            }
-        } else {
-            references(body.value(), manifest, &mut queue, &mut seen, s)?;
-        }
+        super::dependencies::body(
+            body.value(),
+            &mut |reference, s| enqueue(reference, manifest, &mut queue, &mut seen, s),
+            s,
+        )?;
     }
     let (id, digest) = origin.wrappers().operation_identity();
     let id = wire::string(
@@ -2486,56 +2414,6 @@ fn enqueue(
             .write_bytes(std::mem::size_of::<usize>())
             .map_err(core_error)?;
         queue.push(i);
-    }
-    Ok(())
-}
-fn references(
-    v: &Value,
-    manifest: &Value,
-    queue: &mut Vec<usize>,
-    seen: &mut [bool],
-    s: &mut OriginalAuditSession,
-) -> Result<()> {
-    s.semantic_work().visit(Visit::Value).map_err(core_error)?;
-    match v {
-        Value::Object(map) => {
-            s.semantic_work()
-                .arithmetic(Op::Compare, &[&map.len().into(), &3usize.into()])
-                .map_err(core_error)?;
-            if map.len() == 3 {
-                let mut fields = 0u8;
-                for name in map.keys() {
-                    s.semantic_work().visit(Visit::Field).map_err(core_error)?;
-                    if same(name, "kind", s)? || same(name, "id", s)? || same(name, "digest", s)? {
-                        s.semantic_work()
-                            .arithmetic(Op::Add, &[&fields.into(), &1u8.into()])
-                            .map_err(core_error)?;
-                        fields = fields
-                            .checked_add(1)
-                            .ok_or(ServiceError::IntegrityFailure)?;
-                    }
-                }
-                s.semantic_work()
-                    .arithmetic(Op::Compare, &[&fields.into(), &3u8.into()])
-                    .map_err(core_error)?;
-                if fields == 3 {
-                    return enqueue(v, manifest, queue, seen, s);
-                }
-            }
-            for (_, v) in map {
-                s.semantic_work().visit(Visit::Field).map_err(core_error)?;
-                references(v, manifest, queue, seen, s)?;
-            }
-        }
-        Value::Array(values) => {
-            for v in values {
-                s.semantic_work()
-                    .visit(Visit::Element)
-                    .map_err(core_error)?;
-                references(v, manifest, queue, seen, s)?;
-            }
-        }
-        _ => {}
     }
     Ok(())
 }

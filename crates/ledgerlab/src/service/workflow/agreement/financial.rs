@@ -319,8 +319,20 @@ impl LocalWorkflowLedger {
                     // AppAccept8 reaches the actual saved publication and SAME
                     // terms/binding assembly. Its DATA owners do not bypass
                     // complete chronology, consent/private graph or preparation.
-                    let pending = acceptance::prepare(self, tx, &req, &mut session).await?;
-                    let _evidence = evidence::acceptance(&req, &pending, &mut session)?;
+                    let mut pending = acceptance::prepare(self, tx, &req, &mut session).await?;
+                    let evidence = evidence::acceptance(&req, &pending, &mut session)?;
+                    let members = pending.resolve_members(&mut session)?;
+                    let _journal = wire::frame_acceptance(
+                        &req,
+                        pending.normalized_payload(),
+                        pending.authority(),
+                        &pending.at,
+                        pending.before,
+                        pending.results(),
+                        &evidence,
+                        members,
+                        &mut session,
+                    )?;
                 }
                 if req.kind() == "work.accept" {
                     let payload = req.payload(&mut session)?;

@@ -6,6 +6,7 @@ pub(in super::super) struct ReplayedAcceptance {
     original: ReconstructedAcceptance,
     incoming: ingress::IncomingRequest,
     local_root: wire::SourceRecord,
+    terms_record: wire::SourceRecord,
     authority: wire::SourceRecord,
     private_documents: private::InlineDocuments,
     sources: Vec<current::source::ObservedSource>,
@@ -209,11 +210,20 @@ pub(in super::super) async fn reconstruct(
         same_bytes(normalized.payload.bytes(), saved.bytes(), s)?;
         // Results are recomputed from literal original input and actual as-of
         // operands. Saved result bodies are comparison-only, never inputs.
+        let terms_record = input.terms_record(s)?;
         for record in [
+            &local_root,
+            &authority,
+            &original.binding,
+            &terms_record,
             &head_records.accepted,
             &head_records.head,
             &normalized.intent,
-        ] {
+        ]
+        .into_iter()
+        .chain(private_documents.inline_records())
+        .chain(consents.generated_records())
+        {
             let reference = wire::reference(record.reference(), s)?;
             let reference = s
                 .parse_representation(reference.bytes(), Kind::Record)
@@ -251,10 +261,47 @@ pub(in super::super) async fn reconstruct(
         .encode(s)?;
         let asserted_results = encode(request_wrapper::field(operation, "result_refs", s)?, s)?;
         same_bytes(results.bytes(), asserted_results.bytes(), s)?;
+        let evidence =
+            evidence::acceptance_material(&incoming, normalized.payload.bytes(), publication, s)?;
+        let asserted_evidence = request_wrapper::field(operation, "request_evidence", s)?;
+        let asserted_evidence = s
+            .canonical_representation(asserted_evidence, Kind::Record)
+            .map_err(core_error)?;
+        same_bytes(evidence.bytes(), asserted_evidence.bytes(), s)?;
+        let members = resolve_records(
+            prefix,
+            &local_root,
+            &authority,
+            &original.binding,
+            &terms_record,
+            &head_records,
+            &normalized,
+            &private_documents,
+            &consents,
+            publication,
+            s,
+        )?;
+        let journal = wire::frame_acceptance(
+            &incoming,
+            normalized.payload.bytes(),
+            &authority,
+            &original.at,
+            origin.wrappers().sequence(),
+            [
+                head_records.accepted.reference(),
+                head_records.head.reference(),
+                normalized.intent.reference(),
+            ],
+            &evidence,
+            members,
+            s,
+        )?;
+        journal.compare_original(origin, s)?;
         Ok(ReplayedAcceptance {
             original,
             incoming,
             local_root,
+            terms_record,
             authority,
             private_documents,
             sources,
@@ -266,4 +313,80 @@ pub(in super::super) async fn reconstruct(
     }
     .await;
     terminal(result, tx, s)
+}
+
+impl ReplayedAcceptance {
+    /// Commit only the invocation-local chronological DATA fold after SAME
+    /// original evidence, closure and journal equality above. Persistent heads
+    /// and private prepared capabilities are not created by this operation.
+    pub(in super::super) fn fold_original(
+        &self,
+        origin: &prefix::LocatedWrappers,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let binding = s
+            .parse_representation(self.original.binding.bytes(), Kind::SourceDefinition)
+            .map_err(core_error)?;
+        let customer = encode(request_wrapper::field(binding.value(), "customer", s)?, s)?;
+        let agreement = encode(
+            request_wrapper::field(binding.value(), "agreement_id", s)?,
+            s,
+        )?;
+        let version = encode(request_wrapper::field(binding.value(), "version", s)?, s)?;
+        let semantic = prefix::inventory::StateKey::new(
+            "agreement-acceptance-semantic",
+            &[customer.bytes(), agreement.bytes(), version.bytes()],
+            s,
+        )?;
+        let owner = prefix::inventory::StateKey::new("agreement-owner", &[agreement.bytes()], s)?;
+        let head = prefix::inventory::StateKey::new(
+            "agreement-acceptance-head",
+            &[customer.bytes(), agreement.bytes()],
+            s,
+        )?;
+        prefix._inventory.absent(&semantic, s)?;
+        if let Some(old) = prefix._inventory.head_body(&owner, s)? {
+            let old = s
+                .parse_representation(old.bytes(), Kind::SourceDefinition)
+                .map_err(core_error)?;
+            let old_customer = encode(request_wrapper::field(old.value(), "customer", s)?, s)?;
+            same_bytes(customer.bytes(), old_customer.bytes(), s)?;
+        }
+        for record in [
+            &self.local_root,
+            &self.authority,
+            &self.original.binding,
+            &self.terms_record,
+            &self.head_records.accepted,
+            &self.head_records.head,
+            &self.normalized.intent,
+        ]
+        .into_iter()
+        .chain(self.private_documents.inline_records())
+        .chain(self.consents.generated_records())
+        {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            prefix._inventory.introduce(
+                record.reference(),
+                record.bytes(),
+                origin.wrappers().sequence(),
+                s,
+            )?;
+        }
+        // Permanent identity and logical head derive from the freshly
+        // reconstructed record group, never an asserted projection or latest
+        // SQL row. A failed enclosing fold discards this entire scratch owner.
+        prefix
+            ._inventory
+            .set_head(&semantic, self.head_records.accepted.reference(), s)?;
+        prefix
+            ._inventory
+            .set_head(&owner, self.head_records.accepted.reference(), s)?;
+        prefix
+            ._inventory
+            .set_head(&head, self.head_records.head.reference(), s)
+    }
 }

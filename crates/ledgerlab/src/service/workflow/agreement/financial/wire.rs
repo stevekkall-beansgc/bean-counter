@@ -126,6 +126,57 @@ pub(super) struct RefSet<'a> {
     _lease: ExternalBufferLease,
 }
 impl<'a> RefSet<'a> {
+    /// Strictly checked sorted input; avoids sorting the already ordered
+    /// closure index again. This is only a set view, never an origin proof.
+    pub(super) fn from_sorted(
+        input: impl Iterator<Item = &'a ExactRef>,
+        count: usize,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        require(!compare(count, 4096, session)?.is_gt(), "REFERENCE_LIMIT")?;
+        let payload = arithmetic(
+            count,
+            std::mem::size_of::<&ExactRef>(),
+            Op::Multiply,
+            session,
+        )?;
+        let lease = session
+            .reserve_external_payload(payload)
+            .map_err(core_error)?;
+        let mut refs: Vec<&ExactRef> = Vec::new();
+        refs.try_reserve_exact(count)
+            .map_err(|_| ServiceError::Unavailable)?;
+        for reference in input {
+            session
+                .semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            require(
+                compare(refs.len(), count, session)?.is_lt(),
+                "INTEGRITY_FAILURE",
+            )?;
+            if let Some(prior) = refs.last() {
+                require(
+                    ref_compare(prior, reference, session)?.is_lt(),
+                    "INTEGRITY_FAILURE",
+                )?;
+            }
+            session
+                .semantic_work()
+                .write_bytes(std::mem::size_of::<&ExactRef>())
+                .map_err(core_error)?;
+            refs.push(reference);
+        }
+        require(
+            compare(refs.len(), count, session)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
+        Ok(Self {
+            refs,
+            _lease: lease,
+        })
+    }
+
     pub(super) fn new(
         input: impl Iterator<Item = &'a ExactRef>,
         count: usize,
@@ -1074,7 +1125,9 @@ fn receipt(
 }
 
 mod administrative;
+mod agreement;
 pub(super) use administrative::frame_party;
+pub(super) use agreement::frame_acceptance;
 
 #[cfg(test)]
 mod request_framing_tests {

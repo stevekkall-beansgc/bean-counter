@@ -546,9 +546,17 @@ pub(super) fn acceptance(
     pending: &acceptance::PendingAppAcceptance,
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
+    acceptance_material(req, pending.normalized_payload(), &pending.publication, s)
+}
+pub(super) fn acceptance_material(
+    req: &ingress::IncomingRequest,
+    normalized_payload: &[u8],
+    publication: &prefix::RecompiledPublication,
+    s: &mut OriginalAuditSession,
+) -> Result<RequestEvidence> {
     let result = (|| {
         let payload = s
-            .parse_representation(pending.normalized_payload(), Kind::Record)
+            .parse_representation(normalized_payload, Kind::Record)
             .map_err(core_error)?;
         let p = payload.value();
         let binding = request_wrapper::field(p, "binding_inputs", s)?;
@@ -563,7 +571,7 @@ pub(super) fn acceptance(
         s.semantic_work()
             .write_bytes(std::mem::size_of_val(&refs))
             .map_err(core_error)?;
-        for reference in pending.publication.source_refs() {
+        for reference in publication.source_refs() {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
@@ -702,14 +710,13 @@ pub(super) fn acceptance(
                 private(&mut set, r, context_bytes.bytes(), s)?;
             }
         }
-        let registry = pending
-            .publication
+        let registry = publication
             .program()
             .execution_registry()
             .ok_or(ServiceError::Unavailable)?;
         request_evidence(
             req,
-            pending.normalized_payload(),
+            normalized_payload,
             p,
             &set,
             registry,

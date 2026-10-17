@@ -41,6 +41,16 @@ impl RecompiledPublication {
     ) -> (&ExactRef, &Value) {
         (&self.publication.reference, self.publication.parsed.value())
     }
+    pub(in crate::service::workflow::agreement::financial) fn required_refs(
+        &self,
+    ) -> impl Iterator<Item = &ExactRef> {
+        self.sources.iter().map(|s| &s.reference).chain([
+            &self.publication.reference,
+            &self.plan.reference,
+            &self.build.reference,
+            &self.authority.reference,
+        ])
+    }
     pub(super) fn plan(&self) -> (&ExactRef, &[u8]) {
         (&self.plan.reference, self.plan.stored.body.bytes())
     }

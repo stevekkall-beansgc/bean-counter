@@ -938,6 +938,7 @@ async fn reconstruct_inner(
 pub(super) struct PendingAppAcceptance {
     pub(super) input: AppAcceptanceInput,
     pub(super) binding: wire::SourceRecord,
+    pub(super) terms_record: wire::SourceRecord,
     binding_value: AuditedValue,
     pub(super) local_root: wire::SourceRecord,
     pub(super) publication: prefix::RecompiledPublication,
@@ -955,6 +956,37 @@ pub(super) struct PendingAppAcceptance {
     _time_storage: ExternalBufferLease,
 }
 impl PendingAppAcceptance {
+    pub(super) fn authority(&self) -> &wire::SourceRecord {
+        &self.authority
+    }
+    pub(super) fn results(
+        &self,
+    ) -> [&ledgerlab_core::policy::workflow::transition_constructor::ExactRef; 3] {
+        [
+            self.head_records.accepted.reference(),
+            self.head_records.head.reference(),
+            self.normalized.intent.reference(),
+        ]
+    }
+    pub(super) fn resolve_members(
+        &mut self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<prefix::ResolvedMembers> {
+        resolve_records(
+            &mut self._prefix,
+            &self.local_root,
+            &self.authority,
+            &self.binding,
+            &self.terms_record,
+            &self.head_records,
+            &self.normalized,
+            &self.private_documents,
+            &self.consents,
+            &self.publication,
+            s,
+        )
+    }
+
     pub(super) fn normalized_payload(&self) -> &[u8] {
         self.normalized.payload.bytes()
     }
@@ -1141,6 +1173,7 @@ pub(super) async fn prepare(
         head_records
             .match_locked(tx, incoming, binding_body, input.expected_revision, session)
             .await?;
+        let terms_record = input.terms_record(session)?;
         let normalized = request::build(
             incoming,
             &input,
@@ -1153,6 +1186,7 @@ pub(super) async fn prepare(
             input,
             binding,
             binding_value,
+            terms_record,
             local_root,
             publication,
             at,
@@ -1171,4 +1205,88 @@ pub(super) async fn prepare(
     }
     .await;
     terminal(result, tx, session)
+}
+
+impl AppAcceptanceInput {
+    fn terms_record(&self, s: &mut OriginalAuditSession) -> Result<wire::SourceRecord> {
+        let body = s
+            .copy_representation(self.terms.canonical_bytes(), Kind::SourceDefinition)
+            .map_err(core_error)?;
+        let record = wire::source_record(
+            "workflow-acceptance-terms",
+            "ledger-workflow-acceptance-terms/2",
+            body,
+            s,
+        )?;
+        let asserted = self.terms.reference();
+        for (a, b) in [
+            (&record.reference().kind, asserted.kind()),
+            (&record.reference().id, asserted.id()),
+            (&record.reference().digest, asserted.digest()),
+        ] {
+            request_wrapper::same_text(a, b, s)?;
+        }
+        Ok(record)
+    }
+}
+#[allow(clippy::too_many_arguments)]
+fn resolve_records(
+    prefix: &mut prefix::FoldedInventory,
+    root: &wire::SourceRecord,
+    authority: &wire::SourceRecord,
+    binding: &wire::SourceRecord,
+    terms: &wire::SourceRecord,
+    head: &emit::AcceptanceHeadRecords,
+    normalized: &request::NormalizedAcceptance,
+    documents: &private::InlineDocuments,
+    consents: &consent::Coverage,
+    publication: &prefix::RecompiledPublication,
+    s: &mut OriginalAuditSession,
+) -> Result<prefix::ResolvedMembers> {
+    //7 fixed records, at most128 literal private documents and3 material
+    // records per at most16 platform observations; no caller completeness flag.
+    const RECORDS: usize = 7 + 128 + 3 * 16;
+    s.semantic_work()
+        .arithmetic(
+            Op::Multiply,
+            &[
+                &RECORDS.into(),
+                &mem::size_of::<&wire::SourceRecord>().into(),
+            ],
+        )
+        .map_err(core_error)?;
+    let size = RECORDS
+        .checked_mul(mem::size_of::<&wire::SourceRecord>())
+        .ok_or(ServiceError::Unavailable)?;
+    let _storage = s.reserve_external_payload(size).map_err(core_error)?;
+    let mut records = Vec::new();
+    records
+        .try_reserve_exact(RECORDS)
+        .map_err(|_| ServiceError::Unavailable)?;
+    for record in [
+        root,
+        authority,
+        binding,
+        terms,
+        &head.accepted,
+        &head.head,
+        &normalized.intent,
+    ]
+    .into_iter()
+    .chain(documents.inline_records())
+    .chain(consents.generated_records())
+    {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&records.len().into(), &RECORDS.into()])
+            .map_err(core_error)?;
+        require(records.len() < RECORDS, "REFERENCE_LIMIT")?;
+        s.semantic_work()
+            .write_bytes(mem::size_of::<&wire::SourceRecord>())
+            .map_err(core_error)?;
+        records.push(record);
+    }
+    prefix.resolve_members(&records, publication.required_refs(), s)
 }
