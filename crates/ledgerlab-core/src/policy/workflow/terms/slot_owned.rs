@@ -226,6 +226,29 @@ pub(super) fn normalize(raw: &[u8], session: &mut OriginalAuditSession) -> Resul
             64,
             work,
         )?;
+        for (index, clause) in clauses.iter().enumerate() {
+            work.visit(Visit::Element)?;
+            let root = o::text(o::field(clause, "root_component_slot", work)?, work)?;
+            let family = o::text(o::field(clause, "family_slot", work)?, work)?;
+            for prior in &clauses[..index] {
+                work.visit(Visit::MemberCompare)?;
+                if paid::compare_text(
+                    root,
+                    o::text(o::field(prior, "root_component_slot", work)?, work)?,
+                    work,
+                )?
+                .is_eq()
+                    && paid::compare_text(
+                        family,
+                        o::text(o::field(prior, "family_slot", work)?, work)?,
+                        work,
+                    )?
+                    .is_eq()
+                {
+                    return Err(fail("duplicate causal root/family clause"));
+                }
+            }
+        }
         let bytes = encoded_set(clauses, &mut storage, &arena, work)?;
         replace(&mut tree, "causal_reversal_clauses", bytes, &arena, work)?;
         let rows = o::array(o::field(tree.value(), "app_cost_terms", work)?, 1, 64, work)?;

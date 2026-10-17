@@ -758,3 +758,19 @@ fn owning_slot_terms7_preserves_scalar_set_counter_normalization_and_lease() {
         .is_err()
     );
 }
+
+#[test]
+fn owning_terms7_rejects_same_causal_key_with_different_nominated_sources() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let fixture:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/app-cost-causal-01/fixture-expected.json")).unwrap();
+    let mut body = fixture["records"]["app_terms"]["body"].clone();
+    body["causal_reversal_clauses"] = json!([
+        {"root_component_slot":"support:service","family_slot":"support:result","correction_source_slot":"support:corrector","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"},
+        {"root_component_slot":"support:service","family_slot":"support:result","correction_source_slot":"support:second","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}
+    ]);
+    let raw = serde_json::to_vec(&body).unwrap();
+    assert!(SlotBindingTerms::parse(&raw).is_err());
+    let arena = AuditArena::new().unwrap();
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    assert!(SlotBindingTerms::normalize_private_with_session(&raw, &mut session).is_err());
+}

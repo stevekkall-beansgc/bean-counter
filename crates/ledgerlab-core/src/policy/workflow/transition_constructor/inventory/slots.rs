@@ -15,6 +15,7 @@ fn keyed_order(m:&mut CoreMeter,rows:&[Value],key:&str,utf16:bool)->Result<()> {
             // Reserve both possible operand passes before the SAME existing
             // ordering algorithm; no copied key, emitter or JSON sort occurs.
             m.scan_bytes(bytes)?;
+            crate::validation_work::ValidationWork::visit(m,crate::validation_work::ValidationVisit::MemberCompare)?;
             let order=if utf16 {prior.encode_utf16().cmp(current.encode_utf16())}else{prior.cmp(current)};
             if !order.is_lt(){return Err(shape::fail("noncanonical slot key order or duplicate"));}
         }
@@ -538,7 +539,19 @@ fn validate_causal_projection(m:&mut CoreMeter,b:&Value,catalog:&Value,t:&Value,
     };
     bounds(m, clauses.len(), minimum, 64)?;
     super::binding::ordered(m, clauses)?;
-    for clause in clauses {
+    for (index, clause) in clauses.iter().enumerate() {
+        if m.resource_vector_usage().is_some() {
+            // SAME legacy SlotBindingTerms semantic key, independently of a
+            // differing nominated correction source. The old paid branch is
+            // preserved; its typed ingress already performs this rejection.
+            for prior in &clauses[..index] {
+                m.visit("inventory.causal_clause_key")?;
+                if invoke!(shape::same,m,&data_field!(m,clause,"root_component_slot"),&data_field!(m,prior,"root_component_slot"))?
+                    &&invoke!(shape::same,m,&data_field!(m,clause,"family_slot"),&data_field!(m,prior,"family_slot"))? {
+                    return Err(shape::fail("duplicate causal root/family clause"));
+                }
+            }
+        }
         invoke!(
             shape::closed,
             m,
@@ -628,6 +641,17 @@ mod clause_tests {
                 assert!(validate_causal_clauses(&mut m, &b, &c, &t, &wrong).is_err());
             }
         }
+    }
+    #[test]
+    fn rp01_causal_key_refuses_two_different_eligible_correction_sources() {
+        let (mut b,c,mut t,mut g)=input(2,"ledger-workflow-slot-binding-terms/7");
+        t["causal_reversal_clauses"][1]["family_slot"]=json!("family-00");
+        t["causal_reversal_clauses"][1]["correction_source_slot"]=json!("test:second");
+        b["source_slots"]=json!([{"name":"test:corrector"},{"name":"test:second"}]);
+        g["source_slots"]=json!(["test:corrector","test:second"]);
+        let arena=crate::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session=crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(validate_causal_clauses(session.meter_mut(),&b,&c,&t,&g).is_err());
     }
     #[test]
     fn causal_clause_schema_minimum_and_65_refusal_remain_closed() {
