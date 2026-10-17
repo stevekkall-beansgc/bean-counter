@@ -11,6 +11,9 @@ use crate::{Error, Result, canonical};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
+use crate::canonical::audit_arena::{AuditedValue,AuditedBytes,ExternalBufferLease};
+use crate::validation_work::{self as work,RepresentationKind};
+use std::{mem,sync::Arc};
 fn err(detail: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", detail)
 }
@@ -18,21 +21,72 @@ pub struct SelectedSourceInput {
     pub documents: Vec<Vec<u8>>,
     pub root_policy_ref: DefinitionRef,
 }
+enum SourceValue{Legacy(Value),Owned(AuditedValue)}
+impl std::ops::Deref for SourceValue{
+    type Target=Value;fn deref(&self)->&Value{match self{Self::Legacy(v)=>v,Self::Owned(v)=>v.value()}}
+}
+impl SourceValue{
+    fn parse(m:&mut CoreMeter,raw:&[u8])->Result<Self>{
+        if let Some(arena)=m.representation_arena(){
+            let value=m.parse_owned_representation(&arena,raw,RepresentationKind::SourceDefinition)?;
+            codec::validate_selected_types(m,value.value())?;Ok(Self::Owned(value))
+        }else{Ok(Self::Legacy(codec::parse(m,raw,262144)?))}
+    }
+    /// The existing typed source normalizer consumes Value. This controlled
+    /// copy is admitted BEFORE cloning and its lease follows the compiler's
+    /// retained typed output; it does not cover additional DTO/map producers.
+    fn projection(self,m:&mut CoreMeter,owners:&mut Vec<ExternalBufferLease>)->Result<Value>{self.projection_with_payload(m,owners,0)}
+    fn projection_with_payload(self,m:&mut CoreMeter,owners:&mut Vec<ExternalBufferLease>,normalizer_payload:usize)->Result<Value>{
+        match self{Self::Legacy(v)=>Ok(v),Self::Owned(v)=>normalizer_projection(m,v.value(),owners,normalizer_payload)}
+    }
+    fn document(self,m:&mut CoreMeter)->Result<SelectedDocument>{match self{Self::Legacy(v)=>doc(m,v),Self::Owned(v)=>finish_owned_document(m,v,false)}}
+}
+/// One lease covers the raw Value copy plus the SAME normalizer's separately
+/// derived private DTO/maps/body transient bound, BEFORE either producer.
+fn normalizer_projection(m:&mut CoreMeter,value:&Value,owners:&mut Vec<ExternalBufferLease>,normalizer_payload:usize)->Result<Value>{
+    let arena=m.representation_arena().ok_or_else(||err("source projection arena"))?;
+    let copy=crate::canonical::audit_arena::value_copy_payload_bound(value,m)?;
+    let bytes=work::usize_add(m,copy,normalizer_payload)?;
+    let owner=arena.reserve_external_payload(bytes,m)?;
+    owners.push(owner);Ok(value.clone())
+}
 #[derive(Clone, Debug)]
 pub struct SelectedDocument {
+    storage:DocumentStorage,
+}
+#[derive(Clone, Debug)]
+enum DocumentStorage {
+    Legacy(LegacyDocument),
+    Owned(Arc<OwnedDocument>),
+}
+#[derive(Clone, Debug)]
+struct LegacyDocument {
     reference: DefinitionRef,
     body: Value,
     bytes: Vec<u8>,
 }
+// A cloned public document view shares this entire owner, including its Ref.
+// No RP01 clone allocates another naked Value/Vec/String graph.
+struct OwnedDocument {
+    reference:DefinitionRef,
+    body:AuditedValue,
+    bytes:AuditedBytes,
+    _metadata:ExternalBufferLease,
+}
+impl std::fmt::Debug for OwnedDocument {
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {
+        f.debug_struct("OwnedDocument").field("reference",&self.reference).finish_non_exhaustive()
+    }
+}
 impl SelectedDocument {
     pub fn reference(&self) -> &DefinitionRef {
-        &self.reference
+        match &self.storage{DocumentStorage::Legacy(v)=>&v.reference,DocumentStorage::Owned(v)=>&v.reference}
     }
     pub fn canonical_value(&self) -> &Value {
-        &self.body
+        match &self.storage{DocumentStorage::Legacy(v)=>&v.body,DocumentStorage::Owned(v)=>v.body.value()}
     }
     pub fn canonical_bytes(&self) -> &[u8] {
-        &self.bytes
+        match &self.storage{DocumentStorage::Legacy(v)=>&v.bytes,DocumentStorage::Owned(v)=>v.bytes.bytes()}
     }
 }
 #[derive(Clone, Debug)]
@@ -43,7 +97,11 @@ pub struct StaticAnalysis {
     pub maximum_path: usize,
     pub compile_work: u64,
 }
+#[derive(Clone,Copy)]
+enum ProgramProvenance{Compiled,Reloaded}
 pub struct SelectedProgram {
+    provenance:ProgramProvenance,
+    recipe:SelectedRecipe,
     root: DefinitionRef,
     root_position:usize,
     sources: Vec<SelectedDocument>,
@@ -57,6 +115,11 @@ pub struct SelectedProgram {
     app_cost_causal_recipe:bool,
     supplier_scoped_consent_recipe:bool,
     execution_registry:Option<&'static str>,
+    // Exact source/schema vector slots and retained typed Ref copies. Typed
+    // schema/policy contents and other compiler intermediates are separate.
+    _policy_decode_ownership:Option<ExternalBufferLease>,
+    _source_projection_ownership:Vec<ExternalBufferLease>,
+    _control_ownership:Option<ExternalBufferLease>,
 }
 impl SelectedProgram {
     /// Binary recipe identity, not current-support freshness or authority.
@@ -66,6 +129,12 @@ impl SelectedProgram {
     pub fn uses_app_cost_causal_recipe(&self)->bool {self.app_cost_causal_recipe}
     pub fn uses_supplier_scoped_consent_recipe(&self)->bool {self.supplier_scoped_consent_recipe}
     pub fn execution_registry(&self)->Option<&'static str>{self.execution_registry}
+    pub(in crate::policy::workflow) fn require_attempt_owner(&self,m:&mut CoreMeter)->Result<()> {
+        if let Some(owner)=&self._control_ownership{
+            let arena=m.representation_arena().ok_or_else(||err("owning program requires original attempt"))?;
+            arena.require_external_owner(owner,m)
+        }else if self.execution_registry.is_some(){Err(err("financial program has no owning compiler output"))}else{Ok(())}
+    }
     /// Exact binary recipe selection; shared wire shapes do not select latest.
     pub(in crate::policy::workflow) fn uses_commitment_first_consent_recipe(&self)->bool {
         self.execution_registry==Some("sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276")
@@ -118,6 +187,7 @@ impl SelectedProgram {
     }
 }
 fn doc(m: &mut CoreMeter, body: Value) -> Result<SelectedDocument> {
+    if m.representation_arena().is_some(){return owned_document(m,&body,false);}
     let schema = body["schema"]
         .as_str()
         .ok_or_else(|| err("source schema"))?;
@@ -135,11 +205,63 @@ fn doc(m: &mut CoreMeter, body: Value) -> Result<SelectedDocument> {
     hash.update(&framed);
     let digest = format!("sha256:{}", canonical::hex(&hash.finalize()));
     let reference = DefinitionRef::new(kind, &format!("wdoc_{}", &digest[7..]), &digest)?;
-    Ok(SelectedDocument {
+    Ok(SelectedDocument {storage:DocumentStorage::Legacy(LegacyDocument {
         reference,
         body,
         bytes,
-    })
+    })})
+}
+fn borrowed_doc(m:&mut CoreMeter,body:&Value)->Result<SelectedDocument>{
+    if m.representation_arena().is_some(){owned_document(m,body,false)}else{doc(m,body.clone())}
+}
+/// Retained compiler document output uses the SAME attempt arena. The source
+/// normalizers/typed AST/intermediate producers remain separately accounted;
+/// this function does not qualify those producers or enable admission.
+fn owned_document(m:&mut CoreMeter,body:&Value,plan:bool)->Result<SelectedDocument>{
+    let arena=m.representation_arena().ok_or_else(||err("owning selected document arena"))?;
+    let owned=arena.clone_value(body,m)?;
+    finish_owned_document(m,owned,plan)
+}
+pub(super) fn finish_owned_document(m:&mut CoreMeter,owned:AuditedValue,plan:bool)->Result<SelectedDocument>{
+    let arena=m.representation_arena().ok_or_else(||err("owning selected document arena"))?;
+    let body=owned.value();
+    codec::validate_selected_types(m,body)?;
+    let schema=body.get("schema").and_then(Value::as_str).ok_or_else(||err("source schema"))?;
+    let kind=if plan{"workflow-compiled-plan"}else{
+        schema.strip_prefix("ledger-").and_then(|s|s.rsplit_once('/').map(|(kind,_)|kind)).ok_or_else(||err("source schema version"))?
+    };
+    let prefix=if plan{"wplan_"}else{"wdoc_"};
+    // The final Ref plus hex/digest/ID construction overlaps and Arc payload
+    // are admitted BEFORE any of their String/Arc allocations.
+    let id_length=work::usize_add(m,prefix.len(),64)?;
+    let n=work::usize_add(m,mem::size_of::<OwnedDocument>(),2*mem::size_of::<usize>())?;
+    let mut n=work::usize_add(m,n,kind.len())?;
+    for length in [id_length,71,64,id_length,71]{n=work::usize_add(m,n,length)?;}
+    let metadata=arena.reserve_external_payload(n,m)?;
+    let encoding=if plan{RepresentationKind::Record}else{RepresentationKind::SourceDefinition};
+    let bytes=m.canonical_owned_representation(&arena,owned.value(),encoding)?;
+    let mut hash=Sha256::new();
+    let domain=if plan{b"bean-counter/workflow-plan/1\0".as_slice()}else{b"bean-counter/workflow-document/1\0".as_slice()};
+    m.hash_bytes(domain.len())?;hash.update(domain);
+    if plan{m.hash_bytes(bytes.bytes().len())?;hash.update(bytes.bytes());}
+    else{
+        let schema_value=arena.string_value(schema,m)?;
+        let schema_bytes=m.canonical_owned_representation(&arena,schema_value.value(),RepresentationKind::SourceDefinition)?;
+        for part in [b"[".as_slice(),schema_bytes.bytes(),b",".as_slice(),bytes.bytes(),b"]".as_slice()]{
+            m.visit("source.document_hash_part")?;m.hash_bytes(part.len())?;hash.update(part);
+        }
+    }
+    let hex=canonical::hex_with_work(&hash.finalize(),m)?;
+    fn prefixed(m:&mut CoreMeter,prefix:&str,hex:&str,length:usize)->Result<String>{
+        let mut output=String::new();output.try_reserve_exact(length).map_err(|_|err("selected document identity allocation"))?;
+        if work::compare(m,output.capacity(),length)?.is_gt(){return Err(err("selected document identity capacity"));}
+        m.scan_bytes(prefix.len())?;m.scan_bytes(hex.len())?;m.write_bytes(length)?;
+        output.push_str(prefix);output.push_str(hex);Ok(output)
+    }
+    let digest=prefixed(m,"sha256:",&hex,71)?;
+    let id=prefixed(m,prefix,&hex,id_length)?;
+    let reference=DefinitionRef::new_with_work(kind,&id,&digest,m)?;
+    Ok(SelectedDocument{storage:DocumentStorage::Owned(Arc::new(OwnedDocument{reference,body:owned,bytes,_metadata:metadata}))})
 }
 fn lookup<'a>(
     m: &mut CoreMeter,
@@ -147,9 +269,11 @@ fn lookup<'a>(
     r: &DefinitionRef,
 ) -> Result<&'a SelectedDocument> {
     for d in docs {
-        if m.check("source.ref_compare", || d.reference == *r)? {
-            return Ok(d);
-        }
+        let same=if m.representation_arena().is_some(){
+            m.visit("source.ref_compare")?;let actual=d.reference();
+            same_literal(m,actual.kind(),r.kind())?&&same_literal(m,actual.id(),r.id())?&&same_literal(m,actual.digest(),r.digest())?
+        }else{m.check("source.ref_compare", || d.reference() == r)?};
+        if same{return Ok(d);}
     }
     Err(err("missing exact source"))
 }
@@ -197,6 +321,10 @@ pub(super) fn same_literal(m:&mut CoreMeter,a:&str,b:&str)->Result<bool>{
     if !crate::validation_work::compare(m,a.len(),b.len())?.is_eq(){return Ok(false);}
     for (a,b) in a.bytes().zip(b.bytes()){m.scan_bytes(2)?;if a!=b{return Ok(false);}}
     Ok(true)
+}
+fn semantic_text_order(m:&mut CoreMeter,left:&str,right:&str)->Result<std::cmp::Ordering>{
+    m.visit("compile.text_order")?;let bytes=work::usize_add(m,left.len(),right.len())?;
+    m.scan_bytes(bytes)?;Ok(left.cmp(right))
 }
 fn require_selected_recipe(support:&SelectedCompilerSupport,m:&mut CoreMeter)->Result<SelectedRecipe>{
     if support.canonical_value()["schema"]=="ledger-workflow-compiler-descriptor/6" {
@@ -330,15 +458,36 @@ fn compile_selected_recipe(
     })? {
         return Err(err("source count"));
     }
+    let source_count=input.documents.len();
+    let control_ownership=if let Some(arena)=m.representation_arena(){
+        let per=mem::size_of::<SelectedDocument>()+mem::size_of::<FactSchema>()+mem::size_of::<(DefinitionRef,FactSchema)>()+mem::size_of::<ExternalBufferLease>();
+        crate::validation_work::ValidationWork::arithmetic(m,work::ArithmeticOperation::Multiply,&[&source_count.into(),&per.into()])?;
+        let controls=source_count.checked_mul(per).ok_or_else(||err("compiled control vector product"))?;
+        // These are the closed DefinitionRef producer dimensions: SHA256/64,
+        // wplan_ or wdoc_ prefix, and the longest admitted definition kind.
+        // This is requested copy storage, never a caller quota/capacity bound.
+        let refs=work::usize_add(m,source_count,1)?;
+        let per_ref="workflow-compiler-descriptor".len()+"wplan_".len()+64+"sha256:".len()+64;
+        crate::validation_work::ValidationWork::arithmetic(m,work::ArithmeticOperation::Multiply,&[&refs.into(),&per_ref.into()])?;
+        let references=refs.checked_mul(per_ref).ok_or_else(||err("compiled Ref copy product"))?;
+        let size=work::usize_add(m,controls,references)?;
+        Some(arena.reserve_external_payload(size,m)?)
+    }else{None};
+    let mut source_projection_ownership=Vec::new();
     let mut docs = Vec::new();
     let mut identities = BTreeSet::new();
     let mut semantic = BTreeSet::new();
     let mut schemas = Vec::new();
+    if control_ownership.is_some(){
+        docs.try_reserve_exact(source_count).map_err(|_|err("compiled document slots"))?;
+        schemas.try_reserve_exact(source_count).map_err(|_|err("compiled schema slots"))?;
+        source_projection_ownership.try_reserve_exact(source_count).map_err(|_|err("compiled source projection owner slots"))?;
+    }
     let mut product_raw = None;
     let mut template_raw = None;
     let mut policy_raw = None;
     for raw in input.documents {
-        let body = codec::parse(m, &raw, 262144)?;
+        let body = SourceValue::parse(m,&raw)?;
         let schema = body["schema"]
             .as_str()
             .ok_or_else(|| err("source schema"))?;
@@ -357,10 +506,14 @@ fn compile_selected_recipe(
                     }
                 }
 
-                let parsed = FactSchema::from_value_with_work(body, m)?;
-                let normalized = parsed.canonical_value().clone();
+                let parsed=if m.representation_arena().is_some(){
+                    let bytes=FactSchema::normalization_payload_bound_with_work(&body,m)?;
+                    let value=body.projection_with_payload(m,&mut source_projection_ownership,bytes)?;
+                    FactSchema::from_value_complete_with_work(value,m)?
+                }else{FactSchema::from_value_with_work(body.projection(m,&mut source_projection_ownership)?,m)?};
+                let document=borrowed_doc(m,parsed.canonical_value())?;
                 schemas.push(parsed);
-                docs.push(doc(m, normalized)?);
+                docs.push(document);
             }
             "ledger-workflow-product/1" => {
                 for unit in body["units"].as_array().ok_or_else(|| err("unit array"))? {
@@ -410,29 +563,34 @@ fn compile_selected_recipe(
                 }
             }
             "ledger-workflow-compiler-descriptor/1" | "ledger-workflow-compiler-descriptor/2" | "ledger-workflow-compiler-descriptor/3" | "ledger-workflow-compiler-descriptor/4" | "ledger-workflow-compiler-descriptor/5" | "ledger-workflow-compiler-descriptor/6" => {
-                if !m.check("source.support", || body == *support.canonical_value())? {
+                let same=if m.representation_arena().is_some(){
+                    super::super::transition_constructor::shape::same(m,&body,support.canonical_value())?
+                }else{m.check("source.support", || *body == *support.canonical_value())?};
+                if !same {
                     return Err(Error::new(
                         "UNSUPPORTED_COMPILER_DESCRIPTOR",
                         "code owned selected support",
                     ));
                 }
-                docs.push(doc(m, body)?);
+                docs.push(body.document(m)?);
             }
             _ => return Err(err("unsupported source family")),
         }
     }
-    let product = Product::from_value_with_work(
-        product_raw.ok_or_else(|| err("product missing"))?,
-        &schemas,
-        m,
-    )?;
-    let template = SlotTemplate::from_value_with_work(
-        template_raw.ok_or_else(|| err("template missing"))?,
-        None,
-        m,
-    )?;
-    docs.push(doc(m, product.canonical_value().clone())?);
-    docs.push(doc(m, template.canonical_value().clone())?);
+    let product_body=product_raw.ok_or_else(||err("product missing"))?;
+    let product=if m.representation_arena().is_some(){
+        let bytes=Product::normalization_payload_bound_with_work(&product_body,&schemas,m)?;
+        let value=product_body.projection_with_payload(m,&mut source_projection_ownership,bytes)?;
+        Product::from_value_complete_with_work(value,&schemas,m)?
+    }else{Product::from_value_with_work(product_body.projection(m,&mut source_projection_ownership)?,&schemas,m)?};
+    let template_body=template_raw.ok_or_else(||err("template missing"))?;
+    let template=if m.representation_arena().is_some(){
+        let bytes=SlotTemplate::normalization_payload_bound_with_work(&template_body,None,m)?;
+        let value=template_body.projection_with_payload(m,&mut source_projection_ownership,bytes)?;
+        SlotTemplate::from_value_complete_with_work(value,None,m)?
+    }else{SlotTemplate::from_value_with_work(template_body.projection(m,&mut source_projection_ownership)?,None,m)?};
+    docs.push(borrowed_doc(m,product.canonical_value())?);
+    docs.push(borrowed_doc(m,template.canonical_value())?);
     let body = policy_raw.ok_or_else(|| err("policy missing"))?;
     for rule in body["rules"].as_array().ok_or_else(|| err("rule array"))? {
         m.visit("predicate.closed")?;
@@ -465,8 +623,14 @@ fn compile_selected_recipe(
             }
         }
     }
-    let mut policy: Policy =
-        serde_json::from_value(body).map_err(|_| err("closed selected policy"))?;
+    let policy_decode_ownership=if let Some(arena)=m.representation_arena(){
+        let bytes=super::policy_decode::payload_bound(m,&body)?;
+        Some(arena.reserve_external_payload(bytes,m)?)
+    }else{None};
+    let body=body.projection(m,&mut source_projection_ownership)?;
+    let (mut policy,policy_decode_ownership)=if let Some(owner)=policy_decode_ownership{
+        let (policy,owner)=super::policy_decode::decode(m,body,owner)?;(policy,Some(owner))
+    }else{let policy:Policy=serde_json::from_value(body).map_err(|_|err("closed selected policy"))?;(policy,None)};
     if !m.check("policy.profile", || {
         policy.schema == recipe.policy_schema()
             && policy.currency == "USD"
@@ -489,13 +653,24 @@ fn compile_selected_recipe(
             .activity_with_work(&rule.activity, m)?
             .ok_or_else(|| err("rule activity"))?;
         template.component_named_with_work(&rule.component_key, &rule.component_name, m)?;
-        if !m.check("rule.slot", || {
+        let rule_slot=if m.representation_arena().is_some(){
+            let mut found=false;
+            for slot in &policy.binding_slots{
+                m.visit("compile.rule_binding_slot")?;
+                if !same_literal(m,&slot.name,&rule.binding_slot)?{continue;}
+                let book=same_literal(m,&slot.book,"retail")? || matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1)&&same_literal(m,&slot.book,"supplier")?;
+                if !book{continue;}
+                for activity in &slot.allowed_activities{m.visit("compile.rule_allowed_activity")?;if same_literal(m,activity,&rule.activity)?{found=true;break;}}
+                if found{break;}
+            }found
+        }else{m.check("rule.slot", || {
             policy.binding_slots.iter().any(|s| {
                 s.name == rule.binding_slot
                     && (s.book == "retail" || matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1)&&s.book=="supplier")
                     && s.allowed_activities.contains(&rule.activity)
             })
-        })? {
+        })?};
+        if !rule_slot {
             return Err(err("rule binding slot"));
         }
         match &mut rule.formula {
@@ -609,7 +784,8 @@ fn compile_selected_recipe(
         let mut j = i;
         while j > 0 {
             m.visit("family.sort_compare")?;
-            if policy.families[j - 1].family_key <= policy.families[j].family_key {
+            let ordered=if m.representation_arena().is_some(){!semantic_text_order(m,&policy.families[j-1].family_key,&policy.families[j].family_key)?.is_gt()}else{policy.families[j - 1].family_key <= policy.families[j].family_key};
+            if ordered {
                 break;
             }
             policy.families.swap(j - 1, j);
@@ -620,17 +796,24 @@ fn compile_selected_recipe(
         let mut j = i;
         while j > 0 {
             m.visit("binding.sort_compare")?;
-            if policy.binding_slots[j - 1].name <= policy.binding_slots[j].name {
+            let ordered=if m.representation_arena().is_some(){!semantic_text_order(m,&policy.binding_slots[j-1].name,&policy.binding_slots[j].name)?.is_gt()}else{policy.binding_slots[j - 1].name <= policy.binding_slots[j].name};
+            if ordered {
                 break;
             }
             policy.binding_slots.swap(j - 1, j);
             j -= 1;
         }
     }
-    let policy_body = serde_json::to_value(&policy).map_err(|_| err("policy encoding"))?;
     let root_position=docs.len();
-    docs.push(doc(m, policy_body)?);
-    let root = lookup(m, &docs, &input.root_policy_ref)?.reference.clone();
+    if m.representation_arena().is_some(){
+        let policy_body=super::owning_policy::build(m,&policy)?;
+        docs.push(finish_owned_document(m,policy_body,false)?);
+    }else{
+        let policy_body=serde_json::to_value(&policy).map_err(|_|err("policy encoding"))?;
+        docs.push(doc(m,policy_body)?);
+    }
+    let root = lookup(m, &docs, &input.root_policy_ref)?.reference();
+    let root=if control_ownership.is_some(){DefinitionRef::new_with_work(root.kind(),root.id(),root.digest(),m)?}else{root.clone()};
     if !m.check("policy.root", || root.kind() == "workflow-policy")? {
         return Err(err("root policy kind"));
     }
@@ -638,32 +821,59 @@ fn compile_selected_recipe(
     lookup(m, &docs, &policy.slot_template_ref)?;
     lookup(m, &docs, &policy.context_schema_ref)?;
     lookup(m, &docs, &policy.compiler_ref)?;
-    for d in &docs {
+    if m.representation_arena().is_some(){
+        // The normalized sources already own their identity scalars. Compare
+        // those borrowed fields directly; do not allocate BTree keys or debug
+        // formatting graphs merely to detect the same semantic duplicates.
+        fn semantic_name(body:&Value)->Option<&Value>{body.get("schema_id").or_else(||body.get("product_id")).or_else(||body.get("template_id")).or_else(||body.get("policy_id"))}
+        fn optional_same(m:&mut CoreMeter,a:Option<&Value>,b:Option<&Value>)->Result<bool>{
+            m.visit("source.optional_identity_presence")?;match(a,b){(None,None)=>Ok(true),(Some(a),Some(b))=>super::super::transition_constructor::shape::same(m,a,b),_=>Ok(false)}
+        }
+        for(i,d)in docs.iter().enumerate(){
+            m.visit("source.identity")?;
+            for prior in &docs[..i]{
+                if same_literal(m,d.reference().id(),prior.reference().id())?{return Err(err("duplicate source identity"));}
+            }
+            for prior in &docs[..i]{
+                if same_literal(m,d.reference().kind(),prior.reference().kind())?
+                    &&optional_same(m,semantic_name(d.canonical_value()),semantic_name(prior.canonical_value()))?
+                    &&optional_same(m,d.canonical_value().get("version"),prior.canonical_value().get("version"))?{
+                    return Err(err("duplicate semantic definition"));
+                }
+            }
+        }
+    }else{for d in &docs {
         m.visit("source.identity")?;
-        if !identities.insert(d.reference.id().to_owned()) {
+        if !identities.insert(d.reference().id().to_owned()) {
             return Err(err("duplicate source identity"));
         }
         let key = (
-            d.reference.kind().to_owned(),
-            d.body
+            d.reference().kind().to_owned(),
+            d.canonical_value()
                 .get("schema_id")
-                .or_else(|| d.body.get("product_id"))
-                .or_else(|| d.body.get("template_id"))
-                .or_else(|| d.body.get("policy_id"))
+                .or_else(|| d.canonical_value().get("product_id"))
+                .or_else(|| d.canonical_value().get("template_id"))
+                .or_else(|| d.canonical_value().get("policy_id"))
                 .cloned(),
-            d.body.get("version").cloned(),
+            d.canonical_value().get("version").cloned(),
         );
         if !semantic.insert(format!("{:?}", key)) {
             return Err(err("duplicate semantic definition"));
         }
-    }
-    let total = docs.iter().try_fold(0usize, |n, d| {
-        n.checked_add(d.bytes.len())
+    }}
+    let total=if m.representation_arena().is_some(){let mut total=0;for d in &docs{m.visit("source.aggregate_document_bytes")?;total=work::usize_add(m,total,d.canonical_bytes().len())?;}total}else{docs.iter().try_fold(0usize, |n, d| {
+        n.checked_add(d.canonical_bytes().len())
             .ok_or_else(|| err("source bytes"))
-    })?;
-    if total > 1048576 {
+    })?};
+    let exceeds=if m.representation_arena().is_some(){work::compare(m,total,1048576usize)?.is_gt()}else{total>1048576};
+    if exceeds {
         return Err(Error::new("PROGRAM_BUDGET_EXCEEDED", "source closure"));
     }
+    let (compiled_document,compiled_fields)=if m.representation_arena().is_some(){
+        let output=super::owning_plan::build(m,&docs,&root,&policy,&product,&template,recipe.plan_schema(),recipe.compiler_semantics())?;
+        let document=finish_owned_document(m,output.body,true)?;
+        (document,output.fields)
+    }else{
     let mut reachable = vec![
         json!(root),
         json!(policy.product_ref),
@@ -691,7 +901,7 @@ fn compile_selected_recipe(
         return Err(err("unused source document"));
     }
     for d in &docs {
-        let value = json!(d.reference);
+        let value = json!(d.reference());
         let mut exists = false;
         for r in &reachable {
             if m.check("closure.member", || r == &value)? {
@@ -703,7 +913,7 @@ fn compile_selected_recipe(
             return Err(err("unreachable source"));
         }
     }
-    let source_refs = set(m, docs.iter().map(|d| json!(d.reference)).collect())?;
+    let source_refs = set(m, docs.iter().map(|d| json!(d.reference())).collect())?;
     let mut schema_refs = product.canonical_value()["fact_schemas"]
         .as_array()
         .ok_or_else(|| err("fact refs"))?
@@ -718,7 +928,7 @@ fn compile_selected_recipe(
         let reference: DefinitionRef =
             serde_json::from_value(r.clone()).map_err(|_| err("schema ref"))?;
         let d = lookup(m, &docs, &reference)?;
-        let mut fields = d.body["fields"]
+        let mut fields = d.canonical_value()["fields"]
             .as_array()
             .ok_or_else(|| err("fields"))?
             .clone();
@@ -837,6 +1047,7 @@ fn compile_selected_recipe(
     }
     let activities:Vec<_>=product.canonical_value()["activities"].as_array().unwrap().iter().map(|a|{let mut v=json!({"activity":a["name"],"primitive":a["primitive"],"fact_schema_ref":a["fact_schema"],"source_slot":a["source_slot"]});if let Some(f)=a.get("funding_leg"){v["funding_leg"]=f.clone();}v}).collect();
     let plan = json!({"schema":recipe.plan_schema(),"compiler_ref":policy.compiler_ref,"compiler_semantics":recipe.compiler_semantics(),"evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":set(m,policy.families.iter().map(|f|json!(f.selector)).collect())?,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});
+    let compiled_document=if m.representation_arena().is_some(){owned_document(m,&plan,true)?}else{
     let bytes = codec::encode(m, &plan, 4194304)?;
     m.visit("plan.hash")?;
     m.read_bytes(bytes.len())?;
@@ -850,8 +1061,12 @@ fn compile_selected_recipe(
         &format!("wplan_{}", &digest[7..]),
         &digest,
     )?;
+    SelectedDocument{storage:DocumentStorage::Legacy(LegacyDocument{reference,body:plan,bytes})}
+    };
+    (compiled_document,slots.len())
+    };
     let mut analysis = StaticAnalysis {
-        fields: slots.len(),
+        fields: compiled_fields,
         rules: policy.rules.len(),
         families: policy.families.len(),
         maximum_path: policy
@@ -863,13 +1078,16 @@ fn compile_selected_recipe(
         compile_work: m.usage().semantic_work,
     };
     let mut prepared_schemas = Vec::new();
+    if control_ownership.is_some(){prepared_schemas.try_reserve_exact(source_count).map_err(|_|err("compiled prepared-schema slots"))?;}
     for schema in schemas {
         let mut reference = None;
         for d in &docs {
-            if m.check("compile.prepared_schema", || {
-                d.body == *schema.canonical_value()
-            })? {
-                reference = Some(d.reference.clone());
+            let same=if m.representation_arena().is_some(){super::super::transition_constructor::shape::same(m,d.canonical_value(),schema.canonical_value())?}else{m.check("compile.prepared_schema", || {
+                *d.canonical_value() == *schema.canonical_value()
+            })?};
+            if same {
+                let r=d.reference();
+                reference = Some(if control_ownership.is_some(){DefinitionRef::new_with_work(r.kind(),r.id(),r.digest(),m)?}else{r.clone()});
                 break;
             }
         }
@@ -880,6 +1098,8 @@ fn compile_selected_recipe(
     }
     analysis.compile_work = m.usage().semantic_work;
     Ok(SelectedProgram {
+        provenance:ProgramProvenance::Compiled,
+        recipe,
         root_position,
         family_close_recipe:matches!(recipe,SelectedRecipe::FamilyClose1|SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1|SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1),
         app_cost_causal_recipe:matches!(recipe,SelectedRecipe::AppCostCausal1),
@@ -889,13 +1109,46 @@ fn compile_selected_recipe(
         execution_registry:support.execution_registry(),
         root,
         sources: docs,
-        plan: SelectedDocument {
-            reference,
-            body: plan,
-            bytes,
-        },
+        plan: compiled_document,
         policy,
         schemas: prepared_schemas,
         analysis,
+        _policy_decode_ownership:policy_decode_ownership,
+        _source_projection_ownership:source_projection_ownership,
+        _control_ownership:control_ownership,
     })
 }
+
+#[cfg(test)]
+mod owning_document_tests {
+    use super::*;
+    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
+    #[test]
+    fn selected_document_output_preserves_hash_bytes_and_shared_lease(){
+        let body=json!({"schema":"ledger-workflow-product/1","product_id":"product","version":"1","text":"\u{1f600}\n"});
+        let mut legacy=CoreMeter::for_compile(1048576).unwrap();
+        let old=doc(&mut legacy,body.clone()).unwrap();
+        let arena=AuditArena::new().unwrap();let baseline=arena.usage().unwrap().live_bytes;
+        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let new=doc(session.meter_mut(),body.clone()).unwrap();
+        assert_eq!(new.reference(),old.reference());assert_eq!(new.canonical_value(),old.canonical_value());assert_eq!(new.canonical_bytes(),old.canonical_bytes());
+        assert!(matches!(new.storage,DocumentStorage::Owned(_)));
+        let held=arena.usage().unwrap().live_bytes;assert!(held>baseline);
+        let copy=new.clone();assert_eq!(arena.usage().unwrap().live_bytes,held);
+        drop(new);assert_eq!(arena.usage().unwrap().live_bytes,held);
+        drop(copy);assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+        let plan=json!({"schema":"ledger-workflow-compiled-plan/6","typed_instructions":[]});
+        let output=owned_document(session.meter_mut(),&plan,true).unwrap();
+        let bytes=canonical::CanonicalBytes::from_value(&plan).unwrap();
+        let mut hash=Sha256::new();hash.update(b"bean-counter/workflow-plan/1\0");hash.update(bytes.as_slice());
+        assert_eq!(output.reference().digest(),format!("sha256:{}",canonical::hex(&hash.finalize())));
+        assert_eq!(output.canonical_bytes(),bytes.as_slice());drop(output);
+        assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+        arena.cancellation_handle().cancel();
+        assert!(doc(session.meter_mut(),body).is_err());
+    }
+}
+
+#[path="execution_reload.rs"]
+mod execution_reload;
+pub use execution_reload::{SelectedExecutionReloadKey,rehydrate_selected_execution};

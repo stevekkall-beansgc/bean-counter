@@ -84,7 +84,7 @@ pub(super) fn validate_selected_value(m: &mut Meter, value: &Value, maximum: usi
 /// Records' private owning path must complete the SAME capped canonical emit
 /// and exact raw equality before making the parsed body usable. Legacy and
 /// standalone maximum-enforcing guards keep their original formatting walk.
-pub(super) fn validate_selected_types(m:&mut Meter,value:&Value)->Result<()> {
+pub(in crate::policy::workflow) fn validate_selected_types(m:&mut Meter,value:&Value)->Result<()> {
     let mut unused=0;
     count(m,value,&mut unused,usize::MAX,0,false)
 }

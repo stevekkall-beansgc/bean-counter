@@ -223,6 +223,14 @@ impl AuditArena {
             reservation: self.reserve(bytes, work)?,
         })
     }
+    /// Memory-owner association only. Immutable compiler views borrowed by an
+    /// origin must remain charged to this SAME whole attempt; a lease from an
+    /// earlier/different attempt cannot stand in for its resident payload.
+    pub(crate) fn require_external_owner(&self,lease:&ExternalBufferLease,work:&mut dyn ValidationWork)->Result<()> {
+        work.visit(ValidationVisit::Constraint)?;
+        if !Arc::ptr_eq(&self.ledger,&lease.reservation.ledger){return Err(failure("external payload belongs to another audit attempt"));}
+        Ok(())
+    }
     /// Encode a borrowed tree with the SAME paid bounded emitter. The output,
     /// old/new destination growth overlap and all key/small formatting scratch
     /// are admitted before emission; successful bytes keep an owning lease.

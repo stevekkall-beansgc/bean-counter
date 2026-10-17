@@ -20,7 +20,7 @@ fn audit<'a>(c:&DraftContextData,state:&'a EconomicStateData,s:&mut OriginalAudi
 /// can only be owning. This entry does not accept a DraftTransition or credit.
 pub fn construct_economic_candidate<'a>(program:&SelectedProgram,c:&'a DraftContextData,payload:&[u8],inputs:&'a [EconomicRecordView<'a>],state:&EconomicStateData,session:&mut OriginalAuditSession)->Result<EconomicCandidate>{
  let result=(||{
-  session.check_cancelled()?;let audit=audit(c,state,session)?;
+  session.check_cancelled()?;program.require_attempt_owner(session.meter_mut())?;let audit=audit(c,state,session)?;
   let mut child=session.meter_mut().original_economic_meter()?;
   let construction=construct::execute_complete(program,c,payload,inputs,state,&mut child)?;
   let assembly=Assembly::derive(&mut child,c,program,state,construction)?;
@@ -35,7 +35,7 @@ pub fn construct_economic_candidate<'a>(program:&SelectedProgram,c:&'a DraftCont
 /// completed prefix. N is comparison-only; it never seeds economic inputs.
 pub fn reconstruct_original_candidate<'a>(program:&SelectedProgram,saved:&'a SavedFinancialInput<'a>,session:&mut OriginalAuditSession)->Result<EconomicCandidate>{
  let result=(||{
-  session.check_cancelled()?;
+  session.check_cancelled()?;program.require_attempt_owner(session.meter_mut())?;
   let c=saved.original_context;let arena=session.arena().shared_handle();
   let op=session.parse_representation(saved.operation.canonical_body,RepresentationKind::OperationFrame)?;
   super::codec::validate_selected_types(session.meter_mut(),op.value())?;

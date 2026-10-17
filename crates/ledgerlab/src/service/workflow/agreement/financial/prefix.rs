@@ -5,6 +5,7 @@ use super::*;
 mod dependencies;
 pub(super) mod inventory;
 mod members;
+mod programs;
 mod publication;
 pub(super) use members::ResolvedMembers;
 pub(super) mod source;
@@ -611,6 +612,7 @@ mod tests {
 /// No constructor/export turns this inventory into a prepared commit.
 pub(super) struct FoldedInventory {
     pub(super) _inventory: inventory::Inventory,
+    programs: programs::CompletedPrograms,
 }
 /// Reuse the selected origin's SAME parent session, including its already-paid
 /// framing/identity work. Each earlier origin receives exactly its own session.
@@ -666,6 +668,7 @@ pub(super) async fn fold_original_prefix(
                         .map_err(read_error)?;
                     inventory = Some(FoldedInventory {
                         _inventory: inventory::Inventory::new(files, &origin, &mut session)?,
+                        programs: programs::CompletedPrograms::new(),
                     });
                 }
             }
@@ -692,6 +695,7 @@ pub(super) async fn fold_original_prefix(
                 let files = tx.workflow_original_scratch(parent).map_err(read_error)?;
                 inventory = Some(FoldedInventory {
                     _inventory: inventory::Inventory::new(files, selected, parent)?,
+                    programs: programs::CompletedPrograms::new(),
                 });
             }
         }
@@ -773,6 +777,7 @@ pub(super) async fn publication_before(
                         .map_err(read_error)?;
                     inventory = Some(FoldedInventory {
                         _inventory: inventory::Inventory::new(files, &origin, &mut session)?,
+                        programs: programs::CompletedPrograms::new(),
                     });
                 }
             }
@@ -1095,9 +1100,44 @@ impl FoldedInventory {
     }
 }
 
-/// Consume an exact completed-in-this-fold PUB owner for its immediate
-/// agreement consumers. Older interleaved PUB execution-view reload remains a
-/// required enclosing bridge; no current/builtin compiler can fill that gap.
+/// Select the exact original completed PUB, using its live compile key only
+/// when the immediately retained owner differs. Neither a scratch locator nor
+/// a matching hash can mint that key or substitute a current compiler.
+async fn folded_publication(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    wanted: &Value,
+    prefix: &mut FoldedInventory,
+    s: &mut OriginalAuditSession,
+) -> Result<RecompiledPublication> {
+    super::acceptance::validate_reference(wanted, "workflow-publication", s)?;
+    let sequence = prefix._inventory.introduction_sequence(wanted, s)?;
+    let compiled = prefix.programs.key(sequence, s)?;
+    s.semantic_work()
+        .arithmetic(Op::Subtract, &[&sequence.into(), &1i64.into()])
+        .map_err(core_error)?;
+    let previous = sequence
+        .checked_sub(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let original = next(tx, key, previous, sequence, s)
+        .await?
+        .ok_or(ServiceError::IntegrityFailure)?
+        .checked_wrappers(tx, s)
+        .await?;
+    let loaded = publication::reload(tx, &original, compiled, s).await?;
+    let actual = wire::reference(loaded.publication().0, s)?;
+    let expected = s
+        .canonical_representation(wanted, RepresentationKind::Record)
+        .map_err(core_error)?;
+    let work = s.semantic_work();
+    work.visit(Visit::MemberCompare).map_err(core_error)?;
+    work.scan_bytes(actual.bytes().len()).map_err(core_error)?;
+    work.scan_bytes(expected.bytes().len())
+        .map_err(core_error)?;
+    require(actual.bytes() == expected.bytes(), "INTEGRITY_FAILURE")?;
+    loaded.compare_completed_inputs(&mut prefix._inventory, s)?;
+    Ok(loaded)
+}
 async fn fold_origin(
     tx: &mut SqliteTx,
     origin: &LocatedWrappers,
@@ -1110,31 +1150,41 @@ async fn fold_origin(
         .visit(Visit::Constraint)
         .map_err(core_error)?;
     if origin.wrappers().class() == wrappers::WireClass::Agreement {
-        let publication = publication.ok_or(ServiceError::Unavailable)?;
         let literal =
             request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
         let wanted = request_wrapper::field(literal, "publication_ref", s)?;
-        let actual = wire::reference(publication.publication().0, s)?;
-        let wanted = s
-            .canonical_representation(wanted, RepresentationKind::Record)
-            .map_err(core_error)?;
-        s.semantic_work()
-            .visit(Visit::MemberCompare)
-            .map_err(core_error)?;
-        s.semantic_work()
-            .scan_bytes(actual.bytes().len())
-            .map_err(core_error)?;
-        s.semantic_work()
-            .scan_bytes(wanted.bytes().len())
-            .map_err(core_error)?;
-        if actual.bytes() != wanted.bytes() {
-            return Err(ServiceError::Unavailable);
+        let mut matches = false;
+        if let Some(publication) = publication {
+            let actual = wire::reference(publication.publication().0, s)?;
+            let wanted = s
+                .canonical_representation(wanted, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let work = s.semantic_work();
+            work.visit(Visit::MemberCompare).map_err(core_error)?;
+            work.scan_bytes(actual.bytes().len()).map_err(core_error)?;
+            work.scan_bytes(wanted.bytes().len()).map_err(core_error)?;
+            matches = actual.bytes() == wanted.bytes();
         }
+        let loaded;
+        let publication = if matches {
+            publication.ok_or(ServiceError::IntegrityFailure)?
+        } else {
+            loaded = folded_publication(tx, origin.key(), wanted, prefix, s).await?;
+            &loaded
+        };
         let reconstructed =
             super::acceptance::reconstruct_held(tx, origin, publication, prefix, setup, s).await?;
         reconstructed.fold_original(origin, prefix, s)?;
         Ok(None)
     } else {
-        source::fold(tx, origin, &mut prefix._inventory, setup, s).await
+        let publication = source::fold(tx, origin, &mut prefix._inventory, setup, s).await?;
+        if let Some(program) = &publication {
+            // source::fold has finished original semantic/member/custody checks
+            // and staged this exact PUB before a live key may be associated.
+            prefix
+                .programs
+                .register(origin.wrappers().sequence(), program.program(), s)?;
+        }
+        Ok(publication)
     }
 }

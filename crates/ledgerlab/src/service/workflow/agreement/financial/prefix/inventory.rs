@@ -1185,6 +1185,31 @@ impl Inventory {
         let key = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
         Ok(self.tree.find(&key, s)?.is_some())
     }
+    /// Exact earliest introduction in this completed-prefix inventory. This
+    /// locator is not itself an origin or compilation proof.
+    pub(super) fn introduction_sequence(
+        &mut self,
+        reference: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<i64> {
+        let key = Locator::from_ref(
+            request_wrapper::text(reference, "kind", s)?,
+            request_wrapper::text(reference, "id", s)?,
+            request_wrapper::text(reference, "digest", s)?,
+            s,
+        )?;
+        let entry = self
+            .tree
+            .find(&key, s)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        copied(8, s)?;
+        let mut sequence = [0u8; 8];
+        sequence.copy_from_slice(&entry.0[228..236]);
+        let sequence = u64::from_le_bytes(sequence);
+        require(compare(sequence, 0, s)?.is_gt(), "INTEGRITY_FAILURE")?;
+        require(!compare(sequence, 100000, s)?.is_gt(), "INTEGRITY_FAILURE")?;
+        Ok(sequence as i64)
+    }
     pub(in super::super) fn require_value(
         &mut self,
         reference: &Value,

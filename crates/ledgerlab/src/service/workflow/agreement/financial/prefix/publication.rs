@@ -7,7 +7,10 @@ use ledgerlab_core::{
     canonical::audit_arena::{AuditedValue, ExternalBufferLease},
     policy::workflow::{
         DefinitionRef,
-        selected_program::{SelectedProgram, SelectedSourceInput, restore_selected_program},
+        selected_program::{
+            SelectedExecutionReloadKey, SelectedProgram, SelectedSourceInput,
+            rehydrate_selected_execution, restore_selected_program,
+        },
         transition_constructor::ExactRef,
     },
 };
@@ -50,6 +53,23 @@ impl RecompiledPublication {
             &self.build.reference,
             &self.authority.reference,
         ])
+    }
+    pub(super) fn compare_completed_inputs(
+        &self,
+        inventory: &mut inventory::Inventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        for record in
+            self.sources
+                .iter()
+                .chain([&self.publication, &self.plan, &self.build, &self.authority])
+        {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            inventory.compare_record(&record.reference, record.stored.body.bytes(), s)?;
+        }
+        Ok(())
     }
     pub(super) fn plan(&self) -> (&ExactRef, &[u8]) {
         (&self.plan.reference, self.plan.stored.body.bytes())
@@ -398,7 +418,22 @@ pub(super) async fn recompile(
     origin: &LocatedWrappers,
     session: &mut OriginalAuditSession,
 ) -> Result<RecompiledPublication> {
-    let result = recompile_inner(tx, origin, session).await;
+    let result = recompile_inner(tx, origin, None, session).await;
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
+}
+/// Reload only an actual completed PUB association supplied by the enclosing
+/// chronological owner. Every retained source/plan/body is resolved under the
+/// same snapshot; this does not rerun the selected compiler or mint a new key.
+pub(super) async fn reload(
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    key: &SelectedExecutionReloadKey,
+    session: &mut OriginalAuditSession,
+) -> Result<RecompiledPublication> {
+    let result = recompile_inner(tx, origin, Some(key), session).await;
     if result.is_err() {
         session.invalidate();
     }
@@ -407,6 +442,7 @@ pub(super) async fn recompile(
 async fn recompile_inner(
     tx: &mut SqliteTx,
     origin: &LocatedWrappers,
+    reload: Option<&SelectedExecutionReloadKey>,
     session: &mut OriginalAuditSession,
 ) -> Result<RecompiledPublication> {
     session
@@ -713,7 +749,7 @@ async fn recompile_inner(
     // Inline raw source spelling can be longer than normalized source. Its
     // original enclosing request is already bounded256KiB; reserve that whole
     // payload in addition to the retained source budget before copying either.
-    if mode == "inline" {
+    if mode == "inline" && reload.is_none() {
         input_bytes = arithmetic(input_bytes, 262144, Op::Add, session)?;
     }
     let (d, i, k) = parts(
@@ -734,7 +770,7 @@ async fn recompile_inner(
     documents
         .try_reserve_exact(raw_documents.len())
         .map_err(|_| ServiceError::Unavailable)?;
-    if mode == "inline" {
+    if mode == "inline" && reload.is_none() {
         for source in raw_documents {
             session
                 .semantic_work()
@@ -746,7 +782,9 @@ async fn recompile_inner(
             documents.push(copied(raw.bytes(), session)?);
         }
     } else {
-        equal_ref_sets(raw_documents, source_refs, session)?;
+        if mode == "retained" {
+            equal_ref_sets(raw_documents, source_refs, session)?;
+        }
         for source in &sources {
             session
                 .semantic_work()
@@ -755,15 +793,20 @@ async fn recompile_inner(
             documents.push(copied(source.stored.body.bytes(), session)?);
         }
     }
-    let program = restore_selected_program(
-        SelectedSourceInput {
-            documents,
-            root_policy_ref: root,
-        },
-        descriptor.stored.body.bytes(),
-        plan.stored.body.bytes(),
-        session,
-    )
+    let input = SelectedSourceInput {
+        documents,
+        root_policy_ref: root,
+    };
+    let program = if let Some(key) = reload {
+        rehydrate_selected_execution(input, plan.stored.body.bytes(), key, session)
+    } else {
+        restore_selected_program(
+            input,
+            descriptor.stored.body.bytes(),
+            plan.stored.body.bytes(),
+            session,
+        )
+    }
     .map_err(core_error)?;
     count(
         program.source_documents().len(),

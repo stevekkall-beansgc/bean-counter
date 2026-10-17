@@ -5,8 +5,8 @@ pub use support::SelectedCompilerSupport;
 
 mod compiler;
 pub use compiler::{
-    SelectedDocument, SelectedProgram, SelectedSourceInput, StaticAnalysis,
-    compile_selected_program, compile_selected_publication, restore_selected_program,
+    SelectedDocument, SelectedProgram, SelectedSourceInput, StaticAnalysis, SelectedExecutionReloadKey,
+    compile_selected_program, compile_selected_publication, restore_selected_program, rehydrate_selected_execution,
 };
 
 #[cfg(test)]
@@ -19,3 +19,7 @@ mod normalize;
 // the current app compilation/publication dependency does not execute AP support.
 
 mod app_declarations;
+mod owning_plan;
+mod owning_policy;
+
+mod policy_decode;

@@ -2,15 +2,15 @@
 use super::super::DefinitionRef;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Policy {
+#[serde(deny_unknown_fields, bound(deserialize="R: Deserialize<'de>"))]
+pub(super) struct Policy<R = DefinitionRef> {
     pub schema: String,
     pub policy_id: String,
     pub version: String,
-    pub product_ref: DefinitionRef,
-    pub context_schema_ref: DefinitionRef,
-    pub slot_template_ref: DefinitionRef,
-    pub compiler_ref: DefinitionRef,
+    pub product_ref: R,
+    pub context_schema_ref: R,
+    pub slot_template_ref: R,
+    pub compiler_ref: R,
     pub currency: String,
     pub scale: u8,
     pub rounding: String,
@@ -23,7 +23,7 @@ pub(super) struct Policy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app_delayed_costs: Option<Vec<AppCostDeclaration>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub previous_policy_ref: Option<DefinitionRef>,
+    pub previous_policy_ref: Option<R>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
