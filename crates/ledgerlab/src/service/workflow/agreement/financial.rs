@@ -380,15 +380,22 @@ impl LocalWorkflowLedger {
                             | "ledger-workflow-party-authorize/1"
                             | "ledger-workflow-party-revoke/1"
                     ) {
-                        let pending =
+                        let mut pending =
                             current::party::produce::prepare(self, tx, &req, &mut session).await?;
                         let evidence = evidence::party(&req, &pending, &mut session)?;
                         // workflow_sequence returns the next sequence, not
                         // the last committed one. Retained reads use it as an
                         // exclusive cutoff; the new frame uses it unchanged.
                         let sequence = pending.before;
-                        let journal =
-                            wire::frame_party(&req, &pending, &evidence, sequence, &mut session)?;
+                        let members = pending.resolve_members(&mut session)?;
+                        let journal = wire::frame_party(
+                            &req,
+                            &pending,
+                            &evidence,
+                            sequence,
+                            members,
+                            &mut session,
+                        )?;
                         let write_data = current::party::write::PartyWriteData::new(
                             &pending,
                             &req,

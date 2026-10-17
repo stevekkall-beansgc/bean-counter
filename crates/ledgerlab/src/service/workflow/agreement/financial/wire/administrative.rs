@@ -6,20 +6,27 @@ use super::super::{
 };
 use super::*;
 
-pub(in super::super) struct PartyJournalData<'a> {
+pub(in super::super) struct PartyJournalData {
     operation: AuditedBytes,
     manifest: AuditedBytes,
     receipt: AuditedBytes,
     operation_ref: WireRef,
     manifest_ref: WireRef,
     receipt_ref: WireRef,
-    members: RefSet<'a>,
+    members: super::super::prefix::ResolvedMembers,
 }
-impl PartyJournalData<'_> {
+impl PartyJournalData {
+    pub(in super::super) fn members(&self) -> &super::super::prefix::ResolvedMembers {
+        &self.members
+    }
+    pub(in super::super) fn operation_reference(&self) -> &ExactRef {
+        &self.operation_ref.reference
+    }
     pub(in super::super) fn storage_view<'a>(
         &'a self,
         incoming: &'a IncomingRequest,
         evidence: &'a RequestEvidence,
+        members: &'a [&'a ExactRef],
         sequence: i64,
         accepted_at_us: i64,
         session: &mut OriginalAuditSession,
@@ -38,7 +45,7 @@ impl PartyJournalData<'_> {
             manifest_bytes: self.manifest.bytes(),
             receipt_ref: &self.receipt_ref.reference,
             receipt_bytes: self.receipt.bytes(),
-            members: &self.members.refs,
+            members,
             sequence,
             accepted_at_us,
         })
@@ -85,26 +92,28 @@ impl PartyJournalData<'_> {
         Ok(())
     }
 }
-pub(in super::super) fn frame_party<'a>(
+pub(in super::super) fn frame_party(
     incoming: &IncomingRequest,
-    pending: &'a PendingPartyOperation,
+    pending: &PendingPartyOperation,
     evidence: &RequestEvidence,
     sequence: i64,
+    members: super::super::prefix::ResolvedMembers,
     session: &mut OriginalAuditSession,
-) -> Result<PartyJournalData<'a>> {
-    let result = frame_inner(incoming, pending, evidence, sequence, session);
+) -> Result<PartyJournalData> {
+    let result = frame_inner(incoming, pending, evidence, sequence, members, session);
     if result.is_err() {
         session.invalidate();
     }
     result
 }
-fn frame_inner<'a>(
+fn frame_inner(
     incoming: &IncomingRequest,
-    pending: &'a PendingPartyOperation,
+    pending: &PendingPartyOperation,
     evidence: &RequestEvidence,
     sequence: i64,
+    mut members: super::super::prefix::ResolvedMembers,
     session: &mut OriginalAuditSession,
-) -> Result<PartyJournalData<'a>> {
+) -> Result<PartyJournalData> {
     use super::super::request_wrapper as request;
     let normalized = request::field(evidence.value(), "normalized_request", session)?;
     request::key(
@@ -210,40 +219,8 @@ fn frame_inner<'a>(
         session,
     )?;
     let operation_ref = owned_reference("workflow-operation", "wop_", &id_hash, &op_hash, session)?;
-    let mut dependency_count = 0usize;
-    for _ in pending.dependency_refs() {
-        session
-            .semantic_work()
-            .visit(Visit::Element)
-            .map_err(core_error)?;
-        dependency_count = arithmetic(dependency_count, 1, Op::Add, session)?;
-    }
-    let count = arithmetic(dependency_count, 3, Op::Add, session)?;
-    let members = RefSet::new(
-        [
-            pending.root.reference(),
-            pending.authority.reference(),
-            pending.result.reference(),
-        ]
-        .into_iter()
-        .chain(pending.dependency_refs()),
-        count,
-        false,
-        session,
-    )?;
-    let count = arithmetic(members.refs.len(), 1, Op::Add, session)?;
-    let full = RefSet::new(
-        members
-            .refs
-            .iter()
-            .copied()
-            .chain(std::iter::once(&operation_ref.reference)),
-        count,
-        true,
-        session,
-    )?;
-    let member_bytes = full.encode(session)?;
-    drop(full);
+    members.add_record_ref(&operation_ref.reference, session)?;
+    let member_bytes = members.encode(session)?;
     let manifest = object(
         &[
             ("key", key_bytes.bytes()),

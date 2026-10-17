@@ -217,6 +217,14 @@ impl ResolvedMembers {
         old: impl Iterator<Item = &'a ExactRef>,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
+        Self::resolve_optional(Some(&mut prefix._inventory), records, old, s)
+    }
+    pub(in super::super) fn resolve_optional<'a>(
+        mut inventory: Option<&mut inventory::Inventory>,
+        records: &[&wire::SourceRecord],
+        old: impl Iterator<Item = &'a ExactRef>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
         let mut out = Self::new(s)?;
         let size = arithmetic(
             LIMIT,
@@ -240,10 +248,10 @@ impl ResolvedMembers {
                 .parse_representation(raw.bytes(), RepresentationKind::Record)
                 .map_err(core_error)?;
             let index = out.add(parsed.value(), s)?;
-            if prefix._inventory.has(record.reference(), s)? {
-                prefix
-                    ._inventory
-                    .compare_record(record.reference(), record.bytes(), s)?;
+            if let Some(inventory) = inventory.as_deref_mut() {
+                if inventory.has(record.reference(), s)? {
+                    inventory.compare_record(record.reference(), record.bytes(), s)?;
+                }
             }
             if let Some(prior) = pending[index] {
                 s.semantic_work()
@@ -278,7 +286,10 @@ impl ResolvedMembers {
                 let parsed = s
                     .parse_representation(raw.bytes(), RepresentationKind::Record)
                     .map_err(core_error)?;
-                prefix._inventory.body(parsed.value(), s)?
+                inventory
+                    .as_deref_mut()
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .body(parsed.value(), s)?
             };
             let body = s
                 .parse_representation(body.bytes(), RepresentationKind::Record)

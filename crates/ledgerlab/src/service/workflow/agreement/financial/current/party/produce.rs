@@ -22,6 +22,27 @@ impl PendingPartyOperation {
     pub(in super::super::super) fn normalized_payload(&self) -> &[u8] {
         self.normalized.bytes()
     }
+    pub(in super::super::super) fn resolve_members(
+        &mut self,
+        session: &mut OriginalAuditSession,
+    ) -> Result<prefix::ResolvedMembers> {
+        let mut prefix = self._prefix.take();
+        let result = self.resolve_members_in(prefix.as_mut().map(|p| &mut p._inventory), session);
+        self._prefix = prefix;
+        result
+    }
+    pub(in super::super::super) fn resolve_members_in(
+        &self,
+        inventory: Option<&mut prefix::inventory::Inventory>,
+        session: &mut OriginalAuditSession,
+    ) -> Result<prefix::ResolvedMembers> {
+        prefix::ResolvedMembers::resolve_optional(
+            inventory,
+            &[&self.root, &self.authority, &self.result],
+            self.dependency_refs(),
+            session,
+        )
+    }
     pub(in super::super::super) fn prior_authorization_ref(&self) -> Option<&ExactRef> {
         self.prior.as_ref().map(|r| &r.reference)
     }

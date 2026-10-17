@@ -96,6 +96,7 @@ impl LocatedWrappers {
     pub(super) async fn reconstruct_party(
         &self,
         tx: &mut SqliteTx,
+        inventory: &mut inventory::Inventory,
         session: &mut OriginalAuditSession,
     ) -> Result<current::party::produce::PendingPartyOperation> {
         let mut attempt = InputAttempt {
@@ -107,11 +108,13 @@ impl LocatedWrappers {
             let reproduced = evidence::original_party(self, &reconstructed, session)?;
             let incoming =
                 ingress::IncomingRequest::parse(self.wrappers().original_request().raw(), session)?;
+            let members = reconstructed.resolve_members_in(Some(inventory), session)?;
             wire::frame_party(
                 &incoming,
                 &reconstructed,
                 &reproduced,
                 self.wrappers().sequence(),
+                members,
                 session,
             )?
             .compare_original(self, session)?;

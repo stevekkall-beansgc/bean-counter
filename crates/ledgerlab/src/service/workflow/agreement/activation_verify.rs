@@ -2,9 +2,11 @@
 //! authenticate an actor, select a schedule, or confer append permission.
 use super::super::request::OperationKey;
 use super::*;
+use crate::service::workflow::core_error;
 mod authority;
 mod certificate;
 pub(super) mod schedule;
+pub(super) mod shape;
 use crate::store::sqlite::workflow::agreement::acceptance::{
     ActivationAction, ActivationProjection, AgreementHead,
 };
@@ -36,19 +38,52 @@ fn checked_ref(v: &Value, kind: &str) -> Result<RecordRef> {
     })
 }
 fn counter(v: &Value) -> Result<String> {
-    let s = v.as_str().ok_or_else(|| reject("INVALID_SHAPE"))?;
-    require(
-        !s.is_empty() && s.len() <= 64 && s.bytes().all(|b| b.is_ascii_digit()),
-        "INVALID_SHAPE",
-    )?;
-    let n = s.trim_start_matches('0');
-    Ok(if n.is_empty() {
-        0
-    } else {
-        n.parse::<i64>().map_err(|_| reject("INVALID_SCALAR"))?
-    }
-    .to_string())
+    normalize_counter(
+        v.as_str().ok_or_else(|| reject("INVALID_SHAPE"))?,
+        &mut ledgerlab_core::validation_work::NoopValidationWork,
+    )
 }
+/// SAME scalar language for the legacy and owning activation normalizer.
+/// Caller retains the finite20-byte decimal result and parse scratch lease.
+pub(super) fn normalize_counter(
+    raw: &str,
+    work: &mut dyn ledgerlab_core::validation_work::ValidationWork,
+) -> Result<String> {
+    use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+    work.visit(Visit::Constraint).map_err(core_error)?;
+    work.arithmetic(Op::Compare, &[&raw.len().into(), &0usize.into()])
+        .map_err(core_error)?;
+    require(!raw.is_empty(), "INVALID_SHAPE")?;
+    work.arithmetic(Op::Compare, &[&raw.len().into(), &64usize.into()])
+        .map_err(core_error)?;
+    require(raw.len() <= 64, "INVALID_SHAPE")?;
+    work.scan_bytes(raw.len()).map_err(core_error)?;
+    for b in raw.bytes() {
+        work.visit(Visit::Constraint).map_err(core_error)?;
+        require(b.is_ascii_digit(), "INVALID_SHAPE")?;
+    }
+    let mut n = 0i64;
+    for b in raw.bytes() {
+        work.visit(Visit::ScalarDigit).map_err(core_error)?;
+        work.scan_bytes(1).map_err(core_error)?;
+        require(b.is_ascii_digit(), "INVALID_SHAPE")?;
+        work.arithmetic(Op::Subtract, &[&b.into(), &b'0'.into()])
+            .map_err(core_error)?;
+        let digit = i64::from(b - b'0');
+        work.arithmetic(Op::Multiply, &[&n.into(), &10i64.into()])
+            .map_err(core_error)?;
+        n = n.checked_mul(10).ok_or_else(|| reject("INVALID_SCALAR"))?;
+        work.arithmetic(Op::Add, &[&n.into(), &digit.into()])
+            .map_err(core_error)?;
+        n = n
+            .checked_add(digit)
+            .ok_or_else(|| reject("INVALID_SCALAR"))?;
+    }
+    work.scan_bytes(20).map_err(core_error)?;
+    work.write_bytes(20).map_err(core_error)?;
+    Ok(n.to_string())
+}
+
 /// Binding bytes have already been authenticated by the coordinator or saved
 /// certificate. Binding has no scope field; its accepted-agreement/operation
 /// provenance and the scoped head authenticate scope at the host boundary.
@@ -56,34 +91,9 @@ fn counter(v: &Value) -> Result<String> {
 pub(super) fn normalize(req: &request::Request, binding: &Document) -> Result<Value> {
     let mut p = req.payload().clone();
     let schema = text(&p, "schema")?;
-    let action = match (req.kind(), schema) {
-        ("agreement.activate", "ledger-workflow-activation/1") => "activate",
-        ("agreement.activate", "ledger-workflow-activation-replace/1") => "replace",
-        ("agreement.revoke", "ledger-workflow-agreement-revoke/1") => "revoke",
-        _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
-    };
-    let mut keys = vec![
-        "schema",
-        "agreement_id",
-        "expected_revision",
-        "accepted_binding_ref",
-        "evidence_refs",
-    ];
-    if action == "revoke" {
-        keys.extend(["transition_ref", "reason"]);
-    } else {
-        keys.extend([
-            "policy_ref",
-            "product_ref",
-            "fact_schema_refs",
-            "compiled_plan_ref",
-            "effective",
-        ]);
-        if action == "replace" {
-            keys.push("replaces_transition_ref");
-        }
-    }
-    exact_keys(&p, &keys).map_err(|_| reject("INVALID_SHAPE"))?;
+    let shape = shape::select(req.kind(), schema, |a, b| Ok(a == b))?;
+    let action = shape.action;
+    exact_keys(&p, shape.fields).map_err(|_| reject("INVALID_SHAPE"))?;
     let b = canonical::parse_bounded(&binding.bytes, 262144)
         .map_err(|_| ServiceError::IntegrityFailure)?;
     require(
