@@ -1,6 +1,7 @@
 //! One owning assembly of the actual complete interpreter's outputs. It is
 //! private and noncommittable until the full future/resource boundary closes.
 use super::super::{CoreMeter,capacity,data::*,shape,working_value::owning_reference};
+use super::super::super::selected_program::SelectedProgram;
 use crate::{Result,Error,canonical::audit_arena::ExternalBufferLease,validation_work::{self as w,ArithmeticOperation,ValidationWork}};
 use std::mem;
 
@@ -11,12 +12,30 @@ pub(in crate::policy::workflow::transition_constructor) struct Assembly<'inv,'ra
     pub authority_position:usize,
     pub source_observations:Vec<super::ObservationAssociation>,
     pub actual_members:capacity::ActualMembers,
+    reservations:super::reservations::OwnedReservations,
     _metadata:ExternalBufferLease,
 }
 fn copy(m:&mut CoreMeter,s:&str)->Result<String>{m.scan_bytes(s.len())?;m.write_bytes(s.len())?;Ok(s.to_owned())}
 fn copy_ref(m:&mut CoreMeter,r:&ExactRef)->Result<ExactRef>{Ok(ExactRef{kind:copy(m,&r.kind)?,id:copy(m,&r.id)?,digest:copy(m,&r.digest)?})}
 fn product(m:&mut CoreMeter,a:usize,b:usize)->Result<usize>{ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&a.into(),&b.into()])?;a.checked_mul(b).ok_or_else(||shape::fail("candidate assembly metadata product"))}
 fn ref_bytes(m:&mut CoreMeter,r:&ExactRef)->Result<usize>{let n=w::usize_add(m,r.kind.len(),r.id.len())?;w::usize_add(m,n,r.digest.len())}
+/// The program owner is not an audit-only substitute for immediate inputs.
+/// Bind each actual compiled source and plan to the caller's selected I body
+/// before counting the unique manifest union. These are never saved N rows.
+fn program_inputs(m:&mut CoreMeter,c:&DraftContextData,program:&SelectedProgram,records:&mut super::super::records::Records)->Result<()>{
+    let arena=m.representation_arena().ok_or_else(||shape::fail("owning compiled input membership"))?;
+    for document in program.source_documents().iter().chain(std::iter::once(program.compiled_plan())){
+        m.visit("candidate.compiled_immediate_input")?;
+        let r=document.reference();let n=w::usize_add(m,r.kind().len(),r.id().len())?;let n=w::usize_add(m,n,r.digest().len())?;
+        let n=w::usize_add(m,n,mem::size_of::<ExactRef>())?;let _owner=arena.reserve_external_payload(n,m)?;
+        let reference=ExactRef{kind:copy(m,r.kind())?,id:copy(m,r.id())?,digest:copy(m,r.digest())?};
+        let schema=shape::text(m,document.canonical_value(),"schema")?;
+        records.get(m,&c.key,&reference,r.kind(),schema)?;
+        let selected=records.canonical(m,&reference)?;
+        if !shape::same_bytes(m,selected,document.canonical_bytes())?{return Err(shape::fail("selected program input differs from exact compiled body"));}
+    }
+    Ok(())
+}
 /// Recipe selected by the actual normalized payload. No action-count inference
 /// and no supplied receipt/result list participates in this dispatch.
 pub(in crate::policy::workflow::transition_constructor) fn operation(m:&mut CoreMeter,p:&serde_json::Value)->Result<&'static str>{
@@ -27,7 +46,7 @@ pub(in crate::policy::workflow::transition_constructor) fn operation(m:&mut Core
     Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","candidate payload recipe is not implemented"))
 }
 impl<'inv,'raw> Assembly<'inv,'raw>{
- pub(in crate::policy::workflow::transition_constructor) fn derive(m:&mut CoreMeter,c:&DraftContextData,mut t:Construction<'inv,'raw>)->Result<Self>{
+ pub(in crate::policy::workflow::transition_constructor) fn derive(m:&mut CoreMeter,c:&DraftContextData,program:&SelectedProgram,state:&EconomicStateData,mut t:Construction<'inv,'raw>)->Result<Self>{
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning candidate assembly"))?;
     let payload=m.parse_owned_representation(&arena,&t.normalized_payload,crate::validation_work::RepresentationKind::OriginalRequest)?;
     let kind=operation(m,payload.value())?;
@@ -85,8 +104,10 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     // preoperation projections by execute_complete; keep the owner attached.
     let verifier=owning_reference(m,&arena,&financial.verification_ref)?;shape::equal(m,&financial.observation["verifier_ref"],verifier.value())?;
     let _=observed;
+    let reservations=super::reservations::derive(m,c,state,&mut t)?;
+    program_inputs(m,c,program,&mut t.records)?;
     let actual_members=capacity::actual_members(m,&t)?;
-    Ok(Self{construction:t,schemas,result_refs,authority_position,source_observations,actual_members,_metadata:metadata})
+    Ok(Self{construction:t,schemas,result_refs,authority_position,source_observations,actual_members,reservations,_metadata:metadata})
  }
  /// This is the explicit unfinished eligibility boundary, AFTER the actual
  /// interpreter, head/claim/link/funding/observation assembly and I∪N count.
@@ -111,21 +132,20 @@ pub(in crate::policy::workflow::transition_constructor) struct CandidateOwnershi
     consumed:super::super::records::OwnedConsumed,
     controls:[Option<ExternalBufferLease>;4],
     metadata:ExternalBufferLease,
+    reservations:super::reservations::OwnedReservations,
+    head_transfer:ExternalBufferLease,
 }
 impl Assembly<'_, '_>{
  pub(in crate::policy::workflow::transition_constructor) fn into_complete(self,c:&DraftContextData,digest:&str,m:&mut CoreMeter)->Result<super::EconomicCandidate>{
     // Called only AFTER require_complete_capacity_and_resources succeeds and
     // the SAME attempt's closed AUTH03 digest has been bound to c/financial.
-    let Self{mut construction,schemas,result_refs,authority_position,source_observations,actual_members:_,_metadata}=self;
+    let Self{mut construction,schemas,result_refs,authority_position,source_observations,actual_members:_,mut reservations,_metadata}=self;
     let financial=construction.financial_observation.as_ref().ok_or_else(||shape::fail("candidate financial owner"))?;
     let financial_observation=super::ObservationAssociation{observation_ref:copy_ref(m,&financial.observation_ref)?,verifier_ref:copy_ref(m,&financial.verification_ref)?};
     let authority_ref=copy_ref(m,&construction.new_envelopes[authority_position].reference)?;
     let mut introduced=Vec::new();introduced.try_reserve_exact(construction.new_envelopes.len()).map_err(|_|shape::fail("candidate owning envelope vector"))?;
     for(row,schema)in construction.new_envelopes.drain(..).zip(schemas){
         m.visit("candidate.move_owning_envelope")?;
-        if shape::same_text(m,&row.reference.kind,"workflow-dependency")?||shape::same_text(m,&row.reference.kind,"workflow-correction-capacity")?{
-            return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","complete derived dependency/capacity effect projection is not implemented"));
-        }
         introduced.push(super::CandidateEnvelope{reference:row.reference,schema,body:row.canonical_body});
     }
     let mut heads=construction.candidate_heads.take().ok_or_else(||shape::fail("candidate held head owner"))?;
@@ -134,11 +154,18 @@ impl Assembly<'_, '_>{
     let total=w::usize_add(m,introductions.claims.len(),app_claims.as_ref().map(|x|x.len()).unwrap_or(0))?;
     let mut claims=Vec::new();claims.try_reserve_exact(total).map_err(|_|shape::fail("candidate claim ownership vector"))?;
     claims.append(&mut introductions.claims);if let Some(app)=app_claims{claims.append(app);}
-    let links=std::mem::take(&mut introductions.links);let head_effects=std::mem::take(&mut heads.effects);
+    let links=std::mem::take(&mut introductions.links);let mut head_effects=std::mem::take(&mut heads.effects);
+    let extra=reservations.heads.len();let total_heads=w::usize_add(m,head_effects.len(),extra)?;
+    let head_bytes=product(m,total_heads,mem::size_of::<super::HeadEffect>())?;
+    let arena=m.representation_arena().ok_or_else(||shape::fail("owning capacity head transfer"))?;
+    let head_transfer=arena.reserve_external_payload(head_bytes,m)?;
+    head_effects.try_reserve_exact(extra).map_err(|_|shape::fail("capacity head transfer vector"))?;
+    head_effects.append(&mut reservations.heads);
+    let dependencies=std::mem::take(&mut reservations.dependencies);
     let mut funding=construction.funding_effects.take();let funding_effects=match &mut funding{Some(v)=>std::mem::take(&mut v.effects),None=>Vec::new()};
     let mut consumed=construction.records.into_consumed_owned();let consumed_refs=std::mem::take(&mut consumed.references);
     let key=OperationKey{logical_store_id:copy(m,&c.key.logical_store_id)?,scope:[copy(m,&c.key.scope[0])?,copy(m,&c.key.scope[1])?],source:copy(m,&c.key.source)?,operation_id:copy(m,&c.key.operation_id)?};
     let result=super::CandidateResultMetadata{kind:super::CandidateResultKind::Economic,result_refs,authority_ref,source_observations,financial_observation,combined_audit_digest:copy(m,digest)?};
-    Ok(super::EconomicCandidate{key,normalized_payload:construction.normalized_payload,introduced,consumed_refs,heads:head_effects,claims,links,dependencies:Vec::new(),funding:funding_effects,account_enrollments:Vec::new(),result,_ownership:CandidateOwnership{heads,introductions,funding,consumed,controls:construction.control_owners,metadata:_metadata}})
+    Ok(super::EconomicCandidate{key,normalized_payload:construction.normalized_payload,introduced,consumed_refs,heads:head_effects,claims,links,dependencies,funding:funding_effects,account_enrollments:Vec::new(),result,_ownership:CandidateOwnership{heads,introductions,funding,consumed,controls:construction.control_owners,metadata:_metadata,reservations,head_transfer}})
  }
 }

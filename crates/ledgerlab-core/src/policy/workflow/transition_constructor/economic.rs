@@ -23,7 +23,7 @@ pub fn construct_economic_candidate<'a>(program:&SelectedProgram,c:&'a DraftCont
   session.check_cancelled()?;let audit=audit(c,state,session)?;
   let mut child=session.meter_mut().original_economic_meter()?;
   let construction=construct::execute_complete(program,c,payload,inputs,state,&mut child)?;
-  let assembly=Assembly::derive(&mut child,c,construction)?;
+  let assembly=Assembly::derive(&mut child,c,program,state,construction)?;
   assembly.require_complete_capacity_and_resources(&mut child)?;
   let digest=audit.ok_or_else(||unfinished("completed AUTH03 witness stream is missing"))?;
   let candidate=assembly.into_complete(c,digest,&mut child)?;
@@ -83,7 +83,7 @@ pub fn reconstruct_original_candidate<'a>(program:&SelectedProgram,saved:&'a Sav
   if let Some(digest)=audit{same_text(session.meter_mut(),op.value(),"combined_audit_digest",digest)?;}
   let mut child=session.meter_mut().original_economic_meter()?;
   let construction=construct::execute_complete(program,c,payload.bytes(),saved.original_inputs,saved.original_state,&mut child)?;
-  let assembly=Assembly::derive(&mut child,c,construction)?;
+  let assembly=Assembly::derive(&mut child,c,program,saved.original_state,construction)?;
   assembly.require_complete_capacity_and_resources(&mut child)?;
   let audit=audit.ok_or_else(||unfinished("completed original AUTH03 witness stream is missing"))?;
   let candidate=assembly.into_complete(c,audit,&mut child)?;
@@ -115,7 +115,7 @@ fn compare_saved(m:&mut super::CoreMeter,c:&DraftContextData,a:&EconomicCandidat
  let expected_key=key(m,c)?;let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-operation/1","contract":"workflow/1"}"#,RepresentationKind::SourceDefinition)?;
  let normalized=arena.object_from_fields(&[("schema",&constants.value()["schema"]),("key",expected_key.value()),("kind",&op["kind"]),("contract",&constants.value()["contract"]),("payload",payload.value())],m)?;
  shape::equal(m,&evidence["normalized_request"],normalized.value())?;
- let n=a.result_metadata().result_refs().len();ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&n.into(),&std::mem::size_of::<&ExactRef>().into()])?;
+ let results=a.result_metadata().result_refs().len();let sources=a.result_metadata().source_observations().len();let n=if w::compare(m,results,sources)?.is_gt(){results}else{sources};ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&n.into(),&std::mem::size_of::<&ExactRef>().into()])?;
  let size=n.checked_mul(std::mem::size_of::<&ExactRef>()).ok_or_else(||shape::fail("original result ordering workspace"))?;let _owner=arena.reserve_external_payload(size,m)?;
  let mut borrowed=Vec::new();borrowed.try_reserve_exact(n).map_err(|_|shape::fail("original result reference workspace"))?;
  for reference in a.result_metadata().result_refs(){m.visit("original.actual_result_reference")?;borrowed.push(reference);}

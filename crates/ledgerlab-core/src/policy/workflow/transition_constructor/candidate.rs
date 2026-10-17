@@ -7,6 +7,7 @@ use crate::canonical::audit_arena::ExternalBufferLease;
 pub(super) mod heads;
 pub(super) mod introductions;
 pub(super) mod assembly;
+pub(super) mod reservations;
 
 pub enum FinancialHeadKey {
     Decision {
