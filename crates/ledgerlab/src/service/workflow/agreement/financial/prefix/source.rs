@@ -334,6 +334,75 @@ mod tests {
         }
     }
     #[test]
+    fn literal_r1_evidence_reproduces_six_original_records_and_request_commitments() {
+        let fixture: Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/candidates/full-suite-v1/core/agreement-03-primary-author.json"
+        )))
+        .unwrap();
+        let root = ledgerlab_core::policy::workflow::transition_constructor::ExactRef {
+            kind: "workflow-authority".into(),
+            id: format!("wdoc_{}", "e".repeat(64)),
+            digest: format!("sha256:{}", "e".repeat(64)),
+        };
+        let at = Timestamp::parse("2026-10-17T00:00:00Z").unwrap();
+        let mut purposes = std::collections::BTreeSet::new();
+        for row in fixture["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r["normalized_request"]["kind"] == "evidence.retain")
+        {
+            let p = &row["normalized_request"]["payload"];
+            let raw = serde_json::to_vec_pretty(&serde_json::json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":"evidence.retain","key":{"logical_store_id":"test-store","scope":["test","local"],"source":"source","operation_id":"saved-retention"},"payload":p})).unwrap();
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let req = ingress::IncomingRequest::parse_original_administration(&raw, &mut session)
+                .unwrap();
+            let normalized = ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(
+                req.payload(&mut session).unwrap(),
+                &mut session,
+            )
+            .unwrap();
+            let legacy =
+                crate::service::workflow::agreement::request::Request::parse(&raw).unwrap();
+            let expected = crate::service::workflow::agreement::journal::evidence(
+                &legacy,
+                normalized.canonical_value(),
+            )
+            .unwrap();
+            let actual = super::super::super::evidence::administration(
+                &req,
+                normalized.canonical_bytes(),
+                &mut session,
+            )
+            .unwrap();
+            assert_eq!(actual.value(), &expected);
+            let generated = retention_record(
+                normalized.canonical_value(),
+                "owner",
+                &at,
+                &root,
+                &mut session,
+            )
+            .unwrap();
+            let mut body = normalized.canonical_value().clone();
+            body["schema"] = "ledger-workflow-retained-evidence/1".into();
+            body["retained_by"] = "owner".into();
+            body["retained_at"] = serde_json::json!(at);
+            body["authority_ref"] = serde_json::json!(root);
+            body["installation_mode"] = "real_local".into();
+            let expected =
+                crate::service::workflow::records::source_document("workflow-evidence", body)
+                    .unwrap();
+            assert_eq!(generated.bytes(), expected.bytes);
+            assert_eq!(generated.reference().id, expected.reference.id);
+            assert_eq!(generated.reference().digest, expected.reference.digest);
+            purposes.insert(p["purpose"].as_str().unwrap());
+        }
+        assert_eq!(purposes.len(), 6);
+    }
+    #[test]
     fn original_source_request_normalization_matches_existing_r1_for_all_three_transitions() {
         let fixture: Value = serde_json::from_slice(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -570,6 +639,208 @@ async fn registration_inner<'a>(
         management,
         evidence,
         registration,
+    })
+}
+
+/// Literal R1 retained evidence and exact result, with its immediate earlier
+/// operands still owning. No retention truth, consent or completed origin is
+/// inferred from the purpose or from the declared bytes.
+pub(in super::super) struct RetainedEvidence<'a> {
+    input: ledgerlab_core::policy::workflow::OwnedEvidenceInput,
+    management: Management<'a>,
+    dependencies: [Option<current::source::SourceRecord>; 2],
+    result: wire::SourceRecord,
+}
+fn retention_record(
+    p: &Value,
+    actor: &str,
+    at: &Timestamp,
+    root: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
+    let content = value(p, "content_base64", s)?;
+    let hash = value(p, "content_sha256", s)?;
+    let media = value(p, "media_type", s)?;
+    let metadata = value(p, "metadata", s)?;
+    let purpose = value(p, "purpose", s)?;
+    let subject = value(p, "subject", s)?;
+    let actor = wire::string(actor, s)?;
+    let at = wire::string(at.as_str(), s)?;
+    let root = wire::reference(root, s)?;
+    let body = wire::object(
+        &[
+            ("authority_ref", root.bytes()),
+            ("content_base64", content.bytes()),
+            ("content_sha256", hash.bytes()),
+            ("installation_mode", b"\"real_local\""),
+            ("media_type", media.bytes()),
+            ("metadata", metadata.bytes()),
+            ("purpose", purpose.bytes()),
+            ("retained_at", at.bytes()),
+            ("retained_by", actor.bytes()),
+            ("schema", b"\"ledger-workflow-retained-evidence/1\""),
+            ("subject", subject.bytes()),
+        ],
+        262144,
+        s,
+    )?;
+    wire::source_record(
+        "workflow-evidence",
+        "ledger-workflow-retained-evidence/1",
+        body,
+        s,
+    )
+}
+pub(in super::super) async fn reconstruct_retention<'a>(
+    tx: &mut SqliteTx,
+    origin: &'a LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<RetainedEvidence<'a>> {
+    let result = retention_inner(tx, origin, s).await;
+    if result.is_err() {
+        s.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, Ordering::Release);
+    }
+    result
+}
+async fn retention_inner<'a>(
+    tx: &mut SqliteTx,
+    origin: &'a LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<RetainedEvidence<'a>> {
+    let operation = origin.wrappers().operation();
+    request_wrapper::same_text(
+        request_wrapper::text(operation, "kind", s)?,
+        "evidence.retain",
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(origin.wrappers().receipt(), "result_kind", s)?,
+        "administrative",
+        s,
+    )?;
+    let literal =
+        request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+    let input = ledgerlab_core::policy::workflow::OwnedEvidenceInput::normalize(literal, s)
+        .map_err(core_error)?;
+    let p = input.canonical_value();
+    let saved = request_wrapper::field(
+        request_wrapper::field(operation, "request_evidence", s)?,
+        "normalized_request",
+        s,
+    )?;
+    let saved = value(saved, "payload", s)?;
+    same_bytes(input.canonical_bytes(), saved.bytes(), s)?;
+    let _evidence =
+        super::super::evidence::original_administration(origin, input.canonical_bytes(), s)?;
+    let management = management(tx, origin, s).await?;
+    let mut dependencies = [None, None];
+    let purpose = request_wrapper::text(p, "purpose", s)?;
+    let metadata = request_wrapper::field(p, "metadata", s)?;
+    if same(purpose, "operator_attestation", s)? {
+        let reference = request_wrapper::field(metadata, "assent_evidence_ref", s)?;
+        origin.require_member(reference, s)?;
+        let prior = current::source::retained_record(
+            tx,
+            origin.key(),
+            reference,
+            "workflow-evidence",
+            "ledger-workflow-retained-evidence/1",
+            origin.wrappers().sequence(),
+            s,
+        )
+        .await?;
+        let body = prior.body();
+        request_wrapper::same_text(request_wrapper::text(body, "purpose", s)?, "assent", s)?;
+        request_wrapper::same_text(
+            request_wrapper::text(body, "retained_by", s)?,
+            management.actor,
+            s,
+        )?;
+        request_wrapper::same_text(
+            request_wrapper::text(body, "installation_mode", s)?,
+            "real_local",
+            s,
+        )?;
+        let subject = value(p, "subject", s)?;
+        let prior_subject = value(body, "subject", s)?;
+        same_bytes(subject.bytes(), prior_subject.bytes(), s)?;
+        for key in ["terms_digest", "acceptor"] {
+            s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+            request_wrapper::same_text(
+                request_wrapper::text(metadata, key, s)?,
+                request_wrapper::text(request_wrapper::field(body, "metadata", s)?, key, s)?,
+                s,
+            )?;
+        }
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<Option<current::source::SourceRecord>>())
+            .map_err(core_error)?;
+        dependencies[0] = Some(prior);
+    } else if same(purpose, "admission_stop", s)? {
+        let binding_ref = request_wrapper::field(metadata, "binding_ref", s)?;
+        let target_ref = request_wrapper::field(metadata, "target_transition_ref", s)?;
+        origin.require_member(binding_ref, s)?;
+        origin.require_member(target_ref, s)?;
+        let binding = current::source::retained_record(
+            tx,
+            origin.key(),
+            binding_ref,
+            "workflow-binding",
+            "ledger-workflow-binding/1",
+            origin.wrappers().sequence(),
+            s,
+        )
+        .await?;
+        let target = current::source::retained_record(
+            tx,
+            origin.key(),
+            target_ref,
+            "workflow-activation",
+            "ledger-workflow-activation-transition/1",
+            origin.wrappers().sequence(),
+            s,
+        )
+        .await?;
+        let expected = encode(binding_ref, s)?;
+        let actual = value(target.body(), "binding_ref", s)?;
+        same_bytes(expected.bytes(), actual.bytes(), s)?;
+        for key in ["customer", "agreement_id"] {
+            s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+            request_wrapper::same_text(
+                request_wrapper::text(request_wrapper::field(p, "subject", s)?, key, s)?,
+                request_wrapper::text(binding.body(), key, s)?,
+                s,
+            )?;
+        }
+        // This does not select/stop an activation. The actual earlier target,
+        // accepted private closure and predecessor origins must complete first.
+        s.semantic_work()
+            .write_bytes(2 * std::mem::size_of::<Option<current::source::SourceRecord>>())
+            .map_err(core_error)?;
+        dependencies = [Some(binding), Some(target)];
+    }
+    let result = retention_record(
+        p,
+        management.actor,
+        &management.at,
+        management.root.reference(),
+        s,
+    )?;
+    compare_source_results(
+        tx,
+        origin,
+        &[(&result, "ledger-workflow-retained-evidence/1")],
+        management.own_before,
+        s,
+    )
+    .await?;
+    Ok(RetainedEvidence {
+        input,
+        management,
+        dependencies,
+        result,
     })
 }
 
@@ -1208,12 +1479,12 @@ fn grant_ceiling(grant: &Value, s: &mut OriginalAuditSession) -> Result<OwnedSou
 async fn compare_source_results(
     tx: &mut SqliteTx,
     origin: &LocatedWrappers,
-    records: &[&wire::SourceRecord],
+    records: &[(&wire::SourceRecord, &'static str)],
     own_before: i64,
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
     let refs = wire::RefSet::new(
-        records.iter().map(|r| r.reference()),
+        records.iter().map(|(r, _)| r.reference()),
         records.len(),
         true,
         s,
@@ -1221,7 +1492,7 @@ async fn compare_source_results(
     .encode(s)?;
     let expected = value(origin.wrappers().operation(), "result_refs", s)?;
     same_bytes(refs.bytes(), expected.bytes(), s)?;
-    for record in records {
+    for (record, schema) in records {
         s.semantic_work()
             .visit(Visit::Element)
             .map_err(core_error)?;
@@ -1230,11 +1501,6 @@ async fn compare_source_results(
             .parse_representation(reference.bytes(), RepresentationKind::SourceDefinition)
             .map_err(core_error)?;
         origin.require_member(reference.value(), s)?;
-        let schema = if same(&record.reference().kind, "workflow-source-state", s)? {
-            "ledger-workflow-source-state/1"
-        } else {
-            "ledger-workflow-source-grant/1"
-        };
         let stored = current::source::retained_record(
             tx,
             origin.key(),
@@ -1531,9 +1797,26 @@ async fn successor_inner<'a>(
         s,
     )?;
     if let Some(grant) = &grant {
-        compare_source_results(tx, origin, &[grant, &state], own_before, s).await?;
+        compare_source_results(
+            tx,
+            origin,
+            &[
+                (grant, "ledger-workflow-source-grant/1"),
+                (&state, "ledger-workflow-source-state/1"),
+            ],
+            own_before,
+            s,
+        )
+        .await?;
     } else {
-        compare_source_results(tx, origin, &[&state], own_before, s).await?;
+        compare_source_results(
+            tx,
+            origin,
+            &[(&state, "ledger-workflow-source-state/1")],
+            own_before,
+            s,
+        )
+        .await?;
     }
     Ok(SourceSuccessor {
         request,

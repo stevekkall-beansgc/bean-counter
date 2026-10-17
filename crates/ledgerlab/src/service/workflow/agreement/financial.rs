@@ -299,6 +299,24 @@ async fn original_query_in(
             }
         }
     }
+    if acceptance::same_recipe_text(
+        request_wrapper::text(original.wrappers().operation(), "kind", session)?,
+        "evidence.retain",
+        session,
+    )? {
+        let p = request_wrapper::field(
+            original.wrappers().original_request().value(),
+            "payload",
+            session,
+        )?;
+        if acceptance::same_recipe_text(
+            request_wrapper::text(p, "schema", session)?,
+            "ledger-workflow-evidence-retain/1",
+            session,
+        )? {
+            let _retained = prefix::source::reconstruct_retention(tx, &original, session).await?;
+        }
+    }
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
     // obligations first. For Retry, normalize_saved_intent receives this SAME

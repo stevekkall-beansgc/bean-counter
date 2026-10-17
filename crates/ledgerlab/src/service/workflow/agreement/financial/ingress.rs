@@ -154,7 +154,9 @@ impl IncomingRequest {
         }
         let kind = kind.ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
         if matches!(recipe, IngressRecipe::OriginalAdministration) {
-            request_wrapper::same_text(kind, "authority.change", session)?;
+            if !acceptance::same_recipe_text(kind, "authority.change", session)? {
+                request_wrapper::same_text(kind, "evidence.retain", session)?;
+            }
         }
         let payload = request_wrapper::field(value, "payload", session)?;
         session
@@ -182,7 +184,11 @@ impl IncomingRequest {
         }
         if kind == "evidence.retain" || kind == "authority.change" {
             let schema = request_wrapper::text(payload, "schema", session)?;
-            let allowed: &[&str] = if kind == "evidence.retain" {
+            let allowed: &[&str] = if kind == "evidence.retain"
+                && matches!(recipe, IngressRecipe::OriginalAdministration)
+            {
+                &["ledger-workflow-evidence-retain/1"]
+            } else if kind == "evidence.retain" {
                 &[
                     "ledger-workflow-fact-attest/1",
                     "ledger-workflow-family-close-attest/1",

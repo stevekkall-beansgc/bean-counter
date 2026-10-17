@@ -56,7 +56,7 @@ pub use slots::{RoleAssignment, SlotCatalog, SlotInstantiation};
 mod ceiling;
 pub use ceiling::{OwnedSourceCeiling, SourceCeiling};
 mod evidence;
-pub use evidence::EvidenceInput;
+pub use evidence::{EvidenceInput, OwnedEvidenceInput};
 mod agreement_ref;
 pub use agreement_ref::AgreementRef;
 mod grant;

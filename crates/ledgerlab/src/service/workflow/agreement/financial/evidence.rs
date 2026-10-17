@@ -604,59 +604,89 @@ pub(super) fn administration(
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
     let result = (|| {
-        request_wrapper::same_text(req.kind(), "authority.change", s)?;
         let payload = s
             .parse_representation(normalized_payload, Kind::OriginalRequest)
             .map_err(core_error)?;
         let p = payload.value();
         let mut set = Anchors::<65>::new();
         let schema = request_wrapper::text(p, "schema", s)?;
-        if cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/1", s)?.is_eq() {
-            let refs = request_wrapper::field(p, "customer_refs", s)?
-                .as_array()
-                .ok_or(ServiceError::IntegrityFailure)?;
-            s.semantic_work()
-                .arithmetic(Op::Compare, &[&refs.len().into(), &64usize.into()])
-                .map_err(core_error)?;
-            require(refs.len() <= 64, "INTEGRITY_FAILURE")?;
-            for reference in refs {
-                s.semantic_work()
-                    .visit(Visit::Element)
-                    .map_err(core_error)?;
+        if cmp(req.kind().as_bytes(), b"evidence.retain", s)?.is_eq() {
+            request_wrapper::same_text(schema, "ledger-workflow-evidence-retain/1", s)?;
+            let purpose = request_wrapper::text(p, "purpose", s)?;
+            let metadata = request_wrapper::field(p, "metadata", s)?;
+            if cmp(purpose.as_bytes(), b"operator_attestation", s)?.is_eq() {
                 set.add(
-                    "customer",
-                    "customer_registration",
-                    reference,
-                    "workflow-customer",
+                    "evidence",
+                    "evidence_input",
+                    request_wrapper::field(metadata, "assent_evidence_ref", s)?,
+                    "workflow-evidence",
+                    s,
+                )?;
+            } else if cmp(purpose.as_bytes(), b"admission_stop", s)?.is_eq() {
+                set.add(
+                    "accepted_binding",
+                    "accepted_binding",
+                    request_wrapper::field(metadata, "binding_ref", s)?,
+                    "workflow-binding",
+                    s,
+                )?;
+                set.add(
+                    "activation_target",
+                    "activation_target",
+                    request_wrapper::field(metadata, "target_transition_ref", s)?,
+                    "workflow-activation",
                     s,
                 )?;
             }
-            set.add(
-                "evidence",
-                "evidence_input",
-                request_wrapper::field(p, "evidence_ref", s)?,
-                "workflow-evidence",
-                s,
-            )?;
-        } else if cmp(schema.as_bytes(), b"ledger-workflow-customer-register/1", s)?.is_eq() {
-            set.add(
-                "evidence",
-                "evidence_input",
-                request_wrapper::field(p, "registration_evidence_ref", s)?,
-                "workflow-evidence",
-                s,
-            )?;
         } else {
-            if !cmp(schema.as_bytes(), b"ledger-workflow-source-restrict/1", s)?.is_eq() {
-                request_wrapper::same_text(schema, "ledger-workflow-source-revoke/1", s)?;
+            request_wrapper::same_text(req.kind(), "authority.change", s)?;
+            if cmp(schema.as_bytes(), b"ledger-workflow-source-enroll/1", s)?.is_eq() {
+                let refs = request_wrapper::field(p, "customer_refs", s)?
+                    .as_array()
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                s.semantic_work()
+                    .arithmetic(Op::Compare, &[&refs.len().into(), &64usize.into()])
+                    .map_err(core_error)?;
+                require(refs.len() <= 64, "INTEGRITY_FAILURE")?;
+                for reference in refs {
+                    s.semantic_work()
+                        .visit(Visit::Element)
+                        .map_err(core_error)?;
+                    set.add(
+                        "customer",
+                        "customer_registration",
+                        reference,
+                        "workflow-customer",
+                        s,
+                    )?;
+                }
+                set.add(
+                    "evidence",
+                    "evidence_input",
+                    request_wrapper::field(p, "evidence_ref", s)?,
+                    "workflow-evidence",
+                    s,
+                )?;
+            } else if cmp(schema.as_bytes(), b"ledger-workflow-customer-register/1", s)?.is_eq() {
+                set.add(
+                    "evidence",
+                    "evidence_input",
+                    request_wrapper::field(p, "registration_evidence_ref", s)?,
+                    "workflow-evidence",
+                    s,
+                )?;
+            } else {
+                if !cmp(schema.as_bytes(), b"ledger-workflow-source-restrict/1", s)?.is_eq() {
+                    request_wrapper::same_text(schema, "ledger-workflow-source-revoke/1", s)?;
+                }
+                set.add(
+                    "source_enrollment",
+                    "source_enrollment",
+                    request_wrapper::field(p, "enrollment_ref", s)?,
+                    "workflow-source-enrollment",
+                    s,
+                )?;
             }
-            set.add(
-                "source_enrollment",
-                "source_enrollment",
-                request_wrapper::field(p, "enrollment_ref", s)?,
-                "workflow-source-enrollment",
-                s,
-            )?;
         }
         request_evidence(req, normalized_payload, p, &set, R1_REGISTRY, s)
     })();
