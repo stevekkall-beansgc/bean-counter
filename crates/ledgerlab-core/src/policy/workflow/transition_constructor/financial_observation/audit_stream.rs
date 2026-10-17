@@ -7,6 +7,8 @@ use crate::{Result,canonical::{self,audit_arena::{AuditedBytes,AuditedValue,Audi
 use serde_json::Value;
 use sha2::{Digest,Sha256};
 use std::mem;
+mod pointers;
+pub use pointers::{ValidatedOriginPointers,OriginPointerBlock,ORIGIN_POINTER_BLOCK};
 
 pub enum OriginWitness { Financial,Source(usize) }
 struct Prefix<'a>{reference:&'a ExactRef,hash:Sha256,expected:String,expected_count:u64,through:u64,count:u64}
@@ -215,13 +217,41 @@ mod tests{
         let financial_document=super::super::super::body::document(&mut old,"workflow-financial-history-observation",financial.clone()).unwrap();
         let expected_combined=records::hash(&mut old,"economic-origin-audits",&json!([key("pending"),[source_document.reference],financial_document.reference,[first,second]])).unwrap();
         let context=DraftContextData{key:key("pending"),actor:"principal".into(),canonical_economic_namespace:"namespace".into(),installation_mode:"real_local".into(),received_at:"2026-10-17T00:00:00.000000Z".into(),accepted_at:"2026-10-17T00:00:00.000000Z".into(),authorities:vec![AuthorityContextData{source_slot:"test:slot".into(),enrollment_ref:enrollment,current_state_ref:state,current_grant_ref:grant.clone(),original_grant_refs:vec![grant],binding_ref:root.clone(),accepted_agreement_ref:root.clone(),activation_ref:root,authority_observation_ref:source_document.reference.clone()}],source_observation_inputs:vec![]};
-        for mode in 0..4{
+        for mode in 0..9{
             let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
             let mut stream=EconomicAuditStream::new(&context,&financial_document.reference,&mut session).unwrap();
             let source_body=session.parse_representation(&encoded(&source),RepresentationKind::Record).unwrap();
             stream.add_source_header(&source_document.reference,source_body.value(),&mut session).unwrap();drop(source_body);
             let financial_body=session.parse_representation(&encoded(&financial),RepresentationKind::Record).unwrap();
             stream.set_financial_header(&financial_document.reference,financial_body.value(),&mut session).unwrap();drop(financial_body);
+            if mode>=4{
+                // Intrinsics are minted in the earlier original owners; all
+                // witness/membership work stays in this actual consumer owner.
+                let mut historical=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                let mut table=ValidatedOriginPointers::new(&mut historical).unwrap();
+                for value in [&first,&second]{let p=historical.parse_representation(&encoded(value),RepresentationKind::Record).unwrap();table.record(&p,&mut historical).unwrap();}
+                let block=table.block(0,&mut session).unwrap();
+                assert_eq!(block.sequences(&mut session).unwrap()[..3],[Some(1),Some(2),None]);
+                let a=encoded(&first);let b=encoded(&second);
+                if mode==8{
+                    stream.push_origin_block(&block,1,&[1],&[&a],&mut session).unwrap();
+                    let second_block=table.block(1,&mut session).unwrap();
+                    stream.push_origin_block(&second_block,1,&[0],&[&b],&mut session).unwrap();
+                    let result=stream.finish(&mut session).unwrap();
+                    assert_eq!(result.bound_digest(&context,&financial_document.reference,&mut session).unwrap(),expected_combined);continue;
+                }
+                let changed=encoded(&pointer("changed","2","7"));
+                let before=session.usage().semantic_work;
+                let result=stream.push_origin_block(&block,3,&[if mode==6{4}else{1}],&[&a,if mode==5{&changed}else{&b}],&mut session);
+                if mode==5||mode==6{assert!(result.is_err());assert!(session.check_cancelled().is_err());continue;}
+                assert!(result.is_ok());
+                // Source-derived callback bound, not a measured admission value.
+                assert!(session.usage().semantic_work-before<=160+60);
+                if mode==7{assert!(stream.push_origin_block(&block,3,&[1],&[&a,&b],&mut session).is_err());assert!(session.check_cancelled().is_err());continue;}
+                let result=stream.finish(&mut session).unwrap();
+                assert_eq!(result.bound_digest(&context,&financial_document.reference,&mut session).unwrap(),expected_combined);
+                continue;
+            }
             let foreign_arena=AuditArena::new().unwrap();
             let mut foreign_session=OriginalAuditSession::for_resource_profile_v2(&foreign_arena).unwrap();
             let pointer=if mode==3{foreign_session.parse_representation(&encoded(&first),RepresentationKind::Record).unwrap()}else{session.parse_representation(&encoded(&first),RepresentationKind::Record).unwrap()};
@@ -237,5 +267,21 @@ mod tests{
                 let mut foreign=OriginalAuditSession::for_resource_profile_v2(&foreign_arena).unwrap();
                 assert!(result.bound_digest(&context,&financial_document.reference,&mut foreign).unwrap_err().detail.contains("another attempt"));assert!(session.check_cancelled().is_err());assert!(foreign.work().visit(w::ValidationVisit::Constraint).is_err());}
         }
+    }
+    #[test]
+    fn pointer_intrinsics_are_attempt_local_ordered_and_use_existing_word_rate(){
+        let arena=AuditArena::new().unwrap();let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut table=ValidatedOriginPointers::new(&mut s).unwrap();
+        let p=s.parse_representation(&encoded(&pointer("first","1","6")),RepresentationKind::Record).unwrap();
+        assert_eq!(table.record(&p,&mut s).unwrap(),0);
+        let foreign=AuditArena::new().unwrap();let mut other=OriginalAuditSession::for_resource_profile_v2(&foreign).unwrap();
+        assert!(table.block(0,&mut other).is_err());assert!(s.check_cancelled().is_err());
+        let arena=AuditArena::new().unwrap();let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let before=s.usage().semantic_work;
+        ValidationWork::arithmetic(s.work(),ArithmeticOperation::PopulationCount,&[&u64::MAX.into()]).unwrap();
+        ValidationWork::arithmetic(s.work(),ArithmeticOperation::BitOr,&[&u64::MAX.into(),&1u64.into()]).unwrap();
+        assert_eq!(s.usage().semantic_work-before,5);
+        let mut table=ValidatedOriginPointers::new(&mut s).unwrap();let p=s.parse_representation(&encoded(&pointer("gap","9","6")),RepresentationKind::Record).unwrap();
+        table.record(&p,&mut s).unwrap();assert!(table.record(&p,&mut s).is_err());assert!(s.check_cancelled().is_err());
     }
 }

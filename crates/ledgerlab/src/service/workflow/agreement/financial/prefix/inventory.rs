@@ -1087,15 +1087,36 @@ pub(in super::super) struct Inventory {
     body_bytes: u64,
     active_origin: Option<OriginLinks>,
 }
-/// Only one original is active. Retain its actual older-origin adjacency while
-/// those Ref/body associations are already being checked, avoiding a second
-/// independent full-member lookup pass or a resident whole-history graph.
+/// Only one original is active. Retain exact required Ref-edge provenance
+/// before projecting to origin numbers: each witness has its own exact root
+/// cut, and an origin can own both a root and another required document.
+/// Control/head I/O alone does not add an edge. Stable Entry slots plus a sorted
+/// index avoid repeatedly moving full identities during insertion.
 struct OriginLinks {
     sequence: u32,
-    earlier: Vec<u32>,
+    entries: Vec<Entry>,
+    order: Vec<usize>,
     _storage: ExternalBufferLease,
 }
 pub(in super::super) struct StateKey(Locator);
+/// Exact configured Ref DATA, prepared once per witness. This does not
+/// authenticate a root body or turn any other local snapshot into a cut.
+pub(in super::super) struct ConfiguredRoot(Locator);
+impl ConfiguredRoot {
+    pub(in super::super) fn from_value(
+        value: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        super::super::acceptance::validate_reference(value, "workflow-authority", s)?;
+        Ok(Self(Locator::from_ref(
+            request_wrapper::text(value, "kind", s)?,
+            request_wrapper::text(value, "id", s)?,
+            request_wrapper::text(value, "digest", s)?,
+            s,
+        )?))
+    }
+}
+
 impl StateKey {
     pub(in super::super) fn new(
         domain: &'static str,
@@ -1196,7 +1217,6 @@ impl Inventory {
         let Some(entry) = self.tree.find(&key, s)? else {
             return Ok(false);
         };
-        self.observe_origin_entry(&entry, s)?;
         Ok(true)
     }
     /// Exact earliest introduction in this completed-prefix inventory. This
@@ -1232,7 +1252,12 @@ impl Inventory {
     ) -> Result<()> {
         let kind = request_wrapper::text(reference, "kind", s)?;
         let (reference, _lease) = current::source::from_value(reference, kind, s)?;
-        require(self.has(&reference, s)?, "INTEGRITY_FAILURE")
+        let key = Locator::from_ref(&reference.kind, &reference.id, &reference.digest, s)?;
+        let entry = self
+            .tree
+            .find(&key, s)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        self.observe_origin_entry(&entry, s)
     }
     pub(in super::super) fn compare_record(
         &mut self,
@@ -1245,6 +1270,7 @@ impl Inventory {
             .tree
             .find(&key, s)?
             .ok_or(ServiceError::IntegrityFailure)?;
+        self.observe_origin_entry(&entry, s)?;
         self.compare_body(&entry, expected, s)
     }
     fn compare_body(
@@ -1253,7 +1279,6 @@ impl Inventory {
         expected: &[u8],
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        self.observe_origin_entry(entry, s)?;
         copied(12, s)?;
         let mut offset = [0; 8];
         offset.copy_from_slice(&entry.0[216..224]);
@@ -1310,6 +1335,7 @@ impl Inventory {
     ) -> Result<()> {
         let key = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
         if let Some(old) = self.tree.find(&key, s)? {
+            self.observe_origin_entry(&old, s)?;
             return self.compare_body(&old, body, s);
         }
         require(
@@ -1433,6 +1459,7 @@ impl Inventory {
             .tree
             .find(&key, s)?
             .ok_or(ServiceError::IntegrityFailure)?;
+        self.observe_origin_entry(&entry, s)?;
         self.entry_body(&entry, s)
     }
     pub(in super::super) fn head_body(
@@ -1450,7 +1477,6 @@ impl Inventory {
         entry: &Entry,
         s: &mut OriginalAuditSession,
     ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
-        self.observe_origin_entry(entry, s)?;
         copied(12, s)?;
         let mut offset = [0u8; 8];
         offset.copy_from_slice(&entry.0[216..224]);
@@ -1604,15 +1630,25 @@ impl Inventory {
                 && !compare(sequence as u64, 100000, s)?.is_gt(),
             "INTEGRITY_FAILURE",
         )?;
-        let bytes = multiply(4096, std::mem::size_of::<u32>() as u64, s)? as usize;
+        let stride = add(ENTRY_BYTES as u64, std::mem::size_of::<usize>() as u64, s)?;
+        let bytes = add(
+            multiply(4096, stride, s)?,
+            std::mem::size_of::<OriginLinks>() as u64,
+            s,
+        )? as usize;
         let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
-        let mut earlier = Vec::new();
-        earlier
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(4096)
+            .map_err(|_| ServiceError::Unavailable)?;
+        let mut order = Vec::new();
+        order
             .try_reserve_exact(4096)
             .map_err(|_| ServiceError::Unavailable)?;
         self.active_origin = Some(OriginLinks {
             sequence: sequence as u32,
-            earlier,
+            entries,
+            order,
             _storage: storage,
         });
         Ok(())
@@ -1633,33 +1669,37 @@ impl Inventory {
         if compare(sequence as u64, active.sequence as u64, s)?.is_eq() {
             return Ok(());
         }
-        let (mut low, mut high) = (0usize, active.earlier.len());
+        let (mut low, mut high) = (0usize, active.order.len());
         while compare(low as u64, high as u64, s)?.is_lt() {
             let width = subtract(high as u64, low as u64, s)?;
             s.semantic_work()
                 .arithmetic(Op::DivideRemainder, &[&width.into(), &2u64.into()])
                 .map_err(core_error)?;
             let middle = add(low as u64, width / 2, s)? as usize;
-            match compare(active.earlier[middle] as u64, sequence as u64, s)? {
+            match active.entries[active.order[middle]].compare(entry, s)? {
                 Cmp::Equal => return Ok(()),
                 Cmp::Greater => high = middle,
                 Cmp::Less => low = add(middle as u64, 1, s)? as usize,
             }
         }
         require(
-            compare(active.earlier.len() as u64, 4096, s)?.is_lt(),
+            compare(active.entries.len() as u64, 4096, s)?.is_lt(),
             "REFERENCE_LIMIT",
         )?;
-        let shift = subtract(active.earlier.len() as u64, low as u64, s)?;
-        let moved = multiply(shift, std::mem::size_of::<u32>() as u64, s)? as usize;
+        let shift = subtract(active.order.len() as u64, low as u64, s)?;
+        let moved = multiply(shift, std::mem::size_of::<usize>() as u64, s)? as usize;
         copied(moved, s)?;
         s.semantic_work()
             .visit(Visit::SortMove)
             .map_err(core_error)?;
         s.semantic_work()
-            .write_bytes(std::mem::size_of::<u32>())
+            .write_bytes(std::mem::size_of::<usize>())
             .map_err(core_error)?;
-        active.earlier.insert(low, sequence);
+        copied(ENTRY_BYTES, s)?;
+        add(active.order.len() as u64, 1, s)?;
+        add(active.entries.len() as u64, 1, s)?;
+        active.order.insert(low, active.entries.len());
+        active.entries.push(*entry);
         Ok(())
     }
     pub(super) fn finish_origin_links(
@@ -1667,7 +1707,7 @@ impl Inventory {
         sequence: i64,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        let active = self
+        let mut active = self
             .active_origin
             .take()
             .ok_or(ServiceError::IntegrityFailure)?;
@@ -1675,18 +1715,112 @@ impl Inventory {
             compare(active.sequence as u64, sequence as u64, s)?.is_eq(),
             "INTEGRITY_FAILURE",
         )?;
-        let length = multiply(active.earlier.len() as u64, 4, s)? as usize;
+        // Configured roots in this closed local caller have kind workflow-authority.
+        // Preserve EVERY such exact identity as a candidate, not a trusted-root
+        // assertion. Other kinds cannot equal that configured full Ref.
+        const AUTHORITY: [u8; 48] = {
+            let mut out = [0; 48];
+            let text = b"workflow-authority";
+            let mut i = 0;
+            while i < text.len() {
+                out[i] = text[i];
+                i += 1;
+            }
+            out
+        };
+        let ordinary_storage = s
+            .reserve_external_payload(
+                4096 * std::mem::size_of::<u32>() + std::mem::size_of::<Vec<u32>>(),
+            )
+            .map_err(core_error)?;
+        let mut ordinary = Vec::<u32>::new();
+        ordinary
+            .try_reserve_exact(4096)
+            .map_err(|_| ServiceError::Unavailable)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<usize>())
+            .map_err(core_error)?;
+        active.order.clear();
+        for (index, entry) in active.entries.iter().enumerate() {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            s.semantic_work().scan_bytes(96).map_err(core_error)?;
+            if entry.0[168..216] == AUTHORITY {
+                add(active.order.len() as u64, 1, s)?;
+                s.semantic_work()
+                    .write_bytes(std::mem::size_of::<usize>())
+                    .map_err(core_error)?;
+                active.order.push(index);
+                continue;
+            }
+            copied(4, s)?;
+            let mut bytes = [0u8; 4];
+            bytes.copy_from_slice(&entry.0[228..232]);
+            let prior = u32::from_le_bytes(bytes);
+            let (mut low, mut high) = (0usize, ordinary.len());
+            let mut seen = false;
+            while compare(low as u64, high as u64, s)?.is_lt() {
+                let width = subtract(high as u64, low as u64, s)?;
+                s.semantic_work()
+                    .arithmetic(Op::DivideRemainder, &[&width.into(), &2u64.into()])
+                    .map_err(core_error)?;
+                let middle = add(low as u64, width / 2, s)? as usize;
+                match compare(ordinary[middle] as u64, prior as u64, s)? {
+                    Cmp::Equal => {
+                        seen = true;
+                        break;
+                    }
+                    Cmp::Greater => high = middle,
+                    Cmp::Less => low = add(middle as u64, 1, s)? as usize,
+                }
+            }
+            if !seen {
+                let moved =
+                    multiply(subtract(ordinary.len() as u64, low as u64, s)?, 4, s)? as usize;
+                copied(moved, s)?;
+                s.semantic_work()
+                    .visit(Visit::SortMove)
+                    .map_err(core_error)?;
+                s.semantic_work().write_bytes(4).map_err(core_error)?;
+                add(ordinary.len() as u64, 1, s)?;
+                ordinary.insert(low, prior);
+            }
+        }
+        let length = add(
+            add(8, multiply(ordinary.len() as u64, 4, s)?, s)?,
+            multiply(active.order.len() as u64, ENTRY_BYTES as u64, s)?,
+            s,
+        )? as usize;
         let (arena, work) = s.parts();
         let mut encoded = arena.byte_builder(length, work).map_err(core_error)?;
-        for sequence in &active.earlier {
+        for count in [ordinary.len(), active.order.len()] {
+            encoded
+                .append(&(count as u32).to_le_bytes(), s.semantic_work())
+                .map_err(core_error)?;
+        }
+        for prior in &ordinary {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
             encoded
-                .append(&sequence.to_le_bytes(), s.semantic_work())
+                .append(&prior.to_le_bytes(), s.semantic_work())
+                .map_err(core_error)?;
+        }
+        for index in &active.order {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            encoded
+                .append(&active.entries[*index].0, s.semantic_work())
                 .map_err(core_error)?;
         }
         let encoded = encoded.finish(s.semantic_work()).map_err(core_error)?;
+        drop(ordinary);
+        drop(ordinary_storage);
         let sequence_value = wire::counter_string(sequence as u64, s)?;
         let key = StateKey::new("origin-links", &[sequence_value.bytes()], s)?;
         self.remember_auxiliary(&key, sequence, encoded.bytes(), s)
@@ -1705,5 +1839,81 @@ impl Inventory {
         let key = StateKey::new("origin-links", &[encoded.bytes()], s)?;
         self.head_body(&key, s)?
             .ok_or(ServiceError::IntegrityFailure)
+    }
+    pub(in super::super) fn seed_origin(
+        &mut self,
+        reference: &Value,
+        root: &ConfiguredRoot,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<i64>> {
+        let key = Locator::from_ref(
+            request_wrapper::text(reference, "kind", s)?,
+            request_wrapper::text(reference, "id", s)?,
+            request_wrapper::text(reference, "digest", s)?,
+            s,
+        )?;
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        if key.key() == root.0.key() {
+            return Ok(None);
+        }
+        self.introduction_sequence(reference, s).map(Some)
+    }
+    pub(in super::super) fn required_origins(
+        &mut self,
+        sequence: i64,
+        configured_root: &ConfiguredRoot,
+        emit: &mut dyn FnMut(i64, &mut OriginalAuditSession) -> Result<()>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let raw = self.origin_links(sequence, s)?;
+        require(
+            !compare(raw.bytes().len() as u64, 8, s)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        copied(8, s)?;
+        let mut first = [0; 4];
+        first.copy_from_slice(&raw.bytes()[..4]);
+        let ordinary = u32::from_le_bytes(first) as u64;
+        first.copy_from_slice(&raw.bytes()[4..8]);
+        let roots = u32::from_le_bytes(first) as u64;
+        require(
+            !compare(ordinary, 4096, s)?.is_gt() && !compare(roots, 4096, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let middle = add(8, multiply(ordinary, 4, s)?, s)? as usize;
+        let expected = add(middle as u64, multiply(roots, ENTRY_BYTES as u64, s)?, s)?;
+        require(
+            compare(expected, raw.bytes().len() as u64, s)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
+        for bytes in raw.bytes()[8..middle].chunks_exact(4) {
+            s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
+            copied(4, s)?;
+            let mut number = [0; 4];
+            number.copy_from_slice(bytes);
+            emit(i64::from(u32::from_le_bytes(number)), s)?;
+        }
+        for bytes in raw.bytes()[middle..].chunks_exact(ENTRY_BYTES) {
+            s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
+            copied(ENTRY_BYTES, s)?;
+            let mut entry = Entry([0; ENTRY_BYTES]);
+            entry.0.copy_from_slice(bytes);
+            if entry.compare(&configured_root.0, s)?.is_eq() {
+                continue;
+            }
+            copied(4, s)?;
+            let mut number = [0; 4];
+            number.copy_from_slice(&entry.0[228..232]);
+            emit(i64::from(u32::from_le_bytes(number)), s)?;
+        }
+        Ok(())
     }
 }

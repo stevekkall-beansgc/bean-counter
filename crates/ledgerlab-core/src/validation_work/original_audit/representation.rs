@@ -303,6 +303,10 @@ impl ValidationWork for RepresentationCall<'_> {
             ArithmeticOperation::Compare => "repr.compare",
             ArithmeticOperation::Negate => "repr.negate",
             ArithmeticOperation::Absolute => "repr.absolute",
+            ArithmeticOperation::BitOr => "repr.bit_or",
+            ArithmeticOperation::BitAnd => "repr.bit_and",
+            ArithmeticOperation::PopulationCount => "repr.population_count",
+            ArithmeticOperation::LeadingZeros => "repr.leading_zeros",
         };
         self.debit(name, operands, cost)
     }

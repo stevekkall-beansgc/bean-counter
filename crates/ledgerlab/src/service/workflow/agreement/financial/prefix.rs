@@ -616,6 +616,7 @@ mod tests {
 pub(super) struct FoldedInventory {
     pub(super) _inventory: inventory::Inventory,
     programs: programs::CompletedPrograms,
+    pointers: ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers,
 }
 /// Reuse the selected origin's SAME parent session, including its already-paid
 /// framing/identity work. Each earlier origin receives exactly its own session.
@@ -672,6 +673,7 @@ pub(super) async fn fold_original_prefix(
                     inventory = Some(FoldedInventory {
                         _inventory: inventory::Inventory::new(files, &origin, &mut session)?,
                         programs: programs::CompletedPrograms::new(),
+                        pointers: ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers::new(&mut session).map_err(core_error)?,
                     });
                 }
             }
@@ -699,6 +701,7 @@ pub(super) async fn fold_original_prefix(
                 inventory = Some(FoldedInventory {
                     _inventory: inventory::Inventory::new(files, selected, parent)?,
                     programs: programs::CompletedPrograms::new(),
+                    pointers: ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers::new(parent).map_err(core_error)?,
                 });
             }
         }
@@ -811,6 +814,7 @@ async fn before_inputs(
                     inventory = Some(FoldedInventory {
                         _inventory: inventory::Inventory::new(files, &origin, &mut session)?,
                         programs: programs::CompletedPrograms::new(),
+                        pointers: ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers::new(&mut session).map_err(core_error)?,
                     });
                 }
             }
@@ -1237,6 +1241,14 @@ async fn fold_origin(
         ._inventory
         .finish_origin_links(origin.wrappers().sequence(), s)?;
     let pointer = origin.wrappers().origin_pointer(s)?;
+    let parsed = s
+        .parse_representation(pointer.bytes(), RepresentationKind::Record)
+        .map_err(core_error)?;
+    // Intrinsic representation facts are registered only AFTER this original's
+    // actual semantic/custody/as-of fold. They do not replace that completion.
+    // The table and this scratch association belong to the same held attempt.
+    prefix.pointers.record(&parsed, s).map_err(core_error)?;
+    drop(parsed);
     prefix
         ._inventory
         .remember_origin_pointer(origin.wrappers().sequence(), pointer.bytes(), s)?;

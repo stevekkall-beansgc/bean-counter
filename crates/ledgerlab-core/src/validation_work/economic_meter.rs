@@ -1204,6 +1204,10 @@ impl crate::validation_work::ValidationWork for Meter {
                 Compare => "arith.compare",
                 Negate => "arith.neg",
                 Absolute => "arith.abs",
+                BitOr => "arith.bit_or",
+                BitAnd => "arith.bit_and",
+                PopulationCount => "arith.population_count",
+                LeadingZeros => "arith.leading_zeros",
             },
             operands,
         )

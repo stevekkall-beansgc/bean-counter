@@ -485,12 +485,17 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 [(1, &[][..]), (2, &[1][..]), (3, &[][..]), (4, &[2, 3][..])]
             {
                 let links = folded._inventory.origin_links(sequence, &mut session)?;
-                let values: Vec<u32> = links
-                    .bytes()
+                let n = u32::from_le_bytes(links.bytes()[..4].try_into().unwrap()) as usize;
+                let middle = 8 + 4 * n;
+                let mut values: Vec<u32> = links.bytes()[8..middle]
                     .chunks_exact(4)
-                    .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+                    .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
                     .collect();
-                assert!(values.windows(2).all(|pair| pair[0] < pair[1]));
+                values.extend(
+                    links.bytes()[middle..]
+                        .chunks_exact(256)
+                        .map(|b| u32::from_le_bytes(b[228..232].try_into().unwrap())),
+                );
                 assert!(
                     values
                         .iter()
@@ -505,6 +510,51 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                     assert!(values.is_empty());
                 }
             }
+            let first = prefix::next(tx, &selected, 0, 1, &mut session)
+                .await?
+                .ok_or(ServiceError::IntegrityFailure)?
+                .checked_wrappers(tx, &mut session)
+                .await?;
+            let root = &first.wrappers().operation()["authority_snapshot"]["authority_refs"][0];
+            let cut = prefix::inventory::ConfiguredRoot::from_value(root, &mut session)?;
+            assert_eq!(
+                folded._inventory.seed_origin(root, &cut, &mut session)?,
+                None
+            );
+            assert_eq!(
+                folded._inventory.seed_origin(
+                    &registered["receipt"]["result_refs"][0],
+                    &cut,
+                    &mut session
+                )?,
+                Some(2)
+            );
+            let mut mixed = Vec::new();
+            folded._inventory.required_origins(
+                2,
+                &cut,
+                &mut |sequence, _| {
+                    mixed.push(sequence);
+                    Ok(())
+                },
+                &mut session,
+            )?;
+            // Origin1 owns both the configured root and the required registration
+            // evidence. Cutting the root must retain the other required edge.
+            assert!(mixed.contains(&1));
+            let mut roots_only = Vec::new();
+            folded._inventory.required_origins(
+                3,
+                &cut,
+                &mut |sequence, _| {
+                    roots_only.push(sequence);
+                    Ok(())
+                },
+                &mut session,
+            )?;
+            // This raw source evidence has no retained dependency except any
+            // reused exact root. It cannot inherit an unrelated origin pointer.
+            assert!(roots_only.is_empty());
             Ok(())
         })
     })

@@ -33,6 +33,10 @@ pub enum ArithmeticOperation {
     Compare,
     Negate,
     Absolute,
+    BitOr,
+    BitAnd,
+    PopulationCount,
+    LeadingZeros,
 }
 
 pub trait ValidationWork {
