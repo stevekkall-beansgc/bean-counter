@@ -11,14 +11,14 @@ use crate::{
 use serde_json::Value;
 use std::mem;
 
-pub(super) struct OwnedNormalizedFacts {
+pub(in crate::policy::workflow) struct OwnedNormalizedFacts {
     // Payload precedes reservation: failure/drop destroys all maps and strings
     // before returning their owned requested-payload allowance.
     facts: NormalizedFacts,
     _reservation: ExternalBufferLease,
 }
 impl OwnedNormalizedFacts {
-    pub(super) fn facts(&self) -> &NormalizedFacts {
+    pub(in crate::policy::workflow) fn facts(&self) -> &NormalizedFacts {
         &self.facts
     }
 }
@@ -131,7 +131,7 @@ fn output_reservation(m: &mut CoreMeter, schema: &FactSchema, input: &Value) -> 
     }
     Ok(bytes)
 }
-pub(super) fn normalize(
+pub(in crate::policy::workflow) fn normalize(
     arena: &AuditArena,
     m: &mut CoreMeter,
     schema: &FactSchema,

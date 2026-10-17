@@ -70,6 +70,21 @@ impl SelectedProgram {
     pub fn context_schema_ref(&self) -> &DefinitionRef {
         &self.policy.context_schema_ref
     }
+    /// Borrow the actual compiled context schema under the caller's SAME
+    /// semantic work owner. No schema is recompiled or cloned, and this view
+    /// does not establish publication/origin custody.
+    pub fn context_schema_with_work(&self, work:&mut dyn crate::validation_work::ValidationWork)->Result<&FactSchema> {
+        let target=&self.policy.context_schema_ref;
+        for (reference,schema) in &self.schemas {
+            work.visit(crate::validation_work::ValidationVisit::MemberCompare)?;
+            for (left,right) in [(reference.kind(),target.kind()),(reference.id(),target.id()),(reference.digest(),target.digest())]{
+                let bytes=crate::validation_work::usize_add(work,left.len(),right.len())?;
+                work.scan_bytes(bytes)?;
+            }
+            if reference==target{return Ok(schema);}
+        }
+        Err(err("compiled context schema missing"))
+    }
     pub fn source_documents(&self) -> &[SelectedDocument] {
         &self.sources
     }

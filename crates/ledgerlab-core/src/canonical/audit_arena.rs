@@ -739,6 +739,13 @@ impl ParseAllocationWork for ParseScope<'_> {
             .shrink(release, work)
     }
 }
+/// Paid requested-payload bound for a separate semantic Value copy. This is
+/// neither an allocation reservation nor a representation-domain entry: the
+/// caller must admit and retain the actual typed/output owner before copying.
+pub(crate) fn value_copy_payload_bound(value: &Value, work: &mut dyn ValidationWork) -> Result<usize> {
+    clone_footprint(value, work, 0)
+}
+
 fn clone_footprint(v: &Value, work: &mut dyn ValidationWork, depth: usize) -> Result<usize> {
     work.visit(ValidationVisit::Value)?;
     if w::compare(work, depth, 32usize)? == std::cmp::Ordering::Greater {

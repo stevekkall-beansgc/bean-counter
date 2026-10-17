@@ -37,7 +37,7 @@ mod intent;
 mod repair_tests;
 mod representation;
 pub use intent::normalize_saved_intent;
-mod owned_facts;
+pub(in crate::policy::workflow) mod owned_facts;
 
 #[cfg(test)]
 mod calibration_tests;

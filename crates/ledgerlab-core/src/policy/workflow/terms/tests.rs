@@ -658,3 +658,74 @@ fn app_terms7_keeps_explicit_anchor_and_optional_exact_causal_clause_separate_fr
     old["schema"] = json!("ledger-workflow-slot-binding-terms/6");
     assert!(SlotBindingTerms::parse(&serde_json::to_vec(&old).unwrap()).is_err());
 }
+
+#[test]
+fn owning_app_terms_same_normalization_identity_and_actual_lease_lifetime() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    for customer in ["A", "B"] {
+        let mut input = record(&format!("{customer}.terms"))["body"].clone();
+        input["schema"] = json!("ledger-workflow-acceptance-terms/2");
+        input["binding_inputs"]["quantity_ceilings"][0]["maximum"] = json!("100.00");
+        let raw = serde_json::to_vec(&input).unwrap();
+        let legacy = AcceptanceTerms::parse(&raw, &context()).unwrap();
+        let arena = AuditArena::new().unwrap();
+        let before = arena.usage().unwrap().live_bytes;
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let owned = OwnedAcceptanceTerms::parse(&raw, &context(), &mut session).unwrap();
+        assert_eq!(owned.canonical_bytes(), legacy.canonical_bytes());
+        assert_eq!(owned.reference(), legacy.reference());
+        assert_eq!(owned.terms_digest(), legacy.terms_digest());
+        assert!(arena.usage().unwrap().live_bytes > before);
+        let canonical = owned.canonical_bytes().to_vec();
+        drop(owned);
+        assert_eq!(arena.usage().unwrap().live_bytes, before);
+        let replay = OwnedAcceptanceTerms::parse(&canonical, &context(), &mut session).unwrap();
+        assert_eq!(replay.canonical_bytes(), canonical);
+    }
+}
+#[test]
+fn owning_app_terms_refuses_duplicate_changed_subject_and_terminal_cancel() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let mut input = record("A.terms")["body"].clone();
+    input["schema"] = json!("ledger-workflow-acceptance-terms/2");
+    let original = input.clone();
+    input["customer"] = json!("different-customer");
+    for body in [input, {
+        let mut body = original.clone();
+        let source = body["binding_inputs"]["source_slots"][0]["sources"][0].clone();
+        body["binding_inputs"]["source_slots"][0]["sources"] = json!([source, source]);
+        body
+    }] {
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let baseline = arena.usage().unwrap().live_bytes;
+        assert!(
+            OwnedAcceptanceTerms::parse(
+                &serde_json::to_vec(&body).unwrap(),
+                &context(),
+                &mut session
+            )
+            .is_err()
+        );
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+        assert!(
+            session
+                .semantic_work()
+                .visit(crate::validation_work::ValidationVisit::Constraint)
+                .is_err()
+        );
+    }
+    let arena = AuditArena::new().unwrap();
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    arena.cancellation_handle().cancel();
+    assert!(
+        OwnedAcceptanceTerms::parse(
+            &serde_json::to_vec(&original).unwrap(),
+            &context(),
+            &mut session
+        )
+        .is_err()
+    );
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+}

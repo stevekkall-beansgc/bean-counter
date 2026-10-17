@@ -573,6 +573,9 @@ fn unique_names<'a>(values: impl Iterator<Item = &'a str>, min: usize, max: usiz
     }
     Ok(())
 }
+mod owned;
+mod paid;
+pub use owned::OwnedAcceptanceTerms;
 impl Projection {
     fn normalize(&mut self, context: &super::FactSchema, app: bool) -> Result<()> {
         crate::domain::text(&self.agreement_id, 128)?;
@@ -676,7 +679,155 @@ impl Projection {
         }
         Ok(())
     }
+    fn normalize_with_work<W: crate::validation_work::ValidationWork>(
+        &mut self,
+        context_ref: &AgreementRef,
+        app: bool,
+        work: &mut W,
+        mut normalize_context: impl FnMut(&Value, &mut W) -> Result<Value>,
+    ) -> Result<()> {
+        use crate::validation_work::{self as w, ValidationVisit as Visit};
+        paid::text(&self.agreement_id, 128, work)?;
+        paid::text(&self.customer, 128, work)?;
+        paid::text(&self.source_namespace, 256, work)?;
+        let version = super::facts::counter_with_work(&self.version, work)?;
+        let positive = !w::compare(work, version, 0u64)?.is_eq();
+        paid::check(work, positive, "positive binding version")?;
+        self.version = w::unsigned_string(u128::from(version), work)?;
+        paid::reference(&self.slot_catalog_ref, "workflow-slot-catalog", work)?;
+        paid::reference(
+            &self.slot_instantiation_ref,
+            "workflow-slot-instantiation",
+            work,
+        )?;
+        paid::refs(&mut self.roles_refs, "workflow-roles", 1, 16, work)?;
+        paid::names(
+            self.source_slots.iter().map(|r| r.name.as_str()),
+            1,
+            32,
+            work,
+        )?;
+        for row in &mut self.source_slots {
+            work.visit(Visit::Element)?;
+            if w::compare(work, row.sources.len(), 1usize)?.is_lt()
+                || w::compare(work, row.sources.len(), 16usize)?.is_gt()
+                || w::compare(work, row.evidence_kinds.len(), 5usize)?.is_gt()
+            {
+                return Err(fail("source declaration count"));
+            }
+            for source in &row.sources {
+                work.visit(Visit::Element)?;
+                paid::text(source, 256, work)?;
+            }
+            paid::string_set(&mut row.sources, work)?;
+            for kind in &row.evidence_kinds {
+                work.visit(Visit::Element)?;
+                let old = paid::member(
+                    kind,
+                    &[
+                        "occurrence",
+                        "outcome",
+                        "supplier_final_cost",
+                        "meter_quantity",
+                        "allocation_input",
+                    ],
+                    work,
+                )?;
+                work.visit(Visit::Constraint)?;
+                if !old && !(app && paid::member(kind, &["app_usage", "app_final_cost"], work)?) {
+                    return Err(fail("source evidence kind"));
+                }
+            }
+            paid::string_set(&mut row.evidence_kinds, work)?;
+        }
+        paid::sort(&mut self.source_slots, work, |a, b, work| {
+            paid::compare_text(&a.name, &b.name, work)
+        })?;
+        let r = paid::reference(
+            &self.accepted_context.fact_schema_ref,
+            "workflow-fact-schema",
+            work,
+        )?;
+        if !paid::compare_text(r.id(), context_ref.id(), work)?.is_eq()
+            || !paid::compare_text(r.digest(), context_ref.digest(), work)?.is_eq()
+        {
+            return Err(fail("exact context schema"));
+        }
+        self.accepted_context.facts = normalize_context(&self.accepted_context.facts, work)?;
+        paid::names(self.bindings.iter().map(|r| r.slot.as_str()), 1, 16, work)?;
+        for row in &self.bindings {
+            work.visit(Visit::Element)?;
+            paid::reference(&row.binding_ref, "workflow-slot-terms", work)?;
+        }
+        paid::sort(&mut self.bindings, work, |a, b, work| {
+            paid::compare_text(&a.slot, &b.slot, work)
+        })?;
+        paid::names(
+            self.funding_legs.iter().map(|r| r.name.as_str()),
+            1,
+            16,
+            work,
+        )?;
+        for row in &mut self.funding_legs {
+            work.visit(Visit::Element)?;
+            if !paid::member(
+                &row.mode,
+                &[
+                    "customer_api",
+                    "customer_subscription",
+                    "customer_local",
+                    "platform",
+                ],
+                work,
+            )? {
+                return Err(fail("funding mode"));
+            }
+            for party in [&row.resource_owner, &row.payer] {
+                paid::text(party, 128, work)?;
+            }
+            if let Some(provider) = &row.provider {
+                work.visit(Visit::Constraint)?;
+                paid::text(provider, 128, work)?;
+            }
+            if let Some(slot) = &row.supplier_binding_slot {
+                work.visit(Visit::Constraint)?;
+                super::facts::name_with_work(slot, work)?;
+            }
+            // Preserve each original row's validation/refusal order.
+            paid::refs(&mut row.evidence_refs, "workflow-evidence", 0, 16, work)?;
+        }
+        paid::sort(&mut self.funding_legs, work, |a, b, work| {
+            paid::compare_text(&a.name, &b.name, work)
+        })?;
+        if let Some(end) = &self.ends_at {
+            work.visit(Visit::Constraint)?;
+            if !w::compare(work, self.starts_at.micros(), end.micros())?.is_lt() {
+                return Err(fail("nonempty half-open binding interval"));
+            }
+        }
+        paid::quantities(&mut self.quantity_ceilings, work)?;
+        paid::exposures(&mut self.exposure_ceilings, work)?;
+        for row in &self.exposure_ceilings {
+            work.visit(Visit::Element)?;
+            let mut found = false;
+            for binding in &self.bindings {
+                work.visit(Visit::RefLookup)?;
+                if paid::compare_text(&binding.slot, &row.binding_slot, work)?.is_eq() {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return Err(Error::new(
+                    "INVALID_REFERENCE",
+                    "exposure references bound slot",
+                ));
+            }
+        }
+        Ok(())
+    }
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TermsInput {

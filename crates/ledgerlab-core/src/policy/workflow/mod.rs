@@ -70,4 +70,6 @@ pub use transport::{
     DefinitionFinalizeInput, DefinitionFragment, DefinitionFragmentInput, SourceRetentionInput,
 };
 mod terms;
-pub use terms::{AcceptanceTerms, AssentRecord, SlotBindingTerms, SupplierOffer};
+pub use terms::{
+    AcceptanceTerms, AssentRecord, OwnedAcceptanceTerms, SlotBindingTerms, SupplierOffer,
+};
