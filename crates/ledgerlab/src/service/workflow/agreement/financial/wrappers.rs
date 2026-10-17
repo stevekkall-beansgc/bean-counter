@@ -58,6 +58,77 @@ impl OriginalWrappers {
             self.frame.operation_digest.bytes(),
         )
     }
+    /// Exact pointer representation from this acquired/checked wrapper frame.
+    /// Calling this does not complete its origin; the chronological caller only
+    /// stages it after the actual recipe's original semantics have finished.
+    pub(super) fn origin_pointer(
+        &self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
+        fn reference(
+            kind: &str,
+            id: &[u8],
+            digest: &[u8],
+            s: &mut OriginalAuditSession,
+        ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
+            s.semantic_work().scan_bytes(id.len()).map_err(core_error)?;
+            let id = std::str::from_utf8(id).map_err(|_| ServiceError::IntegrityFailure)?;
+            s.semantic_work()
+                .scan_bytes(digest.len())
+                .map_err(core_error)?;
+            let digest = std::str::from_utf8(digest).map_err(|_| ServiceError::IntegrityFailure)?;
+            let kind = super::wire::string(kind, s)?;
+            let id = super::wire::string(id, s)?;
+            let digest = super::wire::string(digest, s)?;
+            super::wire::object(
+                &[
+                    ("digest", digest.bytes()),
+                    ("id", id.bytes()),
+                    ("kind", kind.bytes()),
+                ],
+                4194304,
+                s,
+            )
+        }
+        let operation = reference(
+            "workflow-operation",
+            self.frame.operation_id.bytes(),
+            self.frame.operation_digest.bytes(),
+            s,
+        )?;
+        let manifest = reference(
+            "workflow-manifest",
+            self.frame.manifest_id.bytes(),
+            self.frame.manifest_digest.bytes(),
+            s,
+        )?;
+        let receipt = reference(
+            "workflow-receipt",
+            self.frame.receipt_id.bytes(),
+            self.frame.receipt_digest.bytes(),
+            s,
+        )?;
+        let key = super::request_wrapper::field(self.operation(), "key", s)?;
+        let key = s
+            .canonical_representation(key, RepresentationKind::Record)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&self.frame.sequence.into(), &0i64.into()])
+            .map_err(core_error)?;
+        require(self.frame.sequence > 0, "INTEGRITY_FAILURE")?;
+        let sequence = super::wire::counter_string(self.frame.sequence as u64, s)?;
+        super::wire::object(
+            &[
+                ("commit_sequence", sequence.bytes()),
+                ("manifest_ref", manifest.bytes()),
+                ("operation_key", key.bytes()),
+                ("operation_ref", operation.bytes()),
+                ("receipt_ref", receipt.bytes()),
+            ],
+            4194304,
+            s,
+        )
+    }
     pub(super) fn retained_lengths(&self) -> [usize; 3] {
         [
             self.frame.operation.bytes().len(),

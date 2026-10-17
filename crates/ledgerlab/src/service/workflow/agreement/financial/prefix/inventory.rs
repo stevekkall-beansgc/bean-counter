@@ -1311,7 +1311,9 @@ impl Inventory {
         let offset = self.body_bytes;
         let next = add(offset, body.len() as u64, s)?;
         require(
-            !compare(next, self.payload_bytes, s)?.is_gt(),
+            // Auxiliary origin pointers share this already fixed scratch
+            // allowance; they never inflate the normative payload/WB counter.
+            !compare(next, self.tree.scratch.limit, s)?.is_gt(),
             "INTEGRITY_FAILURE",
         )?;
         s.check_cancelled().map_err(core_error)?;
@@ -1484,5 +1486,79 @@ impl Inventory {
             self.compare_body(&prior, body, s)?;
         }
         self.set_head(key, r, s)
+    }
+}
+
+impl Inventory {
+    /// Store ONE actual completed-origin pointer under a private numeric
+    /// locator in the existing paged tree/body spool. It is auxiliary DATA,
+    /// never a canonical financial record or a serialized completion flag.
+    pub(super) fn remember_origin_pointer(
+        &mut self,
+        sequence: i64,
+        body: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        require(
+            compare(sequence as u64, 0, s)?.is_gt()
+                && !compare(sequence as u64, 100000, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        require(
+            !compare(body.len() as u64, 4194304, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let encoded = wire::counter_string(sequence as u64, s)?;
+        let key = StateKey::new("origin-pointer", &[encoded.bytes()], s)?;
+        self.absent(&key, s)?;
+        // Charge existing scratch only. Unlike actual introduced documents,
+        // this derived pointer is NOT added to the W/WB profile dimension.
+        self.tree.scratch.admit(body.len() as u64, s)?;
+        let offset = self.body_bytes;
+        let next = add(offset, body.len() as u64, s)?;
+        require(
+            !compare(next, self.tree.scratch.limit, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        s.check_cancelled().map_err(core_error)?;
+        self.bodies.seek(SeekFrom::Start(offset)).map_err(io)?;
+        for chunk in body.chunks(262144) {
+            s.check_cancelled().map_err(core_error)?;
+            copied(chunk.len(), s)?;
+            self.bodies.write_all(chunk).map_err(io)?;
+        }
+        s.semantic_work()
+            .write_bytes(ENTRY_BYTES)
+            .map_err(core_error)?;
+        let mut entry = Entry([0; ENTRY_BYTES]);
+        copied(KEY_BYTES, s)?;
+        entry.0[..KEY_BYTES].copy_from_slice(&key.0.0);
+        for (position, bytes) in [
+            (216, offset.to_le_bytes().as_slice()),
+            (224, (body.len() as u32).to_le_bytes().as_slice()),
+            (228, (sequence as u32).to_le_bytes().as_slice()),
+        ] {
+            let end = add(position as u64, bytes.len() as u64, s)? as usize;
+            copied(bytes.len(), s)?;
+            entry.0[position..end].copy_from_slice(bytes);
+        }
+        self.body_bytes = next;
+        require(self.tree.insert(&entry, s)?.is_none(), "INTEGRITY_FAILURE")?;
+        s.check_cancelled().map_err(core_error)
+    }
+    pub(in super::super) fn origin_pointer(
+        &mut self,
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
+        require(
+            compare(sequence as u64, 0, s)?.is_gt()
+                && !compare(sequence as u64, 100000, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let encoded = wire::counter_string(sequence as u64, s)?;
+        let key = StateKey::new("origin-pointer", &[encoded.bytes()], s)?;
+        self.head_body(&key, s)?
+            .ok_or(ServiceError::IntegrityFailure)
     }
 }

@@ -423,7 +423,7 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 .await?
                 .checked_wrappers(tx, &mut session)
                 .await?;
-            let _folded = prefix::fold_original_prefix(
+            let mut folded = prefix::fold_original_prefix(
                 &ledger,
                 tx,
                 &selected,
@@ -431,6 +431,35 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 &mut session,
             )
             .await?;
+            // These pointers come from the actual four public committed
+            // prerequisite recipes, after their original semantic/custody fold.
+            // They are not a financial witness membership or audit digest.
+            for (sequence, id) in [
+                (1, "customer-proof"),
+                (2, "customer"),
+                (3, "source-proof"),
+                (4, "enroll"),
+            ] {
+                let raw = folded._inventory.origin_pointer(sequence, &mut session)?;
+                let pointer = session
+                    .parse_representation(
+                        raw.bytes(),
+                        ledgerlab_core::validation_work::RepresentationKind::Record,
+                    )
+                    .map_err(core_error)?;
+                assert_eq!(pointer.value()["commit_sequence"], sequence.to_string());
+                assert_eq!(pointer.value()["operation_key"]["operation_id"], id);
+                assert_eq!(
+                    pointer.value()["operation_key"]["logical_store_id"],
+                    "chronological-real-source"
+                );
+                assert_eq!(
+                    pointer.value()["operation_ref"]["kind"],
+                    "workflow-operation"
+                );
+                assert_eq!(pointer.value()["manifest_ref"]["kind"], "workflow-manifest");
+                assert_eq!(pointer.value()["receipt_ref"]["kind"], "workflow-receipt");
+            }
             Ok(())
         })
     })

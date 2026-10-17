@@ -1149,7 +1149,7 @@ async fn fold_origin(
     s.semantic_work()
         .visit(Visit::Constraint)
         .map_err(core_error)?;
-    if origin.wrappers().class() == wrappers::WireClass::Agreement {
+    let publication = if origin.wrappers().class() == wrappers::WireClass::Agreement {
         let literal =
             request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
         let wanted = request_wrapper::field(literal, "publication_ref", s)?;
@@ -1175,7 +1175,7 @@ async fn fold_origin(
         let reconstructed =
             super::acceptance::reconstruct_held(tx, origin, publication, prefix, setup, s).await?;
         reconstructed.fold_original(origin, prefix, s)?;
-        Ok(None)
+        None
     } else {
         let publication = source::fold(tx, origin, &mut prefix._inventory, setup, s).await?;
         if let Some(program) = &publication {
@@ -1185,6 +1185,11 @@ async fn fold_origin(
                 .programs
                 .register(origin.wrappers().sequence(), program.program(), s)?;
         }
-        Ok(publication)
-    }
+        publication
+    };
+    let pointer = origin.wrappers().origin_pointer(s)?;
+    prefix
+        ._inventory
+        .remember_origin_pointer(origin.wrappers().sequence(), pointer.bytes(), s)?;
+    Ok(publication)
 }
