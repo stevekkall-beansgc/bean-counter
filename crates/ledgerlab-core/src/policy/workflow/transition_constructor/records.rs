@@ -199,6 +199,12 @@ struct SourceBirthFacts {
 }
 struct SourceObservationFacts {state:RecordBody,verifier:RecordBody,root:RecordBody}
 struct SourceGrantFacts {ceiling_position:usize,at:i64,accepted:[u8;32],accepted_len:usize}
+// Input partition DATA from the existing separate constructor parameters.
+// This does not authenticate introduction; the held chronological owner must
+// independently establish that partition. A pending header is never old I.
+#[derive(Clone,Copy)]
+enum OperandPartition { Preexisting, Pending }
+pub(super) enum UsedCanonical<'a>{Preexisting(&'a [u8]),Pending(&'a [u8]),Absent}
 struct Operand<'inv, 'raw> {
     reference: ExactRef,
     raw: RecordBytes<'raw>,
@@ -210,6 +216,7 @@ struct Operand<'inv, 'raw> {
     canonical_frame_digest_checked: bool,
     // Exact operand-position membership, not origin or semantic validation.
     consumed_in_invocation: bool,
+    partition:OperandPartition,
     // Pure immutable facts proved earlier in THIS invocation only.
     source_birth:Option<SourceBirthFacts>,
     source_grant:Option<SourceGrantFacts>,
@@ -219,6 +226,7 @@ pub(super) struct Records<'inv, 'raw> {
     operands: Vec<Operand<'inv, 'raw>>,
     index: super::record_index::IdentityIndex,
     consumed: Vec<ExactRef>,
+    pending_consumed:usize,
     intrinsic_owner: Option<&'inv super::intrinsic_record::IntrinsicDataScope>,
     arena: Option<AuditArena>,
     _metadata: Option<ExternalBufferLease>,
@@ -263,6 +271,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 admitted: false,
                 canonical_frame_digest_checked: false,
                 consumed_in_invocation: false,
+                partition:OperandPartition::Preexisting,
                 source_birth:None,source_grant:None,source_observation:None,
             });
         }
@@ -270,6 +279,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             operands,
             index,
             consumed: vec![],
+            pending_consumed:0,
             intrinsic_owner: None,
             arena: None,
             _metadata: None,
@@ -314,14 +324,14 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         }
         let values = inputs
             .iter()
-            .map(|v| (v.reference, v.canonical_body))
+            .map(|v| (v.reference, v.canonical_body, OperandPartition::Preexisting))
             .chain(
                 pending
                     .iter()
-                    .map(|v| (&v.reference, v.canonical_body.as_slice())),
+                    .map(|v| (&v.reference, v.canonical_body.as_slice(), OperandPartition::Pending)),
             );
         let mut string_bytes = 0;
-        for (r, _) in values.clone() {
+        for (r, _, _) in values.clone() {
             m.visit("records.borrowed_metadata_bound")?;
             for (actual, maximum) in [
                 (r.kind.len(), 64usize),
@@ -361,7 +371,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         references
             .try_reserve_exact(n)
             .map_err(|_| invalid("borrowed refs allocation"))?;
-        for (r, _) in values.clone() {
+        for (r, _, _) in values.clone() {
             m.visit("records.borrowed_index_ref")?;
             references.push(r);
         }
@@ -379,7 +389,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             m.write_bytes(s.len())?;
             Ok(s.to_owned())
         }
-        for (r, raw) in values {
+        for (r, raw, partition) in values {
             m.visit("records.borrowed_operand")?;
             operands.push(Operand {
                 reference: ExactRef {
@@ -393,6 +403,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 admitted: false,
                 canonical_frame_digest_checked: false,
                 consumed_in_invocation: false,
+                partition,
                 source_birth:None,source_grant:None,source_observation:None,
             });
         }
@@ -400,6 +411,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             operands,
             index,
             consumed,
+            pending_consumed:0,
             intrinsic_owner: None,
             arena: Some(arena.shared_handle()),
             _metadata: Some(metadata),
@@ -914,13 +926,15 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             }
         }
         if !seen {
-            if self.arena.is_some() {
+            let old=if self.arena.is_some(){m.check("resolve.preexisting_input_partition",||matches!(self.operands[position].partition,OperandPartition::Preexisting))?}else{true};
+            if old&&self.arena.is_some() {
                 for text in [&r.kind, &r.id, &r.digest] {
                     m.scan_bytes(text.len())?;
                     m.write_bytes(text.len())?;
                 }
             }
-            self.consumed.push(r.clone());
+            if old{self.consumed.push(r.clone());}
+            else{self.pending_consumed=w::usize_add(m,self.pending_consumed,1)?;}
             self.operands[position].consumed_in_invocation=true;
         }
         Ok(body)
@@ -985,12 +999,16 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     /// A present but unused operand is not a consumed member. This does not
     /// parse or admit anything, and cannot establish original custody.
     pub(super) fn consumed_canonical(&self,m:&mut CoreMeter,r:&ExactRef)->Result<Option<&[u8]>> {
+        Ok(match self.used_canonical(m,r)?{UsedCanonical::Preexisting(body)=>Some(body),_=>None})
+    }
+    pub(super) fn used_pending_count(&self)->usize{self.pending_consumed}
+    pub(super) fn used_canonical(&self,m:&mut CoreMeter,r:&ExactRef)->Result<UsedCanonical<'_>> {
         if self.arena.is_none(){return Err(invalid("owning consumed member lookup"));}
-        let Some(position)=self.index.find_exact(m,r,|i|&self.operands[i].reference)? else{return Ok(None)};
+        let Some(position)=self.index.find_exact(m,r,|i|&self.operands[i].reference)? else{return Ok(UsedCanonical::Absent)};
         let operand=&self.operands[position];
         if super::shape::same_ref(m,&operand.reference,r)? && m.check("resolve.exact_consumed_member",||operand.consumed_in_invocation)? {
-            Ok(Some(&operand.raw))
-        }else{Ok(None)}
+            Ok(match operand.partition{OperandPartition::Preexisting=>UsedCanonical::Preexisting(&operand.raw),OperandPartition::Pending=>UsedCanonical::Pending(&operand.raw)})
+        }else{Ok(UsedCanonical::Absent)}
     }
     pub(super) fn canonical(&self, m: &mut CoreMeter, r: &ExactRef) -> Result<&[u8]> {
         if let Some(position) = self
@@ -1032,6 +1050,38 @@ mod owning_tests {
     use super::*;
     use crate::validation_work::OriginalAuditSession;
     use serde_json::json;
+
+    #[test]
+    fn pending_used_body_never_becomes_a_preexisting_input() {
+        // Framing/partition test only. Neither branch supplies origin,
+        // retained-evidence semantics, a current head or financial admission.
+        let key=OperationKey{logical_store_id:"store".into(),scope:["scope".into(),"test".into()],source:"source".into(),operation_id:"operation".into()};
+        let body=json!({"schema":"ledger-workflow-retained-evidence/1","purpose":"literal"});
+        let mut build=CoreMeter::new(65536).unwrap();
+        let digest=hash(&mut build,"workflow-document",&json!([body["schema"],body])).unwrap();
+        let reference=ExactRef{kind:"workflow-evidence".into(),id:format!("wdoc_{}",&digest[7..]),digest};
+        let bytes=super::super::codec::encode(&mut build,&body,4194304).unwrap();
+        let views=[EconomicRecordView{reference:&reference,canonical_body:&bytes}];
+        let pending=[RecordInput{reference:reference.clone(),canonical_body:bytes.clone()}];
+        for is_pending in [false,true]{
+            let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut m=session.meter_mut().original_economic_meter().unwrap();
+            let mut table=Records::borrowed_app(&mut m,&arena,&key,if is_pending{&[]}else{&views},if is_pending{&pending}else{&[]}).unwrap();
+            for _ in 0..2{table.get(&mut m,&key,&reference,&reference.kind,"ledger-workflow-retained-evidence/1").unwrap();}
+            assert_eq!(table.used_pending_count(),usize::from(is_pending));
+            assert_eq!(table.consumed().len(),usize::from(!is_pending));
+            assert_eq!(table.consumed_canonical(&mut m,&reference).unwrap().is_some(),!is_pending);
+            match table.used_canonical(&mut m,&reference).unwrap(){
+                UsedCanonical::Preexisting(raw)=>{assert!(!is_pending);assert_eq!(raw,bytes);},
+                UsedCanonical::Pending(raw)=>{assert!(is_pending);assert_eq!(raw,bytes);},
+                UsedCanonical::Absent=>panic!("used exact body missing"),
+            }
+            let mut other=reference.clone();other.digest=format!("sha256:{}","0".repeat(64));
+            assert!(matches!(table.used_canonical(&mut m,&other).unwrap(),UsedCanonical::Absent));
+            let consumed=table.into_consumed_owned();assert_eq!(consumed.references.len(),usize::from(!is_pending));
+            session.meter_mut().finish_original_economic(m).unwrap();
+        }
+    }
 
     #[test]
     fn same_invocation_frame_is_owned_once_but_every_use_checks_association() {

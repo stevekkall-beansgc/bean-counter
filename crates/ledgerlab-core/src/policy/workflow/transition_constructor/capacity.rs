@@ -20,7 +20,7 @@ pub(super) struct ActualMembers {
 }
 pub(super) fn actual_members(m:&mut super::CoreMeter,t:&super::data::Construction)->crate::Result<ActualMembers>{
     use crate::validation_work as w;
-    let mut count=0usize;let mut bytes=0usize;
+    let mut count=0usize;let mut bytes=0usize;let mut pending=0usize;
     for reference in t.records.consumed(){
         m.visit("capacity.actual_consumed_member")?;
         let body=t.records.canonical(m,reference)?;
@@ -37,8 +37,12 @@ pub(super) fn actual_members(m:&mut super::CoreMeter,t:&super::data::Constructio
         // Reuse the SAME immutable full-Ref operand index and its post-check
         // consumed marker. This avoids a new N×I scan while preserving exact
         // I∪N membership: a merely supplied, unused operand does not count.
-        let body=t.records.consumed_canonical(m,&envelope.reference)?;
-        let already_counted=body.is_some();
+        let used=t.records.used_canonical(m,&envelope.reference)?;
+        let (already_counted,body)=match used{
+            super::records::UsedCanonical::Preexisting(body)=>(true,Some(body)),
+            super::records::UsedCanonical::Pending(body)=>{pending=w::usize_add(m,pending,1)?;(false,Some(body))},
+            super::records::UsedCanonical::Absent=>(false,None),
+        };
         if let Some(body)=body{
             // A pending observation may be consumed and introduced together;
             // both its full Ref AND its actual bytes must coincide.
@@ -50,6 +54,7 @@ pub(super) fn actual_members(m:&mut super::CoreMeter,t:&super::data::Constructio
             count=w::usize_add(m,count,1)?;bytes=w::usize_add(m,bytes,envelope.canonical_body.len())?;
         }
     }
+    if !w::compare(m,pending,t.records.used_pending_count())?.is_eq(){return Err(super::shape::fail("consumed pending record lacks an authoritative introduction"));}
     // Reserve one still-required operation member. The operation's actual body
     // and the full future envelope are checked independently; no zero-byte O
     // or observed-size substitute is written into a CorrectionCapacity record.
