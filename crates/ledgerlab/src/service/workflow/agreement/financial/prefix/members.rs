@@ -170,6 +170,47 @@ impl ResolvedMembers {
         }
         wire::RefSet::from_sorted(refs.iter().copied(), count, s)?.encode(s)
     }
+    pub(in super::super) fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub(in super::super) fn position(
+        &self,
+        r: &ExactRef,
+        s: &mut OriginalAuditSession,
+    ) -> Result<usize> {
+        let (mut low, mut high) = (0usize, self.order.len());
+        while compare(low, high, s)?.is_lt() {
+            let width = arithmetic(high, low, Op::Subtract, s)?;
+            let half = arithmetic(width, 2, Op::DivideRemainder, s)?;
+            let middle = arithmetic(low, half, Op::Add, s)?;
+            let index = self.order[middle];
+            require(
+                compare(index, self.entries.len(), s)?.is_lt(),
+                "INTEGRITY_FAILURE",
+            )?;
+            match cmp(
+                &self.entries[index].reference,
+                [&r.digest, &r.id, &r.kind],
+                s,
+            )? {
+                Ordering::Equal => return Ok(index),
+                Ordering::Less => low = arithmetic(middle, 1, Op::Add, s)?,
+                Ordering::Greater => high = middle,
+            }
+        }
+        Err(ServiceError::IntegrityFailure)
+    }
+    pub(in super::super) fn at(
+        &self,
+        index: usize,
+        s: &mut OriginalAuditSession,
+    ) -> Result<&ExactRef> {
+        require(
+            compare(index, self.entries.len(), s)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        Ok(&self.entries[index].reference)
+    }
     pub(super) fn resolve<'a>(
         prefix: &mut FoldedInventory,
         records: &[&wire::SourceRecord],

@@ -322,7 +322,7 @@ impl LocalWorkflowLedger {
                     let mut pending = acceptance::prepare(self, tx, &req, &mut session).await?;
                     let evidence = evidence::acceptance(&req, &pending, &mut session)?;
                     let members = pending.resolve_members(&mut session)?;
-                    let _journal = wire::frame_acceptance(
+                    let journal = wire::frame_acceptance(
                         &req,
                         pending.normalized_payload(),
                         pending.authority(),
@@ -333,6 +333,17 @@ impl LocalWorkflowLedger {
                         members,
                         &mut session,
                     )?;
+                    let write_data = acceptance::AcceptanceWriteData::new(
+                        &pending,
+                        &req,
+                        &journal,
+                        &evidence,
+                        &mut session,
+                    )?;
+                    let _write_operands = write_data.append_view(&mut session)?;
+                    // The real atomic writer now has exact borrowed operands;
+                    // full original/current/resource private preparation still
+                    // precedes any call to workflow_app_acceptance_append.
                 }
                 if req.kind() == "work.accept" {
                     let payload = req.payload(&mut session)?;

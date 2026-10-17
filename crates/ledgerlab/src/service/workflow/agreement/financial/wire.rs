@@ -531,10 +531,14 @@ pub(super) fn domain_digest(
 }
 /// An owning canonical source record; still no origin or append capability.
 pub(super) struct SourceRecord {
+    schema: &'static str,
     body: AuditedBytes,
     reference: WireRef,
 }
 impl SourceRecord {
+    pub(super) fn schema(&self) -> &'static str {
+        self.schema
+    }
     pub(super) fn reference(&self) -> &ExactRef {
         &self.reference.reference
     }
@@ -548,6 +552,7 @@ pub(super) fn source_record(
     body: AuditedBytes,
     session: &mut OriginalAuditSession,
 ) -> Result<SourceRecord> {
+    let schema_name = schema;
     let schema = literal(schema, session)?;
     let hashed = hash(
         b"bean-counter/workflow-document/1\0",
@@ -555,7 +560,11 @@ pub(super) fn source_record(
         session,
     )?;
     let reference = owned_reference(kind, "wdoc_", &hashed, &hashed, session)?;
-    Ok(SourceRecord { body, reference })
+    Ok(SourceRecord {
+        schema: schema_name,
+        body,
+        reference,
+    })
 }
 
 /// Exact existing SourceState identity, scoped to its original enrollment and
@@ -601,7 +610,11 @@ pub(super) fn source_state_record(
         session,
     )?;
     let reference = owned_reference("workflow-source-state", "wsource_", &id, &digest, session)?;
-    Ok(SourceRecord { body, reference })
+    Ok(SourceRecord {
+        schema: "ledger-workflow-source-state/1",
+        body,
+        reference,
+    })
 }
 
 /// Quote the SAME closed raw-request base64 result directly. Its encoded
@@ -1127,7 +1140,7 @@ fn receipt(
 mod administrative;
 mod agreement;
 pub(super) use administrative::frame_party;
-pub(super) use agreement::frame_acceptance;
+pub(super) use agreement::{AgreementJournalData, frame_acceptance};
 
 #[cfg(test)]
 mod request_framing_tests {
@@ -1228,15 +1241,17 @@ pub(super) fn agreement_record(
     let customer = string(customer, session)?;
     let agreement = string(agreement, session)?;
     let revision = string(revision, session)?;
-    let (kind, prefix, domain, label) = match record {
+    let (kind, schema, prefix, domain, label) = match record {
         AgreementRecord::Accepted => (
             "workflow-accepted-agreement",
+            "ledger-workflow-accepted-agreement/1",
             "waccepted_",
             b"bean-counter/workflow-agreement-acceptance/1\0".as_slice(),
             b"".as_slice(),
         ),
         AgreementRecord::AcceptanceHead => (
             "workflow-head-transition",
+            "ledger-workflow-head-transition/1",
             "whead_",
             b"bean-counter/workflow-head-transition/1\0".as_slice(),
             b",\"agreement_acceptance\"".as_slice(),
@@ -1275,5 +1290,9 @@ pub(super) fn agreement_record(
         session,
     )?;
     let reference = owned_reference(kind, prefix, &id, &digest, session)?;
-    Ok(SourceRecord { body, reference })
+    Ok(SourceRecord {
+        schema,
+        body,
+        reference,
+    })
 }

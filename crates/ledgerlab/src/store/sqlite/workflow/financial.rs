@@ -16,13 +16,15 @@ mod source;
 pub(crate) use source::SourceHeadLocator;
 mod app;
 mod party;
-pub(crate) use party::{PartyHeadKey,PartyHeadEffect};
 pub(crate) use app::AppClaimLocator;
+pub(crate) use party::{PartyHeadEffect, PartyHeadKey};
 mod supplier;
 pub(crate) use chronology::OriginalLocator;
 pub(crate) use document::RetainedDocument;
 pub(crate) use heads::{HeadKey, HeadLocator};
+mod agreement;
 mod append;
+pub(crate) use agreement::AppAcceptanceAppend;
 pub(crate) mod io;
 pub(crate) use append::{FinancialAppend, FinancialDocument, FinancialJournal};
 

@@ -2,6 +2,8 @@
 //! complete source/assent/current admission remain enclosing host obligations;
 //! this owning normalized projection cannot manufacture a prepared commit.
 use super::*;
+mod write;
+pub(super) use write::AcceptanceWriteData;
 mod admission;
 mod assents;
 mod binding;
@@ -987,6 +989,20 @@ impl PendingAppAcceptance {
         )
     }
 
+    pub(super) fn generated_records(&self) -> impl Iterator<Item = &wire::SourceRecord> {
+        [
+            &self.local_root,
+            &self.authority,
+            &self.binding,
+            &self.terms_record,
+            &self.head_records.accepted,
+            &self.head_records.head,
+            &self.normalized.intent,
+        ]
+        .into_iter()
+        .chain(self.private_documents.inline_records())
+        .chain(self.consents.generated_records())
+    }
     pub(super) fn normalized_payload(&self) -> &[u8] {
         self.normalized.payload.bytes()
     }

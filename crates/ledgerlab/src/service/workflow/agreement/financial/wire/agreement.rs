@@ -17,6 +17,36 @@ pub(in super::super) struct AgreementJournalData {
     members: ResolvedMembers,
 }
 impl AgreementJournalData {
+    pub(in super::super) fn members(&self) -> &ResolvedMembers {
+        &self.members
+    }
+    pub(in super::super) fn operation_reference(&self) -> &ExactRef {
+        &self.operation_ref.reference
+    }
+    pub(in super::super) fn storage_view<'a>(
+        &'a self,
+        incoming: &'a IncomingRequest,
+        evidence: &'a RequestEvidence,
+        members: &'a [&'a ExactRef],
+        sequence: i64,
+        accepted_at_us: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<FinancialJournal<'a>> {
+        Ok(FinancialJournal {
+            identity: incoming.identity(),
+            kind: "agreement.accept",
+            operation_ref: &self.operation_ref.reference,
+            operation_bytes: self.operation.bytes(),
+            request_hash: super::super::request_wrapper::text(evidence.value(), "request_hash", s)?,
+            manifest_ref: &self.manifest_ref.reference,
+            manifest_bytes: self.manifest.bytes(),
+            receipt_ref: &self.receipt_ref.reference,
+            receipt_bytes: self.receipt.bytes(),
+            members,
+            sequence,
+            accepted_at_us,
+        })
+    }
     pub(in super::super) fn compare_original(
         &self,
         origin: &LocatedWrappers,
