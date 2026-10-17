@@ -84,41 +84,45 @@ pub fn reconstruct_original_candidate<'a>(program:&SelectedProgram,saved:&'a Sav
   let mut child=session.meter_mut().original_economic_meter()?;
   let construction=construct::execute_complete(program,c,payload.bytes(),saved.original_inputs,saved.original_state,&mut child)?;
   let assembly=Assembly::derive(&mut child,c,construction)?;
-  session.meter_mut().finish_original_economic(child)?;
-  // Historical comparison belongs to the SAME original parent, not to a new
-  // economic allowance or a second run of the pricing interpreter.
-  compare_saved(session.meter_mut(),c,&assembly,op.value(),evidence,saved.introduced_results)?;
-  assembly.require_complete_capacity_and_resources(session.meter_mut())?;
+  assembly.require_complete_capacity_and_resources(&mut child)?;
   let audit=audit.ok_or_else(||unfinished("completed original AUTH03 witness stream is missing"))?;
-  let candidate=assembly.into_complete(c,audit,session.meter_mut())?;
+  let candidate=assembly.into_complete(c,audit,&mut child)?;
+  session.meter_mut().finish_original_economic(child)?;
+  // Only historical N/wrapper comparison belongs to the original parent.
+  // The SAME constructor/capacity/owning assembly stays inside the consuming
+  // economic child in both fresh and saved entry points.
+  compare_saved(session.meter_mut(),c,&candidate,op.value(),evidence,saved.introduced_results)?;
   Ok(candidate)
  })();if result.is_err(){session.invalidate();}result
 }
-fn compare_saved(m:&mut super::CoreMeter,c:&DraftContextData,a:&Assembly,op:&serde_json::Value,evidence:&serde_json::Value,saved:&[EconomicRecordView])->Result<()>{
+fn compare_saved(m:&mut super::CoreMeter,c:&DraftContextData,a:&EconomicCandidate,op:&serde_json::Value,evidence:&serde_json::Value,saved:&[EconomicRecordView])->Result<()>{
  let arena=m.representation_arena().ok_or_else(||shape::fail("owning original result comparison"))?;
- if !w::compare(m,a.construction.new_envelopes.len(),saved.len())?.is_eq(){return Err(shape::fail("original introduced partition count"));}
- for(row,schema)in a.construction.new_envelopes.iter().zip(&a.schemas){
+ if !w::compare(m,a.introduced().len(),saved.len())?.is_eq(){return Err(shape::fail("original introduced partition count"));}
+ for row in a.introduced(){
   let mut selected=None;
-  for retained in saved{m.visit("original.actual_introduction_compare")?;if shape::same_ref(m,&row.reference,retained.reference)?{if selected.is_some(){return Err(shape::fail("ambiguous original result body"));}selected=Some(retained);}}
+  for retained in saved{m.visit("original.actual_introduction_compare")?;if shape::same_ref(m,row.reference(),retained.reference)?{if selected.is_some(){return Err(shape::fail("ambiguous original result body"));}selected=Some(retained);}}
   let retained=selected.ok_or_else(||shape::fail("original result missing from independently selected N"))?;
-  if !shape::same_bytes(m,&row.canonical_body,retained.canonical_body)?{return Err(shape::fail("original result exact canonical body mismatch"));}
-  let value=row.decoded(m,4194304)?;same_text(m,&value,"schema",schema)?;
+  if !shape::same_bytes(m,row.canonical_body(),retained.canonical_body)?{return Err(shape::fail("original result exact canonical body mismatch"));}
+  // The candidate established this exact schema while consuming the owning output.
+  let value=m.parse_owned_representation(&arena,row.canonical_body(),RepresentationKind::Record)?;same_text(m,value.value(),"schema",row.schema())?;
  }
- let authority=a.construction.new_envelopes[a.authority_position].decoded(m,4194304)?;
- shape::equal(m,&op["authority_snapshot"],&authority)?;
- let payload=m.parse_owned_representation(&arena,&a.construction.normalized_payload,RepresentationKind::OriginalRequest)?;
+ let mut authority=None;
+ for row in a.introduced(){m.visit("original.actual_authority_result")?;if shape::same_ref(m,row.reference(),a.result_metadata().authority_ref())?{if authority.is_some(){return Err(shape::fail("original authority result ambiguity"));}authority=Some(row);}}
+ let authority=authority.ok_or_else(||shape::fail("original authority result missing"))?;
+ let authority=m.parse_owned_representation(&arena,authority.canonical_body(),RepresentationKind::Authority)?;
+ shape::equal(m,&op["authority_snapshot"],authority.value())?;
+ let payload=m.parse_owned_representation(&arena,a.normalized_payload(),RepresentationKind::OriginalRequest)?;
  let expected_key=key(m,c)?;let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-operation/1","contract":"workflow/1"}"#,RepresentationKind::SourceDefinition)?;
  let normalized=arena.object_from_fields(&[("schema",&constants.value()["schema"]),("key",expected_key.value()),("kind",&op["kind"]),("contract",&constants.value()["contract"]),("payload",payload.value())],m)?;
  shape::equal(m,&evidence["normalized_request"],normalized.value())?;
- let n=a.result_refs.len();ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&n.into(),&std::mem::size_of::<&ExactRef>().into()])?;
+ let n=a.result_metadata().result_refs().len();ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&n.into(),&std::mem::size_of::<&ExactRef>().into()])?;
  let size=n.checked_mul(std::mem::size_of::<&ExactRef>()).ok_or_else(||shape::fail("original result ordering workspace"))?;let _owner=arena.reserve_external_payload(size,m)?;
  let mut borrowed=Vec::new();borrowed.try_reserve_exact(n).map_err(|_|shape::fail("original result reference workspace"))?;
- for reference in &a.result_refs{m.visit("original.actual_result_reference")?;borrowed.push(reference);}
+ for reference in a.result_metadata().result_refs(){m.visit("original.actual_result_reference")?;borrowed.push(reference);}
  let result=super::app_cost::reference_set(m,&arena,&borrowed)?;shape::equal(m,&op["result_refs"],result.value())?;
  borrowed.clear();
- for pair in &a.source_observations{m.visit("original.actual_source_observation_reference")?;borrowed.push(pair.observation_ref());}
+ for pair in a.result_metadata().source_observations(){m.visit("original.actual_source_observation_reference")?;borrowed.push(pair.observation_ref());}
  let sources=super::app_cost::reference_set(m,&arena,&borrowed)?;shape::equal(m,&op["source_observation_refs"],sources.value())?;
- let financial=a.construction.financial_observation.as_ref().ok_or_else(||shape::fail("original financial observation"))?;
- let financial_ref=owning_reference(m,&arena,&financial.observation_ref)?;shape::equal(m,&op["financial_observation_ref"],financial_ref.value())?;
+ let financial_ref=owning_reference(m,&arena,a.result_metadata().financial_observation_ref())?;shape::equal(m,&op["financial_observation_ref"],financial_ref.value())?;
  Ok(())
 }
