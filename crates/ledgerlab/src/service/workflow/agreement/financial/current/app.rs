@@ -4,7 +4,7 @@ use super::super::request_wrapper as check;
 use super::*;
 use ledgerlab_core::validation_work::ValidationVisit;
 
-pub(in super::super) struct ObservedAppWork {
+pub(in super::super) struct ObservedAppBinding {
     pub(super) original: prefix::LocatedAppAcceptance,
     pub(super) sources: Vec<source::ObservedSource>,
     pub(super) at: Timestamp,
@@ -14,13 +14,61 @@ pub(in super::super) struct ObservedAppWork {
     _source_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
 }
+pub(in super::super) struct ObservedAppActivation {
+    pub(in super::super) binding: ObservedAppBinding,
+    pub(in super::super) normalized_payload: ledgerlab_core::canonical::audit_arena::AuditedBytes,
+}
 pub(in super::super) async fn observe(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
     payload: &Value,
     session: &mut OriginalAuditSession,
-) -> Result<ObservedAppWork> {
+) -> Result<ObservedAppBinding> {
+    let binding = check::field(payload, "binding_ref", session)?;
+    let customer = check::field(payload, "customer", session)?;
+    observe_binding(ledger, tx, key, binding, Some(customer), None, session).await
+}
+/// Activation supplies its literal accepted Binding and agreement identity.
+/// This reuses source identity/current-state acquisition only; the activation
+/// recipe must still check its own admit/stop rights, consent and schedule.
+pub(in super::super) async fn observe_activation(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    kind: &str,
+    payload: &Value,
+    session: &mut OriginalAuditSession,
+) -> Result<ObservedAppActivation> {
+    let binding = check::field(payload, "accepted_binding_ref", session)?;
+    let agreement = check::field(payload, "agreement_id", session)?;
+    let observed =
+        observe_binding(ledger, tx, key, binding, None, Some(agreement), session).await?;
+    let normalized_payload = super::super::activation::normalize(
+        kind,
+        payload,
+        observed.original.acceptance.binding.reference(),
+        observed._parsed_binding.value(),
+        session,
+    )
+    .inspect_err(|_| {
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    })?;
+    Ok(ObservedAppActivation {
+        binding: observed,
+        normalized_payload,
+    })
+}
+async fn observe_binding(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    binding_ref: &Value,
+    expected_customer: Option<&Value>,
+    expected_agreement: Option<&Value>,
+    session: &mut OriginalAuditSession,
+) -> Result<ObservedAppBinding> {
     let result = async {
         session.check_cancelled().map_err(core_error)?;
         let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
@@ -37,15 +85,8 @@ pub(in super::super) async fn observe(
             .reserve_external_payload(4 * 64 + 27)
             .map_err(core_error)?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
-        let original = prefix::acceptance_for(
-            ledger,
-            tx,
-            key,
-            check::field(payload, "binding_ref", session)?,
-            before,
-            session,
-        )
-        .await?;
+        let original =
+            prefix::acceptance_for(ledger, tx, key, binding_ref, before, session).await?;
         let binding = session
             .parse_representation(
                 original.acceptance.binding.bytes(),
@@ -57,11 +98,23 @@ pub(in super::super) async fn observe(
             "ledger-workflow-binding/2",
             session,
         )?;
-        check::same_text(
-            check::text(payload, "customer", session)?,
-            check::text(binding.value(), "customer", session)?,
-            session,
-        )?;
+        for (field, expected) in [
+            ("customer", expected_customer),
+            ("agreement_id", expected_agreement),
+        ] {
+            if let Some(expected) = expected {
+                session
+                    .semantic_work()
+                    .visit(ValidationVisit::Constraint)
+                    .map_err(core_error)?;
+                let expected = expected.as_str().ok_or_else(|| reject("INVALID_SHAPE"))?;
+                check::same_text(
+                    expected,
+                    check::text(binding.value(), field, session)?,
+                    session,
+                )?;
+            }
+        }
         let refs = check::field(binding.value(), "authority_refs", session)?
             .as_array()
             .ok_or(ServiceError::IntegrityFailure)?;
@@ -108,7 +161,7 @@ pub(in super::super) async fn observe(
                 .map_err(core_error)?;
             sources.push(observed);
         }
-        Ok(ObservedAppWork {
+        Ok(ObservedAppBinding {
             original,
             sources,
             at,

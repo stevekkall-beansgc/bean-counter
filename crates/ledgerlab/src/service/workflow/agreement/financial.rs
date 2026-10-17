@@ -11,6 +11,7 @@ use crate::{
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
 mod acceptance;
+mod activation;
 mod current;
 mod evidence;
 mod ingress;
