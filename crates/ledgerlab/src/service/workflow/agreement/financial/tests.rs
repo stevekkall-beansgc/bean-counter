@@ -460,6 +460,33 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 assert_eq!(pointer.value()["manifest_ref"]["kind"], "workflow-manifest");
                 assert_eq!(pointer.value()["receipt_ref"]["kind"], "workflow-receipt");
             }
+            // Adjacencies come from the Ref/body associations checked by
+            // those same recipes, not from an asserted pointer list. Every
+            // edge goes strictly backward; own introductions add no edge.
+            for (sequence, required) in
+                [(1, &[][..]), (2, &[1][..]), (3, &[][..]), (4, &[2, 3][..])]
+            {
+                let links = folded._inventory.origin_links(sequence, &mut session)?;
+                let values: Vec<u32> = links
+                    .bytes()
+                    .chunks_exact(4)
+                    .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+                    .collect();
+                assert!(values.windows(2).all(|pair| pair[0] < pair[1]));
+                assert!(
+                    values
+                        .iter()
+                        .all(|prior| *prior > 0 && *prior < sequence as u32)
+                );
+                for prior in required {
+                    assert!(values.contains(prior));
+                }
+                // Later operations can reuse an earlier exact immutable
+                // authority body; its earliest origin remains an extra edge.
+                if sequence == 1 {
+                    assert!(values.is_empty());
+                }
+            }
             Ok(())
         })
     })

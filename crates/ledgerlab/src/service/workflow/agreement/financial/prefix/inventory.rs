@@ -1085,6 +1085,15 @@ pub(in super::super) struct Inventory {
     operations: u64,
     payload_bytes: u64,
     body_bytes: u64,
+    active_origin: Option<OriginLinks>,
+}
+/// Only one original is active. Retain its actual older-origin adjacency while
+/// those Ref/body associations are already being checked, avoiding a second
+/// independent full-member lookup pass or a resident whole-history graph.
+struct OriginLinks {
+    sequence: u32,
+    earlier: Vec<u32>,
+    _storage: ExternalBufferLease,
 }
 pub(in super::super) struct StateKey(Locator);
 impl StateKey {
@@ -1150,6 +1159,7 @@ impl Inventory {
             operations: 1,
             payload_bytes: payload,
             body_bytes: 0,
+            active_origin: None,
         })
     }
     fn extend(&mut self, operations: u64, bytes: u64, s: &mut OriginalAuditSession) -> Result<()> {
@@ -1183,7 +1193,11 @@ impl Inventory {
         s: &mut OriginalAuditSession,
     ) -> Result<bool> {
         let key = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
-        Ok(self.tree.find(&key, s)?.is_some())
+        let Some(entry) = self.tree.find(&key, s)? else {
+            return Ok(false);
+        };
+        self.observe_origin_entry(&entry, s)?;
+        Ok(true)
     }
     /// Exact earliest introduction in this completed-prefix inventory. This
     /// locator is not itself an origin or compilation proof.
@@ -1202,6 +1216,7 @@ impl Inventory {
             .tree
             .find(&key, s)?
             .ok_or(ServiceError::IntegrityFailure)?;
+        self.observe_origin_entry(&entry, s)?;
         copied(8, s)?;
         let mut sequence = [0u8; 8];
         sequence.copy_from_slice(&entry.0[228..236]);
@@ -1238,6 +1253,7 @@ impl Inventory {
         expected: &[u8],
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        self.observe_origin_entry(entry, s)?;
         copied(12, s)?;
         let mut offset = [0; 8];
         offset.copy_from_slice(&entry.0[216..224]);
@@ -1434,6 +1450,7 @@ impl Inventory {
         entry: &Entry,
         s: &mut OriginalAuditSession,
     ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
+        self.observe_origin_entry(entry, s)?;
         copied(12, s)?;
         let mut offset = [0u8; 8];
         offset.copy_from_slice(&entry.0[216..224]);
@@ -1510,7 +1527,16 @@ impl Inventory {
         )?;
         let encoded = wire::counter_string(sequence as u64, s)?;
         let key = StateKey::new("origin-pointer", &[encoded.bytes()], s)?;
-        self.absent(&key, s)?;
+        self.remember_auxiliary(&key, sequence, body, s)
+    }
+    fn remember_auxiliary(
+        &mut self,
+        key: &StateKey,
+        sequence: i64,
+        body: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        self.absent(key, s)?;
         // Charge existing scratch only. Unlike actual introduced documents,
         // this derived pointer is NOT added to the W/WB profile dimension.
         self.tree.scratch.admit(body.len() as u64, s)?;
@@ -1558,6 +1584,125 @@ impl Inventory {
         )?;
         let encoded = wire::counter_string(sequence as u64, s)?;
         let key = StateKey::new("origin-pointer", &[encoded.bytes()], s)?;
+        self.head_body(&key, s)?
+            .ok_or(ServiceError::IntegrityFailure)
+    }
+}
+
+impl Inventory {
+    pub(super) fn begin_origin_links(
+        &mut self,
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        require(self.active_origin.is_none(), "INTEGRITY_FAILURE")?;
+        require(
+            compare(sequence as u64, 0, s)?.is_gt()
+                && !compare(sequence as u64, 100000, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let bytes = multiply(4096, std::mem::size_of::<u32>() as u64, s)? as usize;
+        let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+        let mut earlier = Vec::new();
+        earlier
+            .try_reserve_exact(4096)
+            .map_err(|_| ServiceError::Unavailable)?;
+        self.active_origin = Some(OriginLinks {
+            sequence: sequence as u32,
+            earlier,
+            _storage: storage,
+        });
+        Ok(())
+    }
+    fn observe_origin_entry(&mut self, entry: &Entry, s: &mut OriginalAuditSession) -> Result<()> {
+        let Some(active) = self.active_origin.as_mut() else {
+            return Ok(());
+        };
+        copied(4, s)?;
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&entry.0[228..232]);
+        let sequence = u32::from_le_bytes(bytes);
+        require(
+            compare(sequence as u64, 0, s)?.is_gt()
+                && !compare(sequence as u64, active.sequence as u64, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        if compare(sequence as u64, active.sequence as u64, s)?.is_eq() {
+            return Ok(());
+        }
+        let (mut low, mut high) = (0usize, active.earlier.len());
+        while compare(low as u64, high as u64, s)?.is_lt() {
+            let width = subtract(high as u64, low as u64, s)?;
+            s.semantic_work()
+                .arithmetic(Op::DivideRemainder, &[&width.into(), &2u64.into()])
+                .map_err(core_error)?;
+            let middle = add(low as u64, width / 2, s)? as usize;
+            match compare(active.earlier[middle] as u64, sequence as u64, s)? {
+                Cmp::Equal => return Ok(()),
+                Cmp::Greater => high = middle,
+                Cmp::Less => low = add(middle as u64, 1, s)? as usize,
+            }
+        }
+        require(
+            compare(active.earlier.len() as u64, 4096, s)?.is_lt(),
+            "REFERENCE_LIMIT",
+        )?;
+        let shift = subtract(active.earlier.len() as u64, low as u64, s)?;
+        let moved = multiply(shift, std::mem::size_of::<u32>() as u64, s)? as usize;
+        copied(moved, s)?;
+        s.semantic_work()
+            .visit(Visit::SortMove)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<u32>())
+            .map_err(core_error)?;
+        active.earlier.insert(low, sequence);
+        Ok(())
+    }
+    pub(super) fn finish_origin_links(
+        &mut self,
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let active = self
+            .active_origin
+            .take()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        require(
+            compare(active.sequence as u64, sequence as u64, s)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let length = multiply(active.earlier.len() as u64, 4, s)? as usize;
+        let (arena, work) = s.parts();
+        let mut encoded = arena.byte_builder(length, work).map_err(core_error)?;
+        for sequence in &active.earlier {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            encoded
+                .append(&sequence.to_le_bytes(), s.semantic_work())
+                .map_err(core_error)?;
+        }
+        let encoded = encoded.finish(s.semantic_work()).map_err(core_error)?;
+        let sequence_value = wire::counter_string(sequence as u64, s)?;
+        let key = StateKey::new("origin-links", &[sequence_value.bytes()], s)?;
+        self.remember_auxiliary(&key, sequence, encoded.bytes(), s)
+    }
+    pub(in super::super) fn origin_links(
+        &mut self,
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
+        require(
+            compare(sequence as u64, 0, s)?.is_gt()
+                && !compare(sequence as u64, 100000, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let encoded = wire::counter_string(sequence as u64, s)?;
+        let key = StateKey::new("origin-links", &[encoded.bytes()], s)?;
         self.head_body(&key, s)?
             .ok_or(ServiceError::IntegrityFailure)
     }

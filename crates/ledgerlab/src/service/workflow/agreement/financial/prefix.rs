@@ -1149,6 +1149,9 @@ async fn fold_origin(
     s.semantic_work()
         .visit(Visit::Constraint)
         .map_err(core_error)?;
+    prefix
+        ._inventory
+        .begin_origin_links(origin.wrappers().sequence(), s)?;
     let publication = if origin.wrappers().class() == wrappers::WireClass::Agreement {
         let literal =
             request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
@@ -1187,6 +1190,9 @@ async fn fold_origin(
         }
         publication
     };
+    prefix
+        ._inventory
+        .finish_origin_links(origin.wrappers().sequence(), s)?;
     let pointer = origin.wrappers().origin_pointer(s)?;
     prefix
         ._inventory
