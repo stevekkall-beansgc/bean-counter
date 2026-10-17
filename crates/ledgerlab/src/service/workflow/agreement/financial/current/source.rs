@@ -37,6 +37,12 @@ impl ObservedSource {
     pub(in super::super) fn enrollment_ref(&self) -> &ExactRef {
         &self.enrollment.reference
     }
+    pub(in super::super) fn original_grant_body(&self) -> &Value {
+        self.original.body()
+    }
+    pub(in super::super) fn state_body(&self) -> &Value {
+        self.state.body()
+    }
     pub(in super::super) fn original_grant_ref(&self) -> &ExactRef {
         &self.original.reference
     }

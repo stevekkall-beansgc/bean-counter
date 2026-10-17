@@ -12,6 +12,7 @@ use crate::{
 };
 mod acceptance;
 mod current;
+mod evidence;
 mod ingress;
 mod prefix;
 mod recovery;
@@ -323,8 +324,22 @@ impl LocalWorkflowLedger {
                             | "ledger-workflow-party-authorize/1"
                             | "ledger-workflow-party-revoke/1"
                     ) {
-                        let _pending =
+                        let pending =
                             current::party::produce::prepare(self, tx, &req, &mut session).await?;
+                        let evidence = evidence::party(&req, &pending, &mut session)?;
+                        session
+                            .semantic_work()
+                            .arithmetic(
+                                ledgerlab_core::validation_work::ArithmeticOperation::Add,
+                                &[&pending.before.into(), &1i64.into()],
+                            )
+                            .map_err(core_error)?;
+                        let sequence = pending
+                            .before
+                            .checked_add(1)
+                            .ok_or(ServiceError::IntegrityFailure)?;
+                        let _journal =
+                            wire::frame_party(&req, &pending, &evidence, sequence, &mut session)?;
                         // The real result is constructed, but all consumed original
                         // origins and the new wrapper recipe still must complete.
                         // No DATA result can skip that preparation boundary.

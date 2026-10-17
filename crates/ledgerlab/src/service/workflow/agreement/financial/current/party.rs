@@ -5,6 +5,7 @@ use super::super::request_wrapper as check;
 use super::*;
 use crate::store::sqlite::workflow::financial::{HeadLocator, PartyHeadKey, RetainedDocument};
 use sha2::{Digest, Sha256};
+mod normalize;
 pub(in super::super) mod produce;
 struct PartyRecord {
     parsed: AuditedValue,

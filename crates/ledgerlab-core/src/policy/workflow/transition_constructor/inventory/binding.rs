@@ -45,7 +45,20 @@ pub(super) fn refs(m: &mut CoreMeter, v: &Value, min: usize, max: usize) -> Resu
     }
     Ok(())
 }
-pub(super) fn ordered(m: &mut CoreMeter, a: &[Value]) -> Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn ordered(m: &mut CoreMeter, a: &[Value]) -> Result<()> {
+    if let Some(arena)=m.representation_arena(){
+        // SAME canonical serialization/order, now an actually executing named
+        // RP01 owning operation. Semantic set/type/association checks stay S.
+        // At most the current and preceding member encodings coexist.
+        let mut previous:Option<crate::canonical::audit_arena::AuditedBytes>=None;
+        for member in a{
+            m.visit("inventory.canonical_set_member")?;
+            let bytes=m.canonical_owned_representation(&arena,member,crate::validation_work::RepresentationKind::Record)?;
+            if let Some(prior)=&previous{if !shape::byte_order(m,prior.bytes(),bytes.bytes())?.is_lt(){return Err(shape::fail("noncanonical declared set"));}}
+            previous=Some(bytes);
+        }
+        return Ok(());
+    }
     let mut previous: Option<Vec<u8>> = None;
     for member in a {
         m.visit("inventory.canonical_set_member")?;

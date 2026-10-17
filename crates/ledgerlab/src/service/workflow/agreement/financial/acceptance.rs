@@ -7,6 +7,7 @@ mod assents;
 mod binding;
 mod consent;
 mod customer;
+mod nominations;
 mod private;
 pub(super) use customer::ObservedCustomerConsent;
 use ledgerlab_core::{
@@ -1008,6 +1009,15 @@ pub(super) async fn prepare(
                 .map_err(core_error)?;
             sources.push(observed);
         }
+        nominations::validate(
+            &sources,
+            &private_documents,
+            &input,
+            &publication,
+            binding_value.value(),
+            at.as_str(),
+            session,
+        )?;
         let admission_source =
             admission::select(&sources, &setup.operator, incoming.key(), session)?;
         session

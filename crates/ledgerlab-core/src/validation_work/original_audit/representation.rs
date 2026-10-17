@@ -338,6 +338,7 @@ impl OriginalAuditSession {
     pub fn for_resource_profile_v2(attempt_arena: &AuditArena) -> Result<Self> {
         let mut session = Self::new(attempt_arena)?;
         session.meter.enable_resource_profile_v2()?;
+        session.meter.attach_representation_arena(attempt_arena)?;
         Ok(session)
     }
     pub fn semantic_work(&mut self) -> &mut dyn ValidationWork {
@@ -459,6 +460,27 @@ impl Meter {
                 }
                 _ => arena.canonical_representation_bytes(value, w, kind.maximum()),
             }
+        })
+    }
+    /// Internal new-authoritative-body serialization. The existing aggregate
+    /// allowance only NARROWS the code-owned kind bound before any emitter
+    /// allocation; it is not caller policy input or an additional C quota.
+    pub(crate) fn canonical_new_body_representation(
+        &mut self,
+        arena: &AuditArena,
+        value: &Value,
+        kind: RepresentationKind,
+    ) -> Result<AuditedBytes> {
+        let remaining = self.remaining_new_body()?;
+        let kind_max = kind.maximum();
+        let bound = if w::compare(self, remaining, kind_max)?.is_lt() {
+            remaining
+        } else {
+            kind_max
+        };
+        let envelope = OperationEnvelope::canonical(kind_max)?;
+        run(arena, self, envelope, |arena, work| {
+            arena.canonical_representation_bytes(value, work, bound)
         })
     }
     pub(crate) fn encode_owned_base64_representation(

@@ -97,7 +97,22 @@ impl LocatedWrappers {
             failure: tx.workflow_proof_failure_handle(),
             finished: false,
         };
-        let result = current::party::produce::reconstruct(tx, self, session).await;
+        let result = async {
+            let reconstructed = current::party::produce::reconstruct(tx, self, session).await?;
+            let reproduced = evidence::original_party(self, &reconstructed, session)?;
+            let incoming =
+                ingress::IncomingRequest::parse(self.wrappers().original_request().raw(), session)?;
+            wire::frame_party(
+                &incoming,
+                &reconstructed,
+                &reproduced,
+                self.wrappers().sequence(),
+                session,
+            )?
+            .compare_original(self, session)?;
+            Ok(reconstructed)
+        }
+        .await;
         if result.is_ok() {
             attempt.finish();
         } else {

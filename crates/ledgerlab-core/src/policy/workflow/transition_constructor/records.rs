@@ -84,12 +84,15 @@ pub(super) fn hash_parts(
     ))
 }
 pub(super) fn reference(m: &mut CoreMeter, r: &ExactRef) -> Result<()> {
-    if !super::meter::cmp(m, &r.digest.len().into(), &71usize.into())?.is_eq()
-        || !super::shape::same_text(m, r.digest.get(..7).unwrap_or(""), "sha256:")?
+    reference_parts(m,&r.kind,&r.id,&r.digest)
+}
+pub(super) fn reference_parts(m:&mut CoreMeter,kind:&str,id:&str,digest:&str)->Result<()> {
+    if !super::meter::cmp(m, &digest.len().into(), &71usize.into())?.is_eq()
+        || !super::shape::same_text(m, digest.get(..7).unwrap_or(""), "sha256:")?
     {
         return Err(invalid("digest shape"));
     }
-    for b in r.digest[7..].bytes() {
+    for b in digest[7..].bytes() {
         m.scan_bytes(1)?;
         if !m.check("ref.hex", || {
             b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
@@ -97,13 +100,13 @@ pub(super) fn reference(m: &mut CoreMeter, r: &ExactRef) -> Result<()> {
             return Err(invalid("digest hex"));
         }
     }
-    if super::meter::cmp(m, &r.id.len().into(), &128usize.into())?.is_gt()
-        || !super::meter::cmp(m, &r.id.len().into(), &65usize.into())?.is_gt()
+    if super::meter::cmp(m, &id.len().into(), &128usize.into())?.is_gt()
+        || !super::meter::cmp(m, &id.len().into(), &65usize.into())?.is_gt()
     {
         return Err(invalid("reference identity"));
     }
     let prefix =
-        r.id.rsplit_once('_')
+        id.rsplit_once('_')
             .ok_or_else(|| invalid("reference prefix"))?;
     if !super::meter::cmp(m, &prefix.1.len().into(), &64usize.into())?.is_eq() {
         return Err(invalid("reference suffix"));
@@ -116,8 +119,8 @@ pub(super) fn reference(m: &mut CoreMeter, r: &ExactRef) -> Result<()> {
             return Err(invalid("reference suffix"));
         }
     }
-    if !super::shape::same_text(m, r.kind.get(..9).unwrap_or(""), "workflow-")?
-        || super::meter::cmp(m, &r.kind.len().into(), &64usize.into())?.is_gt()
+    if !super::shape::same_text(m, kind.get(..9).unwrap_or(""), "workflow-")?
+        || super::meter::cmp(m, &kind.len().into(), &64usize.into())?.is_gt()
     {
         return Err(invalid("reference kind"));
     }

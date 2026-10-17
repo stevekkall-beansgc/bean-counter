@@ -550,7 +550,8 @@ async fn prepare_inner(
         .workflow_sequence()
         .await
         .map_err(crate::service::store_error)?;
-    let payload = req.payload(session)?;
+    let normalized_payload = super::normalize::payload(req.payload(session)?, req.key(), session)?;
+    let payload = normalized_payload.value();
     let schema = check::text(payload, "schema", session)?;
     let is_evidence = equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?;
     let is_revoke = equal_text(schema, "ledger-workflow-party-revoke/1", session)?;
@@ -788,7 +789,9 @@ async fn reconstruct_inner(
         origin.key(),
         session,
     )?;
-    let payload = request.payload(session)?;
+    let normalized_payload =
+        super::normalize::payload(request.payload(session)?, request.key(), session)?;
+    let payload = normalized_payload.value();
     let schema = check::text(payload, "schema", session)?;
     let is_evidence = equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?;
     let is_revoke = equal_text(schema, "ledger-workflow-party-revoke/1", session)?;

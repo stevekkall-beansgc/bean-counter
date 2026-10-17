@@ -181,7 +181,7 @@ fn selector(m: &mut CoreMeter, v: &Value, k: &str, name: &str) -> Result<()> {
     }
     Ok(())
 }
-fn grant(
+pub(super) fn grant(
     m: &mut CoreMeter,
     owner: &InvocationToken,
     g: &Value,
@@ -194,6 +194,22 @@ fn grant(
     at: &BigInt,
     mode: EconomicMode,
 ) -> Result<()> {
+    grant_shape(m,g)?;
+    for (k, want) in [
+        ("principal_id", json!(c.actor)),
+        ("source", json!(c.key.source)),
+        (
+            "canonical_economic_namespace",
+            json!(c.canonical_economic_namespace),
+        ),
+    ] {
+        invoke!(equal, m, invoke!(field, m, g, k)?, &want)?;
+        invoke!(equal, m, invoke!(field, m, ceiling, k)?, &want)?;
+    }
+    grant_intersection(m,owner,g,ceiling,at)?;
+    grant_coverage(m,g,customer,activity,product,slot,mode.operation(),mode.rights())
+}
+pub(super) fn grant_shape(m:&mut CoreMeter,g:&Value)->Result<()> {
     closed(
         m,
         g,
@@ -217,17 +233,9 @@ fn grant(
         ],
         &[],
     )?;
-    for (k, want) in [
-        ("principal_id", json!(c.actor)),
-        ("source", json!(c.key.source)),
-        (
-            "canonical_economic_namespace",
-            json!(c.canonical_economic_namespace),
-        ),
-    ] {
-        invoke!(equal, m, invoke!(field, m, g, k)?, &want)?;
-        invoke!(equal, m, invoke!(field, m, ceiling, k)?, &want)?;
-    }
+    Ok(())
+}
+pub(super) fn grant_intersection(m:&mut CoreMeter,owner:&InvocationToken,g:&Value,ceiling:&Value,at:&BigInt)->Result<()> {
     super::inventory::source::current_sets(m, g)?;
     for k in [
         "customer_scope",
@@ -262,6 +270,9 @@ fn grant(
         return Err(fail("original ceiling time"));
     }
     invoke!(interval, m, owner, &prepared, at)?;
+    Ok(())
+}
+pub(super) fn grant_coverage(m:&mut CoreMeter,g:&Value,customer:&Value,activity:&str,product:&str,slot:&str,operation:&str,rights:&[&str])->Result<()> {
     invoke!(
         contains,
         m,
@@ -272,9 +283,9 @@ fn grant(
         contains,
         m,
         invoke!(array, m, g, "operations")?,
-        &json!(mode.operation())
+        &json!(operation)
     )?;
-    for right in mode.rights() {
+    for right in rights {
         invoke!(
             contains,
             m,
@@ -291,6 +302,34 @@ fn grant(
     invoke!(selector, m, g, "activity_selectors", activity)?;
     invoke!(selector, m, g, "product_selectors", product)?;
     Ok(())
+}
+fn selector_allows(m:&mut CoreMeter,g:&Value,field:&str,name:&str)->Result<bool>{
+    let selectors=shape::array(m,g,field)?;
+    let mut covered=false;
+    for selector in selectors {
+        m.visit("close.deadline_selector")?;
+        shape::closed(m,selector,&["names"],&[])?;
+        let names=shape::array(m,selector,"names")?;
+        covered|=shape::member(m,names,&json!(name))?;
+    }
+    Ok(covered)
+}
+/// SAME closed deadline permission/selector/time predicate. Identity is checked
+/// by the containing caller against its actual source, never an invented actor.
+pub(super) fn deadline_grant_scope(m:&mut CoreMeter,g:&Value,slot:&Value,customer:&Value,activity:&str,product:&str,at:i64)->Result<bool>{
+    let mut eligible=true;
+    for (field,want) in [("operations",json!("outcome.close")),("permissions",json!("close")),("permissions",json!("read"))]{
+        let values=shape::array(m,g,field)?;
+        eligible&=shape::member(m,values,&want)?;
+    }
+    let slots=shape::array(m,g,"source_slots")?;eligible&=shape::member(m,slots,slot)?;
+    let customers=shape::array(m,g,"customer_scope")?;eligible&=shape::member(m,customers,customer)?;
+    eligible&=selector_allows(m,g,"activity_selectors",activity)?;
+    eligible&=selector_allows(m,g,"product_selectors",product)?;
+    let starts=time(m,g,"starts_at")?;let ends=time(m,g,"ends_at")?;
+    eligible&=!meter::cmp(m,&at.into(),&starts.into())?.is_lt();
+    eligible&=meter::cmp(m,&at.into(),&ends.into())?.is_lt();
+    Ok(eligible)
 }
 pub(super) fn work(
     m: &mut CoreMeter,

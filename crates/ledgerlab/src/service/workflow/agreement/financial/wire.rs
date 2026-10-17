@@ -507,6 +507,44 @@ pub(super) fn source_record(
     Ok(SourceRecord { body, reference })
 }
 
+/// Quote the SAME closed raw-request base64 result directly. Its encoded
+/// text may exceed the256KiB RAW domain; it is not a SourceDefinition input.
+pub(super) fn raw_request_base64(
+    raw: &[u8],
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let encoded = session
+        .encode_base64_representation(raw, RepresentationKind::OriginalRequest)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .scan_bytes(encoded.bytes().len())
+        .map_err(core_error)?;
+    literal(
+        std::str::from_utf8(encoded.bytes()).map_err(|_| ServiceError::IntegrityFailure)?,
+        session,
+    )
+}
+
+/// Closed raw-request digest representation; no framed-domain relabeling.
+pub(super) fn raw_request_digest(
+    raw: &[u8],
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let hash = session
+        .hash_representation(raw, RepresentationKind::OriginalRequest)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(71)
+        .map_err(core_error)?;
+    let rendered = digest(&hash);
+    literal(
+        std::str::from_utf8(&rendered[7..]).map_err(|_| ServiceError::IntegrityFailure)?,
+        session,
+    )
+}
+
 pub(super) struct JournalData<'a> {
     candidate: &'a EconomicCandidate,
     identity: AuditedBytes,
@@ -679,56 +717,8 @@ fn frame_inner<'a>(
     let kind_value = literal(kind, session)?;
     let received = literal(received_at.as_str(), session)?;
     let at = literal(accepted_at.as_str(), session)?;
-    session
-        .semantic_work()
-        .arithmetic(Op::Compare, &[&sequence.into(), &1i64.into()])
-        .map_err(core_error)?;
-    require(sequence >= 1, "INTEGRITY_FAILURE")?;
-    // Canonical decimal formatting is fixed-width stack work, not an unleased
-    // dynamic formatter. The accepted profile sequence is at most100,000.
-    session
-        .semantic_work()
-        .arithmetic(Op::Compare, &[&sequence.into(), &100000i64.into()])
-        .map_err(core_error)?;
-    require(sequence <= 100000, "INTEGRITY_FAILURE")?;
-    let mut digits = [0u8; 6];
-    let mut value = sequence as u64;
-    let mut start = 6;
-    loop {
-        session
-            .semantic_work()
-            .arithmetic(Op::DivideRemainder, &[&value.into(), &10u64.into()])
-            .map_err(core_error)?;
-        let digit = value % 10;
-        session
-            .semantic_work()
-            .arithmetic(Op::Subtract, &[&start.into(), &1usize.into()])
-            .map_err(core_error)?;
-        start -= 1;
-        session
-            .semantic_work()
-            .arithmetic(Op::Add, &[&digit.into(), &b'0'.into()])
-            .map_err(core_error)?;
-        session.semantic_work().write_bytes(1).map_err(core_error)?;
-        digits[start] = b'0' + digit as u8;
-        session
-            .semantic_work()
-            .arithmetic(Op::DivideRemainder, &[&value.into(), &10u64.into()])
-            .map_err(core_error)?;
-        value /= 10;
-        session
-            .semantic_work()
-            .arithmetic(Op::Compare, &[&value.into(), &0u64.into()])
-            .map_err(core_error)?;
-        if value == 0 {
-            break;
-        }
-    }
     let sequence_number = sequence;
-    let sequence = literal(
-        std::str::from_utf8(&digits[start..]).map_err(|_| ServiceError::IntegrityFailure)?,
-        session,
-    )?;
+    let sequence = sequence_string(sequence, session)?;
     let closure = literal(recipe.closure, session)?;
     let operation_schema = literal(recipe.operation, session)?;
     let operation = object(
@@ -820,86 +810,15 @@ fn frame_inner<'a>(
         &manifest_hash,
         session,
     )?;
-    let manifest_digest = literal(&manifest_ref.reference.digest, session)?;
     let result_kind = literal(metadata.result_kind(), session)?;
-    let mut receipt_fields = [
-        ("accepted_at", at.bytes()),
-        ("commit_sequence", sequence.bytes()),
-        ("descriptor_closure_digest", b"".as_slice()),
-        ("key", key_bytes.bytes()),
-        ("manifest_hash", manifest_digest.bytes()),
-        (
-            "normalization_profile",
-            b"\"ledger-operation-normalization/2\"",
-        ),
-        ("original_request_bytes_sha256", b""),
-        ("request_hash", b""),
-        (
-            "request_hash_profile",
-            b"\"bean-counter/operation-request/2\"",
-        ),
-        ("result_kind", result_kind.bytes()),
-        ("result_refs", results_bytes.bytes()),
-        ("schema", b"\"ledger-operation-receipt/2\""),
-        ("schema_bundle_digest", b""),
-    ];
-    let descriptor_digest = literal(
-        request::text(resolution, "closure_digest", session)?,
-        session,
-    )?;
-    let raw_digest = literal(
-        request::text(evidence, "original_request_bytes_sha256", session)?,
-        session,
-    )?;
-    let request_hash_text = request::text(evidence, "request_hash", session)?;
-    let request_hash = literal(request_hash_text, session)?;
-    let bundle = literal(
-        request::text(evidence, "schema_bundle_digest", session)?,
-        session,
-    )?;
-    receipt_fields[2].1 = descriptor_digest.bytes();
-    receipt_fields[6].1 = raw_digest.bytes();
-    receipt_fields[7].1 = request_hash.bytes();
-    receipt_fields[12].1 = bundle.bytes();
-    let unhashed = object(&receipt_fields, 1048576, session)?;
-    let receipt_hash = hash(
-        b"bean-counter/operation-receipt/2\0",
-        &[unhashed.bytes()],
-        session,
-    )?;
-    drop(unhashed);
-    let receipt_ref = owned_reference(
-        "workflow-receipt",
-        "wreceipt_",
-        &receipt_hash,
-        &receipt_hash,
-        session,
-    )?;
-    let receipt_digest = literal(&receipt_ref.reference.digest, session)?;
-    let receipt = object(
-        &[
-            ("accepted_at", at.bytes()),
-            ("commit_sequence", sequence.bytes()),
-            ("descriptor_closure_digest", descriptor_digest.bytes()),
-            ("key", key_bytes.bytes()),
-            ("manifest_hash", manifest_digest.bytes()),
-            (
-                "normalization_profile",
-                b"\"ledger-operation-normalization/2\"",
-            ),
-            ("original_request_bytes_sha256", raw_digest.bytes()),
-            ("receipt_hash", receipt_digest.bytes()),
-            ("request_hash", request_hash.bytes()),
-            (
-                "request_hash_profile",
-                b"\"bean-counter/operation-request/2\"",
-            ),
-            ("result_kind", result_kind.bytes()),
-            ("result_refs", results_bytes.bytes()),
-            ("schema", b"\"ledger-operation-receipt/2\""),
-            ("schema_bundle_digest", bundle.bytes()),
-        ],
-        1048576,
+    let (receipt, receipt_ref) = receipt(
+        key_bytes.bytes(),
+        at.bytes(),
+        sequence.bytes(),
+        &manifest_ref,
+        result_kind.bytes(),
+        results_bytes.bytes(),
+        evidence,
         session,
     )?;
     // Store operands borrow the SAME candidate, never reparsed output or a
@@ -945,7 +864,7 @@ fn frame_inner<'a>(
         candidate,
         identity: key_bytes,
         kind,
-        request_hash: request_hash_text,
+        request_hash: request::text(evidence, "request_hash", session)?,
         sequence: sequence_number,
         accepted_at_us: accepted_at.micros(),
         documents,
@@ -958,4 +877,183 @@ fn frame_inner<'a>(
         receipt_ref,
         members,
     })
+}
+
+fn sequence_string(sequence: i64, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+    session
+        .semantic_work()
+        .arithmetic(Op::Compare, &[&sequence.into(), &1i64.into()])
+        .map_err(core_error)?;
+    require(sequence >= 1, "INTEGRITY_FAILURE")?;
+    // Canonical decimal formatting is fixed-width stack work, not an unleased
+    // dynamic formatter. The accepted profile sequence is at most100,000.
+    session
+        .semantic_work()
+        .arithmetic(Op::Compare, &[&sequence.into(), &100000i64.into()])
+        .map_err(core_error)?;
+    require(sequence <= 100000, "INTEGRITY_FAILURE")?;
+    let mut digits = [0u8; 6];
+    let mut value = sequence as u64;
+    let mut start = 6;
+    loop {
+        session
+            .semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&value.into(), &10u64.into()])
+            .map_err(core_error)?;
+        let digit = value % 10;
+        session
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&start.into(), &1usize.into()])
+            .map_err(core_error)?;
+        start -= 1;
+        session
+            .semantic_work()
+            .arithmetic(Op::Add, &[&digit.into(), &b'0'.into()])
+            .map_err(core_error)?;
+        session.semantic_work().write_bytes(1).map_err(core_error)?;
+        digits[start] = b'0' + digit as u8;
+        session
+            .semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&value.into(), &10u64.into()])
+            .map_err(core_error)?;
+        value /= 10;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&value.into(), &0u64.into()])
+            .map_err(core_error)?;
+        if value == 0 {
+            break;
+        }
+    }
+    literal(
+        std::str::from_utf8(&digits[start..]).map_err(|_| ServiceError::IntegrityFailure)?,
+        session,
+    )
+}
+
+// SAME receipt2 recipe shared by economic and administrative framing.
+fn receipt(
+    key_bytes: &[u8],
+    at: &[u8],
+    sequence: &[u8],
+    manifest_ref: &WireRef,
+    result_kind: &[u8],
+    results: &[u8],
+    evidence: &Value,
+    session: &mut OriginalAuditSession,
+) -> Result<(AuditedBytes, WireRef)> {
+    let resolution = super::request_wrapper::field(evidence, "descriptor_resolution", session)?;
+    let manifest_digest = literal(&manifest_ref.reference.digest, session)?;
+    let mut receipt_fields = [
+        ("accepted_at", at),
+        ("commit_sequence", sequence),
+        ("descriptor_closure_digest", b"".as_slice()),
+        ("key", key_bytes),
+        ("manifest_hash", manifest_digest.bytes()),
+        (
+            "normalization_profile",
+            b"\"ledger-operation-normalization/2\"",
+        ),
+        ("original_request_bytes_sha256", b""),
+        ("request_hash", b""),
+        (
+            "request_hash_profile",
+            b"\"bean-counter/operation-request/2\"",
+        ),
+        ("result_kind", result_kind),
+        ("result_refs", results),
+        ("schema", b"\"ledger-operation-receipt/2\""),
+        ("schema_bundle_digest", b""),
+    ];
+    let descriptor_digest = literal(
+        super::request_wrapper::text(resolution, "closure_digest", session)?,
+        session,
+    )?;
+    let raw_digest = literal(
+        super::request_wrapper::text(evidence, "original_request_bytes_sha256", session)?,
+        session,
+    )?;
+    let request_hash_text = super::request_wrapper::text(evidence, "request_hash", session)?;
+    let request_hash = literal(request_hash_text, session)?;
+    let bundle = literal(
+        super::request_wrapper::text(evidence, "schema_bundle_digest", session)?,
+        session,
+    )?;
+    receipt_fields[2].1 = descriptor_digest.bytes();
+    receipt_fields[6].1 = raw_digest.bytes();
+    receipt_fields[7].1 = request_hash.bytes();
+    receipt_fields[12].1 = bundle.bytes();
+    let unhashed = object(&receipt_fields, 1048576, session)?;
+    let receipt_hash = hash(
+        b"bean-counter/operation-receipt/2\0",
+        &[unhashed.bytes()],
+        session,
+    )?;
+    drop(unhashed);
+    let receipt_ref = owned_reference(
+        "workflow-receipt",
+        "wreceipt_",
+        &receipt_hash,
+        &receipt_hash,
+        session,
+    )?;
+    let receipt_digest = literal(&receipt_ref.reference.digest, session)?;
+    let receipt = object(
+        &[
+            ("accepted_at", at),
+            ("commit_sequence", sequence),
+            ("descriptor_closure_digest", descriptor_digest.bytes()),
+            ("key", key_bytes),
+            ("manifest_hash", manifest_digest.bytes()),
+            (
+                "normalization_profile",
+                b"\"ledger-operation-normalization/2\"",
+            ),
+            ("original_request_bytes_sha256", raw_digest.bytes()),
+            ("receipt_hash", receipt_digest.bytes()),
+            ("request_hash", request_hash.bytes()),
+            (
+                "request_hash_profile",
+                b"\"bean-counter/operation-request/2\"",
+            ),
+            ("result_kind", result_kind),
+            ("result_refs", results),
+            ("schema", b"\"ledger-operation-receipt/2\""),
+            ("schema_bundle_digest", bundle.bytes()),
+        ],
+        1048576,
+        session,
+    )?;
+    Ok((receipt, receipt_ref))
+}
+
+mod administrative;
+pub(super) use administrative::frame_party;
+
+#[cfg(test)]
+mod request_framing_tests {
+    use super::*;
+    #[test]
+    fn request_base64_quoting_keeps_raw_domain_cap_and_owner() {
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let baseline = arena.usage().unwrap().live_bytes;
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let raw = vec![b' '; 262144];
+        let quoted = raw_request_base64(&raw, &mut session).unwrap();
+        assert!(quoted.bytes().len() > 262144);
+        let parsed = session
+            .parse_representation(quoted.bytes(), RepresentationKind::Record)
+            .unwrap();
+        let decoded = session
+            .decode_base64_representation(
+                parsed.value().as_str().unwrap(),
+                RepresentationKind::OriginalRequest,
+            )
+            .unwrap();
+        assert_eq!(decoded.bytes(), raw);
+        drop(decoded);
+        drop(parsed);
+        drop(quoted);
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+    }
 }

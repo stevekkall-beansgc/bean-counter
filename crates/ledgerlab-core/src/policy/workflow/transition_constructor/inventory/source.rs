@@ -71,6 +71,16 @@ use super::super::{
 use super::{check::*, evidence};
 use crate::Result;
 use serde_json::{Value, json};
+fn ordered_unique(m:&mut CoreMeter,values:&[Value])->Result<()> {
+    super::binding::ordered(m,values)?;
+    // Strict canonical byte order already proves pairwise distinctness on
+    // these selected JSON values. Repeating all pairs cannot add a valid
+    // rejection: an equal pair cannot occur anywhere in a strictly increasing
+    // sequence. Preserve the original v1 paid schedule at its old entry.
+    if m.resource_vector_usage().is_none(){set(m,values)?;}
+    Ok(())
+}
+
 pub(in crate::policy::workflow::transition_constructor) fn current_header(
     m: &mut CoreMeter,
     c: &DraftContextData,
@@ -91,8 +101,7 @@ pub(in crate::policy::workflow::transition_constructor) fn current_sets(
     ] {
         let values = invoke!(shape::array, m, grant, field)?;
         bounds(m, values.len(), minimum, maximum)?;
-        super::binding::ordered(m, values)?;
-        set(m, values)?;
+        ordered_unique(m,values)?;
     }
     Ok(())
 }
@@ -103,8 +112,7 @@ pub(in crate::policy::workflow::transition_constructor) fn selector_subset(
     maximum: usize,
 ) -> Result<()> {
     bounds(m, narrowed.len(), 0, maximum)?;
-    super::binding::ordered(m, narrowed)?;
-    set(m, narrowed)?;
+    ordered_unique(m,narrowed)?;
     for selected in narrowed {
         m.visit("grant.narrowed_selector")?;
         // The selected original profile admits explicit name selectors. A
@@ -112,8 +120,7 @@ pub(in crate::policy::workflow::transition_constructor) fn selector_subset(
         shape::closed(m, selected, &["names"], &[])?;
         let names = invoke!(shape::array, m, selected, "names")?;
         bounds(m, names.len(), 1, 64)?;
-        super::binding::ordered(m, names)?;
-        set(m, names)?;
+        ordered_unique(m,names)?;
         for name in names {
             let value = name
                 .as_str()
@@ -283,8 +290,7 @@ fn initial_data(
             _ => (1, 8),
         };
         invoke!(bounds, m, a.len(), min, max)?;
-        super::binding::ordered(m, a)?;
-        invoke!(set, m, a)?;
+        ordered_unique(m,a)?;
         for v in a {
             m.visit("inventory.set_value")?;
             let text = v.as_str().ok_or_else(|| shape::fail("source set string"))?;
@@ -319,8 +325,7 @@ fn initial_data(
             0,
             if k == "link_selectors" { 32 } else { 64 }
         )?;
-        super::binding::ordered(m, a)?;
-        invoke!(set, m, a)?;
+        ordered_unique(m,a)?;
         for selector in a {
             m.visit("inventory.selector")?;
             if selector.get("namespace").is_some() {
@@ -332,8 +337,7 @@ fn initial_data(
             invoke!(shape::closed, m, selector, &["names"], &[])?;
             let names = invoke!(shape::array, m, selector, "names")?;
             invoke!(bounds, m, names.len(), 1, 64)?;
-            super::binding::ordered(m, names)?;
-            invoke!(set, m, names)?;
+            ordered_unique(m,names)?;
             for name in names {
                 m.visit("inventory.selector_name")?;
                 let name = name

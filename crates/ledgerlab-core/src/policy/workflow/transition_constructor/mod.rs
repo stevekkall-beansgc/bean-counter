@@ -54,3 +54,6 @@ pub use candidate::{
     EconomicCandidate, FinancialHeadKey, HeadEffect, LinkEffect, ObservationAssociation,
     PermanentClaimKey, ProviderAccountIdentity,
 };
+
+mod source_projection;
+pub use source_projection::{NominatedSourceFrame,NominatedSourceGrant,validate_app_nominated_sources};

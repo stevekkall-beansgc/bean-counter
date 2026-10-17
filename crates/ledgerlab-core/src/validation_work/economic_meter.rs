@@ -75,15 +75,38 @@ pub struct Meter {
     original_owner: Option<Arc<AtomicU8>>,
     original_child_token: Option<AuditChildToken>,
     resource_v2: bool,
+    representation_arena: Option<crate::canonical::audit_arena::AuditArena>,
     cancellation: Option<crate::canonical::audit_arena::AuditCancellation>,
     resource_vector: Option<super::original_audit::representation::ResourceLedger>,
     phase: Phase,
     usage: Usage,
     resolved: BTreeMap<String, Vec<u8>>,
+    borrowed_inventory_claimed: bool,
     #[cfg(test)]
     diagnostic: Option<Diagnostic>,
 }
 impl Meter {
+    /// Fixed-v2 owner wiring only. This is the SAME whole-attempt arena, not a
+    /// replacement/reset factory or an authorization capability.
+    pub(in crate::validation_work) fn attach_representation_arena(
+        &mut self,
+        arena: &crate::canonical::audit_arena::AuditArena,
+    ) -> Result<()> {
+        if !self.resource_v2 || self.representation_arena.is_some() {
+            self.fail_original();
+            return Err(Error::new(
+                "PROGRAM_BUDGET_EXCEEDED",
+                "representation arena owner already fixed",
+            ));
+        }
+        self.representation_arena = Some(arena.shared_handle());
+        Ok(())
+    }
+    pub(crate) fn representation_arena(&self) -> Option<crate::canonical::audit_arena::AuditArena> {
+        self.representation_arena
+            .as_ref()
+            .map(|a| a.shared_handle())
+    }
     /// A lower caller budget may refuse computation; it cannot widen the fixed
     /// profile ceiling or qualify any draft for persistence.
     pub fn new(maximum: u64) -> Result<Self> {
@@ -100,10 +123,12 @@ impl Meter {
             original_owner: None,
             original_child_token: None,
             resource_v2: false,
+            representation_arena: None,
             cancellation: None,
             resource_vector: None,
             phase: Phase::ParseNormalize,
             resolved: BTreeMap::new(),
+            borrowed_inventory_claimed: false,
             #[cfg(test)]
             diagnostic: None,
             usage: Usage {
@@ -165,6 +190,10 @@ impl Meter {
         inner.original_owner = Some(Arc::clone(owner));
         inner.original_child_token = Some(AuditChildToken(Arc::clone(owner)));
         inner.resource_v2 = self.resource_v2;
+        inner.representation_arena = self
+            .representation_arena
+            .as_ref()
+            .map(|a| a.shared_handle());
         inner.cancellation = self.cancellation.clone();
         inner.resource_vector = self.resource_vector.take();
         self.original_inner_started = true;
@@ -203,6 +232,10 @@ impl Meter {
         inner.original_owner = Some(Arc::clone(owner));
         inner.original_child_token = Some(AuditChildToken(Arc::clone(owner)));
         inner.resource_v2 = self.resource_v2;
+        inner.representation_arena = self
+            .representation_arena
+            .as_ref()
+            .map(|a| a.shared_handle());
         inner.cancellation = self.cancellation.clone();
         inner.resource_vector = self.resource_vector.take();
         self.original_inner_started = true;
@@ -324,10 +357,12 @@ impl Meter {
             original_owner: None,
             original_child_token: None,
             resource_v2: false,
+            representation_arena: None,
             cancellation: None,
             resource_vector: None,
             phase: Phase::Compile,
             resolved: BTreeMap::new(),
+            borrowed_inventory_claimed: false,
             #[cfg(test)]
             diagnostic: None,
             usage: Usage {
@@ -378,6 +413,50 @@ impl Meter {
             return Err(Error::new("PROGRAM_BUDGET_EXCEEDED", "raw request bytes"));
         }
         self.usage.raw_request_bytes = raw.len() as u64;
+        Ok(())
+    }
+    /// Exactly one invocation-local borrowed inventory owns uniqueness. This
+    /// changes neither semantic work nor quota and cannot be caller-selected.
+    pub(crate) fn claim_borrowed_inventory(&mut self) -> Result<()> {
+        self.visit("resolve.borrowed_inventory")?;
+        if !self.resource_v2
+            || self.domain != BudgetDomain::Draft
+            || self.borrowed_inventory_claimed
+        {
+            self.fail_original();
+            return Err(Error::new(
+                "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+                "borrowed inventory ownership",
+            ));
+        }
+        self.borrowed_inventory_claimed = true;
+        Ok(())
+    }
+    /// Only Records' unique immutable operand table calls this, once per body
+    /// before consumption. The bytes are real borrowed bytes, not numeric work
+    /// credits, caller authority or a cross-invocation cache. Exact frame/hash
+    /// validation remains mandatory in the same table before any candidate.
+    pub(crate) fn borrowed_body(&mut self, bytes: &[u8]) -> Result<()> {
+        self.visit("resolve.unique_borrowed_body")?;
+        if !self.resource_v2 || !self.borrowed_inventory_claimed {
+            self.fail_original();
+            return Err(Error::new(
+                "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+                "no borrowed inventory owner",
+            ));
+        }
+        let old_bytes = self.usage.unique_resolved_bytes as usize;
+        let old_refs = self.usage.unique_resolved_refs;
+        let next = crate::validation_work::usize_add(self, old_bytes, bytes.len())?;
+        if crate::validation_work::compare(self, next, 8_388_608usize)?.is_gt()
+            || !crate::validation_work::compare(self, old_refs, 4096u64)?.is_lt()
+        {
+            self.fail_original();
+            return Err(Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved closure"));
+        }
+        let refs = crate::validation_work::usize_add(self, old_refs as usize, 1)?;
+        self.usage.unique_resolved_bytes = next as u64;
+        self.usage.unique_resolved_refs = refs as u64;
         Ok(())
     }
     pub fn resolved_body(&mut self, identity: &str, bytes: &[u8]) -> Result<()> {
