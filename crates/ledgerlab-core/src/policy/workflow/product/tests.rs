@@ -251,26 +251,30 @@ fn product_bounds_closed_shapes_and_unicode_label_bytes() {
     wrong["activities"][0]["funding_leg"] = Value::Null;
     assert!(parse(&wrong).is_err());
     value = source();
-    value["activities"] = json!((0..16)
-        .map(|i| {
-            let mut activity = source()["activities"][0].clone();
-            activity["name"] = json!(format!("fixture.report:a{i}"));
-            activity
-        })
-        .collect::<Vec<_>>());
+    value["activities"] = json!(
+        (0..16)
+            .map(|i| {
+                let mut activity = source()["activities"][0].clone();
+                activity["name"] = json!(format!("fixture.report:a{i}"));
+                activity
+            })
+            .collect::<Vec<_>>()
+    );
     parse(&value).unwrap();
     let mut overflow = source()["activities"][0].clone();
     overflow["name"] = json!("fixture.report:overflow");
     value["activities"].as_array_mut().unwrap().push(overflow);
     error(parse(&value), "PRODUCT_LIMIT");
     value = source();
-    value["units"] = json!((0..16)
-        .map(|i| if i == 0 {
-            source()["units"][0].clone()
-        } else {
-            unit(&format!("fixture.report:u{i}"), "fixture.report:count")
-        })
-        .collect::<Vec<_>>());
+    value["units"] = json!(
+        (0..16)
+            .map(|i| if i == 0 {
+                source()["units"][0].clone()
+            } else {
+                unit(&format!("fixture.report:u{i}"), "fixture.report:count")
+            })
+            .collect::<Vec<_>>()
+    );
     parse(&value).unwrap();
     value["units"]
         .as_array_mut()
@@ -278,9 +282,11 @@ fn product_bounds_closed_shapes_and_unicode_label_bytes() {
         .push(unit("fixture.report:overflow", "fixture.report:count"));
     error(parse(&value), "PRODUCT_LIMIT");
     value = source();
-    value["links"] = json!((0..32)
-        .map(|i| link(&format!("fixture.report:l{i}")))
-        .collect::<Vec<_>>());
+    value["links"] = json!(
+        (0..32)
+            .map(|i| link(&format!("fixture.report:l{i}")))
+            .collect::<Vec<_>>()
+    );
     parse(&value).unwrap();
     value["links"]
         .as_array_mut()
@@ -501,10 +507,12 @@ fn executing_key_and_selector_helpers_do_not_hide_membership() {
     value["links"] = json!([link("fixture.report:previous")]);
     let product = parse(&value).unwrap();
     let mut key_work = CountingWork::new(2);
-    assert!(product
-        .activity_with_work("fixture.report:completed", &mut key_work)
-        .unwrap()
-        .is_some());
+    assert!(
+        product
+            .activity_with_work("fixture.report:completed", &mut key_work)
+            .unwrap()
+            .is_some()
+    );
     assert_eq!(key_work.visits, [Visit::RefLookup, Visit::MemberCompare]);
     let mut short_key = CountingWork::new(1);
     error(
@@ -544,4 +552,78 @@ fn executing_key_and_selector_helpers_do_not_hide_membership() {
         ),
         "TEST_EXHAUSTED",
     );
+}
+
+#[test]
+fn complete_source_product_preserves_links_schema_clones_and_terminal_refusal() {
+    let schemas = [facts()];
+    let mut raw = source();
+    raw["version"] = json!("0001");
+    raw["labels"]["description"] = json!("Unicode ℓ and an escaped \" label");
+    raw["links"] = json!([link("fixture.report:prior")]);
+    raw["links"][0]["maximum"] = json!("0001");
+    let bound =
+        Product::normalization_payload_bound_with_work(&raw, &schemas, &mut NoopValidationWork)
+            .unwrap();
+    assert!(
+        bound
+            > schemas[0]
+                .clone_payload_bound_with_work(&mut NoopValidationWork)
+                .unwrap()
+    );
+    let old =
+        Product::from_value_with_work(raw.clone(), &schemas, &mut NoopValidationWork).unwrap();
+    let complete =
+        Product::from_value_complete_with_work(raw.clone(), &schemas, &mut NoopValidationWork)
+            .unwrap();
+    assert_eq!(
+        old.canonical_bytes().unwrap(),
+        complete.canonical_bytes().unwrap()
+    );
+    assert_eq!(
+        old.fact_schema(schemas[0].document_id().unwrap().as_str())
+            .unwrap()
+            .canonical_value(),
+        complete
+            .fact_schema(schemas[0].document_id().unwrap().as_str())
+            .unwrap()
+            .canonical_value()
+    );
+    assert_eq!(
+        old.link("fixture.report:prior").unwrap().maximum(),
+        complete.link("fixture.report:prior").unwrap().maximum()
+    );
+    for selector in [0, 1] {
+        let mut invalid = raw.clone();
+        if selector == 0 {
+            invalid["fact_schemas"][0]["digest"] = json!(format!("sha256:{}", "0".repeat(64)));
+        } else {
+            let duplicate = invalid["fact_schemas"][0].clone();
+            invalid["fact_schemas"]
+                .as_array_mut()
+                .unwrap()
+                .push(duplicate);
+        }
+        let old = Product::from_value_with_work(invalid.clone(), &schemas, &mut NoopValidationWork)
+            .unwrap_err();
+        let new =
+            Product::from_value_complete_with_work(invalid, &schemas, &mut NoopValidationWork)
+                .unwrap_err();
+        assert_eq!(old.code, new.code);
+    }
+    // Present null and malformed ratio input are refused BEFORE ratio serde,
+    // exactly as the selected compiler's preexisting unit-terminal check.
+    for normalization in [
+        Value::Null,
+        json!({"to":"fixture.report:page","factor":{"numerator":[],"denominator":"0"}}),
+    ] {
+        let mut invalid = raw.clone();
+        invalid["units"][0]["normalization"] = normalization;
+        assert_eq!(
+            Product::from_value_complete_with_work(invalid, &schemas, &mut NoopValidationWork)
+                .unwrap_err()
+                .code,
+            "UNSUPPORTED_SCHEMA_PROFILE"
+        );
+    }
 }

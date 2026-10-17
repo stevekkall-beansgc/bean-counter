@@ -1,5 +1,6 @@
 //! Reusable symbolic template validation. Agreement slot instantiation and
 //! financial authority are separate, and cannot be inferred from this type.
+mod source;
 use super::facts::{
     counter_with_work, map_lookup, member_compare, name_with_work, reject_null_with_work,
 };
@@ -154,11 +155,41 @@ impl SlotTemplate {
         previous: Option<&Self>,
         work: &mut dyn ValidationWork,
     ) -> Result<Self> {
+        Self::from_value_mode(value, previous, work, false)
+    }
+    pub(crate) fn normalization_payload_bound_with_work(
+        value: &Value,
+        previous: Option<&Self>,
+        work: &mut dyn ValidationWork,
+    ) -> Result<usize> {
+        source::bound(value, previous, work)
+    }
+    pub(crate) fn from_value_complete_with_work(
+        value: Value,
+        previous: Option<&Self>,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        Self::from_value_mode(value, previous, work, true)
+    }
+    fn from_value_mode(
+        value: Value,
+        previous: Option<&Self>,
+        work: &mut dyn ValidationWork,
+        complete: bool,
+    ) -> Result<Self> {
+        if complete {
+            source::decode(&value, work)?;
+        }
         reject_null_with_work(&value, work)?;
-        let mut dto: TemplateDto =
-            serde_json::from_value(value).map_err(|error| fail("SCHEMA", &error.to_string()))?;
+        let mut dto: TemplateDto = serde_json::from_value(value).map_err(|error| {
+            if complete {
+                Error::new("SCHEMA", error.to_string())
+            } else {
+                fail("SCHEMA", &error.to_string())
+            }
+        })?;
         work.visit(Visit::Constraint)?;
-        if dto.schema != SCHEMA {
+        if super::facts::source::different(&dto.schema, &SCHEMA, work, complete)? {
             return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "slot-template schema"));
         }
         name_with_work(&dto.template_id, work)?;
@@ -173,12 +204,21 @@ impl SlotTemplate {
         {
             return Err(fail("TEMPLATE_LIMIT", "component/family cardinality"));
         }
-        vw::try_sort_by(&mut dto.components, work, |a, b, w| {
-            member_compare(&a.key, &b.key, w)
-        })?;
-        vw::try_sort_by(&mut dto.families, work, |a, b, w| {
-            member_compare(&a.key, &b.key, w)
-        })?;
+        if complete {
+            super::facts::source::sort(&mut dto.components, work, |a, b, w| {
+                super::facts::source::text_cmp(&a.key, &b.key, w)
+            })?;
+            super::facts::source::sort(&mut dto.families, work, |a, b, w| {
+                super::facts::source::text_cmp(&a.key, &b.key, w)
+            })?;
+        } else {
+            vw::try_sort_by(&mut dto.components, work, |a, b, w| {
+                member_compare(&a.key, &b.key, w)
+            })?;
+            vw::try_sort_by(&mut dto.families, work, |a, b, w| {
+                member_compare(&a.key, &b.key, w)
+            })?;
+        }
         let mut components: BTreeMap<String, TemplateComponent> = BTreeMap::new();
         let mut families: BTreeMap<String, TemplateFamily> = BTreeMap::new();
         for component in &mut dto.components {
@@ -186,19 +226,33 @@ impl SlotTemplate {
             name_with_work(&component.key, work)?;
             name_with_work(&component.root_key, work)?;
             name_with_work(&component.role_slot, work)?;
-            aliases(&mut component.aliases, work)?;
+            if complete {
+                source::aliases(&mut component.aliases, work)?;
+            } else {
+                aliases(&mut component.aliases, work)?;
+            }
             work.visit(Visit::Constraint)?;
-            if map_lookup(&components, &component.key, work)?.is_some() {
+            if super::facts::source::lookup(&components, &component.key, work, complete)?.is_some()
+            {
                 return Err(fail("TEMPLATE_DUPLICATE_KEY", "component key"));
             }
-            components.insert(component.key.clone(), component.clone().into());
+            if complete {
+                super::facts::source::prepare_insert(&components, &component.key, work)?;
+                components.insert(
+                    super::facts::source::text(&component.key, work)?,
+                    source::component(component, work)?,
+                );
+            } else {
+                components.insert(component.key.clone(), component.clone().into());
+            }
         }
         for component in components.values() {
             work.visit(Visit::Element)?;
-            let root = map_lookup(&components, &component.root_key, work)?
-                .ok_or_else(|| fail("TEMPLATE_MISSING_ROOT", "component root"))?;
+            let root =
+                super::facts::source::lookup(&components, &component.root_key, work, complete)?
+                    .ok_or_else(|| fail("TEMPLATE_MISSING_ROOT", "component root"))?;
             work.visit(Visit::Constraint)?;
-            if root.root_key != root.key {
+            if super::facts::source::different(&root.root_key, &root.key, work, complete)? {
                 return Err(fail("TEMPLATE_ROOT_CHAIN", "root must be direct self-root"));
             }
             work.visit(Visit::Constraint)?;
@@ -213,14 +267,31 @@ impl SlotTemplate {
             name_with_work(&family.key, work)?;
             name_with_work(&family.target_component_key, work)?;
             name_with_work(&family.role_slot, work)?;
-            aliases(&mut family.aliases, work)?;
+            if complete {
+                source::aliases(&mut family.aliases, work)?;
+            } else {
+                aliases(&mut family.aliases, work)?;
+            }
             work.visit(Visit::Constraint)?;
-            if map_lookup(&families, &family.key, work)?.is_some() {
+            if super::facts::source::lookup(&families, &family.key, work, complete)?.is_some() {
                 return Err(fail("TEMPLATE_DUPLICATE_KEY", "family key"));
             }
-            families.insert(family.key.clone(), family.clone().into());
-            let target = map_lookup(&components, &family.target_component_key, work)?
-                .ok_or_else(|| fail("TEMPLATE_MISSING_ROOT", "family target"))?;
+            if complete {
+                super::facts::source::prepare_insert(&families, &family.key, work)?;
+                families.insert(
+                    super::facts::source::text(&family.key, work)?,
+                    source::family(family, work)?,
+                );
+            } else {
+                families.insert(family.key.clone(), family.clone().into());
+            }
+            let target = super::facts::source::lookup(
+                &components,
+                &family.target_component_key,
+                work,
+                complete,
+            )?
+            .ok_or_else(|| fail("TEMPLATE_MISSING_ROOT", "family target"))?;
             work.visit(Visit::Constraint)?;
             if target.root_key != target.key {
                 return Err(fail(
@@ -229,7 +300,12 @@ impl SlotTemplate {
                 ));
             }
             work.visit(Visit::Constraint)?;
-            if target.role_slot != family.role_slot {
+            if super::facts::source::different(
+                &target.role_slot,
+                &family.role_slot,
+                work,
+                complete,
+            )? {
                 return Err(fail("TEMPLATE_FAMILY_TARGET", "family role mismatch"));
             }
         }
@@ -237,22 +313,23 @@ impl SlotTemplate {
         match (initial, &dto.previous, previous) {
             (true, None, None) => (),
             (true, _, _) => {
-                return Err(fail("TEMPLATE_VERSION", "initial version forbids previous"))
+                return Err(fail("TEMPLATE_VERSION", "initial version forbids previous"));
             }
             (false, Some(reference), Some(prior)) => {
                 work.visit(Visit::Constraint)?;
-                if reference.kind != "workflow-slot-template"
-                    || reference.id != prior.document_id_with_work(work)?
-                    || reference.digest != prior.content_digest_with_work(work)?
-                {
+                if !source::reference_matches(reference, prior, work, complete)? {
                     return Err(fail(
                         "TEMPLATE_PREVIOUS_MISMATCH",
                         "exact previous reference required",
                     ));
                 }
                 work.visit(Visit::Constraint)?;
-                if dto.template_id != prior.template_id
-                    || vw::compare(work, version, prior.version)? != Ordering::Greater
+                if super::facts::source::different(
+                    &dto.template_id,
+                    &prior.template_id,
+                    work,
+                    complete,
+                )? || vw::compare(work, version, prior.version)? != Ordering::Greater
                 {
                     return Err(fail(
                         "TEMPLATE_VERSION",
@@ -261,12 +338,22 @@ impl SlotTemplate {
                 }
                 for old in prior.components.values() {
                     work.visit(Visit::Element)?;
-                    let new = map_lookup(&components, &old.key, work)?
+                    let new = super::facts::source::lookup(&components, &old.key, work, complete)?
                         .ok_or_else(|| fail("TEMPLATE_CONTINUITY", "previous component removed"))?;
                     work.visit(Visit::Constraint)?;
                     if new.book != old.book
-                        || new.root_key != old.root_key
-                        || new.role_slot != old.role_slot
+                        || super::facts::source::different(
+                            &new.root_key,
+                            &old.root_key,
+                            work,
+                            complete,
+                        )?
+                        || super::facts::source::different(
+                            &new.role_slot,
+                            &old.role_slot,
+                            work,
+                            complete,
+                        )?
                     {
                         return Err(fail(
                             "TEMPLATE_CONTINUITY",
@@ -276,12 +363,20 @@ impl SlotTemplate {
                 }
                 for old in prior.families.values() {
                     work.visit(Visit::Element)?;
-                    let new = map_lookup(&families, &old.key, work)?
+                    let new = super::facts::source::lookup(&families, &old.key, work, complete)?
                         .ok_or_else(|| fail("TEMPLATE_CONTINUITY", "previous family removed"))?;
                     work.visit(Visit::Constraint)?;
-                    if new.target_component_key != old.target_component_key
-                        || new.role_slot != old.role_slot
-                    {
+                    if super::facts::source::different(
+                        &new.target_component_key,
+                        &old.target_component_key,
+                        work,
+                        complete,
+                    )? || super::facts::source::different(
+                        &new.role_slot,
+                        &old.role_slot,
+                        work,
+                        complete,
+                    )? {
                         return Err(fail(
                             "TEMPLATE_CONTINUITY",
                             "previous family semantics changed",
@@ -293,10 +388,14 @@ impl SlotTemplate {
                 return Err(fail(
                     "TEMPLATE_DEPENDENCY_MISSING",
                     "successor requires exact retained previous template",
-                ))
+                ));
             }
         }
-        let body = serde_json::to_value(&dto).map_err(|error| fail("JSON", &error.to_string()))?;
+        let body = if complete {
+            source::body(&dto, work)?
+        } else {
+            serde_json::to_value(&dto).map_err(|error| fail("JSON", &error.to_string()))?
+        };
         Ok(Self {
             body,
             template_id: dto.template_id,

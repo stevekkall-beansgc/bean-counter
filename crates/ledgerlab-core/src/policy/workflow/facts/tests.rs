@@ -592,19 +592,52 @@ fn attested_subset_uses_same_field_type_without_inventing_required_facts() {
          "provenance":{"kind":"attested","source_slot":"example:source","evidence_kind":"outcome"}},
         field("example:other", true, json!({"kind":"boolean"}))
     ]));
-    error(s.normalize(br#"{"example:attested":"example:a"}"#), "FACT_REQUIRED");
+    error(
+        s.normalize(br#"{"example:attested":"example:a"}"#),
+        "FACT_REQUIRED",
+    );
     let value = json!("example:a");
     let mut work = CountingWork::new(usize::MAX);
-    let result = s.normalize_attested_field_complete_with_work("example:attested", &value, &mut work).unwrap();
+    let result = s
+        .normalize_attested_field_complete_with_work("example:attested", &value, &mut work)
+        .unwrap();
     assert_eq!(result, FactValue::Enum("example:a".into()));
     assert_eq!(work.written, "example:a".len());
     let mut exact = CountingWork::new(work.used);
-    assert_eq!(s.normalize_attested_field_complete_with_work("example:attested", &value, &mut exact).unwrap(), result);
+    assert_eq!(
+        s.normalize_attested_field_complete_with_work("example:attested", &value, &mut exact)
+            .unwrap(),
+        result
+    );
     let mut short = CountingWork::new(work.used - 1);
-    error(s.normalize_attested_field_complete_with_work("example:attested", &value, &mut short), "TEST_EXHAUSTED");
-    error(s.normalize_attested_field_complete_with_work("example:other", &json!(true), &mut NoopValidationWork), "FACT_PROVENANCE");
-    error(s.normalize_attested_field_complete_with_work("example:unknown", &value, &mut NoopValidationWork), "FACT_UNKNOWN");
-    error(s.normalize_attested_field_complete_with_work("example:attested", &json!("example:wrong"), &mut NoopValidationWork), "FACT_RANGE");
+    error(
+        s.normalize_attested_field_complete_with_work("example:attested", &value, &mut short),
+        "TEST_EXHAUSTED",
+    );
+    error(
+        s.normalize_attested_field_complete_with_work(
+            "example:other",
+            &json!(true),
+            &mut NoopValidationWork,
+        ),
+        "FACT_PROVENANCE",
+    );
+    error(
+        s.normalize_attested_field_complete_with_work(
+            "example:unknown",
+            &value,
+            &mut NoopValidationWork,
+        ),
+        "FACT_UNKNOWN",
+    );
+    error(
+        s.normalize_attested_field_complete_with_work(
+            "example:attested",
+            &json!("example:wrong"),
+            &mut NoopValidationWork,
+        ),
+        "FACT_RANGE",
+    );
 }
 
 #[test]
@@ -660,4 +693,68 @@ fn complete_normalization_accounts_attested_vector_relocation_and_scalar_bodies(
     assert_eq!(result.body, legacy.body);
     assert_eq!(result.values, legacy.values);
     assert!(full.written > old.written);
+}
+
+#[test]
+fn complete_source_schema_preserves_scalar_bytes_and_rejections() {
+    let raw = json!({"schema":"ledger-workflow-fact-schema/1","schema_id":"example:all","version":"0001",
+        "normalization":"ledger-facts-normalization/1","fields":[
+        field("example:time",false,json!({"kind":"timestamp","min":"2020-01-01T00:00:00Z","max":"2030-01-01T00:00:00+00:00"})),
+        field("example:string",false,json!({"kind":"string","min_bytes":"00","max_bytes":"001024"})),
+        field("example:enum",true,json!({"kind":"enum","values":["example:z","example:a"]})),
+        field("example:integer",true,json!({"kind":"integer","min":"-0010","max":"000100","unit":"example:unit"})),
+        field("example:decimal",false,json!({"kind":"decimal","min":"-01.20","max":"002.500","max_scale":"0003"})),
+        {"name":"example:attested","required":true,"type":{"kind":"boolean"},"provenance":{"kind":"attested","source_slot":"example:source","evidence_kind":"outcome"}}
+    ]});
+    let bound =
+        FactSchema::normalization_payload_bound_with_work(&raw, &mut NoopValidationWork).unwrap();
+    assert!(bound > 0);
+    let old = FactSchema::from_value_with_work(raw.clone(), &mut NoopValidationWork).unwrap();
+    let complete =
+        FactSchema::from_value_complete_with_work(raw.clone(), &mut NoopValidationWork).unwrap();
+    assert_eq!(
+        old.canonical_bytes().unwrap(),
+        complete.canonical_bytes().unwrap()
+    );
+    assert_eq!(
+        old.content_digest().unwrap(),
+        complete
+            .content_digest_complete_with_work(&mut NoopValidationWork)
+            .unwrap()
+    );
+    assert_eq!(
+        old.document_id().unwrap(),
+        complete
+            .document_id_complete_with_work(&mut NoopValidationWork)
+            .unwrap()
+    );
+    let cloned = complete
+        .clone_complete_with_work(&mut NoopValidationWork)
+        .unwrap();
+    assert_eq!(old.canonical_value(), cloned.canonical_value());
+
+    let facts =
+        json!({"example:enum":"example:a","example:integer":"0003","example:attested":true});
+    assert_eq!(
+        old.normalize_value_with_work(&facts, &mut NoopValidationWork)
+            .unwrap()
+            .canonical_value(),
+        complete
+            .normalize_value_with_work(&facts, &mut NoopValidationWork)
+            .unwrap()
+            .canonical_value()
+    );
+    for mutate in [0, 1, 2] {
+        let mut invalid = raw.clone();
+        match mutate {
+            0 => invalid["fields"][2]["type"]["values"] = json!(["example:a", "example:a"]),
+            1 => invalid["fields"][5]["provenance"]["extra"] = json!(true),
+            _ => invalid["fields"][4]["type"]["max_scale"] = json!("19"),
+        }
+        let old =
+            FactSchema::from_value_with_work(invalid.clone(), &mut NoopValidationWork).unwrap_err();
+        let new = FactSchema::from_value_complete_with_work(invalid, &mut NoopValidationWork)
+            .unwrap_err();
+        assert_eq!(old.code, new.code);
+    }
 }

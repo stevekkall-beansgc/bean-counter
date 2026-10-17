@@ -1,3 +1,4 @@
+pub(super) mod source;
 use crate::canonical::{self, CanonicalBytes};
 use crate::domain::Timestamp;
 use crate::money::ExactRatio;
@@ -305,6 +306,28 @@ impl FactSchema {
         value: Value,
         work: &mut dyn ValidationWork,
     ) -> Result<Self> {
+        Self::from_value_mode(value, work, false)
+    }
+    pub(crate) fn normalization_payload_bound_with_work(
+        value: &Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<usize> {
+        source::bound(value, work)
+    }
+    pub(crate) fn from_value_complete_with_work(
+        value: Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        Self::from_value_mode(value, work, true)
+    }
+    fn from_value_mode(
+        value: Value,
+        work: &mut dyn ValidationWork,
+        complete: bool,
+    ) -> Result<Self> {
+        if complete {
+            source::decode_work(&value, work)?;
+        }
         reject_null_with_work(&value, work)?;
         // Serde unit variants can ignore extra fields even with
         // deny_unknown_fields. Enforce their closed object dictionaries first.
@@ -318,12 +341,23 @@ impl FactSchema {
                 closed_variant_with_work(field.get("provenance"), true, work)?;
             }
         }
-        let mut dto: SchemaDto =
-            serde_json::from_value(value).map_err(|error| fail("SCHEMA", &error.to_string()))?;
+        let mut dto: SchemaDto = serde_json::from_value(value).map_err(|error| {
+            if complete {
+                Error::new("SCHEMA", error.to_string())
+            } else {
+                fail("SCHEMA", &error.to_string())
+            }
+        })?;
         work.visit(Visit::Constraint)?;
-        if dto.schema != "ledger-workflow-fact-schema/1"
-            || dto.normalization != "ledger-facts-normalization/1"
-        {
+        let unsupported = if complete {
+            !source::text_cmp(&dto.schema, "ledger-workflow-fact-schema/1", work)?.is_eq()
+                || !source::text_cmp(&dto.normalization, "ledger-facts-normalization/1", work)?
+                    .is_eq()
+        } else {
+            dto.schema != "ledger-workflow-fact-schema/1"
+                || dto.normalization != "ledger-facts-normalization/1"
+        };
+        if unsupported {
             return Err(fail(
                 "UNSUPPORTED_SCHEMA_PROFILE",
                 "fact schema/normalization",
@@ -338,21 +372,43 @@ impl FactSchema {
         if vw::compare(work, dto.fields.len(), 64usize)? == Ordering::Greater {
             return Err(fail("FACT_LIMIT", "schema fields"));
         }
-        vw::try_sort_by(&mut dto.fields, work, |a, b, w| {
-            member_compare(&a.name, &b.name, w)
-        })?;
-        let mut names: Vec<String> = Vec::new();
+        if complete {
+            source::sort(&mut dto.fields, work, |a, b, w| {
+                source::text_cmp(&a.name, &b.name, w)
+            })?;
+        } else {
+            vw::try_sort_by(&mut dto.fields, work, |a, b, w| {
+                member_compare(&a.name, &b.name, w)
+            })?;
+        }
+        let mut names: Vec<String> = if complete {
+            Vec::with_capacity(dto.fields.len())
+        } else {
+            Vec::new()
+        };
         let mut fields = Vec::with_capacity(dto.fields.len());
         for field in &mut dto.fields {
             work.visit(Visit::Field)?;
             name_with_work(&field.name, work)?;
             work.visit(Visit::RefLookup)?;
             if let Some(previous) = names.last() {
-                if member_compare(previous, &field.name, work)? == Ordering::Equal {
+                let order = if complete {
+                    source::text_cmp(previous, &field.name, work)?
+                } else {
+                    member_compare(previous, &field.name, work)?
+                };
+                if order == Ordering::Equal {
                     return Err(fail("FACT_SCHEMA", "duplicate field name"));
                 }
             }
-            names.push(field.name.clone());
+            if complete {
+                work.write_bytes(std::mem::size_of::<String>())?;
+            }
+            names.push(if complete {
+                copy_text(&field.name, work)?
+            } else {
+                field.name.clone()
+            });
             let attested = match &field.provenance {
                 ProvenanceDto::Caller => false,
                 ProvenanceDto::Attested {
@@ -406,11 +462,15 @@ impl FactSchema {
                         work.visit(Visit::Element)?;
                         name_with_work(value, work)?;
                     }
-                    canonical::sort_set_with_work(values, work)?;
-                    FactType::Enum(values.iter().cloned().collect())
+                    FactType::Enum(if complete {
+                        source::enum_set(values, work)?
+                    } else {
+                        canonical::sort_set_with_work(values, work)?;
+                        values.iter().cloned().collect()
+                    })
                 }
                 TypeDto::Integer { min, max, unit } => {
-                    number_type_with_work(min, max, unit, 0, true, work)?
+                    number_type_mode(min, max, unit, 0, true, work, complete)?
                 }
                 TypeDto::Decimal {
                     min,
@@ -423,7 +483,7 @@ impl FactSchema {
                         return Err(fail("FACT_SCHEMA", "decimal maximum scale"));
                     }
                     *max_scale = vw::unsigned_string(u128::from(scale), work)?;
-                    number_type_with_work(min, max, unit, scale as u8, false, work)?
+                    number_type_mode(min, max, unit, scale as u8, false, work, complete)?
                 }
                 TypeDto::Timestamp { min, max } => {
                     let low = Timestamp::parse_with_work(min, work)?;
@@ -431,8 +491,16 @@ impl FactSchema {
                     if vw::compare(work, low.micros(), high.micros())? == Ordering::Greater {
                         return Err(fail("FACT_SCHEMA", "timestamp bounds"));
                     }
-                    *min = low.as_str().to_owned();
-                    *max = high.as_str().to_owned();
+                    *min = if complete {
+                        copy_text(low.as_str(), work)?
+                    } else {
+                        low.as_str().to_owned()
+                    };
+                    *max = if complete {
+                        copy_text(high.as_str(), work)?
+                    } else {
+                        high.as_str().to_owned()
+                    };
                     FactType::Time {
                         min: low,
                         max: high,
@@ -447,15 +515,56 @@ impl FactSchema {
                     ));
                 }
             };
+            if complete {
+                work.write_bytes(std::mem::size_of::<Field>())?;
+            }
             fields.push(Field {
-                name: field.name.clone(),
+                name: if complete {
+                    copy_text(&field.name, work)?
+                } else {
+                    field.name.clone()
+                },
                 required: field.required,
                 field_type,
                 attested,
             });
         }
-        let body = serde_json::to_value(dto).map_err(|e| fail("JSON", &e.to_string()))?;
+        let body = if complete {
+            source::body(dto, work)?
+        } else {
+            serde_json::to_value(dto).map_err(|e| fail("JSON", &e.to_string()))?
+        };
         Ok(Self { body, fields })
+    }
+    pub(super) fn clone_payload_bound_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<usize> {
+        source::clone_payload(self, work)
+    }
+    pub(super) fn clone_complete_with_work(&self, work: &mut dyn ValidationWork) -> Result<Self> {
+        source::clone_schema(self, work)
+    }
+    pub(super) fn canonical_bytes_complete_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<CanonicalBytes> {
+        CanonicalBytes::from_representation_with_work(&self.body, work, canonical::BUNDLE_LIMIT)
+    }
+    pub(super) fn content_digest_complete_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<String> {
+        source::document_digest(self, work)
+    }
+    pub(super) fn document_id_complete_with_work(
+        &self,
+        work: &mut dyn ValidationWork,
+    ) -> Result<String> {
+        let digest = self.content_digest_complete_with_work(work)?;
+        work.scan_bytes(64)?;
+        work.write_bytes(69)?;
+        Ok(format!("wdoc_{}", &digest[7..]))
     }
     pub fn canonical_value(&self) -> &Value {
         &self.body
@@ -896,6 +1005,18 @@ fn number_type_with_work(
     integer: bool,
     work: &mut dyn ValidationWork,
 ) -> Result<FactType> {
+    number_type_mode(min, max, unit, scale, integer, work, false)
+}
+#[allow(clippy::too_many_arguments)]
+fn number_type_mode(
+    min: &mut String,
+    max: &mut String,
+    unit: &Option<String>,
+    scale: u8,
+    integer: bool,
+    work: &mut dyn ValidationWork,
+    complete: bool,
+) -> Result<FactType> {
     if let Some(unit) = unit {
         name_with_work(unit, work)?;
     }
@@ -908,14 +1029,26 @@ fn number_type_with_work(
     if low.compare_with_work(&high, work)? == Ordering::Greater {
         return Err(fail("FACT_SCHEMA", "numeric bounds"));
     }
-    *min = low.as_str().to_owned();
-    *max = high.as_str().to_owned();
+    *min = if complete {
+        copy_text(low.as_str(), work)?
+    } else {
+        low.as_str().to_owned()
+    };
+    *max = if complete {
+        copy_text(high.as_str(), work)?
+    } else {
+        high.as_str().to_owned()
+    };
     Ok(FactType::Number {
         min: low,
         max: high,
         scale,
         integer,
-        unit: unit.clone(),
+        unit: if complete {
+            unit.as_deref().map(|v| copy_text(v, work)).transpose()?
+        } else {
+            unit.clone()
+        },
     })
 }
 pub(super) fn counter(raw: &str) -> Result<u64> {

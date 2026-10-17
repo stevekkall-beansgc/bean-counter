@@ -260,12 +260,14 @@ fn private_binding_data_unknowns_null_and_lexical_ambiguity_refuse() {
 fn exact_template_collection_and_alias_limits() {
     let mut value = initial().body.clone();
     value["families"] = json!([]);
-    value["components"] = json!((0..128)
-        .map(|i| component(
-            &format!("review.measure:c{i}"),
-            &format!("review.measure:c{i}")
-        ))
-        .collect::<Vec<_>>());
+    value["components"] = json!(
+        (0..128)
+            .map(|i| component(
+                &format!("review.measure:c{i}"),
+                &format!("review.measure:c{i}")
+            ))
+            .collect::<Vec<_>>()
+    );
     parse(&value, None).unwrap();
     value["components"].as_array_mut().unwrap().push(component(
         "review.measure:overflow",
@@ -273,9 +275,11 @@ fn exact_template_collection_and_alias_limits() {
     ));
     error(parse(&value, None), "TEMPLATE_LIMIT");
     value = initial().body.clone();
-    value["components"][0]["aliases"] = json!((0..64)
-        .map(|i| format!("review.measure:a{i}"))
-        .collect::<Vec<_>>());
+    value["components"][0]["aliases"] = json!(
+        (0..64)
+            .map(|i| format!("review.measure:a{i}"))
+            .collect::<Vec<_>>()
+    );
     parse(&value, None).unwrap();
     value["components"][0]["aliases"]
         .as_array_mut()
@@ -287,13 +291,15 @@ fn exact_template_collection_and_alias_limits() {
     error(parse(&value, None), "TEMPLATE_LIMIT");
     value = initial().body.clone();
     let family = value["families"][0].clone();
-    value["families"] = json!((0..64)
-        .map(|i| {
-            let mut next = family.clone();
-            next["key"] = json!(format!("review.measure:f{i}"));
-            next
-        })
-        .collect::<Vec<_>>());
+    value["families"] = json!(
+        (0..64)
+            .map(|i| {
+                let mut next = family.clone();
+                next["key"] = json!(format!("review.measure:f{i}"));
+                next
+            })
+            .collect::<Vec<_>>()
+    );
     parse(&value, None).unwrap();
     let mut overflow = family;
     overflow["key"] = json!("review.measure:overflow");
@@ -397,10 +403,12 @@ fn executing_named_lookup_charges_each_real_candidate_and_stops() {
         "TEST_EXHAUSTED",
     );
     let mut missing = CountingWork::new(2);
-    assert!(template
-        .component_with_work("review.measure:absent", &mut missing)
-        .unwrap()
-        .is_none());
+    assert!(
+        template
+            .component_with_work("review.measure:absent", &mut missing)
+            .unwrap()
+            .is_none()
+    );
     let mut family = CountingWork::new(3);
     template
         .family_named_with_work(
@@ -410,4 +418,60 @@ fn executing_named_lookup_charges_each_real_candidate_and_stops() {
         )
         .unwrap();
     assert_eq!(family.used, 3);
+}
+
+#[test]
+fn complete_source_template_preserves_successor_identity_and_continuity() {
+    let prior = initial();
+    let mut raw = successor(&prior, 2);
+    raw["version"] = json!("0002");
+    raw["components"][0]["aliases"] = json!(["review.measure:work-old", "review.measure:work"]);
+    let bound = SlotTemplate::normalization_payload_bound_with_work(
+        &raw,
+        Some(&prior),
+        &mut NoopValidationWork,
+    )
+    .unwrap();
+    assert!(bound > 0);
+    let old =
+        SlotTemplate::from_value_with_work(raw.clone(), Some(&prior), &mut NoopValidationWork)
+            .unwrap();
+    let complete = SlotTemplate::from_value_complete_with_work(
+        raw.clone(),
+        Some(&prior),
+        &mut NoopValidationWork,
+    )
+    .unwrap();
+    assert_eq!(
+        old.canonical_bytes().unwrap(),
+        complete.canonical_bytes().unwrap()
+    );
+    assert_eq!(
+        old.component("review.measure:unit-root"),
+        complete.component("review.measure:unit-root")
+    );
+    for selector in [0, 1, 2] {
+        let mut invalid = raw.clone();
+        match selector {
+            0 => invalid["previous"]["id"] = json!("wdoc_wrong"),
+            1 => invalid["components"][0]["role_slot"] = json!("review.measure:other"),
+            _ => {
+                invalid["families"][0]["aliases"] =
+                    json!(["review.measure:outcome", "review.measure:outcome"])
+            }
+        }
+        let old = SlotTemplate::from_value_with_work(
+            invalid.clone(),
+            Some(&prior),
+            &mut NoopValidationWork,
+        )
+        .unwrap_err();
+        let new = SlotTemplate::from_value_complete_with_work(
+            invalid,
+            Some(&prior),
+            &mut NoopValidationWork,
+        )
+        .unwrap_err();
+        assert_eq!(old.code, new.code);
+    }
 }

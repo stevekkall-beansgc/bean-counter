@@ -1,10 +1,11 @@
 //! Closed reusable activity/unit/link declarations. These definitions supply
 //! no source rights, customer bindings, event links or economic authorization.
+mod source;
+use super::FactSchema;
 use super::facts::{
     counter_with_work, has_control, map_lookup, member_compare, name_with_work, reject_null,
     reject_null_with_work,
 };
-use super::FactSchema;
 use crate::canonical::{self, CanonicalBytes};
 use crate::money::ExactRatio;
 use crate::validation_work::{
@@ -267,15 +268,55 @@ impl Product {
         supplied_schemas: &[FactSchema],
         work: &mut dyn ValidationWork,
     ) -> Result<Self> {
+        Self::from_value_mode(value, supplied_schemas, work, false)
+    }
+    /// SAME selected terminal-unit precondition as the owning compiler. The
+    /// general legacy source entry remains unchanged and supports its original
+    /// unit-conversion DTO; that ratio serde is not an RP01 execution recipe.
+    pub(crate) fn normalization_payload_bound_with_work(
+        value: &Value,
+        supplied_schemas: &[FactSchema],
+        work: &mut dyn ValidationWork,
+    ) -> Result<usize> {
+        source::bound(value, supplied_schemas, work)
+    }
+    pub(crate) fn from_value_complete_with_work(
+        value: Value,
+        supplied_schemas: &[FactSchema],
+        work: &mut dyn ValidationWork,
+    ) -> Result<Self> {
+        Self::from_value_mode(value, supplied_schemas, work, true)
+    }
+    fn from_value_mode(
+        value: Value,
+        supplied_schemas: &[FactSchema],
+        work: &mut dyn ValidationWork,
+        complete: bool,
+    ) -> Result<Self> {
+        if complete {
+            source::terminal(&value, work)?;
+            source::decode(&value, work)?;
+        }
         reject_null_with_work(&value, work)?;
-        let mut dto: ProductDto =
-            serde_json::from_value(value).map_err(|error| fail("SCHEMA", &error.to_string()))?;
-        if member_compare(&dto.schema, SCHEMA, work)? != Ordering::Equal
-            || member_compare(&dto.profile, "workflow/1", work)? != Ordering::Equal
-            || member_compare(&dto.evaluator, "ledger-workflow-evaluator/1", work)?
+        let mut dto: ProductDto = serde_json::from_value(value).map_err(|error| {
+            if complete {
+                Error::new("SCHEMA", error.to_string())
+            } else {
+                fail("SCHEMA", &error.to_string())
+            }
+        })?;
+        if source::compare(&dto.schema, SCHEMA, work, complete)? != Ordering::Equal
+            || source::compare(&dto.profile, "workflow/1", work, complete)? != Ordering::Equal
+            || source::compare(
+                &dto.evaluator,
+                "ledger-workflow-evaluator/1",
+                work,
+                complete,
+            )? != Ordering::Equal
+            || source::compare(&dto.grammar, "ledger-policy-grammar/1", work, complete)?
                 != Ordering::Equal
-            || member_compare(&dto.grammar, "ledger-policy-grammar/1", work)? != Ordering::Equal
-            || member_compare(&dto.limits_profile, "workflow-limits/1", work)? != Ordering::Equal
+            || source::compare(&dto.limits_profile, "workflow-limits/1", work, complete)?
+                != Ordering::Equal
         {
             return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "product profiles"));
         }
@@ -306,7 +347,13 @@ impl Product {
         let mut source_bytes = 0usize;
         for schema in supplied_schemas {
             work.visit(Visit::Element)?;
-            let schema_bytes = schema.canonical_bytes_with_work(work)?.as_slice().len();
+            let schema_bytes = (if complete {
+                schema.canonical_bytes_complete_with_work(work)?
+            } else {
+                schema.canonical_bytes_with_work(work)?
+            })
+            .as_slice()
+            .len();
             work.arithmetic(
                 Op::Add,
                 &[&BigInt::from(source_bytes), &BigInt::from(schema_bytes)],
@@ -318,21 +365,42 @@ impl Product {
                 return Err(fail("DEFINITION_LIMIT", "source bytes"));
             }
             work.visit(Visit::RefLookup)?;
-            available.insert(schema.document_id_with_work(work)?, schema);
+            let id = if complete {
+                schema.document_id_complete_with_work(work)?
+            } else {
+                schema.document_id_with_work(work)?
+            };
+            if complete {
+                super::facts::source::prepare_insert(&available, &id, work)?;
+            }
+            available.insert(id, schema);
         }
-        canonical::sort_set_with_work(&mut dto.fact_schemas, work)?;
+        if complete {
+            source::references(&mut dto.fact_schemas, work)?;
+        } else {
+            canonical::sort_set_with_work(&mut dto.fact_schemas, work)?;
+        }
         let mut schemas = BTreeMap::new();
-        let mut schema_keys: Vec<(&str, &str)> = Vec::new();
+        let mut schema_keys: Vec<(&str, &str)> = if complete {
+            Vec::with_capacity(dto.fact_schemas.len())
+        } else {
+            Vec::new()
+        };
         for reference in &dto.fact_schemas {
             work.visit(Visit::Element)?;
             work.visit(Visit::Constraint)?;
-            if reference.kind != "workflow-fact-schema" {
+            if super::facts::source::different(
+                &reference.kind,
+                "workflow-fact-schema",
+                work,
+                complete,
+            )? {
                 return Err(fail("DEFINITION_KIND", "product fact schema"));
             }
-            let schema = map_lookup(&available, &reference.id, work)?
+            let schema = super::facts::source::lookup(&available, &reference.id, work, complete)?
                 .ok_or_else(|| fail("DEFINITION_MISSING", "product fact schema"))?;
             work.visit(Visit::Constraint)?;
-            if reference.digest != schema.content_digest_with_work(work)? {
+            if source::digest_diff(&reference.digest, schema, work, complete)? {
                 return Err(fail("DEFINITION_DIGEST_MISMATCH", "fact schema"));
             }
             let key = (
@@ -346,28 +414,51 @@ impl Product {
             work.visit(Visit::RefLookup)?;
             work.visit(Visit::Constraint)?;
             for prior in &schema_keys {
-                if member_compare(prior.0, key.0, work)? == Ordering::Equal
-                    && member_compare(prior.1, key.1, work)? == Ordering::Equal
+                if source::compare(prior.0, key.0, work, complete)? == Ordering::Equal
+                    && source::compare(prior.1, key.1, work, complete)? == Ordering::Equal
                 {
                     return Err(fail("DEFINITION_CONFLICT", "schema identity/version"));
                 }
             }
+            if complete {
+                work.write_bytes(std::mem::size_of::<(&str, &str)>())?;
+            }
             schema_keys.push(key);
             work.visit(Visit::Constraint)?;
-            if map_lookup(&schemas, &reference.id, work)?.is_some() {
+            if super::facts::source::lookup(&schemas, &reference.id, work, complete)?.is_some() {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "fact schema reference"));
             }
-            schemas.insert(reference.id.clone(), (*schema).clone());
+            if complete {
+                super::facts::source::prepare_insert(&schemas, &reference.id, work)?;
+                schemas.insert(
+                    super::facts::source::text(&reference.id, work)?,
+                    (*schema).clone_complete_with_work(work)?,
+                );
+            } else {
+                schemas.insert(reference.id.clone(), (*schema).clone());
+            }
         }
-        vw::try_sort_by(&mut dto.units, work, |a, b, w| {
-            member_compare(&a.name, &b.name, w)
-        })?;
-        vw::try_sort_by(&mut dto.activities, work, |a, b, w| {
-            member_compare(&a.name, &b.name, w)
-        })?;
-        vw::try_sort_by(&mut dto.links, work, |a, b, w| {
-            member_compare(&a.name, &b.name, w)
-        })?;
+        if complete {
+            super::facts::source::sort(&mut dto.units, work, |a, b, w| {
+                super::facts::source::text_cmp(&a.name, &b.name, w)
+            })?;
+            super::facts::source::sort(&mut dto.activities, work, |a, b, w| {
+                super::facts::source::text_cmp(&a.name, &b.name, w)
+            })?;
+            super::facts::source::sort(&mut dto.links, work, |a, b, w| {
+                super::facts::source::text_cmp(&a.name, &b.name, w)
+            })?;
+        } else {
+            vw::try_sort_by(&mut dto.units, work, |a, b, w| {
+                member_compare(&a.name, &b.name, w)
+            })?;
+            vw::try_sort_by(&mut dto.activities, work, |a, b, w| {
+                member_compare(&a.name, &b.name, w)
+            })?;
+            vw::try_sort_by(&mut dto.links, work, |a, b, w| {
+                member_compare(&a.name, &b.name, w)
+            })?;
+        }
         let mut units = BTreeMap::new();
         for unit in &dto.units {
             work.visit(Visit::Element)?;
@@ -383,16 +474,24 @@ impl Product {
                 }
             }
             work.visit(Visit::Constraint)?;
-            if map_lookup(&units, &unit.name, work)?.is_some() {
+            if super::facts::source::lookup(&units, &unit.name, work, complete)?.is_some() {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "unit name"));
             }
-            units.insert(unit.name.clone(), UnitDefinition(unit.clone()));
+            if complete {
+                super::facts::source::prepare_insert(&units, &unit.name, work)?;
+                units.insert(
+                    super::facts::source::text(&unit.name, work)?,
+                    source::unit(unit, work)?,
+                );
+            } else {
+                units.insert(unit.name.clone(), UnitDefinition(unit.clone()));
+            }
         }
         for unit in units.values() {
             work.visit(Visit::Element)?;
             work.visit(Visit::Constraint)?;
             if let Some((to, _)) = unit.normalization() {
-                let target = map_lookup(&units, to, work)?
+                let target = super::facts::source::lookup(&units, to, work, complete)?
                     .ok_or_else(|| fail("UNIT_MISSING", "normalization target"))?;
                 work.visit(Visit::Constraint)?;
                 if target.normalization().is_some()
@@ -415,7 +514,7 @@ impl Product {
                 work.visit(Visit::Constraint)?;
                 if let Some(unit) = field["type"].get("unit").and_then(Value::as_str) {
                     work.visit(Visit::Constraint)?;
-                    if map_lookup(&units, unit, work)?.is_none() {
+                    if super::facts::source::lookup(&units, unit, work, complete)?.is_none() {
                         return Err(fail("UNIT_MISSING", "fact field unit"));
                     }
                 }
@@ -432,26 +531,41 @@ impl Product {
                 name_with_work(leg, work)?;
             }
             work.visit(Visit::Constraint)?;
-            if activity.fact_schema.kind != "workflow-fact-schema" {
+            if super::facts::source::different(
+                &activity.fact_schema.kind,
+                "workflow-fact-schema",
+                work,
+                complete,
+            )? {
                 return Err(fail("DEFINITION_KIND", "activity fact schema"));
             }
             work.visit(Visit::RefLookup)?;
             let schema =
-                map_lookup(&schemas, &activity.fact_schema.id, work)?.ok_or_else(|| {
+                super::facts::source::lookup(&schemas, &activity.fact_schema.id, work, complete)?
+                    .ok_or_else(|| {
                     fail(
                         "DEFINITION_MISSING",
                         "activity schema not declared by product",
                     )
                 })?;
             work.visit(Visit::Constraint)?;
-            if activity.fact_schema.digest != schema.content_digest_with_work(work)? {
+            if source::digest_diff(&activity.fact_schema.digest, schema, work, complete)? {
                 return Err(fail("DEFINITION_DIGEST_MISMATCH", "activity schema"));
             }
             work.visit(Visit::Constraint)?;
-            if map_lookup(&activities, &activity.name, work)?.is_some() {
+            if super::facts::source::lookup(&activities, &activity.name, work, complete)?.is_some()
+            {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "activity name"));
             }
-            activities.insert(activity.name.clone(), Activity(activity.clone()));
+            if complete {
+                super::facts::source::prepare_insert(&activities, &activity.name, work)?;
+                activities.insert(
+                    super::facts::source::text(&activity.name, work)?,
+                    source::activity(activity, work)?,
+                );
+            } else {
+                activities.insert(activity.name.clone(), Activity(activity.clone()));
+            }
         }
         let mut links = BTreeMap::new();
         for link in &mut dto.links {
@@ -469,7 +583,11 @@ impl Product {
                 work.visit(Visit::Element)?;
                 name_with_work(predecessor, work)?;
             }
-            canonical::sort_set_with_work(&mut link.predecessor_activities, work)?;
+            if complete {
+                source::names(&mut link.predecessor_activities, work)?;
+            } else {
+                canonical::sort_set_with_work(&mut link.predecessor_activities, work)?;
+            }
             let minimum = counter_with_work(&link.minimum, work)?;
             let maximum = counter_with_work(&link.maximum, work)?;
             let depth = counter_with_work(&link.max_depth, work)?;
@@ -491,26 +609,28 @@ impl Product {
                     return Err(fail(
                         "LINK_SUPPLIER_SLOT",
                         "declared supplier needs explicit slot",
-                    ))
+                    ));
                 }
                 (_, Some(_)) => {
                     return Err(fail(
                         "LINK_SUPPLIER_SLOT",
                         "supplier slot forbidden for this relation",
-                    ))
+                    ));
                 }
                 (_, None) => (),
             }
-            let child = map_lookup(&activities, &link.child_activity, work)?
-                .ok_or_else(|| fail("LINK_ACTIVITY_MISSING", "child activity"))?;
+            let child =
+                super::facts::source::lookup(&activities, &link.child_activity, work, complete)?
+                    .ok_or_else(|| fail("LINK_ACTIVITY_MISSING", "child activity"))?;
             work.visit(Visit::Constraint)?;
             if child.primitive() != link.child_primitive {
                 return Err(fail("LINK_PRIMITIVE", "child primitive mismatch"));
             }
             for predecessor in &link.predecessor_activities {
                 work.visit(Visit::Element)?;
-                let activity = map_lookup(&activities, predecessor, work)?
-                    .ok_or_else(|| fail("LINK_ACTIVITY_MISSING", "predecessor activity"))?;
+                let activity =
+                    super::facts::source::lookup(&activities, predecessor, work, complete)?
+                        .ok_or_else(|| fail("LINK_ACTIVITY_MISSING", "predecessor activity"))?;
                 work.visit(Visit::Constraint)?;
                 if activity.primitive() != link.predecessor_primitive {
                     return Err(fail("LINK_PRIMITIVE", "predecessor primitive mismatch"));
@@ -519,18 +639,36 @@ impl Product {
             // Cyclic or same-activity *type declarations* are permitted. Actual
             // event identity/monetary graphs must be validated at resolution.
             let definition = LinkDefinition {
-                dto: link.clone(),
+                dto: if complete {
+                    source::link(link, work)?
+                } else {
+                    link.clone()
+                },
                 minimum: minimum as u8,
                 maximum: maximum as u8,
                 depth: depth as u8,
             };
             work.visit(Visit::Constraint)?;
-            if map_lookup(&links, &link.name, work)?.is_some() {
+            if super::facts::source::lookup(&links, &link.name, work, complete)?.is_some() {
                 return Err(fail("PRODUCT_DUPLICATE_KEY", "link name"));
             }
-            links.insert(link.name.clone(), definition);
+            if complete {
+                super::facts::source::prepare_insert(&links, &link.name, work)?;
+            }
+            links.insert(
+                if complete {
+                    super::facts::source::text(&link.name, work)?
+                } else {
+                    link.name.clone()
+                },
+                definition,
+            );
         }
-        let body = serde_json::to_value(&dto).map_err(|error| fail("JSON", &error.to_string()))?;
+        let body = if complete {
+            source::body(&dto, work)?
+        } else {
+            serde_json::to_value(&dto).map_err(|error| fail("JSON", &error.to_string()))?
+        };
         Ok(Self {
             body,
             product_id: dto.product_id,
