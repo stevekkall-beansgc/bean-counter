@@ -527,7 +527,11 @@ pub(super) fn counter(raw: &str, s: &mut OriginalAuditSession) -> Result<u64> {
     }
     Ok(n)
 }
-fn validate_reference(v: &Value, kind: &str, s: &mut OriginalAuditSession) -> Result<()> {
+pub(super) fn validate_reference(
+    v: &Value,
+    kind: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     request_wrapper::closed(v, &["kind", "id", "digest"], s)?;
     let k = request_wrapper::text(v, "kind", s)?;
     let id = request_wrapper::text(v, "id", s)?;
@@ -565,7 +569,7 @@ fn ref_cmp(a: &Value, b: &Value, s: &mut OriginalAuditSession) -> Result<Cmp> {
     }
     Ok(Cmp::Equal)
 }
-fn reference_set(
+pub(super) fn reference_set(
     v: &Value,
     kind: &str,
     min: usize,

@@ -1133,102 +1133,7 @@ async fn reconstruct_inner(
     )
     .await?;
     let body = retained_root.body();
-    check::closed(
-        body,
-        &[
-            "schema",
-            "basis",
-            "basis_digest",
-            "verification_profile",
-            "verified_at",
-        ],
-        session,
-    )?;
-    check::same_text(
-        check::text(body, "schema", session)?,
-        "ledger-workflow-local-authority-snapshot/1",
-        session,
-    )?;
-    check::same_text(
-        check::text(body, "verification_profile", session)?,
-        "local-private-directory-owner/1",
-        session,
-    )?;
-    at_most(&time(body, "verified_at", session)?, &at, session)?;
-    let basis = check::field(body, "basis", session)?;
-    check::closed(
-        basis,
-        &[
-            "schema",
-            "logical_store_id",
-            "scope",
-            "principal_id",
-            "source",
-            "canonical_economic_namespace",
-            "rights",
-            "source_grant_revision",
-        ],
-        session,
-    )?;
-    for (name, expected) in [
-        ("schema", "ledger-workflow-local-authority-basis/1"),
-        ("logical_store_id", request.key().logical_store_id.as_str()),
-        ("principal_id", actor),
-        ("source", request.key().source.as_str()),
-        (
-            "canonical_economic_namespace",
-            request.key().source.as_str(),
-        ),
-    ] {
-        check::same_text(check::text(basis, name, session)?, expected, session)?;
-    }
-    scope(
-        check::field(basis, "scope", session)?,
-        request.key(),
-        session,
-    )?;
-    let rights = encode(check::field(basis, "rights", session)?, session)?;
-    same(rights.bytes(), b"[\"admin\",\"read\"]", session)?;
-    let revision = check::text(basis, "source_grant_revision", session)?;
-    size(revision.len(), 1, 20, session)?;
-    let mut numeric = 0u64;
-    for (index, byte) in revision.bytes().enumerate() {
-        session
-            .semantic_work()
-            .visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)
-            .map_err(core_error)?;
-        session.semantic_work().scan_bytes(1).map_err(core_error)?;
-        require(byte.is_ascii_digit(), "INTEGRITY_FAILURE")?;
-        if index == 0 {
-            require(byte != b'0', "INTEGRITY_FAILURE")?;
-        }
-        session
-            .semantic_work()
-            .arithmetic(Op::Subtract, &[&byte.into(), &b'0'.into()])
-            .map_err(core_error)?;
-        session
-            .semantic_work()
-            .arithmetic(Op::Multiply, &[&numeric.into(), &10u8.into()])
-            .map_err(core_error)?;
-        numeric = numeric
-            .checked_mul(10)
-            .ok_or(ServiceError::IntegrityFailure)?;
-        session
-            .semantic_work()
-            .arithmetic(Op::Add, &[&numeric.into(), &(byte - b'0').into()])
-            .map_err(core_error)?;
-        numeric = numeric
-            .checked_add(u64::from(byte - b'0'))
-            .ok_or(ServiceError::IntegrityFailure)?;
-    }
-    let basis_bytes = encode(basis, session)?;
-    let basis_digest = wire::domain_digest(
-        b"bean-counter/local-authority-basis/1\0",
-        &[basis_bytes.bytes()],
-        session,
-    )?;
-    let supplied = encode(check::field(body, "basis_digest", session)?, session)?;
-    same(basis_digest.bytes(), supplied.bytes(), session)?;
+    validate_original_root(body, request.key(), actor, &at, session)?;
     let root_bytes = session
         .copy_representation(
             retained_root.stored.body.bytes(),
@@ -1340,4 +1245,112 @@ async fn reconstruct_inner(
     // introduction. Those become usable only after the enclosing history driver
     // validates exact original custody, all dependencies and historical prestate.
     Ok(derived)
+}
+
+/// SAME retained local-root checks, shared by administrative original replay.
+/// The caller still establishes original custody and actual held owner trust.
+pub(in super::super::super) fn validate_original_root(
+    body: &Value,
+    key: &OperationKey,
+    actor: &str,
+    at: &Timestamp,
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
+    let _time_storage = session
+        .reserve_external_payload(4 * 64 + 27)
+        .map_err(core_error)?;
+    check::closed(
+        body,
+        &[
+            "schema",
+            "basis",
+            "basis_digest",
+            "verification_profile",
+            "verified_at",
+        ],
+        session,
+    )?;
+    check::same_text(
+        check::text(body, "schema", session)?,
+        "ledger-workflow-local-authority-snapshot/1",
+        session,
+    )?;
+    check::same_text(
+        check::text(body, "verification_profile", session)?,
+        "local-private-directory-owner/1",
+        session,
+    )?;
+    at_most(&time(body, "verified_at", session)?, at, session)?;
+    let basis = check::field(body, "basis", session)?;
+    check::closed(
+        basis,
+        &[
+            "schema",
+            "logical_store_id",
+            "scope",
+            "principal_id",
+            "source",
+            "canonical_economic_namespace",
+            "rights",
+            "source_grant_revision",
+        ],
+        session,
+    )?;
+    for (name, expected) in [
+        ("schema", "ledger-workflow-local-authority-basis/1"),
+        ("logical_store_id", key.logical_store_id.as_str()),
+        ("principal_id", actor),
+        ("source", key.source.as_str()),
+        ("canonical_economic_namespace", key.source.as_str()),
+    ] {
+        check::same_text(check::text(basis, name, session)?, expected, session)?;
+    }
+    scope(check::field(basis, "scope", session)?, key, session)?;
+    let rights = encode(check::field(basis, "rights", session)?, session)?;
+    same(rights.bytes(), b"[\"admin\",\"read\"]", session)?;
+    let revision = check::text(basis, "source_grant_revision", session)?;
+    size(revision.len(), 1, 20, session)?;
+    let mut numeric = 0u64;
+    for (index, byte) in revision.bytes().enumerate() {
+        session
+            .semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)
+            .map_err(core_error)?;
+        session.semantic_work().scan_bytes(1).map_err(core_error)?;
+        require(byte.is_ascii_digit(), "INTEGRITY_FAILURE")?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&index.into(), &0usize.into()])
+            .map_err(core_error)?;
+        if index == 0 {
+            require(byte != b'0', "INTEGRITY_FAILURE")?;
+        }
+        session
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&byte.into(), &b'0'.into()])
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Multiply, &[&numeric.into(), &10u8.into()])
+            .map_err(core_error)?;
+        numeric = numeric
+            .checked_mul(10)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Add, &[&numeric.into(), &(byte - b'0').into()])
+            .map_err(core_error)?;
+        numeric = numeric
+            .checked_add(u64::from(byte - b'0'))
+            .ok_or(ServiceError::IntegrityFailure)?;
+    }
+    let basis_bytes = encode(basis, session)?;
+    let basis_digest = wire::domain_digest(
+        b"bean-counter/local-authority-basis/1\0",
+        &[basis_bytes.bytes()],
+        session,
+    )?;
+    let supplied = encode(check::field(body, "basis_digest", session)?, session)?;
+    same(basis_digest.bytes(), supplied.bytes(), session)?;
+    Ok(())
 }

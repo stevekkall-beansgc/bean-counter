@@ -583,8 +583,8 @@ fn unique_names<'a>(values: impl Iterator<Item = &'a str>, min: usize, max: usiz
     }
     Ok(())
 }
-mod owned;
-mod paid;
+pub(super) mod owned;
+pub(super) mod paid;
 pub use owned::OwnedAcceptanceTerms;
 impl Projection {
     fn normalize(&mut self, context: &super::FactSchema, app: bool) -> Result<()> {

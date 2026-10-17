@@ -4,6 +4,7 @@
 use super::*;
 mod inventory;
 mod publication;
+pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
 use ledgerlab_core::{
     canonical::audit_arena::ExternalBufferLease,

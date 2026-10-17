@@ -507,6 +507,52 @@ pub(super) fn source_record(
     Ok(SourceRecord { body, reference })
 }
 
+/// Exact existing SourceState identity, scoped to its original enrollment and
+/// revision. This is representation DATA; it is not a source-head capability.
+pub(super) fn source_state_record(
+    body: AuditedBytes,
+    store: &str,
+    scope: &Value,
+    enrollment_id: &str,
+    revision: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let store = string(store, session)?;
+    let scope = session
+        .canonical_representation(scope, RepresentationKind::SourceDefinition)
+        .map_err(core_error)?;
+    let enrollment = string(enrollment_id, session)?;
+    let revision = string(revision, session)?;
+    let id = hash(
+        b"bean-counter/workflow-source-state/1\0",
+        &[
+            b"[",
+            store.bytes(),
+            b",",
+            scope.bytes(),
+            b",",
+            enrollment.bytes(),
+            b",",
+            revision.bytes(),
+            b"]",
+        ],
+        session,
+    )?;
+    let digest = hash(
+        b"bean-counter/workflow-record/1\0",
+        &[
+            b"[\"workflow-source-state\",",
+            scope.bytes(),
+            b",",
+            body.bytes(),
+            b"]",
+        ],
+        session,
+    )?;
+    let reference = owned_reference("workflow-source-state", "wsource_", &id, &digest, session)?;
+    Ok(SourceRecord { body, reference })
+}
+
 /// Quote the SAME closed raw-request base64 result directly. Its encoded
 /// text may exceed the256KiB RAW domain; it is not a SourceDefinition input.
 pub(super) fn raw_request_base64(

@@ -258,6 +258,34 @@ async fn original_query_in(
         .map_err(core_error)?;
     let acquired = prefix::target(tx, key, identity, session).await?;
     let original = acquired.checked_wrappers(tx, session).await?;
+    if acceptance::same_recipe_text(
+        request_wrapper::text(original.wrappers().operation(), "kind", session)?,
+        "authority.change",
+        session,
+    )? {
+        let p = request_wrapper::field(
+            original.wrappers().original_request().value(),
+            "payload",
+            session,
+        )?;
+        let schema = request_wrapper::text(p, "schema", session)?;
+        for expected in [
+            "ledger-workflow-source-enroll/1",
+            "ledger-workflow-source-restrict/1",
+            "ledger-workflow-source-revoke/1",
+        ] {
+            if acceptance::same_recipe_text(schema, expected, session)? {
+                if acceptance::same_recipe_text(schema, "ledger-workflow-source-enroll/1", session)?
+                {
+                    let _source =
+                        prefix::source::reconstruct_initial(tx, &original, session).await?;
+                } else {
+                    let _source = prefix::source::original_request(&original, session)?;
+                }
+                break;
+            }
+        }
+    }
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
     // obligations first. For Retry, normalize_saved_intent receives this SAME

@@ -13,18 +13,18 @@ use std::mem;
 
 // Payload fields precede leases in every owner. Metadata growth itself is
 // pre-admitted, with old+new Vec storage held across reserve_exact.
-pub(super) struct Storage {
+pub(in crate::policy::workflow) struct Storage {
     leases: Vec<ExternalBufferLease>,
     metadata: Option<ExternalBufferLease>,
 }
 impl Storage {
-    pub(super) fn new() -> Self {
+    pub(in crate::policy::workflow) fn new() -> Self {
         Self {
             leases: Vec::new(),
             metadata: None,
         }
     }
-    pub(super) fn reserve(
+    pub(in crate::policy::workflow) fn reserve(
         &mut self,
         n: usize,
         arena: &AuditArena,
@@ -54,7 +54,7 @@ impl Storage {
         self.leases.push(lease);
         Ok(())
     }
-    pub(super) fn text(
+    pub(in crate::policy::workflow) fn text(
         &mut self,
         v: &str,
         arena: &AuditArena,
@@ -73,7 +73,7 @@ impl Storage {
         self.reserve(bytes, arena, work)?;
         Ok(v.clone())
     }
-    pub(super) fn vector<T>(
+    pub(in crate::policy::workflow) fn vector<T>(
         &mut self,
         n: usize,
         arena: &AuditArena,
@@ -95,7 +95,7 @@ fn mul(work: &mut dyn ValidationWork, a: usize, b: usize) -> Result<usize> {
     a.checked_mul(b)
         .ok_or_else(|| fail("acceptance allocation product"))
 }
-pub(super) fn field<'a>(
+pub(in crate::policy::workflow) fn field<'a>(
     v: &'a Value,
     key: &str,
     work: &mut dyn ValidationWork,
@@ -123,7 +123,7 @@ fn optional<'a>(
     }
     Ok(None)
 }
-pub(super) fn closed(
+pub(in crate::policy::workflow) fn closed(
     v: &Value,
     required: &[&str],
     optional: &[&str],
@@ -142,11 +142,11 @@ pub(super) fn closed(
     }
     Ok(())
 }
-pub(super) fn text<'a>(v: &'a Value, work: &mut dyn ValidationWork) -> Result<&'a str> {
+pub(in crate::policy::workflow) fn text<'a>(v: &'a Value, work: &mut dyn ValidationWork) -> Result<&'a str> {
     work.visit(Visit::Constraint)?;
     v.as_str().ok_or_else(|| fail("terms string"))
 }
-pub(super) fn array<'a>(
+pub(in crate::policy::workflow) fn array<'a>(
     v: &'a Value,
     min: usize,
     max: usize,
@@ -159,7 +159,7 @@ pub(super) fn array<'a>(
     }
     Ok(a)
 }
-pub(super) fn string(
+pub(in crate::policy::workflow) fn string(
     v: &Value,
     key: &str,
     s: &mut Storage,
@@ -430,19 +430,27 @@ fn decode(
 
 // Fixed DTO composition only; strings and arbitrary Values always use the SAME
 // complete canonical emitter. No second general JSON/string encoder is used.
-pub(super) struct Encode<'a> {
-    pub(super) storage: &'a mut Storage,
-    pub(super) arena: &'a AuditArena,
+pub(in crate::policy::workflow) struct Encode<'a> {
+    pub(in crate::policy::workflow) storage: &'a mut Storage,
+    pub(in crate::policy::workflow) arena: &'a AuditArena,
 }
 impl Encode<'_> {
-    pub(super) fn value(&mut self, v: &Value, w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
+    pub(in crate::policy::workflow) fn value(
+        &mut self,
+        v: &Value,
+        w: &mut dyn ValidationWork,
+    ) -> Result<AuditedBytes> {
         self.arena.canonical_representation_bytes(v, w, 262144)
     }
-    pub(super) fn text(&mut self, v: &str, w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
+    pub(in crate::policy::workflow) fn text(
+        &mut self,
+        v: &str,
+        w: &mut dyn ValidationWork,
+    ) -> Result<AuditedBytes> {
         let value = Value::String(self.storage.text(v, self.arena, w)?);
         self.value(&value, w)
     }
-    pub(super) fn list<T>(
+    pub(in crate::policy::workflow) fn list<T>(
         &mut self,
         rows: &[T],
         w: &mut dyn ValidationWork,
@@ -464,7 +472,7 @@ impl Encode<'_> {
         }
         self.join_list(&parts, n, w)
     }
-    pub(super) fn join_list(
+    pub(in crate::policy::workflow) fn join_list(
         &self,
         parts: &[AuditedBytes],
         n: usize,
@@ -485,7 +493,7 @@ impl Encode<'_> {
         b.append(b"]", w)?;
         b.finish(w)
     }
-    pub(super) fn object(
+    pub(in crate::policy::workflow) fn object(
         &self,
         parts: &[(&str, &[u8])],
         w: &mut dyn ValidationWork,

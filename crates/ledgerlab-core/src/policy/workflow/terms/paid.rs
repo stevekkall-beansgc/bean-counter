@@ -5,7 +5,7 @@ use super::*;
 use crate::validation_work::{self as w, ValidationVisit as Visit, ValidationWork};
 use std::cmp::Ordering;
 
-pub(super) fn sort<T>(
+pub(in crate::policy::workflow) fn sort<T>(
     values: &mut [T],
     work: &mut dyn ValidationWork,
     mut compare: impl FnMut(&T, &T, &mut dyn ValidationWork) -> Result<Ordering>,
@@ -32,13 +32,21 @@ pub(super) fn check(work: &mut dyn ValidationWork, valid: bool, detail: &str) ->
     work.visit(Visit::Constraint)?;
     if valid { Ok(()) } else { Err(fail(detail)) }
 }
-pub(super) fn compare_text(a: &str, b: &str, work: &mut dyn ValidationWork) -> Result<Ordering> {
+pub(in crate::policy::workflow) fn compare_text(
+    a: &str,
+    b: &str,
+    work: &mut dyn ValidationWork,
+) -> Result<Ordering> {
     work.visit(Visit::MemberCompare)?;
     work.scan_bytes(a.len())?;
     work.scan_bytes(b.len())?;
     Ok(a.cmp(b))
 }
-pub(super) fn text(value: &str, maximum: usize, work: &mut dyn ValidationWork) -> Result<()> {
+pub(in crate::policy::workflow) fn text(
+    value: &str,
+    maximum: usize,
+    work: &mut dyn ValidationWork,
+) -> Result<()> {
     work.visit(Visit::Constraint)?;
     if value.is_empty() || w::compare(work, value.len(), maximum)?.is_gt() {
         return Err(Error::new(
@@ -327,6 +335,9 @@ pub(super) fn exposures(rows: &mut Vec<Exposure>, work: &mut dyn ValidationWork)
         compare_text(&a.binding_slot, &b.binding_slot, work)
     })
 }
-pub(super) fn string_set(values: &mut Vec<String>, work: &mut dyn ValidationWork) -> Result<()> {
+pub(in crate::policy::workflow) fn string_set(
+    values: &mut Vec<String>,
+    work: &mut dyn ValidationWork,
+) -> Result<()> {
     sorted_strings(values, work)
 }

@@ -54,7 +54,7 @@ fn document_digest_with_work(
 mod slots;
 pub use slots::{RoleAssignment, SlotCatalog, SlotInstantiation};
 mod ceiling;
-pub use ceiling::SourceCeiling;
+pub use ceiling::{OwnedSourceCeiling, SourceCeiling};
 mod evidence;
 pub use evidence::EvidenceInput;
 mod agreement_ref;

@@ -239,7 +239,11 @@ fn size(n: usize, min: usize, max: usize, session: &mut OriginalAuditSession) ->
         .map_err(core_error)?;
     require(n <= max, "INVALID_SHAPE")
 }
-fn identifier(text: &str, maximum: usize, session: &mut OriginalAuditSession) -> Result<()> {
+pub(super) fn identifier(
+    text: &str,
+    maximum: usize,
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
     size(text.len(), 1, maximum, session)?;
     session
         .semantic_work()
