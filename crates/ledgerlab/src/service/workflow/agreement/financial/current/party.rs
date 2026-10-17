@@ -702,6 +702,135 @@ async fn platform_consent_inner(
     before: i64,
     session: &mut OriginalAuditSession,
 ) -> Result<ObservedPlatformConsent> {
+    let consent = check::field(assent, "consent", session)?;
+    let mapping = observe(
+        tx,
+        key,
+        check::field(consent, "authorization_ref", session)?,
+        at,
+        before,
+        session,
+    )
+    .await?;
+    let material = platform_material(
+        tx,
+        key,
+        terms,
+        mapping.body(),
+        resource_leg,
+        assent,
+        at,
+        before,
+        session,
+    )
+    .await?;
+    Ok(ObservedPlatformConsent {
+        mapping,
+        evidence: material.evidence,
+        attestation: material.attestation,
+        assent_bytes: material.assent_bytes,
+    })
+}
+struct PlatformMaterial {
+    evidence: PartyRecord,
+    attestation: PartyRecord,
+    assent_bytes: ledgerlab_core::canonical::audit_arena::AuditedBytes,
+}
+/// Original mapping/material replay has no current-head locator and cannot be
+/// mistaken for a fresh observation. Historical active-head/absence completion
+/// is a separate obligation of the chronological driver at this exact cutoff.
+pub(in super::super) struct OriginalPlatformConsent {
+    mapping: PartyRecord,
+    mapping_evidence: PartyRecord,
+    mapping_attestation: PartyRecord,
+    material: PlatformMaterial,
+}
+impl OriginalPlatformConsent {
+    pub(in super::super) fn records(&self) -> [&ExactRef; 5] {
+        [
+            &self.mapping.reference,
+            &self.mapping_evidence.reference,
+            &self.mapping_attestation.reference,
+            &self.material.evidence.reference,
+            &self.material.attestation.reference,
+        ]
+    }
+    pub(in super::super) fn mapping_body(&self) -> &Value {
+        self.mapping.body()
+    }
+    pub(in super::super) fn assent_bytes(&self) -> &[u8] {
+        self.material.assent_bytes.bytes()
+    }
+}
+pub(in super::super) async fn platform_consent_original(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+    resource_leg: &str,
+    assent: &Value,
+    at: &Timestamp,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<OriginalPlatformConsent> {
+    let result = async {
+        let consent = check::field(assent, "consent", session)?;
+        let (mapping, mapping_evidence, mapping_attestation) = original_authorization(
+            tx,
+            key,
+            check::field(consent, "authorization_ref", session)?,
+            at,
+            before,
+            session,
+        )
+        .await?;
+        let spec = check::field(mapping.body(), "authorization", session)?;
+        let start = time(spec, "starts_at", session)?;
+        let end = time(spec, "ends_at", session)?;
+        at_most(&start, at, session)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&at.micros().into(), &end.micros().into()])
+            .map_err(core_error)?;
+        require(at.micros() < end.micros(), "AUTHORITY_REQUIRED")?;
+        let material = platform_material(
+            tx,
+            key,
+            terms,
+            mapping.body(),
+            resource_leg,
+            assent,
+            at,
+            before,
+            session,
+        )
+        .await?;
+        Ok(OriginalPlatformConsent {
+            mapping,
+            mapping_evidence,
+            mapping_attestation,
+            material,
+        })
+    }
+    .await;
+    if result.is_err() {
+        session.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    result
+}
+
+async fn platform_material(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    terms: &ledgerlab_core::policy::workflow::OwnedAcceptanceTerms,
+    mapping_body: &Value,
+    resource_leg: &str,
+    assent: &Value,
+    at: &Timestamp,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<PlatformMaterial> {
     let terms_body = terms.canonical_value();
     check::same_text(
         check::text(terms_body, "schema", session)?,
@@ -823,16 +952,7 @@ async fn platform_consent_inner(
     )?;
     let accepted_at = time(consent, "accepted_at", session)?;
     at_most(&accepted_at, at, session)?;
-    let mapping = observe(
-        tx,
-        key,
-        check::field(consent, "authorization_ref", session)?,
-        at,
-        before,
-        session,
-    )
-    .await?;
-    let spec = check::field(mapping.body(), "authorization", session)?;
+    let spec = check::field(mapping_body, "authorization", session)?;
     for name in ["customer", "agreement_id", "party", "acceptor"] {
         check::same_text(
             check::text(consent, name, session)?,
@@ -941,8 +1061,7 @@ async fn platform_consent_inner(
     let assent_bytes = session
         .canonical_representation(assent, RepresentationKind::SourceDefinition)
         .map_err(core_error)?;
-    Ok(ObservedPlatformConsent {
-        mapping,
+    Ok(PlatformMaterial {
         evidence: retained,
         attestation,
         assent_bytes,

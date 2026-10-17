@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 mod chain;
 pub(super) mod party;
-mod source;
+pub(super) mod source;
 pub(super) use chain::ObservedChain;
 
 pub(super) struct CurrentSelection {

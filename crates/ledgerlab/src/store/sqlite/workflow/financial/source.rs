@@ -210,3 +210,59 @@ impl SqliteTx {
         }))
     }
 }
+
+/// Permanent scoped registration locator, not customer/assent authority. The
+/// leading '1' is a fixed adapter marker for the existing four-column owning
+/// reader; it is discarded and never asserted as a canonical customer revision.
+pub(crate) struct CustomerLocator {
+    pub kind: AuditedBytes,
+    pub id: AuditedBytes,
+    pub digest: AuditedBytes,
+}
+impl SqliteTx {
+    pub(crate) async fn workflow_financial_customer_ref(
+        &mut self,
+        store: &str,
+        scope: &[String; 2],
+        customer: &str,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<CustomerLocator>, FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(StoreError::Integrity("poisoned customer locator").into());
+        }
+        self.failed = true;
+        let result=timeout_at(self.deadline,async{
+            for text in [store,&scope[0],&scope[1],customer]{
+                session.semantic_work().visit(ValidationVisit::Constraint)?;
+                if !resource_compare(session,text.len() as i64,0)?.is_gt()||resource_compare(session,text.len() as i64,128)?.is_gt(){return Err(invalid());}
+                session.semantic_work().scan_bytes(text.len())?;
+                for c in text.chars(){session.semantic_work().visit(ValidationVisit::Constraint)?;if c.is_control(){return Err(invalid());}}
+            }
+            session.check_cancelled()?;
+            let version:i64=sqlx::query_scalar("PRAGMA user_version").fetch_one(self.conn()).await?;
+            if !resource_compare(session,version,13)?.is_eq()&&!resource_compare(session,version,14)?.is_eq()&&!resource_compare(session,version,15)?.is_eq(){return Err(StoreError::BillingUpgradeRequired.into());}
+            let row=self.read_financial_head_projection(
+                "SELECT 1,octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_customer_registrations c LEFT JOIN workflow_documents d ON d.id=c.document_id WHERE c.logical_store_id=? AND c.tenant=? AND c.environment=? AND c.customer=?",
+                "SELECT '1',d.kind,d.id,d.digest FROM workflow_customer_registrations c LEFT JOIN workflow_documents d ON d.id=c.document_id WHERE c.logical_store_id=? AND c.tenant=? AND c.environment=? AND c.customer=?",
+                [store,scope[0].as_str(),scope[1].as_str(),customer],session).await?;
+            Ok(row.map(|r|CustomerLocator{kind:r.kind,id:r.id,digest:r.digest}))
+        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        if result.is_ok() {
+            session.semantic_work().visit(ValidationVisit::Constraint)?;
+            session.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(StoreError::Integrity("unfinished customer observation").into());
+            }
+            self.failed = false;
+        }
+        result
+    }
+}

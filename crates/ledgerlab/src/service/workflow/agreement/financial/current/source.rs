@@ -6,15 +6,21 @@ use super::*;
 use crate::store::sqlite::workflow::financial::{RetainedDocument, SourceHeadLocator};
 use ledgerlab_core::policy::workflow::{AgreementRef, transition_constructor::EconomicRecordView};
 use sha2::{Digest, Sha256};
-struct SourceRecord {
+pub(in super::super) struct SourceRecord {
     parsed: AuditedValue,
     stored: RetainedDocument,
     reference: ExactRef,
     _reference_lease: ExternalBufferLease,
 }
 impl SourceRecord {
-    fn body(&self) -> &Value {
+    pub(in super::super) fn body(&self) -> &Value {
         self.parsed.value()
+    }
+    pub(in super::super) fn reference(&self) -> &ExactRef {
+        &self.reference
+    }
+    pub(in super::super) fn canonical_body(&self) -> &[u8] {
+        self.stored.body.bytes()
     }
 }
 pub(in super::super) struct ObservedSource {
@@ -25,6 +31,9 @@ pub(in super::super) struct ObservedSource {
     head: SourceHeadLocator,
 }
 impl ObservedSource {
+    pub(in super::super) fn enrollment_record(&self) -> &SourceRecord {
+        &self.enrollment
+    }
     pub(in super::super) fn enrollment_ref(&self) -> &ExactRef {
         &self.enrollment.reference
     }
@@ -414,4 +423,59 @@ async fn observe_inner(
         grant,
         head,
     })
+}
+
+/// Same owning scoped reader for acceptance's genuine retained operands. This
+/// does not authenticate introductions or derive source/assent permissions.
+pub(in super::super) async fn retained_record(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    kind: &str,
+    schema: &str,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let (r, l) = from_value(value, kind, s)?;
+    load(tx, key, r, l, schema, before, s).await
+}
+
+/// Point-select the existing immutable customer registration under this SAME
+/// writer. Its body/earliest origin and original-enrollment membership still
+/// require the shared acceptance/chronology checks; index presence is DATA only.
+pub(in super::super) async fn customer_record(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    customer: &str,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let head = tx
+        .workflow_financial_customer_ref(&key.logical_store_id, &key.scope, customer, s)
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    let (r, l) = own(
+        raw_text(head.kind.bytes(), s)?,
+        raw_text(head.id.bytes(), s)?,
+        raw_text(head.digest.bytes(), s)?,
+        s,
+    )?;
+    super::super::request_wrapper::same_text(&r.kind, "workflow-customer", s)?;
+    let record = load(
+        tx,
+        key,
+        r,
+        l,
+        "ledger-workflow-customer-registration/1",
+        before,
+        s,
+    )
+    .await?;
+    super::super::request_wrapper::same_text(
+        super::super::request_wrapper::text(record.body(), "customer", s)?,
+        customer,
+        s,
+    )?;
+    Ok(record)
 }

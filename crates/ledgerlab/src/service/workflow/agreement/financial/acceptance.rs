@@ -2,6 +2,8 @@
 //! complete source/assent/current admission remain enclosing host obligations;
 //! this owning normalized projection cannot manufacture a prepared commit.
 use super::*;
+mod customer;
+pub(super) use customer::ObservedCustomerConsent;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, AuditedValue, ExternalBufferLease},
     policy::workflow::{AgreementRef, OwnedAcceptanceTerms},
@@ -212,6 +214,149 @@ impl AppAcceptanceInput {
     pub(super) fn expected_revision(&self) -> u64 {
         self.expected_revision
     }
+    pub(super) async fn customer_consent(
+        &self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        enrollment: &current::source::SourceRecord,
+        assent: &Value,
+        actor: &str,
+        at: &Timestamp,
+        before: i64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<ObservedCustomerConsent> {
+        let result = async {
+            let registration = current::source::customer_record(
+                tx,
+                key,
+                request_wrapper::text(self.terms.canonical_value(), "customer", session)?,
+                before,
+                session,
+            )
+            .await?;
+            let observed = customer::observe(
+                tx,
+                key,
+                &self.terms,
+                enrollment,
+                registration,
+                assent,
+                actor,
+                at,
+                before,
+                session,
+            )
+            .await?;
+            self.require_assent(observed.assent().reference(), session)?;
+            Ok(observed)
+        }
+        .await;
+        terminal(result, tx, session)
+    }
+    /// Original registration is selected from the completed original closure,
+    /// never today's registration index or current party/grant mapping.
+    pub(super) async fn original_customer_consent(
+        &self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        enrollment: &current::source::SourceRecord,
+        registration: current::source::SourceRecord,
+        assent: &Value,
+        actor: &str,
+        at: &Timestamp,
+        before: i64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<ObservedCustomerConsent> {
+        let result = async {
+            let observed = customer::observe(
+                tx,
+                key,
+                &self.terms,
+                enrollment,
+                registration,
+                assent,
+                actor,
+                at,
+                before,
+                session,
+            )
+            .await?;
+            self.require_assent(observed.assent().reference(), session)?;
+            Ok(observed)
+        }
+        .await;
+        terminal(result, tx, session)
+    }
+    pub(super) async fn original_platform_consent(
+        &self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        resource_leg: &str,
+        assent: &Value,
+        at: &Timestamp,
+        before: i64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<current::party::OriginalPlatformConsent> {
+        let result = async {
+            let observed = current::party::platform_consent_original(
+                tx,
+                key,
+                &self.terms,
+                resource_leg,
+                assent,
+                at,
+                before,
+                session,
+            )
+            .await?;
+            let bytes = session
+                .copy_representation(observed.assent_bytes(), Kind::SourceDefinition)
+                .map_err(core_error)?;
+            let record = wire::source_record(
+                "workflow-assent",
+                "ledger-workflow-party-assent/1",
+                bytes,
+                session,
+            )?;
+            self.require_assent(record.reference(), session)?;
+            Ok(observed)
+        }
+        .await;
+        terminal(result, tx, session)
+    }
+    fn require_assent(
+        &self,
+        reference: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let expected = wire::reference(reference, session)?;
+        let mut found = false;
+        for candidate in self
+            .assents
+            .value()
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            session
+                .semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            let actual = encode(candidate, session)?;
+            session
+                .semantic_work()
+                .scan_bytes(expected.bytes().len())
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(actual.bytes().len())
+                .map_err(core_error)?;
+            if expected.bytes() == actual.bytes() {
+                found = true;
+                break;
+            }
+        }
+        require(found, "INVALID_REFERENCE")
+    }
     pub(super) async fn platform_consent(
         &self,
         tx: &mut SqliteTx,
@@ -222,19 +367,47 @@ impl AppAcceptanceInput {
         before: i64,
         session: &mut OriginalAuditSession,
     ) -> Result<current::party::ObservedPlatformConsent> {
-        current::party::platform_consent(
-            tx,
-            key,
-            &self.terms,
-            resource_leg,
-            assent,
-            at,
-            before,
-            session,
-        )
-        .await
+        let result = async {
+            let observed = current::party::platform_consent(
+                tx,
+                key,
+                &self.terms,
+                resource_leg,
+                assent,
+                at,
+                before,
+                session,
+            )
+            .await?;
+            let bytes = session
+                .copy_representation(observed.assent_bytes(), Kind::SourceDefinition)
+                .map_err(core_error)?;
+            let record = wire::source_record(
+                "workflow-assent",
+                "ledger-workflow-party-assent/1",
+                bytes,
+                session,
+            )?;
+            self.require_assent(record.reference(), session)?;
+            Ok(observed)
+        }
+        .await;
+        terminal(result, tx, session)
     }
 }
+fn terminal<T>(
+    result: Result<T>,
+    tx: &mut SqliteTx,
+    session: &mut OriginalAuditSession,
+) -> Result<T> {
+    if result.is_err() {
+        session.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    result
+}
+
 fn encode(value: &Value, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     s.canonical_representation(value, Kind::SourceDefinition)
         .map_err(core_error)
@@ -468,8 +641,9 @@ fn project_binding(binding: &Value, s: &mut OriginalAuditSession) -> Result<Audi
             .visit(Visit::MemberCompare)
             .map_err(core_error)?;
         s.semantic_work()
-            .scan_bytes(key.len() + 7)
+            .scan_bytes(key.len())
             .map_err(core_error)?;
+        s.semantic_work().scan_bytes(7).map_err(core_error)?;
         if key == "ends_at" {
             has_end = true;
         }
