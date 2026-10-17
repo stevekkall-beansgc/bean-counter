@@ -270,6 +270,22 @@ async fn original_query_in(
         .map_err(core_error)?;
     let acquired = prefix::target(tx, key, identity, session).await?;
     let original = acquired.checked_wrappers(tx, session).await?;
+    if let OriginalQuery::Retry(request) = &input {
+        let saved_kind = request_wrapper::text(original.wrappers().operation(), "kind", session)?;
+        session
+            .semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(saved_kind.len())
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(request.kind().len())
+            .map_err(core_error)?;
+        require(saved_kind == request.kind(), "IDENTITY_CONFLICT")?;
+    }
     let _prefix = prefix::fold_original_prefix(ledger, tx, key, &original, session).await?;
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
@@ -301,12 +317,13 @@ impl LocalWorkflowLedger {
         let attempted = proof_session::with_proofs(&mut tx, key, |tx| {
             Box::pin(async {
                 self.admin.read(&self.store, tx, key).await?;
-                if let Some(kind) = tx
-                    .workflow_operation_kind(req.identity())
+                if tx
+                    .workflow_original_identity_exists(req.identity(), &mut session)
                     .await
-                    .map_err(crate::service::store_error)?
+                    .map_err(prefix::read_error)?
                 {
-                    require(kind == req.kind(), "IDENTITY_CONFLICT")?;
+                    // Kind and intent are checked from the SAME owning saved
+                    // frame below, never an unleased asserted kind column.
                     // No fresh selection, grant check, compiler or capacity admission
                     // precedes this original identity branch.
                     return original_retry(self, tx, &req, &mut session)

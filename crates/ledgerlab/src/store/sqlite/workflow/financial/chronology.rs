@@ -10,6 +10,55 @@ pub(crate) struct OriginalLocator {
 }
 
 impl SqliteTx {
+    /// Global identity existence before any fresh source/program selection.
+    /// A scalar probe returns no asserted kind/body and copies only the already
+    /// owning exact key through the SAME worker argument/ACK boundary.
+    pub(crate) async fn workflow_original_identity_exists(
+        &mut self,
+        identity: &[u8],
+        session: &mut OriginalAuditSession,
+    ) -> Result<bool, FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(StoreError::Integrity("poisoned original identity lookup").into());
+        }
+        self.failed = true;
+        let payload = io::binding_payload(&[identity], &[], 0, 0, session)?;
+        self.financial_reserve_io(session, payload)?;
+        let result = timeout_at(self.deadline, async {
+            self.workflow_schema().await?;
+            session.semantic_work().visit(ValidationVisit::RefLookup)?;
+            sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM workflow_operations WHERE identity_key=?)",
+            )
+            .bind(identity)
+            .fetch_one(self.conn())
+            .await
+            .map_err(FinancialReadError::from)
+        })
+        .await
+        .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
+        self.financial_finish_io(session).await?;
+        if result.is_ok() {
+            session.semantic_work().visit(ValidationVisit::Constraint)?;
+            session.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(
+                    StoreError::Integrity("original identity lookup retained failed work").into(),
+                );
+            }
+            self.failed = false;
+        }
+        result
+    }
+
     /// Return at most one physical journal identity, using the existing unique
     /// sequence index. No complete history, frame, member set or SQL sort is
     /// materialized. Legacy interleaving may leave gaps between workflow rows.
