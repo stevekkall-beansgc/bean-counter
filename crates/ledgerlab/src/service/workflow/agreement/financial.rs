@@ -275,12 +275,21 @@ async fn original_query_in(
             "ledger-workflow-source-revoke/1",
         ] {
             if acceptance::same_recipe_text(schema, expected, session)? {
+                if !acceptance::same_recipe_text(
+                    request_wrapper::text(original.wrappers().receipt(), "result_kind", session)?,
+                    "administrative",
+                    session,
+                )? {
+                    return Err(ServiceError::Unavailable);
+                }
+
                 if acceptance::same_recipe_text(schema, "ledger-workflow-source-enroll/1", session)?
                 {
                     let _source =
                         prefix::source::reconstruct_initial(tx, &original, session).await?;
                 } else {
-                    let _source = prefix::source::original_request(&original, session)?;
+                    let _source =
+                        prefix::source::reconstruct_successor(tx, &original, session).await?;
                 }
                 break;
             }

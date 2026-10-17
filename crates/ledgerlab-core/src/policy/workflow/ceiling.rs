@@ -80,20 +80,9 @@ impl SourceCeiling {
     /// Every dimension must narrow. Call this against both the retained
     /// original ceiling and the actual current grant; neither is inferred here.
     pub fn is_subset_of(&self, prior: &Self) -> bool {
-        let (n, p) = (&self.body, &prior.body);
-        n.principal_id == p.principal_id
-            && n.source == p.source
-            && n.canonical_economic_namespace == p.canonical_economic_namespace
-            && subset(&n.customer_scope, &p.customer_scope)
-            && subset(&n.operations, &p.operations)
-            && subset(&n.source_slots, &p.source_slots)
-            && subset(&n.permissions, &p.permissions)
-            && selector_subset(&n.product_selectors, &p.product_selectors)
-            && selector_subset(&n.activity_selectors, &p.activity_selectors)
-            && selector_subset(&n.link_selectors, &p.link_selectors)
-            && n.starts_at.micros() >= p.starts_at.micros()
-            && n.ends_at.micros() <= p.ends_at.micros()
+        subset_with_work(&self.body, &prior.body, &mut NoopValidationWork).unwrap_or(false)
     }
+
     pub fn contains_time(&self, time: &Timestamp) -> bool {
         self.body.starts_at.micros() <= time.micros() && time.micros() < self.body.ends_at.micros()
     }
@@ -346,21 +335,118 @@ fn selectors_work(
     }
 }
 
-fn subset(n: &[String], p: &[String]) -> bool {
-    n.iter().all(|v| p.contains(v))
+fn text_equal(a: &str, b: &str, w: &mut dyn ValidationWork) -> Result<bool> {
+    Ok(super::terms::paid::compare_text(a, b, w)?.is_eq())
 }
-fn selector_subset(n: &[Selector], p: &[Selector]) -> bool {
-    n.iter().all(|s| match s {
-        Selector::Namespace(n) => p
-            .iter()
-            .any(|s| matches!(s,Selector::Namespace(p) if n.namespace==p.namespace)),
-        Selector::Names(n) => n.names.iter().all(|name| {
-            p.iter().any(|s| match s {
-                Selector::Namespace(p) => name.starts_with(&p.namespace),
-                Selector::Names(p) => p.names.contains(name),
-            })
-        }),
-    })
+fn string_subset(n: &[String], p: &[String], w: &mut dyn ValidationWork) -> Result<bool> {
+    for name in n {
+        w.visit(Visit::Element)?;
+        let mut found = false;
+        for prior in p {
+            if text_equal(name, prior, w)? {
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+fn selectors_subset(n: &[Selector], p: &[Selector], w: &mut dyn ValidationWork) -> Result<bool> {
+    for selector in n {
+        w.visit(Visit::Element)?;
+        match selector {
+            Selector::Namespace(n) => {
+                let mut found = false;
+                for selector in p {
+                    w.visit(Visit::Element)?;
+                    if let Selector::Namespace(p) = selector {
+                        if text_equal(&n.namespace, &p.namespace, w)? {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if !found {
+                    return Ok(false);
+                }
+            }
+            Selector::Names(n) => {
+                for name in &n.names {
+                    w.visit(Visit::Element)?;
+                    let mut found = false;
+                    for selector in p {
+                        w.visit(Visit::Element)?;
+                        let matches = match selector {
+                            Selector::Names(p) => {
+                                let mut covered = false;
+                                for allowed in &p.names {
+                                    if text_equal(name, allowed, w)? {
+                                        covered = true;
+                                        break;
+                                    }
+                                }
+                                covered
+                            }
+                            Selector::Namespace(p) => {
+                                w.visit(Visit::MemberCompare)?;
+                                w.scan_bytes(name.len())?;
+                                w.scan_bytes(p.namespace.len())?;
+                                name.starts_with(&p.namespace)
+                            }
+                        };
+                        if matches {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+    }
+    Ok(true)
+}
+fn subset_with_work(n: &Ceiling, p: &Ceiling, w: &mut dyn ValidationWork) -> Result<bool> {
+    if !text_equal(&n.principal_id, &p.principal_id, w)?
+        || !text_equal(&n.source, &p.source, w)?
+        || !text_equal(
+            &n.canonical_economic_namespace,
+            &p.canonical_economic_namespace,
+            w,
+        )?
+    {
+        return Ok(false);
+    }
+    for (n, p) in [
+        (&n.customer_scope, &p.customer_scope),
+        (&n.operations, &p.operations),
+        (&n.source_slots, &p.source_slots),
+        (&n.permissions, &p.permissions),
+    ] {
+        w.visit(Visit::Field)?;
+        if !string_subset(n, p, w)? {
+            return Ok(false);
+        }
+    }
+    for (n, p) in [
+        (&n.product_selectors, &p.product_selectors),
+        (&n.activity_selectors, &p.activity_selectors),
+        (&n.link_selectors, &p.link_selectors),
+    ] {
+        w.visit(Visit::Field)?;
+        if !selectors_subset(n, p, w)? {
+            return Ok(false);
+        }
+    }
+    Ok(
+        !work::compare(w, n.starts_at.micros(), p.starts_at.micros())?.is_lt()
+            && !work::compare(w, n.ends_at.micros(), p.ends_at.micros())?.is_gt(),
+    )
 }
 fn fail(detail: &str) -> Error {
     Error::new("SOURCE_CEILING", detail)

@@ -333,11 +333,6 @@ async fn initial_inner(
     origin: &LocatedWrappers,
     s: &mut OriginalAuditSession,
 ) -> Result<InitialSource> {
-    // Two simultaneous normalized timestamp results plus their fixed parser
-    // scratch, admitted before either original time is parsed.
-    let _time_storage = s
-        .reserve_external_payload(2 * (4 * 64 + 27))
-        .map_err(core_error)?;
     let request = original_request(origin, s)?;
     let payload = s
         .parse_representation(
@@ -351,81 +346,12 @@ async fn initial_inner(
         "ledger-workflow-source-enroll/1",
         s,
     )?;
+    let management = management(tx, origin, s).await?;
+    let root = &management.root;
+    let actor = management.actor;
+    let at = &management.at;
+    let own_before = management.own_before;
     let operation = origin.wrappers().operation();
-    let at = Timestamp::parse_with_work(
-        request_wrapper::text(operation, "accepted_at", s)?,
-        s.semantic_work(),
-    )
-    .map_err(core_error)?;
-    let authority = request_wrapper::field(operation, "authority_snapshot", s)?;
-    request_wrapper::closed(
-        authority,
-        &[
-            "schema",
-            "principal_id",
-            "source",
-            "authority_refs",
-            "rights",
-            "validated_at",
-        ],
-        s,
-    )?;
-    request_wrapper::same_text(
-        request_wrapper::text(authority, "schema", s)?,
-        "ledger-workflow-publication-authority/1",
-        s,
-    )?;
-    let actor = request_wrapper::text(authority, "principal_id", s)?;
-    ingress::identifier(actor, 128, s)?;
-    request_wrapper::same_text(
-        request_wrapper::text(authority, "source", s)?,
-        &origin.key().source,
-        s,
-    )?;
-    let validated = Timestamp::parse_with_work(
-        request_wrapper::text(authority, "validated_at", s)?,
-        s.semantic_work(),
-    )
-    .map_err(core_error)?;
-    s.semantic_work()
-        .arithmetic(
-            Op::Compare,
-            &[&validated.micros().into(), &at.micros().into()],
-        )
-        .map_err(core_error)?;
-    require(validated.micros() == at.micros(), "INTEGRITY_FAILURE")?;
-    let rights = value(authority, "rights", s)?;
-    same_bytes(rights.bytes(), b"[\"admin\"]", s)?;
-    let roots = request_wrapper::field(authority, "authority_refs", s)?
-        .as_array()
-        .ok_or(ServiceError::IntegrityFailure)?;
-    s.semantic_work()
-        .arithmetic(Op::Compare, &[&roots.len().into(), &1usize.into()])
-        .map_err(core_error)?;
-    require(roots.len() == 1, "INTEGRITY_FAILURE")?;
-    origin.require_member(&roots[0], s)?;
-    s.semantic_work()
-        .arithmetic(
-            Op::Add,
-            &[&origin.wrappers().sequence().into(), &1i64.into()],
-        )
-        .map_err(core_error)?;
-    let own_before = origin
-        .wrappers()
-        .sequence()
-        .checked_add(1)
-        .ok_or(ServiceError::IntegrityFailure)?;
-    let root = current::source::retained_record(
-        tx,
-        origin.key(),
-        &roots[0],
-        "workflow-authority",
-        "ledger-workflow-local-authority-snapshot/1",
-        own_before,
-        s,
-    )
-    .await?;
-    current::party::produce::validate_original_root(root.body(), origin.key(), actor, &at, s)?;
     let ceiling = request.ceiling().ok_or(ServiceError::IntegrityFailure)?;
     request_wrapper::same_text(request_wrapper::text(ceiling, "principal_id", s)?, actor, s)?;
     for field in ["source", "canonical_economic_namespace"] {
@@ -624,7 +550,7 @@ async fn initial_inner(
     }
     Ok(InitialSource {
         request,
-        root,
+        root: management.root,
         evidence,
         customers,
         enrollment,
@@ -831,5 +757,774 @@ mod birth_tests {
         g.validate_lineage(e.enrollment_id(), e.reference(), e.ceiling(), None)
             .unwrap();
         st.validate_lineage(&e, Some(&g), None).unwrap();
+    }
+}
+
+struct Management<'a> {
+    root: current::source::SourceRecord,
+    at: Timestamp,
+    actor: &'a str,
+    own_before: i64,
+    _time_storage: ExternalBufferLease,
+}
+async fn management<'a>(
+    tx: &mut SqliteTx,
+    origin: &'a LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<Management<'a>> {
+    let time_storage = s
+        .reserve_external_payload(2 * (4 * 64 + 27))
+        .map_err(core_error)?;
+    let operation = origin.wrappers().operation();
+    let at = Timestamp::parse_with_work(
+        request_wrapper::text(operation, "accepted_at", s)?,
+        s.semantic_work(),
+    )
+    .map_err(core_error)?;
+    let authority = request_wrapper::field(operation, "authority_snapshot", s)?;
+    request_wrapper::closed(
+        authority,
+        &[
+            "schema",
+            "principal_id",
+            "source",
+            "authority_refs",
+            "rights",
+            "validated_at",
+        ],
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(authority, "schema", s)?,
+        "ledger-workflow-publication-authority/1",
+        s,
+    )?;
+    let actor = request_wrapper::text(authority, "principal_id", s)?;
+    ingress::identifier(actor, 128, s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(authority, "source", s)?,
+        &origin.key().source,
+        s,
+    )?;
+    let validated = Timestamp::parse_with_work(
+        request_wrapper::text(authority, "validated_at", s)?,
+        s.semantic_work(),
+    )
+    .map_err(core_error)?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&validated.micros().into(), &at.micros().into()],
+        )
+        .map_err(core_error)?;
+    require(validated.micros() == at.micros(), "INTEGRITY_FAILURE")?;
+    let rights = value(authority, "rights", s)?;
+    same_bytes(rights.bytes(), b"[\"admin\"]", s)?;
+    let roots = request_wrapper::field(authority, "authority_refs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&roots.len().into(), &1usize.into()])
+        .map_err(core_error)?;
+    require(roots.len() == 1, "INTEGRITY_FAILURE")?;
+    origin.require_member(&roots[0], s)?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Add,
+            &[&origin.wrappers().sequence().into(), &1i64.into()],
+        )
+        .map_err(core_error)?;
+    let own_before = origin
+        .wrappers()
+        .sequence()
+        .checked_add(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let root = current::source::retained_record(
+        tx,
+        origin.key(),
+        &roots[0],
+        "workflow-authority",
+        "ledger-workflow-local-authority-snapshot/1",
+        own_before,
+        s,
+    )
+    .await?;
+    current::party::produce::validate_original_root(root.body(), origin.key(), actor, &at, s)?;
+    Ok(Management {
+        root,
+        at,
+        actor,
+        own_before,
+        _time_storage: time_storage,
+    })
+}
+
+const CEILING_FIELDS: [&str; 12] = [
+    "activity_selectors",
+    "canonical_economic_namespace",
+    "customer_scope",
+    "ends_at",
+    "link_selectors",
+    "operations",
+    "permissions",
+    "principal_id",
+    "product_selectors",
+    "source",
+    "source_slots",
+    "starts_at",
+];
+fn grant_ceiling(grant: &Value, s: &mut OriginalAuditSession) -> Result<OwnedSourceCeiling> {
+    request_wrapper::closed(
+        grant,
+        &[
+            "activity_selectors",
+            "canonical_economic_namespace",
+            "customer_scope",
+            "ends_at",
+            "grant_id",
+            "link_selectors",
+            "operations",
+            "original_ceiling_ref",
+            "permissions",
+            "principal_id",
+            "product_selectors",
+            "revision",
+            "schema",
+            "source",
+            "source_slots",
+            "starts_at",
+        ],
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(grant, "schema", s)?,
+        "ledger-workflow-source-grant/1",
+        s,
+    )?;
+    let mut values: [Option<AuditedBytes>; 12] = std::array::from_fn(|_| None);
+    for (index, key) in CEILING_FIELDS.iter().enumerate() {
+        s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+        values[index] = Some(value(grant, key, s)?);
+    }
+    let mut fields = [("", b"".as_slice()); 12];
+    for (index, key) in CEILING_FIELDS.iter().enumerate() {
+        s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<(&str, &[u8])>())
+            .map_err(core_error)?;
+        fields[index] = (
+            *key,
+            values[index]
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .bytes(),
+        );
+    }
+    let bytes = wire::object(&fields, 262144, s)?;
+    let parsed = s
+        .parse_representation(bytes.bytes(), RepresentationKind::SourceDefinition)
+        .map_err(core_error)?;
+    let normalized = OwnedSourceCeiling::normalize(parsed.value(), s).map_err(core_error)?;
+    same_bytes(bytes.bytes(), normalized.canonical_bytes(), s)?;
+    Ok(normalized)
+}
+async fn compare_source_results(
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    records: &[&wire::SourceRecord],
+    own_before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let refs = wire::RefSet::new(
+        records.iter().map(|r| r.reference()),
+        records.len(),
+        true,
+        s,
+    )?
+    .encode(s)?;
+    let expected = value(origin.wrappers().operation(), "result_refs", s)?;
+    same_bytes(refs.bytes(), expected.bytes(), s)?;
+    for record in records {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let reference = wire::reference(record.reference(), s)?;
+        let reference = s
+            .parse_representation(reference.bytes(), RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        origin.require_member(reference.value(), s)?;
+        let schema = if same(&record.reference().kind, "workflow-source-state", s)? {
+            "ledger-workflow-source-state/1"
+        } else {
+            "ledger-workflow-source-grant/1"
+        };
+        let stored = current::source::retained_record(
+            tx,
+            origin.key(),
+            reference.value(),
+            &record.reference().kind,
+            schema,
+            own_before,
+            s,
+        )
+        .await?;
+        same_bytes(stored.canonical_body(), record.bytes(), s)?;
+    }
+    Ok(())
+}
+/// A saved prior-state locator and its bodies are still untrusted DATA. The
+/// chronological owner must match this state to the actual as-of active head;
+/// this carrier cannot confer that match or a completed origin.
+pub(in super::super) struct SourceSuccessor<'a> {
+    request: SourceRequest,
+    management: Management<'a>,
+    enrollment: current::source::SourceRecord,
+    prior_state: current::source::SourceRecord,
+    prior_grant: current::source::SourceRecord,
+    grant: Option<wire::SourceRecord>,
+    state: wire::SourceRecord,
+}
+pub(in super::super) async fn reconstruct_successor<'a>(
+    tx: &mut SqliteTx,
+    origin: &'a LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceSuccessor<'a>> {
+    let result = successor_inner(tx, origin, s).await;
+    if result.is_err() {
+        s.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, Ordering::Release);
+    }
+    result
+}
+async fn successor_inner<'a>(
+    tx: &mut SqliteTx,
+    origin: &'a LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceSuccessor<'a>> {
+    let request = original_request(origin, s)?;
+    let payload = s
+        .parse_representation(
+            request.normalized_payload(),
+            RepresentationKind::OriginalRequest,
+        )
+        .map_err(core_error)?;
+    let p = payload.value();
+    let restricted = same(
+        request_wrapper::text(p, "schema", s)?,
+        "ledger-workflow-source-restrict/1",
+        s,
+    )?;
+    if !restricted {
+        request_wrapper::same_text(
+            request_wrapper::text(p, "schema", s)?,
+            "ledger-workflow-source-revoke/1",
+            s,
+        )?;
+    }
+    let management = management(tx, origin, s).await?;
+    let own_before = management.own_before;
+    let enrollment_ref = request_wrapper::field(p, "enrollment_ref", s)?;
+    origin.require_member(enrollment_ref, s)?;
+    let enrollment = current::source::retained_record(
+        tx,
+        origin.key(),
+        enrollment_ref,
+        "workflow-source-enrollment",
+        "ledger-workflow-source-enrollment/1",
+        origin.wrappers().sequence(),
+        s,
+    )
+    .await?;
+    let e = enrollment.body();
+    request_wrapper::closed(
+        e,
+        &[
+            "schema",
+            "scope",
+            "enrollment_id",
+            "ceiling",
+            "customer_refs",
+            "evidence_ref",
+            "enrolled_by",
+            "enrolled_at",
+            "authority_ref",
+            "installation_mode",
+        ],
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(e, "installation_mode", s)?,
+        "real_local",
+        s,
+    )?;
+    let e_scope = value(e, "scope", s)?;
+    let op = origin.wrappers().operation();
+    let key = request_wrapper::field(op, "key", s)?;
+    let scope = value(key, "scope", s)?;
+    same_bytes(e_scope.bytes(), scope.bytes(), s)?;
+    let original_ceiling =
+        OwnedSourceCeiling::normalize(request_wrapper::field(e, "ceiling", s)?, s)
+            .map_err(core_error)?;
+    let original = request_wrapper::field(e, "ceiling", s)?;
+    let encoded = encode(original, s)?;
+    same_bytes(encoded.bytes(), original_ceiling.canonical_bytes(), s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(original, "principal_id", s)?,
+        management.actor,
+        s,
+    )?;
+    for name in ["source", "canonical_economic_namespace"] {
+        request_wrapper::same_text(
+            request_wrapper::text(original, name, s)?,
+            &origin.key().source,
+            s,
+        )?;
+    }
+    let results = request_wrapper::field(op, "result_refs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let mut saved_state = None;
+    for reference in results {
+        s.semantic_work()
+            .visit(Visit::RefLookup)
+            .map_err(core_error)?;
+        if same(
+            request_wrapper::text(reference, "kind", s)?,
+            "workflow-source-state",
+            s,
+        )? {
+            s.semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            require(
+                saved_state.replace(reference).is_none(),
+                "INTEGRITY_FAILURE",
+            )?;
+        }
+    }
+    let saved_state = saved_state.ok_or(ServiceError::IntegrityFailure)?;
+    let retained = current::source::retained_record(
+        tx,
+        origin.key(),
+        saved_state,
+        "workflow-source-state",
+        "ledger-workflow-source-state/1",
+        own_before,
+        s,
+    )
+    .await?;
+    let prior_ref = request_wrapper::field(retained.body(), "prior_state_ref", s)?;
+    origin.require_member(prior_ref, s)?;
+    let prior_state = current::source::retained_record(
+        tx,
+        origin.key(),
+        prior_ref,
+        "workflow-source-state",
+        "ledger-workflow-source-state/1",
+        origin.wrappers().sequence(),
+        s,
+    )
+    .await?;
+    let prior = prior_state.body();
+    request_wrapper::same_text(request_wrapper::text(prior, "status", s)?, "active", s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(prior, "actor", s)?,
+        management.actor,
+        s,
+    )?;
+    let actual_enrollment = value(prior, "enrollment_ref", s)?;
+    let expected_enrollment = encode(enrollment_ref, s)?;
+    same_bytes(actual_enrollment.bytes(), expected_enrollment.bytes(), s)?;
+    let prior_key = request_wrapper::field(prior, "operation_key", s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(prior_key, "logical_store_id", s)?,
+        &origin.key().logical_store_id,
+        s,
+    )?;
+    request_wrapper::same_text(
+        request_wrapper::text(prior_key, "source", s)?,
+        &origin.key().source,
+        s,
+    )?;
+    let prior_scope = value(prior_key, "scope", s)?;
+    same_bytes(prior_scope.bytes(), scope.bytes(), s)?;
+    let expected = request_wrapper::text(p, "expected_revision", s)?;
+    request_wrapper::same_text(request_wrapper::text(prior, "revision", s)?, expected, s)?;
+    let revision = acceptance::counter(expected, s)?;
+    s.semantic_work()
+        .arithmetic(Op::Add, &[&revision.into(), &1u64.into()])
+        .map_err(core_error)?;
+    let next = revision
+        .checked_add(1)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&next.into(), &i64::MAX.into()])
+        .map_err(core_error)?;
+    require(next <= i64::MAX as u64, "INTEGRITY_FAILURE")?;
+    let next_string = counter_string(next, s)?;
+    let next_value = s
+        .parse_representation(next_string.bytes(), RepresentationKind::SourceDefinition)
+        .map_err(core_error)?;
+    let next_text = next_value
+        .value()
+        .as_str()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let prior_grant_ref = request_wrapper::field(prior, "current_grant_ref", s)?;
+    origin.require_member(prior_grant_ref, s)?;
+    let prior_grant = current::source::retained_record(
+        tx,
+        origin.key(),
+        prior_grant_ref,
+        "workflow-source-grant",
+        "ledger-workflow-source-grant/1",
+        origin.wrappers().sequence(),
+        s,
+    )
+    .await?;
+    let previous = prior_grant.body();
+    let supplied = value(previous, "original_ceiling_ref", s)?;
+    same_bytes(supplied.bytes(), expected_enrollment.bytes(), s)?;
+    request_wrapper::same_text(
+        request_wrapper::text(previous, "grant_id", s)?,
+        request_wrapper::text(e, "enrollment_id", s)?,
+        s,
+    )?;
+    request_wrapper::same_text(request_wrapper::text(previous, "revision", s)?, expected, s)?;
+    let prior_ceiling = grant_ceiling(previous, s)?;
+    require(
+        prior_ceiling
+            .is_subset_of_with_work(&original_ceiling, s)
+            .map_err(core_error)?,
+        "INTEGRITY_FAILURE",
+    )?;
+    // Body digest and logical revision ID are independently recomputed. This
+    // does not establish that this active state was the actual latest prefix.
+    let prior_bytes = s
+        .copy_representation(
+            prior_state.canonical_body(),
+            RepresentationKind::SourceDefinition,
+        )
+        .map_err(core_error)?;
+    let recomputed_prior = wire::source_state_record(
+        prior_bytes,
+        &origin.key().logical_store_id,
+        request_wrapper::field(key, "scope", s)?,
+        request_wrapper::text(e, "enrollment_id", s)?,
+        expected,
+        s,
+    )?;
+    let supplied = wire::reference(prior_state.reference(), s)?;
+    let recomputed = wire::reference(recomputed_prior.reference(), s)?;
+    same_bytes(supplied.bytes(), recomputed.bytes(), s)?;
+    let grant = if restricted {
+        let ceiling = request
+            .ceiling
+            .as_ref()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        require(
+            ceiling
+                .is_subset_of_with_work(&original_ceiling, s)
+                .map_err(core_error)?
+                && ceiling
+                    .is_subset_of_with_work(&prior_ceiling, s)
+                    .map_err(core_error)?,
+            "SOURCE_CEILING_EXCEEDED",
+        )?;
+        Some(successor_grant(
+            ceiling.canonical_value(),
+            request_wrapper::text(e, "enrollment_id", s)?,
+            enrollment.reference(),
+            next_text,
+            s,
+        )?)
+    } else {
+        None
+    };
+    let state = successor_state(
+        origin.key(),
+        key,
+        enrollment.reference(),
+        request_wrapper::text(e, "enrollment_id", s)?,
+        prior_state.reference(),
+        grant.as_ref().map(wire::SourceRecord::reference),
+        next_text,
+        management.actor,
+        &management.at,
+        s,
+    )?;
+    if let Some(grant) = &grant {
+        compare_source_results(tx, origin, &[grant, &state], own_before, s).await?;
+    } else {
+        compare_source_results(tx, origin, &[&state], own_before, s).await?;
+    }
+    Ok(SourceSuccessor {
+        request,
+        management,
+        enrollment,
+        prior_state,
+        prior_grant,
+        grant,
+        state,
+    })
+}
+fn counter_string(mut n: u64, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+    let mut digits = [0u8; 20];
+    let mut start = 20usize;
+    loop {
+        s.semantic_work()
+            .arithmetic(Op::Subtract, &[&start.into(), &1usize.into()])
+            .map_err(core_error)?;
+        start -= 1;
+        s.semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&n.into(), &10u64.into()])
+            .map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&b'0'.into(), &(n % 10).into()])
+            .map_err(core_error)?;
+        s.semantic_work().write_bytes(1).map_err(core_error)?;
+        digits[start] = b'0' + (n % 10) as u8;
+        n /= 10;
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&n.into(), &0u64.into()])
+            .map_err(core_error)?;
+        if n == 0 {
+            break;
+        }
+    }
+    s.semantic_work()
+        .scan_bytes(digits.len())
+        .map_err(core_error)?;
+    wire::string(
+        std::str::from_utf8(&digits[start..]).map_err(|_| ServiceError::IntegrityFailure)?,
+        s,
+    )
+}
+fn successor_grant(
+    ceiling: &Value,
+    enrollment_id: &str,
+    enrollment: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    revision: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
+    let mut values: [Option<AuditedBytes>; 12] = std::array::from_fn(|_| None);
+    for (i, key) in CEILING_FIELDS.iter().enumerate() {
+        s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+        values[i] = Some(value(ceiling, key, s)?);
+    }
+    let enrollment = wire::reference(enrollment, s)?;
+    let id = wire::string(enrollment_id, s)?;
+    let revision = wire::string(revision, s)?;
+    let v = |i: usize| -> Result<&[u8]> {
+        Ok(values[i]
+            .as_ref()
+            .ok_or(ServiceError::IntegrityFailure)?
+            .bytes())
+    };
+    let body = wire::object(
+        &[
+            ("activity_selectors", v(0)?),
+            ("canonical_economic_namespace", v(1)?),
+            ("customer_scope", v(2)?),
+            ("ends_at", v(3)?),
+            ("grant_id", id.bytes()),
+            ("link_selectors", v(4)?),
+            ("operations", v(5)?),
+            ("original_ceiling_ref", enrollment.bytes()),
+            ("permissions", v(6)?),
+            ("principal_id", v(7)?),
+            ("product_selectors", v(8)?),
+            ("revision", revision.bytes()),
+            ("schema", b"\"ledger-workflow-source-grant/1\""),
+            ("source", v(9)?),
+            ("source_slots", v(10)?),
+            ("starts_at", v(11)?),
+        ],
+        262144,
+        s,
+    )?;
+    wire::source_record(
+        "workflow-source-grant",
+        "ledger-workflow-source-grant/1",
+        body,
+        s,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn successor_state(
+    key: &OperationKey,
+    key_value: &Value,
+    enrollment: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    enrollment_id: &str,
+    prior: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    grant: Option<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>,
+    revision: &str,
+    actor: &str,
+    at: &Timestamp,
+    s: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
+    let actor = wire::string(actor, s)?;
+    let at = wire::string(at.as_str(), s)?;
+    let enrollment_bytes = wire::reference(enrollment, s)?;
+    let prior_bytes = wire::reference(prior, s)?;
+    let key_bytes = encode(key_value, s)?;
+    let revision_bytes = wire::string(revision, s)?;
+    let current_grant = grant.map(|g| wire::reference(g, s)).transpose()?;
+    let body = if let Some(g) = &current_grant {
+        wire::object(
+            &[
+                ("accepted_at", at.bytes()),
+                ("actor", actor.bytes()),
+                ("current_grant_ref", g.bytes()),
+                ("enrollment_ref", enrollment_bytes.bytes()),
+                ("operation_key", key_bytes.bytes()),
+                ("prior_state_ref", prior_bytes.bytes()),
+                ("revision", revision_bytes.bytes()),
+                ("schema", b"\"ledger-workflow-source-state/1\""),
+                ("status", b"\"active\""),
+            ],
+            262144,
+            s,
+        )?
+    } else {
+        wire::object(
+            &[
+                ("accepted_at", at.bytes()),
+                ("actor", actor.bytes()),
+                ("enrollment_ref", enrollment_bytes.bytes()),
+                ("operation_key", key_bytes.bytes()),
+                ("prior_state_ref", prior_bytes.bytes()),
+                ("revision", revision_bytes.bytes()),
+                ("schema", b"\"ledger-workflow-source-state/1\""),
+                ("status", b"\"revoked\""),
+            ],
+            262144,
+            s,
+        )?
+    };
+    wire::source_state_record(
+        body,
+        &key.logical_store_id,
+        request_wrapper::field(key_value, "scope", s)?,
+        enrollment_id,
+        revision,
+        s,
+    )
+}
+
+#[cfg(test)]
+mod successor_tests {
+    use super::*;
+    use ledgerlab_core::policy::workflow::{SourceEnrollment, SourceGrant, SourceState};
+    #[test]
+    fn restrict_then_terminal_revoke_matches_same_existing_r1_lineage_and_record_bytes() {
+        let input = serde_json::json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"source-unit","customer_refs":[{"kind":"workflow-customer","id":format!("wdoc_{}","b".repeat(64)),"digest":format!("sha256:{}","b".repeat(64))}],"evidence_ref":{"kind":"workflow-evidence","id":format!("wdoc_{}","c".repeat(64)),"digest":format!("sha256:{}","c".repeat(64))},"ceiling":{"principal_id":"owner","source":"source","canonical_economic_namespace":"source","customer_scope":["c"],"operations":["work.accept","evidence.retain"],"product_selectors":[{"names":["a:product"]}],"activity_selectors":[{"names":["a:one","a:two"]}],"link_selectors":[],"source_slots":["a:worker"],"permissions":["submit","read"],"starts_at":"2026-10-17T00:00:00Z","ends_at":"2026-10-18T00:00:00Z"}});
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let request = normalize(&input, &mut s).unwrap();
+        let payload = s
+            .parse_representation(
+                request.normalized_payload(),
+                RepresentationKind::OriginalRequest,
+            )
+            .unwrap();
+        let mut key = OperationKey {
+            logical_store_id: "test-store".into(),
+            scope: ["test".into(), "local".into()],
+            source: "source".into(),
+            operation_id: "birth".into(),
+        };
+        let key_value = serde_json::json!(key);
+        let root = ledgerlab_core::policy::workflow::transition_constructor::ExactRef {
+            kind: "workflow-authority".into(),
+            id: format!("wdoc_{}", "a".repeat(64)),
+            digest: format!("sha256:{}", "a".repeat(64)),
+        };
+        let at = Timestamp::parse("2026-10-17T00:00:00Z").unwrap();
+        let [enrollment, original_grant, original_state] = birth_records(
+            &request,
+            payload.value(),
+            &key,
+            &key_value,
+            "owner",
+            &at,
+            &root,
+            &mut s,
+        )
+        .unwrap();
+        let e = SourceEnrollment::parse(enrollment.bytes()).unwrap();
+        let old_grant = SourceGrant::parse(original_grant.bytes()).unwrap();
+        let old_state = SourceState::parse(original_state.bytes(), &e).unwrap();
+        let mut narrowed = input["ceiling"].clone();
+        narrowed["activity_selectors"] =
+            serde_json::json!([{"names":["a:one"]},{"names":["a:two"]}]);
+        narrowed["permissions"] = serde_json::json!(["read"]);
+        let normalized = OwnedSourceCeiling::normalize(&narrowed, &mut s).unwrap();
+        assert!(
+            normalized
+                .is_subset_of_with_work(request.ceiling.as_ref().unwrap(), &mut s)
+                .unwrap()
+        );
+        let grant = successor_grant(
+            normalized.canonical_value(),
+            e.enrollment_id(),
+            enrollment.reference(),
+            "2",
+            &mut s,
+        )
+        .unwrap();
+        key.operation_id = "restrict".into();
+        let key_value = serde_json::json!(key);
+        let state = successor_state(
+            &key,
+            &key_value,
+            enrollment.reference(),
+            e.enrollment_id(),
+            original_state.reference(),
+            Some(grant.reference()),
+            "2",
+            "owner",
+            &at,
+            &mut s,
+        )
+        .unwrap();
+        let g = SourceGrant::parse(grant.bytes()).unwrap();
+        let st = SourceState::parse(state.bytes(), &e).unwrap();
+        g.validate_lineage(
+            e.enrollment_id(),
+            e.reference(),
+            e.ceiling(),
+            Some(&old_grant),
+        )
+        .unwrap();
+        st.validate_lineage(&e, Some(&g), Some((&old_state, &old_grant)))
+            .unwrap();
+        assert_eq!(g.document_id(), grant.reference().id);
+        assert_eq!(g.content_digest(), grant.reference().digest);
+        assert_eq!(st.canonical_bytes(), state.bytes());
+        assert_eq!(st.reference().id(), state.reference().id);
+        assert_eq!(st.reference().digest(), state.reference().digest);
+        key.operation_id = "revoke".into();
+        let key_value = serde_json::json!(key);
+        let terminal = successor_state(
+            &key,
+            &key_value,
+            enrollment.reference(),
+            e.enrollment_id(),
+            state.reference(),
+            None,
+            "3",
+            "owner",
+            &at,
+            &mut s,
+        )
+        .unwrap();
+        let closed = SourceState::parse(terminal.bytes(), &e).unwrap();
+        closed.validate_lineage(&e, None, Some((&st, &g))).unwrap();
+        assert_eq!(closed.status(), "revoked");
+        assert_eq!(closed.canonical_bytes(), terminal.bytes());
+        assert_eq!(closed.reference().id(), terminal.reference().id);
+        assert_eq!(closed.reference().digest(), terminal.reference().digest);
     }
 }

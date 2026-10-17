@@ -13,6 +13,7 @@ use std::mem;
 
 pub struct OwnedSourceCeiling {
     body: AuditedValue,
+    typed: Ceiling,
     bytes: AuditedBytes,
     _storage: Storage,
 }
@@ -237,15 +238,37 @@ impl OwnedSourceCeiling {
             },
             w,
         )?;
-        // Typed ordinary payload dies while its reservations are still held.
-        drop(value);
+        // Typed payload and parsed/encoded views all precede their reservation
+        // owner, including subsequent SAME source-ceiling lineage predicates.
         let body =
             session.parse_representation(bytes.bytes(), RepresentationKind::SourceDefinition)?;
         Ok(Self {
             body,
+            typed: value,
             bytes,
             _storage: storage,
         })
+    }
+    /// SAME immutable ceiling intersection rules with executing work. This is
+    /// a DATA predicate; both owners must remain in this one audit attempt.
+    pub fn is_subset_of_with_work(
+        &self,
+        prior: &Self,
+        session: &mut OriginalAuditSession,
+    ) -> Result<bool> {
+        let result = (|| {
+            session.check_cancelled()?;
+            let arena = session.arena().shared_handle();
+            session.semantic_work().visit(Visit::Constraint)?;
+            if !self.body.belongs_to(&arena) || !prior.body.belongs_to(&arena) {
+                return Err(fail("cross-attempt source ceiling"));
+            }
+            super::subset_with_work(&self.typed, &prior.typed, session.semantic_work())
+        })();
+        if result.is_err() {
+            session.invalidate();
+        }
+        result
     }
     pub fn canonical_value(&self) -> &Value {
         self.body.value()
@@ -261,8 +284,43 @@ mod tests {
     use crate::canonical::audit_arena::AuditArena;
     use serde_json::json;
     #[test]
+    fn owning_lineage_matches_legacy_narrowing_and_legal_selector_regrouping() {
+        let original = json!({"principal_id":"owner","source":"source","canonical_economic_namespace":"source","customer_scope":["c"],"operations":["work.accept","evidence.retain"],"product_selectors":[{"names":["a:product"]}],"activity_selectors":[{"names":["a:one","a:two"]}],"link_selectors":[],"source_slots":["a:worker"],"permissions":["submit","read"],"starts_at":"2026-10-17T00:00:00Z","ends_at":"2026-10-18T00:00:00Z"});
+        let mut cases = vec![(original.clone(), true)];
+        let mut grouped = original.clone();
+        grouped["activity_selectors"] =
+            json!([{"names":["a:one"]},{"names":["a:two"]},{"names":["a:one","a:two"]}]);
+        cases.push((grouped, true));
+        for (field, value) in [
+            ("permissions", json!(["read", "submit", "operate"])),
+            ("activity_selectors", json!([{"namespace":"a:"}])),
+            ("starts_at", json!("2026-10-16T00:00:00Z")),
+            ("source", json!("different")),
+        ] {
+            let mut changed = original.clone();
+            changed[field] = value;
+            cases.push((changed, false));
+        }
+        for (value, expected) in cases {
+            let old = SourceCeiling::parse(&serde_json::to_vec(&original).unwrap()).unwrap();
+            let next = SourceCeiling::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+            assert_eq!(next.is_subset_of(&old), expected);
+            let arena = AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let old = OwnedSourceCeiling::normalize(&original, &mut session).unwrap();
+            let next = OwnedSourceCeiling::normalize(&value, &mut session).unwrap();
+            assert_eq!(
+                next.is_subset_of_with_work(&old, &mut session).unwrap(),
+                expected
+            );
+        }
+    }
+    #[test]
     fn owning_source_ceiling_reuses_legacy_rules_bytes_and_selector_set_order() {
-        let schema:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/agreement-ready.schema.json")).unwrap();
+        let schema: Value = serde_json::from_slice(include_bytes!(
+            "../../../../../../contracts/candidates/full-suite-v1/core/agreement-ready.schema.json"
+        ))
+        .unwrap();
         assert_eq!(
             serde_json::to_value(super::super::CLOSED_OPERATIONS).unwrap(),
             schema["$defs"]["ClosedOperationKind"]["enum"]
