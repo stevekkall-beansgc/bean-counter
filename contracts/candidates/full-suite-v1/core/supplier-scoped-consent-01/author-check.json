@@ -1,0 +1,276 @@
+{
+  "schema": "supplier-scoped-consent-author-check/1",
+  "checks": [
+    {
+      "name": "schema_supplier_roles",
+      "passed": true
+    },
+    {
+      "name": "schema_retail_roles",
+      "passed": true
+    },
+    {
+      "name": "schema_owner_activation",
+      "passed": true
+    },
+    {
+      "name": "schema_cost_authority",
+      "passed": true
+    },
+    {
+      "name": "schema_retail_terms",
+      "passed": true
+    },
+    {
+      "name": "schema_policy",
+      "passed": true
+    },
+    {
+      "name": "schema_publication",
+      "passed": true
+    },
+    {
+      "name": "schema_commitment",
+      "passed": true
+    },
+    {
+      "name": "schema_offer",
+      "passed": true
+    },
+    {
+      "name": "schema_supplier_terms",
+      "passed": true
+    },
+    {
+      "name": "schema_acceptance_terms",
+      "passed": true
+    },
+    {
+      "name": "schema_provider_mapping_evidence",
+      "passed": true
+    },
+    {
+      "name": "schema_provider_mapping_attestation",
+      "passed": true
+    },
+    {
+      "name": "schema_provider_authorization",
+      "passed": true
+    },
+    {
+      "name": "schema_provider_consent_evidence",
+      "passed": true
+    },
+    {
+      "name": "schema_provider_consent_attestation",
+      "passed": true
+    },
+    {
+      "name": "schema_provider_assent",
+      "passed": true
+    },
+    {
+      "name": "schema_platform_mapping_evidence",
+      "passed": true
+    },
+    {
+      "name": "schema_platform_mapping_attestation",
+      "passed": true
+    },
+    {
+      "name": "schema_platform_authorization",
+      "passed": true
+    },
+    {
+      "name": "schema_platform_consent_evidence",
+      "passed": true
+    },
+    {
+      "name": "schema_platform_consent_attestation",
+      "passed": true
+    },
+    {
+      "name": "schema_platform_assent",
+      "passed": true
+    },
+    {
+      "name": "schema_consent_verification",
+      "passed": true
+    },
+    {
+      "name": "schema_provider_revocation",
+      "passed": true
+    },
+    {
+      "name": "projection_schema",
+      "passed": true
+    },
+    {
+      "name": "conditional_plan_schema",
+      "passed": true
+    },
+    {
+      "name": "retail_price_reuse",
+      "passed": true
+    },
+    {
+      "name": "unrelated_insert_reuse",
+      "passed": true
+    },
+    {
+      "name": "case_valid_original",
+      "passed": true
+    },
+    {
+      "name": "case_valid_new_admin_historical_operator",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_provider_party",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_acceptor",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_mapping",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_operator",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_statement",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_attested_target",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_scope",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_customer",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_offer",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_terms",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_commitment",
+      "passed": true
+    },
+    {
+      "name": "case_provider_using_fullterms_basis",
+      "passed": true
+    },
+    {
+      "name": "case_platform_using_provider_basis",
+      "passed": true
+    },
+    {
+      "name": "case_platform_missing_payer_role",
+      "passed": true
+    },
+    {
+      "name": "case_operator_without_retained_consent",
+      "passed": true
+    },
+    {
+      "name": "case_mapping_not_actually_verified",
+      "passed": true
+    },
+    {
+      "name": "case_unauthorized_current_admin",
+      "passed": true
+    },
+    {
+      "name": "case_current_source_revoked",
+      "passed": true
+    },
+    {
+      "name": "case_original_source_missing",
+      "passed": true
+    },
+    {
+      "name": "case_customer_fullterms_missing",
+      "passed": true
+    },
+    {
+      "name": "case_wrong_real_mode",
+      "passed": true
+    },
+    {
+      "name": "case_expired_mapping",
+      "passed": true
+    },
+    {
+      "name": "case_future_consent",
+      "passed": true
+    },
+    {
+      "name": "case_current_mapping_revoked",
+      "passed": true
+    },
+    {
+      "name": "case_different_store",
+      "passed": true
+    },
+    {
+      "name": "case_old_offer_schema",
+      "passed": true
+    },
+    {
+      "name": "case_old_terms_schema",
+      "passed": true
+    },
+    {
+      "name": "case_old_assent_schema",
+      "passed": true
+    },
+    {
+      "name": "case_unrepresented_other_binding_authority",
+      "passed": true
+    },
+    {
+      "name": "negative_supplier_terms",
+      "passed": true
+    },
+    {
+      "name": "negative_provider_assent",
+      "passed": true
+    },
+    {
+      "name": "negative_provider_authorization",
+      "passed": true
+    },
+    {
+      "name": "old_definitions_unchanged",
+      "passed": true
+    },
+    {
+      "name": "profile.json",
+      "passed": true
+    },
+    {
+      "name": "registry.json",
+      "passed": true
+    },
+    {
+      "name": "all_cases_classified",
+      "passed": true
+    }
+  ],
+  "passed": 67,
+  "failed": 0,
+  "product_execution": false
+}

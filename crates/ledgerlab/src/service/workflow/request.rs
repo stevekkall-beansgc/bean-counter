@@ -141,6 +141,7 @@ impl PublicationRequest {
                 "ledger-workflow-policy-publication/1"
                     | "ledger-workflow-policy-publication/2"
                     | "ledger-workflow-policy-publication/3"
+                    | "ledger-workflow-policy-publication/4"
             ) && (1..=128).contains(&count)
                 && root.kind == "workflow-policy"
                 && valid_digest(digest)
@@ -178,6 +179,25 @@ impl PublicationRequest {
                                     | "ledger-workflow-slot-template/1"
                                     | "ledger-workflow-policy/2"
                                     | "ledger-workflow-compiler-descriptor/3"
+                            )
+                        )
+                    }),
+                    "INVALID_SHAPE",
+                )?;
+            }
+        }
+        if schema == "ledger-workflow-policy-publication/4" {
+            if let Payload::Inline { documents, .. } = payload {
+                require(
+                    documents.iter().all(|d| {
+                        matches!(
+                            d["schema"].as_str(),
+                            Some(
+                                "ledger-workflow-fact-schema/1"
+                                    | "ledger-workflow-product/1"
+                                    | "ledger-workflow-slot-template/1"
+                                    | "ledger-workflow-policy/2"
+                                    | "ledger-workflow-compiler-descriptor/4"
                             )
                         )
                     }),
@@ -347,6 +367,36 @@ mod tests {
             serde_json::json!([value["payload"]["root_policy_ref"].clone()]);
         assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_ok());
         value["payload"]["unknown"] = Value::Bool(true);
+        assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_err());
+    }
+    #[test]
+    fn scoped_consent_publication_requires_descriptor_four_without_promoting_support() {
+        let mut value: Value = serde_json::from_slice(&original()).unwrap();
+        value["payload"]["schema"] = serde_json::json!("ledger-workflow-policy-publication/4");
+        assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_err());
+        for d in value["payload"]["documents"].as_array_mut().unwrap() {
+            match d["schema"].as_str() {
+                Some("ledger-workflow-policy/1") => {
+                    d["schema"] = serde_json::json!("ledger-workflow-policy/2")
+                }
+                Some("ledger-workflow-compiler-descriptor/1") => {
+                    d["schema"] = serde_json::json!("ledger-workflow-compiler-descriptor/4")
+                }
+                _ => (),
+            }
+        }
+        let request = PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).unwrap();
+        assert_eq!(
+            request.payload_schema(),
+            "ledger-workflow-policy-publication/4"
+        );
+        // Closed raw ingress alone grants no executing compiler capability.
+        assert!(super::super::publication::normalized(&request, &[]).is_err());
+        for d in value["payload"]["documents"].as_array_mut().unwrap() {
+            if d["schema"] == "ledger-workflow-compiler-descriptor/4" {
+                d["schema"] = serde_json::json!("ledger-workflow-compiler-descriptor/3");
+            }
+        }
         assert!(PublicationRequest::parse(&serde_json::to_vec(&value).unwrap()).is_err());
     }
     #[test]

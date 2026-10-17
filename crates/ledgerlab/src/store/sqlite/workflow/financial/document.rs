@@ -141,6 +141,8 @@ impl SqliteTx {
         // stored UTF16 representation. Keep the reviewed8M conversion overlap
         // (M128); the I/O envelope covers fixed terminators/headers.
         let payload = io::binding_payload(&bindings, &[], 0, 8 * 128, session)?;
+        session.semantic_work().scan_bytes(8 * 128)?;
+        session.semantic_work().write_bytes(8 * 128)?;
         self.financial_reserve_io(session, payload)?;
         session.semantic_work().visit(ValidationVisit::RefLookup)?;
         let row = bind(SCHEMA, reference, store, scope, before)

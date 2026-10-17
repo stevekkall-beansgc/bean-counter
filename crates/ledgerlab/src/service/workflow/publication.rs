@@ -134,25 +134,36 @@ pub(super) fn evidence(
             // Only the actual selected program's private binary-owned recipe
             // can supply this exact identity; old draft programs return None.
             match sources.execution_registry() {
-                Some("sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93") => include_bytes!(
-                    "../../../../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/registry.json"
-                ),
-                Some("sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da") => include_bytes!(
-                    "../../../../../contracts/candidates/full-suite-v1/core/deadline-close-01/registry.json"
-                ),
-                Some("sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2") => include_bytes!(
-                    "../../../../../contracts/candidates/full-suite-v1/core/delayed-cost-work-target-01/registry.json"
-                ),
+                Some("sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93") => {
+                    include_bytes!(
+                        "../../../../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/registry.json"
+                    )
+                }
+                Some("sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da") => {
+                    include_bytes!(
+                        "../../../../../contracts/candidates/full-suite-v1/core/deadline-close-01/registry.json"
+                    )
+                }
+                Some("sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2") => {
+                    include_bytes!(
+                        "../../../../../contracts/candidates/full-suite-v1/core/delayed-cost-work-target-01/registry.json"
+                    )
+                }
                 _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
             }
         }
+        "ledger-workflow-policy-publication/4" => match sources.execution_registry() {
+            Some("sha256:b6b4aa2542bb571fe45142e5f1fbc7369aef95ee2a7c181c236496466571245f") => {
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/registry.json"
+                )
+            }
+            _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+        },
         _ => return Err(ServiceError::IntegrityFailure),
     };
-    let registry = ledgerlab_core::canonical::parse_bounded(
-        registry_raw,
-        1024 * 1024,
-    )
-    .map_err(|_| ServiceError::IntegrityFailure)?;
+    let registry = ledgerlab_core::canonical::parse_bounded(registry_raw, 1024 * 1024)
+        .map_err(|_| ServiceError::IntegrityFailure)?;
     let mut resolution = json!({"schema":"ledger-operation-descriptors/1","registry_digest":format!("sha256:{}",records::raw_hash(&records::bytes(&registry)?)),"operation_kind":"policy.publish","payload_schema":req.payload_schema(),"locator_digest":records::hash("descriptor-locators",1,&json!(["policy.publish",req.payload_schema(),locators]))?,"anchors":anchors,"descriptors":descriptors,"normalization_profile":"ledger-operation-normalization/2"});
     resolution["closure_digest"] = json!(records::hash("descriptor-closure", 1, &resolution)?);
     Ok(

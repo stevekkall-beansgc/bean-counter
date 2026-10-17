@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "const": {
+    "schema": "ledger-supplier-scoped-consent-capability/1",
+    "base_capability_digest": "sha256:499b151daa8d0a34d65b1ab96bc075b23918baaa796339a82aafa5990530789c",
+    "base_registry_digest": "sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2",
+    "projection_recipe": "supplier-semantic-projection/1",
+    "supplier_consent": "exact_new_offer_terms_commitment",
+    "customer_platform_consent": "full_acceptance_terms",
+    "authentication": "retained_local_operator_attested_party_authority",
+    "party_lifecycle": "authorize_once_then_terminal_revoke",
+    "normalization_profile": "ledger-operation-normalization/2",
+    "resource_profile": "workflow-resource-vector/1",
+    "financial_enablement": "requires_complete_qualified_capability",
+    "projection_authority_coverage": "single_supplier_binding_complete_or_refuse",
+    "eligibility_predicates": [
+      "complete_detected_semantic_dependency_closure",
+      "all_selected_authority_inputs_represented_in_supplier_acceptance_projection"
+    ]
+  }
+}

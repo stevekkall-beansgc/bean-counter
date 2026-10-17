@@ -523,7 +523,10 @@ impl CompilerDescriptor {
         let value = canonical::parse(bytes)?;
         reject_null(&value)?;
         let mut dto: DescriptorDto = canonical::dto(value)?;
-        if dto.schema == "ledger-workflow-compiler-descriptor/3" {
+        if matches!(
+            dto.schema.as_str(),
+            "ledger-workflow-compiler-descriptor/3" | "ledger-workflow-compiler-descriptor/4"
+        ) {
             return Self::supplier_cost_data(dto);
         }
         if dto.schema == "ledger-workflow-compiler-descriptor/2" {
@@ -637,13 +640,25 @@ impl CompilerDescriptor {
     /// The real selected compiler must bind its complete code-owned capability
     /// and resource envelope independently before publication/admission.
     fn supplier_cost_data(mut dto: DescriptorDto) -> Result<Self> {
-        if dto.compiler_semantics != "ledger-policy-compiler/owner-local-cost-1"
+        let scoped = dto.schema == "ledger-workflow-compiler-descriptor/4";
+        let (semantics, plan) = if scoped {
+            (
+                "ledger-policy-compiler/supplier-scoped-consent-1",
+                "ledger-workflow-compiled-plan/4",
+            )
+        } else {
+            (
+                "ledger-policy-compiler/owner-local-cost-1",
+                "ledger-workflow-compiled-plan/3",
+            )
+        };
+        if dto.compiler_semantics != semantics
             || dto.evaluator != "ledger-workflow-evaluator/1"
             || dto.grammar != "ledger-policy-grammar/1"
             || dto.facts_normalization != "ledger-facts-normalization/1"
             || dto.operation_normalization != "ledger-operation-normalization/2"
             || dto.limits_profile != "workflow-limits/1"
-            || dto.plan_schema != "ledger-workflow-compiled-plan/3"
+            || dto.plan_schema != plan
         {
             return Err(fail(
                 "UNSUPPORTED_SCHEMA_PROFILE",
@@ -679,6 +694,17 @@ impl CompilerDescriptor {
                     "supplier descriptor declaration",
                 ));
             }
+        }
+        if scoped
+            && !dto
+                .primitive_versions
+                .iter()
+                .any(|p| p == "supplier-semantic-projection/1")
+        {
+            return Err(fail(
+                "PROGRAM_UNSUPPORTED_PRIMITIVE",
+                "supplier scoped projection declaration",
+            ));
         }
         for digest in [
             &dto.limits_digest,

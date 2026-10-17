@@ -81,6 +81,76 @@ const SUPPLIER_REGISTRY: &str =
     "sha256:efd33a606f95b0b8614fe657d13a617620c8c33329f98207cbfc6e70376f9c93";
 const WORK_TARGET_REGISTRY: &str =
     "sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2";
+const CONSENT_REGISTRY: &str =
+    "sha256:b6b4aa2542bb571fe45142e5f1fbc7369aef95ee2a7c181c236496466571245f";
+/// Exact new administrative tuples. This is a wire recipe, not party custody,
+/// authority, assent or a completed original certificate.
+fn consent_management_recipe(
+    kind: &str,
+    payload: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<Option<Recipe>> {
+    for (k, p, manifest, authority) in [
+        (
+            "policy.publish",
+            "ledger-workflow-policy-publication/4",
+            "ledger-workflow-publication-manifest/1",
+            "ledger-workflow-publication-authority/1",
+        ),
+        (
+            "agreement.accept",
+            "ledger-workflow-agreement-accept/6",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-agreement-authority/4",
+        ),
+        (
+            "agreement.activate",
+            "ledger-workflow-activation/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-agreement-authority/4",
+        ),
+        (
+            "agreement.activate",
+            "ledger-workflow-activation-replace/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-agreement-authority/4",
+        ),
+        (
+            "agreement.revoke",
+            "ledger-workflow-agreement-revoke/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-agreement-authority/2",
+        ),
+        (
+            "authority.change",
+            "ledger-workflow-party-authorize/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "authority.change",
+            "ledger-workflow-party-revoke/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-party-evidence-retain/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-party-management-authority/1",
+        ),
+    ] {
+        if equal_text(kind, k, session)? && equal_text(payload, p, session)? {
+            return Ok(Some(Recipe {
+                operation: "ledger-workflow-operation-record/1",
+                manifest,
+                closure: "absent",
+                authority,
+            }));
+        }
+    }
+    Ok(None)
+}
 fn supplier_recipe(
     kind: &str,
     payload: &str,
@@ -145,6 +215,19 @@ pub(super) fn descriptor_schema(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<&'static str> {
+    if equal_text(registry, CONSENT_REGISTRY, session)? {
+        if supplier_recipe(kind, payload, session)?.is_some() {
+            return Ok("ledger-operation-descriptors/2");
+        }
+        if consent_management_recipe(kind, payload, session)?.is_some() {
+            return Ok(if equal_text(kind, "policy.publish", session)? {
+                "ledger-operation-descriptors/1"
+            } else {
+                "ledger-operation-descriptors/3"
+            });
+        }
+        return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, SUPPLIER_REGISTRY, session)?
         || equal_text(registry, DEADLINE_REGISTRY, session)?
         || equal_text(registry, WORK_TARGET_REGISTRY, session)?
@@ -169,6 +252,13 @@ pub(super) fn recipe(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<Recipe> {
+    if equal_text(registry, CONSENT_REGISTRY, session)? {
+        if let Some(selected) = supplier_recipe(kind, payload, session)? {
+            return Ok(selected);
+        }
+        return consent_management_recipe(kind, payload, session)?
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, SUPPLIER_REGISTRY, session)?
         || equal_text(registry, DEADLINE_REGISTRY, session)?
         || equal_text(registry, WORK_TARGET_REGISTRY, session)?
@@ -897,28 +987,55 @@ pub(super) async fn validate_frame(
         // These are the already-existing administrative WIRE shapes, not a
         // registry-support grant. Each dedicated semantic handler must still
         // reproduce its own original descriptor/normalization/alias recipe.
-        let (operation_schema, manifest_schema, authority_schema) = match class {
-            WireClass::Publication => (
-                "ledger-workflow-operation-record/1",
-                "ledger-workflow-publication-manifest/1",
-                "ledger-workflow-publication-authority/1",
-            ),
-            WireClass::Prerequisite => (
-                "ledger-workflow-operation-record/1",
-                "ledger-workflow-agreement-manifest/1",
-                "ledger-workflow-publication-authority/1",
-            ),
-            WireClass::Agreement => (
-                "ledger-workflow-operation-record/1",
-                "ledger-workflow-agreement-manifest/1",
-                "ledger-workflow-agreement-authority/2",
-            ),
-            WireClass::AgreementAlias => (
-                "ledger-workflow-agreement-alias-operation/1",
-                "ledger-workflow-agreement-alias-manifest/1",
-                "ledger-workflow-agreement-authority/3",
-            ),
-            WireClass::Financial => unreachable!(),
+        let consent = if equal_text(
+            request::text(descriptors, "registry_digest", session)?,
+            CONSENT_REGISTRY,
+            session,
+        )? {
+            Some(
+                consent_management_recipe(
+                    frame.kind,
+                    request::text(payload, "schema", session)?,
+                    session,
+                )?
+                .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?,
+            )
+        } else {
+            None
+        };
+        let (operation_schema, manifest_schema, authority_schema) = if let Some(selected) = consent
+        {
+            // An exact new registry never widens the old kind-only authority
+            // recipe. Alias has its own schema and is not invented here.
+            require(
+                class != WireClass::AgreementAlias,
+                "UNSUPPORTED_SCHEMA_PROFILE",
+            )?;
+            (selected.operation, selected.manifest, selected.authority)
+        } else {
+            match class {
+                WireClass::Publication => (
+                    "ledger-workflow-operation-record/1",
+                    "ledger-workflow-publication-manifest/1",
+                    "ledger-workflow-publication-authority/1",
+                ),
+                WireClass::Prerequisite => (
+                    "ledger-workflow-operation-record/1",
+                    "ledger-workflow-agreement-manifest/1",
+                    "ledger-workflow-publication-authority/1",
+                ),
+                WireClass::Agreement => (
+                    "ledger-workflow-operation-record/1",
+                    "ledger-workflow-agreement-manifest/1",
+                    "ledger-workflow-agreement-authority/2",
+                ),
+                WireClass::AgreementAlias => (
+                    "ledger-workflow-agreement-alias-operation/1",
+                    "ledger-workflow-agreement-alias-manifest/1",
+                    "ledger-workflow-agreement-authority/3",
+                ),
+                WireClass::Financial => unreachable!(),
+            }
         };
         request::same_text(
             request::text(op, "schema", session)?,
@@ -1225,6 +1342,59 @@ mod recipe_tests {
 #[cfg(test)]
 mod supplier_dispatch_tests {
     use super::*;
+    #[test]
+    fn scoped_consent_registry_uses_exact_payload_authority_and_descriptor_versions() {
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let frozen: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/registry.json"))).unwrap();
+        for row in frozen["entries"].as_array().unwrap() {
+            let kind = row["kind"].as_str().unwrap();
+            let saved = &row["saved_recipe"];
+            for payload in row["payload_schemas"].as_array().unwrap() {
+                let payload = payload.as_str().unwrap();
+                let selected = recipe(kind, payload, CONSENT_REGISTRY, &mut session).unwrap();
+                assert_eq!(selected.operation, saved["operation_schema"]);
+                assert_eq!(selected.manifest, saved["manifest_schema"]);
+                assert_eq!(selected.authority, saved["authority_schema"]);
+                assert_eq!(selected.closure, saved["closure_profile"]);
+                let expected = if kind == "policy.publish" {
+                    "ledger-operation-descriptors/1"
+                } else if selected.closure == "absent" {
+                    "ledger-operation-descriptors/3"
+                } else {
+                    "ledger-operation-descriptors/2"
+                };
+                assert_eq!(
+                    descriptor_schema(kind, payload, CONSENT_REGISTRY, &mut session).unwrap(),
+                    expected
+                );
+            }
+        }
+        for (kind, payload) in [
+            ("policy.publish", "ledger-workflow-policy-publication/3"),
+            ("agreement.accept", "ledger-workflow-agreement-accept/5"),
+            ("authority.change", "ledger-workflow-customer-register/1"),
+            ("evidence.retain", "ledger-workflow-evidence-retain/1"),
+            ("evidence.retain", "ledger-workflow-party-authorize/1"),
+            (
+                "authority.change",
+                "ledger-workflow-party-evidence-retain/1",
+            ),
+            ("quantity.correct", "ledger-workflow-quantity-correction/1"),
+        ] {
+            assert!(recipe(kind, payload, CONSENT_REGISTRY, &mut session).is_err());
+            assert!(descriptor_schema(kind, payload, CONSENT_REGISTRY, &mut session).is_err());
+        }
+        assert!(
+            recipe(
+                "authority.change",
+                "ledger-workflow-party-authorize/1",
+                WORK_TARGET_REGISTRY,
+                &mut session
+            )
+            .is_err()
+        );
+    }
     #[test]
     fn frozen_supplier_and_deadline_rows_dispatch_exact_saved_tuples() {
         let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();

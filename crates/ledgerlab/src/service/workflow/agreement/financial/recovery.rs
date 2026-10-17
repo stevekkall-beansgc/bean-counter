@@ -6,7 +6,9 @@ use ledgerlab_core::{
         selected_program::SelectedProgram,
         transition_constructor::{EconomicCandidate, normalize_saved_intent},
     },
-    validation_work::{OriginalAuditSession, RepresentationKind, ValidationVisit},
+    validation_work::{
+        ArithmeticOperation, BigInt, OriginalAuditSession, RepresentationKind, ValidationVisit,
+    },
 };
 
 impl OriginalQuery<'_> {
@@ -62,6 +64,13 @@ impl OriginalQuery<'_> {
             session
                 .semantic_work()
                 .visit(ValidationVisit::Constraint)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .arithmetic(
+                    ArithmeticOperation::Compare,
+                    &[&BigInt::from(scope.len()), &BigInt::from(2u8)],
+                )
                 .map_err(core_error)?;
             require(scope.len() == 2, "INTEGRITY_FAILURE")?;
             for (actual, expected) in scope.iter().zip(&candidate_key.scope) {

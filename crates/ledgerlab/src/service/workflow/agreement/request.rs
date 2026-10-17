@@ -72,6 +72,7 @@ impl Request {
                     | "ledger-workflow-agreement-accept/3"
                     | "ledger-workflow-agreement-accept/4"
                     | "ledger-workflow-agreement-accept/5"
+                    | "ledger-workflow-agreement-accept/6"
             ),
             "agreement.activate" => matches!(
                 schema,

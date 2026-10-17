@@ -152,8 +152,23 @@ fn causal_clauses(input: &mut SlotInput) -> Result<()> {
     let supplier_fields = input.offer_ref.is_some()
         || input.cost_authority_ref.is_some()
         || input.provider_account_identity.is_some()
-        || input.consumption_basis.is_some();
-    if input.schema == "ledger-workflow-slot-binding-terms/4" {
+        || input.consumption_basis.is_some()
+        || input.commitment_ref.is_some();
+    if matches!(
+        input.schema.as_str(),
+        "ledger-workflow-slot-binding-terms/4" | "ledger-workflow-slot-binding-terms/5"
+    ) {
+        if input.schema == "ledger-workflow-slot-binding-terms/5" {
+            reference(
+                input
+                    .commitment_ref
+                    .as_mut()
+                    .ok_or_else(|| fail("supplier commitment required"))?,
+                "workflow-offer",
+            )?;
+        } else if input.commitment_ref.is_some() {
+            return Err(fail("commitment requires supplier terms5"));
+        }
         if input.book != TemplateBook::Supplier
             || input.causal_reversal_clauses.is_some()
             || input.exposure_scope.is_some()
@@ -268,6 +283,8 @@ struct SlotInput {
     provider_account_identity: Option<SupplierAccount>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     consumption_basis: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    commitment_ref: Option<Value>,
 }
 #[derive(Clone, Debug)]
 pub struct SlotBindingTerms {

@@ -1,0 +1,2776 @@
+{
+  "schema": "supplier-scoped-consent-input/1",
+  "qualification": "Synthetic conditional literal source and document inputs only; no original origin, real-party consent, source compilation, full future-capacity/resource or admission proof. Never use conditional flags as production trust inputs. No expected outputs.",
+  "scope": [
+    "fixture",
+    "cost"
+  ],
+  "logical_store_id": "fixture-owner",
+  "policy": {
+    "schema": "ledger-workflow-policy/2",
+    "policy_id": "support:policy",
+    "version": "1",
+    "product_ref": {
+      "kind": "workflow-product",
+      "id": "wdoc_1111111111111111111111111111111111111111111111111111111111111111",
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "context_schema_ref": {
+      "kind": "workflow-fact-schema",
+      "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+      "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+    },
+    "slot_template_ref": {
+      "kind": "workflow-slot-template",
+      "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "compiler_ref": {
+      "kind": "workflow-compiler-descriptor",
+      "id": "wdoc_4444444444444444444444444444444444444444444444444444444444444444",
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "currency": "USD",
+    "scale": 18,
+    "rounding": "nearest_ties_away",
+    "mode": "component_workflow",
+    "binding_slots": [
+      {
+        "name": "support:retail",
+        "book": "retail",
+        "funding_leg": "support:customer",
+        "allowed_activities": [
+          "support:assess",
+          "support:complete"
+        ],
+        "correction_source_slot": "support:corrector"
+      },
+      {
+        "name": "support:supplier",
+        "book": "supplier",
+        "funding_leg": "support:model",
+        "allowed_activities": [
+          "support:complete"
+        ],
+        "correction_source_slot": "support:cost-source"
+      }
+    ],
+    "rules": [
+      {
+        "rule_id": "support:service",
+        "activity": "support:complete",
+        "component_name": "support:service",
+        "component_key": "support:service",
+        "binding_slot": "support:retail",
+        "phase": "base",
+        "when": {
+          "op": "true"
+        },
+        "formula": {
+          "kind": "fixed",
+          "amount": "1"
+        },
+        "dependency": "on_missing_refuse"
+      },
+      {
+        "rule_id": "support:model-retail",
+        "activity": "support:complete",
+        "component_name": "support:model-retail",
+        "component_key": "support:model-retail",
+        "binding_slot": "support:retail",
+        "phase": "cost",
+        "when": {
+          "op": "true"
+        },
+        "formula": {
+          "kind": "final_cost",
+          "evidence_slot": "support:cost-source",
+          "supplier_slot": "support:supplier",
+          "multiplier": {
+            "numerator": "1",
+            "denominator": "1"
+          },
+          "markup": "0",
+          "ceiling": {
+            "currency": "USD",
+            "scale": 18,
+            "atoms": "3000000000000000000"
+          }
+        },
+        "dependency": "on_missing_refuse"
+      },
+      {
+        "rule_id": "support:model-supplier",
+        "activity": "support:complete",
+        "component_name": "support:model-supplier",
+        "component_key": "support:model-supplier",
+        "binding_slot": "support:supplier",
+        "phase": "cost",
+        "when": {
+          "op": "true"
+        },
+        "formula": {
+          "kind": "supplier_final_cost",
+          "evidence_slot": "support:cost-source",
+          "ceiling": {
+            "currency": "USD",
+            "scale": 18,
+            "atoms": "3000000000000000000"
+          }
+        },
+        "dependency": "on_missing_refuse"
+      }
+    ],
+    "families": [
+      {
+        "family_name": "support:quality",
+        "family_key": "support:quality",
+        "trigger_activity": "support:assess",
+        "target_link_slot": "support:assesses",
+        "selector": {
+          "path": [
+            "support:assesses"
+          ],
+          "target_activity": "support:complete",
+          "binding_slot": "support:retail",
+          "component_key": "support:service",
+          "basis": "booked_original_net"
+        },
+        "source_slot": "support:assessor",
+        "code_field": "support:code",
+        "codes": [
+          {
+            "code": "support:discount",
+            "effect": {
+              "kind": "discount",
+              "amount": {
+                "kind": "percent",
+                "percent": "20"
+              }
+            }
+          },
+          {
+            "code": "support:none",
+            "effect": {
+              "kind": "none"
+            }
+          },
+          {
+            "code": "support:success",
+            "effect": {
+              "kind": "premium",
+              "amount": {
+                "kind": "percent",
+                "percent": "25"
+              }
+            }
+          }
+        ],
+        "window": {
+          "anchor": "work_accepted_at",
+          "anchor_path": [],
+          "start_offset_us": "0",
+          "occurrence_us": "3600000000",
+          "receipt_grace_us": "60000000",
+          "acceptance_grace_us": "60000000",
+          "activation_deadline_us": "0",
+          "correction_us": "86400000000"
+        },
+        "maximum_premium": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "300000000000000000"
+        },
+        "maximum_discount": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "240000000000000000"
+        },
+        "correction_source_slot": "support:assessor",
+        "no_success_close": {
+          "close_source_slot": "support:assessor"
+        }
+      }
+    ],
+    "stages": [],
+    "delayed_costs": [
+      {
+        "component_key": "support:model-retail",
+        "evidence_source_slot": "support:cost-source",
+        "finalize_within_us": "86400000000",
+        "on_missing": "wait"
+      },
+      {
+        "component_key": "support:model-supplier",
+        "evidence_source_slot": "support:cost-source",
+        "finalize_within_us": "86400000000",
+        "on_missing": "wait"
+      }
+    ]
+  },
+  "full_plan": {
+    "schema": "ledger-workflow-compiled-plan/4",
+    "compiler_ref": {
+      "kind": "workflow-compiler-descriptor",
+      "id": "wdoc_4444444444444444444444444444444444444444444444444444444444444444",
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "compiler_semantics": "ledger-policy-compiler/supplier-scoped-consent-1",
+    "evaluator": "ledger-workflow-evaluator/1",
+    "grammar": "ledger-policy-grammar/1",
+    "limits_profile": "workflow-limits/1",
+    "source_refs": [
+      {
+        "$record": "policy"
+      }
+    ],
+    "activity_table": [
+      {
+        "activity": "support:complete",
+        "primitive": "work",
+        "fact_schema_ref": {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_2222222222222222222222222222222222222222222222222222222222222222",
+          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "source_slot": "support:worker",
+        "funding_leg": "support:model"
+      }
+    ],
+    "fact_slots": [],
+    "link_paths": [],
+    "component_slots": [
+      {
+        "key": "support:service",
+        "book": "retail",
+        "root_key": "support:service",
+        "role_slot": "support:retail-role",
+        "aliases": []
+      },
+      {
+        "key": "support:model-retail",
+        "book": "retail",
+        "root_key": "support:model-retail",
+        "role_slot": "support:retail-role",
+        "aliases": []
+      },
+      {
+        "key": "support:model-supplier",
+        "book": "supplier",
+        "root_key": "support:model-supplier",
+        "role_slot": "support:supplier-role",
+        "aliases": []
+      }
+    ],
+    "rule_order": [
+      {
+        "policy_ref": {
+          "$record": "policy"
+        },
+        "rule_id": "support:service"
+      },
+      {
+        "policy_ref": {
+          "$record": "policy"
+        },
+        "rule_id": "support:model-retail"
+      },
+      {
+        "policy_ref": {
+          "$record": "policy"
+        },
+        "rule_id": "support:model-supplier"
+      }
+    ],
+    "typed_instructions": [
+      {
+        "opcode": "evaluate_rule",
+        "ordinal": "0",
+        "policy_ref": {
+          "$record": "policy"
+        },
+        "rule": {
+          "rule_id": "support:service",
+          "activity": "support:complete",
+          "component_name": "support:service",
+          "component_key": "support:service",
+          "binding_slot": "support:retail",
+          "phase": "base",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "fixed",
+            "amount": "1"
+          },
+          "dependency": "on_missing_refuse"
+        },
+        "fact_slots": [],
+        "binding_fact_slots": [],
+        "basis_instructions": []
+      },
+      {
+        "opcode": "evaluate_rule",
+        "ordinal": "1",
+        "policy_ref": {
+          "$record": "policy"
+        },
+        "rule": {
+          "rule_id": "support:model-retail",
+          "activity": "support:complete",
+          "component_name": "support:model-retail",
+          "component_key": "support:model-retail",
+          "binding_slot": "support:retail",
+          "phase": "cost",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "final_cost",
+            "evidence_slot": "support:cost-source",
+            "supplier_slot": "support:supplier",
+            "multiplier": {
+              "numerator": "1",
+              "denominator": "1"
+            },
+            "markup": "0",
+            "ceiling": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "3000000000000000000"
+            }
+          },
+          "dependency": "on_missing_refuse"
+        },
+        "fact_slots": [],
+        "binding_fact_slots": [],
+        "basis_instructions": []
+      },
+      {
+        "opcode": "evaluate_rule",
+        "ordinal": "2",
+        "policy_ref": {
+          "$record": "policy"
+        },
+        "rule": {
+          "rule_id": "support:model-supplier",
+          "activity": "support:complete",
+          "component_name": "support:model-supplier",
+          "component_key": "support:model-supplier",
+          "binding_slot": "support:supplier",
+          "phase": "cost",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "supplier_final_cost",
+            "evidence_slot": "support:cost-source",
+            "ceiling": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "3000000000000000000"
+            }
+          },
+          "dependency": "on_missing_refuse"
+        },
+        "fact_slots": [],
+        "binding_fact_slots": [],
+        "basis_instructions": []
+      }
+    ],
+    "dependency_edges": [],
+    "worst_case": {
+      "fields": "1088",
+      "nodes": "256",
+      "hops": "16",
+      "loaded_refs": "4096",
+      "actions": "128",
+      "explanations": "256",
+      "bytes": "4194304",
+      "compile_work": "1048576",
+      "runtime_work": "65536"
+    },
+    "explanation_map": []
+  },
+  "supplier_slot": "support:supplier",
+  "acceptance_projection": {
+    "terms": {
+      "scope": [
+        "fixture",
+        "cost"
+      ],
+      "agreement_id": "B-support",
+      "customer": "customer-B",
+      "slot": "support:supplier",
+      "book": "supplier",
+      "role_slot": "support:supplier-role",
+      "role_ref": {
+        "$record": "supplier_roles"
+      },
+      "funding_leg": "support:model",
+      "allowed_activities": [
+        "support:complete"
+      ],
+      "quantity_ceilings": [
+        {
+          "activity": "support:complete",
+          "field": "support:quantity",
+          "unit": "support:request",
+          "maximum": "1"
+        }
+      ],
+      "exposure_ceiling": {
+        "currency": "USD",
+        "scale": 18,
+        "atoms": "3000000000000000000"
+      },
+      "source_grant_refs": [
+        {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+        }
+      ],
+      "correction_source_slot": "support:cost-source",
+      "cost_authority_ref": {
+        "$record": "cost_authority"
+      },
+      "provider_account_identity": {
+        "provider_namespace": "urn:fixture:supplier",
+        "provider_account_id": "supplier-account-1",
+        "environment": "fixture"
+      },
+      "consumption_basis": "owned_obligation_high_water"
+    },
+    "binding_slot": {
+      "name": "support:supplier",
+      "book": "supplier",
+      "funding_leg": "support:model",
+      "allowed_activities": [
+        "support:complete"
+      ],
+      "correction_source_slot": "support:cost-source"
+    },
+    "funding_leg": {
+      "name": "support:model",
+      "mode": "platform",
+      "resource_owner": "platform-P",
+      "payer": "platform-P",
+      "provider": "supplier-P",
+      "supplier_binding_slot": "support:supplier",
+      "evidence_refs": [
+        {
+          "kind": "workflow-evidence",
+          "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+          "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      ]
+    },
+    "source_slots": [
+      {
+        "name": "support:cost-source",
+        "sources": [
+          "urn:fixture:cost-source"
+        ],
+        "evidence_kinds": [
+          "supplier_final_cost"
+        ]
+      },
+      {
+        "name": "support:worker",
+        "sources": [
+          "urn:fixture:worker"
+        ],
+        "evidence_kinds": []
+      }
+    ],
+    "accepted_context": {
+      "fact_schema_ref": {
+        "kind": "workflow-fact-schema",
+        "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+        "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+      },
+      "facts": {}
+    },
+    "component_bindings": [
+      {
+        "component_key": "support:model-supplier",
+        "component_slot": "support-supplier-slot",
+        "root_slot": "support-supplier-slot",
+        "role_slot": "support:supplier-role"
+      }
+    ],
+    "starts_at": "2026-10-16T16:00:00.000000Z"
+  },
+  "records": [
+    {
+      "name": "supplier_roles",
+      "definition": "RoleAssignment",
+      "kind": "workflow-roles",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-role-assignment/1",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "agreement_id": "B-support",
+        "customer": "customer-B",
+        "role_slot": "support:supplier-role",
+        "provider": "supplier-P",
+        "cost_originator": "platform-P",
+        "bearer": "platform-P",
+        "payer": "platform-P",
+        "beneficiary": "customer-B",
+        "recipient": "platform-P"
+      },
+      "set_paths": []
+    },
+    {
+      "name": "retail_roles",
+      "definition": "RoleAssignment",
+      "kind": "workflow-roles",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-role-assignment/1",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "agreement_id": "B-support",
+        "customer": "customer-B",
+        "role_slot": "support:retail-role",
+        "provider": "platform-P",
+        "cost_originator": "platform-P",
+        "bearer": "customer-B",
+        "payer": "customer-B",
+        "beneficiary": "customer-B",
+        "recipient": "customer-B"
+      },
+      "set_paths": []
+    },
+    {
+      "name": "owner_activation",
+      "definition": "OwnerActivation",
+      "kind": "workflow-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-cost-owner-activation/1",
+        "authority_id": "fixture-cost-owner",
+        "owner_logical_store": "fixture-owner",
+        "installation_mode": "isolated_synthetic",
+        "local_authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+          "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        },
+        "operation_key": {
+          "logical_store_id": "fixture-owner",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "source": "urn:fixture:cost-source",
+          "operation_id": "enroll-account"
+        },
+        "activated_at": "2026-10-16T16:00:00.000000Z"
+      },
+      "set_paths": []
+    },
+    {
+      "name": "cost_authority",
+      "definition": "CostAuthority1",
+      "kind": "workflow-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-cost-authority/1",
+        "authority_id": "fixture-cost-owner",
+        "revision": "1",
+        "provider_account_identities": [
+          {
+            "provider_namespace": "urn:fixture:supplier",
+            "provider_account_id": "supplier-account-1",
+            "environment": "fixture"
+          }
+        ],
+        "owner_logical_store": "fixture-owner",
+        "owner_activation_ref": {
+          "$record": "owner_activation"
+        },
+        "administrator_refs": [
+          {
+            "kind": "workflow-authority",
+            "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+            "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        ],
+        "starts_at": "2026-10-16T16:00:00.000000Z"
+      },
+      "set_paths": [
+        [
+          "provider_account_identities"
+        ],
+        [
+          "administrator_refs"
+        ]
+      ]
+    },
+    {
+      "name": "retail_terms",
+      "definition": "SlotBindingTerms3",
+      "kind": "workflow-slot-terms",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-slot-binding-terms/3",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "agreement_id": "B-support",
+        "customer": "customer-B",
+        "slot": "support:retail",
+        "book": "retail",
+        "role_slot": "support:retail-role",
+        "role_ref": {
+          "$record": "retail_roles"
+        },
+        "funding_leg": "support:customer",
+        "allowed_activities": [
+          "support:assess",
+          "support:complete"
+        ],
+        "quantity_ceilings": [
+          {
+            "activity": "support:complete",
+            "field": "support:quantity",
+            "unit": "support:request",
+            "maximum": "1"
+          }
+        ],
+        "exposure_ceiling": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "5000000000000000000"
+        },
+        "source_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "correction_source_slot": "support:corrector",
+        "causal_reversal_clauses": [],
+        "exposure_scope": "original_work"
+      },
+      "set_paths": []
+    },
+    {
+      "name": "policy",
+      "definition": "Policy2",
+      "kind": "workflow-policy",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-policy/2",
+        "policy_id": "support:policy",
+        "version": "1",
+        "product_ref": {
+          "kind": "workflow-product",
+          "id": "wdoc_1111111111111111111111111111111111111111111111111111111111111111",
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "context_schema_ref": {
+          "kind": "workflow-fact-schema",
+          "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+          "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+        },
+        "slot_template_ref": {
+          "kind": "workflow-slot-template",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "compiler_ref": {
+          "kind": "workflow-compiler-descriptor",
+          "id": "wdoc_4444444444444444444444444444444444444444444444444444444444444444",
+          "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "currency": "USD",
+        "scale": 18,
+        "rounding": "nearest_ties_away",
+        "mode": "component_workflow",
+        "binding_slots": [
+          {
+            "name": "support:retail",
+            "book": "retail",
+            "funding_leg": "support:customer",
+            "allowed_activities": [
+              "support:assess",
+              "support:complete"
+            ],
+            "correction_source_slot": "support:corrector"
+          },
+          {
+            "name": "support:supplier",
+            "book": "supplier",
+            "funding_leg": "support:model",
+            "allowed_activities": [
+              "support:complete"
+            ],
+            "correction_source_slot": "support:cost-source"
+          }
+        ],
+        "rules": [
+          {
+            "rule_id": "support:service",
+            "activity": "support:complete",
+            "component_name": "support:service",
+            "component_key": "support:service",
+            "binding_slot": "support:retail",
+            "phase": "base",
+            "when": {
+              "op": "true"
+            },
+            "formula": {
+              "kind": "fixed",
+              "amount": "1"
+            },
+            "dependency": "on_missing_refuse"
+          },
+          {
+            "rule_id": "support:model-retail",
+            "activity": "support:complete",
+            "component_name": "support:model-retail",
+            "component_key": "support:model-retail",
+            "binding_slot": "support:retail",
+            "phase": "cost",
+            "when": {
+              "op": "true"
+            },
+            "formula": {
+              "kind": "final_cost",
+              "evidence_slot": "support:cost-source",
+              "supplier_slot": "support:supplier",
+              "multiplier": {
+                "numerator": "1",
+                "denominator": "1"
+              },
+              "markup": "0",
+              "ceiling": {
+                "currency": "USD",
+                "scale": 18,
+                "atoms": "3000000000000000000"
+              }
+            },
+            "dependency": "on_missing_refuse"
+          },
+          {
+            "rule_id": "support:model-supplier",
+            "activity": "support:complete",
+            "component_name": "support:model-supplier",
+            "component_key": "support:model-supplier",
+            "binding_slot": "support:supplier",
+            "phase": "cost",
+            "when": {
+              "op": "true"
+            },
+            "formula": {
+              "kind": "supplier_final_cost",
+              "evidence_slot": "support:cost-source",
+              "ceiling": {
+                "currency": "USD",
+                "scale": 18,
+                "atoms": "3000000000000000000"
+              }
+            },
+            "dependency": "on_missing_refuse"
+          }
+        ],
+        "families": [
+          {
+            "family_name": "support:quality",
+            "family_key": "support:quality",
+            "trigger_activity": "support:assess",
+            "target_link_slot": "support:assesses",
+            "selector": {
+              "path": [
+                "support:assesses"
+              ],
+              "target_activity": "support:complete",
+              "binding_slot": "support:retail",
+              "component_key": "support:service",
+              "basis": "booked_original_net"
+            },
+            "source_slot": "support:assessor",
+            "code_field": "support:code",
+            "codes": [
+              {
+                "code": "support:discount",
+                "effect": {
+                  "kind": "discount",
+                  "amount": {
+                    "kind": "percent",
+                    "percent": "20"
+                  }
+                }
+              },
+              {
+                "code": "support:none",
+                "effect": {
+                  "kind": "none"
+                }
+              },
+              {
+                "code": "support:success",
+                "effect": {
+                  "kind": "premium",
+                  "amount": {
+                    "kind": "percent",
+                    "percent": "25"
+                  }
+                }
+              }
+            ],
+            "window": {
+              "anchor": "work_accepted_at",
+              "anchor_path": [],
+              "start_offset_us": "0",
+              "occurrence_us": "3600000000",
+              "receipt_grace_us": "60000000",
+              "acceptance_grace_us": "60000000",
+              "activation_deadline_us": "0",
+              "correction_us": "86400000000"
+            },
+            "maximum_premium": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "300000000000000000"
+            },
+            "maximum_discount": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "240000000000000000"
+            },
+            "correction_source_slot": "support:assessor",
+            "no_success_close": {
+              "close_source_slot": "support:assessor"
+            }
+          }
+        ],
+        "stages": [],
+        "delayed_costs": [
+          {
+            "component_key": "support:model-retail",
+            "evidence_source_slot": "support:cost-source",
+            "finalize_within_us": "86400000000",
+            "on_missing": "wait"
+          },
+          {
+            "component_key": "support:model-supplier",
+            "evidence_source_slot": "support:cost-source",
+            "finalize_within_us": "86400000000",
+            "on_missing": "wait"
+          }
+        ]
+      },
+      "set_paths": []
+    },
+    {
+      "name": "publication",
+      "definition": "Publication",
+      "kind": "workflow-publication",
+      "identity": {
+        "type": "record",
+        "prefix": "wpub_",
+        "domain": "workflow-publication",
+        "tuple": [
+          "fixture-owner",
+          [
+            "fixture",
+            "cost"
+          ],
+          {
+            "$record": "policy"
+          }
+        ]
+      },
+      "body": {
+        "schema": "ledger-workflow-publication/1",
+        "root_policy_ref": {
+          "$record": "policy"
+        },
+        "source_refs": [
+          {
+            "$record": "policy"
+          }
+        ],
+        "compiled_plan_ref": {
+          "kind": "workflow-compiled-plan",
+          "id": "wplan_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "compiler_ref": {
+          "kind": "workflow-compiler-descriptor",
+          "id": "wdoc_4444444444444444444444444444444444444444444444444444444444444444",
+          "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "provenance": {
+          "source_sha": "0000000000000000000000000000000000000000",
+          "binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "build_manifest_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "commitment",
+      "definition": "SupplierCommitment1",
+      "kind": "workflow-offer",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-supplier-commitment/1",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "customer": "customer-B",
+        "agreement_id": "B-support",
+        "supplier_slot": "support:supplier",
+        "projection_recipe": "supplier-semantic-projection/1",
+        "program": {
+          "$projection": "base"
+        },
+        "acceptance": {
+          "terms": {
+            "scope": [
+              "fixture",
+              "cost"
+            ],
+            "agreement_id": "B-support",
+            "customer": "customer-B",
+            "slot": "support:supplier",
+            "book": "supplier",
+            "role_slot": "support:supplier-role",
+            "role_ref": {
+              "$record": "supplier_roles"
+            },
+            "funding_leg": "support:model",
+            "allowed_activities": [
+              "support:complete"
+            ],
+            "quantity_ceilings": [
+              {
+                "activity": "support:complete",
+                "field": "support:quantity",
+                "unit": "support:request",
+                "maximum": "1"
+              }
+            ],
+            "exposure_ceiling": {
+              "currency": "USD",
+              "scale": 18,
+              "atoms": "3000000000000000000"
+            },
+            "source_grant_refs": [
+              {
+                "kind": "workflow-source-grant",
+                "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+                "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+              }
+            ],
+            "correction_source_slot": "support:cost-source",
+            "cost_authority_ref": {
+              "$record": "cost_authority"
+            },
+            "provider_account_identity": {
+              "provider_namespace": "urn:fixture:supplier",
+              "provider_account_id": "supplier-account-1",
+              "environment": "fixture"
+            },
+            "consumption_basis": "owned_obligation_high_water"
+          },
+          "binding_slot": {
+            "name": "support:supplier",
+            "book": "supplier",
+            "funding_leg": "support:model",
+            "allowed_activities": [
+              "support:complete"
+            ],
+            "correction_source_slot": "support:cost-source"
+          },
+          "funding_leg": {
+            "name": "support:model",
+            "mode": "platform",
+            "resource_owner": "platform-P",
+            "payer": "platform-P",
+            "provider": "supplier-P",
+            "supplier_binding_slot": "support:supplier",
+            "evidence_refs": [
+              {
+                "kind": "workflow-evidence",
+                "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+                "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+              }
+            ]
+          },
+          "source_slots": [
+            {
+              "name": "support:cost-source",
+              "sources": [
+                "urn:fixture:cost-source"
+              ],
+              "evidence_kinds": [
+                "supplier_final_cost"
+              ]
+            },
+            {
+              "name": "support:worker",
+              "sources": [
+                "urn:fixture:worker"
+              ],
+              "evidence_kinds": []
+            }
+          ],
+          "accepted_context": {
+            "fact_schema_ref": {
+              "kind": "workflow-fact-schema",
+              "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+              "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+            },
+            "facts": {}
+          },
+          "component_bindings": [
+            {
+              "component_key": "support:model-supplier",
+              "component_slot": "support-supplier-slot",
+              "root_slot": "support-supplier-slot",
+              "role_slot": "support:supplier-role"
+            }
+          ],
+          "starts_at": "2026-10-16T16:00:00.000000Z"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "offer",
+      "definition": "SupplierOffer3",
+      "kind": "workflow-offer",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-offer/3",
+        "agreement_id": "B-support",
+        "version": "1",
+        "provider": "supplier-P",
+        "valuation_mode": "final_evidence",
+        "role_refs": [
+          {
+            "$record": "supplier_roles"
+          }
+        ],
+        "activity_names": [
+          "support:complete"
+        ],
+        "unit_ceilings": [
+          {
+            "activity": "support:complete",
+            "field": "support:quantity",
+            "unit": "support:request",
+            "maximum": "1"
+          }
+        ],
+        "exposure_ceiling": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "3000000000000000000"
+        },
+        "allowed_component_slots": [
+          "support-supplier-slot"
+        ],
+        "source_slots": [
+          "support:cost-source",
+          "support:worker"
+        ],
+        "starts_at": "2026-10-16T16:00:00.000000Z",
+        "ends_at": "2026-10-18T00:00:00.000000Z",
+        "evidence_refs": [
+          {
+            "kind": "workflow-evidence",
+            "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+            "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          }
+        ],
+        "commitment_ref": {
+          "$record": "commitment"
+        }
+      },
+      "set_paths": [
+        [
+          "role_refs"
+        ],
+        [
+          "source_slots"
+        ],
+        [
+          "evidence_refs"
+        ]
+      ]
+    },
+    {
+      "name": "supplier_terms",
+      "definition": "SupplierTerms5",
+      "kind": "workflow-slot-terms",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-slot-binding-terms/5",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "agreement_id": "B-support",
+        "customer": "customer-B",
+        "slot": "support:supplier",
+        "book": "supplier",
+        "role_slot": "support:supplier-role",
+        "role_ref": {
+          "$record": "supplier_roles"
+        },
+        "funding_leg": "support:model",
+        "allowed_activities": [
+          "support:complete"
+        ],
+        "quantity_ceilings": [
+          {
+            "activity": "support:complete",
+            "field": "support:quantity",
+            "unit": "support:request",
+            "maximum": "1"
+          }
+        ],
+        "exposure_ceiling": {
+          "currency": "USD",
+          "scale": 18,
+          "atoms": "3000000000000000000"
+        },
+        "source_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "correction_source_slot": "support:cost-source",
+        "offer_ref": {
+          "$record": "offer"
+        },
+        "cost_authority_ref": {
+          "$record": "cost_authority"
+        },
+        "provider_account_identity": {
+          "provider_namespace": "urn:fixture:supplier",
+          "provider_account_id": "supplier-account-1",
+          "environment": "fixture"
+        },
+        "consumption_basis": "owned_obligation_high_water",
+        "commitment_ref": {
+          "$record": "commitment"
+        }
+      },
+      "set_paths": [
+        [
+          "source_grant_refs"
+        ]
+      ]
+    },
+    {
+      "name": "acceptance_terms",
+      "definition": "AcceptanceTerms",
+      "kind": "workflow-acceptance-terms",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-acceptance-terms/1",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "publication_ref": {
+          "$record": "publication"
+        },
+        "agreement_id": "B-support",
+        "customer": "customer-B",
+        "version": "1",
+        "binding_inputs": {
+          "agreement_id": "B-support",
+          "version": "1",
+          "customer": "customer-B",
+          "source_namespace": "urn:fixture:worker",
+          "slot_catalog_ref": {
+            "kind": "workflow-slot-catalog",
+            "id": "wdoc_07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920",
+            "digest": "sha256:07b486c9a7c25c26fe280b09dcb064f13188367d63199faa779838eff3512920"
+          },
+          "slot_instantiation_ref": {
+            "kind": "workflow-slot-instantiation",
+            "id": "wdoc_b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e",
+            "digest": "sha256:b397d9d7c84a13a555688bc7be05c35b0438526136a52491acfbceb0208e711e"
+          },
+          "roles_refs": [
+            {
+              "$record": "retail_roles"
+            },
+            {
+              "$record": "supplier_roles"
+            }
+          ],
+          "source_slots": [
+            {
+              "name": "support:assessor",
+              "sources": [
+                "urn:fixture:cost-source"
+              ],
+              "evidence_kinds": [
+                "outcome"
+              ]
+            },
+            {
+              "name": "support:corrector",
+              "sources": [
+                "urn:fixture:cost-source"
+              ],
+              "evidence_kinds": []
+            },
+            {
+              "name": "support:cost-source",
+              "sources": [
+                "urn:fixture:cost-source"
+              ],
+              "evidence_kinds": [
+                "supplier_final_cost"
+              ]
+            },
+            {
+              "name": "support:worker",
+              "sources": [
+                "urn:fixture:worker"
+              ],
+              "evidence_kinds": []
+            }
+          ],
+          "accepted_context": {
+            "fact_schema_ref": {
+              "kind": "workflow-fact-schema",
+              "id": "wdoc_99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b",
+              "digest": "sha256:99ac62dafad7821debd0366537b109e73f489011f7f5dd4206d2d2b701e4e48b"
+            },
+            "facts": {}
+          },
+          "bindings": [
+            {
+              "slot": "support:retail",
+              "binding_ref": {
+                "$record": "retail_terms"
+              }
+            },
+            {
+              "slot": "support:supplier",
+              "binding_ref": {
+                "$record": "supplier_terms"
+              }
+            }
+          ],
+          "funding_legs": [
+            {
+              "name": "support:customer",
+              "mode": "customer_local",
+              "resource_owner": "customer-B",
+              "payer": "customer-B",
+              "evidence_refs": [
+                {
+                  "kind": "workflow-evidence",
+                  "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+                  "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+                }
+              ]
+            },
+            {
+              "name": "support:model",
+              "mode": "platform",
+              "resource_owner": "platform-P",
+              "payer": "platform-P",
+              "provider": "supplier-P",
+              "supplier_binding_slot": "support:supplier",
+              "evidence_refs": [
+                {
+                  "kind": "workflow-evidence",
+                  "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+                  "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+                }
+              ]
+            }
+          ],
+          "starts_at": "2026-10-16T16:00:00.000000Z",
+          "quantity_ceilings": [
+            {
+              "activity": "support:complete",
+              "field": "support:quantity",
+              "unit": "support:request",
+              "maximum": "1"
+            }
+          ],
+          "exposure_ceilings": [
+            {
+              "binding_slot": "support:retail",
+              "maximum": {
+                "currency": "USD",
+                "scale": 18,
+                "atoms": "5000000000000000000"
+              }
+            },
+            {
+              "binding_slot": "support:supplier",
+              "maximum": {
+                "currency": "USD",
+                "scale": 18,
+                "atoms": "3000000000000000000"
+              }
+            }
+          ]
+        }
+      },
+      "set_paths": [
+        [
+          "binding_inputs",
+          "roles_refs"
+        ]
+      ]
+    },
+    {
+      "name": "provider_mapping_evidence",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "supplier-P",
+          "acceptor": "provider-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcHJvdmlkZXJfbWFwcGluZ19ldmlkZW5jZQ==",
+        "content_sha256": "934dc2f5c4551799fd57c6366466886c335d76b61861f621bf5f5ca010977f49",
+        "metadata": {
+          "purpose": "party_authorization",
+          "authorization": {
+            "authorization_id": "provider-representation-1",
+            "scope": [
+              "fixture",
+              "cost"
+            ],
+            "customer": "customer-B",
+            "agreement_id": "B-support",
+            "party": "supplier-P",
+            "acceptor": "provider-acceptor",
+            "roles": [
+              "provider"
+            ],
+            "starts_at": "2026-10-16T16:00:00.000000Z",
+            "ends_at": "2026-10-18T00:00:00.000000Z"
+          }
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:06:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "provider_mapping_attestation",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "supplier-P",
+          "acceptor": "provider-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcHJvdmlkZXJfbWFwcGluZ19hdHRlc3RhdGlvbg==",
+        "content_sha256": "8892cce46dc9346ed9daafb1b23b983d6c209bebf1b5c0d7174abe2125f44838",
+        "metadata": {
+          "purpose": "party_operator_attestation",
+          "target_evidence_ref": {
+            "$record": "provider_mapping_evidence"
+          },
+          "statement": "operator_verified_party_acceptor_authority"
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:06:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "provider_authorization",
+      "definition": "PartyAuthorization1",
+      "kind": "workflow-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-authorization/1",
+        "authorization": {
+          "authorization_id": "provider-representation-1",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "supplier-P",
+          "acceptor": "provider-acceptor",
+          "roles": [
+            "provider"
+          ],
+          "starts_at": "2026-10-16T16:00:00.000000Z",
+          "ends_at": "2026-10-18T00:00:00.000000Z"
+        },
+        "revision": "1",
+        "status": "active",
+        "evidence_ref": {
+          "$record": "provider_mapping_evidence"
+        },
+        "operator_attestation_ref": {
+          "$record": "provider_mapping_attestation"
+        },
+        "recorded_by": "fixture-admin",
+        "recorded_at": "2026-10-16T16:06:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "provider_consent_evidence",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "supplier-P",
+          "acceptor": "provider-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcHJvdmlkZXJfY29uc2VudF9ldmlkZW5jZQ==",
+        "content_sha256": "74233322b6b14724050e98af02fa183b1dbd032dba64d72b8b068400e7e012cb",
+        "metadata": {
+          "purpose": "party_consent",
+          "consent": {
+            "scope": [
+              "fixture",
+              "cost"
+            ],
+            "customer": "customer-B",
+            "agreement_id": "B-support",
+            "party": "supplier-P",
+            "acceptor": "provider-acceptor",
+            "roles": [
+              "provider"
+            ],
+            "authorization_ref": {
+              "$record": "provider_authorization"
+            },
+            "basis": {
+              "kind": "supplier_commitment",
+              "commitment_ref": {
+                "$record": "commitment"
+              },
+              "offer_ref": {
+                "$record": "offer"
+              },
+              "supplier_terms_ref": {
+                "$record": "supplier_terms"
+              }
+            },
+            "accepted_at": "2026-10-16T16:07:00.000000Z"
+          }
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:08:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "provider_consent_attestation",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "supplier-P",
+          "acceptor": "provider-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcHJvdmlkZXJfY29uc2VudF9hdHRlc3RhdGlvbg==",
+        "content_sha256": "600ed114846240981108f932b8a64e63001d7edd0313a7111a8e95f8968cfb76",
+        "metadata": {
+          "purpose": "party_operator_attestation",
+          "target_evidence_ref": {
+            "$record": "provider_consent_evidence"
+          },
+          "statement": "operator_verified_party_exact_consent"
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:08:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "provider_assent",
+      "definition": "PartyAssent1",
+      "kind": "workflow-assent",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-assent/1",
+        "consent": {
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "supplier-P",
+          "acceptor": "provider-acceptor",
+          "roles": [
+            "provider"
+          ],
+          "authorization_ref": {
+            "$record": "provider_authorization"
+          },
+          "basis": {
+            "kind": "supplier_commitment",
+            "commitment_ref": {
+              "$record": "commitment"
+            },
+            "offer_ref": {
+              "$record": "offer"
+            },
+            "supplier_terms_ref": {
+              "$record": "supplier_terms"
+            }
+          },
+          "accepted_at": "2026-10-16T16:07:00.000000Z"
+        },
+        "mode": "synthetic",
+        "evidence_ref": {
+          "$record": "provider_consent_evidence"
+        },
+        "operator": "fixture-admin",
+        "operator_attestation_ref": {
+          "$record": "provider_consent_attestation"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "platform_mapping_evidence",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "platform-P",
+          "acceptor": "platform-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcGxhdGZvcm1fbWFwcGluZ19ldmlkZW5jZQ==",
+        "content_sha256": "6760581dd13b49e7f5feca9991b481ee0dee7848ccb3d2babd5872f47f40a7cb",
+        "metadata": {
+          "purpose": "party_authorization",
+          "authorization": {
+            "authorization_id": "platform-representation-1",
+            "scope": [
+              "fixture",
+              "cost"
+            ],
+            "customer": "customer-B",
+            "agreement_id": "B-support",
+            "party": "platform-P",
+            "acceptor": "platform-acceptor",
+            "roles": [
+              "bearer",
+              "payer"
+            ],
+            "starts_at": "2026-10-16T16:00:00.000000Z",
+            "ends_at": "2026-10-18T00:00:00.000000Z"
+          }
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:06:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "platform_mapping_attestation",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "platform-P",
+          "acceptor": "platform-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcGxhdGZvcm1fbWFwcGluZ19hdHRlc3RhdGlvbg==",
+        "content_sha256": "f33458efa24f06f22968fb3a4c145366a93ae2eb800f197293cda15ca0327502",
+        "metadata": {
+          "purpose": "party_operator_attestation",
+          "target_evidence_ref": {
+            "$record": "platform_mapping_evidence"
+          },
+          "statement": "operator_verified_party_acceptor_authority"
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:06:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "platform_authorization",
+      "definition": "PartyAuthorization1",
+      "kind": "workflow-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-authorization/1",
+        "authorization": {
+          "authorization_id": "platform-representation-1",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "platform-P",
+          "acceptor": "platform-acceptor",
+          "roles": [
+            "bearer",
+            "payer"
+          ],
+          "starts_at": "2026-10-16T16:00:00.000000Z",
+          "ends_at": "2026-10-18T00:00:00.000000Z"
+        },
+        "revision": "1",
+        "status": "active",
+        "evidence_ref": {
+          "$record": "platform_mapping_evidence"
+        },
+        "operator_attestation_ref": {
+          "$record": "platform_mapping_attestation"
+        },
+        "recorded_by": "fixture-admin",
+        "recorded_at": "2026-10-16T16:06:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "platform_consent_evidence",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "platform-P",
+          "acceptor": "platform-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcGxhdGZvcm1fY29uc2VudF9ldmlkZW5jZQ==",
+        "content_sha256": "3704d5deecdc6a19ee7b2ca4efd77ceb8ae28ad38a8ee87cc4c19fa113da2ab5",
+        "metadata": {
+          "purpose": "party_consent",
+          "consent": {
+            "scope": [
+              "fixture",
+              "cost"
+            ],
+            "customer": "customer-B",
+            "agreement_id": "B-support",
+            "party": "platform-P",
+            "acceptor": "platform-acceptor",
+            "roles": [
+              "bearer",
+              "payer"
+            ],
+            "authorization_ref": {
+              "$record": "platform_authorization"
+            },
+            "basis": {
+              "kind": "acceptance_terms",
+              "terms_ref": {
+                "$record": "acceptance_terms"
+              },
+              "terms_digest": {
+                "$terms_digest": "acceptance_terms"
+              }
+            },
+            "accepted_at": "2026-10-16T16:07:00.000000Z"
+          }
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:08:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "platform_consent_attestation",
+      "definition": "PartyEvidence1",
+      "kind": "workflow-evidence",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-evidence/1",
+        "subject": {
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "platform-P",
+          "acceptor": "platform-acceptor"
+        },
+        "media_type": "text/plain;charset=utf-8",
+        "content_base64": "U1lOVEhFVElDIGZpeHR1cmUgcGxhdGZvcm1fY29uc2VudF9hdHRlc3RhdGlvbg==",
+        "content_sha256": "319c8deaa833bd64427a078952681d4334d7822ba8dcb3fbcd10683f52e73e57",
+        "metadata": {
+          "purpose": "party_operator_attestation",
+          "target_evidence_ref": {
+            "$record": "platform_consent_evidence"
+          },
+          "statement": "operator_verified_party_exact_consent"
+        },
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "retained_by": "fixture-admin",
+        "retained_at": "2026-10-16T16:08:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "platform_assent",
+      "definition": "PartyAssent1",
+      "kind": "workflow-assent",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-assent/1",
+        "consent": {
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "platform-P",
+          "acceptor": "platform-acceptor",
+          "roles": [
+            "bearer",
+            "payer"
+          ],
+          "authorization_ref": {
+            "$record": "platform_authorization"
+          },
+          "basis": {
+            "kind": "acceptance_terms",
+            "terms_ref": {
+              "$record": "acceptance_terms"
+            },
+            "terms_digest": {
+              "$terms_digest": "acceptance_terms"
+            }
+          },
+          "accepted_at": "2026-10-16T16:07:00.000000Z"
+        },
+        "mode": "synthetic",
+        "evidence_ref": {
+          "$record": "platform_consent_evidence"
+        },
+        "operator": "fixture-admin",
+        "operator_attestation_ref": {
+          "$record": "platform_consent_attestation"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "consent_verification",
+      "definition": "SupplierConsentVerification1",
+      "kind": "workflow-verification",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-supplier-consent-verification/1",
+        "scope": [
+          "fixture",
+          "cost"
+        ],
+        "customer": "customer-B",
+        "agreement_id": "B-support",
+        "publication_ref": {
+          "$record": "publication"
+        },
+        "compiled_plan_ref": {
+          "kind": "workflow-compiled-plan",
+          "id": "wplan_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "commitment_ref": {
+          "$record": "commitment"
+        },
+        "offer_ref": {
+          "$record": "offer"
+        },
+        "supplier_terms_ref": {
+          "$record": "supplier_terms"
+        },
+        "acceptance_terms_ref": {
+          "$record": "acceptance_terms"
+        },
+        "customer_assent_refs": [
+          {
+            "kind": "workflow-assent",
+            "id": "wdoc_9999999999999999999999999999999999999999999999999999999999999999",
+            "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+          }
+        ],
+        "party_assent_refs": [
+          {
+            "$record": "provider_assent"
+          },
+          {
+            "$record": "platform_assent"
+          }
+        ],
+        "original_party_authorization_refs": [
+          {
+            "$record": "provider_authorization"
+          },
+          {
+            "$record": "platform_authorization"
+          }
+        ],
+        "current_party_authorization_refs": [
+          {
+            "$record": "provider_authorization"
+          },
+          {
+            "$record": "platform_authorization"
+          }
+        ],
+        "projection_recipe": "supplier-semantic-projection/1",
+        "verified_by": "fixture-admin",
+        "verified_at": "2026-10-16T16:10:00.000000Z",
+        "local_admin_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "installation_mode": "isolated_synthetic"
+      },
+      "set_paths": [
+        [
+          "party_assent_refs"
+        ],
+        [
+          "original_party_authorization_refs"
+        ],
+        [
+          "current_party_authorization_refs"
+        ]
+      ]
+    },
+    {
+      "name": "provider_revocation",
+      "definition": "PartyAuthorization1",
+      "kind": "workflow-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-party-authorization/1",
+        "authorization": {
+          "authorization_id": "provider-representation-1",
+          "scope": [
+            "fixture",
+            "cost"
+          ],
+          "customer": "customer-B",
+          "agreement_id": "B-support",
+          "party": "supplier-P",
+          "acceptor": "provider-acceptor",
+          "roles": [
+            "provider"
+          ],
+          "starts_at": "2026-10-16T16:00:00.000000Z",
+          "ends_at": "2026-10-18T00:00:00.000000Z"
+        },
+        "revision": "2",
+        "status": "revoked",
+        "evidence_ref": {
+          "$record": "provider_mapping_evidence"
+        },
+        "operator_attestation_ref": {
+          "$record": "provider_mapping_attestation"
+        },
+        "recorded_by": "fixture-admin",
+        "recorded_at": "2026-10-16T16:11:00.000000Z",
+        "installation_mode": "isolated_synthetic",
+        "authority_ref": {
+          "kind": "workflow-authority",
+          "id": "wdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "prior_ref": {
+          "$record": "provider_authorization"
+        }
+      },
+      "set_paths": []
+    }
+  ],
+  "projection_variants": [
+    {
+      "name": "base",
+      "patches": []
+    },
+    {
+      "name": "retail_price_only",
+      "patches": [
+        {
+          "target": "plan",
+          "path": [
+            "typed_instructions",
+            0,
+            "rule",
+            "formula",
+            "amount"
+          ],
+          "value": "1.20"
+        },
+        {
+          "target": "policy",
+          "path": [
+            "rules",
+            0,
+            "formula",
+            "amount"
+          ],
+          "value": "1.20"
+        }
+      ]
+    },
+    {
+      "name": "supplier_ceiling",
+      "patches": [
+        {
+          "target": "plan",
+          "path": [
+            "typed_instructions",
+            2,
+            "rule",
+            "formula",
+            "ceiling",
+            "atoms"
+          ],
+          "value": "4000000000000000000"
+        },
+        {
+          "target": "policy",
+          "path": [
+            "rules",
+            2,
+            "formula",
+            "ceiling",
+            "atoms"
+          ],
+          "value": "4000000000000000000"
+        }
+      ]
+    },
+    {
+      "name": "supplier_predicate",
+      "patches": [
+        {
+          "target": "plan",
+          "path": [
+            "typed_instructions",
+            2,
+            "rule",
+            "when"
+          ],
+          "value": {
+            "op": "false"
+          }
+        },
+        {
+          "target": "policy",
+          "path": [
+            "rules",
+            2,
+            "when"
+          ],
+          "value": {
+            "op": "false"
+          }
+        }
+      ]
+    },
+    {
+      "name": "unrelated_retail_instruction_insert",
+      "patches": [],
+      "prepend_instruction": {
+        "opcode": "evaluate_rule",
+        "ordinal": "0",
+        "policy_ref": {
+          "$record": "policy"
+        },
+        "rule": {
+          "rule_id": "support:unrelated-service",
+          "activity": "support:complete",
+          "component_name": "support:unrelated-service",
+          "component_key": "support:unrelated-service",
+          "binding_slot": "support:retail",
+          "phase": "base",
+          "when": {
+            "op": "true"
+          },
+          "formula": {
+            "kind": "fixed",
+            "amount": "1"
+          },
+          "dependency": "on_missing_refuse"
+        },
+        "fact_slots": [],
+        "binding_fact_slots": [],
+        "basis_instructions": []
+      },
+      "prepend_component": {
+        "key": "support:unrelated-service",
+        "book": "retail",
+        "root_key": "support:unrelated-service",
+        "role_slot": "support:retail-role",
+        "aliases": []
+      }
+    },
+    {
+      "name": "supplier_source_change",
+      "patches": [
+        {
+          "target": "acceptance",
+          "path": [
+            "source_slots",
+            0,
+            "sources",
+            0
+          ],
+          "value": "urn:fixture:other-source"
+        }
+      ]
+    },
+    {
+      "name": "supplier_account_change",
+      "patches": [
+        {
+          "target": "acceptance",
+          "path": [
+            "terms",
+            "provider_account_identity",
+            "provider_account_id"
+          ],
+          "value": "different-account"
+        }
+      ]
+    },
+    {
+      "name": "supplier_quantity_change",
+      "patches": [
+        {
+          "target": "acceptance",
+          "path": [
+            "terms",
+            "quantity_ceilings",
+            0,
+            "maximum"
+          ],
+          "value": "2"
+        }
+      ]
+    },
+    {
+      "name": "supplier_rights_change",
+      "patches": [
+        {
+          "target": "acceptance",
+          "path": [
+            "terms",
+            "source_grant_refs",
+            0
+          ],
+          "value": {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      ]
+    },
+    {
+      "name": "supplier_correction_source_change",
+      "patches": [
+        {
+          "target": "acceptance",
+          "path": [
+            "terms",
+            "correction_source_slot"
+          ],
+          "value": "support:other-corrector"
+        }
+      ]
+    },
+    {
+      "name": "shared_source_schema_change",
+      "patches": [
+        {
+          "target": "plan",
+          "path": [
+            "activity_table",
+            0,
+            "fact_schema_ref"
+          ],
+          "value": {
+            "kind": "workflow-fact-schema",
+            "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        }
+      ]
+    }
+  ],
+  "context": {
+    "actor": "fixture-admin",
+    "logical_store_id": "fixture-owner",
+    "expected_store": "fixture-owner",
+    "installation_mode": "isolated_synthetic",
+    "now": "2026-10-16T16:10:00.000000Z",
+    "current_admin_verified": true,
+    "mapping_origin_verified": true,
+    "consent_origin_verified": true,
+    "source_plan_complete": true,
+    "current_source_rights": true,
+    "original_source_rights": true,
+    "customer_fullterms_verified": true,
+    "provider_current_ref": {
+      "$record": "provider_authorization"
+    },
+    "platform_current_ref": {
+      "$record": "platform_authorization"
+    },
+    "projection_authority_complete": true
+  },
+  "conditional_cases": [
+    {
+      "name": "valid_original",
+      "patches": []
+    },
+    {
+      "name": "valid_new_admin_historical_operator",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "actor"
+          ],
+          "value": "fixture-admin-next"
+        }
+      ]
+    },
+    {
+      "name": "wrong_provider_party",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "party"
+          ],
+          "value": "other-supplier"
+        }
+      ]
+    },
+    {
+      "name": "wrong_acceptor",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "acceptor"
+          ],
+          "value": "other-acceptor"
+        }
+      ]
+    },
+    {
+      "name": "wrong_mapping",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "authorization_ref"
+          ],
+          "value": {
+            "$record": "platform_authorization"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_operator",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "operator"
+          ],
+          "value": "other-operator"
+        }
+      ]
+    },
+    {
+      "name": "wrong_statement",
+      "patches": [
+        {
+          "target": "provider_consent_attestation",
+          "path": [
+            "metadata",
+            "statement"
+          ],
+          "value": "operator_verified_party_acceptor_authority"
+        }
+      ]
+    },
+    {
+      "name": "wrong_attested_target",
+      "patches": [
+        {
+          "target": "provider_consent_attestation",
+          "path": [
+            "metadata",
+            "target_evidence_ref"
+          ],
+          "value": {
+            "$record": "provider_mapping_evidence"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_scope",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "scope"
+          ],
+          "value": [
+            "fixture",
+            "other"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wrong_customer",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "customer"
+          ],
+          "value": "other-customer"
+        }
+      ]
+    },
+    {
+      "name": "wrong_offer",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "basis",
+            "offer_ref"
+          ],
+          "value": {
+            "kind": "workflow-offer",
+            "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_terms",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "basis",
+            "supplier_terms_ref"
+          ],
+          "value": {
+            "kind": "workflow-slot-terms",
+            "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        }
+      ]
+    },
+    {
+      "name": "wrong_commitment",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "basis",
+            "commitment_ref"
+          ],
+          "value": {
+            "kind": "workflow-offer",
+            "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provider_using_fullterms_basis",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "basis"
+          ],
+          "value": {
+            "kind": "acceptance_terms",
+            "terms_ref": {
+              "$record": "acceptance_terms"
+            },
+            "terms_digest": {
+              "$terms_digest": "acceptance_terms"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "platform_using_provider_basis",
+      "patches": [
+        {
+          "target": "platform_assent",
+          "path": [
+            "consent",
+            "basis"
+          ],
+          "value": {
+            "kind": "supplier_commitment",
+            "commitment_ref": {
+              "$record": "commitment"
+            },
+            "offer_ref": {
+              "$record": "offer"
+            },
+            "supplier_terms_ref": {
+              "$record": "supplier_terms"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "platform_missing_payer_role",
+      "patches": [
+        {
+          "target": "platform_assent",
+          "path": [
+            "consent",
+            "roles"
+          ],
+          "value": [
+            "bearer"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "operator_without_retained_consent",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "consent_origin_verified"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "mapping_not_actually_verified",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "mapping_origin_verified"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "unauthorized_current_admin",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "current_admin_verified"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "current_source_revoked",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "current_source_rights"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "original_source_missing",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "original_source_rights"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "customer_fullterms_missing",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "customer_fullterms_verified"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "wrong_real_mode",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "installation_mode"
+          ],
+          "value": "real_local"
+        }
+      ]
+    },
+    {
+      "name": "expired_mapping",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "now"
+          ],
+          "value": "2026-10-18T00:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "future_consent",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "consent",
+            "accepted_at"
+          ],
+          "value": "2026-10-16T17:00:00.000000Z"
+        }
+      ]
+    },
+    {
+      "name": "current_mapping_revoked",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "provider_current_ref"
+          ],
+          "value": {
+            "$record": "provider_revocation"
+          }
+        }
+      ]
+    },
+    {
+      "name": "different_store",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "logical_store_id"
+          ],
+          "value": "other-store"
+        }
+      ]
+    },
+    {
+      "name": "old_offer_schema",
+      "patches": [
+        {
+          "target": "offer",
+          "path": [
+            "schema"
+          ],
+          "value": "ledger-workflow-offer/2"
+        }
+      ]
+    },
+    {
+      "name": "old_terms_schema",
+      "patches": [
+        {
+          "target": "supplier_terms",
+          "path": [
+            "schema"
+          ],
+          "value": "ledger-workflow-slot-binding-terms/4"
+        }
+      ]
+    },
+    {
+      "name": "old_assent_schema",
+      "patches": [
+        {
+          "target": "provider_assent",
+          "path": [
+            "schema"
+          ],
+          "value": "ledger-workflow-assent/1"
+        }
+      ]
+    },
+    {
+      "name": "unrepresented_other_binding_authority",
+      "patches": [
+        {
+          "target": "context",
+          "path": [
+            "projection_authority_complete"
+          ],
+          "value": false
+        }
+      ]
+    }
+  ],
+  "schema_negatives": [
+    {
+      "record": "supplier_terms",
+      "path": [
+        "unexpected"
+      ],
+      "value": true
+    },
+    {
+      "record": "provider_assent",
+      "path": [
+        "consent",
+        "basis",
+        "policy_ref"
+      ],
+      "value": {
+        "kind": "workflow-policy",
+        "id": "wdoc_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    },
+    {
+      "record": "provider_authorization",
+      "path": [
+        "authorization",
+        "roles"
+      ],
+      "value": [
+        "admin"
+      ]
+    }
+  ]
+}

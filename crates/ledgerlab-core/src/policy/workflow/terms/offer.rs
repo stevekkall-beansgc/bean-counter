@@ -8,7 +8,10 @@ struct Input {
     agreement_id: String,
     version: String,
     provider: String,
-    policy_ref: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    policy_ref: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    commitment_ref: Option<Value>,
     valuation_mode: String,
     role_refs: Vec<Value>,
     activity_names: Vec<String>,
@@ -118,18 +121,39 @@ impl SupplierOffer {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
         let mut input: Input = canonical::dto(value)?;
-        if input.schema != "ledger-workflow-offer/2"
-            || !matches!(
-                input.valuation_mode.as_str(),
-                "fixed_unit" | "final_evidence"
-            )
-        {
+        if !matches!(
+            input.schema.as_str(),
+            "ledger-workflow-offer/2" | "ledger-workflow-offer/3"
+        ) || !matches!(
+            input.valuation_mode.as_str(),
+            "fixed_unit" | "final_evidence"
+        ) {
             return Err(fail("supplier offer schema/mode"));
         }
         crate::domain::text(&input.agreement_id, 128)?;
         crate::domain::text(&input.provider, 128)?;
         input.version = super::super::facts::counter(&input.version)?.to_string();
-        reference(&mut input.policy_ref, "workflow-policy")?;
+        match input.schema.as_str() {
+            "ledger-workflow-offer/2" if input.commitment_ref.is_none() => {
+                reference(
+                    input
+                        .policy_ref
+                        .as_mut()
+                        .ok_or_else(|| fail("offer policy required"))?,
+                    "workflow-policy",
+                )?;
+            }
+            "ledger-workflow-offer/3" if input.policy_ref.is_none() => {
+                reference(
+                    input
+                        .commitment_ref
+                        .as_mut()
+                        .ok_or_else(|| fail("offer commitment required"))?,
+                    "workflow-offer",
+                )?;
+            }
+            _ => return Err(fail("offer reference recipe")),
+        }
         generic_refs(&mut input.role_refs, 16)?;
         generic_refs(&mut input.evidence_refs, 16)?;
         if !(1..=16).contains(&input.activity_names.len())

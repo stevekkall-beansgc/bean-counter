@@ -469,3 +469,92 @@ fn supplier_terms_and_descriptor_are_additive_data_not_legacy_support() {
         .is_err()
     );
 }
+
+#[test]
+fn scoped_supplier_consent_data_preserves_old_offer_and_requires_exact_new_versions() {
+    let frozen: Value = serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/fixture-author-expected.json")).unwrap();
+    let offer = &frozen["records"]["offer"];
+    let bytes = canonical::CanonicalBytes::from_value(&offer["body"]).unwrap();
+    let parsed = SupplierOffer::parse(bytes.as_slice()).unwrap();
+    exact(parsed.canonical_bytes(), parsed.reference(), offer);
+    for (key, value) in [
+        ("schema", json!("ledger-workflow-offer/2")),
+        ("policy_ref", source("policy")["product_ref"].clone()),
+        ("commitment_ref", Value::Null),
+    ] {
+        let mut bad = offer["body"].clone();
+        bad[key] = value;
+        assert!(
+            SupplierOffer::parse(&serde_json::to_vec(&bad).unwrap()).is_err(),
+            "{key}"
+        );
+    }
+    let terms = &frozen["records"]["supplier_terms"];
+    let parsed = SlotBindingTerms::parse(&serde_json::to_vec(&terms["body"]).unwrap()).unwrap();
+    exact(parsed.canonical_bytes(), parsed.reference(), terms);
+    for (key, value) in [
+        ("schema", json!("ledger-workflow-slot-binding-terms/4")),
+        (
+            "commitment_ref",
+            json!({"kind":"workflow-policy","id":terms["body"]["commitment_ref"]["id"],"digest":terms["body"]["commitment_ref"]["digest"]}),
+        ),
+        ("consumption_basis", json!("cumulative_positive_deltas")),
+    ] {
+        let mut bad = terms["body"].clone();
+        bad[key] = value;
+        assert!(
+            SlotBindingTerms::parse(&serde_json::to_vec(&bad).unwrap()).is_err(),
+            "{key}"
+        );
+    }
+    let mut missing = terms["body"].clone();
+    missing.as_object_mut().unwrap().remove("commitment_ref");
+    assert!(SlotBindingTerms::parse(&serde_json::to_vec(&missing).unwrap()).is_err());
+    // An old offer keeps its policy-bound byte recipe; a new field never
+    // silently changes the scope of that already accepted assertion.
+    let old: Value = serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/owner-local-cost-01/fixture-author-expected.json")).unwrap();
+    let old_offer = &old["records"]["offer"];
+    let parsed = SupplierOffer::parse(&serde_json::to_vec(&old_offer["body"]).unwrap()).unwrap();
+    exact(parsed.canonical_bytes(), parsed.reference(), old_offer);
+    let mut bad = old_offer["body"].clone();
+    bad["commitment_ref"] = offer["body"]["commitment_ref"].clone();
+    assert!(SupplierOffer::parse(&serde_json::to_vec(&bad).unwrap()).is_err());
+    let support = super::super::VerifiedCompilerSupport::builtin().unwrap();
+    let mut descriptor = support.descriptor().canonical_value().clone();
+    descriptor["schema"] = json!("ledger-workflow-compiler-descriptor/4");
+    descriptor["compiler_semantics"] = json!("ledger-policy-compiler/supplier-scoped-consent-1");
+    descriptor["plan_schema"] = json!("ledger-workflow-compiled-plan/4");
+    descriptor["primitive_versions"] = json!([
+        "unit/1",
+        "family_no_success_close/1",
+        "outcome_family_binding_dependency/1",
+        "owner_local_supplier_cost/1",
+        "owned_obligation_high_water/1",
+        "supplier-semantic-projection/1"
+    ]);
+    canonical::sort_set(descriptor["primitive_versions"].as_array_mut().unwrap()).unwrap();
+    let raw = canonical::CanonicalBytes::from_value(&descriptor).unwrap();
+    let parsed = super::super::CompilerDescriptor::parse(raw.as_slice()).unwrap();
+    assert_eq!(parsed.canonical_bytes(), raw.as_slice());
+    assert!(super::super::normalize_definition(raw.as_slice(), &[], &support).is_err());
+    for (field, wrong) in [
+        (
+            "compiler_semantics",
+            "ledger-policy-compiler/owner-local-cost-1",
+        ),
+        ("plan_schema", "ledger-workflow-compiled-plan/3"),
+    ] {
+        let mut bad = descriptor.clone();
+        bad[field] = json!(wrong);
+        assert!(
+            super::super::CompilerDescriptor::parse(&serde_json::to_vec(&bad).unwrap()).is_err()
+        );
+    }
+    descriptor["primitive_versions"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|v| v != "supplier-semantic-projection/1");
+    assert!(
+        super::super::CompilerDescriptor::parse(&serde_json::to_vec(&descriptor).unwrap()).is_err()
+    );
+}
