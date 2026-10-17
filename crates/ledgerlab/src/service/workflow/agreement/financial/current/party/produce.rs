@@ -10,6 +10,7 @@ pub(in super::super::super) struct PendingPartyOperation {
     pub(in super::super::super) result: wire::SourceRecord,
     normalized: AuditedBytes,
     dependencies: [Option<PartyRecord>; 2],
+    consent_basis: [Option<PartyRecord>; 4],
     prior: Option<PartyRecord>,
     pub(in super::super::super) at: Timestamp,
     pub(in super::super::super) before: i64,
@@ -23,6 +24,11 @@ impl PendingPartyOperation {
             .iter()
             .filter_map(|r| r.as_ref().map(|r| &r.reference))
             .chain(self.prior.iter().map(|r| &r.reference))
+            .chain(
+                self.consent_basis
+                    .iter()
+                    .filter_map(|r| r.as_ref().map(|r| &r.reference)),
+            )
     }
 }
 fn encode(value: &Value, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
@@ -324,6 +330,117 @@ async fn evidence_inputs(
         Ok([Some(target), None])
     }
 }
+
+/// Immediate immutable consent operands. These are distinct from the two
+/// evidence-only management-authority inputs and remain owning manifest members.
+/// A missing public prerequisite is refused; no purported basis is fabricated.
+async fn consent_basis_inputs(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    payload: &Value,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<[Option<PartyRecord>; 4]> {
+    let mut inputs = std::array::from_fn(|_| None);
+    let metadata = check::field(payload, "metadata", session)?;
+    if !equal_text(
+        check::text(metadata, "purpose", session)?,
+        "party_consent",
+        session,
+    )? {
+        return Ok(inputs);
+    }
+    let consent = check::field(metadata, "consent", session)?;
+    let authorization = record(
+        tx,
+        key,
+        check::field(consent, "authorization_ref", session)?,
+        "workflow-authority",
+        before,
+        session,
+    )
+    .await?;
+    check::same_text(
+        check::text(authorization.body(), "schema", session)?,
+        "ledger-workflow-party-authorization/1",
+        session,
+    )?;
+    inputs[0] = Some(authorization);
+    let basis = check::field(consent, "basis", session)?;
+    if equal_text(
+        check::text(basis, "kind", session)?,
+        "acceptance_terms",
+        session,
+    )? {
+        let terms = record(
+            tx,
+            key,
+            check::field(basis, "terms_ref", session)?,
+            "workflow-acceptance-terms",
+            before,
+            session,
+        )
+        .await?;
+        let schema = check::text(terms.body(), "schema", session)?;
+        require(
+            equal_text(schema, "ledger-workflow-acceptance-terms/1", session)?
+                || equal_text(schema, "ledger-workflow-acceptance-terms/2", session)?,
+            "INVALID_SHAPE",
+        )?;
+        inputs[1] = Some(terms);
+    } else {
+        check::same_text(
+            check::text(basis, "kind", session)?,
+            "supplier_commitment",
+            session,
+        )?;
+        for (index, field, kind, schema) in [
+            (
+                1,
+                "commitment_ref",
+                "workflow-offer",
+                "ledger-workflow-supplier-commitment/1",
+            ),
+            (
+                2,
+                "offer_ref",
+                "workflow-offer",
+                "ledger-workflow-supplier-offer/3",
+            ),
+            (
+                3,
+                "supplier_terms_ref",
+                "workflow-slot-terms",
+                "ledger-workflow-slot-binding-terms/5",
+            ),
+        ] {
+            session
+                .semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+                .map_err(core_error)?;
+            let retained = record(
+                tx,
+                key,
+                check::field(basis, field, session)?,
+                kind,
+                before,
+                session,
+            )
+            .await?;
+            check::same_text(
+                check::text(retained.body(), "schema", session)?,
+                schema,
+                session,
+            )?;
+            session
+                .semantic_work()
+                .write_bytes(std::mem::size_of::<Option<PartyRecord>>())
+                .map_err(core_error)?;
+            inputs[index] = Some(retained);
+        }
+    }
+    Ok(inputs)
+}
 #[allow(clippy::too_many_arguments)]
 async fn authorization_evidence(
     tx: &mut SqliteTx,
@@ -611,6 +728,11 @@ async fn prepare_inner(
         check::same_text(req.kind(), "authority.change", session)?;
         authorization_inputs(tx, req, payload, &setup.operator, &at, before, session).await?
     };
+    let consent_basis = if is_evidence {
+        consent_basis_inputs(tx, req.key(), payload, before, session).await?
+    } else {
+        std::array::from_fn(|_| None)
+    };
     let scope_value = check::field(check::field(req.value(), "key", session)?, "scope", session)?;
     let root = root(&setup, scope_value, &at, session)?;
     construct(
@@ -621,6 +743,7 @@ async fn prepare_inner(
         at,
         before,
         dependencies,
+        consent_basis,
         prior,
         session,
     )
@@ -635,6 +758,7 @@ fn construct(
     at: Timestamp,
     before: i64,
     dependencies: [Option<PartyRecord>; 2],
+    consent_basis: [Option<PartyRecord>; 4],
     prior: Option<PartyRecord>,
     session: &mut OriginalAuditSession,
 ) -> Result<PendingPartyOperation> {
@@ -750,6 +874,7 @@ fn construct(
         result,
         normalized,
         dependencies,
+        consent_basis,
         prior,
         at,
         before,
@@ -1005,6 +1130,11 @@ async fn reconstruct_inner(
     } else {
         authorization_evidence(tx, &request, payload, actor, &at, before, session).await?
     };
+    let consent_basis = if is_evidence {
+        consent_basis_inputs(tx, request.key(), payload, before, session).await?
+    } else {
+        std::array::from_fn(|_| None)
+    };
     let derived = construct(
         &request,
         payload,
@@ -1013,6 +1143,7 @@ async fn reconstruct_inner(
         at,
         before,
         dependencies,
+        consent_basis,
         prior,
         session,
     )?;

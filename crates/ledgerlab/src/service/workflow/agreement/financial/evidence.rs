@@ -310,7 +310,7 @@ fn party_anchors(
                 for (field, kind) in [
                     ("commitment_ref", "workflow-offer"),
                     ("offer_ref", "workflow-offer"),
-                    ("terms_ref", "workflow-slot-terms"),
+                    ("supplier_terms_ref", "workflow-slot-terms"),
                 ] {
                     out.add(
                         "private_document",
