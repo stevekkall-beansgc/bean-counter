@@ -781,6 +781,46 @@ async fn recompile_inner(
                 .map_err(core_error)?;
             documents.push(copied(raw.bytes(), session)?);
         }
+    } else if mode == "inline" {
+        // Original compiler order differs from the digest-sorted publication
+        // source set. Reuse the exact saved normalized order, never its raw
+        // spelling or a newly selected compiler's output order. Every body is
+        // matched before a caller-owned input copy may consume its lease.
+        let normalized_sources = request_wrapper::field(normalized, "documents", session)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        count(
+            normalized_sources.len(),
+            sources.len(),
+            sources.len(),
+            session,
+        )?;
+        let mut payload = 0usize;
+        for source in normalized_sources {
+            session
+                .semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let canonical = session
+                .canonical_representation(source, RepresentationKind::SourceDefinition)
+                .map_err(core_error)?;
+            let mut matches = 0usize;
+            for retained in &sources {
+                let work = session.semantic_work();
+                work.visit(Visit::MemberCompare).map_err(core_error)?;
+                work.scan_bytes(canonical.bytes().len())
+                    .map_err(core_error)?;
+                work.scan_bytes(retained.stored.body.bytes().len())
+                    .map_err(core_error)?;
+                if canonical.bytes() == retained.stored.body.bytes() {
+                    matches = arithmetic(matches, 1, Op::Add, session)?;
+                }
+            }
+            count(matches, 1, 1, session)?;
+            payload = arithmetic(payload, canonical.bytes().len(), Op::Add, session)?;
+            count(payload, 1, total, session)?;
+            documents.push(copied(canonical.bytes(), session)?);
+        }
     } else {
         if mode == "retained" {
             equal_ref_sets(raw_documents, source_refs, session)?;
