@@ -169,3 +169,48 @@ fn catalog_root_chains_and_mapping_id_reuse_refuse() {
         "SLOT_MAPPING_DUPLICATE",
     );
 }
+
+#[test]
+fn owning_role_normalizer_preserves_legacy_bytes_grammar_and_lease_lifetime() {
+    use crate::{
+        canonical::audit_arena::AuditArena,
+        validation_work::{OriginalAuditSession, ValidationVisit},
+    };
+    let original = vector("A.role")["body"].clone();
+    let mut c1 = original.clone();
+    c1["provider"] = json!("opaque\u{0085}provider");
+    let mut escaped = original.clone();
+    escaped["provider"] = json!("quote\"\\😀");
+    let mut control = original.clone();
+    control["provider"] = json!("bad\u{007f}provider");
+    let mut delegated = original.clone();
+    delegated["payer_delegation_ref"] = vector("A.role")["ref"].clone();
+    let mut extra = original.clone();
+    extra["unknown"] = json!("no");
+    for body in [original, c1, escaped, control, delegated, extra] {
+        let raw = serde_json::to_vec_pretty(&body).unwrap();
+        let expected = RoleAssignment::parse(&raw);
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let baseline = arena.usage().unwrap().live_bytes;
+        let actual = RoleAssignment::normalize_private_with_session(&raw, &mut session);
+        match (expected, actual) {
+            (Ok(expected), Ok(actual)) => {
+                assert_eq!(actual.bytes(), expected.canonical_bytes());
+                assert!(arena.usage().unwrap().live_bytes >= baseline + actual.bytes().len());
+                drop(actual);
+                assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+            }
+            (Err(_), Err(_)) => {
+                assert!(
+                    session
+                        .semantic_work()
+                        .visit(ValidationVisit::Constraint)
+                        .is_err()
+                );
+                assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+            }
+            _ => panic!("role normalization changed legacy acceptance"),
+        }
+    }
+}

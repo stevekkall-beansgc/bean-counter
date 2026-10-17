@@ -318,6 +318,72 @@ async fn next_inner(
     Ok(Some(input))
 }
 
+/// Resolve the submitted exact publication through its earliest scoped
+/// indexed membership and literal saved frame. The returned program remains
+/// DATA until the complete chronological authority/introduction audit finishes.
+pub(super) async fn publication_for(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &Value,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<RecompiledPublication> {
+    let mut attempt = InputAttempt {
+        failure: tx.workflow_proof_failure_handle(),
+        finished: false,
+    };
+    let result = async {
+        // Tuple ownership drops its Ref payload before its allocation lease.
+        let expected = current::source::from_value(reference, "workflow-publication", session)?;
+        let sequence = tx
+            .workflow_financial_origin_sequence(
+                &expected.0,
+                &key.logical_store_id,
+                &key.scope,
+                before,
+                session,
+            )
+            .await
+            .map_err(read_error)?
+            .ok_or_else(|| reject("INVALID_REFERENCE"))?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&sequence.into(), &1i64.into()])
+            .map_err(core_error)?;
+        let previous = sequence
+            .checked_sub(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let acquired = next(tx, key, previous, sequence, session)
+            .await?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let original = acquired.checked_wrappers(tx, session).await?;
+        let publication = original.recompile_publication(tx, session).await?;
+        let actual = wire::reference(publication.publication().0, session)?;
+        let wanted = wire::reference(&expected.0, session)?;
+        session
+            .semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(actual.bytes().len())
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(wanted.bytes().len())
+            .map_err(core_error)?;
+        require(actual.bytes() == wanted.bytes(), "INVALID_REFERENCE")?;
+        Ok(publication)
+    }
+    .await;
+    if result.is_ok() {
+        attempt.finish();
+    } else {
+        session.invalidate();
+    }
+    result
+}
+
 pub(super) async fn target(
     tx: &mut SqliteTx,
     root: &OperationKey,

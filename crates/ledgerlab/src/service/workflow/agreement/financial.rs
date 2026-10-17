@@ -10,8 +10,8 @@ use crate::{
     },
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
-mod current;
 mod acceptance;
+mod current;
 mod ingress;
 mod prefix;
 mod recovery;
@@ -301,6 +301,12 @@ impl LocalWorkflowLedger {
                 }
                 let management = ManagementObservation::capture(self, tx, key).await?;
                 management.recheck(self, tx, key).await?;
+                if req.kind() == "agreement.accept" {
+                    // AppAccept8 reaches the actual saved publication and SAME
+                    // terms/binding assembly. Its DATA owners do not bypass
+                    // complete chronology, consent/private graph or preparation.
+                    let _pending = acceptance::prepare(self, tx, &req, &mut session).await?;
+                }
                 if req.kind() == "work.accept" {
                     let payload = req.payload(&mut session)?;
                     let _observed = current::work(self, tx, key, payload, &mut session).await?;

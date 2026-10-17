@@ -116,7 +116,7 @@ fn own(
     drop(checked);
     Ok((r, lease))
 }
-fn from_value(
+pub(in super::super) fn from_value(
     v: &Value,
     kind: &str,
     s: &mut OriginalAuditSession,
@@ -253,6 +253,47 @@ async fn observe_inner(
     check::same_text(&original.kind, "workflow-source-grant", s)?;
     let (r, l) = own(&original.kind, &original.id, &original.digest, s)?;
     let original = load(tx, key, r, l, "ledger-workflow-source-grant/1", before, s).await?;
+    observe_original(tx, key, original, before, s).await
+}
+/// Same current-source observer from an owning request's exact Ref value. No
+/// DTO clone/Noop parser or new meaning is introduced for acceptance callers.
+pub(in super::super) async fn observe_value(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<ObservedSource> {
+    let result = async {
+        let (reference, lease) = from_value(value, "workflow-source-grant", s)?;
+        let original = load(
+            tx,
+            key,
+            reference,
+            lease,
+            "ledger-workflow-source-grant/1",
+            before,
+            s,
+        )
+        .await?;
+        observe_original(tx, key, original, before, s).await
+    }
+    .await;
+    if result.is_err() {
+        s.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    result
+}
+async fn observe_original(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    original: SourceRecord,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<ObservedSource> {
+    use super::super::request_wrapper as check;
     let (r, l) = from_value(
         check::field(original.body(), "original_ceiling_ref", s)?,
         "workflow-source-enrollment",

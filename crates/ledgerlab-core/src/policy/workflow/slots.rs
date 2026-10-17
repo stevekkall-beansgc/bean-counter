@@ -1,12 +1,12 @@
 //! Initial private agreement structures only. These values establish no
 //! enrollment, assent, authority, accepted binding, activation or monetary right.
 use super::{
-    facts::{counter, name, reject_null},
     SlotTemplate, TemplateBook,
+    facts::{counter, name, reject_null},
 };
 use crate::{
-    canonical::{self, CanonicalBytes},
     Error, Result,
+    canonical::{self, CanonicalBytes},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -70,37 +70,185 @@ struct RoleDto {
 pub struct RoleAssignment {
     document: Document,
 }
+fn role_equal(
+    a: &str,
+    b: &str,
+    work: &mut dyn crate::validation_work::ValidationWork,
+) -> Result<bool> {
+    work.visit(crate::validation_work::ValidationVisit::MemberCompare)?;
+    work.scan_bytes(a.len())?;
+    work.scan_bytes(b.len())?;
+    Ok(a == b)
+}
+fn role_string<'a>(
+    v: &'a Value,
+    work: &mut dyn crate::validation_work::ValidationWork,
+) -> Result<&'a str> {
+    work.visit(crate::validation_work::ValidationVisit::Constraint)?;
+    v.as_str().ok_or_else(|| fail("JSON", "role string"))
+}
+fn role_fields(
+    schema: &str,
+    delegated: bool,
+    ids: [&str; 10],
+    slot: &str,
+    work: &mut dyn crate::validation_work::ValidationWork,
+) -> Result<()> {
+    use crate::validation_work::{ValidationVisit as Visit, compare};
+    if !role_equal(schema, "ledger-workflow-role-assignment/1", work)? {
+        return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "role assignment schema"));
+    }
+    work.visit(Visit::Constraint)?;
+    if delegated {
+        return Err(fail(
+            "UNSUPPORTED_SCHEMA_PROFILE",
+            "delegation is not implemented by structural parser",
+        ));
+    }
+    for value in ids {
+        work.visit(Visit::Constraint)?;
+        if value.is_empty() || compare(work, value.len(), 128usize)?.is_gt() {
+            return Err(fail("SLOT_ID", "bounded opaque ID"));
+        }
+        work.scan_bytes(value.len())?;
+        // Preserve the exact existing opaque-ID grammar, including C1 text.
+        for c in value.chars() {
+            work.visit(Visit::Constraint)?;
+            if c <= '\u{1f}' || c == '\u{7f}' {
+                return Err(fail("SLOT_ID", "bounded opaque ID"));
+            }
+        }
+    }
+    super::facts::name_with_work(slot, work)
+}
 impl RoleAssignment {
     /// Pure closed shape/identity only; six asserted IDs are not authenticated.
     pub fn parse(raw: &[u8]) -> Result<Self> {
         let value = canonical::parse(raw)?;
         reject_null(&value)?;
         let dto: RoleDto = canonical::dto(value)?;
-        if dto.schema != "ledger-workflow-role-assignment/1" {
-            return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "role assignment schema"));
-        }
-        if dto.payer_delegation_ref.is_some() {
-            return Err(fail(
-                "UNSUPPORTED_SCHEMA_PROFILE",
-                "delegation is not implemented by structural parser",
-            ));
-        }
-        for value in dto.scope.iter().chain([
-            &dto.agreement_id,
-            &dto.customer,
-            &dto.provider,
-            &dto.cost_originator,
-            &dto.bearer,
-            &dto.payer,
-            &dto.beneficiary,
-            &dto.recipient,
-        ]) {
-            id(value)?;
-        }
-        name(&dto.role_slot)?;
+        role_fields(
+            &dto.schema,
+            dto.payer_delegation_ref.is_some(),
+            [
+                &dto.scope[0],
+                &dto.scope[1],
+                &dto.agreement_id,
+                &dto.customer,
+                &dto.provider,
+                &dto.cost_originator,
+                &dto.bearer,
+                &dto.payer,
+                &dto.beneficiary,
+                &dto.recipient,
+            ],
+            &dto.role_slot,
+            &mut crate::validation_work::NoopValidationWork,
+        )?;
         Ok(Self {
             document: Document::new(serde_json::to_value(dto).map_err(json_error)?)?,
         })
+    }
+    /// SAME role normalization for the owning private-document acceptance path.
+    /// This is DATA only: no party/delegation/source or accepted-right proof.
+    /// Old public parse/serialization and its resource interpretation remain.
+    pub fn normalize_private_with_session(
+        raw: &[u8],
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
+        let result = (|| {
+            use crate::validation_work::{
+                RepresentationKind as Kind, ValidationVisit as Visit, compare,
+            };
+            if compare(session.semantic_work(), raw.len(), 262144usize)?.is_gt() {
+                return Err(fail("SLOT_LIMIT", "private role byte limit"));
+            }
+            let parsed = session.parse_representation(raw, Kind::SourceDefinition)?;
+            let value = parsed.value();
+            let work = session.semantic_work();
+            super::facts::reject_null_with_work(value, work)?;
+            let keys = [
+                "schema",
+                "scope",
+                "agreement_id",
+                "customer",
+                "role_slot",
+                "provider",
+                "cost_originator",
+                "bearer",
+                "payer",
+                "beneficiary",
+                "recipient",
+            ];
+            work.visit(Visit::Constraint)?;
+            let object = value
+                .as_object()
+                .ok_or_else(|| fail("JSON", "role object"))?;
+            for (key, _) in object {
+                work.visit(Visit::Field)?;
+                let mut known = false;
+                for allowed in keys.iter().chain(["payer_delegation_ref"].iter()) {
+                    if role_equal(key, allowed, work)? {
+                        known = true;
+                        break;
+                    }
+                }
+                if !known {
+                    return Err(fail("JSON", "unknown role field"));
+                }
+            }
+            let mut get = |name| -> Result<&Value> {
+                for (key, value) in object {
+                    work.visit(Visit::RefLookup)?;
+                    if role_equal(key, name, work)? {
+                        return Ok(value);
+                    }
+                }
+                Err(fail("JSON", "missing role field"))
+            };
+            let mut values: [Option<&Value>; 11] = [None; 11];
+            for (i, name) in keys.iter().enumerate() {
+                values[i] = Some(get(name)?);
+            }
+            // Borrow the actual parsed fields; there is no intermediary DTO,
+            // serde clone or a temporary unaccounted normalized Value tree.
+            work.visit(Visit::Constraint)?;
+            let scope = values[1]
+                .ok_or_else(|| fail("JSON", "role scope"))?
+                .as_array()
+                .ok_or_else(|| fail("JSON", "role scope"))?;
+            if !compare(work, scope.len(), 2usize)?.is_eq() {
+                return Err(fail("JSON", "role scope"));
+            }
+            let delegated = object
+                .keys()
+                .try_fold(false, |found, key| -> Result<bool> {
+                    Ok(role_equal(key, "payer_delegation_ref", work)? || found)
+                })?;
+            role_fields(
+                role_string(values[0].unwrap(), work)?,
+                delegated,
+                [
+                    role_string(&scope[0], work)?,
+                    role_string(&scope[1], work)?,
+                    role_string(values[2].unwrap(), work)?,
+                    role_string(values[3].unwrap(), work)?,
+                    role_string(values[5].unwrap(), work)?,
+                    role_string(values[6].unwrap(), work)?,
+                    role_string(values[7].unwrap(), work)?,
+                    role_string(values[8].unwrap(), work)?,
+                    role_string(values[9].unwrap(), work)?,
+                    role_string(values[10].unwrap(), work)?,
+                ],
+                role_string(values[4].unwrap(), work)?,
+                work,
+            )?;
+            session.canonical_representation(value, Kind::SourceDefinition)
+        })();
+        if result.is_err() {
+            session.invalidate();
+        }
+        result
     }
     pub fn canonical_value(&self) -> &Value {
         &self.document.body

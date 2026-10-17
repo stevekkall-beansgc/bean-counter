@@ -2,7 +2,10 @@
 //! complete source/assent/current admission remain enclosing host obligations;
 //! this owning normalized projection cannot manufacture a prepared commit.
 use super::*;
+mod binding;
+mod consent;
 mod customer;
+mod private;
 pub(super) use customer::ObservedCustomerConsent;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, AuditedValue, ExternalBufferLease},
@@ -201,6 +204,23 @@ impl AppAcceptanceInput {
             authorities,
             expected_revision,
         })
+    }
+    /// Assemble the actual new binding from the SAME normalized full terms
+    /// and retained compiled publication. Actor/time are captured host operands;
+    /// this owning DATA still requires the shared core slot validator and full
+    /// chronological/current admission before private preparation.
+    pub(super) fn binding(
+        &self,
+        publication: &prefix::RecompiledPublication,
+        actor: &str,
+        at: &Timestamp,
+        session: &mut OriginalAuditSession,
+    ) -> Result<wire::SourceRecord> {
+        let result = binding::assemble(self, publication, actor, at, session);
+        if result.is_err() {
+            session.invalidate();
+        }
+        result
     }
     pub(super) fn terms(&self) -> &OwnedAcceptanceTerms {
         &self.terms
@@ -683,6 +703,8 @@ fn project_binding(binding: &Value, s: &mut OriginalAuditSession) -> Result<Audi
 /// this type remains private unresolved DATA, with no receipt/commit conversion.
 pub(super) struct ReconstructedAcceptance {
     pub(super) input: AppAcceptanceInput,
+    pub(super) binding: wire::SourceRecord,
+    _stored_binding: crate::store::sqlite::workflow::financial::RetainedDocument,
     _stored_terms: crate::store::sqlite::workflow::financial::RetainedDocument,
 }
 pub(super) async fn reconstruct(
@@ -786,8 +808,178 @@ async fn reconstruct_inner(
         input.terms().canonical_bytes(),
         session,
     )?;
+    // Rebuild the actual accepted Binding2 using captured ORIGINAL actor/time,
+    // not today's local principal, setup, publication or policy. These saved
+    // observations remain DATA until the chronological authority audit finishes.
+    let operation = origin.wrappers().operation();
+    let authority = request_wrapper::field(operation, "authority_snapshot", session)?;
+    request_wrapper::same_text(
+        request_wrapper::text(authority, "schema", session)?,
+        "ledger-workflow-agreement-authority/5",
+        session,
+    )?;
+    let actor = request_wrapper::text(authority, "actor", session)?;
+    let _time_storage = session
+        .reserve_external_payload(2 * (4 * 64 + 27))
+        .map_err(core_error)?;
+    let at = Timestamp::parse_with_work(
+        request_wrapper::text(operation, "accepted_at", session)?,
+        session.semantic_work(),
+    )
+    .map_err(core_error)?;
+    let observed = Timestamp::parse_with_work(
+        request_wrapper::text(authority, "observed_at", session)?,
+        session.semantic_work(),
+    )
+    .map_err(core_error)?;
+    session
+        .semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&at.micros().into(), &observed.micros().into()],
+        )
+        .map_err(core_error)?;
+    require(at.micros() == observed.micros(), "INTEGRITY_FAILURE")?;
+    let binding = input.binding(publication, actor, &at, session)?;
+    let binding_reference = wire::reference(binding.reference(), session)?;
+    let binding_value = session
+        .parse_representation(binding_reference.bytes(), Kind::Record)
+        .map_err(core_error)?;
+    origin.require_member(binding_value.value(), session)?;
+    let stored_binding = tx
+        .workflow_financial_document(
+            binding.reference(),
+            &origin.key().logical_store_id,
+            &origin.key().scope,
+            before,
+            session,
+        )
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
+    same_bytes(
+        stored_binding.schema.bytes(),
+        b"ledger-workflow-binding/2",
+        session,
+    )?;
+    same_bytes(stored_binding.body.bytes(), binding.bytes(), session)?;
     Ok(ReconstructedAcceptance {
         input,
+        binding,
+        _stored_binding: stored_binding,
         _stored_terms: retained,
     })
+}
+
+/// Actual fresh public input acquisition. This retains the original compiler
+/// operands and SAME normalized binding; it deliberately carries no complete
+/// origin/preparation capability. The remaining graph/consent/current checks
+/// consume these owners before any journal append may be prepared.
+pub(super) struct PendingAppAcceptance {
+    pub(super) input: AppAcceptanceInput,
+    pub(super) binding: wire::SourceRecord,
+    pub(super) publication: prefix::RecompiledPublication,
+    pub(super) at: Timestamp,
+    pub(super) before: i64,
+    pub(super) sources: Vec<current::source::ObservedSource>,
+    pub(super) roles: private::InlineRoles,
+    _sources_storage: ExternalBufferLease,
+    _time_storage: ExternalBufferLease,
+}
+pub(super) async fn prepare(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingAppAcceptance> {
+    let result = async {
+        session.check_cancelled().map_err(core_error)?;
+        let setup = ledger
+            .admin
+            .fresh(&ledger.store, tx, incoming.key())
+            .await?;
+        let installation = tx
+            .load_installation()
+            .await
+            .map_err(crate::service::store_error)?;
+        require(installation.mode == "real", "INSTALLATION_MODE_MISMATCH")?;
+        let before = tx
+            .workflow_sequence()
+            .await
+            .map_err(crate::service::store_error)?;
+        let time_storage = session
+            .reserve_external_payload(4 * 64 + 27)
+            .map_err(core_error)?;
+        let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
+        let payload = incoming.payload(session)?;
+        let publication = prefix::publication_for(
+            tx,
+            incoming.key(),
+            request_wrapper::field(payload, "publication_ref", session)?,
+            before,
+            session,
+        )
+        .await?;
+        let input = AppAcceptanceInput::normalize(incoming, &publication, session)?;
+        let binding = input.binding(&publication, &setup.operator, &at, session)?;
+        let roles = private::inline_roles(incoming, &input, session)?;
+        let refs = input
+            .authority_refs()
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        size(refs.len(), 1, 32, session)?;
+        session
+            .semantic_work()
+            .arithmetic(
+                Op::Multiply,
+                &[
+                    &refs.len().into(),
+                    &mem::size_of::<current::source::ObservedSource>().into(),
+                ],
+            )
+            .map_err(core_error)?;
+        let payload = refs
+            .len()
+            .checked_mul(mem::size_of::<current::source::ObservedSource>())
+            .ok_or(ServiceError::Unavailable)?;
+        let sources_storage = session
+            .reserve_external_payload(payload)
+            .map_err(core_error)?;
+        let mut sources = Vec::new();
+        sources
+            .try_reserve_exact(refs.len())
+            .map_err(|_| ServiceError::Unavailable)?;
+        // These are the actual original grant nominations from normalized full
+        // terms. Today's head/body acquisition is shared with work.accept;
+        // original custody and exact operation-right intersection remain gates.
+        for reference in refs {
+            session
+                .semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let observed =
+                current::source::observe_value(tx, incoming.key(), reference, before, session)
+                    .await?;
+            // Keep actual revocation DATA too. The exact consuming authority
+            // intersection decides which active current grant is mandatory.
+            session
+                .semantic_work()
+                .write_bytes(mem::size_of::<current::source::ObservedSource>())
+                .map_err(core_error)?;
+            sources.push(observed);
+        }
+        Ok(PendingAppAcceptance {
+            input,
+            binding,
+            publication,
+            at,
+            before,
+            sources,
+            roles,
+            _sources_storage: sources_storage,
+            _time_storage: time_storage,
+        })
+    }
+    .await;
+    terminal(result, tx, session)
 }
