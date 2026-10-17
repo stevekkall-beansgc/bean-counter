@@ -438,6 +438,75 @@ fn owned_reference(
     })
 }
 
+/// SAME JCS string encoder after admitting the transient Value/String copy.
+/// Business text never goes through the ASCII-only literal emitter.
+pub(super) fn string(text: &str, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+    let bytes = arithmetic(std::mem::size_of::<Value>(), text.len(), Op::Add, session)?;
+    let _lease = session
+        .reserve_external_payload(bytes)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .scan_bytes(text.len())
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(text.len())
+        .map_err(core_error)?;
+    let mut copy = String::new();
+    copy.try_reserve_exact(text.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    copy.push_str(text);
+    let value = Value::String(copy);
+    session
+        .canonical_representation(&value, RepresentationKind::SourceDefinition)
+        .map_err(core_error)
+}
+pub(super) fn domain_digest(
+    domain: &'static [u8],
+    parts: &[&[u8]],
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let hashed = hash(domain, parts, session)?;
+    session
+        .semantic_work()
+        .write_bytes(71)
+        .map_err(core_error)?;
+    let digest = digest(&hashed);
+    literal(
+        std::str::from_utf8(&digest).map_err(|_| ServiceError::IntegrityFailure)?,
+        session,
+    )
+}
+/// An owning canonical source record; still no origin or append capability.
+pub(super) struct SourceRecord {
+    body: AuditedBytes,
+    reference: WireRef,
+}
+impl SourceRecord {
+    pub(super) fn reference(&self) -> &ExactRef {
+        &self.reference.reference
+    }
+    pub(super) fn bytes(&self) -> &[u8] {
+        self.body.bytes()
+    }
+}
+pub(super) fn source_record(
+    kind: &'static str,
+    schema: &'static str,
+    body: AuditedBytes,
+    session: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let schema = literal(schema, session)?;
+    let hashed = hash(
+        b"bean-counter/workflow-document/1\0",
+        &[b"[", schema.bytes(), b",", body.bytes(), b"]"],
+        session,
+    )?;
+    let reference = owned_reference(kind, "wdoc_", &hashed, &hashed, session)?;
+    Ok(SourceRecord { body, reference })
+}
+
 pub(super) struct JournalData<'a> {
     candidate: &'a EconomicCandidate,
     identity: AuditedBytes,

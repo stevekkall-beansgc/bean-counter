@@ -11,6 +11,7 @@ use crate::{
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
 mod current;
+mod ingress;
 mod prefix;
 mod recovery;
 mod request_wrapper;
@@ -134,7 +135,7 @@ impl Drop for AttemptCancellation {
 /// normalization/comparison; key-only status never manufactures that intent.
 enum OriginalQuery<'a> {
     Status(&'a [u8]),
-    Retry(&'a request::Request),
+    Retry(&'a ingress::IncomingRequest),
 }
 
 // This disposition is private to the coordinator. A core DATA result is never
@@ -207,8 +208,12 @@ pub(in crate::service::workflow) async fn original_status(
 ) -> Result<Value> {
     original_query(tx, key, OriginalQuery::Status(raw_key)).await
 }
-async fn original_retry(tx: &mut SqliteTx, incoming: &request::Request) -> Result<Value> {
-    original_query(tx, incoming.key(), OriginalQuery::Retry(incoming)).await
+async fn original_retry(
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<Value> {
+    original_query_in(tx, incoming.key(), OriginalQuery::Retry(incoming), session).await
 }
 
 /// Never returns saved success without full original financial semantics. The
@@ -223,6 +228,15 @@ async fn original_query(
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
     let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
     let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+    original_query_in(tx, key, input, &mut session).await
+}
+async fn original_query_in(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    input: OriginalQuery<'_>,
+    session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<Value> {
+    use ledgerlab_core::validation_work::RepresentationKind;
     // Same canonical emitter over borrowed input fields; no naked key.bytes()
     // allocation occurs outside the audit owner in this original branch.
     let (raw, kind) = match &input {
@@ -234,14 +248,14 @@ async fn original_query(
         .map_err(core_error)?;
     let key_value = match &input {
         OriginalQuery::Status(_) => incoming.value(),
-        OriginalQuery::Retry(_) => request_wrapper::field(incoming.value(), "key", &mut session)?,
+        OriginalQuery::Retry(_) => request_wrapper::field(incoming.value(), "key", session)?,
     };
-    request_wrapper::key(key_value, key, &mut session)?;
+    request_wrapper::key(key_value, key, session)?;
     let identity = session
         .canonical_representation(key_value, RepresentationKind::Record)
         .map_err(core_error)?;
-    let acquired = prefix::target(tx, key, identity, &mut session).await?;
-    let original = acquired.checked_wrappers(tx, &mut session).await?;
+    let acquired = prefix::target(tx, key, identity, session).await?;
+    let original = acquired.checked_wrappers(tx, session).await?;
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
     // obligations first. For Retry, normalize_saved_intent receives this SAME
@@ -256,37 +270,58 @@ impl LocalWorkflowLedger {
     /// authenticates local management/identity ordering, but creates no receipt,
     /// financial record, claim, reservation, alias, projection or meter delta.
     pub async fn financial(&self, raw: &[u8]) -> Result<Value> {
-        let req = request::Request::parse_financial(raw)?;
+        let arena =
+            ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+        let mut session =
+            ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+                .map_err(core_error)?;
+        let req = ingress::IncomingRequest::parse(raw, &mut session)?;
         let key = req.key();
         let mut tx = self
             .store
             .begin(deadline())
             .await
             .map_err(crate::service::store_error)?;
+        let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
         let attempted = proof_session::with_proofs(&mut tx, key, |tx| {
             Box::pin(async {
                 self.admin.read(&self.store, tx, key).await?;
                 if let Some(kind) = tx
-                    .workflow_operation_kind(&key.bytes()?)
+                    .workflow_operation_kind(req.identity())
                     .await
                     .map_err(crate::service::store_error)?
                 {
                     require(kind == req.kind(), "IDENTITY_CONFLICT")?;
                     // No fresh selection, grant check, compiler or capacity admission
                     // precedes this original identity branch.
-                    return original_retry(tx, &req).await.map(TransactionResult::Original);
+                    return original_retry(tx, &req, &mut session)
+                        .await
+                        .map(TransactionResult::Original);
                 }
                 let management = ManagementObservation::capture(self, tx, key).await?;
                 management.recheck(self, tx, key).await?;
                 if req.kind() == "work.accept" {
-                    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new()
-                        .map_err(core_error)?;
-                    let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
-                    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
-                        .map_err(core_error)?;
-                    let _observed = current::work(self, tx, key, req.payload(), &mut session).await?;
+                    let payload = req.payload(&mut session)?;
+                    let _observed = current::work(self, tx, key, payload, &mut session).await?;
                     // Actual observed inputs remain noncommittable until full
                     // original audit, core candidate and capacity gates close.
+                }
+
+                if matches!(req.kind(), "evidence.retain" | "authority.change") {
+                    let payload = req.payload(&mut session)?;
+                    let schema = request_wrapper::text(payload, "schema", &mut session)?;
+                    if matches!(
+                        schema,
+                        "ledger-workflow-party-evidence-retain/1"
+                            | "ledger-workflow-party-authorize/1"
+                            | "ledger-workflow-party-revoke/1"
+                    ) {
+                        let _pending =
+                            current::party::produce::prepare(self, tx, &req, &mut session).await?;
+                        // The real result is constructed, but all consumed original
+                        // origins and the new wrapper recipe still must complete.
+                        // No DATA result can skip that preparation boundary.
+                    }
                 }
 
                 // No normalized economic selection is manufactured here. The current

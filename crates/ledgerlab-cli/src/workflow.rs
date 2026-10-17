@@ -104,12 +104,22 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, Servi
                         | "ledger-workflow-supplier-cost-attest/1"
                         | "ledger-workflow-app-observe/1"
                         | "ledger-workflow-app-cost-attest/1"
+                        | "ledger-workflow-party-evidence-retain/1"
                 )
             ) =>
         {
             "financial"
         }
-        Some("authority.change") if payload_schema == Some("ledger-cost-authority-enroll/1") => {
+        Some("authority.change")
+            if matches!(
+                payload_schema,
+                Some(
+                    "ledger-cost-authority-enroll/1"
+                        | "ledger-workflow-party-authorize/1"
+                        | "ledger-workflow-party-revoke/1"
+                )
+            ) =>
+        {
             "financial"
         }
         Some("evidence.retain" | "authority.change") => "prerequisite",

@@ -1,0 +1,719 @@
+//! Actual management snapshot and canonical party-result construction. Neither
+//! this DATA nor a point-read hit completes historical custody or permits append.
+use super::super::super::{ingress::IncomingRequest, wire};
+use super::*;
+use ledgerlab_core::canonical::audit_arena::AuditedBytes;
+
+pub(in super::super::super) struct PendingPartyOperation {
+    pub(in super::super::super) root: wire::SourceRecord,
+    pub(in super::super::super) authority: wire::SourceRecord,
+    pub(in super::super::super) result: wire::SourceRecord,
+    normalized: AuditedBytes,
+    dependencies: [Option<PartyRecord>; 2],
+    prior: Option<PartyRecord>,
+    pub(in super::super::super) at: Timestamp,
+    pub(in super::super::super) before: i64,
+}
+impl PendingPartyOperation {
+    pub(in super::super::super) fn normalized_payload(&self) -> &[u8] {
+        self.normalized.bytes()
+    }
+    pub(in super::super::super) fn dependency_refs(&self) -> impl Iterator<Item = &ExactRef> {
+        self.dependencies
+            .iter()
+            .filter_map(|r| r.as_ref().map(|r| &r.reference))
+            .chain(self.prior.iter().map(|r| &r.reference))
+    }
+}
+fn encode(value: &Value, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+    session
+        .canonical_representation(value, RepresentationKind::SourceDefinition)
+        .map_err(core_error)
+}
+fn counter(mut n: u64, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+    let mut bytes = [0u8; 20];
+    let mut start = 20usize;
+    loop {
+        session
+            .semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&n.into(), &10u8.into()])
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&start.into(), &1usize.into()])
+            .map_err(core_error)?;
+        start -= 1;
+        session.semantic_work().write_bytes(1).map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Add, &[&b'0'.into(), &(n % 10).into()])
+            .map_err(core_error)?;
+        bytes[start] = b'0' + (n % 10) as u8;
+        n /= 10;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&n.into(), &0u8.into()])
+            .map_err(core_error)?;
+        if n == 0 {
+            break;
+        }
+    }
+    wire::string(
+        std::str::from_utf8(&bytes[start..]).map_err(|_| ServiceError::IntegrityFailure)?,
+        session,
+    )
+}
+fn root(
+    setup: &crate::service::billing::Setup,
+    scope: &Value,
+    at: &Timestamp,
+    session: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
+    let store = wire::string(&setup.store_id, session)?;
+    let actor = wire::string(&setup.operator, session)?;
+    let source = wire::string(&setup.source, session)?;
+    let scope = encode(scope, session)?;
+    let revision = counter(setup.grant_revision, session)?;
+    let schema = wire::string("ledger-workflow-local-authority-basis/1", session)?;
+    let basis = wire::object(
+        &[
+            ("canonical_economic_namespace", source.bytes()),
+            ("logical_store_id", store.bytes()),
+            ("principal_id", actor.bytes()),
+            ("rights", b"[\"admin\",\"read\"]"),
+            ("schema", schema.bytes()),
+            ("scope", scope.bytes()),
+            ("source", source.bytes()),
+            ("source_grant_revision", revision.bytes()),
+        ],
+        65536,
+        session,
+    )?;
+    let digest = wire::domain_digest(
+        b"bean-counter/local-authority-basis/1\0",
+        &[basis.bytes()],
+        session,
+    )?;
+    let schema = wire::string("ledger-workflow-local-authority-snapshot/1", session)?;
+    let profile = wire::string("local-private-directory-owner/1", session)?;
+    let at = wire::string(at.as_str(), session)?;
+    let body = wire::object(
+        &[
+            ("basis", basis.bytes()),
+            ("basis_digest", digest.bytes()),
+            ("schema", schema.bytes()),
+            ("verification_profile", profile.bytes()),
+            ("verified_at", at.bytes()),
+        ],
+        65536,
+        session,
+    )?;
+    wire::source_record(
+        "workflow-authority",
+        "ledger-workflow-local-authority-snapshot/1",
+        body,
+        session,
+    )
+}
+fn subject(value: &Value, session: &mut OriginalAuditSession) -> Result<()> {
+    check::closed(
+        value,
+        &["customer", "agreement_id", "party", "acceptor"],
+        session,
+    )?;
+    for name in ["customer", "agreement_id", "party", "acceptor"] {
+        id(value, name, 128, session)?;
+    }
+    Ok(())
+}
+fn same_subject(subject: &Value, spec: &Value, session: &mut OriginalAuditSession) -> Result<()> {
+    for name in ["customer", "agreement_id", "party", "acceptor"] {
+        check::same_text(
+            check::text(subject, name, session)?,
+            check::text(spec, name, session)?,
+            session,
+        )?;
+    }
+    Ok(())
+}
+fn consent(
+    value: &Value,
+    key: &OperationKey,
+    at: &Timestamp,
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
+    check::closed(
+        value,
+        &[
+            "scope",
+            "customer",
+            "agreement_id",
+            "party",
+            "acceptor",
+            "roles",
+            "authorization_ref",
+            "basis",
+            "accepted_at",
+        ],
+        session,
+    )?;
+    scope(check::field(value, "scope", session)?, key, session)?;
+    for name in ["customer", "agreement_id", "party", "acceptor"] {
+        id(value, name, 128, session)?;
+    }
+    roles(value, session)?;
+    ref_parts(
+        check::field(value, "authorization_ref", session)?,
+        "workflow-authority",
+        session,
+    )?;
+    let basis = check::field(value, "basis", session)?;
+    let kind = check::text(basis, "kind", session)?;
+    if equal_text(kind, "acceptance_terms", session)? {
+        check::closed(basis, &["kind", "terms_ref", "terms_digest"], session)?;
+        ref_parts(
+            check::field(basis, "terms_ref", session)?,
+            "workflow-acceptance-terms",
+            session,
+        )?;
+        let digest = check::text(basis, "terms_digest", session)?;
+        size(digest.len(), 71, 71, session)?;
+        session
+            .semantic_work()
+            .scan_bytes(digest.len())
+            .map_err(core_error)?;
+        let hex = digest
+            .strip_prefix("sha256:")
+            .ok_or_else(|| reject("INVALID_SHAPE"))?;
+        for byte in hex.bytes() {
+            session
+                .semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)
+                .map_err(core_error)?;
+            require(
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
+                "INVALID_SHAPE",
+            )?;
+        }
+    } else {
+        check::same_text(kind, "supplier_commitment", session)?;
+        check::closed(
+            basis,
+            &["kind", "commitment_ref", "offer_ref", "supplier_terms_ref"],
+            session,
+        )?;
+        for (name, kind) in [
+            ("commitment_ref", "workflow-offer"),
+            ("offer_ref", "workflow-offer"),
+            ("supplier_terms_ref", "workflow-slot-terms"),
+        ] {
+            ref_parts(check::field(basis, name, session)?, kind, session)?;
+        }
+    }
+    at_most(&time(value, "accepted_at", session)?, at, session)
+}
+async fn evidence_inputs(
+    tx: &mut SqliteTx,
+    req: &IncomingRequest,
+    payload: &Value,
+    actor: &str,
+    at: &Timestamp,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<[Option<PartyRecord>; 2]> {
+    check::closed(
+        payload,
+        &[
+            "schema",
+            "subject",
+            "media_type",
+            "content_base64",
+            "content_sha256",
+            "metadata",
+        ],
+        session,
+    )?;
+    let subject_value = check::field(payload, "subject", session)?;
+    subject(subject_value, session)?;
+    let encoded = check::text(payload, "content_base64", session)?;
+    size(encoded.len(), 1, 5464, session)?;
+    let raw = session
+        .decode_base64_representation(encoded, RepresentationKind::EvidenceContent)
+        .map_err(core_error)?;
+    size(raw.bytes().len(), 1, 4096, session)?;
+    let hash = session
+        .hash_representation(raw.bytes(), RepresentationKind::EvidenceContent)
+        .map_err(core_error)?;
+    check::digest_text(
+        &hash,
+        check::text(payload, "content_sha256", session)?,
+        false,
+        session,
+    )?;
+    let media = check::text(payload, "media_type", session)?;
+    if equal_text(media, "text/plain;charset=utf-8", session)? {
+        text(raw.bytes(), session)?;
+    } else {
+        check::same_text(media, "application/octet-stream", session)?;
+    }
+    let metadata = check::field(payload, "metadata", session)?;
+    let purpose = check::text(metadata, "purpose", session)?;
+    if equal_text(purpose, "party_authorization", session)? {
+        check::closed(metadata, &["purpose", "authorization"], session)?;
+        let spec = authorization_spec(
+            check::field(metadata, "authorization", session)?,
+            req.key(),
+            session,
+        )?;
+        same_subject(subject_value, spec, session)?;
+        Ok([None, None])
+    } else if equal_text(purpose, "party_consent", session)? {
+        check::closed(metadata, &["purpose", "consent"], session)?;
+        let spec = check::field(metadata, "consent", session)?;
+        consent(spec, req.key(), at, session)?;
+        same_subject(subject_value, spec, session)?;
+        Ok([None, None])
+    } else {
+        check::same_text(purpose, "party_operator_attestation", session)?;
+        check::closed(
+            metadata,
+            &["purpose", "target_evidence_ref", "statement"],
+            session,
+        )?;
+        let target = record(
+            tx,
+            req.key(),
+            check::field(metadata, "target_evidence_ref", session)?,
+            "workflow-evidence",
+            before,
+            session,
+        )
+        .await?;
+        let body = evidence(&target, req.key(), actor, at, session)?;
+        same_value(
+            subject_value,
+            check::field(body, "subject", session)?,
+            session,
+        )?;
+        let target_metadata = check::field(body, "metadata", session)?;
+        let target_purpose = check::text(target_metadata, "purpose", session)?;
+        let expected = if equal_text(target_purpose, "party_authorization", session)? {
+            check::closed(target_metadata, &["purpose", "authorization"], session)?;
+            authorization_spec(
+                check::field(target_metadata, "authorization", session)?,
+                req.key(),
+                session,
+            )?;
+            "operator_verified_party_acceptor_authority"
+        } else {
+            check::same_text(target_purpose, "party_consent", session)?;
+            check::closed(target_metadata, &["purpose", "consent"], session)?;
+            consent(
+                check::field(target_metadata, "consent", session)?,
+                req.key(),
+                at,
+                session,
+            )?;
+            "operator_verified_party_exact_consent"
+        };
+        check::same_text(
+            check::text(metadata, "statement", session)?,
+            expected,
+            session,
+        )?;
+        Ok([Some(target), None])
+    }
+}
+#[allow(clippy::too_many_arguments)]
+async fn authorization_inputs(
+    tx: &mut SqliteTx,
+    req: &IncomingRequest,
+    payload: &Value,
+    actor: &str,
+    at: &Timestamp,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<[Option<PartyRecord>; 2]> {
+    check::closed(
+        payload,
+        &[
+            "schema",
+            "expected_revision",
+            "authorization",
+            "evidence_ref",
+            "operator_attestation_ref",
+        ],
+        session,
+    )?;
+    check::same_text(
+        check::text(payload, "expected_revision", session)?,
+        "0",
+        session,
+    )?;
+    let spec = authorization_spec(
+        check::field(payload, "authorization", session)?,
+        req.key(),
+        session,
+    )?;
+    let retained = record(
+        tx,
+        req.key(),
+        check::field(payload, "evidence_ref", session)?,
+        "workflow-evidence",
+        before,
+        session,
+    )
+    .await?;
+    let attestation = record(
+        tx,
+        req.key(),
+        check::field(payload, "operator_attestation_ref", session)?,
+        "workflow-evidence",
+        before,
+        session,
+    )
+    .await?;
+    let body = evidence(&retained, req.key(), actor, at, session)?;
+    let attested = evidence(&attestation, req.key(), actor, at, session)?;
+    for body in [body, attested] {
+        same_subject(check::field(body, "subject", session)?, spec, session)?;
+    }
+    let metadata = check::field(body, "metadata", session)?;
+    check::closed(metadata, &["purpose", "authorization"], session)?;
+    check::same_text(
+        check::text(metadata, "purpose", session)?,
+        "party_authorization",
+        session,
+    )?;
+    same_value(
+        check::field(metadata, "authorization", session)?,
+        spec,
+        session,
+    )?;
+    let metadata = check::field(attested, "metadata", session)?;
+    check::closed(
+        metadata,
+        &["purpose", "target_evidence_ref", "statement"],
+        session,
+    )?;
+    check::same_text(
+        check::text(metadata, "purpose", session)?,
+        "party_operator_attestation",
+        session,
+    )?;
+    check::same_text(
+        check::text(metadata, "statement", session)?,
+        "operator_verified_party_acceptor_authority",
+        session,
+    )?;
+    same_value(
+        check::field(metadata, "target_evidence_ref", session)?,
+        check::field(payload, "evidence_ref", session)?,
+        session,
+    )?;
+    at_most(
+        &time(body, "retained_at", session)?,
+        &time(attested, "retained_at", session)?,
+        session,
+    )?;
+    let head = tx
+        .workflow_party_authorization_head(
+            &PartyHeadKey {
+                store: &req.key().logical_store_id,
+                scope: &req.key().scope,
+                customer: check::text(spec, "customer", session)?,
+                agreement: check::text(spec, "agreement_id", session)?,
+                authorization_id: check::text(spec, "authorization_id", session)?,
+            },
+            session,
+        )
+        .await
+        .map_err(prefix::read_error)?;
+    require(head.is_none(), "SEMANTIC_CONFLICT")?;
+    Ok([Some(retained), Some(attestation)])
+}
+fn dependency_count(
+    dependencies: &[Option<PartyRecord>; 2],
+    session: &mut OriginalAuditSession,
+) -> Result<usize> {
+    let mut count = 0usize;
+    for record in dependencies {
+        session
+            .semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+            .map_err(core_error)?;
+        if record.is_some() {
+            count = number(count, 1, Op::Add, session)?;
+        }
+    }
+    Ok(count)
+}
+
+fn management_authority(
+    req: &IncomingRequest,
+    root: &wire::SourceRecord,
+    actor: &str,
+    at: &Timestamp,
+    dependencies: &[Option<PartyRecord>; 2],
+    subject: &Value,
+    session: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
+    let actor = wire::string(actor, session)?;
+    let customer = encode(check::field(subject, "customer", session)?, session)?;
+    let agreement = encode(check::field(subject, "agreement_id", session)?, session)?;
+    let scope = encode(
+        check::field(check::field(req.value(), "key", session)?, "scope", session)?,
+        session,
+    )?;
+    let root = wire::reference(root.reference(), session)?;
+    let refs = wire::RefSet::new(
+        dependencies
+            .iter()
+            .filter_map(|d| d.as_ref().map(|d| &d.reference)),
+        dependency_count(dependencies, session)?,
+        true,
+        session,
+    )?
+    .encode(session)?;
+    let at = wire::string(at.as_str(), session)?;
+    let mode = wire::string("real_local", session)?;
+    let operation = wire::string(req.kind(), session)?;
+    let schema = wire::string("ledger-workflow-party-management-authority/1", session)?;
+    let body = wire::object(
+        &[
+            ("actor", actor.bytes()),
+            ("agreement_id", agreement.bytes()),
+            ("customer", customer.bytes()),
+            ("evidence_refs", refs.bytes()),
+            ("installation_mode", mode.bytes()),
+            ("local_admin_ref", root.bytes()),
+            ("observed_at", at.bytes()),
+            ("operation", operation.bytes()),
+            ("schema", schema.bytes()),
+            ("scope", scope.bytes()),
+        ],
+        65536,
+        session,
+    )?;
+    wire::source_record(
+        "workflow-authority",
+        "ledger-workflow-party-management-authority/1",
+        body,
+        session,
+    )
+}
+/// Actual locked management input acquisition and canonical result construction.
+/// Full chronological origins must complete before these bytes can be prepared.
+pub(in super::super::super) async fn prepare(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &IncomingRequest,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingPartyOperation> {
+    let result = prepare_inner(ledger, tx, req, session).await;
+    if result.is_err() {
+        session.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    result
+}
+async fn prepare_inner(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    req: &IncomingRequest,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingPartyOperation> {
+    session.check_cancelled().map_err(core_error)?;
+    let setup = ledger.admin.fresh(&ledger.store, tx, req.key()).await?;
+    let installation = tx
+        .load_installation()
+        .await
+        .map_err(crate::service::store_error)?;
+    require(installation.mode == "real", "INSTALLATION_MODE_MISMATCH")?;
+    let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
+    let before = tx
+        .workflow_sequence()
+        .await
+        .map_err(crate::service::store_error)?;
+    let payload = req.payload(session)?;
+    let schema = check::text(payload, "schema", session)?;
+    let is_evidence = equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?;
+    let is_revoke = equal_text(schema, "ledger-workflow-party-revoke/1", session)?;
+    let mut prior = None;
+    let dependencies = if is_revoke {
+        check::same_text(req.kind(), "authority.change", session)?;
+        check::closed(
+            payload,
+            &["schema", "authorization_ref", "expected_revision", "reason"],
+            session,
+        )?;
+        check::same_text(
+            check::text(payload, "expected_revision", session)?,
+            "1",
+            session,
+        )?;
+        id(payload, "reason", 1024, session)?;
+        let (original, evidence, attestation) = original_authorization(
+            tx,
+            req.key(),
+            check::field(payload, "authorization_ref", session)?,
+            &at,
+            before,
+            session,
+        )
+        .await?;
+        let spec = check::field(original.body(), "authorization", session)?;
+        let current = tx
+            .workflow_party_authorization_head(
+                &PartyHeadKey {
+                    store: &req.key().logical_store_id,
+                    scope: &req.key().scope,
+                    customer: check::text(spec, "customer", session)?,
+                    agreement: check::text(spec, "agreement_id", session)?,
+                    authorization_id: check::text(spec, "authorization_id", session)?,
+                },
+                session,
+            )
+            .await
+            .map_err(prefix::read_error)?
+            .ok_or_else(|| reject("STALE_REVISION"))?;
+        for (actual, expected) in [
+            (current.revision.bytes(), "1"),
+            (current.kind.bytes(), original.reference.kind.as_str()),
+            (current.id.bytes(), original.reference.id.as_str()),
+            (current.digest.bytes(), original.reference.digest.as_str()),
+        ] {
+            check::same_text(text(actual, session)?, expected, session)?;
+        }
+        prior = Some(original);
+        [Some(evidence), Some(attestation)]
+    } else if is_evidence {
+        check::same_text(req.kind(), "evidence.retain", session)?;
+        evidence_inputs(tx, req, payload, &setup.operator, &at, before, session).await?
+    } else {
+        check::same_text(schema, "ledger-workflow-party-authorize/1", session)?;
+        check::same_text(req.kind(), "authority.change", session)?;
+        authorization_inputs(tx, req, payload, &setup.operator, &at, before, session).await?
+    };
+    let scope_value = check::field(check::field(req.value(), "key", session)?, "scope", session)?;
+    let root = root(&setup, scope_value, &at, session)?;
+    let subject = if let Some(prior) = &prior {
+        check::field(prior.body(), "authorization", session)?
+    } else if is_evidence {
+        check::field(payload, "subject", session)?
+    } else {
+        check::field(payload, "authorization", session)?
+    };
+    let authority = management_authority(
+        req,
+        &root,
+        &setup.operator,
+        &at,
+        &dependencies,
+        subject,
+        session,
+    )?;
+    let authority_ref = wire::reference(authority.reference(), session)?;
+    let mode = wire::string("real_local", session)?;
+    let actor = wire::string(&setup.operator, session)?;
+    let timestamp = wire::string(at.as_str(), session)?;
+    let body = if is_evidence {
+        let content = encode(check::field(payload, "content_base64", session)?, session)?;
+        let hash = encode(check::field(payload, "content_sha256", session)?, session)?;
+        let media = encode(check::field(payload, "media_type", session)?, session)?;
+        let metadata = encode(check::field(payload, "metadata", session)?, session)?;
+        let subject = encode(check::field(payload, "subject", session)?, session)?;
+        let scope = encode(scope_value, session)?;
+        let schema = wire::string("ledger-workflow-party-evidence/1", session)?;
+        wire::object(
+            &[
+                ("authority_ref", authority_ref.bytes()),
+                ("content_base64", content.bytes()),
+                ("content_sha256", hash.bytes()),
+                ("installation_mode", mode.bytes()),
+                ("media_type", media.bytes()),
+                ("metadata", metadata.bytes()),
+                ("retained_at", timestamp.bytes()),
+                ("retained_by", actor.bytes()),
+                ("schema", schema.bytes()),
+                ("scope", scope.bytes()),
+                ("subject", subject.bytes()),
+            ],
+            262144,
+            session,
+        )?
+    } else {
+        let original = prior.as_ref().map(|r| r.body()).unwrap_or(payload);
+        let authorization = encode(check::field(original, "authorization", session)?, session)?;
+        let evidence = encode(check::field(original, "evidence_ref", session)?, session)?;
+        let attestation = encode(
+            check::field(original, "operator_attestation_ref", session)?,
+            session,
+        )?;
+        let schema = wire::string("ledger-workflow-party-authorization/1", session)?;
+        if let Some(prior) = &prior {
+            let prior_ref = wire::reference(&prior.reference, session)?;
+            wire::object(
+                &[
+                    ("authority_ref", authority_ref.bytes()),
+                    ("authorization", authorization.bytes()),
+                    ("evidence_ref", evidence.bytes()),
+                    ("installation_mode", mode.bytes()),
+                    ("operator_attestation_ref", attestation.bytes()),
+                    ("prior_ref", prior_ref.bytes()),
+                    ("recorded_at", timestamp.bytes()),
+                    ("recorded_by", actor.bytes()),
+                    ("revision", b"\"2\""),
+                    ("schema", schema.bytes()),
+                    ("status", b"\"revoked\""),
+                ],
+                65536,
+                session,
+            )?
+        } else {
+            wire::object(
+                &[
+                    ("authority_ref", authority_ref.bytes()),
+                    ("authorization", authorization.bytes()),
+                    ("evidence_ref", evidence.bytes()),
+                    ("installation_mode", mode.bytes()),
+                    ("operator_attestation_ref", attestation.bytes()),
+                    ("recorded_at", timestamp.bytes()),
+                    ("recorded_by", actor.bytes()),
+                    ("revision", b"\"1\""),
+                    ("schema", schema.bytes()),
+                    ("status", b"\"active\""),
+                ],
+                65536,
+                session,
+            )?
+        }
+    };
+    let result = wire::source_record(
+        if is_evidence {
+            "workflow-evidence"
+        } else {
+            "workflow-authority"
+        },
+        if is_evidence {
+            "ledger-workflow-party-evidence/1"
+        } else {
+            "ledger-workflow-party-authorization/1"
+        },
+        body,
+        session,
+    )?;
+    let normalized = encode(payload, session)?;
+    session.check_cancelled().map_err(core_error)?;
+    Ok(PendingPartyOperation {
+        root,
+        authority,
+        result,
+        normalized,
+        dependencies,
+        prior,
+        at,
+        before,
+    })
+}

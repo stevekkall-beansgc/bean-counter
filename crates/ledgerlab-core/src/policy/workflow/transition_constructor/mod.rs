@@ -9,9 +9,9 @@ mod data;
 mod tests;
 pub use data::{
     AppStateData, AuthorityContextData, CapacityHead, CostHead, CostOwnerHead, DecisionHead,
-    DraftContextData, DraftEnvelope, DraftStateData, DraftTransition, EconomicRecordView,
-    EconomicStateData, ExactRef, FamilyHead, InvocationHead, OperationKey, ProposedHeads,
-    RecordInput, SavedFinancialInput, SupplierStateData,
+    DraftContextData, DraftEnvelope, DraftStateData, DraftTransition, EconomicObservationInput,
+    EconomicRecordView, EconomicStateData, ExactRef, FamilyHead, InvocationHead, OperationKey,
+    PartyAuthorizationHead, ProposedHeads, RecordInput, SavedFinancialInput, SupplierStateData,
 };
 mod authority;
 mod body;

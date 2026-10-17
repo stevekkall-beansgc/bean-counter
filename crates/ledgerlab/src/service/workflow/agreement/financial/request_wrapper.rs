@@ -135,6 +135,10 @@ pub(super) fn key(
         .semantic_work()
         .visit(Visit::Constraint)
         .map_err(core_error)?;
+    session
+        .semantic_work()
+        .arithmetic(Op::Compare, &[&scope.len().into(), &2usize.into()])
+        .map_err(core_error)?;
     require(scope.len() == 2, "INTEGRITY_FAILURE")?;
     for (actual, expected) in scope.iter().zip(&expected.scope) {
         session

@@ -115,6 +115,22 @@ pub struct AppStateData<'a> {
     pub cost_claim_refs: &'a [ExactRef],
     pub evidence_consumption_refs: &'a [ExactRef],
 }
+/// Locked current projection DATA selected by the host, independent of the
+/// original acceptance verification's historical party-reference fields.
+#[derive(Clone,Debug)]
+pub struct PartyAuthorizationHead {
+    pub authorization_id:String,
+    pub revision:String,
+    pub reference:ExactRef,
+}
+/// Exact observation/verifier operands. The fresh constructor treats this pair
+/// as its actual pending observation; saved reconstruction treats the historical
+/// pair as retained and compares its original introduction/results separately.
+/// No authenticated/completed boolean or resource credit is represented here.
+pub struct EconomicObservationInput<'a> {
+    pub observation:EconomicRecordView<'a>,
+    pub verification:EconomicRecordView<'a>,
+}
 /// The complete candidate's extra projection DATA. The host must select these
 /// exact capacity heads under the same snapshot/locks as financial heads;
 /// neither a payload nor this view asserts completeness or currentness.
@@ -123,6 +139,8 @@ pub struct EconomicStateData<'a> {
     pub capacity_heads: &'a [CapacityHead],
     pub supplier:Option<&'a SupplierStateData<'a>>,
     pub app:Option<&'a AppStateData<'a>>,
+    pub current_party_authorizations:&'a [PartyAuthorizationHead],
+    pub observation:Option<&'a EconomicObservationInput<'a>>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct DraftStateData {

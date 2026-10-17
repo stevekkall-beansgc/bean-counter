@@ -279,3 +279,86 @@ async fn chronological_owning_frames_follow_actual_public_prerequisite_history()
     // neither an AUTH02 CompletedOrigin nor a financial receipt/candidate.
     ledger.close().await;
 }
+
+#[tokio::test]
+async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append() {
+    use ledgerlab_core::{
+        canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession,
+    };
+    let (_directory, ledger, _path) = installation("actual-party-input").await;
+    let operation = key("actual-party-input", "party-authorization-proof");
+    let material = b"Explicit local operator representation material";
+    let spec = json!({"authorization_id":"platform-owner-mapping","scope":operation.scope,
+        "customer":"customer-1","agreement_id":"agreement-1","party":"platform-1",
+        "acceptor":"platform-representative","roles":["bearer","payer"],
+        "starts_at":"2026-01-01T00:00:00.000000Z","ends_at":"2099-01-01T00:00:00.000000Z"});
+    let mut input = envelope(&operation);
+    input["kind"] = json!("evidence.retain");
+    input["payload"] = json!({"schema":"ledger-workflow-party-evidence-retain/1",
+        "subject":{"customer":"customer-1","agreement_id":"agreement-1","party":"platform-1","acceptor":"platform-representative"},
+        "media_type":"text/plain;charset=utf-8","content_base64":super::super::super::publication::base64(material),
+        "content_sha256":records::raw_hash(material),"metadata":{"purpose":"party_authorization","authorization":spec}});
+    let raw = records::bytes(&input).unwrap();
+    let arena = AuditArena::new().unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    let before = tx.workflow_test_meter().await.unwrap();
+    proof_session::with_proofs(&mut tx, &operation, |tx| {
+        Box::pin(async {
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let request = ingress::IncomingRequest::parse(&raw, &mut session)?;
+            let pending =
+                current::party::produce::prepare(&ledger, tx, &request, &mut session).await?;
+            for record in [&pending.root, &pending.authority, &pending.result] {
+                let body: Value = serde_json::from_slice(record.bytes()).unwrap();
+                let expected = records::source_document(&record.reference().kind, body).unwrap();
+                assert_eq!(record.bytes(), expected.bytes);
+                assert_eq!(record.reference().kind, expected.reference.kind);
+                assert_eq!(record.reference().id, expected.reference.id);
+                assert_eq!(record.reference().digest, expected.reference.digest);
+            }
+            let body: Value = serde_json::from_slice(pending.result.bytes()).unwrap();
+            assert_eq!(body["retained_by"], "example-operator");
+            assert_eq!(body["installation_mode"], "real_local");
+            assert_eq!(body["scope"], json!(operation.scope));
+            assert_eq!(body["metadata"], input["payload"]["metadata"]);
+            assert_eq!(body["retained_at"], json!(pending.at));
+            assert_eq!(pending.dependency_refs().count(), 0);
+            assert_eq!(
+                pending.normalized_payload(),
+                records::bytes(&input["payload"]).unwrap()
+            );
+            drop(pending);
+            drop(request);
+            drop(session);
+            assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
+    tx.rollback().await.unwrap();
+    assert_eq!(
+        ledger
+            .financial(&records::bytes(&input).unwrap())
+            .await
+            .unwrap_err(),
+        ServiceError::Unavailable
+    );
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
+    tx.rollback().await.unwrap();
+    input["payload"]["content_sha256"] = json!("0".repeat(64));
+    assert!(
+        ledger
+            .financial(&records::bytes(&input).unwrap())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        ledger.status(&operation.bytes().unwrap()).await.unwrap()["status"],
+        "not_observed"
+    );
+    ledger.close().await;
+}

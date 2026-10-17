@@ -5,6 +5,7 @@ use super::super::request_wrapper as check;
 use super::*;
 use crate::store::sqlite::workflow::financial::{HeadLocator, PartyHeadKey, RetainedDocument};
 use sha2::{Digest, Sha256};
+pub(in super::super) mod produce;
 struct PartyRecord {
     parsed: AuditedValue,
     stored: RetainedDocument,
@@ -463,14 +464,16 @@ pub(in super::super) async fn observe(
     }
     result
 }
-async fn observe_inner(
+/// Historical original mapping/evidence joins, independent of today's interval
+/// or projection. Revocation may still close an expired original mapping.
+async fn original_authorization(
     tx: &mut SqliteTx,
     key: &OperationKey,
     original_ref: &Value,
     at: &Timestamp,
     before: i64,
     session: &mut OriginalAuditSession,
-) -> Result<ObservedPartyAuthorization> {
+) -> Result<(PartyRecord, PartyRecord, PartyRecord)> {
     let original = record(tx, key, original_ref, "workflow-authority", before, session).await?;
     let body = original.body();
     check::closed(
@@ -501,14 +504,6 @@ async fn observe_inner(
     let actor = id(body, "recorded_by", 128, session)?;
     let recorded_at = time(body, "recorded_at", session)?;
     at_most(&recorded_at, at, session)?;
-    let start = time(spec, "starts_at", session)?;
-    let end = time(spec, "ends_at", session)?;
-    at_most(&start, at, session)?;
-    session
-        .semantic_work()
-        .arithmetic(Op::Compare, &[&at.micros().into(), &end.micros().into()])
-        .map_err(core_error)?;
-    require(at.micros() < end.micros(), "AUTHORITY_REQUIRED")?;
     ref_parts(
         check::field(body, "authority_ref", session)?,
         "workflow-authority",
@@ -582,6 +577,27 @@ async fn observe_inner(
         &time(attested, "retained_at", session)?,
         session,
     )?;
+    Ok((original, retained, attestation))
+}
+async fn observe_inner(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    original_ref: &Value,
+    at: &Timestamp,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<ObservedPartyAuthorization> {
+    let (original, retained, attestation) =
+        original_authorization(tx, key, original_ref, at, before, session).await?;
+    let spec = check::field(original.body(), "authorization", session)?;
+    let start = time(spec, "starts_at", session)?;
+    let end = time(spec, "ends_at", session)?;
+    at_most(&start, at, session)?;
+    session
+        .semantic_work()
+        .arithmetic(Op::Compare, &[&at.micros().into(), &end.micros().into()])
+        .map_err(core_error)?;
+    require(at.micros() < end.micros(), "AUTHORITY_REQUIRED")?;
     let head_key = PartyHeadKey {
         store: &key.logical_store_id,
         scope: &key.scope,
