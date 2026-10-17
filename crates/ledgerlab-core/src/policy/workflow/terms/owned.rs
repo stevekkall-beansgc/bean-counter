@@ -13,18 +13,18 @@ use std::mem;
 
 // Payload fields precede leases in every owner. Metadata growth itself is
 // pre-admitted, with old+new Vec storage held across reserve_exact.
-struct Storage {
+pub(super) struct Storage {
     leases: Vec<ExternalBufferLease>,
     metadata: Option<ExternalBufferLease>,
 }
 impl Storage {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             leases: Vec::new(),
             metadata: None,
         }
     }
-    fn reserve(
+    pub(super) fn reserve(
         &mut self,
         n: usize,
         arena: &AuditArena,
@@ -54,7 +54,7 @@ impl Storage {
         self.leases.push(lease);
         Ok(())
     }
-    fn text(
+    pub(super) fn text(
         &mut self,
         v: &str,
         arena: &AuditArena,
@@ -73,7 +73,7 @@ impl Storage {
         self.reserve(bytes, arena, work)?;
         Ok(v.clone())
     }
-    fn vector<T>(
+    pub(super) fn vector<T>(
         &mut self,
         n: usize,
         arena: &AuditArena,
@@ -95,7 +95,11 @@ fn mul(work: &mut dyn ValidationWork, a: usize, b: usize) -> Result<usize> {
     a.checked_mul(b)
         .ok_or_else(|| fail("acceptance allocation product"))
 }
-fn field<'a>(v: &'a Value, key: &str, work: &mut dyn ValidationWork) -> Result<&'a Value> {
+pub(super) fn field<'a>(
+    v: &'a Value,
+    key: &str,
+    work: &mut dyn ValidationWork,
+) -> Result<&'a Value> {
     work.visit(Visit::Constraint)?;
     for (name, v) in v.as_object().ok_or_else(|| fail("terms object"))? {
         work.visit(Visit::RefLookup)?;
@@ -119,7 +123,7 @@ fn optional<'a>(
     }
     Ok(None)
 }
-fn closed(
+pub(super) fn closed(
     v: &Value,
     required: &[&str],
     optional: &[&str],
@@ -138,11 +142,11 @@ fn closed(
     }
     Ok(())
 }
-fn text<'a>(v: &'a Value, work: &mut dyn ValidationWork) -> Result<&'a str> {
+pub(super) fn text<'a>(v: &'a Value, work: &mut dyn ValidationWork) -> Result<&'a str> {
     work.visit(Visit::Constraint)?;
     v.as_str().ok_or_else(|| fail("terms string"))
 }
-fn array<'a>(
+pub(super) fn array<'a>(
     v: &'a Value,
     min: usize,
     max: usize,
@@ -155,7 +159,7 @@ fn array<'a>(
     }
     Ok(a)
 }
-fn string(
+pub(super) fn string(
     v: &Value,
     key: &str,
     s: &mut Storage,
@@ -225,7 +229,7 @@ fn timestamp(
     s.reserve(bytes, a, w)?;
     Timestamp::parse_with_work(text(v, w)?, w)
 }
-fn amount(
+pub(super) fn amount(
     v: &Value,
     s: &mut Storage,
     a: &AuditArena,
@@ -244,6 +248,28 @@ fn amount(
         scale: scale as u8,
         atoms: string(v, "atoms", s, a, w)?,
     })
+}
+pub(super) fn quantity_rows(
+    value: &Value,
+    s: &mut Storage,
+    a: &AuditArena,
+    w: &mut dyn ValidationWork,
+) -> Result<Vec<QuantityCeiling>> {
+    let rows = array(value, 0, 64, w)?;
+    let mut quantity_ceilings = s.vector(rows.len(), a, w)?;
+    for row in rows {
+        w.visit(Visit::Element)?;
+        closed(row, &["activity", "field", "unit", "maximum"], &[], w)?;
+        let result = QuantityCeiling {
+            activity: string(row, "activity", s, a, w)?,
+            field: string(row, "field", s, a, w)?,
+            unit: string(row, "unit", s, a, w)?,
+            maximum: string(row, "maximum", s, a, w)?,
+        };
+        w.write_bytes(mem::size_of::<QuantityCeiling>())?;
+        quantity_ceilings.push(result);
+    }
+    Ok(quantity_ceilings)
 }
 fn projection(
     v: &Value,
@@ -336,20 +362,7 @@ fn projection(
     let ends_at = optional(v, "ends_at", w)?
         .map(|v| timestamp(v, s, a, w))
         .transpose()?;
-    let rows = array(field(v, "quantity_ceilings", w)?, 0, 64, w)?;
-    let mut quantity_ceilings = s.vector(rows.len(), a, w)?;
-    for row in rows {
-        w.visit(Visit::Element)?;
-        closed(row, &["activity", "field", "unit", "maximum"], &[], w)?;
-        let result = QuantityCeiling {
-            activity: string(row, "activity", s, a, w)?,
-            field: string(row, "field", s, a, w)?,
-            unit: string(row, "unit", s, a, w)?,
-            maximum: string(row, "maximum", s, a, w)?,
-        };
-        w.write_bytes(mem::size_of::<QuantityCeiling>())?;
-        quantity_ceilings.push(result);
-    }
+    let quantity_ceilings = quantity_rows(field(v, "quantity_ceilings", w)?, s, a, w)?;
     let rows = array(field(v, "exposure_ceilings", w)?, 0, 16, w)?;
     let mut exposure_ceilings = s.vector(rows.len(), a, w)?;
     for row in rows {
@@ -417,19 +430,19 @@ fn decode(
 
 // Fixed DTO composition only; strings and arbitrary Values always use the SAME
 // complete canonical emitter. No second general JSON/string encoder is used.
-struct Encode<'a> {
-    storage: &'a mut Storage,
-    arena: &'a AuditArena,
+pub(super) struct Encode<'a> {
+    pub(super) storage: &'a mut Storage,
+    pub(super) arena: &'a AuditArena,
 }
 impl Encode<'_> {
-    fn value(&mut self, v: &Value, w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
+    pub(super) fn value(&mut self, v: &Value, w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
         self.arena.canonical_representation_bytes(v, w, 262144)
     }
-    fn text(&mut self, v: &str, w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
+    pub(super) fn text(&mut self, v: &str, w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
         let value = Value::String(self.storage.text(v, self.arena, w)?);
         self.value(&value, w)
     }
-    fn list<T>(
+    pub(super) fn list<T>(
         &mut self,
         rows: &[T],
         w: &mut dyn ValidationWork,
@@ -451,7 +464,7 @@ impl Encode<'_> {
         }
         self.join_list(&parts, n, w)
     }
-    fn join_list(
+    pub(super) fn join_list(
         &self,
         parts: &[AuditedBytes],
         n: usize,
@@ -472,7 +485,11 @@ impl Encode<'_> {
         b.append(b"]", w)?;
         b.finish(w)
     }
-    fn object(&self, parts: &[(&str, &[u8])], w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
+    pub(super) fn object(
+        &self,
+        parts: &[(&str, &[u8])],
+        w: &mut dyn ValidationWork,
+    ) -> Result<AuditedBytes> {
         let mut n = 2usize;
         for (i, (key, part)) in parts.iter().enumerate() {
             w.visit(Visit::Field)?;
@@ -566,6 +583,27 @@ impl Encode<'_> {
             w,
         )
     }
+    pub(super) fn quantities(
+        &mut self,
+        rows: &[QuantityCeiling],
+        w: &mut dyn ValidationWork,
+    ) -> Result<AuditedBytes> {
+        self.list(rows, w, |e, r, w| {
+            let activity = e.text(&r.activity, w)?;
+            let field = e.text(&r.field, w)?;
+            let maximum = e.text(&r.maximum, w)?;
+            let unit = e.text(&r.unit, w)?;
+            e.object(
+                &[
+                    ("activity", activity.bytes()),
+                    ("field", field.bytes()),
+                    ("maximum", maximum.bytes()),
+                    ("unit", unit.bytes()),
+                ],
+                w,
+            )
+        })
+    }
     fn projection(&mut self, v: &Projection, w: &mut dyn ValidationWork) -> Result<AuditedBytes> {
         let facts = self.value(&v.accepted_context.facts, w)?;
         let fact_ref = self.value(&v.accepted_context.fact_schema_ref, w)?;
@@ -624,21 +662,7 @@ impl Encode<'_> {
                 w,
             )
         })?;
-        let quantities = self.list(&v.quantity_ceilings, w, |e, r, w| {
-            let activity = e.text(&r.activity, w)?;
-            let field = e.text(&r.field, w)?;
-            let maximum = e.text(&r.maximum, w)?;
-            let unit = e.text(&r.unit, w)?;
-            e.object(
-                &[
-                    ("activity", activity.bytes()),
-                    ("field", field.bytes()),
-                    ("maximum", maximum.bytes()),
-                    ("unit", unit.bytes()),
-                ],
-                w,
-            )
-        })?;
+        let quantities = self.quantities(&v.quantity_ceilings, w)?;
         let roles = self.list(&v.roles_refs, w, |e, v, w| e.value(v, w))?;
         let catalog = self.value(&v.slot_catalog_ref, w)?;
         let inst = self.value(&v.slot_instantiation_ref, w)?;
@@ -890,7 +914,11 @@ impl OwnedAcceptanceTerms {
         &self.terms_digest
     }
 }
-fn reference_scratch(s: &mut Storage, a: &AuditArena, w: &mut dyn ValidationWork) -> Result<()> {
+pub(super) fn reference_scratch(
+    s: &mut Storage,
+    a: &AuditArena,
+    w: &mut dyn ValidationWork,
+) -> Result<()> {
     // Sequential closed Ref codec temporaries: kind<=128,id<=128,digest71;
     // two simultaneous refs at context comparison, each three String payloads.
     let n = w::usize_add(w, 128, 128)?;
@@ -923,6 +951,14 @@ fn normalization_scratch(
             s.reserve(n, a, w)?;
         }
     }
+    scalar_scratch(v.quantity_ceilings.len(), s, a, w)
+}
+pub(super) fn scalar_scratch(
+    quantity_count: usize,
+    s: &mut Storage,
+    a: &AuditArena,
+    w: &mut dyn ValidationWork,
+) -> Result<()> {
     // Version unsigned formatting, and the SAME sequential SignedScalar parser
     // requested capacities (digits,reverse,padding,insertions,canonical copy).
     s.reserve(128, a, w)?;
@@ -941,7 +977,7 @@ fn normalization_scratch(
     let n = w::usize_add(w, n, 32)?;
     // Replaced quantity strings survive normalization. Each is<=32 bytes after
     // scalar bounds; originals and all other decoded strings remain admitted.
-    let outputs = mul(w, v.quantity_ceilings.len(), 32)?;
+    let outputs = mul(w, quantity_count, 32)?;
     let n = w::usize_add(w, n, outputs)?;
     s.reserve(n, a, w)
 }

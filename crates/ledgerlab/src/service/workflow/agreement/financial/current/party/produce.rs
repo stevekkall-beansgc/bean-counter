@@ -63,7 +63,7 @@ fn counter(mut n: u64, session: &mut OriginalAuditSession) -> Result<AuditedByte
         session,
     )
 }
-fn root(
+pub(in super::super::super) fn root(
     setup: &crate::service::billing::Setup,
     scope: &Value,
     at: &Timestamp,

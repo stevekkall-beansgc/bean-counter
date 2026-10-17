@@ -42,6 +42,7 @@ pub(in crate::policy::workflow) mod owned_facts;
 #[cfg(test)]
 mod calibration_tests;
 mod inventory;
+pub use inventory::slots::validate_app_slot_projection;
 
 // Per-kind immutable DATA; never a host completed-origin capability.
 pub(in crate::policy::workflow) mod intrinsic_record;

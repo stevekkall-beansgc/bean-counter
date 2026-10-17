@@ -11,6 +11,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+mod private;
 
 #[derive(Clone, Debug)]
 struct Document {
@@ -296,6 +297,16 @@ pub struct SlotCatalog {
     dto: CatalogDto,
 }
 impl SlotCatalog {
+    /// Normalize original structural counters and row order using the SAME
+    /// shared transforms. This is not catalog/template/ownership validation;
+    /// the complete borrowed slot validator must consume the returned bytes.
+    pub fn normalize_private_with_session(
+        raw: &[u8],
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
+        private::normalize(raw, private::Family::Catalog, session)
+    }
+
     /// Initial revision only. Successors require a separate reviewed history/head
     /// resolver; this parser deliberately does not claim that capability.
     pub fn parse(raw: &[u8]) -> Result<Self> {
@@ -312,9 +323,9 @@ impl SlotCatalog {
             return Err(fail("SLOT_LIMIT", "catalog collections"));
         }
         dto.components
-            .sort_by(|a, b| a.slot_id.encode_utf16().cmp(b.slot_id.encode_utf16()));
+            .sort_by(|a, b| catalog_key_order(&a.slot_id, &b.slot_id));
         dto.families
-            .sort_by(|a, b| a.slot_id.encode_utf16().cmp(b.slot_id.encode_utf16()));
+            .sort_by(|a, b| catalog_key_order(&a.slot_id, &b.slot_id));
         let mut components = BTreeMap::new();
         for c in &dto.components {
             id(&c.slot_id)?;
@@ -399,6 +410,15 @@ pub struct SlotInstantiation {
     document: Document,
 }
 impl SlotInstantiation {
+    /// Normalization DATA only; exact template/catalog mapping and subject
+    /// coverage still run through the SAME complete slot validator.
+    pub fn normalize_private_with_session(
+        raw: &[u8],
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
+        private::normalize(raw, private::Family::Instantiation, session)
+    }
+
     /// Initial exact symbolic mapping only, with no assent/binding authority.
     pub fn parse(raw: &[u8], template: &SlotTemplate, catalog: &SlotCatalog) -> Result<Self> {
         let value = canonical::parse(raw)?;
@@ -503,7 +523,7 @@ fn mappings(values: &mut [Mapping], limit: usize) -> Result<BTreeMap<String, Str
     if values.len() > limit {
         return Err(fail("SLOT_LIMIT", "mapping collection"));
     }
-    values.sort_by(|a, b| a.template_key.cmp(&b.template_key));
+    values.sort_by(|a, b| mapping_key_order(&a.template_key, &b.template_key));
     let mut keys = BTreeMap::new();
     let mut ids = BTreeSet::new();
     for m in values {
@@ -519,13 +539,32 @@ fn mappings(values: &mut [Mapping], limit: usize) -> Result<BTreeMap<String, Str
     }
     Ok(keys)
 }
-fn initial(revision: &mut String, previous: Option<&Reference>) -> Result<()> {
-    if counter(revision)? != 1 || previous.is_some() {
+fn catalog_key_order(a: &str, b: &str) -> std::cmp::Ordering {
+    a.encode_utf16().cmp(b.encode_utf16())
+}
+fn mapping_key_order(a: &str, b: &str) -> std::cmp::Ordering {
+    a.cmp(b)
+}
+fn initial_value(
+    raw: &str,
+    previous: bool,
+    work: &mut dyn crate::validation_work::ValidationWork,
+) -> Result<()> {
+    let revision = super::facts::counter_with_work(raw, work)?;
+    if !crate::validation_work::compare(work, revision, 1u64)?.is_eq() || previous {
         return Err(fail(
             "UNSUPPORTED_SCHEMA_PROFILE",
             "only initial structural revision supported",
         ));
     }
+    Ok(())
+}
+fn initial(revision: &mut String, previous: Option<&Reference>) -> Result<()> {
+    initial_value(
+        revision,
+        previous.is_some(),
+        &mut crate::validation_work::NoopValidationWork,
+    )?;
     *revision = "1".into();
     Ok(())
 }

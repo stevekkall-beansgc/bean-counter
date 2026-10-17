@@ -130,8 +130,8 @@ impl AppAcceptanceInput {
                 }
                 require(found, "INVALID_REFERENCE")?;
             }
-            let app_terms =
-                wire::RefSet::new(app_terms.iter().copied(), app_terms.len(), true, s)?.encode(s)?;
+            let app_terms = wire::RefSet::new(app_terms.iter().copied(), app_terms.len(), true, s)?
+                .encode(s)?;
             let customer_ref = wire::reference(customer.assent().reference(), s)?;
             let customer_refs = one(customer_ref.bytes(), s)?;
             let party_ref = wire::reference(party_assent.reference(), s)?;
@@ -208,5 +208,165 @@ impl AppAcceptanceInput {
         }
         .await;
         terminal(result, tx, s)
+    }
+}
+
+/// Actual coverage for every independently declared platform resource leg.
+/// Owners retain all material; a coverage vector is still not origin custody.
+pub(super) struct Coverage {
+    observations: Vec<ObservedAcceptanceConsent>,
+    _storage: ExternalBufferLease,
+}
+struct TermRefs<'a> {
+    refs: Vec<&'a ExactRef>,
+    _storage: ExternalBufferLease,
+}
+pub(super) async fn observe_all(
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    input: &AppAcceptanceInput,
+    publication: &prefix::RecompiledPublication,
+    documents: &private::InlineDocuments,
+    admission: &current::source::ObservedSource,
+    root: &wire::SourceRecord,
+    actor: &str,
+    at: &Timestamp,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<Coverage> {
+    let binding = request_wrapper::field(input.terms.canonical_value(), "binding_inputs", s)?;
+    let rows = request_wrapper::field(binding, "bindings", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    size(rows.len(), 1, 16, s)?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Multiply,
+            &[&rows.len().into(), &mem::size_of::<&ExactRef>().into()],
+        )
+        .map_err(core_error)?;
+    let n = rows
+        .len()
+        .checked_mul(mem::size_of::<&ExactRef>())
+        .ok_or(ServiceError::Unavailable)?;
+    let storage = s.reserve_external_payload(n).map_err(core_error)?;
+    let mut terms = TermRefs {
+        refs: Vec::new(),
+        _storage: storage,
+    };
+    terms
+        .refs
+        .try_reserve_exact(rows.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    for row in rows {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let reference = documents.reference(request_wrapper::field(row, "binding_ref", s)?, s)?;
+        s.semantic_work()
+            .write_bytes(mem::size_of::<&ExactRef>())
+            .map_err(core_error)?;
+        terms.refs.push(reference);
+    }
+    let legs = request_wrapper::field(binding, "funding_legs", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    size(legs.len(), 1, 16, s)?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Multiply,
+            &[
+                &legs.len().into(),
+                &mem::size_of::<ObservedAcceptanceConsent>().into(),
+            ],
+        )
+        .map_err(core_error)?;
+    let n = legs
+        .len()
+        .checked_mul(mem::size_of::<ObservedAcceptanceConsent>())
+        .ok_or(ServiceError::Unavailable)?;
+    let storage = s.reserve_external_payload(n).map_err(core_error)?;
+    let mut out = Coverage {
+        observations: Vec::new(),
+        _storage: storage,
+    };
+    out.observations
+        .try_reserve_exact(legs.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    let inputs = assents::Inputs::load(tx, incoming.key(), incoming, input, before, s).await?;
+    let customer = inputs.select(input, None, s)?;
+    for leg in legs {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let mode = request_wrapper::text(leg, "mode", s)?;
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(mode.len())
+            .map_err(core_error)?;
+        s.semantic_work().scan_bytes(8).map_err(core_error)?;
+        if mode != "platform" {
+            continue;
+        }
+        let party = request_wrapper::text(leg, "payer", s)?;
+        let party_assent = inputs.select(input, Some(party), s)?;
+        let observed = input
+            .observe_resource_consent(
+                tx,
+                incoming.key(),
+                publication,
+                admission.enrollment_record(),
+                &terms.refs,
+                request_wrapper::text(leg, "name", s)?,
+                customer,
+                party_assent,
+                root,
+                actor,
+                at,
+                before,
+                s,
+            )
+            .await?;
+        let reference = wire::reference(observed.verification().reference(), s)?;
+        let mut duplicate = false;
+        for prior in &out.observations {
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            let existing = wire::reference(prior.verification().reference(), s)?;
+            s.semantic_work()
+                .scan_bytes(reference.bytes().len())
+                .map_err(core_error)?;
+            s.semantic_work()
+                .scan_bytes(existing.bytes().len())
+                .map_err(core_error)?;
+            if reference.bytes() == existing.bytes() {
+                same_bytes(
+                    observed.verification().bytes(),
+                    prior.verification().bytes(),
+                    s,
+                )?;
+                duplicate = true;
+                break;
+            }
+        }
+        if !duplicate {
+            s.semantic_work()
+                .write_bytes(mem::size_of::<ObservedAcceptanceConsent>())
+                .map_err(core_error)?;
+            out.observations.push(observed);
+        }
+    }
+    size(out.observations.len(), 1, 16, s)?;
+    Ok(out)
+}
+
+impl Coverage {
+    pub(super) fn verification_refs(&self) -> impl ExactSizeIterator<Item = &ExactRef> {
+        self.observations
+            .iter()
+            .map(|o| o.verification().reference())
     }
 }

@@ -146,7 +146,23 @@ pub(super) fn policy(m: &mut CoreMeter, p: &mut Policy) -> Result<()> {
             Formula::Fixed { amount } => decimal(m, amount)?,
             Formula::Unit { rate, .. } => decimal(m, rate)?,
             Formula::Discount { amount, .. } => decimal(m, &mut amount.percent)?,
+            Formula::FinalCost {multiplier,markup,ceiling,..} | Formula::AppFinalCost {multiplier,markup,ceiling,..}=>{
+                counter_atoms(m,&mut multiplier.numerator)?;
+                counter_atoms(m,&mut multiplier.denominator)?;
+                decimal(m,markup)?;
+                counter_atoms(m,&mut ceiling.atoms)?;
+            },
+            Formula::SupplierFinalCost {ceiling,..}=>counter_atoms(m,&mut ceiling.atoms)?,
         }
+    }
+    for delayed in &mut p.delayed_costs {counter(m,&mut delayed.finalize_within_us)?;}
+    if let Some(rows)=&mut p.app_delayed_costs {
+        for declaration in rows.iter_mut(){
+            counter(m,&mut declaration.finalize_within_us)?;
+            counter(m,&mut declaration.correction_within_us)?;
+            counter_atoms(m,&mut declaration.maximum_final_amount.atoms)?;
+        }
+        set(m,rows)?;
     }
     for f in &mut p.families {
         for c in &mut f.codes {

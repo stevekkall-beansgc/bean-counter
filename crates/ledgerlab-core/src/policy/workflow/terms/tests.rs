@@ -729,3 +729,32 @@ fn owning_app_terms_refuses_duplicate_changed_subject_and_terminal_cancel() {
     );
     assert_eq!(arena.usage().unwrap().live_bytes, baseline);
 }
+
+#[test]
+fn owning_slot_terms7_preserves_scalar_set_counter_normalization_and_lease() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let fixture: Value = serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/app-cost-causal-01/fixture-expected.json")).unwrap();
+    let mut body = fixture["records"]["app_terms"]["body"].clone();
+    body["quantity_ceilings"][0]["maximum"] = json!("20.00");
+    body["app_cost_terms"][0]["finalize_within_us"] = json!("00086400000000");
+    body["app_cost_terms"][0]["correction_within_us"] = json!("00086400000000");
+    body["allowed_activities"].as_array_mut().unwrap().reverse();
+    let raw = serde_json::to_vec_pretty(&body).unwrap();
+    let legacy = SlotBindingTerms::parse(&raw).unwrap();
+    let arena = AuditArena::new().unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let owned = SlotBindingTerms::normalize_private_with_session(&raw, &mut session).unwrap();
+    assert_eq!(owned.bytes(), legacy.canonical_bytes());
+    assert!(arena.usage().unwrap().live_bytes > baseline);
+    drop(owned);
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+    body["quantity_ceilings"][0]["activity"] = json!("support:undeclared");
+    assert!(
+        SlotBindingTerms::normalize_private_with_session(
+            &serde_json::to_vec(&body).unwrap(),
+            &mut session
+        )
+        .is_err()
+    );
+}

@@ -2,6 +2,8 @@
 //! complete source/assent/current admission remain enclosing host obligations;
 //! this owning normalized projection cannot manufacture a prepared commit.
 use super::*;
+mod admission;
+mod assents;
 mod binding;
 mod consent;
 mod customer;
@@ -878,11 +880,16 @@ async fn reconstruct_inner(
 pub(super) struct PendingAppAcceptance {
     pub(super) input: AppAcceptanceInput,
     pub(super) binding: wire::SourceRecord,
+    binding_value: AuditedValue,
+    pub(super) local_root: wire::SourceRecord,
     pub(super) publication: prefix::RecompiledPublication,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     pub(super) sources: Vec<current::source::ObservedSource>,
-    pub(super) roles: private::InlineRoles,
+    admission_source: usize,
+    consents: consent::Coverage,
+    authority: wire::SourceRecord,
+    pub(super) private_documents: private::InlineDocuments,
     _sources_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
 }
@@ -922,7 +929,40 @@ pub(super) async fn prepare(
         .await?;
         let input = AppAcceptanceInput::normalize(incoming, &publication, session)?;
         let binding = input.binding(&publication, &setup.operator, &at, session)?;
-        let roles = private::inline_roles(incoming, &input, session)?;
+        // SAME local snapshot construction used by actual party management.
+        // The source is the held private owner observation, never request DATA.
+        let local_root = current::party::produce::root(
+            &setup,
+            request_wrapper::field(
+                request_wrapper::field(incoming.value(), "key", session)?,
+                "scope",
+                session,
+            )?,
+            &at,
+            session,
+        )?;
+        let private_documents = private::normalize_inline(incoming, &input, session)?;
+        let private_documents = private::resolve_graph(
+            private_documents,
+            tx,
+            incoming.key(),
+            &input,
+            before,
+            session,
+        )
+        .await?;
+        private::associate_graph(&private_documents, &input, session)?;
+        let binding_value = session
+            .parse_representation(binding.bytes(), Kind::SourceDefinition)
+            .map_err(core_error)?;
+        private::validate_slots(
+            &private_documents,
+            &input,
+            &publication,
+            binding_value.value(),
+            &incoming.key().scope,
+            session,
+        )?;
         let refs = input
             .authority_refs()
             .as_array()
@@ -968,14 +1008,55 @@ pub(super) async fn prepare(
                 .map_err(core_error)?;
             sources.push(observed);
         }
+        let admission_source =
+            admission::select(&sources, &setup.operator, incoming.key(), session)?;
+        session
+            .semantic_work()
+            .arithmetic(
+                Op::Compare,
+                &[&admission_source.into(), &sources.len().into()],
+            )
+            .map_err(core_error)?;
+        let source = sources
+            .get(admission_source)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let consents = consent::observe_all(
+            tx,
+            incoming,
+            &input,
+            &publication,
+            &private_documents,
+            source,
+            &local_root,
+            &setup.operator,
+            &at,
+            before,
+            session,
+        )
+        .await?;
+        let authority = admission::authority(
+            &input,
+            source,
+            &consents,
+            &local_root,
+            incoming.key(),
+            &setup.operator,
+            &at,
+            session,
+        )?;
         Ok(PendingAppAcceptance {
             input,
             binding,
+            binding_value,
+            local_root,
             publication,
             at,
             before,
             sources,
-            roles,
+            admission_source,
+            consents,
+            authority,
+            private_documents,
             _sources_storage: sources_storage,
             _time_storage: time_storage,
         })

@@ -9,6 +9,9 @@ pub struct SelectedCompilerSupport {
     body: Value,
     reference: DefinitionRef,
     bytes: Vec<u8>,
+    // Set only by an exact code-owned capability/saved-verifier, never by
+    // parsing a caller or retained Descriptor DATA dictionary.
+    execution_registry:Option<&'static str>,
 }
 fn raw(bytes: &[u8]) -> String {
     format!("sha256:{}", canonical::hex(&Sha256::digest(bytes)))
@@ -146,6 +149,7 @@ impl SelectedCompilerSupport {
             body,
             reference,
             bytes,
+            execution_registry:None,
         })
     }
     /// Exact historical binary-owned recipe selection. A retained arbitrary
@@ -201,11 +205,13 @@ impl SelectedCompilerSupport {
             body,
             reference,
             bytes,
+            execution_registry:None,
         })
     }
     pub fn reference(&self) -> &DefinitionRef {
         &self.reference
     }
+    pub(super) fn execution_registry(&self)->Option<&'static str>{self.execution_registry}
     pub fn canonical_value(&self) -> &Value {
         &self.body
     }

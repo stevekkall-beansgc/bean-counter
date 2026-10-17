@@ -214,3 +214,35 @@ fn owning_role_normalizer_preserves_legacy_bytes_grammar_and_lease_lifetime() {
         }
     }
 }
+
+#[test]
+fn owning_structural_transforms_match_original_sort_and_counter_normalization() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let template = template();
+    for customer in ["A", "B"] {
+        let mut catalog = vector(&format!("{customer}.catalog"))["body"].clone();
+        catalog["revision"] = json!("0001");
+        catalog["components"].as_array_mut().unwrap().reverse();
+        catalog["families"].as_array_mut().unwrap().reverse();
+        let raw = serde_json::to_vec_pretty(&catalog).unwrap();
+        let expected = SlotCatalog::parse(&raw).unwrap();
+        let arena = AuditArena::new().unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let baseline = arena.usage().unwrap().live_bytes;
+        let normalized = SlotCatalog::normalize_private_with_session(&raw, &mut session).unwrap();
+        assert_eq!(normalized.bytes(), expected.canonical_bytes());
+        drop(normalized);
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+        let mut inst = vector(&format!("{customer}.instantiation"))["body"].clone();
+        inst["revision"] = json!("01");
+        inst["component_map"].as_array_mut().unwrap().reverse();
+        inst["family_map"].as_array_mut().unwrap().reverse();
+        let raw = serde_json::to_vec_pretty(&inst).unwrap();
+        let expected = SlotInstantiation::parse(&raw, &template, &expected).unwrap();
+        let normalized =
+            SlotInstantiation::normalize_private_with_session(&raw, &mut session).unwrap();
+        assert_eq!(normalized.bytes(), expected.canonical_bytes());
+        drop(normalized);
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+    }
+}

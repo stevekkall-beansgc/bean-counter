@@ -46,6 +46,9 @@ impl ObservedSource {
     pub(in super::super) fn current_grant_ref(&self) -> Option<&ExactRef> {
         self.grant.as_ref().map(|r| &r.reference)
     }
+    pub(in super::super) fn current_grant_body(&self) -> Option<&Value> {
+        self.grant.as_ref().map(SourceRecord::body)
+    }
     pub(in super::super) fn records(&self) -> impl Iterator<Item = EconomicRecordView<'_>> {
         [&self.original, &self.enrollment, &self.state]
             .into_iter()
@@ -164,6 +167,15 @@ async fn load(
         .await
         .map_err(prefix::read_error)?
         .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    load_stored(stored, reference, lease, schema, s)
+}
+fn load_stored(
+    stored: RetainedDocument,
+    reference: ExactRef,
+    lease: ExternalBufferLease,
+    schema: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
     same(stored.schema.bytes(), schema.as_bytes(), s)?;
     let parsed = s
         .parse_representation(stored.body.bytes(), RepresentationKind::SourceDefinition)
@@ -519,4 +531,35 @@ pub(in super::super) async fn customer_record(
         s,
     )?;
     Ok(record)
+}
+
+/// Actual optional retained assent body. Pending inline assents need not exist
+/// in storage yet. Only the two frozen closed assent families are accepted;
+/// presence/hash alone establishes no consent or completed origin.
+pub(in super::super) async fn assent_record(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    value: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<SourceRecord>> {
+    let (reference, lease) = from_value(value, "workflow-assent", s)?;
+    let Some(stored) = tx
+        .workflow_financial_document(&reference, &key.logical_store_id, &key.scope, before, s)
+        .await
+        .map_err(prefix::read_error)?
+    else {
+        return Ok(None);
+    };
+    let schema = raw_text(stored.schema.bytes(), s)?;
+    let expected = if equal_text(schema, "ledger-workflow-assent/1", s)? {
+        "ledger-workflow-assent/1"
+    } else {
+        require(
+            equal_text(schema, "ledger-workflow-party-assent/1", s)?,
+            "INVALID_REFERENCE",
+        )?;
+        "ledger-workflow-party-assent/1"
+    };
+    load_stored(stored, reference, lease, expected, s).map(Some)
 }

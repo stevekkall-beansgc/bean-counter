@@ -45,19 +45,31 @@ pub struct StaticAnalysis {
 }
 pub struct SelectedProgram {
     root: DefinitionRef,
+    root_position:usize,
     sources: Vec<SelectedDocument>,
     plan: SelectedDocument,
     policy: Policy,
     schemas: Vec<(DefinitionRef, FactSchema)>,
     analysis: StaticAnalysis,
-    execution_registry: Option<&'static str>,
+    family_close_recipe: bool,
+    owner_local_cost_recipe:bool,
+    app_owned_cost_recipe:bool,
+    app_cost_causal_recipe:bool,
+    supplier_scoped_consent_recipe:bool,
+    execution_registry:Option<&'static str>,
 }
 impl SelectedProgram {
-    /// Immutable code-owned recipe registry; old draft support has none.
-    pub fn execution_registry(&self) -> Option<&'static str> { self.execution_registry }
+    /// Binary recipe identity, not current-support freshness or authority.
+    pub fn uses_family_close_recipe(&self)->bool {self.family_close_recipe}
+    pub fn uses_owner_local_cost_recipe(&self)->bool {self.owner_local_cost_recipe}
+    pub fn uses_app_owned_cost_recipe(&self)->bool {self.app_owned_cost_recipe}
+    pub fn uses_app_cost_causal_recipe(&self)->bool {self.app_cost_causal_recipe}
+    pub fn uses_supplier_scoped_consent_recipe(&self)->bool {self.supplier_scoped_consent_recipe}
+    pub fn execution_registry(&self)->Option<&'static str>{self.execution_registry}
     pub fn root_policy_ref(&self) -> &DefinitionRef {
         &self.root
     }
+    pub fn original_policy_value(&self)->&Value {self.sources[self.root_position].canonical_value()}
     pub fn compiler_descriptor_ref(&self) -> &DefinitionRef {
         &self.policy.compiler_ref
     }
@@ -107,7 +119,7 @@ fn doc(m: &mut CoreMeter, body: Value) -> Result<SelectedDocument> {
         .ok_or_else(|| err("source schema"))?;
     let kind = schema
         .strip_prefix("ledger-")
-        .and_then(|s| s.strip_suffix("/1"))
+        .and_then(|s| s.strip_suffix("/1").or_else(||s.strip_suffix("/2")).or_else(||s.strip_suffix("/3")).or_else(||s.strip_suffix("/4")).or_else(||s.strip_suffix("/5")).or_else(||s.strip_suffix("/6")))
         .ok_or_else(|| err("source schema version"))?;
     let bytes = codec::encode(m, &body, 262144)?;
     m.visit("source.hash")?;
@@ -166,8 +178,60 @@ pub fn compile_selected_program(
     m: &mut CoreMeter,
 ) -> Result<SelectedProgram> {
     m.enter_compile()?;
-    require_retail_selected_v1(support, m)?;
-    compile_retail_selected_v1(input, support, m)
+    let recipe=require_selected_recipe(support,m)?;
+    compile_selected_recipe(input,support,m,recipe)
+}
+#[derive(Clone,Copy)]
+enum SelectedRecipe { RetailDraft1,FamilyClose1,OwnerLocalCost1,SupplierScopedConsent1,AppOwnedCost1,AppCostCausal1 }
+impl SelectedRecipe {
+    fn policy_schema(self)->&'static str {match self{Self::RetailDraft1=>"ledger-workflow-policy/1",Self::AppCostCausal1=>"ledger-workflow-policy/4",Self::AppOwnedCost1=>"ledger-workflow-policy/3",Self::FamilyClose1|Self::OwnerLocalCost1|Self::SupplierScopedConsent1=>"ledger-workflow-policy/2"}}
+    fn plan_schema(self)->&'static str {match self{Self::RetailDraft1=>"ledger-workflow-compiled-plan/1",Self::FamilyClose1=>"ledger-workflow-compiled-plan/2",Self::OwnerLocalCost1=>"ledger-workflow-compiled-plan/3",Self::AppCostCausal1=>"ledger-workflow-compiled-plan/6",Self::AppOwnedCost1=>"ledger-workflow-compiled-plan/5",Self::SupplierScopedConsent1=>"ledger-workflow-compiled-plan/4"}}
+    fn compiler_semantics(self)->&'static str {match self{Self::RetailDraft1=>"ledger-policy-compiler/1",Self::FamilyClose1=>"ledger-policy-compiler/family-close-1",Self::OwnerLocalCost1=>"ledger-policy-compiler/owner-local-cost-1",Self::AppCostCausal1=>"ledger-policy-compiler/app-cost-causal-1",Self::AppOwnedCost1=>"ledger-policy-compiler/app-owned-cost-1",Self::SupplierScopedConsent1=>"ledger-policy-compiler/supplier-scoped-consent-1"}}
+}
+pub(super) fn same_literal(m:&mut CoreMeter,a:&str,b:&str)->Result<bool>{
+    m.visit("compile.recipe_text_identity")?;
+    if !crate::validation_work::compare(m,a.len(),b.len())?.is_eq(){return Ok(false);}
+    for (a,b) in a.bytes().zip(b.bytes()){m.scan_bytes(2)?;if a!=b{return Ok(false);}}
+    Ok(true)
+}
+fn require_selected_recipe(support:&SelectedCompilerSupport,m:&mut CoreMeter)->Result<SelectedRecipe>{
+    if support.canonical_value()["schema"]=="ledger-workflow-compiler-descriptor/6" {
+      m.visit("compile.app_cost_causal_recipe_dispatch")?;
+      if !same_literal(m,support.canonical_value()["compiler_semantics"].as_str().unwrap_or(""),"ledger-policy-compiler/app-cost-causal-1")? || !same_literal(m,support.canonical_value()["plan_schema"].as_str().unwrap_or(""),"ledger-workflow-compiled-plan/6")? {return Err(err("closed app cost causal compiler tuple"));}
+      return Ok(SelectedRecipe::AppCostCausal1);
+    }
+    if support.canonical_value()["schema"]=="ledger-workflow-compiler-descriptor/5" {
+        m.visit("compile.app_owned_cost_recipe_dispatch")?;
+        if !same_literal(m,support.canonical_value()["compiler_semantics"].as_str().unwrap_or(""),"ledger-policy-compiler/app-owned-cost-1")?
+            || !same_literal(m,support.canonical_value()["plan_schema"].as_str().unwrap_or(""),"ledger-workflow-compiled-plan/5")?{return Err(err("closed app-owned cost compiler tuple"));}
+        return Ok(SelectedRecipe::AppOwnedCost1);
+    }
+
+    if support.canonical_value()["schema"]=="ledger-workflow-compiler-descriptor/4" {
+        m.visit("compile.supplier_scoped_consent_recipe_dispatch")?;
+        if !same_literal(m,support.canonical_value()["compiler_semantics"].as_str().unwrap_or(""),"ledger-policy-compiler/supplier-scoped-consent-1")?
+            || !same_literal(m,support.canonical_value()["plan_schema"].as_str().unwrap_or(""),"ledger-workflow-compiled-plan/4")?{return Err(err("closed supplier-scoped consent compiler tuple"));}
+        return Ok(SelectedRecipe::SupplierScopedConsent1);
+    }
+    // SelectedCompilerSupport has private fields and no arbitrary-document
+    // constructor. New-recipe support can only come from its code-owned
+    // catalog factory/exact saved verifier, not descriptor schema alone.
+    if support.canonical_value()["schema"]=="ledger-workflow-compiler-descriptor/3" {
+        m.visit("compile.owner_local_cost_recipe_dispatch")?;
+        if !same_literal(m,support.canonical_value()["compiler_semantics"].as_str().unwrap_or(""),"ledger-policy-compiler/owner-local-cost-1")?
+            || !same_literal(m,support.canonical_value()["plan_schema"].as_str().unwrap_or(""),"ledger-workflow-compiled-plan/3")?{return Err(err("closed owner-local cost compiler tuple"));}
+        return Ok(SelectedRecipe::OwnerLocalCost1);
+    }
+    if support.canonical_value()["schema"]=="ledger-workflow-compiler-descriptor/2" {
+        m.visit("compile.family_close_recipe_dispatch")?;
+        if !same_literal(m,support.canonical_value()["compiler_semantics"].as_str().unwrap_or(""),"ledger-policy-compiler/family-close-1")?
+            || !same_literal(m,support.canonical_value()["plan_schema"].as_str().unwrap_or(""),"ledger-workflow-compiled-plan/2")? {
+            return Err(err("closed family-close compiler tuple"));
+        }
+        return Ok(SelectedRecipe::FamilyClose1);
+    }
+    require_retail_selected_v1(support,m)?;
+    Ok(SelectedRecipe::RetailDraft1)
 }
 fn require_retail_selected_v1(support: &SelectedCompilerSupport, m: &mut CoreMeter) -> Result<()> {
     let actual = support.reference().id().as_bytes();
@@ -212,11 +276,23 @@ pub fn restore_selected_program(
     saved_plan: &[u8],
     session: &mut crate::validation_work::OriginalAuditSession,
 ) -> Result<SelectedProgram> {
+    let result = restore_selected_inner(input, saved_descriptor, saved_plan, session);
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
+}
+fn restore_selected_inner(
+    input: SelectedSourceInput,
+    saved_descriptor: &[u8],
+    saved_plan: &[u8],
+    session: &mut crate::validation_work::OriginalAuditSession,
+) -> Result<SelectedProgram> {
     let mut compiler = session.meter_mut().original_compile_meter()?;
     compiler.enter_compile()?;
     let support = SelectedCompilerSupport::restore_saved(saved_descriptor, &mut compiler)?;
-    require_retail_selected_v1(&support, &mut compiler)?;
-    let program = compile_retail_selected_v1(input, &support, &mut compiler)?;
+    let recipe=require_selected_recipe(&support,&mut compiler)?;
+    let program=compile_selected_recipe(input,&support,&mut compiler,recipe)?;
     let _compiler_usage = session.meter_mut().finish_original_compile(compiler)?;
     let work = session.work();
     let actual = program.compiled_plan().canonical_bytes();
@@ -238,10 +314,11 @@ pub fn restore_selected_program(
     }
     Ok(program)
 }
-fn compile_retail_selected_v1(
+fn compile_selected_recipe(
     input: SelectedSourceInput,
     support: &SelectedCompilerSupport,
     m: &mut CoreMeter,
+    recipe:SelectedRecipe,
 ) -> Result<SelectedProgram> {
     m.visit("compile.input")?;
     if !m.check("compile.count", || {
@@ -299,12 +376,36 @@ fn compile_retail_selected_v1(
                     return Err(err("multiple templates"));
                 }
             }
-            "ledger-workflow-policy/1" => {
+            "ledger-workflow-policy/1" | "ledger-workflow-policy/2" | "ledger-workflow-policy/3" | "ledger-workflow-policy/4" => {
+                if schema!=recipe.policy_schema(){return Err(err("policy/compiler recipe version"));}
+                if !matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1) && body.get("app_delayed_costs").is_some(){return Err(err("old policy dictionary has no app declarations"));}
+                if matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1){
+                    for declaration in body["app_delayed_costs"].as_array().ok_or_else(||err("app declaration array"))?{
+                        m.visit("compile.original_app_declaration_version")?;
+                        if matches!(recipe,SelectedRecipe::AppOwnedCost1){
+                            if declaration.get("correction_anchor").is_some()||declaration.get("causal_reversal").is_some(){return Err(err("old app declaration cannot carry new timing"));}
+                        }else if declaration.get("causal_reversal").is_some_and(Value::is_null){return Err(err("null app causal clause"));}
+                    }
+                }
+                if matches!(recipe,SelectedRecipe::RetailDraft1) {
+                    // Preserve the old closed serde dictionary and paid trace.
+                    // Policy1 never gains the optional Policy2 declaration.
+                    for family in body["families"].as_array().ok_or_else(||err("family array"))? {
+                        if family.get("no_success_close").is_some(){return Err(err("Policy1 family-close field"));}
+                    }
+                } else {
+                    for family in body["families"].as_array().ok_or_else(||err("family array"))? {
+                        m.visit("compile.family_close_declaration")?;
+                        if let Some(declaration)=family.get("no_success_close") {
+                            if declaration.is_null(){return Err(err("null original close declaration"));}
+                        }
+                    }
+                }
                 if policy_raw.replace(body).is_some() {
                     return Err(err("multiple policies"));
                 }
             }
-            "ledger-workflow-compiler-descriptor/1" => {
+            "ledger-workflow-compiler-descriptor/1" | "ledger-workflow-compiler-descriptor/2" | "ledger-workflow-compiler-descriptor/3" | "ledger-workflow-compiler-descriptor/4" | "ledger-workflow-compiler-descriptor/5" | "ledger-workflow-compiler-descriptor/6" => {
                 if !m.check("source.support", || body == *support.canonical_value())? {
                     return Err(Error::new(
                         "UNSUPPORTED_COMPILER_DESCRIPTOR",
@@ -363,20 +464,21 @@ fn compile_retail_selected_v1(
     let mut policy: Policy =
         serde_json::from_value(body).map_err(|_| err("closed selected policy"))?;
     if !m.check("policy.profile", || {
-        policy.schema == "ledger-workflow-policy/1"
+        policy.schema == recipe.policy_schema()
             && policy.currency == "USD"
             && policy.scale == 18
             && policy.rounding == "nearest_ties_away"
             && policy.mode == "component_workflow"
             && policy.previous_policy_ref.is_none()
             && policy.stages.is_empty()
-            && policy.delayed_costs.is_empty()
+            && (if matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1){policy.app_delayed_costs.as_ref().is_some_and(|rows|!rows.is_empty()&&rows.len()<=64)}else{policy.app_delayed_costs.is_none()})
+            && (matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1)||policy.delayed_costs.is_empty())
     })? {
         return Err(err("selected policy profile"));
     }
     super::normalize::policy(m, &mut policy)?;
     arithmetic::integer(m, &policy.version, false)?;
-    super::validate::policy(m, &policy, &product, &template, &schemas)?;
+    super::validate::policy(m, &policy, &product, &template, &schemas,matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1))?;
     for rule in &mut policy.rules {
         m.visit("rule.validate")?;
         let activity = product
@@ -386,7 +488,7 @@ fn compile_retail_selected_v1(
         if !m.check("rule.slot", || {
             policy.binding_slots.iter().any(|s| {
                 s.name == rule.binding_slot
-                    && s.book == "retail"
+                    && (s.book == "retail" || matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1)&&s.book=="supplier")
                     && s.allowed_activities.contains(&rule.activity)
             })
         })? {
@@ -435,6 +537,26 @@ fn compile_retail_selected_v1(
                 }
                 arithmetic::decimal(m, &amount.percent)?;
             }
+            Formula::FinalCost{markup,multiplier,ceiling,..}=>{
+                if !matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1){return Err(err("final cost compiler recipe"));}
+                arithmetic::decimal(m,markup)?;
+                let n=arithmetic::integer(m,&multiplier.numerator,false)?;
+                let d=arithmetic::integer(m,&multiplier.denominator,false)?;
+                arithmetic::rational(m,n,d)?;
+                arithmetic::integer(m,&ceiling.atoms,false)?;
+            },
+            Formula::AppFinalCost{markup,multiplier,ceiling,..}=>{
+                if !matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1){return Err(err("app cost compiler recipe"));}
+                arithmetic::decimal(m,markup)?;
+                let n=arithmetic::integer(m,&multiplier.numerator,false)?;
+                let d=arithmetic::integer(m,&multiplier.denominator,false)?;
+                arithmetic::rational(m,n,d)?;
+                arithmetic::integer(m,&ceiling.atoms,false)?;
+            },
+            Formula::SupplierFinalCost{ceiling,..}=>{
+                if !matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1){return Err(err("supplier cost compiler recipe"));}
+                arithmetic::integer(m,&ceiling.atoms,false)?;
+            },
         }
     }
     for family in &policy.families {
@@ -502,6 +624,7 @@ fn compile_retail_selected_v1(
         }
     }
     let policy_body = serde_json::to_value(&policy).map_err(|_| err("policy encoding"))?;
+    let root_position=docs.len();
     docs.push(doc(m, policy_body)?);
     let root = lookup(m, &docs, &input.root_policy_ref)?.reference.clone();
     if !m.check("policy.root", || root.kind() == "workflow-policy")? {
@@ -653,6 +776,12 @@ fn compile_retail_selected_v1(
                         .clone(),
                 ],
             ),
+            Formula::AppFinalCost{..}=>{
+                let declaration=policy.app_delayed_costs.as_ref().and_then(|rows|rows.iter().find(|d|d.component_key==rule.component_key&&d.activity==rule.activity)).ok_or_else(||err("app cost declaration missing from compiled facts"))?;
+                (vec![declaration.usage_field.clone()],"app_final_cost",vec![])
+            },
+            Formula::FinalCost{..}=>(vec![],"final_cost",vec![]),
+            Formula::SupplierFinalCost{..}=>(vec![],"supplier_final_cost",vec![]),
         };
         let indices: Vec<_> = slots
             .iter()
@@ -703,7 +832,7 @@ fn compile_retail_selected_v1(
         explanations.push(json!({"ordinal":ordinal,"policy_ref":root,"rule_or_family":family.family_key,"fields":fields,"primitive":"family"}));
     }
     let activities:Vec<_>=product.canonical_value()["activities"].as_array().unwrap().iter().map(|a|{let mut v=json!({"activity":a["name"],"primitive":a["primitive"],"fact_schema_ref":a["fact_schema"],"source_slot":a["source_slot"]});if let Some(f)=a.get("funding_leg"){v["funding_leg"]=f.clone();}v}).collect();
-    let plan = json!({"schema":"ledger-workflow-compiled-plan/1","compiler_ref":policy.compiler_ref,"compiler_semantics":"ledger-policy-compiler/1","evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":set(m,policy.families.iter().map(|f|json!(f.selector)).collect())?,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});
+    let plan = json!({"schema":recipe.plan_schema(),"compiler_ref":policy.compiler_ref,"compiler_semantics":recipe.compiler_semantics(),"evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits_profile":"workflow-limits/1","source_refs":source_refs,"activity_table":activities,"fact_slots":slots,"link_paths":set(m,policy.families.iter().map(|f|json!(f.selector)).collect())?,"component_slots":template.canonical_value()["components"],"rule_order":order,"typed_instructions":instructions,"dependency_edges":edges,"worst_case":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"},"explanation_map":explanations});
     let bytes = codec::encode(m, &plan, 4194304)?;
     m.visit("plan.hash")?;
     m.read_bytes(bytes.len())?;
@@ -747,6 +876,13 @@ fn compile_retail_selected_v1(
     }
     analysis.compile_work = m.usage().semantic_work;
     Ok(SelectedProgram {
+        root_position,
+        family_close_recipe:matches!(recipe,SelectedRecipe::FamilyClose1|SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1|SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1),
+        app_cost_causal_recipe:matches!(recipe,SelectedRecipe::AppCostCausal1),
+        app_owned_cost_recipe:matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1),
+        supplier_scoped_consent_recipe:matches!(recipe,SelectedRecipe::SupplierScopedConsent1),
+        owner_local_cost_recipe:matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1),
+        execution_registry:support.execution_registry(),
         root,
         sources: docs,
         plan: SelectedDocument {
@@ -757,6 +893,5 @@ fn compile_retail_selected_v1(
         policy,
         schemas: prepared_schemas,
         analysis,
-        execution_registry: None,
     })
 }

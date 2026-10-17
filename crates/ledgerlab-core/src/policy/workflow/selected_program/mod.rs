@@ -15,3 +15,7 @@ mod tests;
 mod validate;
 
 mod normalize;
+// Optional AP projection implementation remains retained in supplier_projection.rs;
+// the current app compilation/publication dependency does not execute AP support.
+
+mod app_declarations;

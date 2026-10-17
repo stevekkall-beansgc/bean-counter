@@ -394,7 +394,17 @@ pub struct SlotBindingTerms {
     input: SlotInput,
     document: Document,
 }
+mod slot_owned;
 impl SlotBindingTerms {
+    /// Owning Terms7 normalization DATA for the app acceptance path. Complete
+    /// role/catalog/policy/current-grant validation is the SAME slot validator.
+    pub fn normalize_private_with_session(
+        raw: &[u8],
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
+        slot_owned::normalize(raw, session)
+    }
+
     pub fn parse(raw: &[u8]) -> Result<Self> {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
