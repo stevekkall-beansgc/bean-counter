@@ -49,6 +49,19 @@ pub(crate) struct FinancialAppend<'a> {
     pub documents: &'a [FinancialDocument<'a>],
     pub journal: FinancialJournal<'a>,
 }
+/// Borrowed key columns for the SAME administrative/financial journal rows.
+/// This DATA view owns no authority, selection or commit capability.
+#[derive(Clone, Copy)]
+pub(super) struct JournalKey<'a> {
+    pub logical_store_id: &'a str,
+    pub scope: &'a [String; 2],
+    pub source: &'a str,
+    pub operation_id: &'a str,
+}
+pub(super) struct JournalDelta {
+    before: super::super::capacity::WorkflowMeter,
+    additional: i64,
+}
 fn extra(total: i64, amount: usize) -> Result<i64, StoreError> {
     total
         .checked_add(i64::try_from(amount).map_err(|_| StoreError::BillingHistoryLimit)?)
@@ -96,17 +109,104 @@ impl SqliteTx {
         p: &FinancialAppend<'_>,
         session: &mut OriginalAuditSession,
     ) -> Result<(), FinancialReadError> {
+        let key = p.candidate.key();
+        let o = &p.journal;
+        // The financial entry still excludes administrative acceptance; that
+        // consumer supplies its own private preparation and mechanical effect.
+        if !matches!(
+            o.kind,
+            "work.accept"
+                | "work.reverse"
+                | "quantity.correct"
+                | "outcome.submit"
+                | "outcome.correct"
+                | "outcome.close"
+                | "link.assert"
+                | "evidence.retain"
+                | "authority.change"
+                | "invocation.authorize"
+                | "invocation.close"
+                | "cost.finalize"
+                | "cost.correct"
+        ) {
+            return Err(StoreError::Integrity("financial prepared kind").into());
+        }
+        let delta = self
+            .append_journal_rows(
+                JournalKey {
+                    logical_store_id: &key.logical_store_id,
+                    scope: &key.scope,
+                    source: &key.source,
+                    operation_id: &key.operation_id,
+                },
+                p.documents,
+                o,
+                session,
+            )
+            .await?;
+        for r in p.candidate.consumed_refs() {
+            session.semantic_work().visit(ValidationVisit::Element)?;
+            let bound = [
+                o.identity,
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+            ];
+            let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
+            self.financial_reserve_io(session, payload)?;
+            let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_manifest_members WHERE identity_key=? AND kind=? AND id=? AND digest=?)")
+                .bind(o.identity).bind(&r.kind).bind(&r.id).bind(&r.digest).fetch_one(self.conn()).await?;
+            self.financial_finish_io(session).await?;
+            if !present {
+                return Err(StoreError::Integrity(
+                    "financial consumed reference absent from manifest",
+                )
+                .into());
+            }
+        }
+        for d in p.candidate.introduced() {
+            session.semantic_work().visit(ValidationVisit::Element)?;
+            let r = d.reference();
+            let bound = [
+                o.identity,
+                r.kind.as_bytes(),
+                r.id.as_bytes(),
+                r.digest.as_bytes(),
+                d.schema().as_bytes(),
+                d.canonical_body(),
+            ];
+            let payload = io::binding_payload(&bound, &[], 0, 4194304, session)?;
+            self.financial_reserve_io(session, payload)?;
+            let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest WHERE m.identity_key=? AND d.kind=? AND d.id=? AND d.digest=? AND d.schema_name=? AND d.canonical_bytes=?)")
+                .bind(o.identity).bind(&r.kind).bind(&r.id).bind(&r.digest).bind(d.schema()).bind(d.canonical_body()).fetch_one(self.conn()).await?;
+            self.financial_finish_io(session).await?;
+            if !present {
+                return Err(
+                    StoreError::Integrity("financial introduced result absent or changed").into(),
+                );
+            }
+        }
+        self.apply_financial_effects(p.candidate, o.identity, o.sequence, session)
+            .await?;
+        self.finish_journal_rows(o, delta, session).await
+    }
+    pub(super) async fn append_journal_rows(
+        &mut self,
+        key: JournalKey<'_>,
+        documents: &[FinancialDocument<'_>],
+        o: &FinancialJournal<'_>,
+        session: &mut OriginalAuditSession,
+    ) -> Result<JournalDelta, FinancialReadError> {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
         if version != 13 && version != 14 && version != 15 {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
-        let key = p.candidate.key();
-        let o = &p.journal;
         if !matches!(
             o.kind,
-            "work.accept"
+            "agreement.accept"
+                | "work.accept"
                 | "work.reverse"
                 | "quantity.correct"
                 | "outcome.submit"
@@ -130,7 +230,7 @@ impl SqliteTx {
             || o.manifest_bytes.len() > 4194304
             || o.receipt_bytes.is_empty()
             || o.receipt_bytes.len() > 1048576
-            || p.documents.len() > 4095
+            || documents.len() > 4095
             || o.members.len() > 4095
         {
             return Err(StoreError::Integrity("financial prepared framing").into());
@@ -156,7 +256,7 @@ impl SqliteTx {
         ] {
             additional = extra(additional, bytes.len())?;
         }
-        for d in p.documents {
+        for d in documents {
             if d.reference.kind == "workflow-operation"
                 || d.canonical_bytes.is_empty()
                 || d.canonical_bytes.len() > 4194304
@@ -201,7 +301,7 @@ impl SqliteTx {
         if before.operations.checked_add(1) != Some(o.sequence) {
             return Err(StoreError::Integrity("financial journal sequence gap").into());
         }
-        for d in p.documents {
+        for d in documents {
             let r = d.reference;
             let bound = [
                 r.kind.as_bytes(),
@@ -384,27 +484,7 @@ impl SqliteTx {
         if own_operation_members != 1 {
             return Err(StoreError::Integrity("financial operation manifest membership").into());
         }
-        for r in p.candidate.consumed_refs() {
-            session.semantic_work().visit(ValidationVisit::Element)?;
-            let bound = [
-                o.identity,
-                r.kind.as_bytes(),
-                r.id.as_bytes(),
-                r.digest.as_bytes(),
-            ];
-            let payload = io::binding_payload(&bound, &[], 0, 0, session)?;
-            self.financial_reserve_io(session, payload)?;
-            let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_manifest_members WHERE identity_key=? AND kind=? AND id=? AND digest=?)")
-                .bind(o.identity).bind(&r.kind).bind(&r.id).bind(&r.digest).fetch_one(self.conn()).await?;
-            self.financial_finish_io(session).await?;
-            if !present {
-                return Err(StoreError::Integrity(
-                    "financial consumed reference absent from manifest",
-                )
-                .into());
-            }
-        }
-        for d in p.documents {
+        for d in documents {
             let bound = [
                 o.identity,
                 d.reference.kind.as_bytes(),
@@ -422,30 +502,15 @@ impl SqliteTx {
                 );
             }
         }
-        for d in p.candidate.introduced() {
-            session.semantic_work().visit(ValidationVisit::Element)?;
-            let r = d.reference();
-            let bound = [
-                o.identity,
-                r.kind.as_bytes(),
-                r.id.as_bytes(),
-                r.digest.as_bytes(),
-                d.schema().as_bytes(),
-                d.canonical_body(),
-            ];
-            let payload = io::binding_payload(&bound, &[], 0, 4194304, session)?;
-            self.financial_reserve_io(session, payload)?;
-            let present:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest WHERE m.identity_key=? AND d.kind=? AND d.id=? AND d.digest=? AND d.schema_name=? AND d.canonical_bytes=?)")
-                .bind(o.identity).bind(&r.kind).bind(&r.id).bind(&r.digest).bind(d.schema()).bind(d.canonical_body()).fetch_one(self.conn()).await?;
-            self.financial_finish_io(session).await?;
-            if !present {
-                return Err(
-                    StoreError::Integrity("financial introduced result absent or changed").into(),
-                );
-            }
-        }
-        self.apply_financial_effects(p.candidate, o.identity, o.sequence, session)
-            .await?;
+        Ok(JournalDelta { before, additional })
+    }
+    pub(super) async fn finish_journal_rows(
+        &mut self,
+        o: &FinancialJournal<'_>,
+        delta: JournalDelta,
+        session: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
+        let JournalDelta { before, additional } = delta;
         let payload = io::binding_payload(&[o.identity], &[o.identity, o.identity], 3, 0, session)?;
         self.financial_reserve_io(session, payload)?;
         sqlx::query("INSERT INTO workflow_feed VALUES(?,?)")
