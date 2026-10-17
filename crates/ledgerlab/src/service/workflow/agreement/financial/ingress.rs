@@ -138,11 +138,22 @@ impl IncomingRequest {
             .map_err(core_error)?;
         require(payload.is_object(), "INVALID_SHAPE")?;
         if kind == "agreement.accept" {
-            request_wrapper::same_text(
-                request_wrapper::text(payload, "schema", session)?,
-                "ledger-workflow-agreement-accept/8",
-                session,
-            )?;
+            let schema = request_wrapper::text(payload, "schema", session)?;
+            session
+                .semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(schema.len())
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes("ledger-workflow-agreement-accept/9".len())
+                .map_err(core_error)?;
+            if schema != "ledger-workflow-agreement-accept/9" {
+                request_wrapper::same_text(schema, "ledger-workflow-agreement-accept/8", session)?;
+            }
         }
         if kind == "evidence.retain" || kind == "authority.change" {
             let schema = request_wrapper::text(payload, "schema", session)?;
@@ -154,6 +165,7 @@ impl IncomingRequest {
                     "ledger-workflow-app-observe/1",
                     "ledger-workflow-app-cost-attest/1",
                     "ledger-workflow-party-evidence-retain/1",
+                    "ledger-workflow-party-evidence-retain/2",
                 ]
             } else {
                 &[

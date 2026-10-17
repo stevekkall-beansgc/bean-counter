@@ -310,7 +310,8 @@ impl LocalWorkflowLedger {
                 }
                 if req.kind() == "work.accept" {
                     let payload = req.payload(&mut session)?;
-                    let _observed = current::work(self, tx, key, payload, &mut session).await?;
+                    let _observed =
+                        current::app::observe(self, tx, key, payload, &mut session).await?;
                     // Actual observed inputs remain noncommittable until full
                     // original audit, core candidate and capacity gates close.
                 }
@@ -321,6 +322,7 @@ impl LocalWorkflowLedger {
                     if matches!(
                         schema,
                         "ledger-workflow-party-evidence-retain/1"
+                            | "ledger-workflow-party-evidence-retain/2"
                             | "ledger-workflow-party-authorize/1"
                             | "ledger-workflow-party-revoke/1"
                     ) {

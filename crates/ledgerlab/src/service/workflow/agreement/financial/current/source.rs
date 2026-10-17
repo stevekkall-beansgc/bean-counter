@@ -562,10 +562,15 @@ pub(in super::super) async fn assent_record(
         "ledger-workflow-assent/1"
     } else {
         require(
-            equal_text(schema, "ledger-workflow-party-assent/1", s)?,
+            equal_text(schema, "ledger-workflow-party-assent/1", s)?
+                || equal_text(schema, "ledger-workflow-party-assent/2", s)?,
             "INVALID_REFERENCE",
         )?;
-        "ledger-workflow-party-assent/1"
+        if equal_text(schema, "ledger-workflow-party-assent/2", s)? {
+            "ledger-workflow-party-assent/2"
+        } else {
+            "ledger-workflow-party-assent/1"
+        }
     };
     load_stored(stored, reference, lease, expected, s).map(Some)
 }

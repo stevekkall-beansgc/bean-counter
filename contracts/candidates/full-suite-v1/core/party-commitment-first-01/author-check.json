@@ -1,0 +1,8 @@
+{
+  "status": "AUTHOR_CHECK_PASS_NOT_INDEPENDENT_OR_RUNTIME",
+  "checks": 398,
+  "record_count": 17,
+  "cases": 35,
+  "accepted_count": 7,
+  "schema_negatives": 3
+}

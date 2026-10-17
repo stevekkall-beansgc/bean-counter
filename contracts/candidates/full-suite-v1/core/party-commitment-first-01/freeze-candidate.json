@@ -1,0 +1,90 @@
+{
+  "schema": "contract-freeze-candidate/1",
+  "status": "AUTHOR_CANDIDATE_PENDING_INDEPENDENT_REVIEWED_FREEZE",
+  "input_handoff": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/PARTY-COMMITMENT-FIRST-INPUT-HANDOFF2.json",
+  "input_handoff_sha256": "88bcf60533600fba2f181283af9bb2336f8c96325b50b6c5e26652d1c0a5a610",
+  "files": [
+    {
+      "path": "DERIVATION-DETAILS.md",
+      "bytes": 11356,
+      "sha256": "c10109c73796ecf97134d5229b1d8aa0d44e0a64cc05a44224432af661f5b52b"
+    },
+    {
+      "path": "README.md",
+      "bytes": 447,
+      "sha256": "8d1ff61ab48c20e67a415004a8b82e943be07baf25e0438d63ca19dcfceb7fa9"
+    },
+    {
+      "path": "SPEC.md",
+      "bytes": 13168,
+      "sha256": "afa8b5fbba7571fd7cce04bbad0b359cf7f1f7dad7507db1e9cb91b773998929"
+    },
+    {
+      "path": "author-check.json",
+      "bytes": 165,
+      "sha256": "b85a42f59447bf31243f17663a8ce58f052b7958ac59c6fc64204fbb6bf89352"
+    },
+    {
+      "path": "check_fixture.py",
+      "bytes": 2472,
+      "sha256": "a926ce736ca40ff097061083b89731845fa998af1e58bc9321a62762b079b720"
+    },
+    {
+      "path": "definition-provenance.json",
+      "bytes": 55608,
+      "sha256": "1f566bd49c4f224015309946598ccd6fb733dcdf920cb1efba81e04592445a3f"
+    },
+    {
+      "path": "derive_author.py",
+      "bytes": 11872,
+      "sha256": "49ee02bc744acd3ecac573c9d51387b4435926c22fab72201309c669b678a81d"
+    },
+    {
+      "path": "dispatch.json",
+      "bytes": 14178,
+      "sha256": "202f4cb1186c85586c55acedf759bfd7377ef0043ca38e1cee5e8b1fe7929631"
+    },
+    {
+      "path": "fixture-expected.json",
+      "bytes": 151682,
+      "sha256": "3155e5b0a8aa52f1941d1bbaca59ff30c6ab098364cf2a0c062ad9dc2990f408"
+    },
+    {
+      "path": "fixture-input.json",
+      "bytes": 56191,
+      "sha256": "c61ad5d0f077a79f5c4e7e73d93ea9e9a9d565958fbe37e52d236cc1544e9f1d"
+    },
+    {
+      "path": "party-commitment-first.schema.json",
+      "bytes": 581495,
+      "sha256": "af7617bd19697ceceae13be33695cb8300c90cb8826e9e5b5b5c1155bf1b5199"
+    },
+    {
+      "path": "profile.json",
+      "bytes": 2640,
+      "sha256": "d790caa588e7439c5744858aa7e3cdd0421d0fdff3f8f42a8798d8a503ad373a"
+    },
+    {
+      "path": "profile.schema.json",
+      "bytes": 2891,
+      "sha256": "2bb543b32e27952eadc0dda893e143ad4719175961641393233327e77f320fa2"
+    },
+    {
+      "path": "registry.json",
+      "bytes": 14361,
+      "sha256": "c13aa2ac1cf68e42c4048ebaf71cb65f52142f8e34e3b6b67a0031890d731433"
+    },
+    {
+      "path": "registry.schema.json",
+      "bytes": 15335,
+      "sha256": "59aba3a7011d3b71b233de751791e1d80d114d73dedad1cc98e18f1977c531e1"
+    },
+    {
+      "path": "source-pins.json",
+      "bytes": 3148,
+      "sha256": "f3a057ba4931e19d5894c70ba220709811d894bb080844a0cb96376236063d2e"
+    }
+  ],
+  "preserved_base": "All 320 definitions and all existing tracked files unchanged; new-only package.",
+  "qualification": "Conditional schema/identity/closure/authority relationship evidence only; no product, runtime, authority, source, capacity or resource qualification."
+}

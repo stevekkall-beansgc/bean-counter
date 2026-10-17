@@ -7,7 +7,7 @@ pub(super) struct Inputs<'a> {
     retained: Vec<current::source::SourceRecord>,
     _storage: ExternalBufferLease,
 }
-fn equal(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
+pub(super) fn equal(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     s.semantic_work()
         .visit(Visit::MemberCompare)
         .map_err(core_error)?;
@@ -78,7 +78,7 @@ impl<'a> Inputs<'a> {
     ) -> Result<bool> {
         let schema = request_wrapper::text(value, "schema", s)?;
         let expected = if party.is_some() {
-            "ledger-workflow-party-assent/1"
+            input.party_assent_schema()
         } else {
             "ledger-workflow-assent/1"
         };

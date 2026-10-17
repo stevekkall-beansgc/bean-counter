@@ -18,6 +18,7 @@ mod body;
 mod construct;
 mod correction;
 mod financial_observation;
+pub use financial_observation::audit_stream::{EconomicAuditStream,OriginWitness,RecomputedAuditDigest};
 mod funding;
 pub(in crate::policy::workflow) mod original_financial;
 mod outcome;

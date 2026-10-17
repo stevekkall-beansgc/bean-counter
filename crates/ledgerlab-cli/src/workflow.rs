@@ -105,6 +105,7 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, Servi
                         | "ledger-workflow-app-observe/1"
                         | "ledger-workflow-app-cost-attest/1"
                         | "ledger-workflow-party-evidence-retain/1"
+                        | "ledger-workflow-party-evidence-retain/2"
                 )
             ) =>
         {
@@ -124,7 +125,10 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, Servi
         }
         Some("evidence.retain" | "authority.change") => "prerequisite",
         Some("agreement.accept")
-            if payload_schema == Some("ledger-workflow-agreement-accept/8") =>
+            if matches!(
+                payload_schema,
+                Some("ledger-workflow-agreement-accept/8" | "ledger-workflow-agreement-accept/9")
+            ) =>
         {
             "financial"
         }

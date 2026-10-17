@@ -1,0 +1,1673 @@
+{
+  "base": "../app-cost-causal-01/app-cost-causal.schema.json",
+  "unchanged_count": 320,
+  "new_definitions": [
+    "PartyCommitmentBasis1",
+    "PartyConsentSpec2",
+    "PartyEvidenceRetain2",
+    "PartyEvidence2",
+    "PartyAssent2",
+    "AppConsentVerification2",
+    "AppPrivateDocument9",
+    "AppAccept9",
+    "AppDescriptor6",
+    "PartyDescriptorResolution7",
+    "AppRequestEvidence3",
+    "AppOperation9",
+    "AppManifest9"
+  ],
+  "definitions": {
+    "EconomicManifest4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicManifest4",
+      "status": "unchanged"
+    },
+    "Digest": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Digest",
+      "status": "unchanged"
+    },
+    "Ref": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Ref",
+      "status": "unchanged"
+    },
+    "Id": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Id",
+      "status": "unchanged"
+    },
+    "RecordKind": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "RecordKind",
+      "status": "unchanged"
+    },
+    "OperationKey": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OperationKey",
+      "status": "unchanged"
+    },
+    "SourceId": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SourceId",
+      "status": "unchanged"
+    },
+    "Scope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Scope",
+      "status": "unchanged"
+    },
+    "EconomicOperation4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicOperation4",
+      "status": "unchanged"
+    },
+    "Counter": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Counter",
+      "status": "unchanged"
+    },
+    "Time": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Time",
+      "status": "unchanged"
+    },
+    "EconomicAuthority3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicAuthority3",
+      "status": "unchanged"
+    },
+    "CausalClosureCheck": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CausalClosureCheck",
+      "status": "unchanged"
+    },
+    "Version": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Version",
+      "status": "unchanged"
+    },
+    "Name": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Name",
+      "status": "unchanged"
+    },
+    "CausalRequestEvidence": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CausalRequestEvidence",
+      "status": "unchanged"
+    },
+    "DescriptorResolution": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DescriptorResolution",
+      "status": "unchanged"
+    },
+    "DocRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DocRef",
+      "status": "unchanged"
+    },
+    "DescriptorAnchor": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DescriptorAnchor",
+      "status": "unchanged"
+    },
+    "DescriptorRole": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DescriptorRole",
+      "status": "unchanged"
+    },
+    "CausalEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CausalEnvelope",
+      "status": "unchanged"
+    },
+    "AgreementAccept3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementAccept3",
+      "status": "unchanged"
+    },
+    "PrivateAgreementDocument3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PrivateAgreementDocument3",
+      "status": "unchanged"
+    },
+    "SlotBindingTerms2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SlotBindingTerms2",
+      "status": "unchanged"
+    },
+    "CausalClause": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CausalClause",
+      "status": "unchanged"
+    },
+    "NonnegativeAmount": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "NonnegativeAmount",
+      "status": "unchanged"
+    },
+    "Decimal": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Decimal",
+      "status": "unchanged"
+    },
+    "AssentRecord": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AssentRecord",
+      "status": "unchanged"
+    },
+    "AcceptanceTerms": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AcceptanceTerms",
+      "status": "unchanged"
+    },
+    "AssentBindingInputs": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AssentBindingInputs",
+      "status": "unchanged"
+    },
+    "FundingLeg": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FundingLeg",
+      "status": "unchanged"
+    },
+    "AcceptedContext": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AcceptedContext",
+      "status": "unchanged"
+    },
+    "Facts": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Facts",
+      "status": "unchanged"
+    },
+    "FactScalar": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FactScalar",
+      "status": "unchanged"
+    },
+    "EvidenceKind": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EvidenceKind",
+      "status": "unchanged"
+    },
+    "SlotBindingTerms": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SlotBindingTerms",
+      "status": "unchanged"
+    },
+    "SlotInstantiation": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SlotInstantiation",
+      "status": "unchanged"
+    },
+    "SlotCatalog": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SlotCatalog",
+      "status": "unchanged"
+    },
+    "RoleAssignment": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "RoleAssignment",
+      "status": "unchanged"
+    },
+    "BindingInputs": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "BindingInputs",
+      "status": "unchanged"
+    },
+    "WorkReverse2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "WorkReverse2",
+      "status": "unchanged"
+    },
+    "FamilyClosureInput": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FamilyClosureInput",
+      "status": "unchanged"
+    },
+    "CorrectionClosure": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CorrectionClosure",
+      "status": "unchanged"
+    },
+    "QuantityCorrection2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "QuantityCorrection2",
+      "status": "unchanged"
+    },
+    "FactProof": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FactProof",
+      "status": "unchanged"
+    },
+    "RawSha256": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "RawSha256",
+      "status": "unchanged"
+    },
+    "FamilyState2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FamilyState2",
+      "status": "unchanged"
+    },
+    "CausalClosureCause": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CausalClosureCause",
+      "status": "unchanged"
+    },
+    "FrozenWindow": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FrozenWindow",
+      "status": "unchanged"
+    },
+    "EconomicAuthority2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicAuthority2",
+      "status": "unchanged"
+    },
+    "SlotBindingTerms3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SlotBindingTerms3",
+      "status": "unchanged"
+    },
+    "PrivateAgreementDocument4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PrivateAgreementDocument4",
+      "status": "unchanged"
+    },
+    "AgreementAccept4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementAccept4",
+      "status": "unchanged"
+    },
+    "LinkAssert": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "LinkAssert",
+      "status": "unchanged"
+    },
+    "WorkReverse": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "WorkReverse",
+      "status": "unchanged"
+    },
+    "OutcomeClose": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeClose",
+      "status": "unchanged"
+    },
+    "ChainState": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ChainState",
+      "status": "unchanged"
+    },
+    "WorkRecord": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "WorkRecord",
+      "status": "unchanged"
+    },
+    "WorkClaim": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "WorkClaim",
+      "status": "unchanged"
+    },
+    "EconomicAuthority": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicAuthority",
+      "status": "unchanged"
+    },
+    "VerifiedFact": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "VerifiedFact",
+      "status": "unchanged"
+    },
+    "EconomicSubject": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicSubject",
+      "status": "unchanged"
+    },
+    "FieldAttestation": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FieldAttestation",
+      "status": "unchanged"
+    },
+    "EvidenceVerification": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EvidenceVerification",
+      "status": "unchanged"
+    },
+    "FactAttest": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FactAttest",
+      "status": "unchanged"
+    },
+    "EconomicLink": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicLink",
+      "status": "unchanged"
+    },
+    "EconomicAction": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicAction",
+      "status": "unchanged"
+    },
+    "EvaluationProof": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EvaluationProof",
+      "status": "unchanged"
+    },
+    "EvaluationStep": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EvaluationStep",
+      "status": "unchanged"
+    },
+    "DecisionRevision": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DecisionRevision",
+      "status": "unchanged"
+    },
+    "TargetFamily": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TargetFamily",
+      "status": "unchanged"
+    },
+    "ComponentTarget": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ComponentTarget",
+      "status": "unchanged"
+    },
+    "FamilyState": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FamilyState",
+      "status": "unchanged"
+    },
+    "OutcomeClaim": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeClaim",
+      "status": "unchanged"
+    },
+    "DependencyRecord": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DependencyRecord",
+      "status": "unchanged"
+    },
+    "CorrectionCapacity": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CorrectionCapacity",
+      "status": "unchanged"
+    },
+    "CapacityRetirement": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CapacityRetirement",
+      "status": "unchanged"
+    },
+    "EconomicOperationRecord": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicOperationRecord",
+      "status": "unchanged"
+    },
+    "EconomicManifest": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicManifest",
+      "status": "unchanged"
+    },
+    "EconomicRead": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicRead",
+      "status": "unchanged"
+    },
+    "CorrectionPreparation": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CorrectionPreparation",
+      "status": "unchanged"
+    },
+    "ErrorCode": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ErrorCode",
+      "status": "unchanged"
+    },
+    "Work": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Work",
+      "status": "unchanged"
+    },
+    "OutcomeSubmit": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeSubmit",
+      "status": "unchanged"
+    },
+    "OutcomeCorrect": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeCorrect",
+      "status": "unchanged"
+    },
+    "QuantityCorrection": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "QuantityCorrection",
+      "status": "unchanged"
+    },
+    "OperationReceipt": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OperationReceipt",
+      "status": "unchanged"
+    },
+    "OperationStatus": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OperationStatus",
+      "status": "unchanged"
+    },
+    "DescriptorPrepare": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DescriptorPrepare",
+      "status": "unchanged"
+    },
+    "ReadError": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ReadError",
+      "status": "unchanged"
+    },
+    "Document": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Document",
+      "status": "unchanged"
+    },
+    "Policy": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Policy",
+      "status": "unchanged"
+    },
+    "Product": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Product",
+      "status": "unchanged"
+    },
+    "FactSchema": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FactSchema",
+      "status": "unchanged"
+    },
+    "SlotTemplate": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SlotTemplate",
+      "status": "unchanged"
+    },
+    "CompilerDescriptor": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompilerDescriptor",
+      "status": "unchanged"
+    },
+    "Amount": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Amount",
+      "status": "unchanged"
+    },
+    "Window": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Window",
+      "status": "unchanged"
+    },
+    "RequestEvidence": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "RequestEvidence",
+      "status": "unchanged"
+    },
+    "DescriptorLocator": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DescriptorLocator",
+      "status": "unchanged"
+    },
+    "BindingSlot": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "BindingSlot",
+      "status": "unchanged"
+    },
+    "Labels": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Labels",
+      "status": "unchanged"
+    },
+    "FieldDef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FieldDef",
+      "status": "unchanged"
+    },
+    "TemplateComponent": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TemplateComponent",
+      "status": "unchanged"
+    },
+    "LinkInput": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "LinkInput",
+      "status": "unchanged"
+    },
+    "SignedInt": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SignedInt",
+      "status": "unchanged"
+    },
+    "PrivateAgreementDocument": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PrivateAgreementDocument",
+      "status": "unchanged"
+    },
+    "Rule": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Rule",
+      "status": "unchanged"
+    },
+    "UnitDef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "UnitDef",
+      "status": "unchanged"
+    },
+    "TemplateFamily": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TemplateFamily",
+      "status": "unchanged"
+    },
+    "OperationEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OperationEnvelope",
+      "status": "unchanged"
+    },
+    "TypeDef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TypeDef",
+      "status": "unchanged"
+    },
+    "PositiveInt": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PositiveInt",
+      "status": "unchanged"
+    },
+    "Binding": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Binding",
+      "status": "unchanged"
+    },
+    "OutcomeFamily": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeFamily",
+      "status": "unchanged"
+    },
+    "ActivityDef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ActivityDef",
+      "status": "unchanged"
+    },
+    "Provenance": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Provenance",
+      "status": "unchanged"
+    },
+    "Predicate": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Predicate",
+      "status": "unchanged"
+    },
+    "Ratio": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Ratio",
+      "status": "unchanged"
+    },
+    "PolicyPublish": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PolicyPublish",
+      "status": "unchanged"
+    },
+    "SignedDecimal": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SignedDecimal",
+      "status": "unchanged"
+    },
+    "SourceGrant": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SourceGrant",
+      "status": "unchanged"
+    },
+    "StageDef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "StageDef",
+      "status": "unchanged"
+    },
+    "LinkDef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "LinkDef",
+      "status": "unchanged"
+    },
+    "Formula": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Formula",
+      "status": "unchanged"
+    },
+    "EvidenceRetain": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EvidenceRetain",
+      "status": "unchanged"
+    },
+    "Selector": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Selector",
+      "status": "unchanged"
+    },
+    "Operand": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Operand",
+      "status": "unchanged"
+    },
+    "UnsignedInt": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "UnsignedInt",
+      "status": "unchanged"
+    },
+    "Offer": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Offer",
+      "status": "unchanged"
+    },
+    "AuthorityChange": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AuthorityChange",
+      "status": "unchanged"
+    },
+    "FixedOrPercent": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FixedOrPercent",
+      "status": "unchanged"
+    },
+    "ClosedOperationKind": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ClosedOperationKind",
+      "status": "unchanged"
+    },
+    "SelfBasis": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SelfBasis",
+      "status": "unchanged"
+    },
+    "EvidenceSubject": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EvidenceSubject",
+      "status": "unchanged"
+    },
+    "AgreementAccept2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementAccept2",
+      "status": "unchanged"
+    },
+    "NameSelector": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "NameSelector",
+      "status": "unchanged"
+    },
+    "SourceCeiling": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SourceCeiling",
+      "status": "unchanged"
+    },
+    "AgreementActivate": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementActivate",
+      "status": "unchanged"
+    },
+    "AgreementActivationReplace": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementActivationReplace",
+      "status": "unchanged"
+    },
+    "AgreementRevoke": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementRevoke",
+      "status": "unchanged"
+    },
+    "EconomicEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicEnvelope",
+      "status": "unchanged"
+    },
+    "EconomicRecordEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "EconomicRecordEnvelope",
+      "status": "unchanged"
+    },
+    "RationalInt": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "RationalInt",
+      "status": "unchanged"
+    },
+    "RationalPositiveInt": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "RationalPositiveInt",
+      "status": "unchanged"
+    },
+    "AgreementAccept": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementAccept",
+      "status": "unchanged"
+    },
+    "HeadTransition": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "HeadTransition",
+      "status": "unchanged"
+    },
+    "PlanActivity": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PlanActivity",
+      "status": "unchanged"
+    },
+    "PlanFactSlot": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PlanFactSlot",
+      "status": "unchanged"
+    },
+    "TypedInstruction": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TypedInstruction",
+      "status": "unchanged"
+    },
+    "WorstCase": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "WorstCase",
+      "status": "unchanged"
+    },
+    "CompiledPlan": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompiledPlan",
+      "status": "unchanged"
+    },
+    "Publication": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Publication",
+      "status": "unchanged"
+    },
+    "OperationResult": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OperationResult",
+      "status": "unchanged"
+    },
+    "LocalAuthorityBasis": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "LocalAuthorityBasis",
+      "status": "unchanged"
+    },
+    "LocalAuthoritySnapshot": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "LocalAuthoritySnapshot",
+      "status": "unchanged"
+    },
+    "PublicationAuthority": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PublicationAuthority",
+      "status": "unchanged"
+    },
+    "OperationRecord": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OperationRecord",
+      "status": "unchanged"
+    },
+    "PublicationManifest": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PublicationManifest",
+      "status": "unchanged"
+    },
+    "PublicationBoundaryEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PublicationBoundaryEnvelope",
+      "status": "unchanged"
+    },
+    "PublicationRead": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PublicationRead",
+      "status": "unchanged"
+    },
+    "PublicationReadResult": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PublicationReadResult",
+      "status": "unchanged"
+    },
+    "NoSuccessClose": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "NoSuccessClose",
+      "status": "unchanged"
+    },
+    "OutcomeFamily2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeFamily2",
+      "status": "unchanged"
+    },
+    "Policy2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Policy2",
+      "status": "unchanged"
+    },
+    "TypedInstruction2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TypedInstruction2",
+      "status": "unchanged"
+    },
+    "CompiledPlan2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompiledPlan2",
+      "status": "unchanged"
+    },
+    "CompilerDescriptor2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompilerDescriptor2",
+      "status": "unchanged"
+    },
+    "PolicyPublish2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PolicyPublish2",
+      "status": "unchanged"
+    },
+    "BindingRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "BindingRef",
+      "status": "unchanged"
+    },
+    "TargetRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TargetRef",
+      "status": "unchanged"
+    },
+    "AttestationRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AttestationRef",
+      "status": "unchanged"
+    },
+    "VerificationRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "VerificationRef",
+      "status": "unchanged"
+    },
+    "FamilyCloseSubject": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FamilyCloseSubject",
+      "status": "unchanged"
+    },
+    "FamilyCloseAttestation": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FamilyCloseAttestation",
+      "status": "unchanged"
+    },
+    "FamilyCloseAttest": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "FamilyCloseAttest",
+      "status": "unchanged"
+    },
+    "CloseProof": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CloseProof",
+      "status": "unchanged"
+    },
+    "OutcomeClose2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeClose2",
+      "status": "unchanged"
+    },
+    "OutcomeFamilyDependency": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OutcomeFamilyDependency",
+      "status": "unchanged"
+    },
+    "CostRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostRef",
+      "status": "unchanged"
+    },
+    "InvocationRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "InvocationRef",
+      "status": "unchanged"
+    },
+    "OfferRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OfferRef",
+      "status": "unchanged"
+    },
+    "TermsRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "TermsRef",
+      "status": "unchanged"
+    },
+    "WorkRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "WorkRef",
+      "status": "unchanged"
+    },
+    "CostAuthorityRef": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostAuthorityRef",
+      "status": "unchanged"
+    },
+    "SupplierOffer2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierOffer2",
+      "status": "unchanged"
+    },
+    "SupplierTerms4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierTerms4",
+      "status": "unchanged"
+    },
+    "ProviderAccountIdentity": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ProviderAccountIdentity",
+      "status": "unchanged"
+    },
+    "CostLineKey": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostLineKey",
+      "status": "unchanged"
+    },
+    "OwnerActivation": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "OwnerActivation",
+      "status": "unchanged"
+    },
+    "CostAuthority1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostAuthority1",
+      "status": "unchanged"
+    },
+    "CostAuthorityEnroll1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostAuthorityEnroll1",
+      "status": "unchanged"
+    },
+    "PrivateAgreementDocument5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PrivateAgreementDocument5",
+      "status": "unchanged"
+    },
+    "AgreementAccept5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementAccept5",
+      "status": "unchanged"
+    },
+    "InvocationAuthorize1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "InvocationAuthorize1",
+      "status": "unchanged"
+    },
+    "InvocationClose1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "InvocationClose1",
+      "status": "unchanged"
+    },
+    "Invocation1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "Invocation1",
+      "status": "unchanged"
+    },
+    "SupplierCostSubject": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierCostSubject",
+      "status": "unchanged"
+    },
+    "SupplierFinalCost1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierFinalCost1",
+      "status": "unchanged"
+    },
+    "SupplierCostAttest1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierCostAttest1",
+      "status": "unchanged"
+    },
+    "SupplierCostProof": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierCostProof",
+      "status": "unchanged"
+    },
+    "CostFinalize1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostFinalize1",
+      "status": "unchanged"
+    },
+    "CostCorrect1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostCorrect1",
+      "status": "unchanged"
+    },
+    "CostClaim1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostClaim1",
+      "status": "unchanged"
+    },
+    "CostAllocation1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostAllocation1",
+      "status": "unchanged"
+    },
+    "CostLineOwner1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostLineOwner1",
+      "status": "unchanged"
+    },
+    "CostRevision1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostRevision1",
+      "status": "unchanged"
+    },
+    "CostConsumption1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostConsumption1",
+      "status": "unchanged"
+    },
+    "CostDecision2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostDecision2",
+      "status": "unchanged"
+    },
+    "CostEconomicAuthority4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostEconomicAuthority4",
+      "status": "unchanged"
+    },
+    "CostEnrollmentAuthority1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostEnrollmentAuthority1",
+      "status": "unchanged"
+    },
+    "CostEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostEnvelope",
+      "status": "unchanged"
+    },
+    "CostRequestEvidence": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostRequestEvidence",
+      "status": "unchanged"
+    },
+    "CostOperation5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostOperation5",
+      "status": "unchanged"
+    },
+    "CostManifest5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostManifest5",
+      "status": "unchanged"
+    },
+    "CostDescriptorAnchor": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostDescriptorAnchor",
+      "status": "unchanged"
+    },
+    "CostDescriptorResolution2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostDescriptorResolution2",
+      "status": "unchanged"
+    },
+    "CostFinancialHistoryEdge": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostFinancialHistoryEdge",
+      "status": "unchanged"
+    },
+    "CostFinancialHeadPin": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostFinancialHeadPin",
+      "status": "unchanged"
+    },
+    "CostFinancialHistoryObservation2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostFinancialHistoryObservation2",
+      "status": "unchanged"
+    },
+    "CompilerDescriptor3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompilerDescriptor3",
+      "status": "unchanged"
+    },
+    "CompiledPlan3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompiledPlan3",
+      "status": "unchanged"
+    },
+    "PolicyPublish3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PolicyPublish3",
+      "status": "unchanged"
+    },
+    "SupplierConnectedEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierConnectedEnvelope",
+      "status": "unchanged"
+    },
+    "CostDependencyClosureCheck": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CostDependencyClosureCheck",
+      "status": "unchanged"
+    },
+    "ConnectedEconomicAuthority5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ConnectedEconomicAuthority5",
+      "status": "unchanged"
+    },
+    "ConnectedRequestEvidence": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ConnectedRequestEvidence",
+      "status": "unchanged"
+    },
+    "ConnectedOperation6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ConnectedOperation6",
+      "status": "unchanged"
+    },
+    "ConnectedManifest6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "ConnectedManifest6",
+      "status": "unchanged"
+    },
+    "DelayedCostWorkDependency1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "DelayedCostWorkDependency1",
+      "status": "unchanged"
+    },
+    "SupplierInstructionKey": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierInstructionKey",
+      "status": "unchanged"
+    },
+    "SupplierFactOperand": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierFactOperand",
+      "status": "unchanged"
+    },
+    "SupplierSemanticNode": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierSemanticNode",
+      "status": "unchanged"
+    },
+    "SupplierPlanProjection": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierPlanProjection",
+      "status": "unchanged"
+    },
+    "SupplierTermsProjection": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierTermsProjection",
+      "status": "unchanged"
+    },
+    "SupplierAcceptanceProjection": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierAcceptanceProjection",
+      "status": "unchanged"
+    },
+    "SupplierCommitment1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierCommitment1",
+      "status": "unchanged"
+    },
+    "SupplierOffer3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierOffer3",
+      "status": "unchanged"
+    },
+    "SupplierTerms5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierTerms5",
+      "status": "unchanged"
+    },
+    "PartyRole": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyRole",
+      "status": "unchanged"
+    },
+    "PartyAuthorizationSpec": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyAuthorizationSpec",
+      "status": "unchanged"
+    },
+    "PartyConsentBasis": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyConsentBasis",
+      "status": "unchanged"
+    },
+    "PartyConsentSpec": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyConsentSpec",
+      "status": "unchanged"
+    },
+    "PartyEvidenceRetain1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyEvidenceRetain1",
+      "status": "unchanged"
+    },
+    "PartyEvidence1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyEvidence1",
+      "status": "unchanged"
+    },
+    "PartyAuthorizationChange1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyAuthorizationChange1",
+      "status": "unchanged"
+    },
+    "PartyAuthorization1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyAuthorization1",
+      "status": "unchanged"
+    },
+    "PartyAssent1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyAssent1",
+      "status": "unchanged"
+    },
+    "PartyManagementAuthority1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyManagementAuthority1",
+      "status": "unchanged"
+    },
+    "SupplierConsentVerification1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "SupplierConsentVerification1",
+      "status": "unchanged"
+    },
+    "PrivateAgreementDocument6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PrivateAgreementDocument6",
+      "status": "unchanged"
+    },
+    "AgreementAccept6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementAccept6",
+      "status": "unchanged"
+    },
+    "CompilerDescriptor4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompilerDescriptor4",
+      "status": "unchanged"
+    },
+    "CompiledPlan4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "CompiledPlan4",
+      "status": "unchanged"
+    },
+    "PolicyPublish4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PolicyPublish4",
+      "status": "unchanged"
+    },
+    "PartyDescriptorResolution3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "PartyDescriptorResolution3",
+      "status": "unchanged"
+    },
+    "AgreementAdmissionAuthority4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AgreementAdmissionAuthority4",
+      "status": "unchanged"
+    },
+    "AppFormula": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppFormula",
+      "status": "unchanged"
+    },
+    "AppRule": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppRule",
+      "status": "unchanged"
+    },
+    "AppCostDeclaration": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostDeclaration",
+      "status": "unchanged"
+    },
+    "AppPolicy3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPolicy3",
+      "status": "unchanged"
+    },
+    "AppTerms6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppTerms6",
+      "status": "unchanged"
+    },
+    "AppTypedInstruction": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppTypedInstruction",
+      "status": "unchanged"
+    },
+    "AppPlan5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPlan5",
+      "status": "unchanged"
+    },
+    "AppCompiler5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCompiler5",
+      "status": "unchanged"
+    },
+    "AppPublish5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPublish5",
+      "status": "unchanged"
+    },
+    "AppPrivateDocument7": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPrivateDocument7",
+      "status": "unchanged"
+    },
+    "AppAccept7": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppAccept7",
+      "status": "unchanged"
+    },
+    "AppAgreementAuthority5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppAgreementAuthority5",
+      "status": "unchanged"
+    },
+    "AppConsentVerification1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppConsentVerification1",
+      "status": "unchanged"
+    },
+    "AppEvidenceKind": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppEvidenceKind",
+      "status": "unchanged"
+    },
+    "AppBindingInputs": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppBindingInputs",
+      "status": "unchanged"
+    },
+    "AppAssentBindingInputs": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppAssentBindingInputs",
+      "status": "unchanged"
+    },
+    "AppBinding2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppBinding2",
+      "status": "unchanged"
+    },
+    "AppAcceptanceTerms2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppAcceptanceTerms2",
+      "status": "unchanged"
+    },
+    "AppMaterial": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppMaterial",
+      "status": "unchanged"
+    },
+    "AppCallKey": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCallKey",
+      "status": "unchanged"
+    },
+    "AppProviderKey": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppProviderKey",
+      "status": "unchanged"
+    },
+    "AppCostSubject": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostSubject",
+      "status": "unchanged"
+    },
+    "AppObservation1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppObservation1",
+      "status": "unchanged"
+    },
+    "AppQuantityComparison": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppQuantityComparison",
+      "status": "unchanged"
+    },
+    "AppFinalCost1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppFinalCost1",
+      "status": "unchanged"
+    },
+    "AppObserveRetain1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppObserveRetain1",
+      "status": "unchanged"
+    },
+    "AppCostRetain1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostRetain1",
+      "status": "unchanged"
+    },
+    "AppProof": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppProof",
+      "status": "unchanged"
+    },
+    "AppFinalize2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppFinalize2",
+      "status": "unchanged"
+    },
+    "AppCorrect2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCorrect2",
+      "status": "unchanged"
+    },
+    "AppCostClaim1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostClaim1",
+      "status": "unchanged"
+    },
+    "AppCostConsumption1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostConsumption1",
+      "status": "unchanged"
+    },
+    "AppCostRevision1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostRevision1",
+      "status": "unchanged"
+    },
+    "AppCostDecision3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostDecision3",
+      "status": "unchanged"
+    },
+    "AppAuthority6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppAuthority6",
+      "status": "unchanged"
+    },
+    "AppCostClosureCheck": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostClosureCheck",
+      "status": "unchanged"
+    },
+    "AppEnvelope": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppEnvelope",
+      "status": "unchanged"
+    },
+    "AppDescriptor4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppDescriptor4",
+      "status": "unchanged"
+    },
+    "AppDescriptorAnchor": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppDescriptorAnchor",
+      "status": "unchanged"
+    },
+    "AppRequestEvidence": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppRequestEvidence",
+      "status": "unchanged"
+    },
+    "AppOperation7": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppOperation7",
+      "status": "unchanged"
+    },
+    "AppManifest7": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppManifest7",
+      "status": "unchanged"
+    },
+    "AppFinancialObservation3": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppFinancialObservation3",
+      "status": "unchanged"
+    },
+    "AppFinancialHeadPin": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppFinancialHeadPin",
+      "status": "unchanged"
+    },
+    "AppWorkDependency1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppWorkDependency1",
+      "status": "unchanged"
+    },
+    "AppCausalClause1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCausalClause1",
+      "status": "unchanged"
+    },
+    "AppCostDeclaration2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostDeclaration2",
+      "status": "unchanged"
+    },
+    "AppTerms7": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppTerms7",
+      "status": "unchanged"
+    },
+    "AppPolicy4": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPolicy4",
+      "status": "unchanged"
+    },
+    "AppCompiler6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCompiler6",
+      "status": "unchanged"
+    },
+    "AppPlan6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPlan6",
+      "status": "unchanged"
+    },
+    "AppPublish6": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPublish6",
+      "status": "unchanged"
+    },
+    "AppPrivateDocument8": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPrivateDocument8",
+      "status": "unchanged"
+    },
+    "AppAccept8": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppAccept8",
+      "status": "unchanged"
+    },
+    "AppCausalAuthority1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCausalAuthority1",
+      "status": "unchanged"
+    },
+    "AppCostClosureCheck2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppCostClosureCheck2",
+      "status": "unchanged"
+    },
+    "AppAuthority7": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppAuthority7",
+      "status": "unchanged"
+    },
+    "AppDescriptor5": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppDescriptor5",
+      "status": "unchanged"
+    },
+    "AppRequestEvidence2": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppRequestEvidence2",
+      "status": "unchanged"
+    },
+    "AppOperation8": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppOperation8",
+      "status": "unchanged"
+    },
+    "AppManifest8": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppManifest8",
+      "status": "unchanged"
+    },
+    "AppPendingCausalAuthority1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPendingCausalAuthority1",
+      "status": "unchanged"
+    },
+    "AppPendingCostClosureCheck1": {
+      "source": "../app-cost-causal-01/app-cost-causal.schema.json",
+      "definition": "AppPendingCostClosureCheck1",
+      "status": "unchanged"
+    },
+    "PartyCommitmentBasis1": {
+      "source_definition": "PartyConsentBasis",
+      "status": "new_explicit_clone"
+    },
+    "PartyConsentSpec2": {
+      "source_definition": "PartyConsentSpec",
+      "status": "new_explicit_clone"
+    },
+    "PartyEvidenceRetain2": {
+      "source_definition": "PartyEvidenceRetain1",
+      "status": "new_explicit_clone"
+    },
+    "PartyEvidence2": {
+      "source_definition": "PartyEvidence1",
+      "status": "new_explicit_clone"
+    },
+    "PartyAssent2": {
+      "source_definition": "PartyAssent1",
+      "status": "new_explicit_clone"
+    },
+    "AppConsentVerification2": {
+      "source_definition": "AppConsentVerification1",
+      "status": "new_explicit_clone"
+    },
+    "AppPrivateDocument9": {
+      "source_definition": "AppPrivateDocument8",
+      "status": "new_explicit_clone"
+    },
+    "AppAccept9": {
+      "source_definition": "AppAccept8",
+      "status": "new_explicit_clone"
+    },
+    "AppDescriptor6": {
+      "source_definition": "AppDescriptor5",
+      "status": "new_explicit_clone"
+    },
+    "PartyDescriptorResolution7": {
+      "source_definition": "PartyDescriptorResolution3",
+      "status": "new_explicit_clone"
+    },
+    "AppRequestEvidence3": {
+      "source_definition": "AppRequestEvidence2",
+      "status": "new_explicit_clone"
+    },
+    "AppOperation9": {
+      "source_definition": "AppOperation8",
+      "status": "new_explicit_clone"
+    },
+    "AppManifest9": {
+      "source_definition": "AppManifest8",
+      "status": "new_explicit_clone"
+    }
+  }
+}

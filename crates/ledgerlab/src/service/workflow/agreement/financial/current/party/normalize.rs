@@ -119,7 +119,9 @@ pub(super) fn payload(
             &[("authorization", spec.bytes())],
             session,
         )?
-    } else if equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)? {
+    } else if equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?
+        || equal_text(schema, "ledger-workflow-party-evidence-retain/2", session)?
+    {
         let metadata = check::field(value, "metadata", session)?;
         let purpose = check::text(metadata, "purpose", session)?;
         let metadata = if equal_text(purpose, "party_authorization", session)? {

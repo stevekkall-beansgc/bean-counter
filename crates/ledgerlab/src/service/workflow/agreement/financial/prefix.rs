@@ -399,6 +399,97 @@ pub(super) async fn publication_for(
     result
 }
 
+/// Actual original binding/PUB operands acquired from the held scoped journal.
+/// No current compiler/acceptance or ID-only latest lookup is substituted.
+/// This remains DATA until the chronological owner completes every origin.
+pub(super) struct LocatedAppAcceptance {
+    pub(super) origin: LocatedWrappers,
+    pub(super) publication: RecompiledPublication,
+    pub(super) acceptance: super::acceptance::ReconstructedAcceptance,
+}
+pub(super) async fn acceptance_for(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    reference: &Value,
+    before: i64,
+    session: &mut OriginalAuditSession,
+) -> Result<LocatedAppAcceptance> {
+    let mut attempt = InputAttempt {
+        failure: tx.workflow_proof_failure_handle(),
+        finished: false,
+    };
+    let result = async {
+        let expected = current::source::from_value(reference, "workflow-binding", session)?;
+        let sequence = tx
+            .workflow_financial_origin_sequence(
+                &expected.0,
+                &key.logical_store_id,
+                &key.scope,
+                before,
+                session,
+            )
+            .await
+            .map_err(read_error)?
+            .ok_or_else(|| reject("INVALID_REFERENCE"))?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&sequence.into(), &1i64.into()])
+            .map_err(core_error)?;
+        let previous = sequence
+            .checked_sub(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let origin = next(tx, key, previous, sequence, session)
+            .await?
+            .ok_or(ServiceError::IntegrityFailure)?
+            .checked_wrappers(tx, session)
+            .await?;
+        request_wrapper::same_text(
+            request_wrapper::text(origin.wrappers().operation(), "kind", session)?,
+            "agreement.accept",
+            session,
+        )?;
+        let raw_payload = request_wrapper::field(
+            origin.wrappers().original_request().value(),
+            "payload",
+            session,
+        )?;
+        let schema = request_wrapper::text(raw_payload, "schema", session)?;
+        if !acceptance::same_recipe_text(schema, "ledger-workflow-agreement-accept/9", session)? {
+            request_wrapper::same_text(schema, "ledger-workflow-agreement-accept/8", session)?;
+        }
+        let publication = publication_for(
+            tx,
+            key,
+            request_wrapper::field(raw_payload, "publication_ref", session)?,
+            sequence,
+            session,
+        )
+        .await?;
+        let acceptance = origin
+            .reconstruct_app_acceptance(tx, &publication, session)
+            .await?;
+        for (a, b) in [
+            (&expected.0.kind, &acceptance.binding.reference().kind),
+            (&expected.0.id, &acceptance.binding.reference().id),
+            (&expected.0.digest, &acceptance.binding.reference().digest),
+        ] {
+            request_wrapper::same_text(a, b, session)?;
+        }
+        Ok(LocatedAppAcceptance {
+            origin,
+            publication,
+            acceptance,
+        })
+    }
+    .await;
+    if result.is_ok() {
+        attempt.finish();
+    } else {
+        session.invalidate();
+    }
+    result
+}
+
 pub(super) async fn target(
     tx: &mut SqliteTx,
     root: &OperationKey,

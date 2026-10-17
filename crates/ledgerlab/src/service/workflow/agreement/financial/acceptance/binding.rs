@@ -56,7 +56,7 @@ pub(super) fn assemble(
         program
             .execution_registry()
             .ok_or(ServiceError::Unavailable)?,
-        APP_CAUSAL,
+        input.registry(),
         s,
     )?;
     let terms = input.terms.canonical_value();

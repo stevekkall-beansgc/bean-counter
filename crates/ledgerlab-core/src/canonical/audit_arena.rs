@@ -75,6 +75,7 @@ impl AuditCancellation {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }
+    pub(crate) fn same_attempt(&self,other:&Self)->bool {Arc::ptr_eq(&self.cancelled,&other.cancelled)}
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
     }
@@ -330,6 +331,56 @@ impl AuditArena {
     }
     /// No Clone implementation on the owner. Explicit copies execute a paid
     /// structural footprint walk and reserve overlap BEFORE Value::clone.
+    pub(crate) fn string_value(&self,text:&str,work:&mut dyn ValidationWork)->Result<AuditedValue>{
+        work.visit(ValidationVisit::Value)?;
+        work.scan_bytes(text.len())?;
+        work.write_bytes(text.len())?;
+        let reservation=self.reserve(text.len(),work)?;
+        Ok(AuditedValue{value:Value::String(text.to_owned()),reservation})
+    }
+    /// Compose a private owning control object from existing borrowed values.
+    /// Copies/nodes are prepaid in S, not classified as a codec operation.
+    /// No borrowed Value or caller trust flag escapes through this method.
+    pub(crate) fn object_from_fields(&self, fields:&[(&str,&Value)], work:&mut dyn ValidationWork)->Result<AuditedValue>{
+        let entry=map_entry_bound(work,mem::size_of::<Value>(),mem::size_of::<String>())?;
+        let mut bytes=mul(work,fields.len(),entry)?;
+        for (i,(key,value)) in fields.iter().enumerate(){
+            work.visit(ValidationVisit::Field)?;
+            for (prior,_) in &fields[..i] {
+                work.visit(ValidationVisit::MemberCompare)?;
+                let n=add(work,key.len(),prior.len())?;
+                work.scan_bytes(n)?;
+                if key==prior{return Err(failure("duplicate owning object field"));}
+                // The actual BTree insertion below may compare this pair again.
+                // Prepay that separate possible search pass, not just our
+                // executed duplicate comparison above.
+                work.visit(ValidationVisit::MemberCompare)?;
+                work.scan_bytes(n)?;
+            }
+            work.scan_bytes(key.len())?;
+            work.write_bytes(key.len())?;
+            bytes=add(work,bytes,key.len())?;
+            let child=clone_footprint(value,work,1)?;
+            bytes=add(work,bytes,child)?;
+        }
+        let reservation=self.reserve(bytes,work)?;
+        let mut object=serde_json::Map::new();
+        for (key,value) in fields {object.insert((*key).to_owned(),(*value).clone());}
+        Ok(AuditedValue{value:Value::Object(object),reservation})
+    }
+    pub(crate) fn array_from_values(&self,values:&[&Value],work:&mut dyn ValidationWork)->Result<AuditedValue>{
+        let mut bytes=mul(work,values.len(),mem::size_of::<Value>())?;
+        for value in values {
+            work.visit(ValidationVisit::Element)?;
+            let child=clone_footprint(value,work,1)?;
+            bytes=add(work,bytes,child)?;
+        }
+        let reservation=self.reserve(bytes,work)?;
+        let mut array=Vec::new();
+        array.try_reserve_exact(values.len()).map_err(|_|failure("owning array allocation"))?;
+        for value in values {array.push((*value).clone());}
+        Ok(AuditedValue{value:Value::Array(array),reservation})
+    }
     pub fn clone_value(
         &self,
         value: &Value,
@@ -424,6 +475,8 @@ pub struct AuditedValue {
     reservation: Lease,
 }
 impl AuditedValue {
+    pub(crate) fn belongs_to(&self,arena:&AuditArena)->bool {Arc::ptr_eq(&self.reservation.ledger,&arena.ledger)}
+
     pub fn value(&self) -> &Value {
         &self.value
     }

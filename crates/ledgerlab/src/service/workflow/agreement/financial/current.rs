@@ -8,6 +8,7 @@ use ledgerlab_core::{
 };
 use std::collections::BTreeMap;
 
+pub(super) mod app;
 mod chain;
 pub(super) mod party;
 pub(super) mod source;

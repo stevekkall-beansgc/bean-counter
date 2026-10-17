@@ -31,6 +31,19 @@ impl PendingPartyOperation {
             )
     }
 }
+fn evidence_payload(schema: &str, session: &mut OriginalAuditSession) -> Result<bool> {
+    Ok(
+        equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?
+            || equal_text(schema, "ledger-workflow-party-evidence-retain/2", session)?,
+    )
+}
+fn commitment_payload(payload: &Value, session: &mut OriginalAuditSession) -> Result<bool> {
+    equal_text(
+        check::text(payload, "schema", session)?,
+        "ledger-workflow-party-evidence-retain/2",
+        session,
+    )
+}
 fn encode(value: &Value, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     session
         .canonical_representation(value, RepresentationKind::SourceDefinition)
@@ -264,6 +277,13 @@ async fn evidence_inputs(
     }
     let metadata = check::field(payload, "metadata", session)?;
     let purpose = check::text(metadata, "purpose", session)?;
+    let commitment = commitment_payload(payload, session)?;
+    if commitment {
+        require(
+            !equal_text(purpose, "party_authorization", session)?,
+            "INVALID_SHAPE",
+        )?;
+    }
     if equal_text(purpose, "party_authorization", session)? {
         check::closed(metadata, &["purpose", "authorization"], session)?;
         let spec = authorization_spec(
@@ -277,6 +297,13 @@ async fn evidence_inputs(
         check::closed(metadata, &["purpose", "consent"], session)?;
         let spec = check::field(metadata, "consent", session)?;
         consent(spec, req.key(), at, session)?;
+        if commitment {
+            check::same_text(
+                check::text(check::field(spec, "basis", session)?, "kind", session)?,
+                "acceptance_terms",
+                session,
+            )?;
+        }
         same_subject(subject_value, spec, session)?;
         Ok([None, None])
     } else {
@@ -295,7 +322,18 @@ async fn evidence_inputs(
             session,
         )
         .await?;
-        let body = evidence(&target, req.key(), actor, at, session)?;
+        let body = evidence_with_schema(
+            &target,
+            req.key(),
+            actor,
+            at,
+            if commitment {
+                "ledger-workflow-party-evidence/2"
+            } else {
+                "ledger-workflow-party-evidence/1"
+            },
+            session,
+        )?;
         same_value(
             subject_value,
             check::field(body, "subject", session)?,
@@ -303,6 +341,9 @@ async fn evidence_inputs(
         )?;
         let target_metadata = check::field(body, "metadata", session)?;
         let target_purpose = check::text(target_metadata, "purpose", session)?;
+        if commitment {
+            check::same_text(target_purpose, "party_consent", session)?;
+        }
         let expected = if equal_text(target_purpose, "party_authorization", session)? {
             check::closed(target_metadata, &["purpose", "authorization"], session)?;
             authorization_spec(
@@ -338,11 +379,34 @@ async fn consent_basis_inputs(
     tx: &mut SqliteTx,
     key: &OperationKey,
     payload: &Value,
+    dependencies: &[Option<PartyRecord>; 2],
     before: i64,
     session: &mut OriginalAuditSession,
 ) -> Result<[Option<PartyRecord>; 4]> {
     let mut inputs = std::array::from_fn(|_| None);
-    let metadata = check::field(payload, "metadata", session)?;
+    let mut metadata = check::field(payload, "metadata", session)?;
+    if commitment_payload(payload, session)?
+        && equal_text(
+            check::text(metadata, "purpose", session)?,
+            "party_operator_attestation",
+            session,
+        )?
+    {
+        let target = dependencies[0]
+            .as_ref()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        check::same_text(
+            check::text(target.body(), "schema", session)?,
+            "ledger-workflow-party-evidence/2",
+            session,
+        )?;
+        metadata = check::field(target.body(), "metadata", session)?;
+        check::same_text(
+            check::text(metadata, "purpose", session)?,
+            "party_consent",
+            session,
+        )?;
+    }
     if !equal_text(
         check::text(metadata, "purpose", session)?,
         "party_consent",
@@ -365,6 +429,53 @@ async fn consent_basis_inputs(
         "ledger-workflow-party-authorization/1",
         session,
     )?;
+    if commitment_payload(payload, session)? {
+        let spec = check::field(authorization.body(), "authorization", session)?;
+        same_subject(consent, spec, session)?;
+        let selected = roles(consent, session)?;
+        let allowed = roles(spec, session)?;
+        for role in selected {
+            let role = role.as_str().ok_or(ServiceError::IntegrityFailure)?;
+            let mut found = false;
+            for candidate in allowed {
+                if equal_text(
+                    role,
+                    candidate.as_str().ok_or(ServiceError::IntegrityFailure)?,
+                    session,
+                )? {
+                    found = true;
+                    break;
+                }
+            }
+            require(found, "AUTHORITY_REQUIRED")?;
+        }
+        let accepted = time(consent, "accepted_at", session)?;
+        at_most(&time(spec, "starts_at", session)?, &accepted, session)?;
+        let end = time(spec, "ends_at", session)?;
+        session
+            .semantic_work()
+            .arithmetic(
+                Op::Compare,
+                &[&accepted.micros().into(), &end.micros().into()],
+            )
+            .map_err(core_error)?;
+        require(accepted.micros() < end.micros(), "AUTHORITY_REQUIRED")?;
+        // The only deferred economic edge. Authentication material is still
+        // real prior custody and included in this operation's exact manifest.
+        let (original, evidence, attestation) = original_authorization(
+            tx,
+            key,
+            check::field(consent, "authorization_ref", session)?,
+            &accepted,
+            before,
+            session,
+        )
+        .await?;
+        inputs[0] = Some(original);
+        inputs[1] = Some(evidence);
+        inputs[2] = Some(attestation);
+        return Ok(inputs);
+    }
     inputs[0] = Some(authorization);
     let basis = check::field(consent, "basis", session)?;
     if equal_text(
@@ -670,7 +781,7 @@ async fn prepare_inner(
     let normalized_payload = super::normalize::payload(req.payload(session)?, req.key(), session)?;
     let payload = normalized_payload.value();
     let schema = check::text(payload, "schema", session)?;
-    let is_evidence = equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?;
+    let is_evidence = evidence_payload(schema, session)?;
     let is_revoke = equal_text(schema, "ledger-workflow-party-revoke/1", session)?;
     let mut prior = None;
     let dependencies = if is_revoke {
@@ -728,8 +839,30 @@ async fn prepare_inner(
         check::same_text(req.kind(), "authority.change", session)?;
         authorization_inputs(tx, req, payload, &setup.operator, &at, before, session).await?
     };
+    if is_evidence && commitment_payload(payload, session)? {
+        let metadata = check::field(payload, "metadata", session)?;
+        if equal_text(
+            check::text(metadata, "purpose", session)?,
+            "party_consent",
+            session,
+        )? {
+            let consent = check::field(metadata, "consent", session)?;
+            let current = observe(
+                tx,
+                req.key(),
+                check::field(consent, "authorization_ref", session)?,
+                &at,
+                before,
+                session,
+            )
+            .await?;
+            // Read/validate under this held writer; the original material is
+            // retained separately by consent_basis_inputs below.
+            drop(current);
+        }
+    }
     let consent_basis = if is_evidence {
-        consent_basis_inputs(tx, req.key(), payload, before, session).await?
+        consent_basis_inputs(tx, req.key(), payload, &dependencies, before, session).await?
     } else {
         std::array::from_fn(|_| None)
     };
@@ -762,11 +895,7 @@ fn construct(
     prior: Option<PartyRecord>,
     session: &mut OriginalAuditSession,
 ) -> Result<PendingPartyOperation> {
-    let is_evidence = equal_text(
-        check::text(payload, "schema", session)?,
-        "ledger-workflow-party-evidence-retain/1",
-        session,
-    )?;
+    let is_evidence = evidence_payload(check::text(payload, "schema", session)?, session)?;
     let scope_value = check::field(check::field(req.value(), "key", session)?, "scope", session)?;
     let subject = if let Some(prior) = &prior {
         check::field(prior.body(), "authorization", session)?
@@ -787,7 +916,14 @@ fn construct(
         let metadata = encode(check::field(payload, "metadata", session)?, session)?;
         let subject = encode(check::field(payload, "subject", session)?, session)?;
         let scope = encode(scope_value, session)?;
-        let schema = wire::string("ledger-workflow-party-evidence/1", session)?;
+        let schema = wire::string(
+            if commitment_payload(payload, session)? {
+                "ledger-workflow-party-evidence/2"
+            } else {
+                "ledger-workflow-party-evidence/1"
+            },
+            session,
+        )?;
         wire::object(
             &[
                 ("authority_ref", authority_ref.bytes()),
@@ -859,7 +995,11 @@ fn construct(
             "workflow-authority"
         },
         if is_evidence {
-            "ledger-workflow-party-evidence/1"
+            if commitment_payload(payload, session)? {
+                "ledger-workflow-party-evidence/2"
+            } else {
+                "ledger-workflow-party-evidence/1"
+            }
         } else {
             "ledger-workflow-party-authorization/1"
         },
@@ -918,7 +1058,7 @@ async fn reconstruct_inner(
         super::normalize::payload(request.payload(session)?, request.key(), session)?;
     let payload = normalized_payload.value();
     let schema = check::text(payload, "schema", session)?;
-    let is_evidence = equal_text(schema, "ledger-workflow-party-evidence-retain/1", session)?;
+    let is_evidence = evidence_payload(schema, session)?;
     let is_revoke = equal_text(schema, "ledger-workflow-party-revoke/1", session)?;
     if is_evidence {
         check::same_text(request.kind(), "evidence.retain", session)?;
@@ -1131,7 +1271,7 @@ async fn reconstruct_inner(
         authorization_evidence(tx, &request, payload, actor, &at, before, session).await?
     };
     let consent_basis = if is_evidence {
-        consent_basis_inputs(tx, request.key(), payload, before, session).await?
+        consent_basis_inputs(tx, request.key(), payload, &dependencies, before, session).await?
     } else {
         std::array::from_fn(|_| None)
     };

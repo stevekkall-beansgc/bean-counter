@@ -19,6 +19,11 @@ use ledgerlab_core::{
     },
 };
 use std::{cmp::Ordering as Cmp, mem};
+pub(super) fn same_recipe_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
+    assents::equal(a, b, s)
+}
+const APP_COMMITMENT: &str =
+    "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276";
 const APP_CAUSAL: &str = "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2";
 
 pub(super) struct AppAcceptanceInput {
@@ -26,6 +31,7 @@ pub(super) struct AppAcceptanceInput {
     assents: AuditedValue,
     authorities: AuditedValue,
     expected_revision: u64,
+    commitment: bool,
 }
 impl AppAcceptanceInput {
     /// `program` must come from the actual completed original publication. Its
@@ -51,7 +57,10 @@ impl AppAcceptanceInput {
             .program()
             .execution_registry()
             .ok_or(ServiceError::Unavailable)?;
-        request_wrapper::same_text(registry, APP_CAUSAL, session)?;
+        let commitment = assents::equal(registry, APP_COMMITMENT, session)?;
+        if !commitment {
+            request_wrapper::same_text(registry, APP_CAUSAL, session)?;
+        }
         let program = publication.program();
         let payload = incoming.payload(session)?;
         request_wrapper::closed(
@@ -72,7 +81,11 @@ impl AppAcceptanceInput {
         )?;
         request_wrapper::same_text(
             request_wrapper::text(payload, "schema", session)?,
-            "ledger-workflow-agreement-accept/8",
+            if commitment {
+                "ledger-workflow-agreement-accept/9"
+            } else {
+                "ledger-workflow-agreement-accept/8"
+            },
             session,
         )?;
         let binding = request_wrapper::field(payload, "binding_inputs", session)?;
@@ -206,7 +219,29 @@ impl AppAcceptanceInput {
             assents,
             authorities,
             expected_revision,
+            commitment,
         })
+    }
+    fn registry(&self) -> &'static str {
+        if self.commitment {
+            APP_COMMITMENT
+        } else {
+            APP_CAUSAL
+        }
+    }
+    fn party_assent_schema(&self) -> &'static str {
+        if self.commitment {
+            "ledger-workflow-party-assent/2"
+        } else {
+            "ledger-workflow-party-assent/1"
+        }
+    }
+    fn consent_verification_schema(&self) -> &'static str {
+        if self.commitment {
+            "ledger-workflow-app-consent-verification/2"
+        } else {
+            "ledger-workflow-app-consent-verification/1"
+        }
     }
     /// Assemble the actual new binding from the SAME normalized full terms
     /// and retained compiled publication. Actor/time are captured host operands;
@@ -321,6 +356,11 @@ impl AppAcceptanceInput {
         session: &mut OriginalAuditSession,
     ) -> Result<current::party::OriginalPlatformConsent> {
         let result = async {
+            request_wrapper::same_text(
+                request_wrapper::text(assent, "schema", session)?,
+                self.party_assent_schema(),
+                session,
+            )?;
             let observed = current::party::platform_consent_original(
                 tx,
                 key,
@@ -337,7 +377,7 @@ impl AppAcceptanceInput {
                 .map_err(core_error)?;
             let record = wire::source_record(
                 "workflow-assent",
-                "ledger-workflow-party-assent/1",
+                self.party_assent_schema(),
                 bytes,
                 session,
             )?;
@@ -391,6 +431,11 @@ impl AppAcceptanceInput {
         session: &mut OriginalAuditSession,
     ) -> Result<current::party::ObservedPlatformConsent> {
         let result = async {
+            request_wrapper::same_text(
+                request_wrapper::text(assent, "schema", session)?,
+                self.party_assent_schema(),
+                session,
+            )?;
             let observed = current::party::platform_consent(
                 tx,
                 key,
@@ -407,7 +452,7 @@ impl AppAcceptanceInput {
                 .map_err(core_error)?;
             let record = wire::source_record(
                 "workflow-assent",
-                "ledger-workflow-party-assent/1",
+                self.party_assent_schema(),
                 bytes,
                 session,
             )?;

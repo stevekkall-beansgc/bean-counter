@@ -9,6 +9,8 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
+const COMMITMENT_REGISTRY: &str =
+    "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276";
 const REGISTRY: &str = "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2";
 pub(super) struct RequestEvidence {
     parsed: AuditedValue,
@@ -242,9 +244,19 @@ fn party_anchors(
         "ledger-workflow-party-management-authority/1",
         s,
     )?;
+    let commitment = cmp(
+        schema.as_bytes(),
+        b"ledger-workflow-party-evidence-retain/2",
+        s,
+    )?
+    .is_eq();
     request_wrapper::same_text(
         wrappers::descriptor_schema(req.kind(), schema, registry, s)?,
-        "ledger-operation-descriptors/3",
+        if commitment {
+            "ledger-operation-descriptors/7"
+        } else {
+            "ledger-operation-descriptors/3"
+        },
         s,
     )?;
     if cmp(schema.as_bytes(), b"ledger-workflow-party-authorize/1", s)?.is_eq() {
@@ -266,7 +278,15 @@ fn party_anchors(
             s,
         )?;
     } else {
-        request_wrapper::same_text(schema, "ledger-workflow-party-evidence-retain/1", s)?;
+        request_wrapper::same_text(
+            schema,
+            if commitment {
+                "ledger-workflow-party-evidence-retain/2"
+            } else {
+                "ledger-workflow-party-evidence-retain/1"
+            },
+            s,
+        )?;
         let m = request_wrapper::field(p, "metadata", s)?;
         let purpose = request_wrapper::text(m, "purpose", s)?;
         if cmp(purpose.as_bytes(), b"party_operator_attestation", s)?.is_eq() {
@@ -287,6 +307,14 @@ fn party_anchors(
                 s,
             )?;
             let basis = request_wrapper::field(consent, "basis", s)?;
+            if commitment {
+                request_wrapper::same_text(
+                    request_wrapper::text(basis, "kind", s)?,
+                    "acceptance_terms",
+                    s,
+                )?;
+                return Ok(out);
+            }
             if cmp(
                 request_wrapper::text(basis, "kind", s)?.as_bytes(),
                 b"acceptance_terms",
@@ -332,7 +360,22 @@ pub(super) fn party(
     pending: &current::party::produce::PendingPartyOperation,
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
-    party_with_registry(req, pending, REGISTRY, s)
+    let p = s
+        .parse_representation(pending.normalized_payload(), Kind::OriginalRequest)
+        .map_err(core_error)?;
+    let schema = request_wrapper::text(p.value(), "schema", s)?;
+    let registry = if cmp(
+        schema.as_bytes(),
+        b"ledger-workflow-party-evidence-retain/2",
+        s,
+    )?
+    .is_eq()
+    {
+        COMMITMENT_REGISTRY
+    } else {
+        REGISTRY
+    };
+    party_with_registry(req, pending, registry, s)
 }
 fn party_with_registry(
     req: &ingress::IncomingRequest,
@@ -361,6 +404,15 @@ fn party_with_registry(
             ],
             s,
         )?;
+        let descriptor_schema = wire::string(
+            wrappers::descriptor_schema(
+                req.kind(),
+                request_wrapper::text(payload.value(), "schema", s)?,
+                registry,
+                s,
+            )?,
+            s,
+        )?;
         let registry = wire::string(registry, s)?;
         let base = [
             ("anchors", anchors.bytes()),
@@ -373,7 +425,7 @@ fn party_with_registry(
             ("operation_kind", kind.bytes()),
             ("payload_schema", schema.bytes()),
             ("registry_digest", registry.bytes()),
-            ("schema", br#""ledger-operation-descriptors/3""#),
+            ("schema", descriptor_schema.bytes()),
         ];
         let resolution = wire::object(&base, 262144, s)?;
         let closure = wire::domain_digest(
@@ -394,7 +446,7 @@ fn party_with_registry(
                 ("operation_kind", kind.bytes()),
                 ("payload_schema", schema.bytes()),
                 ("registry_digest", registry.bytes()),
-                ("schema", br#""ledger-operation-descriptors/3""#),
+                ("schema", descriptor_schema.bytes()),
             ],
             262144,
             s,
@@ -480,4 +532,44 @@ pub(super) fn original_party(
         s.invalidate();
     }
     result
+}
+
+#[cfg(test)]
+mod commitment_tests {
+    use super::*;
+    #[test]
+    fn commitment_anchors_keep_authorization_immediate_and_terms_in_original_recipe() {
+        let reference = |kind: &str| serde_json::json!({"kind":kind,"id":format!("wdoc_{}","1".repeat(64)),"digest":format!("sha256:{}","1".repeat(64))});
+        let mut value = serde_json::json!({
+            "schema":"ledger-operation/1","contract":"workflow/1","kind":"evidence.retain",
+            "key":{"logical_store_id":"test-store","scope":["test","local"],"source":"owner","operation_id":"consent-test"},
+            "payload":{"schema":"ledger-workflow-party-evidence-retain/2","metadata":{"purpose":"party_consent","consent":{"authorization_ref":reference("workflow-authority"),"basis":{"kind":"acceptance_terms","terms_ref":reference("workflow-acceptance-terms"),"terms_digest":format!("sha256:{}","2".repeat(64))}}}}
+        });
+        for (schema, registry, expected) in [
+            (
+                "ledger-workflow-party-evidence-retain/2",
+                COMMITMENT_REGISTRY,
+                1,
+            ),
+            ("ledger-workflow-party-evidence-retain/1", REGISTRY, 2),
+        ] {
+            value["payload"]["schema"] = schema.into();
+            let raw = serde_json::to_vec(&value).unwrap();
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let request = ingress::IncomingRequest::parse(&raw, &mut s).unwrap();
+            let anchors =
+                party_anchors(&request, request.payload(&mut s).unwrap(), registry, &mut s)
+                    .unwrap();
+            assert_eq!(anchors.len, expected);
+            let (locators, _) = anchors.arrays(&mut s).unwrap();
+            let parsed = s
+                .parse_representation(locators.bytes(), Kind::SourceDefinition)
+                .unwrap();
+            let text = std::str::from_utf8(locators.bytes()).unwrap();
+            assert!(text.contains("workflow-authority"));
+            assert_eq!(text.contains("workflow-acceptance-terms"), expected == 2);
+            assert_eq!(parsed.value().as_array().unwrap().len(), expected);
+        }
+    }
 }

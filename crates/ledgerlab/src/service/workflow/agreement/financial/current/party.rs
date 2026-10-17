@@ -382,6 +382,23 @@ fn evidence<'a>(
     at: &Timestamp,
     session: &mut OriginalAuditSession,
 ) -> Result<&'a Value> {
+    evidence_with_schema(
+        record,
+        key,
+        actor,
+        at,
+        "ledger-workflow-party-evidence/1",
+        session,
+    )
+}
+fn evidence_with_schema<'a>(
+    record: &'a PartyRecord,
+    key: &OperationKey,
+    actor: &str,
+    at: &Timestamp,
+    expected_schema: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<&'a Value> {
     let body = record.body();
     check::closed(
         body,
@@ -401,7 +418,7 @@ fn evidence<'a>(
         session,
     )?;
     for (name, expected) in [
-        ("schema", "ledger-workflow-party-evidence/1"),
+        ("schema", expected_schema),
         ("retained_by", actor),
         ("installation_mode", "real_local"),
     ] {
@@ -882,9 +899,18 @@ async fn platform_material(
         ],
         session,
     )?;
+    let commitment = equal_text(
+        check::text(assent, "schema", session)?,
+        "ledger-workflow-party-assent/2",
+        session,
+    )?;
     check::same_text(
         check::text(assent, "schema", session)?,
-        "ledger-workflow-party-assent/1",
+        if commitment {
+            "ledger-workflow-party-assent/2"
+        } else {
+            "ledger-workflow-party-assent/1"
+        },
         session,
     )?;
     check::same_text(check::text(assent, "mode", session)?, "real", session)?;
@@ -1010,8 +1036,30 @@ async fn platform_material(
         session,
     )
     .await?;
-    let material = evidence(&retained, key, operator, at, session)?;
-    let attested = evidence(&attestation, key, operator, at, session)?;
+    let material = evidence_with_schema(
+        &retained,
+        key,
+        operator,
+        at,
+        if commitment {
+            "ledger-workflow-party-evidence/2"
+        } else {
+            "ledger-workflow-party-evidence/1"
+        },
+        session,
+    )?;
+    let attested = evidence_with_schema(
+        &attestation,
+        key,
+        operator,
+        at,
+        if commitment {
+            "ledger-workflow-party-evidence/2"
+        } else {
+            "ledger-workflow-party-evidence/1"
+        },
+        session,
+    )?;
     for body in [material, attested] {
         let subject = check::field(body, "subject", session)?;
         for name in ["customer", "agreement_id", "party", "acceptor"] {

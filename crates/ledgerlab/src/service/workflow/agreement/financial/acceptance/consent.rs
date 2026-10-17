@@ -94,12 +94,8 @@ impl AppAcceptanceInput {
             let party_raw = s
                 .copy_representation(platform.assent_bytes(), Kind::SourceDefinition)
                 .map_err(core_error)?;
-            let party_assent = wire::source_record(
-                "workflow-assent",
-                "ledger-workflow-party-assent/1",
-                party_raw,
-                s,
-            )?;
+            let party_assent =
+                wire::source_record("workflow-assent", self.party_assent_schema(), party_raw, s)?;
             size(app_terms.len(), 1, 16, s)?;
             let bindings = request_wrapper::field(
                 request_wrapper::field(self.terms.canonical_value(), "binding_inputs", s)?,
@@ -170,7 +166,7 @@ impl AppAcceptanceInput {
             let admin_ref = wire::reference(local_admin.reference(), s)?;
             let actor = wire::string(actor, s)?;
             let at = wire::string(at.as_str(), s)?;
-            let schema = wire::string("ledger-workflow-app-consent-verification/1", s)?;
+            let schema = wire::string(self.consent_verification_schema(), s)?;
             let body = wire::object(
                 &[
                     ("acceptance_terms_ref", terms_ref.bytes()),
@@ -195,7 +191,7 @@ impl AppAcceptanceInput {
             )?;
             let verification = wire::source_record(
                 "workflow-verification",
-                "ledger-workflow-app-consent-verification/1",
+                self.consent_verification_schema(),
                 body,
                 s,
             )?;

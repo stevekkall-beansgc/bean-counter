@@ -1,0 +1,59 @@
+{
+  "sources": [
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-cost-causal-01/SPEC.md",
+      "bytes": 18476,
+      "sha256": "e4379bfb51ab13b6af2ae0f26f591200102bc591c60be4277408387b435737da"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-cost-causal-01/app-cost-causal.schema.json",
+      "bytes": 561290,
+      "sha256": "e59a1d868f938a7f13f5cc586a6f038d41e37f710ff464ef57cf091830975474"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-cost-causal-01/registry.json",
+      "bytes": 13719,
+      "sha256": "6df39ccc741f81f02cc634221ebec767d8563297bbf9284dc3f44c31fd4144dc"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-cost-causal-01/profile.json",
+      "bytes": 2162,
+      "sha256": "f143299507b3ba0126965260e1595577aff73999b65a07e47a29e1c1af9684de"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-cost-causal-01/fixture-input.json",
+      "bytes": 152759,
+      "sha256": "ed8d32f13eb58af8fe6d2c39a8960db6a63bef6b59ce527c04c0f58983399862"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-cost-causal-01/DERIVATION-DETAILS.md",
+      "bytes": 12267,
+      "sha256": "5d93dd8b21ca762a646d847c4918bbd4590bfe7a12442275d8f69cbf2fbe1123"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-owned-cost-01/DERIVATION-DETAILS.md",
+      "bytes": 7840,
+      "sha256": "a3a630508c7a07c7414eb8787e269490ab06f3dd5f371e8f0f10bf169f7ac7ae"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/SPEC.md",
+      "bytes": 27141,
+      "sha256": "17838de7a99b55a0fc74b65c12b716aecf8355b551a3807667f29867e8fae3ca"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/AGREEMENT-BOUNDARY.md",
+      "bytes": 22180,
+      "sha256": "35005a0065b80e2f18add548e67e43d45fb43fc1b611a60b8e568dd732c65391"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/AGREEMENT-READY-AMENDMENT.md",
+      "bytes": 26070,
+      "sha256": "2e99c1dc27e597c4c6a5c416d9e448b714827d463a43bfd323ea06b769373aa6"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/PUBLICATION-SOURCE-TRANSPORT.md",
+      "bytes": 16312,
+      "sha256": "f1d2101cad2edd8153835e354a1b5c963fe9b2f812395b0ca488c82034fb691c"
+    }
+  ]
+}
