@@ -1,9 +1,12 @@
 //! Store-facing effects of a COMPLETE economic derivation. These types have no
 //! public constructors, Serde implementation, or conversion from DraftTransition.
 //! They convey pure facts only; host custody/currentness and atomic preparation
-//! are separate obligations. No candidate factory exists until derivation closes.
+//! are separate obligations. The connected factory refuses until complete derivation closes.
 use super::data::{ExactRef, OperationKey};
-use crate::canonical::audit_arena::{AuditedBytes, ExternalBufferLease};
+use crate::canonical::audit_arena::ExternalBufferLease;
+pub(super) mod heads;
+pub(super) mod introductions;
+pub(super) mod assembly;
 
 pub enum FinancialHeadKey {
     Decision {
@@ -128,6 +131,7 @@ pub struct ClaimEffect {
     record_ref: ExactRef,
 }
 impl ClaimEffect {
+    pub(super) fn derived(key:PermanentClaimKey,record_ref:ExactRef)->Self {Self{key,record_ref}}
     pub fn key(&self) -> &PermanentClaimKey {
         &self.key
     }
@@ -301,7 +305,7 @@ impl CustomerLocalFundingEffect {
 pub struct CandidateEnvelope {
     reference: ExactRef,
     schema: String,
-    body: AuditedBytes,
+    body: super::emitted_record::EncodedBody,
 }
 impl CandidateEnvelope {
     pub fn schema(&self) -> &str {
@@ -311,7 +315,7 @@ impl CandidateEnvelope {
         &self.reference
     }
     pub fn canonical_body(&self) -> &[u8] {
-        self.body.bytes()
+        &self.body
     }
 }
 /// Exact receipt classification selected by the executed recipe, including
@@ -365,7 +369,7 @@ impl CandidateResultMetadata {
 }
 pub struct EconomicCandidate {
     key: OperationKey,
-    normalized_payload: AuditedBytes,
+    normalized_payload: super::emitted_record::EncodedBody,
     introduced: Vec<CandidateEnvelope>,
     consumed_refs: Vec<ExactRef>,
     heads: Vec<HeadEffect>,
@@ -375,6 +379,7 @@ pub struct EconomicCandidate {
     funding: Vec<CustomerLocalFundingEffect>,
     account_enrollments:Vec<AccountEnrollmentEffect>,
     result: CandidateResultMetadata,
+    _ownership: assembly::CandidateOwnership,
 }
 impl EconomicCandidate {
     pub fn account_enrollments(&self)->&[AccountEnrollmentEffect] {&self.account_enrollments}
@@ -383,7 +388,7 @@ impl EconomicCandidate {
         &self.key
     }
     pub fn normalized_payload(&self) -> &[u8] {
-        self.normalized_payload.bytes()
+        &self.normalized_payload
     }
     pub fn introduced(&self) -> &[CandidateEnvelope] {
         &self.introduced

@@ -209,6 +209,9 @@ pub fn validate_app_nominated_sources(program:&SelectedProgram,binding:&Value,sl
                 ("cost_source_slot","evidence.retain",&["read","submit"][..]),
                 ("cost_source_slot","cost.finalize",&["read","submit"][..]),
                 ("correction_source_slot","cost.correct",&["correct","read"][..]),
+                // Revision>1 final evidence is retained by its original
+                // correction nomination (retention is a separate executor).
+                ("correction_source_slot","evidence.retain",&["read","submit"][..]),
             ]{let slot=shape::text(m,declaration,field)?;requirement(m,binding,frames,activity,product_name,slot,operation,rights)?;}
         }
         // No unrelated source frame is admitted as a proxy for a missing one.

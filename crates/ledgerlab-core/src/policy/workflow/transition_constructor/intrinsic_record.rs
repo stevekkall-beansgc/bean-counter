@@ -790,7 +790,7 @@ mod tests {
             EvidencePurpose::Funding
         );
         let mut substituted = body.clone();
-        substituted["subject"]["customer"] = json!("other");
+        substituted.legacy_mut()["subject"]["customer"] = json!("other");
         assert!(pool.evidence_facts(&mut m, &substituted).unwrap().is_none());
         let mut wrong_key = key.clone();
         wrong_key.scope[1] = "other-sandbox".into();

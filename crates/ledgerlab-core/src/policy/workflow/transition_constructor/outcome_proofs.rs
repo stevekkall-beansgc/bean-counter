@@ -1,5 +1,7 @@
 //! Outcome field proof DATA relationships. Actual original introduction,
 //! nominated-source authentication and retained custody are host obligations.
+use super::emitted_record::{ConstructedEnvelope, EncodedBody};
+use super::record_body::RecordBody;
 use super::{CoreMeter, body, codec, data::*, meter, records::Records, shape};
 use crate::{
     Error, Result, canonical,
@@ -36,7 +38,7 @@ fn load(
     v: &Value,
     kind: &str,
     schema: &str,
-) -> Result<(ExactRef, Value)> {
+) -> Result<(ExactRef, RecordBody)> {
     let reference = shape::reference(m, v)?;
     let body = r.get(m, &c.key, &reference, kind, schema)?;
     Ok((reference, body))
@@ -47,7 +49,7 @@ fn time(m: &mut CoreMeter, v: &Value, k: &str) -> Result<i64> {
 }
 pub(super) struct Proofs {
     pub references: Vec<ExactRef>,
-    pub introduced: Vec<DraftEnvelope>,
+    pub introduced: Vec<ConstructedEnvelope>,
 }
 pub(super) fn resolve(
     m: &mut CoreMeter,
@@ -337,8 +339,28 @@ pub(super) fn resolve(
         let b = json!({"schema":"ledger-workflow-verified-fact/1","schema_ref":p["fact_schema_ref"],"field":name,"value":value,"evidence_ref":att_ref,"evidence_digest":att_ref.digest,"source":att["source"],"verification_ref":verification_ref,"scope":c.key.scope,"binding_or_invocation_ref":p["binding_ref"],"subject":expected_subject});
         // Compute immutable identity before deciding whether it is genuinely
         // new. A reused occurrence proof must not be returned as a new result.
-        let bytes = codec::encode(m, &b, 4194304)?;
-        let schema_bytes = codec::encode(m, &json!("ledger-workflow-verified-fact/1"), 262144)?;
+        let arena = m.representation_arena();
+        let class = crate::validation_work::RepresentationKind::Record;
+        let bytes = if let Some(arena) = &arena {
+            let encoded = m.canonical_owned_representation(arena, &b, class)?;
+            EncodedBody::owned(arena, encoded, m)?
+        } else {
+            EncodedBody::Legacy(codec::encode(m, &b, 4194304)?)
+        };
+        let schema_bytes = if let Some(arena) = &arena {
+            let encoded = m.canonical_owned_representation(
+                arena,
+                &b["schema"],
+                crate::validation_work::RepresentationKind::SourceDefinition,
+            )?;
+            EncodedBody::owned(arena, encoded, m)?
+        } else {
+            EncodedBody::Legacy(codec::encode(
+                m,
+                &json!("ledger-workflow-verified-fact/1"),
+                262144,
+            )?)
+        };
         let digest =
             super::records::hash_parts(m, "workflow-document", &[&schema_bytes, &bytes], true)?;
         let reference = ExactRef {
@@ -356,10 +378,13 @@ pub(super) fn resolve(
             equal(m, &old, &b)?;
         } else {
             m.new_body(bytes.len())?;
-            out.introduced.push(DraftEnvelope {
-                reference: reference.clone(),
-                canonical_body: bytes,
-            });
+            out.introduced.push(ConstructedEnvelope::from_encoded(
+                reference.clone(),
+                bytes,
+                arena.as_ref(),
+                m,
+                class,
+            )?);
         }
         out.references.push(reference);
         if call!(

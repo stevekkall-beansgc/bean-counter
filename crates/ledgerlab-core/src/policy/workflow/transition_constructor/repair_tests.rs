@@ -315,7 +315,7 @@ fn connected_causal_repairs_chain_validates_actual_nonempty_immutable_links() {
         &mut m,
         &[RecordInput {
             reference: link.reference.clone(),
-            canonical_body: link.canonical_body,
+            canonical_body: link.canonical_body.into_legacy().unwrap(),
         }],
     )
     .unwrap();

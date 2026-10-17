@@ -46,7 +46,7 @@ fn consumed(m: &mut CoreMeter, c: &DraftContextData, kind: &str, v: &Value) -> V
         }],
     )
     .unwrap();
-    r.get(m, &c.key, &reference, kind, schema).unwrap()
+    (*r.get(m, &c.key, &reference, kind, schema).unwrap()).clone()
 }
 #[test]
 fn initial_source_ceiling_and_registration_metadata_are_real_data_checks() {
@@ -421,4 +421,25 @@ fn initial_birth_locates_original_operation_not_an_alias_result_locator() {
         result,
         m.usage().semantic_work
     );
+}
+
+#[test]
+fn narrowed_selector_names_keep_semantics_across_groups_and_refuse_widening() {
+    let mut m = super::super::CoreMeter::new(65536).unwrap();
+    let original = vec![
+        json!({"names":["demo:a","demo:b"]}),
+        json!({"names":["demo:c"]}),
+    ];
+    let regrouped = vec![json!({"names":["demo:a","demo:c"]})];
+    super::source::selector_subset(&mut m, &regrouped, &original, 64).unwrap();
+    for wrong in [
+        vec![json!({"names":["demo:d"]})],
+        vec![json!({"names":["demo:a","demo:a"]})],
+        vec![json!({"names":["demo:c","demo:a"]})],
+        vec![json!({"namespace":"demo:"})],
+    ] {
+        assert!(super::source::selector_subset(&mut m, &wrong, &original, 64).is_err());
+    }
+    let duplicates = vec![json!({"names":["demo:a"]}), json!({"names":["demo:a"]})];
+    assert!(super::source::selector_subset(&mut m, &duplicates, &original, 64).is_err());
 }

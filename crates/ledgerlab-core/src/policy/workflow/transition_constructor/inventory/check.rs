@@ -48,6 +48,7 @@ macro_rules! invoke {
     }};
 }
 // Paid DATA predicates. These never confer host authentication or admission.
+use super::super::record_body::RecordBody;
 use super::super::{
     CoreMeter, arithmetic,
     data::*,
@@ -76,7 +77,7 @@ pub(super) fn load(
     v: &Value,
     kind: &str,
     schema: &str,
-) -> Result<Value> {
+) -> Result<RecordBody> {
     let pr = invoke!(ParsedRef::parse, m, o, v)?;
     r.get_parsed(m, o, &c.key, &pr, kind, schema)
 }

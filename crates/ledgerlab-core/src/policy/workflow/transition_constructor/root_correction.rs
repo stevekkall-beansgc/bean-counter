@@ -2,6 +2,9 @@
 //! from the original plan and recomputes quantities through the original schema.
 //! No saved action amount, current price, or caller capacity is a pricing input.
 use super::super::selected_program::SelectedProgram;
+use super::emitted_record::ConstructedEnvelope;
+use super::record_body::RecordBody;
+use super::records::SuppliedRecords;
 use super::{
     CoreMeter, arithmetic,
     authority::{self, EconomicMode},
@@ -16,6 +19,7 @@ use super::{
 use crate::{Error, Result};
 use num_bigint::BigInt;
 use serde_json::{Value, json};
+mod context;
 mod causal;
 mod dependent;
 fn unsupported(s: &str) -> Error {
@@ -53,7 +57,7 @@ fn load(
     v: &Value,
     kind: &str,
     schema: &str,
-) -> Result<(ExactRef, Value)> {
+) -> Result<(ExactRef, RecordBody)> {
     let reference = shape::reference(m, v)?;
     let value = r.get(m, &c.key, &reference, kind, schema)?;
     Ok((reference, value))
@@ -62,16 +66,15 @@ fn load(
 /// Complete causal closure must consume it before any new record is returned.
 struct RootPlan {
     work_ref: ExactRef,
-    work: Value,
+    work: RecordBody,
     claim_ref: ExactRef,
     original_ref: ExactRef,
-    original: Value,
+    original: RecordBody,
     current_ref: ExactRef,
-    current: Value,
+    current: RecordBody,
     next_revision: String,
-    payload: Value,
-    current_facts: Value,
-    replacement_facts: Value,
+    payload: super::working_value::WorkingValue,
+    replacement_facts: super::working_value::WorkingValue,
     affected_roots: Vec<String>,
     old_prices: Vec<pricing::PricedInstruction>,
     new_prices: Vec<pricing::PricedInstruction>,
@@ -124,7 +127,7 @@ fn original_head<'a>(
 fn prepare(
     program: &SelectedProgram,
     c: &DraftContextData,
-    request: &mut Value,
+    request: &mut super::working_value::WorkingValue,
     r: &mut Records,
     state: &DraftStateData,
     m: &mut CoreMeter,
@@ -195,7 +198,8 @@ fn prepare(
         ],
         &[],
     )?;
-    let payload = field(m, &work, "payload")?.clone();
+    let original_payload=field(m,&work,"payload")?;
+    let payload=super::working_value::WorkingValue::copy(m,original_payload)?;
     let claim_id = text(m, &work, "claim_id")?;
     let (claim_ref, claim) = r.by_identity(
         m,
@@ -377,10 +381,10 @@ fn prepare(
         equal(m, &evaluation[name], &wanted)?;
     }
     let schema = original_schema(m, program, &payload["fact_schema_ref"])?;
-    let normalized = schema.normalize_value_with_work(&evaluation["facts"], m)?;
+    let normalized = super::working_value::NormalizedInput::normalize(m,schema,&evaluation["facts"])?;
     equal(m, normalized.canonical_value(), &evaluation["facts"])?;
-    let current_facts = normalized.canonical_value().clone();
-    let mut replacement_facts = current_facts.clone();
+    let current_facts = normalized.canonical_value();
+    let mut replacement_facts = super::working_value::WorkingValue::copy(m,current_facts)?;
     let activity_name = text(m, &payload, "activity")?;
     let old_prices = pricing::work(program, activity_name, &current_facts, m)?;
     let mut affected_roots: Vec<String> = vec![];
@@ -411,10 +415,10 @@ fn prepare(
         }
         // Required original schema normalization owns raw lexical acceptance,
         // inclusive scalar/unit bounds; canonical arithmetic follows it.
-        replacement_facts[quantity_field.as_str()] = request["replacement_quantity"].clone();
-        let normalized = schema.normalize_value_with_work(&replacement_facts, m)?;
-        replacement_facts = normalized.canonical_value().clone();
-        request["replacement_quantity"] = replacement_facts[quantity_field.as_str()].clone();
+        replacement_facts.replace(m,&quantity_field,&request["replacement_quantity"])?;
+        let normalized = super::working_value::NormalizedInput::normalize(m,schema,&replacement_facts)?;
+        replacement_facts = super::working_value::WorkingValue::copy(m,normalized.canonical_value())?;
+        request.replace(m,"replacement_quantity",&replacement_facts[quantity_field.as_str()])?;
         let proof_inputs = shape::array(m, request, "fact_proofs")?;
         if !meter::cmp(m, &proof_inputs.len().into(), &0.into())?.is_eq()
             || !normalized.required_proof_fields().is_empty()
@@ -470,10 +474,10 @@ fn prepare(
     let product = original_product(m, program, &payload["product_ref"])?;
     let activities = shape::array(m, product, "activities")?;
     let activity = shape::named(m, activities, "name", activity_name)?;
-    let mut current_activity = activity.clone();
-    current_activity["source_slot"] = json!(c.authorities[0].source_slot);
-    let mut authority_payload = payload.clone();
-    authority_payload["evidence_refs"] = request["evidence_refs"].clone();
+    let current_activity = super::working_value::WorkingValue::copy(m,activity)?;
+    let source_slot=json!(c.authorities[0].source_slot);
+    let current_activity=current_activity.with_fields(m,&[("source_slot",&source_slot)])?;
+    let authority_payload = payload.with_fields(m,&[("evidence_refs",&request["evidence_refs"])])?;
     let owner = InvocationToken::new();
     let times = ParsedDraftTimes::parse(m, &owner, &c.received_at, &c.accepted_at)?;
     let mode = if reverse {
@@ -481,7 +485,10 @@ fn prepare(
     } else {
         EconomicMode::QuantityCorrect
     };
-    let operands = authority::resolve_economic(
+    let original_namespace=text(m,&work,"source_namespace")?;
+    let operands = if m.representation_arena().is_some(){authority::resolve_economic_original(
+        m,r,c,&authority_payload,&current_activity,product,&owner,&times,program,mode,&[],original_namespace,
+    )?}else{authority::resolve_economic(
         m,
         r,
         c,
@@ -493,7 +500,7 @@ fn prepare(
         program,
         mode,
         &[],
-    )?;
+    )?};
     equal(
         m,
         &operands.slot_terms["correction_source_slot"],
@@ -541,7 +548,6 @@ fn prepare(
         current,
         next_revision,
         payload,
-        current_facts,
         replacement_facts,
         affected_roots,
         old_prices,
@@ -553,7 +559,7 @@ fn prepare(
 struct ActiveRootAction {
     price_index: usize,
     reference: ExactRef,
-    body: Value,
+    body: RecordBody,
     affected: bool,
 }
 fn is_affected(m: &mut CoreMeter, plan: &RootPlan, key: &str) -> Result<bool> {
@@ -575,7 +581,7 @@ fn active_actions(
     if meter::cmp(m, &references.len().into(), &128.into())?.is_gt() {
         return Err(shape::fail("root action bound"));
     }
-    let mut actual: Vec<(ExactRef, Value)> = vec![];
+    let mut actual: Vec<(ExactRef, RecordBody)> = vec![];
     for v in references {
         m.visit("root.current_action_operand")?;
         let (reference, body) = load(m, r, c, v, "workflow-action", "ledger-workflow-action/1")?;
@@ -713,7 +719,7 @@ fn active_actions(
     Ok(out)
 }
 struct RootEffects {
-    actions: Vec<DraftEnvelope>,
+    actions: Vec<ConstructedEnvelope>,
     steps: Vec<Value>,
     active: Vec<ExactRef>,
 }
@@ -741,7 +747,7 @@ fn monetary_effects(
             "workflow-action",
             &json!([prior.body["effect_id"], plan.next_revision, "inverse"]),
         )?;
-        let mut inverse = prior.body.clone();
+        let mut inverse = (*prior.body).clone();
         inverse["revision"] = json!(plan.next_revision);
         inverse["posting_role"] = json!("inverse");
         inverse["amount"] = json!({"currency":"USD","scale":18,"atoms":negative.to_string()});
@@ -834,8 +840,8 @@ fn slot_context(
     r: &mut Records,
     c: &DraftContextData,
     slot: &str,
-    introduced: &[DraftEnvelope],
-) -> Result<DraftContextData> {
+    introduced: &[ConstructedEnvelope],
+) -> Result<context::RootContext> {
     if meter::cmp(m, &c.authorities.len().into(), &32.into())?.is_gt() {
         return Err(shape::fail("authority slot bound"));
     }
@@ -862,6 +868,7 @@ fn slot_context(
         "workflow-authority-prefix-observation",
         "ledger-workflow-authority-prefix-observation/1",
     )?;
+    if m.representation_arena().is_some(){return context::selected(m,c,frame,&observation["verifier_ref"],introduced);}
     let verifier = shape::reference(m, &observation["verifier_ref"])?;
     let mut pending = vec![];
     for input in &c.source_observation_inputs {
@@ -884,7 +891,7 @@ fn slot_context(
             pending.push(input.clone());
         }
     }
-    Ok(DraftContextData {
+    Ok(context::RootContext::legacy(DraftContextData {
         key: c.key.clone(),
         actor: c.actor.clone(),
         canonical_economic_namespace: c.canonical_economic_namespace.clone(),
@@ -893,14 +900,15 @@ fn slot_context(
         accepted_at: c.accepted_at.clone(),
         authorities: vec![frame.clone()],
         source_observation_inputs: pending,
-    })
+    }))
 }
 fn root_context(
+    program:&SelectedProgram,
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
     request: &Value,
-) -> Result<DraftContextData> {
+) -> Result<context::RootContext> {
     let (_, work) = load(
         m,
         r,
@@ -915,7 +923,7 @@ fn root_context(
         c,
         &work["payload"]["binding_ref"],
         "workflow-binding",
-        "ledger-workflow-binding/1",
+        if program.uses_app_owned_cost_recipe(){"ledger-workflow-binding/2"}else{"ledger-workflow-binding/1"},
     )?;
     let bindings = shape::array(m, &binding, "bindings")?;
     if !meter::cmp(m, &bindings.len().into(), &1.into())?.is_eq() {
@@ -927,10 +935,10 @@ fn root_context(
         &c.key,
         &terms_ref,
         "workflow-slot-terms",
-        &[
+        if program.uses_app_cost_causal_recipe(){&["ledger-workflow-slot-binding-terms/7"]}else if program.uses_app_owned_cost_recipe(){&["ledger-workflow-slot-binding-terms/6"]}else{&[
             "ledger-workflow-slot-binding-terms/2",
             "ledger-workflow-slot-binding-terms/3",
-        ],
+        ]},
     )?;
     let slot = text(m, &terms, "correction_source_slot")?;
     slot_context(m, r, c, slot, &[])
@@ -938,31 +946,61 @@ fn root_context(
 /// Both entry modes use this same original-term interpreter. The return value
 /// remains noncommittable DATA until candidate resource/capacity/funding and
 /// host custody/atomicity gates are independently completed.
-pub(super) fn execute<'inv>(
+pub(super) fn execute<'inv, 'raw>(
     program: &SelectedProgram,
-    c: &DraftContextData,
-    mut request: Value,
-    inputs: &[RecordInput],
+    c: &'raw DraftContextData,
+    request: super::working_value::WorkingValue,
+    inputs: SuppliedRecords<'raw>,
     state: &DraftStateData,
     m: &mut CoreMeter,
     intrinsic: Option<(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
-) -> Result<Construction> {
-    let mut pool = inputs.to_vec();
-    pool.extend_from_slice(&c.source_observation_inputs);
-    let mut r = Records::new(m, &pool)?;
+) -> Result<Construction<'inv, 'raw>> {
+    execute_with_state(program,c,request,inputs,state,None,m,intrinsic)
+}
+pub(super) fn execute_complete<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,request:super::working_value::WorkingValue,inputs:SuppliedRecords<'raw>,state:&EconomicStateData,m:&mut CoreMeter)->Result<Construction<'inv,'raw>>{
+    execute_with_state(program,c,request,inputs,state.financial,Some(state),m,None)
+}
+fn execute_with_state<'inv, 'raw>(
+    program: &SelectedProgram,
+    c: &'raw DraftContextData,
+    mut request: super::working_value::WorkingValue,
+    inputs: SuppliedRecords<'raw>,
+    state: &DraftStateData,
+    complete_state:Option<&EconomicStateData>,
+    m: &mut CoreMeter,
+    intrinsic: Option<(
+        &'inv super::intrinsic_record::IntrinsicDataScope,
+        &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
+    )>,
+) -> Result<Construction<'inv, 'raw>> {
+    let mut r = inputs.resolve(m, &c.key, &c.source_observation_inputs)?;
     if let Some((owner, evidence)) = intrinsic {
         r = r.with_intrinsic_evidence(m, &c.key, owner, evidence)?;
     }
-    let local = root_context(m, &mut r, c, &request)?;
+    let local = root_context(program,m, &mut r, c, &request)?;
     let evidence = causal::references(m, &request["evidence_refs"], 0, 32)?;
-    request["evidence_refs"] = json!(evidence);
+    request.replace(m,"evidence_refs",&json!(evidence))?;
     let plan = prepare(program, &local, &mut request, &mut r, state, m)?;
     dependent::evidence_membership(m, &mut r, &local, &plan.operands, &evidence)?;
     let active = active_actions(m, &mut r, &local, &plan)?;
-    let families = causal::prepare(m, &mut r, &local, program, &plan, &mut request, state)?;
+    let current_capacity=if program.uses_app_owned_cost_recipe(){
+        let complete=complete_state.ok_or_else(||shape::fail("app root capacity requires complete economic state"))?;
+        Some(super::capacity::current::retained_root_head(m,&mut r,&local,&plan.original_ref,&plan.current_ref,complete)?)
+    }else{None};
+    let app_closures=if program.uses_app_owned_cost_recipe(){
+        let complete=complete_state.ok_or_else(||shape::fail("app root closure requires complete economic state"))?;
+        Some(super::app_cost::causal::prepare(m,&mut r,&local,program,&plan.work_ref,&plan.current_ref,if plan.reverse{"work.reverse"}else{"quantity.correct"},&plan.payload,&plan.operands.terms,&mut request,complete,current_capacity.as_ref().ok_or_else(||shape::fail("app closure capacity head missing"))?)?)
+    }else{None};
+    let app_reversals=match &app_closures{Some(app)=>app.used_reversals.as_slice(),None=>&[]};
+    let families = causal::prepare(m, &mut r, &local, program, &plan, &mut request, state,app_reversals)?;
+    if let Some(app)=&app_closures{
+        let app_count=crate::validation_work::usize_add(m,app.finalized.len(),app.pending.len())?;
+        let combined=crate::validation_work::usize_add(m,app_count,families.len())?;
+        if crate::validation_work::compare(m,combined,31usize)?.is_gt(){return Err(shape::fail("combined family/app closure bound"));}
+    }
     let mut introduced = plan.operands.introduced.clone();
     let mut closures = vec![];
     let mut checks = vec![];
@@ -1012,7 +1050,24 @@ pub(super) fn execute<'inv>(
             return Err(shape::fail("unused correction pending observation"));
         }
     }
-    let authority = plan.operands.authority_document(m, Some(&checks))?;
+    let authority = if let Some(app)=&app_closures{
+        let base=plan.operands.app_authority_value(m,&checks)?;
+        let arena=m.representation_arena().ok_or_else(||shape::fail("owning parent app closure"))?;
+        let n=crate::validation_work::usize_add(m,app.finalized.len(),app.pending.len())?;
+        crate::validation_work::ValidationWork::arithmetic(m,crate::validation_work::ArithmeticOperation::Multiply,&[&n.into(),&std::mem::size_of::<&Value>().into()])?;
+        let size=n.checked_mul(std::mem::size_of::<&Value>()).ok_or_else(||shape::fail("parent app check metadata"))?;
+        let _metadata=arena.reserve_external_payload(size,m)?;
+        let mut finalized=Vec::new();finalized.try_reserve_exact(app.finalized.len()).map_err(|_|shape::fail("parent finalized check fields"))?;
+        for closed in &app.finalized{m.visit("root.finalized_app_authority_check")?;finalized.push(closed.check.value());}
+        let mut pending=Vec::new();pending.try_reserve_exact(app.pending.len()).map_err(|_|shape::fail("parent pending check fields"))?;
+        for closed in &app.pending{m.visit("root.pending_app_authority_check")?;pending.push(closed.check.value());}
+        let finalized=arena.array_from_values(&finalized,m)?;let pending=arena.array_from_values(&pending,m)?;
+        let value=super::working_value::WorkingValue::copy(m,base.value())?.with_fields(m,&[("app_cost_closure_checks",finalized.value()),("app_pending_cost_closure_checks",pending.value())])?;
+        let mut value=value.into_owned()?;
+        super::intent::sort_owned_set(&mut value,"app_cost_closure_checks",false,m,&arena)?;
+        super::intent::sort_owned_set(&mut value,"app_pending_cost_closure_checks",false,m,&arena)?;
+        body::document_borrowed(m,"workflow-economic-authority",value.value())?
+    }else{plan.operands.authority_document(m, Some(&checks))?};
     let effects = monetary_effects(m, c, &plan, &active)?;
     let mut total = BigInt::from(0);
     for price in &plan.new_prices {
@@ -1023,6 +1078,10 @@ pub(super) fn execute<'inv>(
     for closed in &closures {
         records.push(closed.authority.clone());
     }
+    if let Some(app)=&app_closures{
+        for closed in &app.finalized{m.visit("root.app_finalized_result")?;records.push(closed.authority.clone());if let Some(inverse)=&closed.inverse{records.push(inverse.clone());}records.push(closed.evaluation.clone());records.push(closed.decision.clone());records.push(closed.revision.clone());}
+        for closed in &app.pending{m.visit("root.app_pending_authority_result")?;records.push(closed.authority.clone());}
+    }
     records.push(authority.clone());
     let mut steps = vec![];
     let mut heads = ProposedHeads {
@@ -1030,11 +1089,14 @@ pub(super) fn execute<'inv>(
         family: vec![],
         chain: None,
     };
+    if let Some(app)=&app_closures{
+        for closed in &app.finalized{let value=closed.decision.decoded(m,4194304)?;heads.decision.push((text(m,&value,"decision_id")?.to_owned(),text(m,&value,"revision")?.to_owned(),closed.decision.reference.clone()));}
+    }
     for closed in closures {
         records.extend(closed.records.iter().cloned());
         steps.extend(closed.steps.iter().cloned());
         if let Some(decision) = &closed.decision {
-            let body = codec::parse(m, &decision.canonical_body, 262144)?;
+            let body = decision.decoded(m, 262144)?;
             heads.decision.push((
                 text(m, &body, "decision_id")?.to_owned(),
                 text(m, &body, "revision")?.to_owned(),
@@ -1069,19 +1131,24 @@ pub(super) fn execute<'inv>(
     // explained in their own immutable decision/evaluation records.
     for record in &records {
         if shape::same_text(m, &record.reference.kind, "workflow-action")? {
-            let value = codec::parse(m, &record.canonical_body, 262144)?;
+            let value = record.decoded(m, 262144)?;
             if shape::same(m, &value["decision_id"], &plan.current["decision_id"])? {
                 root_actions.push(record.reference.clone());
             }
         }
     }
     let root_actions = body::ref_set(m, root_actions)?;
+    let dependencies=if let Some(app)=&app_closures{
+        let mut dependencies=vec![];
+        for value in shape::array(m,&plan.current,"dependency_refs")?{let reference=shape::reference(m,value)?;if !app.excludes(m,&reference)?{dependencies.push(reference);}}
+        json!(body::ref_set(m,dependencies)?)
+    }else{plan.current["dependency_refs"].clone()};
     let decision = body::record(
         m,
         &c.key,
         "workflow-decision",
         id,
-        json!({"schema":"ledger-workflow-decision-revision/1","decision_id":plan.current["decision_id"],"revision":plan.next_revision,"prior_ref":plan.current_ref,"subject_ref":plan.work_ref,"kind":"work","transition":if plan.reverse{"work_reverse"}else{"quantity_correct"},"status":if plan.reverse{"reversed"}else{"active"},"original_terms_ref":plan.payload["binding_ref"],"authority_ref":authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":root_actions,"active_action_refs":effects.active,"dependency_refs":plan.current["dependency_refs"],"operation_key":c.key,"accepted_at":c.accepted_at}),
+        json!({"schema":"ledger-workflow-decision-revision/1","decision_id":plan.current["decision_id"],"revision":plan.next_revision,"prior_ref":plan.current_ref,"subject_ref":plan.work_ref,"kind":"work","transition":if plan.reverse{"work_reverse"}else{"quantity_correct"},"status":if plan.reverse{"reversed"}else{"active"},"original_terms_ref":plan.payload["binding_ref"],"authority_ref":authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":root_actions,"active_action_refs":effects.active,"dependency_refs":dependencies,"operation_key":c.key,"accepted_at":c.accepted_at}),
     )?;
     heads.decision.push((
         text(m, &plan.current, "decision_id")?.to_owned(),
@@ -1089,6 +1156,7 @@ pub(super) fn execute<'inv>(
         decision.reference.clone(),
     ));
     records.push(evaluation);
+    if let Some(app)=&app_closures{for pending in &app.pending{m.visit("root.pending_app_retirement_result")?;records.push(pending.retire(m,c,&decision)?);}}
     records.push(decision);
     let prior_ref = state
         .chain_head
@@ -1133,20 +1201,39 @@ pub(super) fn execute<'inv>(
     heads.chain = Some(chain.reference.clone());
     records.push(chain);
     normalize_nomination_sets(m, &mut request)?;
+    let (app_effects,app_heads_owner)=if let Some(app)=&app_closures{
+        let count=app.finalized.len();let per=std::mem::size_of::<AppHeadProposal>()+3*(64+128+71)+155;
+        crate::validation_work::ValidationWork::arithmetic(m,crate::validation_work::ArithmeticOperation::Multiply,&[&count.into(),&per.into()])?;
+        let size=count.checked_mul(per).ok_or_else(||shape::fail("root app head effect metadata"))?;
+        let arena=m.representation_arena().ok_or_else(||shape::fail("owning root app head effects"))?;
+        let owner=arena.reserve_external_payload(size,m)?;
+        let mut app_heads=Vec::new();app_heads.try_reserve_exact(count).map_err(|_|shape::fail("root app head effects vector"))?;
+        for closed in &app.finalized{m.visit("root.app_head_cas_effect")?;app_heads.push(closed.head_proposal(m)?);}
+        (Some(AppEffects{claims:Vec::new(),heads:app_heads}),Some(owner))
+    }else{(None,None)};
     Ok(Construction {
-        normalized_payload: codec::encode(m, &request, 262144)?,
+        original_reservations: None,
+        economic: EconomicConstruction {
+            terms: plan.operands.terms,
+            original_work: OriginalWorkPayload::Retained(plan.work),
+        },
+        normalized_payload: request.bytes(m)?,
         new_envelopes: records,
         evaluation_steps: steps,
         proposed_heads: heads,
         claim_introductions: vec![],
         link_introductions: vec![],
         prospective_obligations: vec![],
-        consumed_refs: body::ref_set(m, r.consumed())?,
+        records: r,
         history_edges: vec![],
+        app_effects,app_causal:app_closures,current_capacity,
+        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[app_heads_owner,None,None,None],
     })
 }
-fn normalize_nomination_sets(m: &mut CoreMeter, p: &mut Value) -> Result<()> {
-    for field in ["dependent_reversals", "family_closures"] {
+fn normalize_nomination_sets(m:&mut CoreMeter,p:&mut super::working_value::WorkingValue)->Result<()> {
+    for key in ["dependent_reversals","family_closures"]{p.normalize_set(m,key,false)?;}Ok(())
+}
+pub(super) fn normalize_object_field(m:&mut CoreMeter,p:&mut Value,field:&str)->Result<()> {
         let values = shape::array(m, p, field)?;
         let mut ordered: Vec<(Vec<u8>, Value)> = vec![];
         for value in values {
@@ -1168,6 +1255,5 @@ fn normalize_nomination_sets(m: &mut CoreMeter, p: &mut Value) -> Result<()> {
             ordered.insert(at, (bytes, value.clone()));
         }
         p[field] = json!(ordered.into_iter().map(|(_, v)| v).collect::<Vec<_>>());
-    }
     Ok(())
 }

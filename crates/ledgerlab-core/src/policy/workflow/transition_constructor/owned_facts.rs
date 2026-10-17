@@ -41,7 +41,7 @@ fn max(work: &mut dyn ValidationWork, a: usize, b: usize) -> Result<usize> {
 // 11 key/value positions, 12 child edges. Two internal-node upper bounds per
 // entry cover retained nodes and a complete split/root transient. FactValue
 // has its own (possibly i128-aligned) layout; do not assume Value's alignment.
-fn typed_entry(
+pub(super) fn typed_entry(
     work: &mut dyn ValidationWork,
     value_size: usize,
     value_align: usize,

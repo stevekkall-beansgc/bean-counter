@@ -8,37 +8,51 @@ mod data;
 #[cfg(test)]
 mod tests;
 pub use data::{
-    AppStateData, AuthorityContextData, CapacityHead, CostHead, CostOwnerHead, DecisionHead,
-    DraftContextData, DraftEnvelope, DraftStateData, DraftTransition, EconomicObservationInput,
-    EconomicRecordView, EconomicStateData, ExactRef, FamilyHead, InvocationHead, OperationKey,
-    PartyAuthorizationHead, ProposedHeads, RecordInput, SavedFinancialInput, SupplierStateData,
+    AuthorityContextData, CapacityHead, DecisionHead, DraftContextData, DraftEnvelope,
+    DraftStateData, DraftTransition, EconomicRecordView, EconomicStateData, ExactRef, FamilyHead,
+    OperationKey, ProposedHeads, RecordInput, SavedFinancialInput,
+    SupplierStateData,AppStateData,InvocationHead,CostHead,CostOwnerHead,
+    PartyAuthorizationHead, EconomicObservationInput,
 };
 mod authority;
 mod body;
 mod construct;
 mod correction;
+mod close;
+mod cost;
+mod app_cost;
+mod cost_postings;
+mod source_authority;
+mod source_projection;
+pub use source_projection::{NominatedSourceFrame,NominatedSourceGrant,validate_app_nominated_sources};
 mod financial_observation;
 pub use financial_observation::audit_stream::{EconomicAuditStream,OriginWitness,RecomputedAuditDigest};
 mod funding;
+mod family_context;
+mod intent;
+pub use intent::normalize_saved_intent;
+mod emitted_record;
 pub(in crate::policy::workflow) mod original_financial;
 mod outcome;
 mod outcome_proofs;
+pub(in crate::policy::workflow) mod owned_facts;
 mod pricing;
+mod record_body;
+mod working_value;
 mod record_index;
 mod records;
 mod root_correction;
-mod shape;
+pub(in crate::policy::workflow) mod shape;
 mod targets;
 pub use construct::{draft_transition, replay_draft};
 #[cfg(test)]
 mod first_work_tests;
 
-mod intent;
 #[cfg(test)]
 mod repair_tests;
 mod representation;
-pub use intent::normalize_saved_intent;
-pub(in crate::policy::workflow) mod owned_facts;
+mod retention;
+pub use retention::{retain_attestation,RetainedAssertionData,RetainedAssertionEnvelope};
 
 #[cfg(test)]
 mod calibration_tests;
@@ -49,12 +63,13 @@ pub use inventory::slots::validate_app_slot_projection;
 pub(in crate::policy::workflow) mod intrinsic_record;
 
 mod candidate;
+mod capacity;
 pub use candidate::{
-    AccountEnrollmentEffect, CandidateEnvelope, CandidateResultKind, CandidateResultMetadata,
-    ClaimEffect, CostLineKey, CustomerLocalFundingEffect, DependencyEffect, DependencyKind,
-    EconomicCandidate, FinancialHeadKey, HeadEffect, LinkEffect, ObservationAssociation,
-    PermanentClaimKey, ProviderAccountIdentity,
+    CandidateEnvelope, ClaimEffect, CustomerLocalFundingEffect, DependencyEffect, DependencyKind,
+    EconomicCandidate, FinancialHeadKey, HeadEffect, LinkEffect, PermanentClaimKey,
+    CandidateResultKind, CandidateResultMetadata, ObservationAssociation,
+    CostLineKey,ProviderAccountIdentity,AccountEnrollmentEffect,
 };
 
-mod source_projection;
-pub use source_projection::{NominatedSourceFrame,NominatedSourceGrant,validate_app_nominated_sources};
+mod economic;
+pub use economic::{construct_economic_candidate,reconstruct_original_candidate};

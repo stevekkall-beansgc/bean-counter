@@ -407,6 +407,15 @@ pub(in crate::policy::workflow::transition_constructor) fn work_claim(
     reference: &ExactRef,
     old: &Value,
 ) -> Result<()> {
+    work_claim_namespace(m,c,reference,old,&c.canonical_economic_namespace)
+}
+pub(in crate::policy::workflow::transition_constructor) fn historical_work_claim(
+    m:&mut CoreMeter,c:&DraftContextData,reference:&ExactRef,old:&Value,work:&Value,
+)->Result<()> {
+    let namespace=shape::text(m,work,"source_namespace")?;
+    work_claim_namespace(m,c,reference,old,namespace)
+}
+fn work_claim_namespace(m:&mut CoreMeter,c:&DraftContextData,reference:&ExactRef,old:&Value,namespace:&str)->Result<()> {
     shape::closed(
         m,
         old,
@@ -426,7 +435,7 @@ pub(in crate::policy::workflow::transition_constructor) fn work_claim(
         ("schema", json!("ledger-workflow-work-claim/1")),
         ("logical_store_id", json!(c.key.logical_store_id)),
         ("scope", json!(c.key.scope)),
-        ("source_namespace", json!(c.canonical_economic_namespace)),
+        ("source_namespace", json!(namespace)),
         ("completion", json!("completion")),
     ] {
         eq(m, old, key, &want)?;
@@ -444,7 +453,7 @@ pub(in crate::policy::workflow::transition_constructor) fn work_claim(
         &json!([
             c.key.logical_store_id,
             c.key.scope,
-            c.canonical_economic_namespace,
+            namespace,
             old["business_operation_id"],
             "completion"
         ]),

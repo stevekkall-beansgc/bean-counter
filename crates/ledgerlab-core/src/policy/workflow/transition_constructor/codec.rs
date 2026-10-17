@@ -29,47 +29,46 @@ fn string_count(m: &mut Meter, s: &str, total: &mut usize, maximum: usize) -> Re
     }
     Ok(())
 }
-fn count(m: &mut Meter, v: &Value, total: &mut usize, maximum: usize, depth: usize) -> Result<()> {
+fn count(m: &mut Meter, v: &Value, total: &mut usize, maximum: usize, depth: usize, formatting:bool) -> Result<()> {
     m.visit("codec.value")?;
     if super::meter::cmp(m, &depth.into(), &32usize.into())?.is_gt() {
         return Err(limit());
     }
     match v {
         Value::Null => return Err(Error::new("INVALID_SHAPE", "null selected body")),
-        Value::Bool(b) => plus(total, if *b { 4 } else { 5 }, maximum)?,
+        Value::Bool(b) => {if formatting{plus(total, if *b { 4 } else { 5 }, maximum)?;}},
         Value::Number(n) => {
             if m.check("codec.integer", || !n.is_i64() && !n.is_u64())? {
                 return Err(Error::new("INVALID_SCALAR", "noninteger JSON"));
             }
-            plus(total, n.to_string().len(), maximum)?;
+            if formatting{plus(total, n.to_string().len(), maximum)?;}
         }
-        Value::String(s) => string_count(m, s, total, maximum)?,
+        Value::String(s) => {if formatting{string_count(m, s, total, maximum)?;}},
         Value::Array(a) => {
-            plus(total, 2, maximum)?;
+            if formatting{plus(total, 2, maximum)?;}
             for (i, v) in a.iter().enumerate() {
                 m.visit("codec.element")?;
-                if i > 0 {
+                if formatting && i > 0 {
                     plus(total, 1, maximum)?;
                 }
                 let next = super::meter::add(m, &depth.into(), &1usize.into())?
                     .to_usize()
                     .ok_or_else(limit)?;
-                count(m, v, total, maximum, next)?;
+                count(m, v, total, maximum, next, formatting)?;
             }
         }
         Value::Object(o) => {
-            plus(total, 2, maximum)?;
+            if formatting{plus(total, 2, maximum)?;}
             for (i, (k, v)) in o.iter().enumerate() {
                 m.visit("codec.field")?;
-                if i > 0 {
+                if formatting && i > 0 {
                     plus(total, 1, maximum)?;
                 }
-                string_count(m, k, total, maximum)?;
-                plus(total, 1, maximum)?;
+                if formatting{string_count(m, k, total, maximum)?;plus(total, 1, maximum)?;}
                 let next = super::meter::add(m, &depth.into(), &1usize.into())?
                     .to_usize()
                     .ok_or_else(limit)?;
-                count(m, v, total, maximum, next)?;
+                count(m, v, total, maximum, next, formatting)?;
             }
         }
     }
@@ -79,7 +78,15 @@ fn count(m: &mut Meter, v: &Value, total: &mut usize, maximum: usize, depth: usi
 /// used the named owning representation path. This borrows, never clones.
 pub(super) fn validate_selected_value(m: &mut Meter, value: &Value, maximum: usize) -> Result<()> {
     let mut n = 0;
-    count(m, value, &mut n, maximum, 0)
+    count(m, value, &mut n, maximum, 0, true)
+}
+/// Structural/type predicates ONLY. This makes no size/canonicality promise.
+/// Records' private owning path must complete the SAME capped canonical emit
+/// and exact raw equality before making the parsed body usable. Legacy and
+/// standalone maximum-enforcing guards keep their original formatting walk.
+pub(super) fn validate_selected_types(m:&mut Meter,value:&Value)->Result<()> {
+    let mut unused=0;
+    count(m,value,&mut unused,usize::MAX,0,false)
 }
 pub(in crate::policy::workflow) fn encode(
     m: &mut Meter,
@@ -103,7 +110,7 @@ pub(in crate::policy::workflow) fn parse(
     // Inspect all structure before typed decode; lexical parser rejects duplicate
     // decoded keys/invalid JSON, while byte-domain accounting covers its scan.
     let mut n = 0;
-    count(m, &value, &mut n, maximum, 0)?;
+    count(m, &value, &mut n, maximum, 0, true)?;
     Ok(value)
 }
 

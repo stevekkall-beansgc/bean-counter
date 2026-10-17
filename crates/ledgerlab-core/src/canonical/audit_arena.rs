@@ -475,11 +475,10 @@ pub struct AuditedValue {
     reservation: Lease,
 }
 impl AuditedValue {
-    pub(crate) fn belongs_to(&self,arena:&AuditArena)->bool {Arc::ptr_eq(&self.reservation.ledger,&arena.ledger)}
-
     pub fn value(&self) -> &Value {
         &self.value
     }
+    pub(crate) fn belongs_to(&self,arena:&AuditArena)->bool {Arc::ptr_eq(&self.reservation.ledger,&arena.ledger)}
     pub fn reserved_bytes(&self) -> usize {
         self.reservation.bytes
     }
@@ -537,6 +536,35 @@ impl AuditedValue {
             }
         }
         Ok(())
+    }
+    /// Fixed interpreter mutation: one existing object field in one existing
+    /// array element. No new node/key and no mutable/extracting Value escape.
+    pub(crate) fn replace_existing_array_field_owned(&mut self,array_key:&str,index:usize,field_key:&str,replacement:AuditedValue,work:&mut dyn ValidationWork)->Result<()> {
+        work.visit(ValidationVisit::Constraint)?;
+        if !Arc::ptr_eq(&self.reservation.ledger,&replacement.reservation.ledger){return Err(failure("different array replacement attempts"));}
+        let combined=add(work,self.reservation.bytes,replacement.reservation.bytes)?;
+        let object=self.value.as_object_mut().ok_or_else(||failure("owned path object"))?;
+        let mut selected=None;
+        for (key,value) in object {
+            work.visit(ValidationVisit::MemberCompare)?;
+            let n=add(work,key.len(),array_key.len())?;work.scan_bytes(n)?;
+            if key==array_key{selected=Some(value);break;}
+        }
+        let array=selected.and_then(Value::as_array_mut).ok_or_else(||failure("owned path array"))?;
+        if !w::compare(work,index,array.len())?.is_lt(){return Err(failure("owned path index"));}
+        work.visit(ValidationVisit::Element)?;
+        let object=array[index].as_object_mut().ok_or_else(||failure("owned path member object"))?;
+        let mut destination=None;
+        for (key,value) in object {
+            work.visit(ValidationVisit::MemberCompare)?;
+            let n=add(work,key.len(),field_key.len())?;work.scan_bytes(n)?;
+            if key==field_key{destination=Some(value);break;}
+        }
+        let destination=destination.ok_or_else(||failure("owned path absent field"))?;
+        work.write_bytes(mem::size_of::<Value>())?;
+        let AuditedValue{value,reservation:mut donor}=replacement;
+        *destination=value;
+        self.reservation.bytes=combined;donor.bytes=0;Ok(())
     }
     /// Move an already owning value into an EXISTING object member. The two
     /// leases must belong to this same attempt; retained bytes are transferred,
@@ -973,8 +1001,11 @@ mod tests {
         let tree = serde_json::json!([null, null, null, null]);
         // Old paid path still reaches its original null refusal; only the
         // separately selected RP01 path has the bounded pre-footprint guard.
-        let legacy=arena.canonical_bytes(&tree,&mut NoopValidationWork,2).err().unwrap();
-        assert_eq!(legacy.code,"INVALID_SHAPE");
+        let legacy = arena
+            .canonical_bytes(&tree, &mut NoopValidationWork, 2)
+            .err()
+            .unwrap();
+        assert_eq!(legacy.code, "INVALID_SHAPE");
         let error = arena
             .canonical_representation_bytes(&tree, &mut NoopValidationWork, 2)
             .err()

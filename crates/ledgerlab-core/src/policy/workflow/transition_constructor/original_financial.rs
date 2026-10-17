@@ -419,6 +419,17 @@ pub(in crate::policy::workflow) fn reconstruct_original_financial(
     program: &SelectedProgram,
     saved: &SavedFinancialData<'_>,
 ) -> Result<ReconstructedFinancialData> {
+    let result = reconstruct_original_inner(session, program, saved);
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
+}
+fn reconstruct_original_inner(
+    session: &mut crate::validation_work::OriginalAuditSession,
+    program: &SelectedProgram,
+    saved: &SavedFinancialData<'_>,
+) -> Result<ReconstructedFinancialData> {
     let m = session.meter_mut();
     let preliminary = codec::parse(m, &saved.operation.canonical_body, 4194304)?;
     shape::closed(
@@ -640,7 +651,7 @@ mod tests {
         .unwrap();
         let row = RecordInput {
             reference: value.reference.clone(),
-            canonical_body: value.canonical_body,
+            canonical_body: value.canonical_body.into_legacy().unwrap(),
         };
         let pool = vec![row.clone()];
         assert!(

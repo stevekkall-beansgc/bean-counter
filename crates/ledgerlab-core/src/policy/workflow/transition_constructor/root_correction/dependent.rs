@@ -2,14 +2,15 @@
 //! that family's nominated correction authority. No replacement outcome is
 //! asserted: the only possible money here is exact inverses of active actions.
 use super::super::correction;
+use super::super::emitted_record::ConstructedEnvelope;
 use super::causal::FamilyPlan;
 use super::*;
 pub(super) struct ClosedFamily {
     pub family: FamilyPlan,
-    pub introduced: Vec<DraftEnvelope>,
-    pub authority: DraftEnvelope,
-    pub decision: Option<DraftEnvelope>,
-    pub records: Vec<DraftEnvelope>,
+    pub introduced: Vec<ConstructedEnvelope>,
+    pub authority: ConstructedEnvelope,
+    pub decision: Option<ConstructedEnvelope>,
+    pub records: Vec<ConstructedEnvelope>,
     pub steps: Vec<Value>,
     pub source_slot: String,
 }
@@ -27,7 +28,7 @@ pub(super) fn build(
     program: &SelectedProgram,
     root: &RootPlan,
     f: FamilyPlan,
-    already: &[DraftEnvelope],
+    already: &[ConstructedEnvelope],
 ) -> Result<ClosedFamily> {
     let source_slot = text(m, &f.family, "correction_source_slot")?.to_owned();
     let local = slot_context(m, r, c, &source_slot, already)?;
@@ -125,7 +126,17 @@ pub(super) fn build(
     };
     let token = InvocationToken::new();
     let times = ParsedDraftTimes::parse(m, &token, &c.received_at, &c.accepted_at)?;
-    let operands = authority::economic(
+    if m.representation_arena().is_some(){
+        if let (Some((_,old,_)),Some((claim_ref,claim)))=(&f.dependent,&claim){
+            let decision_id=text(m,old,"decision_id")?;
+            correction::verify_original_claim_namespace(m,r,&local,claim_ref,claim,decision_id,&root.payload["binding_ref"])?;
+        }
+    }
+    let mode=if root.reverse{EconomicMode::WorkReverse}else{EconomicMode::QuantityCorrect};
+    let namespace=text(m,&root.work,"source_namespace")?;
+    let operands = if m.representation_arena().is_some(){authority::economic_original(
+        m,r,&local,&p,&current_activity,product,&token,&times,program,mode,&[],namespace,
+    )?}else{authority::economic(
         m,
         r,
         &local,
@@ -141,7 +152,7 @@ pub(super) fn build(
             EconomicMode::QuantityCorrect
         },
         &[],
-    )?;
+    )?};
     equal(
         m,
         &json!(operands.slot_terms_ref),
@@ -342,7 +353,7 @@ impl ClosedFamily {
         c: &DraftContextData,
         root: &RootPlan,
         authority: &ExactRef,
-    ) -> Result<(DraftEnvelope, String)> {
+    ) -> Result<(ConstructedEnvelope, String)> {
         let revision = counter(m, &self.family.prior, "revision")?;
         let revision = meter::add(m, &revision, &1.into())?.to_string();
         let slot = text(m, &self.family.prior, "family_slot")?;

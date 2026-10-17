@@ -33,9 +33,11 @@ pub struct EconomicRecordView<'a> {
 pub struct SavedFinancialInput<'a> {
     pub operation: EconomicRecordView<'a>,
     pub original_request_bytes: &'a [u8],
+    pub original_context: &'a DraftContextData,
     pub activation_ref: &'a ExactRef,
     pub original_state: &'a EconomicStateData<'a>,
     pub original_inputs: &'a [EconomicRecordView<'a>],
+    pub introduced_results: &'a [EconomicRecordView<'a>],
 }
 #[derive(Clone, Debug)]
 pub struct DraftContextData {
@@ -141,6 +143,7 @@ pub struct EconomicStateData<'a> {
     pub app:Option<&'a AppStateData<'a>>,
     pub current_party_authorizations:&'a [PartyAuthorizationHead],
     pub observation:Option<&'a EconomicObservationInput<'a>>,
+    pub audit:Option<&'a super::financial_observation::audit_stream::RecomputedAuditDigest<'a>>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct DraftStateData {
@@ -180,31 +183,78 @@ pub struct DraftTransition {
 /// Internal output of the one economic interpreter, before either a legacy
 /// DATA projection or complete capacity/resource/funding derivation. It is not
 /// a DraftTransition and exposes no host capability or public conversion.
-pub(super) struct Construction {
-    pub normalized_payload: Vec<u8>,
-    pub new_envelopes: Vec<DraftEnvelope>,
+/// The exact original financial operands already checked by the interpreter.
+/// These private DATA facts carry no host origin/currentness capability; they
+/// stay attached to the SAME construction for funding/prospective derivation.
+pub(super) enum OriginalWorkPayload {
+    New(super::working_value::WorkingValue),
+    Retained(super::record_body::RecordBody),
+}
+impl OriginalWorkPayload {
+    pub(super) fn payload(&self) -> &serde_json::Value {
+        match self {
+            Self::New(value) => value,
+            // Every retained constructor path established the closed WorkRecord
+            // and its original payload before creating this private variant.
+            Self::Retained(work) => &work["payload"],
+        }
+    }
+}
+pub(super) struct EconomicConstruction {
+    pub terms: super::authority::Terms,
+    pub original_work: OriginalWorkPayload,
+}
+pub(super) struct AppHeadProposal {
+    pub claim_ref:ExactRef,
+    pub expected:Option<ExactRef>,
+    pub proposed:ExactRef,
+    pub revision:String,
+}
+pub(super) struct AppEffects {
+    pub claims:Vec<super::candidate::ClaimEffect>,
+    pub heads:Vec<AppHeadProposal>,
+}
+pub(super) struct Construction<'inv, 'raw> {
+    pub economic: EconomicConstruction,
+    pub original_reservations: Option<super::capacity::original::OriginalReservations>,
+    pub normalized_payload: super::emitted_record::EncodedBody,
+    pub new_envelopes: Vec<super::emitted_record::ConstructedEnvelope>,
     pub evaluation_steps: Vec<serde_json::Value>,
     pub proposed_heads: ProposedHeads,
     pub claim_introductions: Vec<ExactRef>,
     pub link_introductions: Vec<ExactRef>,
     pub prospective_obligations: Vec<serde_json::Value>,
-    pub consumed_refs: Vec<ExactRef>,
+    pub records: super::records::Records<'inv, 'raw>,
     pub history_edges: Vec<(ExactRef, ExactRef)>,
+    pub app_effects:Option<AppEffects>,
+    pub app_causal:Option<super::app_cost::causal::CausalBatch>,
+    pub current_capacity:Option<super::capacity::current::CurrentCapacity>,
+    pub candidate_heads:Option<super::candidate::heads::OwnedHeads>,
+    pub candidate_introductions:Option<super::candidate::introductions::OwnedIntroductions>,
+    pub financial_observation:Option<super::financial_observation::complete::CheckedObservation>,
+    pub funding_effects:Option<super::funding::OwnedFundingEffects>,
+    // Retain each producer's control payload owner after its returned vectors,
+    // typed Ref/string fields and body owners. These are memory only.
+    pub control_owners:[Option<crate::canonical::audit_arena::ExternalBufferLease>;4],
 }
-impl Construction {
+impl Construction<'_, '_> {
     pub(super) fn draft_projection(
         self,
         m: &mut super::CoreMeter,
     ) -> crate::Result<DraftTransition> {
         Ok(DraftTransition {
-            normalized_payload: self.normalized_payload,
-            new_envelopes: self.new_envelopes,
+            normalized_payload: self.normalized_payload.into_legacy()?,
+            new_envelopes: self
+                .new_envelopes
+                .into_iter()
+                .map(|v| v.into_legacy())
+                .collect::<crate::Result<_>>()?,
             evaluation_steps: self.evaluation_steps,
             proposed_heads: self.proposed_heads,
             claim_introductions: self.claim_introductions,
             link_introductions: self.link_introductions,
             prospective_obligations: self.prospective_obligations,
-            consumed_refs: self.consumed_refs,
+            consumed_refs: super::body::ref_set(m, self.records.into_legacy_consumed()?)?,
             history_edges: self.history_edges,
             usage: m.snapshot_usage()?,
             unresolved_admission_obligations: UNRESOLVED_ADMISSION_OBLIGATIONS,

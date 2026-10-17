@@ -2,12 +2,13 @@
 //! only from the shared constructor's original program/authority and newly
 //! built work decision. These are not reservation or admission certificates.
 use super::super::selected_program::SelectedProgram;
+use super::emitted_record::ConstructedEnvelope;
 use super::{
     CoreMeter,
     arithmetic::{self, Ratio},
     authority::Operands,
     body, codec,
-    data::{DraftContextData, DraftEnvelope, ExactRef},
+    data::{DraftContextData, ExactRef},
     meter, shape,
 };
 use crate::{Error, Result, domain::Timestamp};
@@ -30,7 +31,7 @@ macro_rules! call {
     }};
 }
 pub(super) struct Targets {
-    pub records: Vec<DraftEnvelope>,
+    pub records: Vec<ConstructedEnvelope>,
     pub heads: Vec<(ExactRef, String, String, ExactRef)>,
     pub obligations: Vec<Value>,
 }
@@ -206,10 +207,10 @@ pub(super) fn build(
     c: &DraftContextData,
     payload: &Value,
     operands: &Operands,
-    work: &DraftEnvelope,
-    claim: &DraftEnvelope,
-    decision: &DraftEnvelope,
-    actions: &[DraftEnvelope],
+    work: &ConstructedEnvelope,
+    claim: &ConstructedEnvelope,
+    decision: &ConstructedEnvelope,
+    actions: &[ConstructedEnvelope],
     m: &mut CoreMeter,
 ) -> Result<Targets> {
     let plan = program.compiled_plan().canonical_value();
@@ -288,7 +289,7 @@ pub(super) fn build(
         let mut net = BigInt::from(0);
         for action in actions {
             m.visit("target.original_action")?;
-            let a = codec::parse(m, &action.canonical_body, 4194304)?;
+            let a = action.decoded(m, 4194304)?;
             if !call!(
                 shape::same_text,
                 m,

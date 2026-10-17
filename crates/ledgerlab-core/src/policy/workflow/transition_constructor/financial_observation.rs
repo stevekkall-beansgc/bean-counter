@@ -4,6 +4,7 @@
 use super::{CoreMeter, arithmetic, body, codec, data::*, meter, records::Records, shape};
 use crate::{Result, canonical};
 use serde_json::{Value, json};
+pub(super) mod complete;
 pub(super) mod audit_stream;
 macro_rules! call {
     ($f:path,$m:expr,$a:expr) => {{

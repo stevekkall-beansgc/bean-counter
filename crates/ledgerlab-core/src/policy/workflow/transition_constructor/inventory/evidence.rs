@@ -1,3 +1,5 @@
+use super::super::emitted_record::ConstructedEnvelope;
+use super::super::record_body::RecordBody;
 use super::super::{
     CoreMeter,
     data::*,
@@ -111,7 +113,7 @@ pub(in crate::policy::workflow::transition_constructor) fn root(
     before_key: &str,
     expected_actor: &Value,
     expected_source: Option<&Value>,
-) -> Result<Value> {
+) -> Result<RecordBody> {
     #[cfg(test)]
     {
         return m.diagnostic_scope("inventory::evidence::root", |m| {
@@ -151,7 +153,7 @@ fn root_data(
     before_key: &str,
     expected_actor: &Value,
     expected_source: Option<&Value>,
-) -> Result<Value> {
+) -> Result<RecordBody> {
     let root = invoke!(
         load,
         m,
@@ -317,15 +319,27 @@ fn retained_data(
     if !text && !invoke!(shape::same_text, m, media, "application/octet-stream")? {
         return Err(shape::fail("evidence media type"));
     }
-    let bytes = invoke!(decode, m, invoke!(shape::text, m, e, "content_base64")?)?;
-    if text {
-        m.scan_bytes(bytes.len())?;
-        m.visit("evidence.utf8_constraint")?;
-        std::str::from_utf8(&bytes).map_err(|_| shape::fail("evidence text encoding"))?;
+    if let Some(arena)=m.representation_arena(){
+        use crate::validation_work::RepresentationKind;
+        let encoded=shape::text(m,e,"content_base64")?;
+        let bytes=m.decode_owned_base64_representation(&arena,encoded,RepresentationKind::EvidenceContent)?;
+        if text{m.scan_bytes(bytes.bytes().len())?;m.visit("evidence.utf8_constraint")?;std::str::from_utf8(bytes.bytes()).map_err(|_|shape::fail("evidence text encoding"))?;}
+        let digest=m.hash_owned_representation(&arena,bytes.bytes(),RepresentationKind::EvidenceContent)?;
+        let _scratch=arena.reserve_external_payload(64,m)?;
+        let hash=canonical::hex_with_work(&digest,m)?;
+        let expected=shape::text(m,e,"content_sha256")?;
+        if !shape::same_text(m,&hash,expected)?{return Err(shape::fail("retained evidence raw content digest"));}
+    }else{
+        let bytes = invoke!(decode, m, invoke!(shape::text, m, e, "content_base64")?)?;
+        if text {
+            m.scan_bytes(bytes.len())?;
+            m.visit("evidence.utf8_constraint")?;
+            std::str::from_utf8(&bytes).map_err(|_| shape::fail("evidence text encoding"))?;
+        }
+        m.hash_bytes(bytes.len())?;
+        let hash = canonical::hex_with_work(&Sha256::digest(&bytes), m)?;
+        invoke!(eq, m, e, "content_sha256", &json!(hash))?;
     }
-    m.hash_bytes(bytes.len())?;
-    let hash = canonical::hex_with_work(&Sha256::digest(&bytes), m)?;
-    invoke!(eq, m, e, "content_sha256", &json!(hash))?;
     invoke!(before, m, e, "retained_at", before_doc, before_key)?;
     invoke!(
         root,

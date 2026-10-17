@@ -68,44 +68,49 @@ fn multiply(m: &mut CoreMeter, a: usize, b: usize) -> Result<usize> {
 }
 /// SAME insertion ordering as the constructor's named-proof and nomination
 /// normalization, with owned key bytes and moves instead of Value clones.
-fn sort_set(
+fn sort_set(payload:&mut AuditedValue,key:&str,field_key:bool,session:&mut OriginalAuditSession)->Result<()> {
+    let arena=session.arena().shared_handle();
+    sort_owned_set(payload,key,field_key,session.meter_mut(),&arena)
+}
+pub(super) fn sort_owned_set(
     payload: &mut AuditedValue,
     key: &str,
     field_key: bool,
-    session: &mut OriginalAuditSession,
+    m:&mut CoreMeter,
+    arena:&crate::canonical::audit_arena::AuditArena,
 ) -> Result<()> {
-    let items = shape::array(session.meter_mut(), payload.value(), key)?;
+    let items = shape::array(m, payload.value(), key)?;
     let n = items.len();
     let vector = multiply(
-        session.meter_mut(),
+        m,
         n,
         mem::size_of::<(usize, AuditedBytes)>(),
     )?;
-    let permutation = multiply(session.meter_mut(), n, mem::size_of::<usize>())?;
-    let bytes = w::usize_add(session.meter_mut(), vector, permutation)?;
-    let headers = multiply(session.meter_mut(), 2, mem::size_of::<Vec<usize>>())?;
-    let bytes = w::usize_add(session.meter_mut(), bytes, headers)?;
+    let permutation = multiply(m, n, mem::size_of::<usize>())?;
+    let bytes = w::usize_add(m, vector, permutation)?;
+    let headers = multiply(m, 2, mem::size_of::<Vec<usize>>())?;
+    let bytes = w::usize_add(m, bytes, headers)?;
     // Declare the lease before owned vectors; reverse local drop order destroys
     // all metadata/key owners first on every error and successful return.
-    let _metadata = session.reserve_external_payload(bytes)?;
+    let _metadata = arena.reserve_external_payload(bytes,m)?;
     let mut ordered: Vec<(usize, AuditedBytes)> = Vec::new();
     ordered
         .try_reserve_exact(n)
         .map_err(|_| shape::fail("retry key allocation"))?;
     for (index, item) in items.iter().enumerate() {
-        session.meter_mut().visit("intent.normalized_set_member")?;
+        m.visit("intent.normalized_set_member")?;
         let value = if field_key {
-            shape::field(session.meter_mut(), item, "field")?
+            shape::field(m, item, "field")?
         } else {
             item
         };
-        let bytes = session.canonical_representation(value, RepresentationKind::OriginalRequest)?;
+        let bytes = m.canonical_owned_representation(arena,value, RepresentationKind::OriginalRequest)?;
         let mut at = ordered.len();
         for (i, (_, prior)) in ordered.iter().enumerate() {
-            session.meter_mut().visit("intent.normalized_set_compare")?;
-            let order = shape::byte_order(session.meter_mut(), bytes.bytes(), prior.bytes())?;
-            if field_key && order.is_eq() {
-                return Err(shape::fail("duplicate proof field"));
+            m.visit("intent.normalized_set_compare")?;
+            let order = shape::byte_order(m, bytes.bytes(), prior.bytes())?;
+            if order.is_eq() {
+                return Err(shape::fail("duplicate normalized set member"));
             }
             if !order.is_gt() {
                 at = i;
@@ -113,10 +118,10 @@ fn sort_set(
             }
         }
         for _ in at..ordered.len() {
-            session.meter_mut().visit("intent.normalized_set_move")?;
+            m.visit("intent.normalized_set_move")?;
             let bytes = mem::size_of::<(usize, AuditedBytes)>();
-            session.meter_mut().scan_bytes(bytes)?;
-            session.meter_mut().write_bytes(bytes)?;
+            m.scan_bytes(bytes)?;
+            m.write_bytes(bytes)?;
         }
         ordered.insert(at, (index, bytes));
     }
@@ -125,15 +130,15 @@ fn sort_set(
         .try_reserve_exact(n)
         .map_err(|_| shape::fail("retry permutation allocation"))?;
     for _ in 0..n {
-        session.meter_mut().visit("intent.permutation_element")?;
+        m.visit("intent.permutation_element")?;
         destination.push(0usize);
     }
     for (new, (old, _)) in ordered.iter().enumerate() {
-        session.meter_mut().visit("intent.permutation_position")?;
-        session.meter_mut().write_bytes(mem::size_of::<usize>())?;
+        m.visit("intent.permutation_position")?;
+        m.write_bytes(mem::size_of::<usize>())?;
         destination[*old] = new;
     }
-    payload.reorder_existing_array(key, &mut destination, session.meter_mut())
+    payload.reorder_existing_array(key, &mut destination, m)
 }
 fn normalized(
     program: &SelectedProgram,
@@ -178,6 +183,34 @@ fn normalized(
         // these complete object sets. No pricing or current authority occurs.
         sort_set(incoming, "dependent_reversals", false, session)?;
         sort_set(incoming, "family_closures", false, session)?;
+    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-finalize/2")?
+        ||shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-correct/2")?
+        ||shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-app-observe/1")?
+        ||shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-app-cost-attest/1")? {
+        super::app_cost::normalize_intent(program,incoming,session.meter_mut())?;
+    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-finalize/1")?
+        || shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-correct/1")? {
+        if !program.uses_owner_local_cost_recipe(){return Err(conflict());}
+        let mut value=super::working_value::WorkingValue::copy(session.meter_mut(),incoming.value())?;
+        super::cost::normalize_request(session.meter_mut(),&mut value)?;
+        *incoming=value.into_owned()?;
+    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-outcome-close/2")? {
+        if !program.uses_family_close_recipe(){return Err(conflict());}
+        let revision=shape::text(session.meter_mut(),incoming.value(),"expected_revision")?;
+        let revision=super::super::facts::counter_with_work(revision,session.meter_mut())?;
+        if !w::compare(session.meter_mut(),revision,0u64)?.is_gt(){return Err(shape::fail("positive close intent revision"));}
+        let arena=session.arena().shared_handle();
+        let value=super::close::counter_value(session.meter_mut(),&arena,revision)?;
+        incoming.replace_existing_owned("expected_revision",value,session.meter_mut())?;
+        sort_set(incoming,"evidence_refs",false,session)?;
+    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-fact-attest/1")?
+        || shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-family-close-attest/1")? {
+        let close=shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-family-close-attest/1")?;
+        if close && !program.uses_family_close_recipe(){return Err(conflict());}
+        let att=shape::field(session.meter_mut(),incoming.value(),"attestation")?;
+        let arena=session.arena().shared_handle();
+        let normalized=super::retention::normalize_assertion(session.meter_mut(),&arena,program,att,close)?;
+        incoming.replace_existing_owned("attestation",normalized,session.meter_mut())?;
     } else if !shape::same_text(
         session.meter_mut(),
         old_schema,

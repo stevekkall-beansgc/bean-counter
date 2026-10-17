@@ -172,11 +172,16 @@ fn validate_data(
         |m| schema.validate_context_schema_with_work(m),
     )?;
     let facts = data_field!(m, context, "facts");
-    let normalized = m.scoped(
-        "FactSchema::normalize_value_with_work.accepted_context",
-        |m| schema.normalize_value_with_work(facts, m),
-    )?;
-    invoke!(eq, m, context, "facts", normalized.canonical_value())?;
+    if let Some(arena)=m.representation_arena(){
+        let normalized=super::super::owned_facts::normalize(&arena,m,schema,facts)?;
+        invoke!(eq,m,context,"facts",normalized.facts().canonical_value())?;
+    }else{
+        let normalized = m.scoped(
+            "FactSchema::normalize_value_with_work.accepted_context",
+            |m| schema.normalize_value_with_work(facts, m),
+        )?;
+        invoke!(eq, m, context, "facts", normalized.canonical_value())?;
+    }
     let provenance = data_field!(m, &publication, "provenance");
     invoke!(
         shape::closed,

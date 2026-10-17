@@ -19,11 +19,11 @@ const INPUTS: &[&str] = &[
     "quantity_ceilings",
     "exposure_ceilings",
 ];
-pub(super) fn string(m: &mut CoreMeter, v: &Value, maximum: usize) -> Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn string(m: &mut CoreMeter, v: &Value, maximum: usize) -> Result<()> {
     let text = v.as_str().ok_or_else(|| shape::fail("bounded string"))?;
     bounds(m, text.len(), 1, maximum)
 }
-pub(super) fn id(m: &mut CoreMeter, v: &Value, maximum: usize) -> Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn id(m: &mut CoreMeter, v: &Value, maximum: usize) -> Result<()> {
     string(m, v, maximum)?;
     for ch in v.as_str().expect("string checked").chars() {
         m.scan_bytes(ch.len_utf8())?;
@@ -76,13 +76,13 @@ pub(super) fn inputs(m: &mut CoreMeter, v: &Value, assented: bool) -> Result<()>
     #[cfg(test)]
     {
         return m.diagnostic_scope("inventory::binding::inputs", |m| {
-            inputs_data(m, v, assented)
+            inputs_data(m, v, assented, false)
         });
     }
     #[cfg(not(test))]
-    inputs_data(m, v, assented)
+    inputs_data(m, v, assented, false)
 }
-fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool) -> Result<()> {
+fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result<()> {
     let mut required = INPUTS.to_vec();
     if !assented {
         required.extend(["assent_refs", "authority_refs"]);
@@ -129,17 +129,8 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool) -> Result<()> {
         bounds(m, kinds.len(), 0, 5)?;
         ordered(m, kinds)?;
         for kind in kinds {
-            one_of(
-                m,
-                kind.as_str().ok_or_else(|| shape::fail("evidence kind"))?,
-                &[
-                    "occurrence",
-                    "outcome",
-                    "supplier_final_cost",
-                    "meter_quantity",
-                    "allocation_input",
-                ],
-            )?;
+            let allowed=if app{&["occurrence","outcome","supplier_final_cost","meter_quantity","allocation_input","app_usage","app_final_cost"][..]}else{&["occurrence","outcome","supplier_final_cost","meter_quantity","allocation_input"][..]};
+            one_of(m,kind.as_str().ok_or_else(||shape::fail("evidence kind"))?,allowed)?;
         }
     }
     let bindings = invoke!(shape::array, m, v, "bindings")?;
@@ -160,7 +151,11 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool) -> Result<()> {
             &["provider", "supplier_binding_slot"],
         )?;
         invoke!(qualified, m, invoke!(shape::text, m, leg, "name")?)?;
-        eq(m, leg, "mode", &json!("customer_local"))?;
+        if app{
+            let mode=shape::text(m,leg,"mode")?;
+            one_of(m,mode,&["customer_local","platform"])?;
+            if leg.get("supplier_binding_slot").is_some(){return Err(shape::fail("app funding cannot introduce AP slot"));}
+        }else{eq(m, leg, "mode", &json!("customer_local"))?;}
         invoke!(
             shape::named,
             m,
@@ -221,27 +216,44 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
     #[cfg(test)]
     {
         return m.diagnostic_scope("inventory::binding::validate", |m| {
-            validate_data(m, b, terms)
+            validate_data(m, b, terms, false)
         });
     }
     #[cfg(not(test))]
-    validate_data(m, b, terms)
+    validate_data(m, b, terms, false)
 }
-fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value) -> Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn validate_app(m:&mut CoreMeter,b:&Value,terms:&Value)->Result<()> {
+    let schema=shape::text(m,b,"schema")?;
+    if !shape::same_text(m,schema,"ledger-workflow-binding/2")?{return Err(shape::fail("app binding schema"));}
+    let schema=shape::text(m,terms,"schema")?;
+    if !shape::same_text(m,schema,"ledger-workflow-acceptance-terms/2")?{return Err(shape::fail("app acceptance terms schema"));}
+    validate_data(m,b,terms,true)
+}
+fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app:bool) -> Result<()> {
     // Projection creates no trusted document. Every consumed input field still
     // enters the paid closed declaration validator and exact terms comparison.
-    let mut projected = serde_json::Map::new();
-    for field in INPUTS
-        .iter()
-        .copied()
-        .chain(["assent_refs", "authority_refs", "ends_at"])
-    {
-        m.visit("inventory.binding_input_projection")?;
-        if let Some(value) = b.get(field) {
-            projected.insert(field.into(), value.clone());
+    if let Some(arena)=m.representation_arena(){
+        use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+        let n=w::usize_add(m,INPUTS.len(),3)?;
+        let item=std::mem::size_of::<(&str,&Value)>();
+        ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&item.into()])?;
+        let bytes=n.checked_mul(item).ok_or_else(||shape::fail("binding projection metadata"))?;
+        let _metadata=arena.reserve_external_payload(bytes,m)?;
+        let mut fields=Vec::new();fields.try_reserve_exact(n).map_err(|_|shape::fail("binding projection allocation"))?;
+        for field in INPUTS.iter().copied().chain(["assent_refs","authority_refs","ends_at"]){
+            m.visit("inventory.binding_input_projection")?;
+            if let Some(value)=b.get(field){fields.push((field,value));}
         }
+        let projected=arena.object_from_fields(&fields,m)?;
+        if app{inputs_data(m,projected.value(),false,true)?;}else{inputs(m,projected.value(),false)?;}
+    }else{
+        let mut projected = serde_json::Map::new();
+        for field in INPUTS.iter().copied().chain(["assent_refs", "authority_refs", "ends_at"]){
+            m.visit("inventory.binding_input_projection")?;
+            if let Some(value) = b.get(field) {projected.insert(field.into(), value.clone());}
+        }
+        inputs(m, &Value::Object(projected), false)?;
     }
-    inputs(m, &Value::Object(projected), false)?;
     shape::closed(
         m,
         terms,
@@ -257,7 +269,7 @@ fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value) -> Result<()> {
         &[],
     )?;
     let signed = data_field!(m, terms, "binding_inputs");
-    inputs(m, signed, true)?;
+    if app{inputs_data(m,signed,true,true)?;}else{inputs(m, signed, true)?;}
     for field in INPUTS {
         invoke!(copy, m, signed, field, b, field)?;
     }

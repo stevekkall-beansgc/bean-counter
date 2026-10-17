@@ -1,6 +1,8 @@
 //! Shared fresh/replay pure draft. Unsupported selected branches refuse; no
 //! financial append capability is created by this module.
 use super::super::selected_program::SelectedProgram;
+use super::emitted_record::ConstructedEnvelope;
+use super::records::SuppliedRecords;
 use super::{
     CoreMeter, Phase, arithmetic, authority, body, codec,
     data::*,
@@ -27,7 +29,16 @@ pub fn draft_transition(
     m: &mut CoreMeter,
 ) -> Result<DraftTransition> {
     m.enter_draft()?;
-    execute(program, c, payload, inputs, state, m, None)?.draft_projection(m)
+    execute(
+        program,
+        c,
+        payload,
+        SuppliedRecords::Legacy(inputs),
+        state,
+        m,
+        None,
+    )?
+    .draft_projection(m)
 }
 /// A separate pure DATA entry. Intrinsic evidence is not a host origin proof;
 /// outputs retain all unresolved admission gates. New/unmatched evidence still
@@ -47,7 +58,7 @@ pub(in crate::policy::workflow) fn draft_with_intrinsic_evidence<'inv>(
         program,
         c,
         payload,
-        inputs,
+        SuppliedRecords::Legacy(inputs),
         state,
         m,
         Some((owner, evidence)),
@@ -70,21 +81,56 @@ pub(in crate::policy::workflow) fn replay_with_intrinsic_evidence<'inv>(
     compare_drafts(&draft, expected, m)?;
     Ok(draft)
 }
-pub(super) fn execute<'inv>(
+pub(super) fn execute<'inv, 'raw>(
     program: &SelectedProgram,
-    c: &DraftContextData,
+    c: &'raw DraftContextData,
     payload: &[u8],
-    inputs: &[RecordInput],
+    inputs: SuppliedRecords<'raw>,
     state: &DraftStateData,
     m: &mut CoreMeter,
     intrinsic: Option<(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
-) -> Result<Construction> {
+) -> Result<Construction<'inv, 'raw>> {
     m.begin_request(payload)?;
     m.phase(Phase::ParseNormalize);
-    let mut p = codec::parse(m, payload, 262144)?;
+    let mut p = super::working_value::WorkingValue::parse(m, payload)?;
+    execute_parsed(program,c,p,inputs,state,None,m,intrinsic)
+}
+/// SAME monetary interpreter with the actual held extra app/capacity/party
+/// state. No caller-ready flag and no independent meter/budget is introduced.
+pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,payload:&[u8],inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData,m:&mut CoreMeter)->Result<Construction<'raw,'raw>>{
+    m.begin_request(payload)?;m.phase(Phase::ParseNormalize);
+    let p=super::working_value::WorkingValue::parse(m,payload)?;
+    let arena=m.representation_arena().ok_or_else(||shape::fail("complete constructor requires owning resource session"))?;
+    if program.uses_app_owned_cost_recipe(){
+        let schema=shape::text(m,&p,"schema")?;
+        if shape::same_text(m,schema,"ledger-workflow-cost-finalize/2")?||shape::same_text(m,schema,"ledger-workflow-cost-correct/2")?{
+            let mut construction=super::app_cost::produce_parsed(program,c,p,inputs,state,m)?.into_construction(c,m)?;
+            construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
+            construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
+            construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,&mut construction,c,state)?);
+            construction.funding_effects=Some(super::funding::construction_effect(m,program,c,state,&mut construction)?);
+            return Ok(construction);
+        }
+    }
+    let mut construction=execute_parsed(program,c,p,SuppliedRecords::BorrowedApp{records:inputs,arena},state.financial,Some(state),m,None)?;
+    if program.uses_app_owned_cost_recipe(){super::app_cost::check_current_consent(program,m,&mut construction.records,c,&construction.economic.terms.binding,&construction.economic.terms.accepted,state)?;}
+    construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
+    construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
+    if program.uses_app_owned_cost_recipe(){
+        construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,&mut construction,c,state)?);
+        construction.funding_effects=Some(super::funding::construction_effect(m,program,c,state,&mut construction)?);
+    }
+    Ok(construction)
+}
+fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,mut p:super::working_value::WorkingValue,inputs:SuppliedRecords<'raw>,state:&DraftStateData,complete_state:Option<&EconomicStateData>,m:&mut CoreMeter,intrinsic:Option<(&'inv super::intrinsic_record::IntrinsicDataScope,&[&'inv super::intrinsic_record::IntrinsicRecord<'inv>])>)->Result<Construction<'inv,'raw>>{
+    if m.representation_arena().is_some() {
+        if shape::same(m,&p["schema"],&json!("ledger-workflow-outcome-close/2"))? {
+            return super::close::execute(program,c,p,inputs,state,m,intrinsic);
+        }
+    }
     if shape::same(
         m,
         &p["schema"],
@@ -102,6 +148,7 @@ pub(super) fn execute<'inv>(
             &json!("ledger-workflow-quantity-correction/2"),
         )? || shape::same(m, &p["schema"], &json!("ledger-workflow-work-reverse/2"))?
         {
+            if let Some(complete)=complete_state{return super::root_correction::execute_complete(program,c,p,inputs,complete,m);}
             return super::root_correction::execute(program, c, p, inputs, state, m, intrinsic);
         }
         return Err(unsupported(
@@ -204,13 +251,11 @@ pub(super) fn execute<'inv>(
     }
     let schema = schema.ok_or_else(|| shape::fail("original fact schema"))?;
     let normalized = m.scoped("FactSchema::normalize_value_with_work.work_facts", |m| {
-        schema.normalize_value_with_work(&p["facts"], m)
+        super::working_value::NormalizedInput::normalize(m,schema,&p["facts"])
     })?;
-    p["facts"] = normalized.canonical_value().clone();
-    let normalized_payload = codec::encode(m, &p, 262144)?;
-    let mut pool = inputs.to_vec();
-    pool.extend_from_slice(&c.source_observation_inputs);
-    let mut r = Records::new(m, &pool)?;
+    p.replace(m,"facts",normalized.canonical_value())?;
+    let normalized_payload = p.bytes(m)?;
+    let mut r = inputs.resolve(m, &c.key, &c.source_observation_inputs)?;
     if let Some((owner, evidence)) = intrinsic {
         r = r.with_intrinsic_evidence(m, &c.key, owner, evidence)?;
     }
@@ -306,7 +351,7 @@ pub(super) fn execute<'inv>(
         total = meter::add(m, &total, &price.atoms.into())?;
     }
     super::inventory::entry::exposure(m, &a.binding, &a.slot_terms, &total)?;
-    let mut actions = Vec::<DraftEnvelope>::new();
+    let mut actions = Vec::<ConstructedEnvelope>::new();
     let mut steps = vec![];
     let mut action_slots = Vec::<(String, ExactRef)>::new();
     for price in prices {
@@ -510,6 +555,9 @@ pub(super) fn execute<'inv>(
         family: targets.heads,
         chain: Some(chain.reference.clone()),
     };
+    let original_reservations=if let Some(arena)=m.representation_arena() {
+        Some(super::capacity::original::derive(&arena,m,&mut r,c,program,&p,&decision,&targets.records,&work,&claim,&a.terms)?)
+    } else {None};
     let mut envelopes = vec![work, claim.clone()];
     envelopes.extend(a.introduced);
     envelopes.push(a.authority);
@@ -519,6 +567,11 @@ pub(super) fn execute<'inv>(
     envelopes.extend(targets.records);
     envelopes.push(chain);
     Ok(Construction {
+        original_reservations,
+        economic: EconomicConstruction {
+            terms: a.terms,
+            original_work: OriginalWorkPayload::New(p),
+        },
         normalized_payload,
         new_envelopes: envelopes,
         evaluation_steps: steps,
@@ -526,8 +579,10 @@ pub(super) fn execute<'inv>(
         claim_introductions: vec![claim.reference],
         link_introductions: vec![],
         prospective_obligations: targets.obligations,
-        consumed_refs: body::ref_set(m, r.consumed())?,
+        records: r,
         history_edges: vec![],
+        app_effects:None,app_causal:None,current_capacity:None,
+        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None],
     })
 }
 #[cfg(test)]
@@ -541,7 +596,16 @@ pub(super) fn calibrate(
 ) -> Result<DraftTransition> {
     m.enter_calibration()?;
     m.diagnostic_scope("selected.A.setup", |m| {
-        execute(program, c, payload, inputs, state, m, None)?.draft_projection(m)
+        execute(
+            program,
+            c,
+            payload,
+            SuppliedRecords::Legacy(inputs),
+            state,
+            m,
+            None,
+        )?
+        .draft_projection(m)
     })
 }
 pub fn replay_draft(

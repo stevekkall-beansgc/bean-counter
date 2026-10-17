@@ -1,6 +1,9 @@
 //! Shared original-family submit DATA construction. Host origin/current-index,
 //! capacity, funding and atomicity remain separate gates; no output can commit.
 use super::super::selected_program::SelectedProgram;
+use super::emitted_record::ConstructedEnvelope;
+use super::record_body::RecordBody;
+use super::records::SuppliedRecords;
 use super::{
     CoreMeter, Phase, arithmetic,
     authority::{self, EconomicMode},
@@ -58,7 +61,7 @@ fn load(
     v: &Value,
     kind: &str,
     schema: &str,
-) -> Result<(ExactRef, Value)> {
+) -> Result<(ExactRef, RecordBody)> {
     let reference = shape::reference(m, v)?;
     let body = r.get(m, &c.key, &reference, kind, schema)?;
     Ok((reference, body))
@@ -77,18 +80,18 @@ fn positive(m: &mut CoreMeter, v: &Value, key: &str) -> Result<BigInt> {
 }
 /// Called only after the common entry charges/parses the original request.
 /// It recomputes records from source/program/retained inputs, never saved money.
-pub(super) fn execute<'inv>(
+pub(super) fn execute<'inv, 'raw>(
     program: &SelectedProgram,
-    c: &DraftContextData,
-    mut p: Value,
-    inputs: &[RecordInput],
+    c: &'raw DraftContextData,
+    mut p: super::working_value::WorkingValue,
+    inputs: SuppliedRecords<'raw>,
     state: &DraftStateData,
     m: &mut CoreMeter,
     intrinsic: Option<(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
-) -> Result<Construction> {
+) -> Result<Construction<'inv, 'raw>> {
     entry::context(m, c)?;
     shape::closed(
         m,
@@ -153,9 +156,7 @@ pub(super) fn execute<'inv>(
     if call!(meter::cmp, m, &received, &accepted)?.is_gt() {
         return Err(shape::fail("outcome receipt after acceptance"));
     }
-    let mut pool = inputs.to_vec();
-    pool.extend_from_slice(&c.source_observation_inputs);
-    let mut r = Records::new(m, &pool)?;
+    let mut r = inputs.resolve(m, &c.key, &c.source_observation_inputs)?;
     if let Some((scope, records)) = intrinsic {
         r = r.with_intrinsic_evidence(m, &c.key, scope, records)?;
     }
@@ -242,7 +243,7 @@ pub(super) fn execute<'inv>(
         "workflow-work-claim",
         "ledger-workflow-work-claim/1",
     )?;
-    entry::work_claim(m, c, &claim_ref, &claim)?;
+    if m.representation_arena().is_some(){entry::historical_work_claim(m,c,&claim_ref,&claim,&work)?;}else{entry::work_claim(m,c,&claim_ref,&claim)?;}
     call!(
         equal,
         m,
@@ -608,13 +609,14 @@ pub(super) fn execute<'inv>(
         }
     }
     let schema = schema.ok_or_else(|| shape::fail("original outcome schema"))?;
-    let normalized = schema.normalize_value_with_work(&p["facts"], m)?;
-    p["facts"] = normalized.canonical_value().clone();
+    let normalized = super::working_value::NormalizedInput::normalize(m,schema,&p["facts"])?;
+    p.replace(m,"facts",normalized.canonical_value())?;
     let proofs = outcome_proofs::resolve(m, &mut r, c, &p, schema, &normalized, state)?;
-    normalize_proofs(m, &mut p)?;
-    let mut authority_payload = p.clone();
-    authority_payload["customer"] = work_payload["customer"].clone();
-    let operands = authority::economic(
+    p.normalize_set(m,"fact_proofs",true)?;
+    let authority_payload = p.with_fields(m,&[("customer",&work_payload["customer"])])?;
+    let operands = if m.representation_arena().is_some() {
+        let namespace=shape::text(m,&work,"source_namespace")?;
+        authority::economic_original(
         m,
         &mut r,
         c,
@@ -626,7 +628,23 @@ pub(super) fn execute<'inv>(
         program,
         EconomicMode::OutcomeSubmit,
         &proofs.references,
-    )?;
+        namespace,
+    )?
+    }else{
+authority::economic(
+        m,
+        &mut r,
+        c,
+        &authority_payload,
+        activity,
+        product,
+        &owner,
+        &times,
+        program,
+        EconomicMode::OutcomeSubmit,
+        &proofs.references,
+    )?
+    };
     original_target_association(m, &operands, &target, target_family, family)?;
     original_claim_association(m, &claim, &work)?;
     let nomination = call!(
@@ -833,7 +851,7 @@ pub(super) fn execute<'inv>(
         )],
         chain: Some(chain.reference.clone()),
     };
-    let normalized_payload = codec::encode(m, &p, 262144)?;
+    let normalized_payload = p.bytes(m)?;
     let mut envelopes = vec![claim.clone()];
     envelopes.extend(operands.introduced);
     envelopes.extend(proofs.introduced);
@@ -845,6 +863,11 @@ pub(super) fn execute<'inv>(
     envelopes.push(family_state);
     envelopes.push(chain);
     Ok(Construction {
+        original_reservations: None,
+        economic: EconomicConstruction {
+            terms: operands.terms,
+            original_work: OriginalWorkPayload::Retained(work),
+        },
         normalized_payload,
         new_envelopes: envelopes,
         evaluation_steps: vec![step],
@@ -852,8 +875,10 @@ pub(super) fn execute<'inv>(
         claim_introductions: vec![claim.reference],
         link_introductions: vec![link.reference],
         prospective_obligations: vec![],
-        consumed_refs: body::ref_set(m, r.consumed())?,
+        records: r,
         history_edges: vec![],
+        app_effects:None,app_causal:None,current_capacity:None,
+        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None],
     })
 }
 
@@ -888,12 +913,15 @@ pub(super) fn verify_original_actions(
         &[],
     )?;
     let p = shape::field(m, work, "payload")?;
-    call!(
-        equal,
-        m,
-        call!(shape::field, m, work, "source_namespace")?,
-        &json!(c.canonical_economic_namespace)
-    )?;
+    if m.representation_arena().is_some() {
+        let namespace=shape::text(m,work,"source_namespace")?;
+        let original_claim=r.get(m,&c.key,claim_ref,"workflow-work-claim","ledger-workflow-work-claim/1")?;
+        equal(m,&original_claim["source_namespace"],&json!(namespace))?;
+        entry::historical_work_claim(m,c,claim_ref,&original_claim,work)?;
+        authority::historical_namespace(m,r,c,&decision["authority_ref"],&work["source_namespace"],Some(&work["key"]["source"]),"work.accept",&p["binding_ref"],&work["accepted_at"])?;
+    }else{
+        call!(equal,m,call!(shape::field,m,work,"source_namespace")?,&json!(c.canonical_economic_namespace))?;
+    }
     call!(
         equal,
         m,
@@ -1380,6 +1408,35 @@ pub(super) fn original_claim_association(
         call!(shape::field, m, claim, "business_operation_id")?,
         call!(shape::field, m, p, "business_operation_id")?
     )?;
+    if let Some(arena) = m.representation_arena() {
+        // The original WorkClaim recipe has eleven fixed fields, optional
+        // occurrence, then evidence. Borrow the exact immutable operands into
+        // a fixed stack index, and pre-admit the ONE owning tuple before any
+        // JSON copy. No reconstructed amount or today's source namespace is
+        // substituted into this original facts digest.
+        let absent = Value::Null;
+        let mut fields = [&absent; 13];
+        let mut n = 0usize;
+        for key in ["customer", "chain", "status", "activity", "product_ref", "policy_ref", "fact_schema_ref", "facts", "links", "binding_ref", "invocation_refs"] {
+            fields[n] = shape::field(m,p,key)?;
+            n = crate::validation_work::usize_add(m,n,1)?;
+        }
+        m.visit("outcome.original_occurrence_presence")?;
+        if let Some(value) = p.get("occurred_at") {
+            fields[n] = value;
+            n = crate::validation_work::usize_add(m,n,1)?;
+        }
+        fields[n] = shape::field(m,p,"evidence_refs")?;
+        n = crate::validation_work::usize_add(m,n,1)?;
+        let tuple = arena.array_from_values(&fields[..n],m)?;
+        // hash's fixed SHA256 hexadecimal String has its own short lifetime;
+        // this allowance precedes its formatting and outlives the result.
+        let _digest = arena.reserve_external_payload(512,m)?;
+        let digest = records::hash(m,"workflow-claim-facts",tuple.value())?;
+        let declared = shape::text(m,claim,"facts_digest")?;
+        if !shape::same_text(m,declared,&digest)? {return Err(shape::fail("original work claim facts association"));}
+        return Ok(());
+    }
     let mut tuple = vec![];
     for key in [
         "customer",
@@ -1433,19 +1490,22 @@ mod relation_tests {
         let r = reference("workflow-authority", "wdoc_");
         authority::Operands {
             terms: authority::Terms {
-                binding: json!({"agreement_id":"agreement"}),
-                accepted: json!({}),
-                activation: json!({}),
-                catalog: json!({"components":[{"slot_id":"root","root_slot":"root","role_slot":"payer"}],"families":[{"slot_id":"assessment","target_component_slot":"root","role_slot":"payer"}]}),
-                instantiation: json!({"component_map":[{"template_key":"units","slot_id":"root"}],"family_map":[{"template_key":"assess","slot_id":"assessment"}]}),
-                slot_terms: json!({}),
+                binding: super::super::record_body::RecordBody::Legacy(
+                    json!({"agreement_id":"agreement"}),
+                ),
+                accepted: super::super::record_body::RecordBody::Legacy(json!({})),
+                activation: super::super::record_body::RecordBody::Legacy(json!({})),
+                catalog: super::super::record_body::RecordBody::Legacy(
+                    json!({"components":[{"slot_id":"root","root_slot":"root","role_slot":"payer"}],"families":[{"slot_id":"assessment","target_component_slot":"root","role_slot":"payer"}]}),
+                ),
+                instantiation: super::super::record_body::RecordBody::Legacy(
+                    json!({"component_map":[{"template_key":"units","slot_id":"root"}],"family_map":[{"template_key":"assess","slot_id":"assessment"}]}),
+                ),
+                slot_terms: super::super::record_body::RecordBody::Legacy(json!({})),
                 slot_terms_ref: r.clone(),
                 role_ref: r.clone(),
             },
-            authority: DraftEnvelope {
-                reference: r,
-                canonical_body: vec![],
-            },
+            authority: ConstructedEnvelope::from_bytes(r, vec![]),
             introduced: vec![],
         }
     }
@@ -1466,7 +1526,7 @@ mod relation_tests {
                 family["family_slot"] = json!("another-family")
             }
             if variant == 4 {
-                o.terms.catalog["families"][0]["role_slot"] = json!("other-role")
+                o.terms.catalog.legacy_mut()["families"][0]["role_slot"] = json!("other-role")
             }
             // The synthetic body hash is rebound after each relation mutation;
             // this checks the join itself, not stale digest rejection.

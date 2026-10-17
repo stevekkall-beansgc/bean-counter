@@ -3,6 +3,9 @@
 //! evaluation/actions are checked against that same frozen program. Host origin,
 //! complete index selection, reservations and resource admission remain gates.
 use super::super::selected_program::SelectedProgram;
+use super::emitted_record::ConstructedEnvelope;
+use super::record_body::RecordBody;
+use super::records::SuppliedRecords;
 use super::{
     CoreMeter, arithmetic,
     authority::{self, EconomicMode},
@@ -108,6 +111,19 @@ fn field_copy(m: &mut CoreMeter, v: &Value, k: &str) -> Result<Value> {
     // this slice remains noncommittable until that composition is complete.
     Ok(value.clone())
 }
+pub(super) fn verify_original_claim_namespace(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,claim_ref:&ExactRef,claim:&Value,decision_id:&str,binding:&Value)->Result<()> {
+    let first_id=body::semantic_id(m,"wdrev_","workflow-decision-revision",&json!([decision_id,"1"]))?;
+    let (_,first)=r.by_identity(m,&c.key,"workflow-decision",&first_id,"ledger-workflow-decision-revision/1")?;
+    dictionary_decision(m,&first)?;
+    equal(m,&first["decision_id"],&json!(decision_id))?;
+    equal(m,&first["revision"],&json!("1"))?;
+    equal(m,&first["kind"],&json!("outcome"))?;
+    equal(m,&first["transition"],&json!("initial"))?;
+    equal(m,&first["subject_ref"],&json!(claim_ref))?;
+    equal(m,&first["original_terms_ref"],binding)?;
+    equal(m,&first["accepted_at"],&claim["accepted_at"])?;
+    authority::historical_namespace(m,r,c,&first["authority_ref"],&claim["source_namespace"],None,"outcome.submit",binding,&claim["accepted_at"])
+}
 fn load(
     m: &mut CoreMeter,
     r: &mut Records,
@@ -115,7 +131,7 @@ fn load(
     v: &Value,
     kind: &str,
     schema: &str,
-) -> Result<(ExactRef, Value)> {
+) -> Result<(ExactRef, RecordBody)> {
     let reference = call!(shape::reference, m, v)?;
     let value = r.get(m, &c.key, &reference, kind, schema)?;
     Ok((reference, value))
@@ -227,7 +243,7 @@ pub(super) fn inverse(
     old_ref: &ExactRef,
     old: &Value,
     revision: &str,
-) -> Result<DraftEnvelope> {
+) -> Result<ConstructedEnvelope> {
     call!(dictionary_action, m, old)?;
     let atoms = call!(
         arithmetic::integer,
@@ -252,18 +268,18 @@ pub(super) fn inverse(
     call!(body::record, m, &c.key, "workflow-action", id, result)
 }
 /// Called by the same fresh/replay constructor after its ordinary entry check.
-pub(super) fn execute<'inv>(
+pub(super) fn execute<'inv, 'raw>(
     program: &SelectedProgram,
-    c: &DraftContextData,
-    mut request: Value,
-    inputs: &[RecordInput],
+    c: &'raw DraftContextData,
+    mut request: super::working_value::WorkingValue,
+    inputs: SuppliedRecords<'raw>,
     state: &DraftStateData,
     m: &mut CoreMeter,
     intrinsic: Option<(
         &'inv super::intrinsic_record::IntrinsicDataScope,
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
-) -> Result<Construction> {
+) -> Result<Construction<'inv, 'raw>> {
     call!(entry::context, m, c)?;
     call!(
         shape::closed,
@@ -284,9 +300,7 @@ pub(super) fn execute<'inv>(
         &json!("ledger-workflow-outcome-correction/1")
     )?;
     let expected = call!(counter, m, &request, "expected_revision")?;
-    let mut pool = inputs.to_vec();
-    pool.extend_from_slice(&c.source_observation_inputs);
-    let mut r = call!(Records::new, m, &pool)?;
+    let mut r = inputs.resolve(m, &c.key, &c.source_observation_inputs)?;
     if let Some((owner, evidence)) = intrinsic {
         r = r.with_intrinsic_evidence(m, &c.key, owner, evidence)?;
     }
@@ -318,7 +332,8 @@ pub(super) fn execute<'inv>(
         &[]
     )?;
     call!(equal, m, &claim["scope"], &json!(c.key.scope))?;
-    let original = call!(field_copy, m, &claim, "original_payload")?;
+    let original_value=call!(shape::field,m,&claim,"original_payload")?;
+    let original=super::working_value::WorkingValue::copy(m,original_value)?;
     call!(dictionary_outcome, m, &original)?;
     for k in ["family_slot", "target_ref", "business_outcome_token"] {
         call!(equal, m, &claim[k], &original[k])?;
@@ -338,9 +353,10 @@ pub(super) fn execute<'inv>(
     if !call!(shape::same_text, m, &stable_claim, &claim_ref.id)? {
         return Err(shape::fail("permanent outcome claim identity"));
     }
-    // Distinct current assessor/worker namespaces need the historical source
-    // association implementation; this selected slice never substitutes one.
-    if !call!(
+    // V1 preserves its old selected restriction. RP01 binds the permanent
+    // claim's namespace to its actual original authority below, independently
+    // of the current corrector's source/enrollment namespace.
+    if m.representation_arena().is_none() && !call!(
         shape::same_text,
         m,
         call!(shape::text, m, &claim, "source_namespace")?,
@@ -365,13 +381,9 @@ pub(super) fn execute<'inv>(
         {
             return Err(shape::fail("correction none reason"));
         }
-        let mut retained_identity = original.clone();
-        retained_identity["facts"] = json!({});
-        retained_identity["fact_proofs"] = json!([]);
-        retained_identity["evidence_refs"] = replacement["evidence_refs"].clone();
-        retained_identity
+        original.with_fields(m,&[("facts",&json!({})),("fact_proofs",&json!([])),("evidence_refs",&replacement["evidence_refs"])])?
     } else {
-        call!(field_copy, m, &request, "replacement")?
+        call!(super::working_value::WorkingValue::copy,m,call!(shape::field,m,&request,"replacement")?)?
     };
     call!(dictionary_outcome, m, &p)?;
     for k in [
@@ -668,6 +680,9 @@ pub(super) fn execute<'inv>(
     call!(equal, m, &old["kind"], &json!("outcome"))?;
     call!(equal, m, &old["original_terms_ref"], &p["binding_ref"])?;
     let old_revision = call!(counter, m, &old, "revision")?;
+    if m.representation_arena().is_some(){
+        verify_original_claim_namespace(m,&mut r,c,&claim_ref,&claim,&decision_id,&p["binding_ref"])?;
+    }
     if !call!(meter::cmp, m, &old_revision, &expected)?.is_eq() {
         return Err(Error::new("STALE_REVISION", "outcome decision revision"));
     }
@@ -761,8 +776,8 @@ pub(super) fn execute<'inv>(
             introduced: vec![],
         }
     } else {
-        let normalized = schema.normalize_value_with_work(&p["facts"], m)?;
-        p["facts"] = normalized.canonical_value().clone();
+        let normalized = super::working_value::NormalizedInput::normalize(m,schema,&p["facts"])?;
+        p.replace(m,"facts",normalized.canonical_value())?;
         call!(
             outcome_proofs::resolve,
             m,
@@ -774,15 +789,15 @@ pub(super) fn execute<'inv>(
             state
         )?
     };
-    call!(outcome::normalize_proofs, m, &mut p)?;
-    let mut admin_payload = p.clone();
-    admin_payload["customer"] = work["payload"]["customer"].clone();
-    if none {
-        admin_payload["evidence_refs"] = request["replacement"]["evidence_refs"].clone();
-    }
-    let mut correction_activity = activity.clone();
-    correction_activity["source_slot"] = family["correction_source_slot"].clone();
-    let operands = call!(
+    p.normalize_set(m,"fact_proofs",true)?;
+    let mut admin_payload = p.with_fields(m,&[("customer",&work["payload"]["customer"])])?;
+    if none {admin_payload.replace(m,"evidence_refs",&request["replacement"]["evidence_refs"])?;}
+    let correction_activity = super::working_value::WorkingValue::copy(m,activity)?;
+    let correction_activity=correction_activity.with_fields(m,&[("source_slot",&family["correction_source_slot"])])?;
+    let namespace=shape::text(m,&work,"source_namespace")?;
+    let operands = if m.representation_arena().is_some(){authority::economic_original(
+        m,&mut r,c,&admin_payload,&correction_activity,product,&owner,&times,program,EconomicMode::OutcomeCorrect,&proofs.references,namespace,
+    )?}else{call!(
         authority::economic,
         m,
         &mut r,
@@ -795,7 +810,7 @@ pub(super) fn execute<'inv>(
         program,
         EconomicMode::OutcomeCorrect,
         &proofs.references
-    )?;
+    )?};
     call!(
         outcome::original_target_association,
         m,
@@ -1046,9 +1061,9 @@ pub(super) fn execute<'inv>(
         json!({"schema":"ledger-workflow-chain-state/1","logical_store_id":c.key.logical_store_id,"scope":c.key.scope,"customer":chain_payload["customer"],"chain":chain_payload["chain"],"binding_ref":p["binding_ref"],"accepted_agreement_ref":c.authorities[0].accepted_agreement_ref,"activation_ref":c.authorities[0].activation_ref,"revision":crevision,"admitted_events":admitted.to_string(),"links_root":old_chain["links_root"],"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":old_chain_ref})
     )?;
     if !none {
-        request["replacement"] = p;
+        request.replace(m,"replacement",&p)?;
     }
-    let normalized_payload = call!(codec::encode, m, &request, 262144)?;
+    let normalized_payload = request.bytes(m)?;
     let mut envelopes = operands.introduced;
     envelopes.extend(proofs.introduced);
     envelopes.push(operands.authority);
@@ -1068,6 +1083,11 @@ pub(super) fn execute<'inv>(
     envelopes.push(next_family);
     envelopes.push(chain);
     Ok(Construction {
+        original_reservations: None,
+        economic: EconomicConstruction {
+            terms: operands.terms,
+            original_work: OriginalWorkPayload::Retained(work),
+        },
         normalized_payload,
         new_envelopes: envelopes,
         evaluation_steps: steps,
@@ -1075,11 +1095,13 @@ pub(super) fn execute<'inv>(
         claim_introductions: vec![],
         link_introductions: vec![],
         prospective_obligations: vec![],
-        consumed_refs: call!(body::ref_set, m, r.consumed())?,
+        records: r,
         history_edges: vec![],
+        app_effects:None,app_causal:None,current_capacity:None,
+        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None],
     })
 }
-fn inverse_value(m: &mut CoreMeter, v: &DraftEnvelope) -> Result<Value> {
+fn inverse_value(m: &mut CoreMeter, v: &ConstructedEnvelope) -> Result<Value> {
     call!(codec::parse, m, &v.canonical_body, 4194304)
 }
 fn select_head<'a>(
@@ -1165,7 +1187,7 @@ pub(super) fn verify_current(
     effect: &str,
     root: &str,
     operands: &authority::Terms,
-) -> Result<Vec<(ExactRef, Value)>> {
+) -> Result<Vec<(ExactRef, RecordBody)>> {
     let (_, evaluation) = call!(
         load,
         m,

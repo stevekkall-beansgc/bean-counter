@@ -66,6 +66,10 @@ impl SelectedProgram {
     pub fn uses_app_cost_causal_recipe(&self)->bool {self.app_cost_causal_recipe}
     pub fn uses_supplier_scoped_consent_recipe(&self)->bool {self.supplier_scoped_consent_recipe}
     pub fn execution_registry(&self)->Option<&'static str>{self.execution_registry}
+    /// Exact binary recipe selection; shared wire shapes do not select latest.
+    pub(in crate::policy::workflow) fn uses_commitment_first_consent_recipe(&self)->bool {
+        self.execution_registry==Some("sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276")
+    }
     pub fn root_policy_ref(&self) -> &DefinitionRef {
         &self.root
     }

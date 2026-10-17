@@ -249,12 +249,35 @@ fn identity_order(m: &mut CoreMeter, a: &ExactRef, kind: &str, id: &str) -> Resu
     }
     text_order(m, &a.id, id)
 }
+fn full_order(m:&mut CoreMeter,a:&ExactRef,b:&ExactRef)->Result<Ordering>{
+    let identity=identity_order(m,a,&b.kind,&b.id)?;
+    if !identity.is_eq(){return Ok(identity);}
+    text_order(m,&a.digest,&b.digest)
+}
+// Only these existing recipes intentionally retain one stable logical record
+// ID across immutable revisions. Other semantic identities remain once-only;
+// body/schema/domain/lineage checks still execute after the exact locator.
+fn revision_identity(m:&mut CoreMeter,r:&ExactRef)->Result<bool>{
+    let invocation=super::shape::same_text(m,&r.kind,"workflow-invocation")?;
+    let owner=super::shape::same_text(m,&r.kind,"workflow-cost")?;
+    let prefix=if invocation{"winv_"}else if owner{"wcostowner_"}else{return Ok(false)};
+    m.visit("index.revision_id_prefix")?;
+    if meter::cmp(m,&r.id.len().into(),&prefix.len().into())?.is_lt(){return Ok(false);}
+    super::shape::same_bytes(m,&r.id.as_bytes()[..prefix.len()],prefix.as_bytes())
+}
 
 pub(super) struct IdentityIndex {
     positions: Vec<usize>,
+    exact_revisions:bool,
 }
 impl IdentityIndex {
     pub(super) fn build(m: &mut CoreMeter, refs: &[&ExactRef]) -> Result<Self> {
+        Self::build_mode(m,refs,false)
+    }
+    pub(super) fn build_financial(m:&mut CoreMeter,refs:&[&ExactRef])->Result<Self>{
+        Self::build_mode(m,refs,true)
+    }
+    fn build_mode(m:&mut CoreMeter,refs:&[&ExactRef],exact_revisions:bool)->Result<Self>{
         let n = refs.len();
         let mut positions = Vec::with_capacity(n);
         let mut scratch = Vec::with_capacity(n);
@@ -279,7 +302,7 @@ impl IdentityIndex {
                     let a = positions[left];
                     m.visit("index.read_right")?;
                     let b = positions[right];
-                    let order = identity_order(m, refs[a], &refs[b].kind, &refs[b].id)?;
+                    let order = if exact_revisions{full_order(m,refs[a],refs[b])?}else{identity_order(m, refs[a], &refs[b].kind, &refs[b].id)?};
                     let selected = if order.is_gt() {
                         right = add(m, right, 1)?;
                         b
@@ -319,13 +342,14 @@ impl IdentityIndex {
             let a = refs[pair[0]];
             let b = refs[pair[1]];
             if identity_order(m, a, &b.kind, &b.id)?.is_eq() {
+                if exact_revisions && revision_identity(m,a)? && !text_order(m,&a.digest,&b.digest)?.is_eq(){continue;}
                 return Err(Error::new(
                     "INTEGRITY_FAILURE",
                     "duplicate supplied identity",
                 ));
             }
         }
-        Ok(Self { positions })
+        Ok(Self { positions,exact_revisions })
     }
     pub(super) fn find<'a>(
         &self,
@@ -344,12 +368,41 @@ impl IdentityIndex {
             let position = self.positions[middle];
             let r = reference(position);
             match identity_order(m, &r, kind, id)? {
-                Ordering::Equal => return Ok(Some(position)),
+                Ordering::Equal => {
+                    if self.exact_revisions{
+                        if less(m,0,middle)?{
+                            let before=number(meter::sub(m,&middle.into(),&1usize.into())?)?;
+                            if identity_order(m,reference(self.positions[before]),kind,id)?.is_eq(){return Err(Error::new("INTEGRITY_FAILURE","ambiguous supplied identity"));}
+                        }
+                        let after=add(m,middle,1)?;
+                        if less(m,after,self.positions.len())? && identity_order(m,reference(self.positions[after]),kind,id)?.is_eq(){return Err(Error::new("INTEGRITY_FAILURE","ambiguous supplied identity"));}
+                    }
+                    return Ok(Some(position))
+                },
                 Ordering::Less => low = add(m, middle, 1)?,
                 Ordering::Greater => {
                     m.visit("index.search_high")?;
                     high = middle;
                 }
+            }
+        }
+        Ok(None)
+    }
+    pub(super) fn find_exact<'a>(&self,m:&mut CoreMeter,wanted:&ExactRef,mut reference:impl FnMut(usize)->&'a ExactRef)->Result<Option<usize>>{
+        // The old locator/callback order remains exact for legacy inventories.
+        if !self.exact_revisions{return self.find(m,&wanted.kind,&wanted.id,reference);}
+        let (mut low,mut high)=(0,self.positions.len());
+        while less(m,low,high)?{
+            m.visit("index.search_exact_candidate")?;
+            let distance=meter::sub(m,&high.into(),&low.into())?;
+            let half=meter::div(m,&distance,&2usize.into())?;
+            let middle=add(m,low,number(half)?)?;
+            m.visit("index.search_exact_position")?;
+            let position=self.positions[middle];
+            match full_order(m,reference(position),wanted)?{
+                Ordering::Equal=>return Ok(Some(position)),
+                Ordering::Less=>low=add(m,middle,1)?,
+                Ordering::Greater=>{m.visit("index.search_exact_high")?;high=middle;},
             }
         }
         Ok(None)

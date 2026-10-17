@@ -1,3 +1,4 @@
+use super::super::record_body::RecordBody;
 use super::super::{
     CoreMeter, body, data::*, meter, records::Records, representation::InvocationToken, shape,
 };
@@ -38,15 +39,15 @@ pub(super) fn operation(
     c: &DraftContextData,
     k: &Value,
     kind: &str,
-) -> Result<Value> {
+) -> Result<RecordBody> {
     #[cfg(test)]
     {
         return m.diagnostic_scope("inventory::transitions::operation", |m| {
-            operation_data(m, r, c, k, kind)
+            operation_data(m, r, c, k, kind, false)
         });
     }
     #[cfg(not(test))]
-    operation_data(m, r, c, k, kind)
+    operation_data(m, r, c, k, kind, false)
 }
 fn operation_data(
     m: &mut CoreMeter,
@@ -54,7 +55,8 @@ fn operation_data(
     c: &DraftContextData,
     k: &Value,
     kind: &str,
-) -> Result<Value> {
+    family_close_acceptance: bool,
+) -> Result<RecordBody> {
     invoke!(key, m, k, c)?;
     let id = invoke!(body::semantic_id, m, "wop_", "workflow-operation", k)?;
     let (_, op) = r.by_identity(
@@ -134,7 +136,10 @@ fn operation_data(
         data_field!(m, envelope, "payload"),
         "schema"
     )?;
-    super::request::validate(m, evidence, kind, payload_schema)?;
+    if family_close_acceptance {
+        super::request::validate_family_close_acceptance(m,evidence,kind,payload_schema)?;
+    } else {super::request::validate(m,evidence,kind,payload_schema)?;}
+
     invoke!(set, m, invoke!(shape::array, m, &op, "result_refs")?)?;
     Ok(op)
 }
@@ -559,7 +564,11 @@ fn validate_data(
         data_field!(m, &activate, "accepted_at")
     )?;
     // Acceptance birth is independently located, not inferred from activation.
-    let accept = invoke!(
+    let accept=if program.uses_family_close_recipe() {
+        let key=data_field!(m,a,"operation_key");
+        operation_data(m,r,c,key,"agreement.accept",true)?
+    } else {
+        let accept = invoke!(
         operation,
         m,
         &mut *r,
@@ -567,6 +576,8 @@ fn validate_data(
         &data_field!(m, &a, "operation_key"),
         "agreement.accept"
     )?;
+        accept
+    };
     for k in ["accepted_at", "commit_sequence"] {
         invoke!(copy, m, &accept, k, a, k)?;
     }
