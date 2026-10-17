@@ -14,6 +14,9 @@ pub(in super::super::super) struct PendingPartyOperation {
     prior: Option<PartyRecord>,
     pub(in super::super::super) at: Timestamp,
     pub(in super::super::super) before: i64,
+    // Fresh preparation retains the actual completed earlier recipe inventory.
+    // This is not a serialized origin/resource completion capability.
+    _prefix: Option<prefix::FoldedInventory>,
 }
 impl PendingPartyOperation {
     pub(in super::super::super) fn normalized_payload(&self) -> &[u8] {
@@ -868,7 +871,7 @@ async fn prepare_inner(
     };
     let scope_value = check::field(check::field(req.value(), "key", session)?, "scope", session)?;
     let root = root(&setup, scope_value, &at, session)?;
-    construct(
+    let mut pending = construct(
         req,
         payload,
         root,
@@ -879,7 +882,11 @@ async fn prepare_inner(
         consent_basis,
         prior,
         session,
-    )
+    )?;
+    let mut earlier = prefix::party_before(ledger, tx, req.key(), before, session).await?;
+    pending.check_prestate(&mut earlier._inventory, &setup, session)?;
+    pending._prefix = Some(earlier);
+    Ok(pending)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1018,6 +1025,7 @@ fn construct(
         prior,
         at,
         before,
+        _prefix: None,
     })
 }
 
@@ -1356,15 +1364,15 @@ pub(in super::super::super) fn validate_original_root(
 }
 
 impl PendingPartyOperation {
-    /// Bind the SAME literal replay to the actual preceding completed mapping
-    /// and retained bodies. No saved prior_ref selects the historical head.
-    pub(in super::super::super) fn fold_original(
+    /// SAME exact body associations and historical mapping predicate for fresh
+    /// preparation and original replay. No current SQL head substitutes for
+    /// this completed-prefix state, and no result is staged here.
+    fn check_prestate(
         &self,
-        origin: &prefix::LocatedWrappers,
         inventory: &mut prefix::inventory::Inventory,
         setup: &crate::service::billing::Setup,
         session: &mut OriginalAuditSession,
-    ) -> Result<()> {
+    ) -> Result<Option<prefix::inventory::StateKey>> {
         let root = session
             .parse_representation(self.root.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
@@ -1428,6 +1436,18 @@ impl PendingPartyOperation {
                 .map_err(core_error)?;
             require(self.at.micros() < end.micros(), "AUTHORITY_REQUIRED")?;
         }
+        Ok(head)
+    }
+    /// Bind the SAME literal replay to the actual preceding completed mapping
+    /// and retained bodies. No saved prior_ref selects the historical head.
+    pub(in super::super::super) fn fold_original(
+        &self,
+        origin: &prefix::LocatedWrappers,
+        inventory: &mut prefix::inventory::Inventory,
+        setup: &crate::service::billing::Setup,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let head = self.check_prestate(inventory, setup, session)?;
         for record in [&self.root, &self.authority, &self.result] {
             session
                 .semantic_work()

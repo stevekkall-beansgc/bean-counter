@@ -732,13 +732,43 @@ pub(super) async fn publication_before(
     before: i64,
     parent: &mut OriginalAuditSession,
 ) -> Result<(FoldedInventory, RecompiledPublication)> {
+    let (inventory, publication) =
+        before_inputs(ledger, tx, key, Some(wanted), before, parent).await?;
+    Ok((
+        inventory,
+        publication.ok_or_else(|| reject("INVALID_REFERENCE"))?,
+    ))
+}
+/// Complete actual earlier recipes under their own owners before a fresh
+/// administrative party result may consume them. This retains DATA only;
+/// private resource/currentness and atomic preparation remain required.
+pub(super) async fn party_before(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    before: i64,
+    parent: &mut OriginalAuditSession,
+) -> Result<FoldedInventory> {
+    let (inventory, _) = before_inputs(ledger, tx, key, None, before, parent).await?;
+    Ok(inventory)
+}
+async fn before_inputs(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    wanted: Option<&Value>,
+    before: i64,
+    parent: &mut OriginalAuditSession,
+) -> Result<(FoldedInventory, Option<RecompiledPublication>)> {
     let mut attempt = InputAttempt {
         failure: tx.workflow_proof_failure_handle(),
         finished: false,
     };
     let result = async {
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
-        super::acceptance::validate_reference(wanted, "workflow-publication", parent)?;
+        if let Some(wanted) = wanted {
+            super::acceptance::validate_reference(wanted, "workflow-publication", parent)?;
+        }
         let setup = ledger.admin.read(&ledger.store, tx, key).await?;
         parent
             .semantic_work()
@@ -791,28 +821,32 @@ pub(super) async fn publication_before(
             )
             .await?
             {
-                let actual = wire::reference(program.publication().0, &mut session)?;
-                let expected = session
-                    .canonical_representation(wanted, RepresentationKind::Record)
-                    .map_err(core_error)?;
-                session
-                    .semantic_work()
-                    .visit(Visit::MemberCompare)
-                    .map_err(core_error)?;
-                session
-                    .semantic_work()
-                    .scan_bytes(actual.bytes().len())
-                    .map_err(core_error)?;
-                session
-                    .semantic_work()
-                    .scan_bytes(expected.bytes().len())
-                    .map_err(core_error)?;
-                if actual.bytes() == expected.bytes() {
+                if let Some(wanted) = wanted {
+                    let actual = wire::reference(program.publication().0, &mut session)?;
+                    let expected = session
+                        .canonical_representation(wanted, RepresentationKind::Record)
+                        .map_err(core_error)?;
                     session
                         .semantic_work()
-                        .visit(Visit::Constraint)
+                        .visit(Visit::MemberCompare)
                         .map_err(core_error)?;
-                    require(publication.is_none(), "INTEGRITY_FAILURE")?;
+                    session
+                        .semantic_work()
+                        .scan_bytes(actual.bytes().len())
+                        .map_err(core_error)?;
+                    session
+                        .semantic_work()
+                        .scan_bytes(expected.bytes().len())
+                        .map_err(core_error)?;
+                    if actual.bytes() == expected.bytes() {
+                        session
+                            .semantic_work()
+                            .visit(Visit::Constraint)
+                            .map_err(core_error)?;
+                        require(publication.is_none(), "INTEGRITY_FAILURE")?;
+                        publication = Some(program);
+                    }
+                } else {
                     publication = Some(program);
                 }
             }
@@ -820,9 +854,16 @@ pub(super) async fn publication_before(
             session.check_cancelled().map_err(core_error)?;
         }
         parent.check_cancelled().map_err(core_error)?;
+        if wanted.is_some() {
+            parent
+                .semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            require(publication.is_some(), "INVALID_REFERENCE")?;
+        }
         Ok((
             inventory.ok_or(ServiceError::IntegrityFailure)?,
-            publication.ok_or_else(|| reject("INVALID_REFERENCE"))?,
+            publication,
         ))
     }
     .await;
