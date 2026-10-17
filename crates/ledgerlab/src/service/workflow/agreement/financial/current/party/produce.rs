@@ -1354,3 +1354,96 @@ pub(in super::super::super) fn validate_original_root(
     same(basis_digest.bytes(), supplied.bytes(), session)?;
     Ok(())
 }
+
+impl PendingPartyOperation {
+    /// Bind the SAME literal replay to the actual preceding completed mapping
+    /// and retained bodies. No saved prior_ref selects the historical head.
+    pub(in super::super::super) fn fold_original(
+        &self,
+        origin: &prefix::LocatedWrappers,
+        inventory: &mut prefix::inventory::Inventory,
+        setup: &crate::service::billing::Setup,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let root = session
+            .parse_representation(self.root.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        prefix::source::custody(root.value(), setup, session)?;
+        for record in self
+            .dependencies
+            .iter()
+            .flatten()
+            .chain(self.consent_basis.iter().flatten())
+            .chain(self.prior.iter())
+        {
+            session
+                .semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+                .map_err(core_error)?;
+            inventory.compare_record(&record.reference, record.stored.body.bytes(), session)?;
+        }
+        let result = session
+            .parse_representation(self.result.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let body = result.value();
+        let schema = check::text(body, "schema", session)?;
+        let mut head = None;
+        if equal_text(schema, "ledger-workflow-party-authorization/1", session)? {
+            let spec = check::field(body, "authorization", session)?;
+            let id = encode(check::field(spec, "authorization_id", session)?, session)?;
+            let key = prefix::inventory::StateKey::new("party-head", &[id.bytes()], session)?;
+            if let Some(prior) = &self.prior {
+                inventory.match_head(&key, prior.stored.body.bytes(), session)?;
+            } else {
+                inventory.absent(&key, session)?;
+            }
+            head = Some(key);
+        } else if let Some(authorization) = self.consent_basis[0].as_ref() {
+            // Acceptance time and custody time are separate. Consent retention
+            // (and its exact target attestation) require active mapping NOW at
+            // this ORIGINAL retained_at, not today's head nor accepted_at.
+            let authorization_body = authorization.body();
+            check::same_text(
+                check::text(authorization_body, "schema", session)?,
+                "ledger-workflow-party-authorization/1",
+                session,
+            )?;
+            let spec = check::field(authorization_body, "authorization", session)?;
+            let id = encode(check::field(spec, "authorization_id", session)?, session)?;
+            let key = prefix::inventory::StateKey::new("party-head", &[id.bytes()], session)?;
+            inventory.match_head(&key, authorization.stored.body.bytes(), session)?;
+            check::same_text(
+                check::text(authorization_body, "status", session)?,
+                "active",
+                session,
+            )?;
+            at_most(&time(spec, "starts_at", session)?, &self.at, session)?;
+            let end = time(spec, "ends_at", session)?;
+            session
+                .semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&self.at.micros().into(), &end.micros().into()],
+                )
+                .map_err(core_error)?;
+            require(self.at.micros() < end.micros(), "AUTHORITY_REQUIRED")?;
+        }
+        for record in [&self.root, &self.authority, &self.result] {
+            session
+                .semantic_work()
+                .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
+                .map_err(core_error)?;
+            inventory.introduce(
+                record.reference(),
+                record.bytes(),
+                origin.wrappers().sequence(),
+                session,
+            )?;
+        }
+        prefix::source::complete_manifest(inventory, &[&self.result], origin, session)?;
+        if let Some(key) = head {
+            inventory.set_head(&key, self.result.reference(), session)?;
+        }
+        Ok(())
+    }
+}

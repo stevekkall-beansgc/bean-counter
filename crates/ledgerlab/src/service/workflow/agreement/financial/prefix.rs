@@ -2,7 +2,7 @@
 //! cursor nor this parsed key establishes an origin, an introduction or a head.
 //! Recipe semantics and their complete inputs must finish before inventory use.
 use super::*;
-mod inventory;
+pub(super) mod inventory;
 mod publication;
 pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
@@ -585,4 +585,101 @@ mod tests {
             assert_eq!(arena.usage().unwrap().live_bytes, baseline);
         }
     }
+}
+
+/// Owning transient DATA after the supported chronological recipes have run.
+/// No constructor/export turns this inventory into a prepared commit.
+pub(super) struct FoldedInventory {
+    _inventory: inventory::Inventory,
+}
+/// Reuse the selected origin's SAME parent session, including its already-paid
+/// framing/identity work. Each earlier origin receives exactly its own session.
+pub(super) async fn fold_original_prefix(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    selected: &LocatedWrappers,
+    parent: &mut OriginalAuditSession,
+) -> Result<FoldedInventory> {
+    let mut attempt = InputAttempt {
+        failure: tx.workflow_proof_failure_handle(),
+        finished: false,
+    };
+    let result = async {
+        require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
+        let setup = ledger.admin.read(&ledger.store, tx, key).await?;
+        let through = selected.wrappers().sequence();
+        parent
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&through.into(), &1i64.into()])
+            .map_err(core_error)?;
+        let prior = through
+            .checked_sub(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let mut after = 0i64;
+        let mut inventory = None;
+        loop {
+            let mut session = OriginalAuditSession::for_resource_profile_v2(parent.arena())
+                .map_err(core_error)?;
+            let Some(input) = next(tx, key, after, prior, &mut session).await? else {
+                break;
+            };
+            let origin = input.checked_wrappers(tx, &mut session).await?;
+            session
+                .semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&origin.wrappers().sequence().into(), &after.into()],
+                )
+                .map_err(core_error)?;
+            require(origin.wrappers().sequence() > after, "INTEGRITY_FAILURE")?;
+            match &mut inventory {
+                Some(inventory) => {
+                    inventory::Inventory::next_origin(inventory, &origin, &mut session)?
+                }
+                None => {
+                    let files = tx
+                        .workflow_original_scratch(&mut session)
+                        .map_err(read_error)?;
+                    inventory = Some(inventory::Inventory::new(files, &origin, &mut session)?);
+                }
+            }
+            source::fold(
+                tx,
+                &origin,
+                inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
+                &setup,
+                &mut session,
+            )
+            .await?;
+            after = origin.wrappers().sequence();
+            session.check_cancelled().map_err(core_error)?;
+        }
+        match &mut inventory {
+            Some(inventory) => inventory::Inventory::next_origin(inventory, selected, parent)?,
+            None => {
+                let files = tx.workflow_original_scratch(parent).map_err(read_error)?;
+                inventory = Some(inventory::Inventory::new(files, selected, parent)?);
+            }
+        }
+        source::fold(
+            tx,
+            selected,
+            inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
+            &setup,
+            parent,
+        )
+        .await?;
+        parent.check_cancelled().map_err(core_error)?;
+        Ok(FoldedInventory {
+            _inventory: inventory.ok_or(ServiceError::IntegrityFailure)?,
+        })
+    }
+    .await;
+    if result.is_ok() {
+        attempt.finish();
+    } else {
+        parent.invalidate();
+    }
+    result
 }

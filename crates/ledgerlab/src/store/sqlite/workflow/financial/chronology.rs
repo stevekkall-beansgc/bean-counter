@@ -161,3 +161,60 @@ impl SqliteTx {
         result
     }
 }
+
+impl SqliteTx {
+    /// Two fresh, immediately unlinked files within the actual private owner
+    /// directory. No saved path/cursor/file content is accepted as audit state.
+    /// The held writer serializes this one attempt; an existing name refuses
+    /// rather than opening or trusting a leftover scratch file.
+    pub(crate) fn workflow_original_scratch(
+        &mut self,
+        session: &mut OriginalAuditSession,
+    ) -> Result<[std::fs::File; 2], FinancialReadError> {
+        use std::fs::OpenOptions;
+        self.store._owner.verify_path()?;
+        fn open(
+            tx: &mut SqliteTx,
+            name: &'static str,
+            s: &mut OriginalAuditSession,
+        ) -> Result<std::fs::File, FinancialReadError> {
+            s.check_cancelled()?;
+            let directory = &tx.store._owner.directory;
+            let bytes = resource_add(
+                s,
+                directory.as_os_str().as_encoded_bytes().len() as i64,
+                name.len() as i64,
+            )?;
+            let bytes = resource_add(s, bytes, 1)?;
+            s.semantic_work().arithmetic(
+                ArithmeticOperation::Multiply,
+                &[&bytes.into(), &3i64.into()],
+            )?;
+            let bytes = bytes.checked_mul(3).ok_or_else(invalid)?;
+            let _path =
+                s.reserve_external_payload(usize::try_from(bytes).map_err(|_| invalid())?)?;
+            s.semantic_work()
+                .scan_bytes(directory.as_os_str().as_encoded_bytes().len())?;
+            s.semantic_work().scan_bytes(name.len())?;
+            s.semantic_work()
+                .write_bytes(usize::try_from(bytes).map_err(|_| invalid())?)?;
+            let path = directory.join(name);
+            let mut options = OpenOptions::new();
+            options.read(true).write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.mode(0o600);
+            }
+            let file = options.open(&path).map_err(StoreError::Io)?;
+            // All subsequent reads use only these private descriptors. A crash
+            // after unlink cannot leave a restartable/trusted index behind.
+            std::fs::remove_file(&path).map_err(StoreError::Io)?;
+            s.check_cancelled()?;
+            Ok(file)
+        }
+        let index = open(self, ".workflow-audit-index", session)?;
+        let bodies = open(self, ".workflow-audit-bodies", session)?;
+        Ok([index, bodies])
+    }
+}

@@ -134,6 +134,13 @@ pub(super) fn member(
     manifest: &Value,
     session: &mut OriginalAuditSession,
 ) -> Result<()> {
+    member_index(reference, manifest, session).map(|_| ())
+}
+pub(super) fn member_index(
+    reference: &Value,
+    manifest: &Value,
+    session: &mut OriginalAuditSession,
+) -> Result<usize> {
     // validate_frame already proved the manifest's strict Ref order and exact
     // indexed association. Use its actual order without copying/re-sorting it.
     let members = request_wrapper::field(manifest, "members", session)?
@@ -159,7 +166,7 @@ pub(super) fn member(
             .map_err(core_error)?;
         let middle = arithmetic(first, length / 2, Op::Add, session)?;
         match reference_cmp(&members[middle], reference, session)? {
-            std::cmp::Ordering::Equal => return Ok(()),
+            std::cmp::Ordering::Equal => return Ok(middle),
             std::cmp::Ordering::Less => first = arithmetic(middle, 1, Op::Add, session)?,
             std::cmp::Ordering::Greater => end = middle,
         }

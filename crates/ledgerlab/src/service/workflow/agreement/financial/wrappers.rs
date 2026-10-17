@@ -52,6 +52,19 @@ impl OriginalWrappers {
     pub(super) fn sequence(&self) -> i64 {
         self.frame.sequence
     }
+    pub(super) fn operation_identity(&self) -> (&[u8], &[u8]) {
+        (
+            self.frame.operation_id.bytes(),
+            self.frame.operation_digest.bytes(),
+        )
+    }
+    pub(super) fn retained_lengths(&self) -> [usize; 3] {
+        [
+            self.frame.operation.bytes().len(),
+            self.frame.manifest.bytes().len(),
+            self.frame.receipt.bytes().len(),
+        ]
+    }
 }
 fn resource(e: crate::store::sqlite::workflow::financial::FinancialReadError) -> ServiceError {
     match e {

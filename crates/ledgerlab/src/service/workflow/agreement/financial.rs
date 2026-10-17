@@ -204,35 +204,46 @@ async fn finish_transaction(
 }
 
 pub(in crate::service::workflow) async fn original_status(
+    ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
     raw_key: &[u8],
 ) -> Result<Value> {
-    original_query(tx, key, OriginalQuery::Status(raw_key)).await
+    original_query(ledger, tx, key, OriginalQuery::Status(raw_key)).await
 }
 async fn original_retry(
+    ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     incoming: &ingress::IncomingRequest,
     session: &mut ledgerlab_core::validation_work::OriginalAuditSession,
 ) -> Result<Value> {
-    original_query_in(tx, incoming.key(), OriginalQuery::Retry(incoming), session).await
+    original_query_in(
+        ledger,
+        tx,
+        incoming.key(),
+        OriginalQuery::Retry(incoming),
+        session,
+    )
+    .await
 }
 
 /// Never returns saved success without full original financial semantics. The
 /// incoming request selects only the global identity; saved evidence supplies
 /// the ORIGINAL literal request. No current compiler/grant/time is consulted.
 async fn original_query(
+    ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
     input: OriginalQuery<'_>,
 ) -> Result<Value> {
-    use ledgerlab_core::validation_work::{OriginalAuditSession, RepresentationKind};
+    use ledgerlab_core::validation_work::OriginalAuditSession;
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
     let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
     let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
-    original_query_in(tx, key, input, &mut session).await
+    original_query_in(ledger, tx, key, input, &mut session).await
 }
 async fn original_query_in(
+    ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
     input: OriginalQuery<'_>,
@@ -258,65 +269,7 @@ async fn original_query_in(
         .map_err(core_error)?;
     let acquired = prefix::target(tx, key, identity, session).await?;
     let original = acquired.checked_wrappers(tx, session).await?;
-    if acceptance::same_recipe_text(
-        request_wrapper::text(original.wrappers().operation(), "kind", session)?,
-        "authority.change",
-        session,
-    )? {
-        let p = request_wrapper::field(
-            original.wrappers().original_request().value(),
-            "payload",
-            session,
-        )?;
-        let schema = request_wrapper::text(p, "schema", session)?;
-        if acceptance::same_recipe_text(schema, "ledger-workflow-customer-register/1", session)? {
-            let _registration =
-                prefix::source::reconstruct_registration(tx, &original, session).await?;
-        }
-        for expected in [
-            "ledger-workflow-source-enroll/1",
-            "ledger-workflow-source-restrict/1",
-            "ledger-workflow-source-revoke/1",
-        ] {
-            if acceptance::same_recipe_text(schema, expected, session)? {
-                if !acceptance::same_recipe_text(
-                    request_wrapper::text(original.wrappers().receipt(), "result_kind", session)?,
-                    "administrative",
-                    session,
-                )? {
-                    return Err(ServiceError::Unavailable);
-                }
-
-                if acceptance::same_recipe_text(schema, "ledger-workflow-source-enroll/1", session)?
-                {
-                    let _source =
-                        prefix::source::reconstruct_initial(tx, &original, session).await?;
-                } else {
-                    let _source =
-                        prefix::source::reconstruct_successor(tx, &original, session).await?;
-                }
-                break;
-            }
-        }
-    }
-    if acceptance::same_recipe_text(
-        request_wrapper::text(original.wrappers().operation(), "kind", session)?,
-        "evidence.retain",
-        session,
-    )? {
-        let p = request_wrapper::field(
-            original.wrappers().original_request().value(),
-            "payload",
-            session,
-        )?;
-        if acceptance::same_recipe_text(
-            request_wrapper::text(p, "schema", session)?,
-            "ledger-workflow-evidence-retain/1",
-            session,
-        )? {
-            let _retained = prefix::source::reconstruct_retention(tx, &original, session).await?;
-        }
-    }
+    let _prefix = prefix::fold_original_prefix(ledger, tx, key, &original, session).await?;
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
     // obligations first. For Retry, normalize_saved_intent receives this SAME
@@ -355,7 +308,7 @@ impl LocalWorkflowLedger {
                     require(kind == req.kind(), "IDENTITY_CONFLICT")?;
                     // No fresh selection, grant check, compiler or capacity admission
                     // precedes this original identity branch.
-                    return original_retry(tx, &req, &mut session)
+                    return original_retry(self, tx, &req, &mut session)
                         .await
                         .map(TransactionResult::Original);
                 }

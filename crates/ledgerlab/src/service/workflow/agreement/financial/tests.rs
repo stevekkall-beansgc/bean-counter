@@ -362,3 +362,85 @@ async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append
     );
     ledger.close().await;
 }
+
+#[tokio::test]
+async fn chronological_fold_replays_real_administrative_source_chain_under_writer() {
+    let (_dir, ledger, _path) = installation("chronological-real-source").await;
+    let envelope = |id: &str, kind: &str, payload: Value| json!({"schema":"ledger-operation/1","contract":"workflow/1","kind":kind,"key":key("chronological-real-source",id),"payload":payload});
+    let retain = |id: &str, purpose: &str, metadata: Value| {
+        envelope(
+            id,
+            "evidence.retain",
+            json!({"schema":"ledger-workflow-evidence-retain/1","purpose":purpose,"subject":{"customer":"fold-customer"},"media_type":"text/plain;charset=utf-8","content_base64":"eA==","content_sha256":records::raw_hash(b"x"),"metadata":metadata}),
+        )
+    };
+    let customer_proof = ledger
+        .prerequisite(
+            &records::bytes(&retain(
+                "customer-proof",
+                "customer_registration",
+                json!({"acceptor":"fold-acceptor"}),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let registered=ledger.prerequisite(&records::bytes(&envelope("customer","authority.change",json!({"schema":"ledger-workflow-customer-register/1","action":"customer.register","expected_revision":"0","customer":"fold-customer","acceptor":"fold-acceptor","registration_evidence_ref":customer_proof["receipt"]["result_refs"][0]}))).unwrap()).await.unwrap();
+    let source_proof = ledger
+        .prerequisite(
+            &records::bytes(&retain(
+                "source-proof",
+                "source_enrollment",
+                json!({"source":"urn:example:work","principal_id":"example-operator"}),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let ceiling = json!({"principal_id":"example-operator","source":"urn:example:work","canonical_economic_namespace":"urn:example:work","customer_scope":["fold-customer"],"operations":["work.accept","quantity.correct"],"product_selectors":[{"names":["fold:product"]}],"activity_selectors":[{"names":["fold:work"]}],"link_selectors":[],"source_slots":["fold:worker"],"permissions":["read","submit","correct"],"starts_at":"2026-01-01T00:00:00Z","ends_at":"2030-01-01T00:00:00Z"});
+    let enrolled=ledger.prerequisite(&records::bytes(&envelope("enroll","authority.change",json!({"schema":"ledger-workflow-source-enroll/1","action":"source.enroll","expected_revision":"0","enrollment_id":"fold-source","customer_refs":[registered["receipt"]["result_refs"][0]],"ceiling":ceiling,"evidence_ref":source_proof["receipt"]["result_refs"][0]}))).unwrap()).await.unwrap();
+    assert_eq!(enrolled["receipt"]["commit_sequence"], "4");
+    let selected = key("chronological-real-source", "enroll");
+    let raw_key = records::bytes(&serde_json::to_value(&selected).unwrap()).unwrap();
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    let failure = tx.workflow_proof_failure_handle();
+    proof_session::with_proofs(&mut tx, &selected, |tx| {
+        Box::pin(async {
+            let arena =
+                ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+            let mut session =
+                ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(
+                    &arena,
+                )
+                .map_err(core_error)?;
+            let identity = session
+                .copy_representation(
+                    &raw_key,
+                    ledgerlab_core::validation_work::RepresentationKind::Record,
+                )
+                .map_err(core_error)?;
+            let selected_origin = prefix::target(tx, &selected, identity, &mut session)
+                .await?
+                .checked_wrappers(tx, &mut session)
+                .await?;
+            let _folded = prefix::fold_original_prefix(
+                &ledger,
+                tx,
+                &selected,
+                &selected_origin,
+                &mut session,
+            )
+            .await?;
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+    assert!(!failure.load(Ordering::Acquire));
+    tx.rollback().await.unwrap();
+    // This changed-route check creates no economic/prepared/financial result.
+    assert_eq!(
+        ledger.status(&raw_key).await.unwrap()["receipt"],
+        enrolled["receipt"]
+    );
+}

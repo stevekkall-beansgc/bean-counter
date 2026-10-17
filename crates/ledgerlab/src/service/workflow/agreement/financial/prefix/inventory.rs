@@ -1075,3 +1075,355 @@ mod tests {
         assert_eq!(arena.usage().unwrap().live_bytes, before);
     }
 }
+
+/// Existing paged index plus raw canonical-body spool for one real held audit.
+/// Only the chronological caller inserts its validated introduction group.
+/// Logical head entries share this SAME tree/quota; they are not stored Refs.
+pub(in super::super) struct Inventory {
+    tree: IntroductionIndex,
+    bodies: File,
+    operations: u64,
+    payload_bytes: u64,
+    body_bytes: u64,
+}
+pub(in super::super) struct StateKey(Locator);
+impl StateKey {
+    pub(in super::super) fn new(
+        domain: &'static str,
+        parts: &[&[u8]],
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let domain = wire::string(domain, s)?;
+        let mut bytes = [b"".as_slice(); 12];
+        require(
+            !compare(parts.len() as u64, 4, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        bytes[0] = b"[";
+        bytes[1] = domain.bytes();
+        let mut n = 2usize;
+        for part in parts {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let end = add(n as u64, 2, s)? as usize;
+            s.semantic_work()
+                .write_bytes(2 * std::mem::size_of::<&[u8]>())
+                .map_err(core_error)?;
+            let second = add(n as u64, 1, s)? as usize;
+            bytes[n] = b",";
+            bytes[second] = part;
+            n = end;
+        }
+        bytes[n] = b"]";
+        n = add(n as u64, 1, s)? as usize;
+        let hash = wire::domain_digest(b"bean-counter/audit-local-state/1\0", &bytes[..n], s)?;
+        let hash = s
+            .parse_representation(hash.bytes(), RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let hash = hash
+            .value()
+            .as_str()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        Ok(Self(Locator::from_ref(
+            "audit-local-state",
+            "audit",
+            hash,
+            s,
+        )?))
+    }
+}
+impl Inventory {
+    pub(in super::super) fn new(
+        files: [File; 2],
+        first: &LocatedWrappers,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let [index, bodies] = files;
+        let mut payload = first.identity().len() as u64;
+        for n in first.wrappers().retained_lengths() {
+            payload = add(payload, n as u64, s)?;
+        }
+        Ok(Self {
+            tree: IntroductionIndex::new(index, 1, payload, s)?,
+            bodies,
+            operations: 1,
+            payload_bytes: payload,
+            body_bytes: 0,
+        })
+    }
+    fn extend(&mut self, operations: u64, bytes: u64, s: &mut OriginalAuditSession) -> Result<()> {
+        let operations = add(self.operations, operations, s)?;
+        let bytes = add(self.payload_bytes, bytes, s)?;
+        let limits = ScratchSpace::for_profile(operations, bytes, s)?;
+        require(
+            !compare(self.tree.scratch.live, limits.limit, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        self.tree.scratch.limit = limits.limit;
+        self.tree.scratch.comparison_limit = limits.comparison_limit;
+        self.operations = operations;
+        self.payload_bytes = bytes;
+        Ok(())
+    }
+    pub(in super::super) fn next_origin(
+        &mut self,
+        origin: &LocatedWrappers,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let mut bytes = origin.identity().len() as u64;
+        for n in origin.wrappers().retained_lengths() {
+            bytes = add(bytes, n as u64, s)?;
+        }
+        self.extend(1, bytes, s)
+    }
+    pub(in super::super) fn has(
+        &mut self,
+        r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        s: &mut OriginalAuditSession,
+    ) -> Result<bool> {
+        let key = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
+        Ok(self.tree.find(&key, s)?.is_some())
+    }
+    pub(in super::super) fn require_value(
+        &mut self,
+        reference: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let kind = request_wrapper::text(reference, "kind", s)?;
+        let (reference, _lease) = current::source::from_value(reference, kind, s)?;
+        require(self.has(&reference, s)?, "INTEGRITY_FAILURE")
+    }
+    pub(in super::super) fn compare_record(
+        &mut self,
+        r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        expected: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let key = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
+        let entry = self
+            .tree
+            .find(&key, s)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        self.compare_body(&entry, expected, s)
+    }
+    fn compare_body(
+        &mut self,
+        entry: &Entry,
+        expected: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        copied(12, s)?;
+        let mut offset = [0; 8];
+        offset.copy_from_slice(&entry.0[216..224]);
+        let mut length = [0; 4];
+        length.copy_from_slice(&entry.0[224..228]);
+        let offset = u64::from_le_bytes(offset);
+        let length = u32::from_le_bytes(length) as u64;
+        require(
+            compare(length, expected.len() as u64, s)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let end = add(offset, length, s)?;
+        require(
+            !compare(end, self.body_bytes, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        s.check_cancelled().map_err(core_error)?;
+        self.bodies.seek(SeekFrom::Start(offset)).map_err(io)?;
+        // Fixed audit I/O buffer, independent of the metered arena. No full
+        // prior body/Value copy or generic mutable payload escapes this read.
+        let mut buffer = [0u8; 262144];
+        let mut done = 0u64;
+        while compare(done, length, s)?.is_lt() {
+            let left = subtract(length, done, s)?;
+            let n = if compare(left, 262144, s)?.is_gt() {
+                262144
+            } else {
+                left
+            };
+            let n = n as usize;
+            s.check_cancelled().map_err(core_error)?;
+            s.semantic_work().write_bytes(n).map_err(core_error)?;
+            self.bodies.read_exact(&mut buffer[..n]).map_err(io)?;
+            let next = add(done, n as u64, s)?;
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
+            s.semantic_work().scan_bytes(n).map_err(core_error)?;
+            s.semantic_work().scan_bytes(n).map_err(core_error)?;
+            require(
+                buffer[..n] == expected[done as usize..next as usize],
+                "INTEGRITY_FAILURE",
+            )?;
+            done = next;
+        }
+        s.check_cancelled().map_err(core_error)
+    }
+    pub(in super::super) fn introduce(
+        &mut self,
+        r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        body: &[u8],
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let key = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
+        if let Some(old) = self.tree.find(&key, s)? {
+            return self.compare_body(&old, body, s);
+        }
+        require(
+            !compare(body.len() as u64, 16, s)?.is_lt()
+                && !compare(body.len() as u64, 4194304, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        require(
+            compare(sequence as u64, 0, s)?.is_gt()
+                && !compare(sequence as u64, 100000, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        self.extend(0, body.len() as u64, s)?;
+        self.tree.scratch.admit(body.len() as u64, s)?;
+        let offset = self.body_bytes;
+        let next = add(offset, body.len() as u64, s)?;
+        require(
+            !compare(next, self.payload_bytes, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        s.check_cancelled().map_err(core_error)?;
+        self.bodies.seek(SeekFrom::Start(offset)).map_err(io)?;
+        for chunk in body.chunks(262144) {
+            s.check_cancelled().map_err(core_error)?;
+            copied(chunk.len(), s)?;
+            self.bodies.write_all(chunk).map_err(io)?;
+        }
+        self.body_bytes = next;
+        let entry = Entry::from_ref(
+            &r.kind,
+            &r.id,
+            &r.digest,
+            offset,
+            body.len() as u32,
+            sequence as u32,
+            s,
+        )?;
+        require(self.tree.insert(&entry, s)?.is_none(), "INTEGRITY_FAILURE")?;
+        s.check_cancelled().map_err(core_error)
+    }
+    pub(in super::super) fn absent(
+        &mut self,
+        key: &StateKey,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        require(self.tree.find(&key.0, s)?.is_none(), "INTEGRITY_FAILURE")
+    }
+    pub(in super::super) fn match_head(
+        &mut self,
+        key: &StateKey,
+        expected: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let entry = self
+            .tree
+            .find(&key.0, s)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        self.compare_body(&entry, expected, s)
+    }
+    pub(in super::super) fn set_head(
+        &mut self,
+        key: &StateKey,
+        r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let record = Locator::from_ref(&r.kind, &r.id, &r.digest, s)?;
+        let record = self
+            .tree
+            .find(&record, s)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        copied(ENTRY_BYTES, s)?;
+        let mut entry = record;
+        copied(KEY_BYTES, s)?;
+        entry.0[..KEY_BYTES].copy_from_slice(&key.0.0);
+        self.tree.replace_control(&entry, s)
+    }
+}
+impl IntroductionIndex {
+    fn replace_control(&mut self, entry: &Entry, s: &mut OriginalAuditSession) -> Result<()> {
+        require(!self.invalid, "INTEGRITY_FAILURE")?;
+        self.reserve_comparisons(self.height, 4, s)?;
+        let mut page = self.root;
+        let mut remaining = self.height;
+        loop {
+            require(compare(remaining, 0, s)?.is_gt(), "INTEGRITY_FAILURE")?;
+            self.read(page, 0, s)?;
+            let (position, found, child) = self.buffers[0].position(entry, s)?;
+            if found {
+                let start = Page::key_offset(position, s)?;
+                let end = add(start as u64, ENTRY_BYTES as u64, s)? as usize;
+                copied(ENTRY_BYTES, s)?;
+                self.buffers[0].bytes[start..end].copy_from_slice(&entry.0);
+                return self.write(page, 0, s);
+            }
+            if self.buffers[0].leaf() {
+                require(self.insert(entry, s)?.is_none(), "INTEGRITY_FAILURE")?;
+                return Ok(());
+            }
+            page = child;
+            remaining = subtract(remaining, 1, s)?;
+        }
+    }
+}
+
+impl Inventory {
+    pub(in super::super) fn body(
+        &mut self,
+        reference: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
+        let kind = request_wrapper::text(reference, "kind", s)?;
+        let key = Locator::from_ref(
+            kind,
+            request_wrapper::text(reference, "id", s)?,
+            request_wrapper::text(reference, "digest", s)?,
+            s,
+        )?;
+        let entry = self
+            .tree
+            .find(&key, s)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        copied(12, s)?;
+        let mut offset = [0u8; 8];
+        offset.copy_from_slice(&entry.0[216..224]);
+        let mut length = [0u8; 4];
+        length.copy_from_slice(&entry.0[224..228]);
+        let offset = u64::from_le_bytes(offset);
+        let length = u32::from_le_bytes(length) as u64;
+        require(!compare(length, 4194304, s)?.is_gt(), "INTEGRITY_FAILURE")?;
+        require(
+            !compare(add(offset, length, s)?, self.body_bytes, s)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let (arena, work) = s.parts();
+        let mut out = arena
+            .byte_builder(length as usize, work)
+            .map_err(core_error)?;
+        self.bodies.seek(SeekFrom::Start(offset)).map_err(io)?;
+        let mut buffer = [0u8; 262144];
+        let mut done = 0;
+        while compare(done, length, s)?.is_lt() {
+            let left = subtract(length, done, s)?;
+            let n = if compare(left, 262144, s)?.is_gt() {
+                262144
+            } else {
+                left
+            } as usize;
+            s.check_cancelled().map_err(core_error)?;
+            s.semantic_work().write_bytes(n).map_err(core_error)?;
+            self.bodies.read_exact(&mut buffer[..n]).map_err(io)?;
+            out.append(&buffer[..n], s.semantic_work())
+                .map_err(core_error)?;
+            done = add(done, n as u64, s)?;
+        }
+        s.check_cancelled().map_err(core_error)?;
+        out.finish(s.semantic_work()).map_err(core_error)
+    }
+}

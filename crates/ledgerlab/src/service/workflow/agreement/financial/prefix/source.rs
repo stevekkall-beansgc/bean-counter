@@ -2088,3 +2088,406 @@ mod successor_tests {
         assert_eq!(closed.reference().digest(), terminal.reference().digest);
     }
 }
+
+/// Consume the actual replay into the invocation-local chronological inventory.
+/// No SQL projection, asserted prior-state locator or later body can provide
+/// the permanent-key/head facts checked here.
+pub(super) async fn fold(
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    inventory: &mut inventory::Inventory,
+    setup: &crate::service::billing::Setup,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let literal =
+        request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
+    let schema = request_wrapper::text(literal, "schema", s)?;
+    for party in [
+        "ledger-workflow-party-authorize/1",
+        "ledger-workflow-party-revoke/1",
+        "ledger-workflow-party-evidence-retain/1",
+        "ledger-workflow-party-evidence-retain/2",
+    ] {
+        if same(schema, party, s)? {
+            let result = origin.reconstruct_party(tx, s).await?;
+            return result.fold_original(origin, inventory, setup, s);
+        }
+    }
+    if same(schema, "ledger-workflow-customer-register/1", s)? {
+        let r = reconstruct_registration(tx, origin, s).await?;
+        custody(r.management.root.body(), setup, s)?;
+        inventory.compare_record(r.evidence.reference(), r.evidence.canonical_body(), s)?;
+        let p = s
+            .parse_representation(r.payload.bytes(), RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let customer = value(p.value(), "customer", s)?;
+        let key = inventory::StateKey::new("customer", &[customer.bytes()], s)?;
+        inventory.absent(&key, s)?;
+        stage(inventory, &r.management.root, &[&r.registration], origin, s)?;
+        inventory.set_head(&key, r.registration.reference(), s)?;
+    } else if same(schema, "ledger-workflow-source-enroll/1", s)? {
+        let r = reconstruct_initial(tx, origin, s).await?;
+        custody(r.root.body(), setup, s)?;
+        inventory.compare_record(r.evidence.reference(), r.evidence.canonical_body(), s)?;
+        let p = s
+            .parse_representation(
+                r.request.normalized_payload(),
+                RepresentationKind::SourceDefinition,
+            )
+            .map_err(core_error)?;
+        let id = value(p.value(), "enrollment_id", s)?;
+        let permanent = inventory::StateKey::new("enrollment", &[id.bytes()], s)?;
+        let head = inventory::StateKey::new("source-head", &[id.bytes()], s)?;
+        inventory.absent(&permanent, s)?;
+        for customer in &r.customers {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let name = value(customer.body(), "customer", s)?;
+            let key = inventory::StateKey::new("customer", &[name.bytes()], s)?;
+            inventory.match_head(&key, customer.canonical_body(), s)?;
+            inventory.compare_record(customer.reference(), customer.canonical_body(), s)?;
+        }
+        // Original normalization requires namespace == source; bind that same
+        // source to the real immutable local owner, rather than a saved field.
+        request_wrapper::same_text(
+            request_wrapper::text(
+                r.request.ceiling().ok_or(ServiceError::IntegrityFailure)?,
+                "canonical_economic_namespace",
+                s,
+            )?,
+            &setup.source,
+            s,
+        )?;
+        stage(
+            inventory,
+            &r.root,
+            &[&r.enrollment, &r.grant, &r.state],
+            origin,
+            s,
+        )?;
+        inventory.set_head(&permanent, r.enrollment.reference(), s)?;
+        inventory.set_head(&head, r.state.reference(), s)?;
+    } else if same(schema, "ledger-workflow-source-restrict/1", s)?
+        || same(schema, "ledger-workflow-source-revoke/1", s)?
+    {
+        let r = reconstruct_successor(tx, origin, s).await?;
+        custody(r.management.root.body(), setup, s)?;
+        inventory.compare_record(r.enrollment.reference(), r.enrollment.canonical_body(), s)?;
+        inventory.compare_record(r.prior_grant.reference(), r.prior_grant.canonical_body(), s)?;
+        let id = value(r.enrollment.body(), "enrollment_id", s)?;
+        let permanent = inventory::StateKey::new("enrollment", &[id.bytes()], s)?;
+        inventory.match_head(&permanent, r.enrollment.canonical_body(), s)?;
+        let head = inventory::StateKey::new("source-head", &[id.bytes()], s)?;
+        inventory.match_head(&head, r.prior_state.canonical_body(), s)?;
+        if let Some(grant) = &r.grant {
+            stage(inventory, &r.management.root, &[grant, &r.state], origin, s)?;
+        } else {
+            stage(inventory, &r.management.root, &[&r.state], origin, s)?;
+        }
+        inventory.set_head(&head, r.state.reference(), s)?;
+    } else if same(schema, "ledger-workflow-evidence-retain/1", s)? {
+        let r = reconstruct_retention(tx, origin, s).await?;
+        custody(r.management.root.body(), setup, s)?;
+        for record in r.dependencies.iter().flatten() {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            inventory.compare_record(record.reference(), record.canonical_body(), s)?;
+        }
+        stage(inventory, &r.management.root, &[&r.result], origin, s)?;
+    } else {
+        return Err(ServiceError::Unavailable);
+    }
+    Ok(())
+}
+pub(in super::super) fn custody(
+    root: &Value,
+    setup: &crate::service::billing::Setup,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let basis = request_wrapper::field(root, "basis", s)?;
+    for (name, actual) in [
+        ("logical_store_id", setup.store_id.as_str()),
+        ("principal_id", setup.operator.as_str()),
+        ("source", setup.source.as_str()),
+        ("canonical_economic_namespace", setup.source.as_str()),
+    ] {
+        request_wrapper::same_text(request_wrapper::text(basis, name, s)?, actual, s)?;
+    }
+    let scope = request_wrapper::field(basis, "scope", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&scope.len().into(), &2usize.into()])
+        .map_err(core_error)?;
+    require(scope.len() == 2, "INTEGRITY_FAILURE")?;
+    for (v, actual) in scope
+        .iter()
+        .zip([setup.scope.tenant(), setup.scope.environment()])
+    {
+        request_wrapper::same_text(v.as_str().ok_or(ServiceError::IntegrityFailure)?, actual, s)?;
+    }
+    let revision =
+        acceptance::counter(request_wrapper::text(basis, "source_grant_revision", s)?, s)?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&revision.into(), &setup.grant_revision.into()],
+        )
+        .map_err(core_error)?;
+    require(revision <= setup.grant_revision, "INTEGRITY_FAILURE")
+}
+fn stage(
+    inventory: &mut inventory::Inventory,
+    root: &current::source::SourceRecord,
+    records: &[&wire::SourceRecord],
+    origin: &LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    inventory.introduce(
+        root.reference(),
+        root.canonical_body(),
+        origin.wrappers().sequence(),
+        s,
+    )?;
+    for record in records {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        inventory.introduce(
+            record.reference(),
+            record.bytes(),
+            origin.wrappers().sequence(),
+            s,
+        )?;
+    }
+    complete_manifest(inventory, records, origin, s)
+}
+/// Only the closed R1 schemas below have the all-immediate Ref traversal used
+/// here. New financial/history/commitment recipes must use their own cuts.
+pub(in super::super) fn complete_manifest(
+    inventory: &mut inventory::Inventory,
+    records: &[&wire::SourceRecord],
+    origin: &LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let manifest = origin.wrappers().manifest();
+    let members = request_wrapper::field(manifest, "members", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&members.len().into(), &4096usize.into()])
+        .map_err(core_error)?;
+    require(members.len() <= 4096, "INTEGRITY_FAILURE")?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Multiply,
+            &[&members.len().into(), &std::mem::size_of::<usize>().into()],
+        )
+        .map_err(core_error)?;
+    let bytes = members
+        .len()
+        .checked_mul(std::mem::size_of::<usize>())
+        .ok_or(ServiceError::Unavailable)?;
+    let _queue_lease = s.reserve_external_payload(bytes).map_err(core_error)?;
+    let _seen_lease = s
+        .reserve_external_payload(members.len())
+        .map_err(core_error)?;
+    let mut queue = Vec::new();
+    queue
+        .try_reserve_exact(members.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    s.semantic_work()
+        .write_bytes(members.len())
+        .map_err(core_error)?;
+    let mut seen = vec![false; members.len()];
+    for r in records {
+        let reference = wire::reference(r.reference(), s)?;
+        let parsed = s
+            .parse_representation(reference.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        enqueue(parsed.value(), manifest, &mut queue, &mut seen, s)?;
+    }
+    let mut position = 0usize;
+    while {
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&position.into(), &queue.len().into()])
+            .map_err(core_error)?;
+        position < queue.len()
+    } {
+        let index = queue[position];
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&position.into(), &1usize.into()])
+            .map_err(core_error)?;
+        position = position
+            .checked_add(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let body = inventory.body(&members[index], s)?;
+        let body = s
+            .parse_representation(body.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let schema = request_wrapper::text(body.value(), "schema", s)?;
+        let mut allowed = false;
+        for expected in [
+            "ledger-workflow-local-authority-snapshot/1",
+            "ledger-workflow-source-enrollment/1",
+            "ledger-workflow-source-grant/1",
+            "ledger-workflow-source-state/1",
+            "ledger-workflow-customer-registration/1",
+            "ledger-workflow-retained-evidence/1",
+            "ledger-workflow-party-management-authority/1",
+            "ledger-workflow-party-authorization/1",
+            "ledger-workflow-party-evidence/1",
+            "ledger-workflow-party-evidence/2",
+        ] {
+            if same(schema, expected, s)? {
+                allowed = true;
+                break;
+            }
+        }
+        if !allowed {
+            return Err(ServiceError::Unavailable);
+        }
+        if same(schema, "ledger-workflow-party-evidence/2", s)? {
+            // The exact new consent recipe has only this named deferred edge.
+            // Actual authorization and operator target remain immediate.
+            enqueue(
+                request_wrapper::field(body.value(), "authority_ref", s)?,
+                manifest,
+                &mut queue,
+                &mut seen,
+                s,
+            )?;
+            let metadata = request_wrapper::field(body.value(), "metadata", s)?;
+            let purpose = request_wrapper::text(metadata, "purpose", s)?;
+            if same(purpose, "party_consent", s)? {
+                let consent = request_wrapper::field(metadata, "consent", s)?;
+                enqueue(
+                    request_wrapper::field(consent, "authorization_ref", s)?,
+                    manifest,
+                    &mut queue,
+                    &mut seen,
+                    s,
+                )?;
+            } else {
+                request_wrapper::same_text(purpose, "party_operator_attestation", s)?;
+                enqueue(
+                    request_wrapper::field(metadata, "target_evidence_ref", s)?,
+                    manifest,
+                    &mut queue,
+                    &mut seen,
+                    s,
+                )?;
+            }
+        } else {
+            references(body.value(), manifest, &mut queue, &mut seen, s)?;
+        }
+    }
+    let (id, digest) = origin.wrappers().operation_identity();
+    let id = wire::string(
+        std::str::from_utf8(id).map_err(|_| ServiceError::IntegrityFailure)?,
+        s,
+    )?;
+    let digest = wire::string(
+        std::str::from_utf8(digest).map_err(|_| ServiceError::IntegrityFailure)?,
+        s,
+    )?;
+    let operation = wire::object(
+        &[
+            ("digest", digest.bytes()),
+            ("id", id.bytes()),
+            ("kind", b"\"workflow-operation\""),
+        ],
+        262144,
+        s,
+    )?;
+    let operation = s
+        .parse_representation(operation.bytes(), RepresentationKind::Record)
+        .map_err(core_error)?;
+    let own = super::publication::member_index(operation.value(), manifest, s)?;
+    s.semantic_work()
+        .visit(Visit::Constraint)
+        .map_err(core_error)?;
+    require(!seen[own], "INTEGRITY_FAILURE")?;
+    s.semantic_work().write_bytes(1).map_err(core_error)?;
+    seen[own] = true;
+    for reached in seen {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        require(reached, "INTEGRITY_FAILURE")?;
+    }
+    Ok(())
+}
+fn enqueue(
+    reference: &Value,
+    manifest: &Value,
+    queue: &mut Vec<usize>,
+    seen: &mut [bool],
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let i = super::publication::member_index(reference, manifest, s)?;
+    s.semantic_work()
+        .visit(Visit::Constraint)
+        .map_err(core_error)?;
+    if !seen[i] {
+        s.semantic_work().write_bytes(1).map_err(core_error)?;
+        seen[i] = true;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<usize>())
+            .map_err(core_error)?;
+        queue.push(i);
+    }
+    Ok(())
+}
+fn references(
+    v: &Value,
+    manifest: &Value,
+    queue: &mut Vec<usize>,
+    seen: &mut [bool],
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    s.semantic_work().visit(Visit::Value).map_err(core_error)?;
+    match v {
+        Value::Object(map) => {
+            s.semantic_work()
+                .arithmetic(Op::Compare, &[&map.len().into(), &3usize.into()])
+                .map_err(core_error)?;
+            if map.len() == 3 {
+                let mut fields = 0u8;
+                for name in map.keys() {
+                    s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+                    if same(name, "kind", s)? || same(name, "id", s)? || same(name, "digest", s)? {
+                        s.semantic_work()
+                            .arithmetic(Op::Add, &[&fields.into(), &1u8.into()])
+                            .map_err(core_error)?;
+                        fields = fields
+                            .checked_add(1)
+                            .ok_or(ServiceError::IntegrityFailure)?;
+                    }
+                }
+                s.semantic_work()
+                    .arithmetic(Op::Compare, &[&fields.into(), &3u8.into()])
+                    .map_err(core_error)?;
+                if fields == 3 {
+                    return enqueue(v, manifest, queue, seen, s);
+                }
+            }
+            for (_, v) in map {
+                s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+                references(v, manifest, queue, seen, s)?;
+            }
+        }
+        Value::Array(values) => {
+            for v in values {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                references(v, manifest, queue, seen, s)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
