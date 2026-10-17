@@ -406,9 +406,11 @@ pub(super) async fn publication_for(
 pub(super) struct LocatedAppAcceptance {
     pub(super) origin: LocatedWrappers,
     pub(super) publication: RecompiledPublication,
-    pub(super) acceptance: super::acceptance::ReconstructedAcceptance,
+    pub(super) acceptance: super::acceptance::ReplayedAcceptance,
+    _prefix: FoldedInventory,
 }
 pub(super) async fn acceptance_for(
+    ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
     reference: &Value,
@@ -432,6 +434,12 @@ pub(super) async fn acceptance_for(
             .await
             .map_err(read_error)?
             .ok_or_else(|| reject("INVALID_REFERENCE"))?;
+        // The lookup belongs to the requesting origin; literal original
+        // reconstruction gets its ONE responsible origin owner, sharing the
+        // whole attempt arena rather than a second host/core allowance.
+        let mut original_session =
+            OriginalAuditSession::for_resource_profile_v2(session.arena()).map_err(core_error)?;
+        let session = &mut original_session;
         session
             .semantic_work()
             .arithmetic(Op::Subtract, &[&sequence.into(), &1i64.into()])
@@ -458,7 +466,8 @@ pub(super) async fn acceptance_for(
         if !acceptance::same_recipe_text(schema, "ledger-workflow-agreement-accept/9", session)? {
             request_wrapper::same_text(schema, "ledger-workflow-agreement-accept/8", session)?;
         }
-        let publication = publication_for(
+        let (mut prefix, publication) = publication_before(
+            ledger,
             tx,
             key,
             request_wrapper::field(raw_payload, "publication_ref", session)?,
@@ -466,9 +475,16 @@ pub(super) async fn acceptance_for(
             session,
         )
         .await?;
-        let acceptance = origin
-            .reconstruct_app_acceptance(tx, &publication, session)
-            .await?;
+        let setup = ledger.admin.read(&ledger.store, tx, key).await?;
+        let acceptance = super::acceptance::reconstruct_held(
+            tx,
+            &origin,
+            &publication,
+            &mut prefix,
+            &setup,
+            session,
+        )
+        .await?;
         for (a, b) in [
             (&expected.0.kind, &acceptance.binding.reference().kind),
             (&expected.0.id, &acceptance.binding.reference().id),
@@ -480,6 +496,7 @@ pub(super) async fn acceptance_for(
             origin,
             publication,
             acceptance,
+            _prefix: prefix,
         })
     }
     .await;
@@ -889,5 +906,160 @@ impl FoldedInventory {
             s,
         )?;
         self._inventory.head_body(&key, s)
+    }
+}
+
+impl FoldedInventory {
+    /// Select the already folded source state at this exact original cutoff,
+    /// then run the SAME scoped source framing/association validator. No SQL
+    /// current-head fallback or fresh-time/grant selection is permitted here.
+    pub(super) async fn source_at(
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        grant: &Value,
+        before: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<current::source::ObservedSource> {
+        let original = current::source::retained_record(
+            tx,
+            key,
+            grant,
+            "workflow-source-grant",
+            "ledger-workflow-source-grant/1",
+            before,
+            s,
+        )
+        .await?;
+        self.require_record(original.reference(), s)?;
+        let id = request_wrapper::text(original.body(), "grant_id", s)?;
+        let encoded = wire::string(id, s)?;
+        let control = inventory::StateKey::new("source-head", &[encoded.bytes()], s)?;
+        let raw = self
+            ._inventory
+            .head_body(&control, s)?
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let body = s
+            .parse_representation(raw.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let revision = request_wrapper::text(body.value(), "revision", s)?;
+        let numeric = super::acceptance::counter(revision, s)?;
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&numeric.into(), &i64::MAX.into()])
+            .map_err(core_error)?;
+        require(numeric <= i64::MAX as u64, "INTEGRITY_FAILURE")?;
+        let copied = s
+            .copy_representation(raw.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let source_key = request_wrapper::field(body.value(), "operation_key", s)?;
+        let scope = request_wrapper::field(source_key, "scope", s)?;
+        let state =
+            wire::source_state_record(copied, &key.logical_store_id, scope, id, revision, s)?;
+        self.require_record(state.reference(), s)?;
+        let status = request_wrapper::text(body.value(), "status", s)?;
+        let active = super::acceptance::same_recipe_text(status, "active", s)?;
+        let grant_id = if active {
+            let r = request_wrapper::field(body.value(), "current_grant_ref", s)?;
+            let r = request_wrapper::text(r, "id", s)?;
+            Some(
+                s.copy_representation(r.as_bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?,
+            )
+        } else {
+            request_wrapper::same_text(status, "revoked", s)?;
+            None
+        };
+        let head = crate::store::sqlite::workflow::financial::SourceHeadLocator {
+            revision: numeric as i64,
+            state_id: s
+                .copy_representation(state.reference().id.as_bytes(), RepresentationKind::Record)
+                .map_err(core_error)?,
+            grant_id,
+            status: s
+                .copy_representation(status.as_bytes(), RepresentationKind::Record)
+                .map_err(core_error)?,
+            kind: s
+                .copy_representation(
+                    state.reference().kind.as_bytes(),
+                    RepresentationKind::Record,
+                )
+                .map_err(core_error)?,
+            digest: s
+                .copy_representation(
+                    state.reference().digest.as_bytes(),
+                    RepresentationKind::Record,
+                )
+                .map_err(core_error)?,
+        };
+        let observed =
+            current::source::observe_historical_original(tx, key, original, head, before, s)
+                .await?;
+        self.match_source(&observed, s)?;
+        Ok(observed)
+    }
+}
+
+impl FoldedInventory {
+    pub(super) fn original_platform_at(
+        &mut self,
+        material: current::party::OriginalPlatformConsent,
+        s: &mut OriginalAuditSession,
+    ) -> Result<current::party::ObservedPlatformConsent> {
+        for r in material.records() {
+            self.require_record(r, s)?;
+        }
+        let spec = request_wrapper::field(material.mapping_body(), "authorization", s)?;
+        let id = request_wrapper::field(spec, "authorization_id", s)?;
+        let id = s
+            .canonical_representation(id, RepresentationKind::Record)
+            .map_err(core_error)?;
+        let key = inventory::StateKey::new("party-head", &[id.bytes()], s)?;
+        let head = self
+            ._inventory
+            .head_body(&key, s)?
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let parsed = s
+            .parse_representation(head.bytes(), RepresentationKind::Authority)
+            .map_err(core_error)?;
+        material.with_asof_head(parsed.value(), s)
+    }
+    pub(super) async fn original_customer_at(
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        customer: &Value,
+        before: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<current::source::SourceRecord> {
+        let customer = s
+            .canonical_representation(customer, RepresentationKind::Record)
+            .map_err(core_error)?;
+        let control = inventory::StateKey::new("customer", &[customer.bytes()], s)?;
+        let body = self
+            ._inventory
+            .head_body(&control, s)?
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let body = wire::source_record(
+            "workflow-customer",
+            "ledger-workflow-customer-registration/1",
+            body,
+            s,
+        )?;
+        let r = wire::reference(body.reference(), s)?;
+        let r = s
+            .parse_representation(r.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let record = current::source::retained_record(
+            tx,
+            key,
+            r.value(),
+            "workflow-customer",
+            "ledger-workflow-customer-registration/1",
+            before,
+            s,
+        )
+        .await?;
+        self.match_customer(&record, s)?;
+        Ok(record)
     }
 }

@@ -311,6 +311,34 @@ async fn observe_original(
     before: i64,
     s: &mut OriginalAuditSession,
 ) -> Result<ObservedSource> {
+    observe_original_at(tx, key, original, None, before, s).await
+}
+/// Same source association validator with the chronological owner's actual
+/// as-of locator. This DATA entry never queries today's source projection.
+pub(in super::super) async fn observe_historical_original(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    original: SourceRecord,
+    head: SourceHeadLocator,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<ObservedSource> {
+    let result = observe_original_at(tx, key, original, Some(head), before, s).await;
+    if result.is_err() {
+        s.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    result
+}
+async fn observe_original_at(
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    original: SourceRecord,
+    historical: Option<SourceHeadLocator>,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<ObservedSource> {
     use super::super::request_wrapper as check;
     let (r, l) = from_value(
         check::field(original.body(), "original_ceiling_ref", s)?,
@@ -348,11 +376,14 @@ async fn observe_original(
     for (a, b) in scopes.iter().zip(&key.scope) {
         check::same_text(a.as_str().ok_or(ServiceError::IntegrityFailure)?, b, s)?;
     }
-    let head = tx
-        .workflow_financial_source_head(&key.logical_store_id, &key.scope, enrollment_id, s)
-        .await
-        .map_err(prefix::read_error)?
-        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+    let head = if let Some(head) = historical {
+        head
+    } else {
+        tx.workflow_financial_source_head(&key.logical_store_id, &key.scope, enrollment_id, s)
+            .await
+            .map_err(prefix::read_error)?
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?
+    };
     let (r, l) = own(
         raw_text(head.kind.bytes(), s)?,
         raw_text(head.state_id.bytes(), s)?,

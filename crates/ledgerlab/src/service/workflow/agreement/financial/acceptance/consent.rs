@@ -91,116 +91,193 @@ impl AppAcceptanceInput {
             let platform = self
                 .platform_consent(tx, key, resource_leg, party_assent, at, before, s)
                 .await?;
-            let party_raw = s
-                .copy_representation(platform.assent_bytes(), Kind::SourceDefinition)
-                .map_err(core_error)?;
-            let party_assent =
-                wire::source_record("workflow-assent", self.party_assent_schema(), party_raw, s)?;
-            size(app_terms.len(), 1, 16, s)?;
-            let bindings = request_wrapper::field(
-                request_wrapper::field(self.terms.canonical_value(), "binding_inputs", s)?,
-                "bindings",
-                s,
-            )?
-            .as_array()
-            .ok_or(ServiceError::IntegrityFailure)?;
-            for r in app_terms {
-                request_wrapper::same_text(&r.kind, "workflow-slot-terms", s)?;
-                let expected = wire::reference(r, s)?;
-                let mut found = false;
-                for b in bindings {
-                    s.semantic_work()
-                        .visit(Visit::MemberCompare)
-                        .map_err(core_error)?;
-                    let actual = encode(request_wrapper::field(b, "binding_ref", s)?, s)?;
-                    s.semantic_work()
-                        .scan_bytes(expected.bytes().len())
-                        .map_err(core_error)?;
-                    s.semantic_work()
-                        .scan_bytes(actual.bytes().len())
-                        .map_err(core_error)?;
-                    if expected.bytes() == actual.bytes() {
-                        found = true;
-                        break;
-                    }
-                }
-                require(found, "INVALID_REFERENCE")?;
-            }
-            let app_terms = wire::RefSet::new(app_terms.iter().copied(), app_terms.len(), true, s)?
-                .encode(s)?;
-            let customer_ref = wire::reference(customer.assent().reference(), s)?;
-            let customer_refs = one(customer_ref.bytes(), s)?;
-            let party_ref = wire::reference(party_assent.reference(), s)?;
-            let party_refs = one(party_ref.bytes(), s)?;
-            let original_ref = wire::reference(platform.mapping().reference(), s)?;
-            let original_refs = one(original_ref.bytes(), s)?;
-            let current = platform.mapping().current_head();
-            let kind = head_text(current.kind.bytes(), s)?;
-            let id = head_text(current.id.bytes(), s)?;
-            let digest = head_text(current.digest.bytes(), s)?;
-            let current_ref = named_reference(kind, id, digest, s)?;
-            let current_refs = one(current_ref.bytes(), s)?;
-            // Actual compiled publication/plan, not a schema=>latest switch.
-            let declared = encode(
-                request_wrapper::field(self.terms.canonical_value(), "publication_ref", s)?,
-                s,
-            )?;
-            let publication_ref = wire::reference(publication.publication().0, s)?;
-            same_bytes(declared.bytes(), publication_ref.bytes(), s)?;
-            let plan = publication.program().compiled_plan().reference();
-            let plan_ref = named_reference(plan.kind(), plan.id(), plan.digest(), s)?;
-            let terms = self.terms.reference();
-            let terms_ref = named_reference(terms.kind(), terms.id(), terms.digest(), s)?;
-            let customer_id = encode(
-                request_wrapper::field(self.terms.canonical_value(), "customer", s)?,
-                s,
-            )?;
-            let agreement = encode(
-                request_wrapper::field(self.terms.canonical_value(), "agreement_id", s)?,
-                s,
-            )?;
-            let scope = encode(
-                request_wrapper::field(self.terms.canonical_value(), "scope", s)?,
-                s,
-            )?;
-            let admin_ref = wire::reference(local_admin.reference(), s)?;
-            let actor = wire::string(actor, s)?;
-            let at = wire::string(at.as_str(), s)?;
-            let schema = wire::string(self.consent_verification_schema(), s)?;
-            let body = wire::object(
-                &[
-                    ("acceptance_terms_ref", terms_ref.bytes()),
-                    ("agreement_id", agreement.bytes()),
-                    ("app_terms_refs", app_terms.bytes()),
-                    ("compiled_plan_ref", plan_ref.bytes()),
-                    ("current_party_authorization_refs", current_refs.bytes()),
-                    ("customer", customer_id.bytes()),
-                    ("customer_assent_refs", customer_refs.bytes()),
-                    ("installation_mode", b"\"real_local\""),
-                    ("local_admin_ref", admin_ref.bytes()),
-                    ("original_party_authorization_refs", original_refs.bytes()),
-                    ("party_assent_refs", party_refs.bytes()),
-                    ("publication_ref", publication_ref.bytes()),
-                    ("schema", schema.bytes()),
-                    ("scope", scope.bytes()),
-                    ("verified_at", at.bytes()),
-                    ("verified_by", actor.bytes()),
-                ],
-                262144,
-                s,
-            )?;
-            let verification = wire::source_record(
-                "workflow-verification",
-                self.consent_verification_schema(),
-                body,
-                s,
-            )?;
-            Ok(ObservedAcceptanceConsent {
+            self.finish_resource_consent(
                 customer,
                 platform,
-                party_assent,
-                verification,
-            })
+                publication,
+                app_terms,
+                local_admin,
+                actor,
+                at,
+                s,
+            )
+        }
+        .await;
+        terminal(result, tx, s)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn finish_resource_consent(
+        &self,
+        customer: ObservedCustomerConsent,
+        platform: current::party::ObservedPlatformConsent,
+        publication: &prefix::RecompiledPublication,
+        app_terms: &[&ExactRef],
+        local_admin: &wire::SourceRecord,
+        actor: &str,
+        at: &Timestamp,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ObservedAcceptanceConsent> {
+        let party_raw = s
+            .copy_representation(platform.assent_bytes(), Kind::SourceDefinition)
+            .map_err(core_error)?;
+        let party_assent =
+            wire::source_record("workflow-assent", self.party_assent_schema(), party_raw, s)?;
+        size(app_terms.len(), 1, 16, s)?;
+        let bindings = request_wrapper::field(
+            request_wrapper::field(self.terms.canonical_value(), "binding_inputs", s)?,
+            "bindings",
+            s,
+        )?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+        for r in app_terms {
+            request_wrapper::same_text(&r.kind, "workflow-slot-terms", s)?;
+            let expected = wire::reference(r, s)?;
+            let mut found = false;
+            for b in bindings {
+                s.semantic_work()
+                    .visit(Visit::MemberCompare)
+                    .map_err(core_error)?;
+                let actual = encode(request_wrapper::field(b, "binding_ref", s)?, s)?;
+                s.semantic_work()
+                    .scan_bytes(expected.bytes().len())
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .scan_bytes(actual.bytes().len())
+                    .map_err(core_error)?;
+                if expected.bytes() == actual.bytes() {
+                    found = true;
+                    break;
+                }
+            }
+            require(found, "INVALID_REFERENCE")?;
+        }
+        let app_terms =
+            wire::RefSet::new(app_terms.iter().copied(), app_terms.len(), true, s)?.encode(s)?;
+        let customer_ref = wire::reference(customer.assent().reference(), s)?;
+        let customer_refs = one(customer_ref.bytes(), s)?;
+        let party_ref = wire::reference(party_assent.reference(), s)?;
+        let party_refs = one(party_ref.bytes(), s)?;
+        let original_ref = wire::reference(platform.mapping().reference(), s)?;
+        let original_refs = one(original_ref.bytes(), s)?;
+        let current = platform.mapping().current_head();
+        let kind = head_text(current.kind.bytes(), s)?;
+        let id = head_text(current.id.bytes(), s)?;
+        let digest = head_text(current.digest.bytes(), s)?;
+        let current_ref = named_reference(kind, id, digest, s)?;
+        let current_refs = one(current_ref.bytes(), s)?;
+        // Actual compiled publication/plan, not a schema=>latest switch.
+        let declared = encode(
+            request_wrapper::field(self.terms.canonical_value(), "publication_ref", s)?,
+            s,
+        )?;
+        let publication_ref = wire::reference(publication.publication().0, s)?;
+        same_bytes(declared.bytes(), publication_ref.bytes(), s)?;
+        let plan = publication.program().compiled_plan().reference();
+        let plan_ref = named_reference(plan.kind(), plan.id(), plan.digest(), s)?;
+        let terms = self.terms.reference();
+        let terms_ref = named_reference(terms.kind(), terms.id(), terms.digest(), s)?;
+        let customer_id = encode(
+            request_wrapper::field(self.terms.canonical_value(), "customer", s)?,
+            s,
+        )?;
+        let agreement = encode(
+            request_wrapper::field(self.terms.canonical_value(), "agreement_id", s)?,
+            s,
+        )?;
+        let scope = encode(
+            request_wrapper::field(self.terms.canonical_value(), "scope", s)?,
+            s,
+        )?;
+        let admin_ref = wire::reference(local_admin.reference(), s)?;
+        let actor = wire::string(actor, s)?;
+        let at = wire::string(at.as_str(), s)?;
+        let schema = wire::string(self.consent_verification_schema(), s)?;
+        let body = wire::object(
+            &[
+                ("acceptance_terms_ref", terms_ref.bytes()),
+                ("agreement_id", agreement.bytes()),
+                ("app_terms_refs", app_terms.bytes()),
+                ("compiled_plan_ref", plan_ref.bytes()),
+                ("current_party_authorization_refs", current_refs.bytes()),
+                ("customer", customer_id.bytes()),
+                ("customer_assent_refs", customer_refs.bytes()),
+                ("installation_mode", b"\"real_local\""),
+                ("local_admin_ref", admin_ref.bytes()),
+                ("original_party_authorization_refs", original_refs.bytes()),
+                ("party_assent_refs", party_refs.bytes()),
+                ("publication_ref", publication_ref.bytes()),
+                ("schema", schema.bytes()),
+                ("scope", scope.bytes()),
+                ("verified_at", at.bytes()),
+                ("verified_by", actor.bytes()),
+            ],
+            262144,
+            s,
+        )?;
+        let verification = wire::source_record(
+            "workflow-verification",
+            self.consent_verification_schema(),
+            body,
+            s,
+        )?;
+        Ok(ObservedAcceptanceConsent {
+            customer,
+            platform,
+            party_assent,
+            verification,
+        })
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn original_resource_consent(
+        &self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        publication: &prefix::RecompiledPublication,
+        enrollment: &current::source::SourceRecord,
+        app_terms: &[&ExactRef],
+        resource_leg: &str,
+        customer_assent: &Value,
+        party_assent: &Value,
+        local_admin: &wire::SourceRecord,
+        actor: &str,
+        at: &Timestamp,
+        before: i64,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ObservedAcceptanceConsent> {
+        let result = async {
+            let customer_id = request_wrapper::field(self.terms.canonical_value(), "customer", s)?;
+            let registration = prefix
+                .original_customer_at(tx, key, customer_id, before, s)
+                .await?;
+            let customer = self
+                .original_customer_consent(
+                    tx,
+                    key,
+                    enrollment,
+                    registration,
+                    customer_assent,
+                    actor,
+                    at,
+                    before,
+                    s,
+                )
+                .await?;
+            let platform = self
+                .original_platform_consent(tx, key, resource_leg, party_assent, at, before, s)
+                .await?;
+            let platform = prefix.original_platform_at(platform, s)?;
+            self.finish_resource_consent(
+                customer,
+                platform,
+                publication,
+                app_terms,
+                local_admin,
+                actor,
+                at,
+                s,
+            )
         }
         .await;
         terminal(result, tx, s)
@@ -228,6 +305,66 @@ pub(super) async fn observe_all(
     actor: &str,
     at: &Timestamp,
     before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<Coverage> {
+    observe_all_at(
+        tx,
+        incoming,
+        input,
+        publication,
+        documents,
+        admission,
+        root,
+        actor,
+        at,
+        before,
+        None,
+        s,
+    )
+    .await
+}
+pub(super) async fn reconstruct_all(
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    input: &AppAcceptanceInput,
+    publication: &prefix::RecompiledPublication,
+    documents: &private::InlineDocuments,
+    admission: &current::source::ObservedSource,
+    root: &wire::SourceRecord,
+    actor: &str,
+    at: &Timestamp,
+    before: i64,
+    prefix: &mut prefix::FoldedInventory,
+    s: &mut OriginalAuditSession,
+) -> Result<Coverage> {
+    observe_all_at(
+        tx,
+        incoming,
+        input,
+        publication,
+        documents,
+        admission,
+        root,
+        actor,
+        at,
+        before,
+        Some(prefix),
+        s,
+    )
+    .await
+}
+async fn observe_all_at(
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    input: &AppAcceptanceInput,
+    publication: &prefix::RecompiledPublication,
+    documents: &private::InlineDocuments,
+    admission: &current::source::ObservedSource,
+    root: &wire::SourceRecord,
+    actor: &str,
+    at: &Timestamp,
+    before: i64,
+    mut historical: Option<&mut prefix::FoldedInventory>,
     s: &mut OriginalAuditSession,
 ) -> Result<Coverage> {
     let binding = request_wrapper::field(input.terms.canonical_value(), "binding_inputs", s)?;
@@ -308,23 +445,44 @@ pub(super) async fn observe_all(
         }
         let party = request_wrapper::text(leg, "payer", s)?;
         let party_assent = inputs.select(input, Some(party), s)?;
-        let observed = input
-            .observe_resource_consent(
-                tx,
-                incoming.key(),
-                publication,
-                admission.enrollment_record(),
-                &terms.refs,
-                request_wrapper::text(leg, "name", s)?,
-                customer,
-                party_assent,
-                root,
-                actor,
-                at,
-                before,
-                s,
-            )
-            .await?;
+        let observed = if let Some(prefix) = historical.as_deref_mut() {
+            input
+                .original_resource_consent(
+                    tx,
+                    incoming.key(),
+                    publication,
+                    admission.enrollment_record(),
+                    &terms.refs,
+                    request_wrapper::text(leg, "name", s)?,
+                    customer,
+                    party_assent,
+                    root,
+                    actor,
+                    at,
+                    before,
+                    prefix,
+                    s,
+                )
+                .await?
+        } else {
+            input
+                .observe_resource_consent(
+                    tx,
+                    incoming.key(),
+                    publication,
+                    admission.enrollment_record(),
+                    &terms.refs,
+                    request_wrapper::text(leg, "name", s)?,
+                    customer,
+                    party_assent,
+                    root,
+                    actor,
+                    at,
+                    before,
+                    s,
+                )
+                .await?
+        };
         let reference = wire::reference(observed.verification().reference(), s)?;
         let mut duplicate = false;
         for prior in &out.observations {

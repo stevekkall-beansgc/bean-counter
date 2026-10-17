@@ -319,7 +319,8 @@ impl LocalWorkflowLedger {
                     // AppAccept8 reaches the actual saved publication and SAME
                     // terms/binding assembly. Its DATA owners do not bypass
                     // complete chronology, consent/private graph or preparation.
-                    let _pending = acceptance::prepare(self, tx, &req, &mut session).await?;
+                    let pending = acceptance::prepare(self, tx, &req, &mut session).await?;
+                    let _evidence = evidence::acceptance(&req, &pending, &mut session)?;
                 }
                 if req.kind() == "work.accept" {
                     let payload = req.payload(&mut session)?;

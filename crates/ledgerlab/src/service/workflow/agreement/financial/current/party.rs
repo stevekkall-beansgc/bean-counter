@@ -780,6 +780,73 @@ impl OriginalPlatformConsent {
         self.material.assent_bytes.bytes()
     }
 }
+impl OriginalPlatformConsent {
+    /// The enclosing chronological owner supplies its actual as-of head body.
+    /// Compare it before constructing the SAME material view used by acceptance;
+    /// no current SQL query or caller assertion of active status is used.
+    pub(in super::super) fn with_asof_head(
+        self,
+        head: &Value,
+        session: &mut OriginalAuditSession,
+    ) -> Result<ObservedPlatformConsent> {
+        let expected = session
+            .canonical_representation(self.mapping.body(), RepresentationKind::Authority)
+            .map_err(core_error)?;
+        let actual = session
+            .canonical_representation(head, RepresentationKind::Authority)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .visit(ledgerlab_core::validation_work::ValidationVisit::MemberCompare)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(expected.bytes().len())
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .scan_bytes(actual.bytes().len())
+            .map_err(core_error)?;
+        require(expected.bytes() == actual.bytes(), "AUTHORITY_REQUIRED")?;
+        check::same_text(check::text(head, "status", session)?, "active", session)?;
+        check::same_text(check::text(head, "revision", session)?, "1", session)?;
+        let current = HeadLocator {
+            revision: session
+                .copy_representation(b"1", RepresentationKind::Record)
+                .map_err(core_error)?,
+            kind: session
+                .copy_representation(
+                    self.mapping.reference.kind.as_bytes(),
+                    RepresentationKind::Record,
+                )
+                .map_err(core_error)?,
+            id: session
+                .copy_representation(
+                    self.mapping.reference.id.as_bytes(),
+                    RepresentationKind::Record,
+                )
+                .map_err(core_error)?,
+            digest: session
+                .copy_representation(
+                    self.mapping.reference.digest.as_bytes(),
+                    RepresentationKind::Record,
+                )
+                .map_err(core_error)?,
+        };
+        let mapping = ObservedPartyAuthorization {
+            original: self.mapping,
+            evidence: self.mapping_evidence,
+            attestation: self.mapping_attestation,
+            current,
+        };
+        Ok(ObservedPlatformConsent {
+            mapping,
+            evidence: self.material.evidence,
+            attestation: self.material.attestation,
+            assent_bytes: self.material.assent_bytes,
+        })
+    }
+}
 pub(in super::super) async fn platform_consent_original(
     tx: &mut SqliteTx,
     key: &OperationKey,

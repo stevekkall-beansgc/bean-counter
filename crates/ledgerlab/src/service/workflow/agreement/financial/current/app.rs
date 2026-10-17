@@ -38,6 +38,7 @@ pub(in super::super) async fn observe(
             .map_err(core_error)?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
         let original = prefix::acceptance_for(
+            ledger,
             tx,
             key,
             check::field(payload, "binding_ref", session)?,

@@ -181,7 +181,7 @@ pub(super) fn build(
             ("slot_catalog_ref", catalog.bytes()),
             ("slot_instantiation_ref", instantiation.bytes()),
         ],
-        262144,
+        4194304,
         s,
     )?;
     let intent = wire::object(
@@ -190,7 +190,7 @@ pub(super) fn build(
             ("payload", payload.bytes()),
             ("schema", b"\"ledger-workflow-agreement-intent/1\""),
         ],
-        262144,
+        4194304,
         s,
     )?;
     let intent = wire::source_record(

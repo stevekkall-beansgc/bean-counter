@@ -100,6 +100,17 @@ impl<const MAXIMUM: usize> Anchors<MAXIMUM> {
         kind: &str,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        self.add_with_descriptors(role, relation, value, kind, b"[]", s)
+    }
+    fn add_with_descriptors(
+        &mut self,
+        role: &str,
+        relation: &str,
+        value: &Value,
+        kind: &str,
+        descriptors: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
         let reference = current::source::from_value(value, kind, s)?;
         let reference = wire::reference(&reference.0, s)?;
         let role = wire::string(role, s)?;
@@ -111,7 +122,7 @@ impl<const MAXIMUM: usize> Anchors<MAXIMUM> {
         )?;
         let anchor = wire::object(
             &[
-                ("descriptor_refs", b"[]"),
+                ("descriptor_refs", descriptors),
                 ("record_ref", reference.bytes()),
                 ("relation", relation.bytes()),
                 ("role", role.bytes()),
@@ -395,6 +406,8 @@ fn party_with_registry(
             payload.value(),
             &set,
             registry,
+            b"[]",
+            262144,
             s,
         )
     })();
@@ -409,6 +422,8 @@ fn request_evidence<const MAXIMUM: usize>(
     payload: &Value,
     set: &Anchors<MAXIMUM>,
     registry: &str,
+    descriptors: &[u8],
+    normalized_limit: usize,
     s: &mut OriginalAuditSession,
 ) -> Result<RequestEvidence> {
     let result = (|| {
@@ -440,7 +455,7 @@ fn request_evidence<const MAXIMUM: usize>(
         let registry = wire::string(registry, s)?;
         let base = [
             ("anchors", anchors.bytes()),
-            ("descriptors", b"[]".as_slice()),
+            ("descriptors", descriptors),
             ("locator_digest", locator_digest.bytes()),
             (
                 "normalization_profile",
@@ -461,7 +476,7 @@ fn request_evidence<const MAXIMUM: usize>(
             &[
                 ("anchors", anchors.bytes()),
                 ("closure_digest", closure.bytes()),
-                ("descriptors", b"[]"),
+                ("descriptors", descriptors),
                 ("locator_digest", locator_digest.bytes()),
                 (
                     "normalization_profile",
@@ -484,7 +499,7 @@ fn request_evidence<const MAXIMUM: usize>(
                 ("payload", normalized_payload),
                 ("schema", br#""ledger-operation/1""#),
             ],
-            262144,
+            normalized_limit,
             s,
         )?;
         let request_hash = wire::domain_digest(
@@ -492,7 +507,7 @@ fn request_evidence<const MAXIMUM: usize>(
             &[b"[", closure.bytes(), b",", normalized.bytes(), b"]"],
             s,
         )?;
-        let bundle = wire::domain_digest(b"bean-counter/schema-bundle/1\0", &[b"[]"], s)?;
+        let bundle = wire::domain_digest(b"bean-counter/schema-bundle/1\0", &[descriptors], s)?;
         let raw = wire::raw_request_base64(req.raw(), s)?;
         let raw_hash = wire::raw_request_digest(req.raw(), s)?;
         let bytes = wire::object(
@@ -516,6 +531,192 @@ fn request_evidence<const MAXIMUM: usize>(
             .parse_representation(bytes.bytes(), Kind::Record)
             .map_err(core_error)?;
         Ok(RequestEvidence { parsed, bytes })
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
+
+// Existing acceptance locator recipe, over the actual normalized payload and
+// descriptors retained by the original publication owner. No saved answers or
+// current compiler selection enters the resolution.
+pub(super) fn acceptance(
+    req: &ingress::IncomingRequest,
+    pending: &acceptance::PendingAppAcceptance,
+    s: &mut OriginalAuditSession,
+) -> Result<RequestEvidence> {
+    let result = (|| {
+        let payload = s
+            .parse_representation(pending.normalized_payload(), Kind::Record)
+            .map_err(core_error)?;
+        let p = payload.value();
+        let binding = request_wrapper::field(p, "binding_inputs", s)?;
+        let context = request_wrapper::field(
+            request_wrapper::field(binding, "accepted_context", s)?,
+            "fact_schema_ref",
+            s,
+        )?;
+        let context_bytes = encode(context, s)?;
+        let mut refs = [None; 128];
+        let mut count = 0usize;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of_val(&refs))
+            .map_err(core_error)?;
+        for reference in pending.publication.source_refs() {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let is_schema = cmp(reference.kind.as_bytes(), b"workflow-fact-schema", s)?.is_eq();
+            let is_compiler = cmp(
+                reference.kind.as_bytes(),
+                b"workflow-compiler-descriptor",
+                s,
+            )?
+            .is_eq();
+            if is_schema || is_compiler {
+                s.semantic_work()
+                    .arithmetic(Op::Compare, &[&count.into(), &refs.len().into()])
+                    .map_err(core_error)?;
+                require(count < refs.len(), "REFERENCE_LIMIT")?;
+                s.semantic_work()
+                    .write_bytes(std::mem::size_of::<
+                        Option<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>,
+                    >())
+                    .map_err(core_error)?;
+                refs[count] = Some(reference);
+                s.semantic_work()
+                    .arithmetic(Op::Add, &[&count.into(), &1usize.into()])
+                    .map_err(core_error)?;
+                count = count.checked_add(1).ok_or(ServiceError::Unavailable)?;
+            }
+        }
+        let descriptors =
+            wire::RefSet::new(refs[..count].iter().filter_map(|r| *r), count, true, s)?
+                .encode(s)?;
+        let mut context_found = false;
+        for r in refs[..count].iter().filter_map(|r| *r) {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let actual = wire::reference(r, s)?;
+            if cmp(actual.bytes(), context_bytes.bytes(), s)?.is_eq() {
+                context_found = true;
+            }
+        }
+        require(context_found, "INVALID_REFERENCE")?;
+        // Bound from the existing closed terms fields: publication1, direct
+        // catalog/instantiation2, assents16, grants32, roles16, context1,
+        // slot terms16 and16 funding legs each with16 evidence Refs.
+        let mut set = Anchors::<340>::new();
+        set.add_with_descriptors(
+            "publication",
+            "publication_source",
+            request_wrapper::field(p, "publication_ref", s)?,
+            "workflow-publication",
+            descriptors.bytes(),
+            s,
+        )?;
+        fn private(
+            set: &mut Anchors<340>,
+            reference: &Value,
+            context: &[u8],
+            s: &mut OriginalAuditSession,
+        ) -> Result<()> {
+            let kind = request_wrapper::text(reference, "kind", s)?;
+            let raw = encode(reference, s)?;
+            if cmp(raw.bytes(), context, s)?.is_eq() {
+                let single = join(&[raw.bytes()], s)?;
+                set.add_with_descriptors(
+                    "private_document",
+                    "context_schema",
+                    reference,
+                    kind,
+                    single.bytes(),
+                    s,
+                )
+            } else {
+                set.add("private_document", "agreement_input", reference, kind, s)
+            }
+        }
+        for field in ["slot_catalog_ref", "slot_instantiation_ref"] {
+            private(
+                &mut set,
+                request_wrapper::field(p, field, s)?,
+                context_bytes.bytes(),
+                s,
+            )?;
+            private(
+                &mut set,
+                request_wrapper::field(binding, field, s)?,
+                context_bytes.bytes(),
+                s,
+            )?;
+        }
+        for (body, field) in [
+            (p, "assent_refs"),
+            (p, "authority_refs"),
+            (binding, "assent_refs"),
+            (binding, "authority_refs"),
+            (binding, "roles_refs"),
+        ] {
+            for r in request_wrapper::field(body, field, s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?
+            {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                private(&mut set, r, context_bytes.bytes(), s)?;
+            }
+        }
+        private(&mut set, context, context_bytes.bytes(), s)?;
+        for row in request_wrapper::field(binding, "bindings", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            private(
+                &mut set,
+                request_wrapper::field(row, "binding_ref", s)?,
+                context_bytes.bytes(),
+                s,
+            )?;
+        }
+        for leg in request_wrapper::field(binding, "funding_legs", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            for r in request_wrapper::field(leg, "evidence_refs", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?
+            {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                private(&mut set, r, context_bytes.bytes(), s)?;
+            }
+        }
+        let registry = pending
+            .publication
+            .program()
+            .execution_registry()
+            .ok_or(ServiceError::Unavailable)?;
+        request_evidence(
+            req,
+            pending.normalized_payload(),
+            p,
+            &set,
+            registry,
+            descriptors.bytes(),
+            4194304,
+            s,
+        )
     })();
     if result.is_err() {
         s.invalidate();
@@ -688,7 +889,16 @@ pub(super) fn administration(
                 )?;
             }
         }
-        request_evidence(req, normalized_payload, p, &set, R1_REGISTRY, s)
+        request_evidence(
+            req,
+            normalized_payload,
+            p,
+            &set,
+            R1_REGISTRY,
+            b"[]",
+            262144,
+            s,
+        )
     })();
     if result.is_err() {
         s.invalidate();

@@ -10,6 +10,7 @@ mod customer;
 mod emit;
 mod nominations;
 mod private;
+mod replay;
 mod request;
 pub(super) use customer::ObservedCustomerConsent;
 use ledgerlab_core::{
@@ -20,6 +21,7 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
+pub(super) use replay::{ReplayedAcceptance, reconstruct as reconstruct_held};
 use std::{cmp::Ordering as Cmp, mem};
 pub(super) fn same_recipe_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     assents::equal(a, b, s)
@@ -760,6 +762,8 @@ pub(super) struct ReconstructedAcceptance {
     pub(super) binding: wire::SourceRecord,
     _stored_binding: crate::store::sqlite::workflow::financial::RetainedDocument,
     _stored_terms: crate::store::sqlite::workflow::financial::RetainedDocument,
+    at: Timestamp,
+    _time_storage: ExternalBufferLease,
 }
 pub(super) async fn reconstruct(
     tx: &mut SqliteTx,
@@ -922,6 +926,8 @@ async fn reconstruct_inner(
         binding,
         _stored_binding: stored_binding,
         _stored_terms: retained,
+        at,
+        _time_storage,
     })
 }
 
@@ -947,6 +953,11 @@ pub(super) struct PendingAppAcceptance {
     _prefix: prefix::FoldedInventory,
     _sources_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
+}
+impl PendingAppAcceptance {
+    pub(super) fn normalized_payload(&self) -> &[u8] {
+        self.normalized.payload.bytes()
+    }
 }
 pub(super) async fn prepare(
     ledger: &LocalWorkflowLedger,

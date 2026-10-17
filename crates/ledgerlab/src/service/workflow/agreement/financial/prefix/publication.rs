@@ -47,7 +47,9 @@ impl RecompiledPublication {
     pub(super) fn additional_origin_refs(&self) -> [&ExactRef; 2] {
         [&self.build.reference, &self.authority.reference]
     }
-    pub(super) fn source_refs(&self) -> impl ExactSizeIterator<Item = &ExactRef> {
+    pub(in crate::service::workflow::agreement::financial) fn source_refs(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &ExactRef> {
         self.sources.iter().map(|s| &s.reference)
     }
 }
