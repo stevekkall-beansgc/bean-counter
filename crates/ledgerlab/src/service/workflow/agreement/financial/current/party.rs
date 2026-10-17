@@ -7,6 +7,7 @@ use crate::store::sqlite::workflow::financial::{HeadLocator, PartyHeadKey, Retai
 use sha2::{Digest, Sha256};
 mod normalize;
 pub(in super::super) mod produce;
+pub(in super::super) mod write;
 struct PartyRecord {
     parsed: AuditedValue,
     stored: RetainedDocument,

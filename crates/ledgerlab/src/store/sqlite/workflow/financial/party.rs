@@ -31,7 +31,99 @@ pub(crate) struct PartyHeadEffect<'a> {
     pub expected: Option<&'a ExactRef>,
     pub proposed: &'a ExactRef,
 }
+/// Mechanical immutable journal plus optional exact party-mapping CAS. The
+/// private coordinator owns original custody/currentness/resource eligibility.
+pub(crate) struct PartyAppend<'a> {
+    pub logical_store_id: &'a str,
+    pub scope: &'a [String; 2],
+    pub source: &'a str,
+    pub operation_id: &'a str,
+    pub documents: &'a [super::append::FinancialDocument<'a>],
+    pub journal: super::append::FinancialJournal<'a>,
+    pub head: Option<PartyHeadEffect<'a>>,
+}
 impl SqliteTx {
+    /// SAME held poisoned writer owns journal, projection and Profile-B delta.
+    /// No DATA caller may use this instead of complete private preparation.
+    pub(crate) async fn workflow_party_append(
+        &mut self,
+        p: &PartyAppend<'_>,
+        session: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(StoreError::Integrity("poisoned party append").into());
+        }
+        self.failed = true;
+        let result = timeout_at(self.deadline, self.party_append_inner(p, session))
+            .await
+            .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
+        if result.is_ok() {
+            session.semantic_work().visit(ValidationVisit::Constraint)?;
+            session.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(StoreError::Integrity("party append retains failed work").into());
+            }
+            self.failed = false;
+        }
+        result
+    }
+    async fn party_append_inner(
+        &mut self,
+        p: &PartyAppend<'_>,
+        session: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
+        session.semantic_work().visit(ValidationVisit::Constraint)?;
+        if !matches!(p.journal.kind, "authority.change" | "evidence.retain") {
+            return Err(StoreError::Integrity("party append journal kind").into());
+        }
+        if p.head.is_none() && !same_text(p.journal.kind, "evidence.retain", session)? {
+            return Err(StoreError::Integrity("party authority append lacks mapping CAS").into());
+        }
+        let key = super::append::JournalKey {
+            logical_store_id: p.logical_store_id,
+            scope: p.scope,
+            source: p.source,
+            operation_id: p.operation_id,
+        };
+        let delta = self
+            .append_journal_rows(key, p.documents, &p.journal, session)
+            .await?;
+        if let Some(head) = &p.head {
+            if !same_text(p.journal.kind, "authority.change", session)? {
+                return Err(StoreError::Integrity("party evidence cannot advance mapping").into());
+            }
+            let mut matches = 0i64;
+            for document in p.documents {
+                session.semantic_work().visit(ValidationVisit::Element)?;
+                if same_ref(document.reference, head.proposed, session)? {
+                    if !same_text(
+                        document.schema,
+                        "ledger-workflow-party-authorization/1",
+                        session,
+                    )? {
+                        return Err(StoreError::Integrity("party mapping schema").into());
+                    }
+                    matches = resource_add(session, matches, 1)?;
+                }
+            }
+            if !resource_compare(session, matches, 1)?.is_eq() {
+                return Err(
+                    StoreError::Integrity("party mapping outside exact new documents").into(),
+                );
+            }
+            self.party_advance_inner(p.journal.identity, head, session)
+                .await?;
+        }
+        self.finish_journal_rows(&p.journal, delta, session).await
+    }
     pub(crate) async fn workflow_party_authorization_head(
         &mut self,
         key: &PartyHeadKey<'_>,

@@ -16,6 +16,33 @@ pub(in super::super) struct PartyJournalData<'a> {
     members: RefSet<'a>,
 }
 impl PartyJournalData<'_> {
+    pub(in super::super) fn storage_view<'a>(
+        &'a self,
+        incoming: &'a IncomingRequest,
+        evidence: &'a RequestEvidence,
+        sequence: i64,
+        accepted_at_us: i64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<FinancialJournal<'a>> {
+        Ok(FinancialJournal {
+            identity: incoming.identity(),
+            kind: incoming.kind(),
+            operation_ref: &self.operation_ref.reference,
+            operation_bytes: self.operation.bytes(),
+            request_hash: super::super::request_wrapper::text(
+                evidence.value(),
+                "request_hash",
+                session,
+            )?,
+            manifest_ref: &self.manifest_ref.reference,
+            manifest_bytes: self.manifest.bytes(),
+            receipt_ref: &self.receipt_ref.reference,
+            receipt_bytes: self.receipt.bytes(),
+            members: &self.members.refs,
+            sequence,
+            accepted_at_us,
+        })
+    }
     pub(in super::super) fn compare_original(
         &self,
         origin: &super::super::prefix::LocatedWrappers,

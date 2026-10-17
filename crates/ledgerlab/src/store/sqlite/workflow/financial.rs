@@ -17,7 +17,7 @@ pub(crate) use source::SourceHeadLocator;
 mod app;
 mod party;
 pub(crate) use app::AppClaimLocator;
-pub(crate) use party::{PartyHeadEffect, PartyHeadKey};
+pub(crate) use party::{PartyAppend, PartyHeadEffect, PartyHeadKey};
 mod supplier;
 pub(crate) use chronology::OriginalLocator;
 pub(crate) use document::RetainedDocument;

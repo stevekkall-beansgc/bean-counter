@@ -387,8 +387,16 @@ impl LocalWorkflowLedger {
                         // the last committed one. Retained reads use it as an
                         // exclusive cutoff; the new frame uses it unchanged.
                         let sequence = pending.before;
-                        let _journal =
+                        let journal =
                             wire::frame_party(&req, &pending, &evidence, sequence, &mut session)?;
+                        let write_data = current::party::write::PartyWriteData::new(
+                            &pending,
+                            &req,
+                            &evidence,
+                            &journal,
+                            &mut session,
+                        )?;
+                        let _write_operands = write_data.append_view(&mut session)?;
                         // The real result is constructed, but all consumed original
                         // origins and the new wrapper recipe still must complete.
                         // No DATA result can skip that preparation boundary.

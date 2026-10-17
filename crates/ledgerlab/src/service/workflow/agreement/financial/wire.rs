@@ -1139,7 +1139,7 @@ fn receipt(
 
 mod administrative;
 mod agreement;
-pub(super) use administrative::frame_party;
+pub(super) use administrative::{PartyJournalData, frame_party};
 pub(super) use agreement::{AgreementJournalData, frame_acceptance};
 
 #[cfg(test)]

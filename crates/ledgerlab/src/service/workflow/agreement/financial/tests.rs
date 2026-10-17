@@ -349,6 +349,24 @@ async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append
     let mut tx = ledger.store.begin(deadline()).await.unwrap();
     assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
     tx.rollback().await.unwrap();
+    // The empty-prefix case covers only a recipe with no retained operands.
+    // A genuine immediate target cannot disappear into that representation.
+    let mut missing = input.clone();
+    missing["payload"]["metadata"] = json!({
+        "purpose":"party_operator_attestation",
+        "statement":"operator_verified_party_acceptor_authority",
+        "target_evidence_ref":{"kind":"workflow-evidence","id":format!("wdoc_{}","a".repeat(64)),"digest":format!("sha256:{}","a".repeat(64))}
+    });
+    assert_eq!(
+        ledger
+            .financial(&records::bytes(&missing).unwrap())
+            .await
+            .unwrap_err(),
+        reject("AUTHORITY_REQUIRED")
+    );
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
+    tx.rollback().await.unwrap();
     input["payload"]["content_sha256"] = json!("0".repeat(64));
     assert!(
         ledger

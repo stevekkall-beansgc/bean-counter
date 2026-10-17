@@ -22,6 +22,9 @@ impl PendingPartyOperation {
     pub(in super::super::super) fn normalized_payload(&self) -> &[u8] {
         self.normalized.bytes()
     }
+    pub(in super::super::super) fn prior_authorization_ref(&self) -> Option<&ExactRef> {
+        self.prior.as_ref().map(|r| &r.reference)
+    }
     pub(in super::super::super) fn dependency_refs(&self) -> impl Iterator<Item = &ExactRef> {
         self.dependencies
             .iter()
@@ -884,8 +887,8 @@ async fn prepare_inner(
         session,
     )?;
     let mut earlier = prefix::party_before(ledger, tx, req.key(), before, session).await?;
-    pending.check_prestate(&mut earlier._inventory, &setup, session)?;
-    pending._prefix = Some(earlier);
+    pending.check_prestate(earlier.as_mut().map(|p| &mut p._inventory), &setup, session)?;
+    pending._prefix = earlier;
     Ok(pending)
 }
 
@@ -1369,7 +1372,7 @@ impl PendingPartyOperation {
     /// this completed-prefix state, and no result is staged here.
     fn check_prestate(
         &self,
-        inventory: &mut prefix::inventory::Inventory,
+        mut inventory: Option<&mut prefix::inventory::Inventory>,
         setup: &crate::service::billing::Setup,
         session: &mut OriginalAuditSession,
     ) -> Result<Option<prefix::inventory::StateKey>> {
@@ -1388,7 +1391,10 @@ impl PendingPartyOperation {
                 .semantic_work()
                 .visit(ledgerlab_core::validation_work::ValidationVisit::Element)
                 .map_err(core_error)?;
-            inventory.compare_record(&record.reference, record.stored.body.bytes(), session)?;
+            inventory
+                .as_deref_mut()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .compare_record(&record.reference, record.stored.body.bytes(), session)?;
         }
         let result = session
             .parse_representation(self.result.bytes(), RepresentationKind::Record)
@@ -1400,6 +1406,9 @@ impl PendingPartyOperation {
             let spec = check::field(body, "authorization", session)?;
             let id = encode(check::field(spec, "authorization_id", session)?, session)?;
             let key = prefix::inventory::StateKey::new("party-head", &[id.bytes()], session)?;
+            let inventory = inventory
+                .as_deref_mut()
+                .ok_or(ServiceError::IntegrityFailure)?;
             if let Some(prior) = &self.prior {
                 inventory.match_head(&key, prior.stored.body.bytes(), session)?;
             } else {
@@ -1419,7 +1428,10 @@ impl PendingPartyOperation {
             let spec = check::field(authorization_body, "authorization", session)?;
             let id = encode(check::field(spec, "authorization_id", session)?, session)?;
             let key = prefix::inventory::StateKey::new("party-head", &[id.bytes()], session)?;
-            inventory.match_head(&key, authorization.stored.body.bytes(), session)?;
+            inventory
+                .as_deref_mut()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .match_head(&key, authorization.stored.body.bytes(), session)?;
             check::same_text(
                 check::text(authorization_body, "status", session)?,
                 "active",
@@ -1447,7 +1459,7 @@ impl PendingPartyOperation {
         setup: &crate::service::billing::Setup,
         session: &mut OriginalAuditSession,
     ) -> Result<()> {
-        let head = self.check_prestate(inventory, setup, session)?;
+        let head = self.check_prestate(Some(inventory), setup, session)?;
         for record in [&self.root, &self.authority, &self.result] {
             session
                 .semantic_work()

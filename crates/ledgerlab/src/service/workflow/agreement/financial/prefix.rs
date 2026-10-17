@@ -735,7 +735,7 @@ pub(super) async fn publication_before(
     let (inventory, publication) =
         before_inputs(ledger, tx, key, Some(wanted), before, parent).await?;
     Ok((
-        inventory,
+        inventory.ok_or(ServiceError::IntegrityFailure)?,
         publication.ok_or_else(|| reject("INVALID_REFERENCE"))?,
     ))
 }
@@ -748,7 +748,7 @@ pub(super) async fn party_before(
     key: &OperationKey,
     before: i64,
     parent: &mut OriginalAuditSession,
-) -> Result<FoldedInventory> {
+) -> Result<Option<FoldedInventory>> {
     let (inventory, _) = before_inputs(ledger, tx, key, None, before, parent).await?;
     Ok(inventory)
 }
@@ -759,7 +759,7 @@ async fn before_inputs(
     wanted: Option<&Value>,
     before: i64,
     parent: &mut OriginalAuditSession,
-) -> Result<(FoldedInventory, Option<RecompiledPublication>)> {
+) -> Result<(Option<FoldedInventory>, Option<RecompiledPublication>)> {
     let mut attempt = InputAttempt {
         failure: tx.workflow_proof_failure_handle(),
         finished: false,
@@ -861,10 +861,9 @@ async fn before_inputs(
                 .map_err(core_error)?;
             require(publication.is_some(), "INVALID_REFERENCE")?;
         }
-        Ok((
-            inventory.ok_or(ServiceError::IntegrityFailure)?,
-            publication,
-        ))
+        // Actual absence of earlier workflow rows gives an empty prefix.
+        // Do not create a fake origin, tree page or W/WB allowance for it.
+        Ok((inventory, publication))
     }
     .await;
     if result.is_ok() {
