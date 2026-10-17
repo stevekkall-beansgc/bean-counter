@@ -1,0 +1,3 @@
+# App-owned cost candidate
+
+SPEC.md and app-owned-cost.schema.json define the additive app attribution path. Existing supplier/AP packages and prior fixture bytes are unchanged. registry.json/profile.json are exact code-versioned capability inputs, not caller-selected rights. DERIVATION-DETAILS.md and fixture-input.json are the input-first independent fixture handoff; no author expected output is supplied before independent sealing. definition-provenance.json gives exact copied/new dictionary names; source-pins.json binds authority evidence. A reviewed freeze is required before product consumption, and runtime capability qualification remains separate.

@@ -161,6 +161,7 @@ pub(super) fn digest_text(
             .semantic_work()
             .visit(Visit::Constraint)
             .map_err(core_error)?;
+        session.semantic_work().scan_bytes(7).map_err(core_error)?;
         text.strip_prefix("sha256:")
             .ok_or(ServiceError::IntegrityFailure)?
             .as_bytes()
@@ -170,6 +171,10 @@ pub(super) fn digest_text(
     session
         .semantic_work()
         .visit(Visit::Constraint)
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .arithmetic(Op::Compare, &[&bytes.len().into(), &64usize.into()])
         .map_err(core_error)?;
     require(bytes.len() == 64, "INTEGRITY_FAILURE")?;
     const HEX: &[u8; 16] = b"0123456789abcdef";

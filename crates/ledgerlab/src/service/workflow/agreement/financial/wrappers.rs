@@ -83,6 +83,382 @@ const WORK_TARGET_REGISTRY: &str =
     "sha256:d3fd78be2a734b4096c60f03869ff4da366a8fbf5f505b61d1188bbf420cd2d2";
 const CONSENT_REGISTRY: &str =
     "sha256:b6b4aa2542bb571fe45142e5f1fbc7369aef95ee2a7c181c236496466571245f";
+const APP_CAUSAL_REGISTRY: &str =
+    "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2";
+fn app_causal_recipe(
+    kind: &str,
+    payload: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<Option<Recipe>> {
+    for (k, p, operation, manifest, closure, authority) in [
+        (
+            "agreement.accept",
+            "ledger-workflow-agreement-accept/8",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/5",
+        ),
+        (
+            "agreement.activate",
+            "ledger-workflow-activation-replace/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/5",
+        ),
+        (
+            "agreement.activate",
+            "ledger-workflow-activation/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/5",
+        ),
+        (
+            "agreement.revoke",
+            "ledger-workflow-agreement-revoke/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/2",
+        ),
+        (
+            "authority.change",
+            "ledger-workflow-party-authorize/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "authority.change",
+            "ledger-workflow-party-revoke/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "cost.correct",
+            "ledger-workflow-cost-correct/2",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "cost.finalize",
+            "ledger-workflow-cost-finalize/2",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-app-cost-attest/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-app-observe/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-fact-attest/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-family-close-attest/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-party-evidence-retain/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "link.assert",
+            "ledger-workflow-link-assert/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "outcome.close",
+            "ledger-workflow-outcome-close/2",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "outcome.correct",
+            "ledger-workflow-outcome-correction/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "outcome.submit",
+            "ledger-workflow-outcome/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "policy.publish",
+            "ledger-workflow-policy-publication/6",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-publication-manifest/1",
+            "absent",
+            "ledger-workflow-publication-authority/1",
+        ),
+        (
+            "quantity.correct",
+            "ledger-workflow-quantity-correction/2",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "work.accept",
+            "ledger-workflow-work/1",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+        (
+            "work.reverse",
+            "ledger-workflow-work-reverse/2",
+            "ledger-workflow-economic-operation/8",
+            "ledger-workflow-economic-manifest/8",
+            "ledger-economic-resolved-inputs/8",
+            "ledger-workflow-economic-authority/7",
+        ),
+    ] {
+        if equal_text(kind, k, session)? && equal_text(payload, p, session)? {
+            return Ok(Some(Recipe {
+                operation,
+                manifest,
+                closure,
+                authority,
+            }));
+        }
+    }
+    Ok(None)
+}
+const APP_REGISTRY: &str =
+    "sha256:9a6379b0f0d20005f1406ca6ed3a5b55c40d275cec5435e1648d9b482332509b";
+fn app_recipe(
+    kind: &str,
+    payload: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<Option<Recipe>> {
+    for (k, p, operation, manifest, closure, authority) in [
+        (
+            "agreement.accept",
+            "ledger-workflow-agreement-accept/7",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/5",
+        ),
+        (
+            "agreement.activate",
+            "ledger-workflow-activation-replace/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/5",
+        ),
+        (
+            "agreement.activate",
+            "ledger-workflow-activation/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/5",
+        ),
+        (
+            "agreement.revoke",
+            "ledger-workflow-agreement-revoke/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-agreement-authority/2",
+        ),
+        (
+            "authority.change",
+            "ledger-workflow-party-authorize/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "authority.change",
+            "ledger-workflow-party-revoke/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "cost.correct",
+            "ledger-workflow-cost-correct/2",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "cost.finalize",
+            "ledger-workflow-cost-finalize/2",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-app-cost-attest/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-app-observe/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-fact-attest/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-family-close-attest/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "evidence.retain",
+            "ledger-workflow-party-evidence-retain/1",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-agreement-manifest/1",
+            "absent",
+            "ledger-workflow-party-management-authority/1",
+        ),
+        (
+            "link.assert",
+            "ledger-workflow-link-assert/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "outcome.close",
+            "ledger-workflow-outcome-close/2",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "outcome.correct",
+            "ledger-workflow-outcome-correction/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "outcome.submit",
+            "ledger-workflow-outcome/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "policy.publish",
+            "ledger-workflow-policy-publication/5",
+            "ledger-workflow-operation-record/1",
+            "ledger-workflow-publication-manifest/1",
+            "absent",
+            "ledger-workflow-publication-authority/1",
+        ),
+        (
+            "quantity.correct",
+            "ledger-workflow-quantity-correction/2",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "work.accept",
+            "ledger-workflow-work/1",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+        (
+            "work.reverse",
+            "ledger-workflow-work-reverse/2",
+            "ledger-workflow-economic-operation/7",
+            "ledger-workflow-economic-manifest/7",
+            "ledger-economic-resolved-inputs/7",
+            "ledger-workflow-economic-authority/6",
+        ),
+    ] {
+        if equal_text(kind, k, session)? && equal_text(payload, p, session)? {
+            return Ok(Some(Recipe {
+                operation,
+                manifest,
+                closure,
+                authority,
+            }));
+        }
+    }
+    Ok(None)
+}
 /// Exact new administrative tuples. This is a wire recipe, not party custody,
 /// authority, assent or a completed original certificate.
 fn consent_management_recipe(
@@ -215,6 +591,32 @@ pub(super) fn descriptor_schema(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<&'static str> {
+    if equal_text(registry, APP_CAUSAL_REGISTRY, session)? {
+        let selected = app_causal_recipe(kind, payload, session)?
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+        return Ok(if equal_text(selected.closure, "absent", session)? {
+            if equal_text(kind, "policy.publish", session)? {
+                "ledger-operation-descriptors/1"
+            } else {
+                "ledger-operation-descriptors/3"
+            }
+        } else {
+            "ledger-operation-descriptors/5"
+        });
+    }
+    if equal_text(registry, APP_REGISTRY, session)? {
+        let selected = app_recipe(kind, payload, session)?
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+        return Ok(if equal_text(selected.closure, "absent", session)? {
+            if equal_text(kind, "policy.publish", session)? {
+                "ledger-operation-descriptors/1"
+            } else {
+                "ledger-operation-descriptors/3"
+            }
+        } else {
+            "ledger-operation-descriptors/4"
+        });
+    }
     if equal_text(registry, CONSENT_REGISTRY, session)? {
         if supplier_recipe(kind, payload, session)?.is_some() {
             return Ok("ledger-operation-descriptors/2");
@@ -252,6 +654,14 @@ pub(super) fn recipe(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<Recipe> {
+    if equal_text(registry, APP_CAUSAL_REGISTRY, session)? {
+        return app_causal_recipe(kind, payload, session)?
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
+    if equal_text(registry, APP_REGISTRY, session)? {
+        return app_recipe(kind, payload, session)?
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, CONSENT_REGISTRY, session)? {
         if let Some(selected) = supplier_recipe(kind, payload, session)? {
             return Ok(selected);
@@ -824,6 +1234,8 @@ pub(super) async fn validate_frame(
         "ledger-workflow-economic-operation/4",
         "ledger-workflow-economic-operation/5",
         "ledger-workflow-economic-operation/6",
+        "ledger-workflow-economic-operation/7",
+        "ledger-workflow-economic-operation/8",
     ] {
         if equal_text(operation_schema, schema, session)? {
             economic = true;
@@ -994,6 +1406,32 @@ pub(super) async fn validate_frame(
         )? {
             Some(
                 consent_management_recipe(
+                    frame.kind,
+                    request::text(payload, "schema", session)?,
+                    session,
+                )?
+                .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?,
+            )
+        } else if equal_text(
+            request::text(descriptors, "registry_digest", session)?,
+            APP_REGISTRY,
+            session,
+        )? {
+            Some(
+                app_recipe(
+                    frame.kind,
+                    request::text(payload, "schema", session)?,
+                    session,
+                )?
+                .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?,
+            )
+        } else if equal_text(
+            request::text(descriptors, "registry_digest", session)?,
+            APP_CAUSAL_REGISTRY,
+            session,
+        )? {
+            Some(
+                app_causal_recipe(
                     frame.kind,
                     request::text(payload, "schema", session)?,
                     session,
@@ -1214,6 +1652,99 @@ pub(super) async fn validate_frame(
 
 #[cfg(test)]
 mod recipe_tests {
+    #[test]
+    fn app_causal_registry_has_exact_new_rows_without_promoting_previous_payloads() {
+        let registry: Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/candidates/full-suite-v1/core/app-cost-causal-01/registry.json"
+        )))
+        .unwrap();
+        for entry in registry["entries"].as_array().unwrap() {
+            for payload in entry["payload_schemas"].as_array().unwrap() {
+                let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+                let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                let kind = entry["kind"].as_str().unwrap();
+                let payload = payload.as_str().unwrap();
+                let selected = recipe(kind, payload, APP_CAUSAL_REGISTRY, &mut session).unwrap();
+                let saved = &entry["saved_recipe"];
+                assert_eq!(selected.operation, saved["operation_schema"]);
+                assert_eq!(selected.authority, saved["authority_schema"]);
+                assert_eq!(selected.manifest, saved["manifest_schema"]);
+                assert_eq!(selected.closure, saved["closure_profile"]);
+                let descriptor = if selected.closure != "absent" {
+                    "ledger-operation-descriptors/5"
+                } else if kind == "policy.publish" {
+                    "ledger-operation-descriptors/1"
+                } else {
+                    "ledger-operation-descriptors/3"
+                };
+                assert_eq!(
+                    descriptor_schema(kind, payload, APP_CAUSAL_REGISTRY, &mut session).unwrap(),
+                    descriptor
+                );
+            }
+        }
+        for (kind, payload) in [
+            ("policy.publish", "ledger-workflow-policy-publication/5"),
+            ("agreement.accept", "ledger-workflow-agreement-accept/7"),
+            ("cost.finalize", "ledger-workflow-cost-finalize/1"),
+            ("quantity.correct", "ledger-workflow-quantity-correction/1"),
+        ] {
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(recipe(kind, payload, APP_CAUSAL_REGISTRY, &mut session).is_err());
+        }
+    }
+
+    #[test]
+    fn app_registry_dispatches_exact_frozen_rows_and_refuses_old_ap_payloads() {
+        let registry: Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/candidates/full-suite-v1/core/app-owned-cost-01/registry.json"
+        )))
+        .unwrap();
+        for entry in registry["entries"].as_array().unwrap() {
+            for payload in entry["payload_schemas"].as_array().unwrap() {
+                let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+                let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                let kind = entry["kind"].as_str().unwrap();
+                let payload = payload.as_str().unwrap();
+                let selected = recipe(kind, payload, APP_REGISTRY, &mut session).unwrap();
+                let saved = &entry["saved_recipe"];
+                assert_eq!(selected.operation, saved["operation_schema"]);
+                assert_eq!(selected.authority, saved["authority_schema"]);
+                assert_eq!(selected.manifest, saved["manifest_schema"]);
+                assert_eq!(selected.closure, saved["closure_profile"]);
+                let expected = if selected.closure != "absent" {
+                    "ledger-operation-descriptors/4"
+                } else if kind == "policy.publish" {
+                    "ledger-operation-descriptors/1"
+                } else {
+                    "ledger-operation-descriptors/3"
+                };
+                assert_eq!(
+                    descriptor_schema(kind, payload, APP_REGISTRY, &mut session).unwrap(),
+                    expected
+                );
+            }
+        }
+        for (kind, payload) in [
+            ("quantity.correct", "ledger-workflow-quantity-correction/1"),
+            ("work.reverse", "ledger-workflow-work-reverse/1"),
+            ("cost.finalize", "ledger-workflow-cost-finalize/1"),
+            ("agreement.accept", "ledger-workflow-agreement-accept/6"),
+            (
+                "invocation.authorize",
+                "ledger-workflow-invocation-authorize/1",
+            ),
+            ("evidence.retain", "ledger-workflow-supplier-cost-attest/1"),
+        ] {
+            let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            assert!(recipe(kind, payload, APP_REGISTRY, &mut session).is_err());
+        }
+    }
+
     use super::*;
     #[test]
     fn exposure_dispatch_retains_exact_original_wrapper_versions() {

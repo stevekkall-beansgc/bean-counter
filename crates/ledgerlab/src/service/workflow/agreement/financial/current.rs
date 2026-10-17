@@ -10,6 +10,7 @@ use ledgerlab_core::{
 use std::collections::BTreeMap;
 
 mod chain;
+pub(super) mod party;
 pub(super) use chain::ObservedChain;
 
 pub(super) struct CurrentSelection {

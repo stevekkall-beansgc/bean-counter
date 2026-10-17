@@ -160,6 +160,22 @@ pub(super) fn evidence(
             }
             _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
         },
+        "ledger-workflow-policy-publication/5" => match sources.execution_registry() {
+            Some("sha256:9a6379b0f0d20005f1406ca6ed3a5b55c40d275cec5435e1648d9b482332509b") => {
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/app-owned-cost-01/registry.json"
+                )
+            }
+            _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+        },
+        "ledger-workflow-policy-publication/6" => match sources.execution_registry() {
+            Some("sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2") => {
+                include_bytes!(
+                    "../../../../../contracts/candidates/full-suite-v1/core/app-cost-causal-01/registry.json"
+                )
+            }
+            _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
+        },
         _ => return Err(ServiceError::IntegrityFailure),
     };
     let registry = ledgerlab_core::canonical::parse_bounded(registry_raw, 1024 * 1024)

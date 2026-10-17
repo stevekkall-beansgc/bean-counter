@@ -14,6 +14,9 @@ fn key_parts<'a>(
         FinancialHeadKey::Invocation { invocation_id } => {
             ("invocation", [invocation_id, "", "", ""])
         }
+        FinancialHeadKey::AppCost { cost_claim_ref: r } => {
+            ("app_cost", [&r.kind, &r.id, &r.digest, ""])
+        }
         FinancialHeadKey::Cost { cost_claim_ref: r } => ("cost", [&r.kind, &r.id, &r.digest, ""]),
         FinancialHeadKey::CostConsumption { cost_claim_ref: r } => {
             ("cost_consumption", [&r.kind, &r.id, &r.digest, ""])
@@ -197,7 +200,7 @@ impl SqliteTx {
             "chain" => "workflow-chain-state",
             "capacity" => "workflow-correction-capacity",
             "invocation" => "workflow-invocation",
-            "cost" | "cost_consumption" => "workflow-cost",
+            "cost" | "cost_consumption" | "app_cost" => "workflow-cost",
             _ => return Err(StoreError::Integrity("financial head kind").into()),
         };
         let position = effect.introduced_position();
@@ -218,6 +221,7 @@ impl SqliteTx {
         }
         let locator = match effect.key() {
             FinancialHeadKey::Invocation { invocation_id } => HeadKey::Invocation(invocation_id),
+            FinancialHeadKey::AppCost { cost_claim_ref } => HeadKey::AppCost(cost_claim_ref),
             FinancialHeadKey::Cost { cost_claim_ref } => HeadKey::Cost(cost_claim_ref),
             FinancialHeadKey::CostConsumption { cost_claim_ref } => {
                 HeadKey::CostConsumption(cost_claim_ref)
@@ -386,6 +390,14 @@ impl SqliteTx {
             let r = claim.record_ref();
             self.financial_member(identity, r, session).await?;
             match claim.key() {
+                app @ (PermanentClaimKey::AppCall { .. }
+                | PermanentClaimKey::AppComponentObservation { .. }
+                | PermanentClaimKey::AppProviderCall { .. }
+                | PermanentClaimKey::AppCostComponent { .. }
+                | PermanentClaimKey::AppFinalEvidence { .. }
+                | PermanentClaimKey::AppObservationRevision { .. }) => {
+                    self.insert_app_claim(candidate, app, r, session).await?;
+                }
                 PermanentClaimKey::CostLine { line_key } => {
                     self.insert_supplier_line_claim(identity, line_key, r, session)
                         .await?

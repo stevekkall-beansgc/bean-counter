@@ -1,0 +1,56 @@
+{
+  "contract_base_commit": "f6dda46aacff3e2ec4d8e5d72f27abfb968f02b6",
+  "sources": [
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/APP-OWNED-CHAIN-REVIEW-20261017.md",
+      "sha256": "e05627739695643add7522422ec646f93f6cad274ede3ffeae2e664a49014fea",
+      "bytes": 28795
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/APP-OWNED-COST-APPROVAL-AND-RESUME-20261017.json",
+      "sha256": "e2a1b59aa1c1b3c0337525b2943abc523641d79bdca96aa5c3df83b01a3ea432",
+      "bytes": 1751
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/ECONOMIC-BOUNDARY.md",
+      "sha256": "045e5a7c00c33e5f76e3cf9eca8b2c6a3514f6531f2314d274695bc55add50e0",
+      "bytes": 36664
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/normative-amendment.md",
+      "sha256": "4321e5a639ca73a9f013fe7a2d23f70a776524b00983454587e18ea3ec0780fe",
+      "bytes": 18700
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/publication-boundary.md",
+      "sha256": "b9c0fbc6d37cc7c8d0225621fca19915d935a2ec67f5203dacc9e5c9312b2a8e",
+      "bytes": 21283
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/COMPILED-PLAN-STORAGE-BOUND.md",
+      "sha256": "e1ee5daa7e89640b068ac02dd01eabe280129ff33f2b17718c1fbfb416b06712",
+      "bytes": 6382
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/SPEC.md",
+      "sha256": "17838de7a99b55a0fc74b65c12b716aecf8355b551a3807667f29867e8fae3ca",
+      "bytes": 27141
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/supplier-scoped-consent.schema.json",
+      "sha256": "bef7258649c0cd9fb5f5d30bc8d9159b1273fd491380a4fd80edc70d91d43a9b",
+      "bytes": 425075
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/registry.json",
+      "sha256": "5b71b9d6ed8914ad821145fb4bf9d24dc55dc5ab3488dffce6edc7ddafa86ac1",
+      "bytes": 16364
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/supplier-scoped-consent-01/profile.json",
+      "sha256": "a5a09a2915752dd8d017b6aecaf765999924c664e09c1cc09113cac1bb885ecc",
+      "bytes": 1003
+    }
+  ],
+  "approval_scope": "new app-attributed customer cost mode; optional AP retained; same numeric profiles and full product scope"
+}

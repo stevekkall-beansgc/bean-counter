@@ -148,6 +148,99 @@ struct CausalReversalClause {
     mode: String,
     standalone_deadline_effect: String,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppCausalClause {
+    root_relation: String,
+    mode: String,
+    standalone_deadline_effect: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppCostDeclaration {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    correction_anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    causal_reversal: Option<AppCausalClause>,
+    component_key: String,
+    activity: String,
+    resource_funding_leg: String,
+    usage_field: String,
+    usage_unit: String,
+    work_source_slot: String,
+    cost_source_slot: String,
+    correction_source_slot: String,
+    finalize_within_us: String,
+    correction_within_us: String,
+    maximum_final_amount: Amount,
+    on_missing: String,
+    cost_basis: String,
+    comparable_quantity_rule: String,
+    allocation: String,
+}
+fn app_terms(input: &mut SlotInput) -> Result<()> {
+    if !matches!(
+        input.schema.as_str(),
+        "ledger-workflow-slot-binding-terms/6" | "ledger-workflow-slot-binding-terms/7"
+    ) {
+        return if input.app_cost_terms.is_none() {
+            Ok(())
+        } else {
+            Err(fail("app declarations require terms6"))
+        };
+    }
+    let rows = input
+        .app_cost_terms
+        .as_mut()
+        .ok_or_else(|| fail("app declarations required"))?;
+    if !(1..=64).contains(&rows.len()) {
+        return Err(fail("app declaration count"));
+    }
+    let mut keys = BTreeSet::new();
+    for row in rows.iter_mut() {
+        if input.schema == "ledger-workflow-slot-binding-terms/7" {
+            if row.correction_anchor.as_deref() != Some("initial_cost_accepted_at") {
+                return Err(fail("explicit non-sliding app correction anchor"));
+            }
+            if let Some(clause) = &row.causal_reversal {
+                if clause.root_relation != "original_work_delayed_cost_dependency"
+                    || clause.mode != "exact_inverse_and_permanent_close"
+                    || clause.standalone_deadline_effect
+                        != "does_not_expire_preaccepted_causal_reversal"
+                {
+                    return Err(fail("exact accepted app causal clause"));
+                }
+            }
+        } else if row.correction_anchor.is_some() || row.causal_reversal.is_some() {
+            return Err(fail("old app terms cannot acquire timing or late reversal"));
+        }
+        for value in [
+            &row.component_key,
+            &row.activity,
+            &row.resource_funding_leg,
+            &row.usage_field,
+            &row.usage_unit,
+            &row.work_source_slot,
+            &row.cost_source_slot,
+            &row.correction_source_slot,
+        ] {
+            name(value)?;
+        }
+        if !keys.insert((row.activity.clone(), row.component_key.clone()))
+            || !input.allowed_activities.contains(&row.activity)
+            || row.on_missing != "wait"
+            || row.cost_basis != "app_attributed_final_amount"
+            || row.comparable_quantity_rule != "when_present_lte_original_observed"
+            || row.allocation != "one_call_one_component"
+        {
+            return Err(fail("app declaration identity or semantics"));
+        }
+        row.finalize_within_us = super::facts::counter(&row.finalize_within_us)?.to_string();
+        row.correction_within_us = super::facts::counter(&row.correction_within_us)?.to_string();
+        row.maximum_final_amount.validate()?;
+    }
+    canonical::sort_set(rows)
+}
 fn causal_clauses(input: &mut SlotInput) -> Result<()> {
     let supplier_fields = input.offer_ref.is_some()
         || input.cost_authority_ref.is_some()
@@ -209,8 +302,16 @@ fn causal_clauses(input: &mut SlotInput) -> Result<()> {
         {
             Ok(())
         }
-        "ledger-workflow-slot-binding-terms/2" | "ledger-workflow-slot-binding-terms/3" => {
-            let original_work = input.schema == "ledger-workflow-slot-binding-terms/3";
+        "ledger-workflow-slot-binding-terms/2"
+        | "ledger-workflow-slot-binding-terms/3"
+        | "ledger-workflow-slot-binding-terms/6"
+        | "ledger-workflow-slot-binding-terms/7" => {
+            let original_work = matches!(
+                input.schema.as_str(),
+                "ledger-workflow-slot-binding-terms/3"
+                    | "ledger-workflow-slot-binding-terms/6"
+                    | "ledger-workflow-slot-binding-terms/7"
+            );
             if original_work {
                 if input.exposure_scope.as_deref() != Some("original_work")
                     || input.book != TemplateBook::Retail
@@ -285,6 +386,8 @@ struct SlotInput {
     consumption_basis: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     commitment_ref: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    app_cost_terms: Option<Vec<AppCostDeclaration>>,
 }
 #[derive(Clone, Debug)]
 pub struct SlotBindingTerms {
@@ -296,6 +399,7 @@ impl SlotBindingTerms {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
         let mut input: SlotInput = canonical::dto(value)?;
+        app_terms(&mut input)?;
         causal_clauses(&mut input)?;
         ids(&input.scope, &input.agreement_id, &input.customer)?;
         for s in [
@@ -470,7 +574,7 @@ fn unique_names<'a>(values: impl Iterator<Item = &'a str>, min: usize, max: usiz
     Ok(())
 }
 impl Projection {
-    fn normalize(&mut self, context: &super::FactSchema) -> Result<()> {
+    fn normalize(&mut self, context: &super::FactSchema, app: bool) -> Result<()> {
         crate::domain::text(&self.agreement_id, 128)?;
         crate::domain::text(&self.customer, 128)?;
         crate::domain::text(&self.source_namespace, 256)?;
@@ -503,6 +607,7 @@ impl Projection {
                     "allocation_input",
                 ]
                 .contains(&kind.as_str())
+                    && !(app && ["app_usage", "app_final_cost"].contains(&kind.as_str()))
                 {
                     return Err(fail("source evidence kind"));
                 }
@@ -596,12 +701,18 @@ impl AcceptanceTerms {
         let value = canonical::parse_bounded(raw, 262144)?;
         reject_null(&value)?;
         let mut input: TermsInput = canonical::dto(value)?;
-        if input.schema != "ledger-workflow-acceptance-terms/1" {
+        if !matches!(
+            input.schema.as_str(),
+            "ledger-workflow-acceptance-terms/1" | "ledger-workflow-acceptance-terms/2"
+        ) {
             return Err(fail("acceptance terms schema"));
         }
         ids(&input.scope, &input.agreement_id, &input.customer)?;
         reference(&mut input.publication_ref, "workflow-publication")?;
-        input.binding_inputs.normalize(context)?;
+        input.binding_inputs.normalize(
+            context,
+            input.schema == "ledger-workflow-acceptance-terms/2",
+        )?;
         input.version = super::facts::counter(&input.version)?.to_string();
         if input.agreement_id != input.binding_inputs.agreement_id
             || input.customer != input.binding_inputs.customer

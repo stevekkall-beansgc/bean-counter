@@ -1,0 +1,85 @@
+{
+  "schema": "app-cost-freeze-candidate/1",
+  "status": "AUTHOR_CANDIDATE_REQUIRES_INDEPENDENT_REVIEWED_FREEZE",
+  "input_first_handoff_sha256": "610abef4cf0ad6ec361b6f8ce7e91c727feecc65bb5093f16113a2cc5c8261da",
+  "independent_input_seal_sha256": "579fdfdc039dc0a026beed493dc45769f10c78028f0225d073d174708c65098d",
+  "files": [
+    {
+      "path": "DERIVATION-DETAILS.md",
+      "sha256": "a3a630508c7a07c7414eb8787e269490ab06f3dd5f371e8f0f10bf169f7ac7ae",
+      "bytes": 7840
+    },
+    {
+      "path": "README.md",
+      "sha256": "61e3f80a7700a7cda44e419501540417a3693946c9d685399f544c36770c261d",
+      "bytes": 661
+    },
+    {
+      "path": "SPEC.md",
+      "sha256": "09fba631a274ffc6062c2df5151945ef0cb4900f50b630f0455e6a13f7c5d283",
+      "bytes": 23887
+    },
+    {
+      "path": "app-owned-cost.schema.json",
+      "sha256": "39ac24fc3279dce39ee87fd1283d5ed5c6cba9b046be686aeea61cbbd41bb59c",
+      "bytes": 516532
+    },
+    {
+      "path": "author-check.json",
+      "sha256": "6cd1fc471298408ff3e40c9f280b65234a9543587d2e0fca9c8b110a9381bd7a",
+      "bytes": 285
+    },
+    {
+      "path": "check_fixture.py",
+      "sha256": "18153767ec3e4b5bcf3c964a9c5af3a9dd21dbc3351c4af1e67555172054bea7",
+      "bytes": 1128
+    },
+    {
+      "path": "definition-provenance.json",
+      "sha256": "a6efef5a29924d5915c41d2669c0d912fbcc8d6329a17d8d68edc10241122c63",
+      "bytes": 7619
+    },
+    {
+      "path": "derive_author.py",
+      "sha256": "b895bd02fe0fe0f74f6e0ed214741a27bf73b1dcb6a199bf7dd4d3cbd404a1dd",
+      "bytes": 12377
+    },
+    {
+      "path": "fixture-expected.json",
+      "sha256": "0c4e6b8e2740e03aa615259498531814adb4bbcbc5a0d058c55be7bb9609f524",
+      "bytes": 212722
+    },
+    {
+      "path": "fixture-input.json",
+      "sha256": "21ae83b82ae943415716022bd9fed2d5762b8f91df676436b42077cb9321378e",
+      "bytes": 75808
+    },
+    {
+      "path": "profile.json",
+      "sha256": "bd340a7f576757b93eddef54a54d90a817b54a2935e084524a7fcdd19116287a",
+      "bytes": 1522
+    },
+    {
+      "path": "profile.schema.json",
+      "sha256": "ef7d5b6670af17e4a08617aaf842d7b5e79732a24214d8d10bb1635b518673d0",
+      "bytes": 1658
+    },
+    {
+      "path": "registry.json",
+      "sha256": "015c959c575dcc4450b4a274b51048a46704d154059050a377550fdef19307bb",
+      "bytes": 13676
+    },
+    {
+      "path": "registry.schema.json",
+      "sha256": "05288c78ae3a7bc8d2c41370eef477ec9fcc573f778159e383cd7c15e64b1be9",
+      "bytes": 14532
+    },
+    {
+      "path": "source-pins.json",
+      "sha256": "9b5d6d0781b2a2a2c98f790e55817dbc255facee5e0dd20e6dedc804415f2a73",
+      "bytes": 3043
+    }
+  ],
+  "runtime_qualified": false,
+  "old_product_or_contract_files_changed": false
+}

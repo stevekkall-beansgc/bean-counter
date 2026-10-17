@@ -153,7 +153,7 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if version != 12 && version != 13 && version != 14 {
+        if version != 12 && version != 13 && version != 14 && version != 15 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())

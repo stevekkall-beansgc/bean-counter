@@ -213,3 +213,107 @@ async fn supplier_additive_schema_preserves_history_and_distinct_global_claims()
             .is_none()
     );
 }
+
+// Opaque physical records here prove only migration/FK/uniqueness mechanics;
+// none is offered to a semantic auditor as financial provenance.
+#[tokio::test]
+async fn app_upgrade_preserves_history_and_enforces_independent_global_consumption() {
+    let mut c = prior().await;
+    for schema in [FINANCIAL_WORKFLOW, super::SUPPLIER_WORKFLOW] {
+        let mut tx = c.begin().await.unwrap();
+        tx.execute(sqlx::AssertSqlSafe(schema)).await.unwrap();
+        finish_financial_schema(&mut tx).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+    let before: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT operation_bytes,manifest_bytes,receipt_bytes FROM workflow_operations",
+    )
+    .fetch_one(&mut c)
+    .await
+    .unwrap();
+    let mut tx = c.begin().await.unwrap();
+    tx.execute(sqlx::AssertSqlSafe(super::APP_WORKFLOW))
+        .await
+        .unwrap();
+    finish_financial_schema(&mut tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let after: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT operation_bytes,manifest_bytes,receipt_bytes FROM workflow_operations",
+    )
+    .fetch_one(&mut c)
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    c.execute("INSERT INTO workflow_documents VALUES('workflow-work','work','w','opaque',X'01'),('workflow-fact-attestation','obs','o','opaque',X'01'),('workflow-fact-attestation','obs2','o2','opaque',X'01'),('workflow-fact-attestation','evidence','e','opaque',X'01'),('workflow-cost','claim','c','opaque',X'01'),('workflow-cost','consume','s','opaque',X'01'),('workflow-verification','consent','v','opaque',X'01')").await.unwrap();
+    for sql in [
+        "INSERT INTO workflow_app_call_claims VALUES('store','namespace','call','workflow-fact-attestation','obs','o')",
+        "INSERT INTO workflow_app_component_observations VALUES('store','workflow-work','work','w','component','workflow-fact-attestation','obs','o')",
+        "INSERT INTO workflow_app_provider_calls VALUES('store','provider','account','request','workflow-fact-attestation','obs','o')",
+        "INSERT INTO workflow_app_cost_claims VALUES('store','workflow-work','work','w','component','workflow-cost','claim','c')",
+        "INSERT INTO workflow_app_evidence_consumptions VALUES('store','workflow-fact-attestation','evidence','e','workflow-cost','consume','s')",
+        "INSERT INTO workflow_app_observation_revisions VALUES('store','workflow-fact-attestation','obs','o','1','workflow-cost','consume','s')",
+        "INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','app_cost','workflow-cost','claim','c','','1','workflow-cost','claim','c')",
+    ] {
+        c.execute(sql).await.unwrap();
+    }
+    // Distinct immutable results cannot reuse any occupied permanent key.
+    for table in [
+        "workflow_app_call_claims",
+        "workflow_app_component_observations",
+        "workflow_app_provider_calls",
+    ] {
+        let sql = format!(
+            "INSERT INTO {table} SELECT {} FROM {table}",
+            match table {
+                "workflow_app_call_claims" =>
+                    "logical_store_id,source_namespace,call_id,'workflow-fact-attestation','obs2','o2'",
+                "workflow_app_component_observations" =>
+                    "logical_store_id,work_kind,work_id,work_digest,component_slot,'workflow-fact-attestation','obs2','o2'",
+                _ =>
+                    "logical_store_id,provider,account,request_id,'workflow-fact-attestation','obs2','o2'",
+            }
+        );
+        assert!(c.execute(sqlx::AssertSqlSafe(sql.as_str())).await.is_err());
+    }
+    for table in [
+        "workflow_app_cost_claims",
+        "workflow_app_evidence_consumptions",
+        "workflow_app_observation_revisions",
+    ] {
+        let sql = format!("UPDATE {table} SET record_id='consume'");
+        assert!(c.execute(sqlx::AssertSqlSafe(sql.as_str())).await.is_err());
+    }
+    assert!(c.execute("INSERT INTO workflow_app_call_claims VALUES('store','namespace','different','workflow-fact-attestation','missing','missing')").await.is_err());
+    assert!(
+        c.execute(
+            "INSERT INTO workflow_documents VALUES('unknown-kind','bad','bad','opaque',X'01')"
+        )
+        .await
+        .is_err()
+    );
+    c.execute("INSERT INTO workflow_documents VALUES('workflow-authority','party-one','p1','opaque',X'01'),('workflow-authority','party-two','p2','opaque',X'02')").await.unwrap();
+    c.execute("INSERT INTO workflow_party_authorization_heads VALUES('store','tenant','environment','customer','agreement','mapping','1','workflow-authority','party-one','p1')").await.unwrap();
+    assert!(
+        c.execute("UPDATE workflow_party_authorization_heads SET authorization_id='other'")
+            .await
+            .is_err()
+    );
+    assert!(
+        c.execute("UPDATE workflow_party_authorization_heads SET revision='3'")
+            .await
+            .is_err()
+    );
+    c.execute("UPDATE workflow_party_authorization_heads SET revision='2',record_id='party-two',record_digest='p2'").await.unwrap();
+    assert!(
+        c.execute("DELETE FROM workflow_party_authorization_heads")
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("PRAGMA foreign_key_check")
+            .fetch_optional(&mut c)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}

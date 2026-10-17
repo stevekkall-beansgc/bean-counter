@@ -35,27 +35,92 @@ impl TryFrom<RefDto> for DefinitionRef {
 impl DefinitionRef {
     /// Syntax only; no retention, ACL or executable-support claim.
     pub fn new(kind: &str, id: &str, digest: &str) -> Result<Self> {
-        let prefix = match kind {
-            "workflow-product"
-            | "workflow-fact-schema"
-            | "workflow-slot-template"
-            | "workflow-policy"
-            | "workflow-compiler-descriptor" => "wdoc_",
-            "workflow-compiled-plan" => "wplan_",
-            _ => return Err(fail("DEFINITION_KIND", "unsupported definition family")),
-        };
-        crate::domain::prefixed(digest, "sha256:")?;
-        crate::domain::prefixed(id, prefix)?;
-        if id[prefix.len()..] != digest[7..] {
+        Self::new_with_work(
+            kind,
+            id,
+            digest,
+            &mut crate::validation_work::NoopValidationWork,
+        )
+    }
+    /// The same DATA constructor with executing semantic/copy callbacks. The
+    /// caller owns pre-admission of these three strings; this is not provenance.
+    pub fn new_with_work(
+        kind: &str,
+        id: &str,
+        digest: &str,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<Self> {
+        use crate::validation_work::ValidationVisit as Visit;
+        let mut prefix = None;
+        for (candidate, expected) in [
+            ("workflow-product", "wdoc_"),
+            ("workflow-fact-schema", "wdoc_"),
+            ("workflow-slot-template", "wdoc_"),
+            ("workflow-policy", "wdoc_"),
+            ("workflow-compiler-descriptor", "wdoc_"),
+            ("workflow-compiled-plan", "wplan_"),
+        ] {
+            work.visit(Visit::MemberCompare)?;
+            work.scan_bytes(kind.len())?;
+            work.scan_bytes(candidate.len())?;
+            if kind == candidate {
+                prefix = Some(expected);
+                break;
+            }
+        }
+        let prefix =
+            prefix.ok_or_else(|| fail("DEFINITION_KIND", "unsupported definition family"))?;
+        fn prefixed<'a>(
+            value: &'a str,
+            prefix: &str,
+            work: &mut dyn crate::validation_work::ValidationWork,
+        ) -> Result<&'a str> {
+            use crate::validation_work::{
+                ArithmeticOperation as Op, BigInt, ValidationVisit as Visit,
+            };
+            work.visit(Visit::Constraint)?;
+            work.scan_bytes(prefix.len())?;
+            let value = value
+                .strip_prefix(prefix)
+                .ok_or_else(|| Error::new("IDENTIFIER", "wrong internal ID prefix"))?;
+            work.arithmetic(
+                Op::Compare,
+                &[&BigInt::from(value.len()), &BigInt::from(64u8)],
+            )?;
+            if value.len() != 64 {
+                return Err(Error::new("IDENTIFIER", "expected lowercase SHA-256"));
+            }
+            for byte in value.bytes() {
+                work.visit(Visit::Constraint)?;
+                work.scan_bytes(1)?;
+                if !byte.is_ascii_digit() && !(b'a'..=b'f').contains(&byte) {
+                    return Err(Error::new("IDENTIFIER", "expected lowercase SHA-256"));
+                }
+            }
+            Ok(value)
+        }
+        let digest_hex = prefixed(digest, "sha256:", work)?;
+        let id_hex = prefixed(id, prefix, work)?;
+        work.visit(Visit::MemberCompare)?;
+        work.scan_bytes(id_hex.len())?;
+        work.scan_bytes(digest_hex.len())?;
+        if id_hex != digest_hex {
             return Err(fail(
                 "DEFINITION_DIGEST_MISMATCH",
                 "content-addressed reference",
             ));
         }
+        // Charge before each actual owned copy. There is no temporary DTO or
+        // opaque serde clone between this borrowed input and its three strings.
+        let mut copy = |value: &str| -> Result<String> {
+            work.scan_bytes(value.len())?;
+            work.write_bytes(value.len())?;
+            Ok(value.to_owned())
+        };
         Ok(Self {
-            kind: kind.into(),
-            id: id.into(),
-            digest: digest.into(),
+            kind: copy(kind)?,
+            id: copy(id)?,
+            digest: copy(digest)?,
         })
     }
     pub fn parse(bytes: &[u8]) -> Result<Self> {
@@ -525,6 +590,12 @@ impl CompilerDescriptor {
         let mut dto: DescriptorDto = canonical::dto(value)?;
         if matches!(
             dto.schema.as_str(),
+            "ledger-workflow-compiler-descriptor/5" | "ledger-workflow-compiler-descriptor/6"
+        ) {
+            return Self::app_cost_data(dto);
+        }
+        if matches!(
+            dto.schema.as_str(),
             "ledger-workflow-compiler-descriptor/3" | "ledger-workflow-compiler-descriptor/4"
         ) {
             return Self::supplier_cost_data(dto);
@@ -705,6 +776,61 @@ impl CompilerDescriptor {
                 "PROGRAM_UNSUPPORTED_PRIMITIVE",
                 "supplier scoped projection declaration",
             ));
+        }
+        for digest in [
+            &dto.limits_digest,
+            &dto.mode_matrix_digest,
+            &dto.contract_manifest_digest,
+        ] {
+            crate::domain::prefixed(digest, "sha256:")?;
+        }
+        let body = serde_json::to_value(dto).map_err(|e| fail("JSON", &e.to_string()))?;
+        Ok(Self {
+            document: DefinitionDocument::document("workflow-compiler-descriptor", body)?,
+        })
+    }
+    /// Closed app descriptor DATA. Only actual binary support may enable it.
+    fn app_cost_data(mut dto: DescriptorDto) -> Result<Self> {
+        let (semantics, plan) = if dto.schema == "ledger-workflow-compiler-descriptor/6" {
+            (
+                "ledger-policy-compiler/app-cost-causal-1",
+                "ledger-workflow-compiled-plan/6",
+            )
+        } else {
+            (
+                "ledger-policy-compiler/app-owned-cost-1",
+                "ledger-workflow-compiled-plan/5",
+            )
+        };
+        if dto.compiler_semantics != semantics
+            || dto.plan_schema != plan
+            || dto.evaluator != "ledger-workflow-evaluator/1"
+            || dto.grammar != "ledger-policy-grammar/1"
+            || dto.facts_normalization != "ledger-facts-normalization/1"
+            || dto.operation_normalization != "ledger-operation-normalization/2"
+            || dto.limits_profile != "workflow-limits/1"
+        {
+            return Err(fail(
+                "UNSUPPORTED_SCHEMA_PROFILE",
+                "app descriptor profiles",
+            ));
+        }
+        for values in [
+            &mut dto.primitive_versions,
+            &mut dto.fact_types,
+            &mut dto.predicate_ops,
+            &mut dto.formula_kinds,
+        ] {
+            if values.len() > 64
+                || values.iter().any(|v| {
+                    v.is_empty()
+                        || v.chars().count() > 128
+                        || v.chars().any(|c| c <= '\u{001f}' || c == '\u{007f}')
+                })
+            {
+                return Err(fail("INVALID_SHAPE", "app descriptor declarations"));
+            }
+            canonical::sort_set(values)?;
         }
         for digest in [
             &dto.limits_digest,

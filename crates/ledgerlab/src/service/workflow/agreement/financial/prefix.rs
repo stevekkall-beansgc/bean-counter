@@ -3,6 +3,7 @@
 //! Recipe semantics and their complete inputs must finish before inventory use.
 use super::*;
 mod inventory;
+mod publication;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
 use ledgerlab_core::{
     canonical::audit_arena::ExternalBufferLease,
@@ -76,6 +77,23 @@ impl LocatedWrappers {
     }
     pub(super) fn wrappers(&self) -> &wrappers::OriginalWrappers {
         &self.wrappers
+    }
+    /// Actual saved source/compiler replay only. This DATA result still needs
+    /// chronological introduction/authority/build completion by the driver.
+    pub(super) async fn recompile_publication(
+        &self,
+        tx: &mut SqliteTx,
+        session: &mut OriginalAuditSession,
+    ) -> Result<publication::RecompiledPublication> {
+        let mut attempt = InputAttempt {
+            failure: tx.workflow_proof_failure_handle(),
+            finished: false,
+        };
+        let result = publication::recompile(tx, self, session).await;
+        if result.is_ok() {
+            attempt.finish();
+        }
+        result
     }
 }
 pub(super) fn read_error(error: FinancialReadError) -> ServiceError {

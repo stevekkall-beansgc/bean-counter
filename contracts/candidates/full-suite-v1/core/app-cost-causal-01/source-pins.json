@@ -1,0 +1,74 @@
+{
+  "sources": [
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-owned-cost-01/SPEC.md",
+      "bytes": 23887,
+      "sha256": "09fba631a274ffc6062c2df5151945ef0cb4900f50b630f0455e6a13f7c5d283"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-owned-cost-01/app-owned-cost.schema.json",
+      "bytes": 516532,
+      "sha256": "39ac24fc3279dce39ee87fd1283d5ed5c6cba9b046be686aeea61cbbd41bb59c"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-owned-cost-01/registry.json",
+      "bytes": 13676,
+      "sha256": "015c959c575dcc4450b4a274b51048a46704d154059050a377550fdef19307bb"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-owned-cost-01/profile.json",
+      "bytes": 1522,
+      "sha256": "bd340a7f576757b93eddef54a54d90a817b54a2935e084524a7fcdd19116287a"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-owned-cost-01/fixture-input.json",
+      "bytes": 75808,
+      "sha256": "21ae83b82ae943415716022bd9fed2d5762b8f91df676436b42077cb9321378e"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/app-owned-cost-01/DERIVATION-DETAILS.md",
+      "bytes": 7840,
+      "sha256": "a3a630508c7a07c7414eb8787e269490ab06f3dd5f371e8f0f10bf169f7ac7ae"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/CAUSAL-REVERSAL-01-BOUNDARY.md",
+      "bytes": 16925,
+      "sha256": "011260aaf46c5c59a87584d4524889d665b071887d1194fbaa6461cd8bc4b3c4"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-contracts-20261012/contracts/candidates/full-suite-v1/core/ECONOMIC-BOUNDARY.md",
+      "bytes": 36664,
+      "sha256": "045e5a7c00c33e5f76e3cf9eca8b2c6a3514f6531f2314d274695bc55add50e0"
+    },
+    {
+      "path": "/Users/stephenkall/beans/worktrees/bean-counter-full-product-design-20261007/docs/plans/full-product-launch-2026-10-07/technical-design/S12-TECHNICAL-PLAN.md",
+      "bytes": 156180,
+      "sha256": "ed553ae22fd0fe95dfac0ce6564d097e21bb7006174633c49ebfb9feb74f72d7"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/APP-COST-CAUSAL-TIMING-DISPOSITION.md",
+      "bytes": 8008,
+      "sha256": "f1849dae52551791a7199c0b62ac4ad4cab8e25645b31977b5e2c2a1d62251c5"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/APP-COST-REVIEWED-FREEZE.json",
+      "bytes": 2047,
+      "sha256": "232c98e6077bf1dd301a6b38fb4c9020aea79cacdca57d6a1aa098663353e57f"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/APP-COST-CORRECTION-ANCHOR-DISPOSITION.md",
+      "bytes": 11420,
+      "sha256": "93f2f93b147b3950e10590e539fc61b4fd238a9022da9d3c31169d4d1f33fed7"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/APP-COST-CORRECTION-ANCHOR-APPROVAL-AND-RESUME-20261017.json",
+      "bytes": 1180,
+      "sha256": "115261f97be5ec5271f2c3cd57a88f4184241cf29a224f704ef938e2f6fa006a"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/APP-COST-CAUSAL-PRE-ANCHOR-SNAPSHOT.json",
+      "bytes": 3514,
+      "sha256": "fdf92122597d2eb6399195d3d6f453f9d4d6dd84e63556ef57803253bb607f73"
+    }
+  ]
+}

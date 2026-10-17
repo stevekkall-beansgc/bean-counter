@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "scope": "author fixture/source consistency only; independent freeze and runtime qualification separate",
+  "records": 26,
+  "conditional_cases": 45,
+  "conditional_accepts": 5,
+  "schema_negatives": 3,
+  "unchanged_old_definitions": 257,
+  "source_pins": 10
+}

@@ -76,7 +76,7 @@ fn literal(text: &str, session: &mut OriginalAuditSession) -> Result<AuditedByte
     append(&mut out, b"\"", session)?;
     out.finish(session.semantic_work()).map_err(core_error)
 }
-fn reference(r: &ExactRef, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+pub(super) fn reference(r: &ExactRef, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     let digest = literal(&r.digest, session)?;
     let id = literal(&r.id, session)?;
     let kind = literal(&r.kind, session)?;
@@ -121,12 +121,12 @@ fn ref_compare(
     }
     Ok(Cmp::Equal)
 }
-struct RefSet<'a> {
+pub(super) struct RefSet<'a> {
     refs: Vec<&'a ExactRef>,
     _lease: ExternalBufferLease,
 }
 impl<'a> RefSet<'a> {
-    fn new(
+    pub(super) fn new(
         input: impl Iterator<Item = &'a ExactRef>,
         count: usize,
         unique: bool,
@@ -273,7 +273,7 @@ impl<'a> RefSet<'a> {
         }
         Ok(())
     }
-    fn encode(&self, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+    pub(super) fn encode(&self, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
         let mut maximum = 2;
         for r in &self.refs {
             // Exact unescaped Ref body plus comma; each encoded reference is
@@ -299,7 +299,7 @@ impl<'a> RefSet<'a> {
         out.finish(session.semantic_work()).map_err(core_error)
     }
 }
-fn object(
+pub(super) fn object(
     fields: &[(&'static str, &[u8])],
     maximum: usize,
     session: &mut OriginalAuditSession,

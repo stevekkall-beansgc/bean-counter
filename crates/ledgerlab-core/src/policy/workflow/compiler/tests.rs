@@ -48,7 +48,6 @@ fn family_close_descriptor_data_is_exact_and_does_not_widen_legacy_support() {
     }
 }
 
-
 // Independently derived and reviewed PUB-ENC-01 snapshot. Test inputs are the
 // sealed source bodies, not production output or author fixture generation.
 fn fixture() -> Value {
@@ -696,12 +695,14 @@ fn policy_definition_typechecks_quantity_and_binding_references() {
     for key in ["quantity_field", "unit"] {
         let mut bad = policy.clone();
         bad["rules"][0]["formula"][key] = json!("fixture.report:missing");
-        assert!(normalize_definition(
-            CanonicalBytes::from_value(&bad).unwrap().as_slice(),
-            &dependencies,
-            &support
-        )
-        .is_err());
+        assert!(
+            normalize_definition(
+                CanonicalBytes::from_value(&bad).unwrap().as_slice(),
+                &dependencies,
+                &support
+            )
+            .is_err()
+        );
     }
     policy["rules"][0]["binding_slot"] = json!("fixture.report:missing");
     error(
@@ -719,17 +720,19 @@ fn canonical_definition_closure_budget_does_not_charge_root_wire_whitespace() {
     let fixture = runtime_fixture();
     let vectors = fixture["vectors"].as_array().unwrap();
     let support = VerifiedCompilerSupport::builtin().unwrap();
-    let mut dependencies = vec![normalize_definition(
-        vectors[0]["canonical_body_utf8"]
-            .as_str()
-            .unwrap()
-            .as_bytes(),
-        &[],
-        &support,
-    )
-    .unwrap()
-    .document()
-    .clone()];
+    let mut dependencies = vec![
+        normalize_definition(
+            vectors[0]["canonical_body_utf8"]
+                .as_str()
+                .unwrap()
+                .as_bytes(),
+            &[],
+            &support,
+        )
+        .unwrap()
+        .document()
+        .clone(),
+    ];
     let values: Vec<_> = (0..32)
         .map(|i| format!("{}:v{i:02}{}", "n".repeat(60), "x".repeat(58)))
         .collect();
@@ -754,10 +757,12 @@ fn canonical_definition_closure_budget_does_not_charge_root_wire_whitespace() {
             .as_bytes(),
     )
     .unwrap();
-    product["fact_schemas"] = json!(dependencies
-        .iter()
-        .map(DefinitionDocument::reference)
-        .collect::<Vec<_>>());
+    product["fact_schemas"] = json!(
+        dependencies
+            .iter()
+            .map(DefinitionDocument::reference)
+            .collect::<Vec<_>>()
+    );
     let raw = CanonicalBytes::from_value(&product).unwrap().into_vec();
     let canonical = normalize_definition(&raw, &dependencies, &support).unwrap();
     let dependency_bytes: usize = dependencies.iter().map(|d| d.canonical_bytes().len()).sum();
@@ -859,4 +864,49 @@ fn retained_definition_data_replays_old_descriptor_without_current_support() {
     );
     // Reassembly/typed data construction makes no claim of executable support,
     // original retention or authority. The coordinator still verifies origin.
+}
+
+#[test]
+fn paid_definition_ref_matches_legacy_and_refuses_at_callback_boundary() {
+    use crate::validation_work::tests::CountingWork;
+    for (kind, prefix) in [
+        ("workflow-policy", "wdoc_"),
+        ("workflow-compiled-plan", "wplan_"),
+    ] {
+        let id = format!("{prefix}{}", "a".repeat(64));
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let mut full = CountingWork::new(usize::MAX);
+        let paid = DefinitionRef::new_with_work(kind, &id, &digest, &mut full).unwrap();
+        assert_eq!(paid, DefinitionRef::new(kind, &id, &digest).unwrap());
+        assert_eq!(full.written, kind.len() + id.len() + digest.len());
+        assert!(full.used > 128);
+        let mut exact = CountingWork::new(full.used);
+        assert_eq!(
+            DefinitionRef::new_with_work(kind, &id, &digest, &mut exact).unwrap(),
+            paid
+        );
+        let mut short = CountingWork::new(full.used - 1);
+        assert_eq!(
+            DefinitionRef::new_with_work(kind, &id, &digest, &mut short)
+                .unwrap_err()
+                .code,
+            "TEST_EXHAUSTED"
+        );
+        assert_eq!(short.written, 0);
+        for (bad_kind, bad_id, bad_digest) in [
+            ("unsupported", id.as_str(), digest.as_str()),
+            (kind, "wrong", digest.as_str()),
+            (kind, id.as_str(), "sha256:BAD"),
+        ] {
+            let mut work = CountingWork::new(usize::MAX);
+            assert_eq!(
+                DefinitionRef::new_with_work(bad_kind, bad_id, bad_digest, &mut work)
+                    .unwrap_err()
+                    .code,
+                DefinitionRef::new(bad_kind, bad_id, bad_digest)
+                    .unwrap_err()
+                    .code
+            );
+        }
+    }
 }

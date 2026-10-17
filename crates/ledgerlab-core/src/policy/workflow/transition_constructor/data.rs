@@ -105,6 +105,16 @@ pub struct SupplierStateData<'a> {
     pub cost_consumption_heads:&'a [CostHead],
     pub cost_owner_heads:&'a [CostOwnerHead],
 }
+/// Actual point-lookup hits selected under the held host snapshot. Lists carry
+/// retained rows, not a completeness/authority bit; each pure consumer checks
+/// exact immutable keys, bodies and current revision. Empty hits still require
+/// the host's complete locked absence observation before preparation.
+pub struct AppStateData<'a> {
+    pub cost_heads: &'a [CostHead],
+    pub observation_refs: &'a [ExactRef],
+    pub cost_claim_refs: &'a [ExactRef],
+    pub evidence_consumption_refs: &'a [ExactRef],
+}
 /// The complete candidate's extra projection DATA. The host must select these
 /// exact capacity heads under the same snapshot/locks as financial heads;
 /// neither a payload nor this view asserts completeness or currentness.
@@ -112,6 +122,7 @@ pub struct EconomicStateData<'a> {
     pub financial: &'a DraftStateData,
     pub capacity_heads: &'a [CapacityHead],
     pub supplier:Option<&'a SupplierStateData<'a>>,
+    pub app:Option<&'a AppStateData<'a>>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct DraftStateData {

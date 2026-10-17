@@ -558,3 +558,103 @@ fn scoped_supplier_consent_data_preserves_old_offer_and_requires_exact_new_versi
         super::super::CompilerDescriptor::parse(&serde_json::to_vec(&descriptor).unwrap()).is_err()
     );
 }
+
+#[test]
+fn app_terms_data_requires_new_consent_recipe_and_never_widens_old_terms() {
+    let frozen:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/app-owned-cost-01/fixture-expected.json")).unwrap();
+    let slot = &frozen["records"]["app_terms"];
+    let parsed = SlotBindingTerms::parse(&serde_json::to_vec(&slot["body"]).unwrap()).unwrap();
+    exact(parsed.canonical_bytes(), parsed.reference(), slot);
+    for (field, value) in [
+        ("schema", json!("ledger-workflow-slot-binding-terms/3")),
+        ("exposure_scope", json!("binding_lifetime")),
+        ("book", json!("supplier")),
+        ("offer_ref", record("A.slot_terms")["ref"].clone()),
+    ] {
+        let mut bad = slot["body"].clone();
+        bad[field] = value;
+        assert!(
+            SlotBindingTerms::parse(&serde_json::to_vec(&bad).unwrap()).is_err(),
+            "{field}"
+        );
+    }
+    for (field, value) in [
+        ("cost_basis", json!("supplier_final_cost")),
+        ("allocation", json!("implicit_split")),
+        (
+            "maximum_final_amount",
+            json!({"currency":"USD","scale":18,"atoms":"-1"}),
+        ),
+    ] {
+        let mut bad = slot["body"].clone();
+        bad["app_cost_terms"][0][field] = value;
+        assert!(
+            SlotBindingTerms::parse(&serde_json::to_vec(&bad).unwrap()).is_err(),
+            "{field}"
+        );
+    }
+    let mut missing = slot["body"].clone();
+    missing.as_object_mut().unwrap().remove("app_cost_terms");
+    assert!(SlotBindingTerms::parse(&serde_json::to_vec(&missing).unwrap()).is_err());
+    // Only the additive acceptance schema may nominate the two app kinds.
+    let mut body = record("A.terms")["body"].clone();
+    body["schema"] = json!("ledger-workflow-acceptance-terms/2");
+    body["binding_inputs"]["source_slots"][0]["evidence_kinds"] =
+        json!(["app_usage", "app_final_cost"]);
+    let app = AcceptanceTerms::parse(&serde_json::to_vec(&body).unwrap(), &context()).unwrap();
+    body["schema"] = json!("ledger-workflow-acceptance-terms/1");
+    assert!(AcceptanceTerms::parse(&serde_json::to_vec(&body).unwrap(), &context()).is_err());
+    assert_ne!(app.terms_digest(), terms("A").terms_digest());
+    let legacy = super::super::VerifiedCompilerSupport::builtin().unwrap();
+    let mut descriptor = legacy.descriptor().canonical_value().clone();
+    descriptor["schema"] = json!("ledger-workflow-compiler-descriptor/5");
+    descriptor["compiler_semantics"] = json!("ledger-policy-compiler/app-owned-cost-1");
+    descriptor["plan_schema"] = json!("ledger-workflow-compiled-plan/5");
+    let raw = canonical::CanonicalBytes::from_value(&descriptor).unwrap();
+    let parsed = super::super::CompilerDescriptor::parse(raw.as_slice()).unwrap();
+    assert_eq!(parsed.canonical_bytes(), raw.as_slice());
+    assert!(super::super::normalize_definition(raw.as_slice(), &[], &legacy).is_err());
+    descriptor["plan_schema"] = json!("ledger-workflow-compiled-plan/4");
+    assert!(
+        super::super::CompilerDescriptor::parse(&serde_json::to_vec(&descriptor).unwrap()).is_err()
+    );
+}
+
+#[test]
+fn app_terms7_keeps_explicit_anchor_and_optional_exact_causal_clause_separate_from_terms6() {
+    let frozen:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/app-cost-causal-01/fixture-expected.json")).unwrap();
+    let row = &frozen["records"]["app_terms"];
+    let parsed = SlotBindingTerms::parse(&serde_json::to_vec(&row["body"]).unwrap()).unwrap();
+    exact(parsed.canonical_bytes(), parsed.reference(), row);
+    for (field, value) in [
+        ("correction_anchor", json!("latest_cost_accepted_at")),
+        (
+            "causal_reversal",
+            json!({"root_relation":"outcome_family","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}),
+        ),
+    ] {
+        let mut bad = row["body"].clone();
+        bad["app_cost_terms"][0][field] = value;
+        assert!(SlotBindingTerms::parse(&serde_json::to_vec(&bad).unwrap()).is_err());
+    }
+    let mut missing = row["body"].clone();
+    missing["app_cost_terms"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("correction_anchor");
+    assert!(SlotBindingTerms::parse(&serde_json::to_vec(&missing).unwrap()).is_err());
+    let mut absent = row["body"].clone();
+    absent["app_cost_terms"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("causal_reversal");
+    let parsed = SlotBindingTerms::parse(&serde_json::to_vec(&absent).unwrap()).unwrap();
+    assert!(
+        parsed.canonical_value()["app_cost_terms"][0]
+            .get("causal_reversal")
+            .is_none()
+    );
+    let mut old = row["body"].clone();
+    old["schema"] = json!("ledger-workflow-slot-binding-terms/6");
+    assert!(SlotBindingTerms::parse(&serde_json::to_vec(&old).unwrap()).is_err());
+}

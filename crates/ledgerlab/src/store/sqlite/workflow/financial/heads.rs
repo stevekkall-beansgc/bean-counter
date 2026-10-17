@@ -18,6 +18,7 @@ pub(crate) enum HeadKey<'a> {
     Capacity(&'a str),
     Invocation(&'a str),
     Cost(&'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef),
+    AppCost(&'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef),
     CostConsumption(&'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef),
     CostOwner(&'a CostLineKey),
 }
@@ -34,6 +35,7 @@ impl<'a> HeadKey<'a> {
             Self::Chain { customer, chain } => ("chain", [customer, chain, "", ""]),
             Self::Capacity(id) => ("capacity", [id, "", "", ""]),
             Self::Invocation(id) => ("invocation", [id, "", "", ""]),
+            Self::AppCost(r) => ("app_cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::Cost(r) => ("cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::CostConsumption(r) => ("cost_consumption", [&r.kind, &r.id, &r.digest, ""]),
             Self::CostOwner(_) => return Err(invalid()),
@@ -195,11 +197,15 @@ impl SqliteTx {
             .await?;
         if !resource_compare(session, version, 13)?.is_eq()
             && !resource_compare(session, version, 14)?.is_eq()
+            && !resource_compare(session, version, 15)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
+        if matches!(key, HeadKey::AppCost(_)) && !resource_compare(session, version, 15)?.is_eq() {
+            return Err(StoreError::BillingUpgradeRequired.into());
+        }
         if let HeadKey::CostOwner(line) = key {
-            if !resource_compare(session, version, 14)?.is_eq() {
+            if resource_compare(session, version, 14)?.is_lt() {
                 return Err(StoreError::BillingUpgradeRequired.into());
             }
             let account = line.provider_account_identity();
@@ -232,7 +238,7 @@ impl SqliteTx {
         )
         .await
     }
-    async fn read_financial_head_projection<const N: usize>(
+    pub(super) async fn read_financial_head_projection<const N: usize>(
         &mut self,
         length_sql: &'static str,
         value_sql: &'static str,
@@ -259,6 +265,12 @@ impl SqliteTx {
         // per-cell terminators/headers fit the fixed I/O metadata reservation.
         // The complete SQLx/SQLite copy-lifetime certificate remains mandatory
         // at the caller; these fixed field bounds are not a process/RSS claim.
+        session
+            .semantic_work()
+            .scan_bytes(8 * (20 + 48 + 104 + 71))?;
+        session
+            .semantic_work()
+            .write_bytes(8 * (20 + 48 + 104 + 71))?;
         let payload = io::binding_payload(&bytes, &[], 0, 8 * (20 + 48 + 104 + 71), session)?;
         self.financial_reserve_io(session, payload)?;
         let row = bind(value_sql, &bindings)

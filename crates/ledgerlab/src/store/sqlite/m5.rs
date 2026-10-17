@@ -300,7 +300,7 @@ pub(crate) async fn recurrence_state(
     let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if schema != 11 && schema != 12 && schema != 13 && schema != 14 {
+    if schema != 11 && schema != 12 && schema != 13 && schema != 14 && schema != 15 {
         return Err(StoreError::BillingUpgradeRequired);
     }
     let rows: Vec<RecurrenceProjectionRow> = sqlx::query_as(
@@ -444,7 +444,7 @@ pub(crate) async fn fiscal_state(conn: &mut SqliteConnection) -> Result<FiscalSt
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if version != 11 && version != 12 && version != 13 && version != 14 {
+    if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 {
         return Err(StoreError::BillingUpgradeRequired);
     }
     let (count, maximum): (i64, i64) = sqlx::query_as(
@@ -1141,7 +1141,7 @@ pub(crate) async fn ad_hoc_state(
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if version != 11 && version != 12 && version != 13 && version != 14 {
+    if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 {
         return Err(StoreError::BillingUpgradeRequired);
     }
     let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
@@ -1261,7 +1261,7 @@ pub(crate) async fn term_state(
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if version != 11 && version != 12 && version != 13 && version != 14 {
+    if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 {
         return Err(StoreError::BillingUpgradeRequired);
     }
     let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
@@ -1310,7 +1310,7 @@ pub(crate) async fn term_transition_state(
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if version != 11 && version != 12 && version != 13 && version != 14 {
+    if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 {
         return Err(StoreError::BillingUpgradeRequired);
     }
     let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
@@ -1391,7 +1391,7 @@ pub(crate) async fn period_resolve_state(
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if version != 11 && version != 12 && version != 13 && version != 14 {
+    if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 {
         return Err(StoreError::BillingUpgradeRequired);
     }
     let (command_sequence, first_record_sequence): (i64, i64) = sqlx::query_as(
@@ -1439,7 +1439,7 @@ pub(crate) async fn period_close_state(
     let version: i64 = sqlx::query_scalar("PRAGMA user_version")
         .fetch_one(&mut *conn)
         .await?;
-    if version != 11 && version != 12 && version != 13 && version != 14 {
+    if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 {
         return Err(StoreError::BillingUpgradeRequired);
     }
     let already_closed: bool = sqlx::query_scalar(

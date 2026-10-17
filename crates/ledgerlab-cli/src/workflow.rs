@@ -102,6 +102,8 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, Servi
                     "ledger-workflow-fact-attest/1"
                         | "ledger-workflow-family-close-attest/1"
                         | "ledger-workflow-supplier-cost-attest/1"
+                        | "ledger-workflow-app-observe/1"
+                        | "ledger-workflow-app-cost-attest/1"
                 )
             ) =>
         {

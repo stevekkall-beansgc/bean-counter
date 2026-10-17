@@ -22,6 +22,7 @@ pub enum FinancialHeadKey {
     Capacity {
         root_decision_id: String,
     },
+    AppCost { cost_claim_ref: ExactRef },
     Invocation { invocation_id: String },
     Cost { cost_claim_ref: ExactRef },
     CostConsumption { cost_claim_ref: ExactRef },
@@ -104,6 +105,14 @@ pub enum PermanentClaimKey {
         source_namespace: String,
         business_outcome_token: String,
     },
+    /// App keys are installation-wide; scope, chain and policy labels do not
+    /// partition actual call attribution or permit evidence consumption twice.
+    AppCall { logical_store_id:String, source_namespace:String, call_id:String },
+    AppComponentObservation { logical_store_id:String, original_work_ref:ExactRef, component_slot:String },
+    AppProviderCall { logical_store_id:String, provider:String, account:String, request_id:String },
+    AppCostComponent { logical_store_id:String, original_work_ref:ExactRef, component_slot:String },
+    AppFinalEvidence { logical_store_id:String, final_evidence_ref:ExactRef },
+    AppObservationRevision { logical_store_id:String, observation_ref:ExactRef, cost_revision:String },
     /// Independent of scope/agreement/invocation/version/credential labels.
     CostLine { line_key: CostLineKey },
     /// Separate once-only delayed component coverage. It does not replace the
