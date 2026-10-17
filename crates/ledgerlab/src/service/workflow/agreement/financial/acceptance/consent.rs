@@ -366,3 +366,35 @@ impl Coverage {
             .map(|o| o.verification().reference())
     }
 }
+
+impl Coverage {
+    /// Bind every actually observed leg to completed earlier custody and the
+    /// same as-of mapping, without conflating inline assents with prior rows.
+    pub(super) fn match_prefix(
+        &self,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        for observed in &self.observations {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let records = observed.customer().records();
+            prefix.match_customer(records[0], s)?;
+            for record in records {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                prefix.require_record(record.reference(), s)?;
+            }
+            prefix.match_party(observed.platform().mapping(), s)?;
+            for reference in observed.platform().evidence_refs() {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                prefix.require_record(reference, s)?;
+            }
+        }
+        Ok(())
+    }
+}

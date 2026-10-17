@@ -2098,7 +2098,23 @@ pub(super) async fn fold(
     inventory: &mut inventory::Inventory,
     setup: &crate::service::billing::Setup,
     s: &mut OriginalAuditSession,
-) -> Result<()> {
+) -> Result<Option<RecompiledPublication>> {
+    if same(
+        request_wrapper::text(origin.wrappers().receipt(), "result_kind", s)?,
+        "semantic_alias",
+        s,
+    )? {
+        return Err(ServiceError::Unavailable);
+    }
+    s.semantic_work()
+        .visit(Visit::Constraint)
+        .map_err(core_error)?;
+    if origin.wrappers().class() == wrappers::WireClass::Publication {
+        let program_owner = super::publication::fold(tx, origin, inventory, setup, s).await?;
+        // Original ancestor selection retains the appropriate owning PUB in
+        // its enclosing traversal, without a current compiler fallback.
+        return Ok(Some(program_owner));
+    }
     let literal =
         request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
     let schema = request_wrapper::text(literal, "schema", s)?;
@@ -2110,7 +2126,8 @@ pub(super) async fn fold(
     ] {
         if same(schema, party, s)? {
             let result = origin.reconstruct_party(tx, s).await?;
-            return result.fold_original(origin, inventory, setup, s);
+            result.fold_original(origin, inventory, setup, s)?;
+            return Ok(None);
         }
     }
     if same(schema, "ledger-workflow-customer-register/1", s)? {
@@ -2199,7 +2216,7 @@ pub(super) async fn fold(
     } else {
         return Err(ServiceError::Unavailable);
     }
-    Ok(())
+    Ok(None)
 }
 pub(in super::super) fn custody(
     root: &Value,
@@ -2272,6 +2289,16 @@ pub(in super::super) fn complete_manifest(
     origin: &LocatedWrappers,
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
+    complete_manifest_references(inventory, records.iter().map(|r| r.reference()), origin, s)
+}
+pub(super) fn complete_manifest_references<'a>(
+    inventory: &mut inventory::Inventory,
+    records: impl Iterator<
+        Item = &'a ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    >,
+    origin: &LocatedWrappers,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     let manifest = origin.wrappers().manifest();
     let members = request_wrapper::field(manifest, "members", s)?
         .as_array()
@@ -2303,7 +2330,7 @@ pub(in super::super) fn complete_manifest(
         .map_err(core_error)?;
     let mut seen = vec![false; members.len()];
     for r in records {
-        let reference = wire::reference(r.reference(), s)?;
+        let reference = wire::reference(r, s)?;
         let parsed = s
             .parse_representation(reference.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
@@ -2340,6 +2367,27 @@ pub(in super::super) fn complete_manifest(
             "ledger-workflow-party-authorization/1",
             "ledger-workflow-party-evidence/1",
             "ledger-workflow-party-evidence/2",
+            "ledger-workflow-publication/1",
+            "ledger-workflow-build-manifest/1",
+            "ledger-workflow-policy/1",
+            "ledger-workflow-policy/2",
+            "ledger-workflow-policy/3",
+            "ledger-workflow-policy/4",
+            "ledger-workflow-product/1",
+            "ledger-workflow-fact-schema/1",
+            "ledger-workflow-slot-template/1",
+            "ledger-workflow-compiler-descriptor/1",
+            "ledger-workflow-compiler-descriptor/2",
+            "ledger-workflow-compiler-descriptor/3",
+            "ledger-workflow-compiler-descriptor/4",
+            "ledger-workflow-compiler-descriptor/5",
+            "ledger-workflow-compiler-descriptor/6",
+            "ledger-workflow-compiled-plan/1",
+            "ledger-workflow-compiled-plan/2",
+            "ledger-workflow-compiled-plan/3",
+            "ledger-workflow-compiled-plan/4",
+            "ledger-workflow-compiled-plan/5",
+            "ledger-workflow-compiled-plan/6",
         ] {
             if same(schema, expected, s)? {
                 allowed = true;

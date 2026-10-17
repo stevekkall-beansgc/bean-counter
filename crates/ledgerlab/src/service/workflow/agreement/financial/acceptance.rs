@@ -940,6 +940,7 @@ pub(super) struct PendingAppAcceptance {
     consents: consent::Coverage,
     authority: wire::SourceRecord,
     pub(super) private_documents: private::InlineDocuments,
+    _prefix: prefix::FoldedInventory,
     _sources_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
 }
@@ -969,7 +970,8 @@ pub(super) async fn prepare(
             .map_err(core_error)?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
         let payload = incoming.payload(session)?;
-        let publication = prefix::publication_for(
+        let (mut prefix, publication) = prefix::publication_before(
+            ledger,
             tx,
             incoming.key(),
             request_wrapper::field(payload, "publication_ref", session)?,
@@ -1050,6 +1052,7 @@ pub(super) async fn prepare(
             let observed =
                 current::source::observe_value(tx, incoming.key(), reference, before, session)
                     .await?;
+            prefix.match_source(&observed, session)?;
             // Keep actual revocation DATA too. The exact consuming authority
             // intersection decides which active current grant is mandatory.
             session
@@ -1093,6 +1096,7 @@ pub(super) async fn prepare(
             session,
         )
         .await?;
+        consents.match_prefix(&mut prefix, session)?;
         let authority = admission::authority(
             &input,
             source,
@@ -1116,6 +1120,7 @@ pub(super) async fn prepare(
             consents,
             authority,
             private_documents,
+            _prefix: prefix,
             _sources_storage: sources_storage,
             _time_storage: time_storage,
         })

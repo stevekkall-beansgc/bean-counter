@@ -683,3 +683,189 @@ pub(super) async fn fold_original_prefix(
     }
     result
 }
+
+/// Fresh acceptance consumes the program produced by its actual earlier PUB
+/// fold. It does not restore it again under the acceptance origin's allowance.
+/// This selects one exact requested publication, not an assertion that all
+/// affected ancestors share it; their own-program selection remains required.
+pub(super) async fn publication_before(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    wanted: &Value,
+    before: i64,
+    parent: &mut OriginalAuditSession,
+) -> Result<(FoldedInventory, RecompiledPublication)> {
+    let mut attempt = InputAttempt {
+        failure: tx.workflow_proof_failure_handle(),
+        finished: false,
+    };
+    let result = async {
+        require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
+        super::acceptance::validate_reference(wanted, "workflow-publication", parent)?;
+        let setup = ledger.admin.read(&ledger.store, tx, key).await?;
+        parent
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&before.into(), &1i64.into()])
+            .map_err(core_error)?;
+        let through = before
+            .checked_sub(1)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let mut inventory = None;
+        let mut publication = None;
+        let mut after = 0i64;
+        loop {
+            let mut session = OriginalAuditSession::for_resource_profile_v2(parent.arena())
+                .map_err(core_error)?;
+            let Some(input) = next(tx, key, after, through, &mut session).await? else {
+                break;
+            };
+            let origin = input.checked_wrappers(tx, &mut session).await?;
+            session
+                .semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&origin.wrappers().sequence().into(), &after.into()],
+                )
+                .map_err(core_error)?;
+            require(origin.wrappers().sequence() > after, "INTEGRITY_FAILURE")?;
+            match &mut inventory {
+                Some(inventory) => {
+                    inventory::Inventory::next_origin(inventory, &origin, &mut session)?
+                }
+                None => {
+                    let files = tx
+                        .workflow_original_scratch(&mut session)
+                        .map_err(read_error)?;
+                    inventory = Some(inventory::Inventory::new(files, &origin, &mut session)?);
+                }
+            }
+            if let Some(program) = source::fold(
+                tx,
+                &origin,
+                inventory.as_mut().ok_or(ServiceError::IntegrityFailure)?,
+                &setup,
+                &mut session,
+            )
+            .await?
+            {
+                let actual = wire::reference(program.publication().0, &mut session)?;
+                let expected = session
+                    .canonical_representation(wanted, RepresentationKind::Record)
+                    .map_err(core_error)?;
+                session
+                    .semantic_work()
+                    .visit(Visit::MemberCompare)
+                    .map_err(core_error)?;
+                session
+                    .semantic_work()
+                    .scan_bytes(actual.bytes().len())
+                    .map_err(core_error)?;
+                session
+                    .semantic_work()
+                    .scan_bytes(expected.bytes().len())
+                    .map_err(core_error)?;
+                if actual.bytes() == expected.bytes() {
+                    session
+                        .semantic_work()
+                        .visit(Visit::Constraint)
+                        .map_err(core_error)?;
+                    require(publication.is_none(), "INTEGRITY_FAILURE")?;
+                    publication = Some(program);
+                }
+            }
+            after = origin.wrappers().sequence();
+            session.check_cancelled().map_err(core_error)?;
+        }
+        parent.check_cancelled().map_err(core_error)?;
+        Ok((
+            FoldedInventory {
+                _inventory: inventory.ok_or(ServiceError::IntegrityFailure)?,
+            },
+            publication.ok_or_else(|| reject("INVALID_REFERENCE"))?,
+        ))
+    }
+    .await;
+    if result.is_ok() {
+        attempt.finish();
+    } else {
+        parent.invalidate();
+    }
+    result
+}
+
+impl FoldedInventory {
+    pub(super) fn require_record(
+        &mut self,
+        r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        session
+            .semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        require(self._inventory.has(r, session)?, "INTEGRITY_FAILURE")
+    }
+    pub(super) fn match_source(
+        &mut self,
+        source: &current::source::ObservedSource,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        for record in source.records() {
+            session
+                .semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            self._inventory
+                .compare_record(record.reference, record.canonical_body, session)?;
+        }
+        let enrollment = source.enrollment_record();
+        let id = request_wrapper::field(enrollment.body(), "enrollment_id", session)?;
+        let id = session
+            .canonical_representation(id, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let permanent = inventory::StateKey::new("enrollment", &[id.bytes()], session)?;
+        self._inventory
+            .match_head(&permanent, enrollment.canonical_body(), session)?;
+        let head = inventory::StateKey::new("source-head", &[id.bytes()], session)?;
+        let state = session
+            .canonical_representation(source.state_body(), RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        self._inventory.match_head(&head, state.bytes(), session)
+    }
+    pub(super) fn match_customer(
+        &mut self,
+        registration: &current::source::SourceRecord,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        self._inventory.compare_record(
+            registration.reference(),
+            registration.canonical_body(),
+            session,
+        )?;
+        let name = request_wrapper::field(registration.body(), "customer", session)?;
+        let name = session
+            .canonical_representation(name, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let key = inventory::StateKey::new("customer", &[name.bytes()], session)?;
+        self._inventory
+            .match_head(&key, registration.canonical_body(), session)
+    }
+    pub(super) fn match_party(
+        &mut self,
+        mapping: &current::party::ObservedPartyAuthorization,
+        session: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        self.require_record(mapping.reference(), session)?;
+        let spec = request_wrapper::field(mapping.body(), "authorization", session)?;
+        let id = request_wrapper::field(spec, "authorization_id", session)?;
+        let id = session
+            .canonical_representation(id, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let key = inventory::StateKey::new("party-head", &[id.bytes()], session)?;
+        let body = session
+            .canonical_representation(mapping.body(), RepresentationKind::Authority)
+            .map_err(core_error)?;
+        self._inventory.match_head(&key, body.bytes(), session)
+    }
+}

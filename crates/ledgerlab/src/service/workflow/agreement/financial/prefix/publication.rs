@@ -1711,7 +1711,8 @@ fn validate_descriptors(
             "sha256:9a6379b0f0d20005f1406ca6ed3a5b55c40d275cec5435e1648d9b482332509b" => {
                 "ledger-workflow-policy-publication/5"
             }
-            "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2" => {
+            "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2"
+            | "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276" => {
                 "ledger-workflow-policy-publication/6"
             }
             _ => return Err(reject("HISTORICAL_VERIFIER_UNAVAILABLE")),
@@ -1900,4 +1901,120 @@ fn validate_descriptors(
     request_wrapper::same_text(i, program.root_policy_ref().id(), session)?;
     request_wrapper::same_text(d, program.root_policy_ref().digest(), session)?;
     Ok(())
+}
+
+/// SAME original compiler/plan replay followed by the actual chronological
+/// source registry, retained-input and owner-custody checks. The returned program
+/// remains owning DATA for the enclosing ancestor-specific selection.
+pub(super) async fn fold(
+    tx: &mut SqliteTx,
+    origin: &LocatedWrappers,
+    inventory: &mut inventory::Inventory,
+    setup: &crate::service::billing::Setup,
+    session: &mut OriginalAuditSession,
+) -> Result<RecompiledPublication> {
+    request_wrapper::same_text(
+        request_wrapper::text(origin.wrappers().receipt(), "result_kind", session)?,
+        "administrative",
+        session,
+    )?;
+    let replay = origin.recompile_publication(tx, session).await?;
+    super::source::custody(replay.authority.parsed.value(), setup, session)?;
+    let request = request_wrapper::field(
+        origin.wrappers().original_request().value(),
+        "payload",
+        session,
+    )?;
+    let retained = text_is(
+        request_wrapper::text(request, "mode", session)?,
+        "retained",
+        session,
+    )?;
+    for source in &replay.sources {
+        session
+            .semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        if retained {
+            inventory.compare_record(&source.reference, source.stored.body.bytes(), session)?;
+        }
+    }
+    let publication_id = wire::string(&replay.publication.reference.id, session)?;
+    let publication_key =
+        inventory::StateKey::new("publication", &[publication_id.bytes()], session)?;
+    inventory.absent(&publication_key, session)?;
+    for source in &replay.sources {
+        session
+            .semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        inventory.introduce(
+            &source.reference,
+            source.stored.body.bytes(),
+            origin.wrappers().sequence(),
+            session,
+        )?;
+        let body = source.parsed.value();
+        let kind = wire::string(&source.reference.kind, session)?;
+        let field = match source.reference.kind.as_str() {
+            "workflow-policy" => Some("policy_id"),
+            "workflow-product" => Some("product_id"),
+            "workflow-fact-schema" => Some("schema_id"),
+            "workflow-slot-template" => Some("template_id"),
+            "workflow-compiler-descriptor" => None,
+            _ => return Err(ServiceError::IntegrityFailure),
+        };
+        if let Some(field) = field {
+            let id_value = request_wrapper::field(body, field, session)?;
+            let id = session
+                .canonical_representation(id_value, RepresentationKind::SourceDefinition)
+                .map_err(core_error)?;
+            let version_value = request_wrapper::field(body, "version", session)?;
+            let version = session
+                .canonical_representation(version_value, RepresentationKind::SourceDefinition)
+                .map_err(core_error)?;
+            let key = inventory::StateKey::new(
+                "definition",
+                &[kind.bytes(), id.bytes(), version.bytes()],
+                session,
+            )?;
+            inventory.bind_permanent(
+                &key,
+                &source.reference,
+                source.stored.body.bytes(),
+                session,
+            )?;
+        }
+    }
+    for record in [
+        &replay.authority,
+        &replay.build,
+        &replay.plan,
+        &replay.publication,
+    ] {
+        session
+            .semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        inventory.introduce(
+            &record.reference,
+            record.stored.body.bytes(),
+            origin.wrappers().sequence(),
+            session,
+        )?;
+    }
+    super::source::complete_manifest_references(
+        inventory,
+        [
+            &replay.publication.reference,
+            &replay.plan.reference,
+            &replay.build.reference,
+            &replay.authority.reference,
+        ]
+        .into_iter(),
+        origin,
+        session,
+    )?;
+    inventory.set_head(&publication_key, &replay.publication.reference, session)?;
+    Ok(replay)
 }

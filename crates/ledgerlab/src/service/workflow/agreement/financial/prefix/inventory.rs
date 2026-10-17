@@ -1427,3 +1427,20 @@ impl Inventory {
         out.finish(s.semantic_work()).map_err(core_error)
     }
 }
+
+impl Inventory {
+    /// Permanent source registry entries may reuse precisely the same immutable
+    /// document. A same semantic identity/version with different bytes refuses.
+    pub(in super::super) fn bind_permanent(
+        &mut self,
+        key: &StateKey,
+        r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        body: &[u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        if let Some(prior) = self.tree.find(&key.0, s)? {
+            self.compare_body(&prior, body, s)?;
+        }
+        self.set_head(key, r, s)
+    }
+}
