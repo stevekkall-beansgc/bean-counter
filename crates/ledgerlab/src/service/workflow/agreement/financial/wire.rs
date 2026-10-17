@@ -1103,3 +1103,124 @@ mod request_framing_tests {
         assert_eq!(arena.usage().unwrap().live_bytes, baseline);
     }
 }
+
+/// Fixed stack decimal representation for existing Counter fields. This adds
+/// no caller quota or accepted counter domain and leaves sequence1 unchanged.
+pub(super) fn counter_string(
+    counter: u64,
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let mut digits = [0u8; 20];
+    let mut value = counter;
+    let mut start = 20;
+    loop {
+        session
+            .semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&value.into(), &10u64.into()])
+            .map_err(core_error)?;
+        let digit = value % 10;
+        session
+            .semantic_work()
+            .arithmetic(Op::Subtract, &[&start.into(), &1usize.into()])
+            .map_err(core_error)?;
+        start -= 1;
+        session
+            .semantic_work()
+            .arithmetic(Op::Add, &[&digit.into(), &b'0'.into()])
+            .map_err(core_error)?;
+        session.semantic_work().write_bytes(1).map_err(core_error)?;
+        digits[start] = b'0' + digit as u8;
+        session
+            .semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&value.into(), &10u64.into()])
+            .map_err(core_error)?;
+        value /= 10;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&value.into(), &0u64.into()])
+            .map_err(core_error)?;
+        if value == 0 {
+            break;
+        }
+    }
+    literal(
+        std::str::from_utf8(&digits[start..]).map_err(|_| ServiceError::IntegrityFailure)?,
+        session,
+    )
+}
+
+/// Existing AGR03 semantic identity recipes, representation DATA only.
+#[derive(Clone, Copy)]
+pub(super) enum AgreementRecord {
+    Accepted,
+    AcceptanceHead,
+}
+pub(super) fn agreement_record(
+    record: AgreementRecord,
+    body: AuditedBytes,
+    key: &Value,
+    customer: &str,
+    agreement: &str,
+    revision: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    let store = request_wrapper::field(key, "logical_store_id", session)?;
+    let store = session
+        .canonical_representation(store, RepresentationKind::SourceDefinition)
+        .map_err(core_error)?;
+    let scope = request_wrapper::field(key, "scope", session)?;
+    let scope = session
+        .canonical_representation(scope, RepresentationKind::SourceDefinition)
+        .map_err(core_error)?;
+    let customer = string(customer, session)?;
+    let agreement = string(agreement, session)?;
+    let revision = string(revision, session)?;
+    let (kind, prefix, domain, label) = match record {
+        AgreementRecord::Accepted => (
+            "workflow-accepted-agreement",
+            "waccepted_",
+            b"bean-counter/workflow-agreement-acceptance/1\0".as_slice(),
+            b"".as_slice(),
+        ),
+        AgreementRecord::AcceptanceHead => (
+            "workflow-head-transition",
+            "whead_",
+            b"bean-counter/workflow-head-transition/1\0".as_slice(),
+            b",\"agreement_acceptance\"".as_slice(),
+        ),
+    };
+    let id = hash(
+        domain,
+        &[
+            b"[",
+            store.bytes(),
+            b",",
+            scope.bytes(),
+            b",",
+            customer.bytes(),
+            b",",
+            agreement.bytes(),
+            label,
+            b",",
+            revision.bytes(),
+            b"]",
+        ],
+        session,
+    )?;
+    let kind_bytes = literal(kind, session)?;
+    let digest = hash(
+        b"bean-counter/workflow-record/1\0",
+        &[
+            b"[",
+            kind_bytes.bytes(),
+            b",",
+            scope.bytes(),
+            b",",
+            body.bytes(),
+            b"]",
+        ],
+        session,
+    )?;
+    let reference = owned_reference(kind, prefix, &id, &digest, session)?;
+    Ok(SourceRecord { body, reference })
+}

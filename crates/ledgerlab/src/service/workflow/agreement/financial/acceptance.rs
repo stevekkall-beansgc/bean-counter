@@ -7,8 +7,10 @@ mod assents;
 mod binding;
 mod consent;
 mod customer;
+mod emit;
 mod nominations;
 mod private;
+mod request;
 pub(super) use customer::ObservedCustomerConsent;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, AuditedValue, ExternalBufferLease},
@@ -940,6 +942,8 @@ pub(super) struct PendingAppAcceptance {
     consents: consent::Coverage,
     authority: wire::SourceRecord,
     pub(super) private_documents: private::InlineDocuments,
+    pub(super) head_records: emit::AcceptanceHeadRecords,
+    pub(super) normalized: request::NormalizedAcceptance,
     _prefix: prefix::FoldedInventory,
     _sources_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
@@ -1003,6 +1007,7 @@ pub(super) async fn prepare(
             session,
         )
         .await?;
+        private_documents.match_retained(&mut prefix, session)?;
         private::associate_graph(&private_documents, &input, session)?;
         let binding_value = session
             .parse_representation(binding.bytes(), Kind::SourceDefinition)
@@ -1107,6 +1112,32 @@ pub(super) async fn prepare(
             &at,
             session,
         )?;
+        let binding_body = binding_value.value();
+        let customer = request_wrapper::field(binding_body, "customer", session)?;
+        let agreement = request_wrapper::field(binding_body, "agreement_id", session)?;
+        let prior = prefix.acceptance_head(customer, agreement, session)?;
+        let head_records = emit::build(
+            &input,
+            &binding,
+            &authority,
+            incoming,
+            &setup.operator,
+            &at,
+            before,
+            prior.as_ref(),
+            session,
+        )?;
+        head_records
+            .match_locked(tx, incoming, binding_body, input.expected_revision, session)
+            .await?;
+        let normalized = request::build(
+            incoming,
+            &input,
+            binding_body,
+            &private_documents,
+            &consents,
+            session,
+        )?;
         Ok(PendingAppAcceptance {
             input,
             binding,
@@ -1120,6 +1151,8 @@ pub(super) async fn prepare(
             consents,
             authority,
             private_documents,
+            head_records,
+            normalized,
             _prefix: prefix,
             _sources_storage: sources_storage,
             _time_storage: time_storage,

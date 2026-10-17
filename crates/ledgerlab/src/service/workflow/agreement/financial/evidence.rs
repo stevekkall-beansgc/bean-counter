@@ -45,7 +45,7 @@ fn encode(v: &Value, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     s.canonical_representation(v, Kind::SourceDefinition)
         .map_err(core_error)
 }
-fn join(parts: &[&[u8]], s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
+pub(super) fn join(parts: &[&[u8]], s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     let mut size = 2usize;
     for (i, p) in parts.iter().enumerate() {
         s.semantic_work()

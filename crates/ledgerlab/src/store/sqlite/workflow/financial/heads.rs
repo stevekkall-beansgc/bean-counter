@@ -4,6 +4,10 @@ use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::CostLineKey;
 
 pub(crate) enum HeadKey<'a> {
+    AgreementAcceptance {
+        customer: &'a str,
+        agreement: &'a str,
+    },
     Decision(&'a str),
     Family {
         target_kind: &'a str,
@@ -38,7 +42,7 @@ impl<'a> HeadKey<'a> {
             Self::AppCost(r) => ("app_cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::Cost(r) => ("cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::CostConsumption(r) => ("cost_consumption", [&r.kind, &r.id, &r.digest, ""]),
-            Self::CostOwner(_) => return Err(invalid()),
+            Self::CostOwner(_) | Self::AgreementAcceptance { .. } => return Err(invalid()),
         })
     }
 }
@@ -54,6 +58,11 @@ const LENGTHS: &str = "SELECT octet_length(revision),octet_length(record_kind),o
 const VALUES: &str = "SELECT revision,record_kind,record_id,record_digest FROM workflow_financial_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND head_kind=? AND key_a=? AND key_b=? AND key_c=? AND key_d=?";
 const OWNER_LENGTHS: &str = "SELECT octet_length(revision),octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_supplier_cost_owner_heads WHERE cost_authority_id=? AND provider_namespace=? AND provider_account_id=? AND provider_environment=? AND original_document_id=? AND original_line_id=?";
 const OWNER_VALUES: &str = "SELECT revision,record_kind,record_id,record_digest FROM workflow_supplier_cost_owner_heads WHERE cost_authority_id=? AND provider_namespace=? AND provider_account_id=? AND provider_environment=? AND original_document_id=? AND original_line_id=?";
+// The integer revision is intrinsically bounded before its textual conversion.
+// Ref columns retain the direct-column BYTELEN probe; no CAST wraps them.
+const AGREEMENT_KEY_LENGTHS: &str = "SELECT octet_length(transition_id),CASE WHEN typeof(revision)='integer' THEN octet_length(revision) ELSE -1 END FROM workflow_agreement_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND customer=? AND agreement_id=? AND head_kind='agreement_acceptance'";
+const AGREEMENT_LENGTHS: &str = "SELECT CASE WHEN typeof(h.revision)='integer' THEN octet_length(h.revision) ELSE -1 END,octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind='agreement_acceptance'";
+const AGREEMENT_VALUES: &str = "SELECT CAST(h.revision AS TEXT),d.kind,d.id,d.digest FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind='agreement_acceptance'";
 fn bind<'q>(
     sql: &'static str,
     bindings: &[&'q str],
@@ -204,6 +213,47 @@ impl SqliteTx {
         if matches!(key, HeadKey::AppCost(_)) && !resource_compare(session, version, 15)?.is_eq() {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
+        if let HeadKey::AgreementAcceptance {
+            customer,
+            agreement,
+        } = key
+        {
+            locator_text(customer, 128, session)?;
+            locator_text(agreement, 128, session)?;
+            let bindings = [store, &scope[0], &scope[1], customer, agreement];
+            // Bound the stored join operand BEFORE SQLite materializes it for
+            // the document PK lookup. An invalid projection is not absence.
+            let bytes = bindings.map(str::as_bytes);
+            let payload = io::binding_payload(&bytes, &[], 0, 0, session)?;
+            self.financial_reserve_io(session, payload)?;
+            let lengths = bind(AGREEMENT_KEY_LENGTHS, &bindings)
+                .fetch_optional(self.conn())
+                .await?;
+            let Some(lengths) = lengths else {
+                self.financial_finish_io(session).await?;
+                return Ok(None);
+            };
+            for (position, maximum) in [(0usize, 208i64), (1, 40)] {
+                session.semantic_work().visit(ValidationVisit::Field)?;
+                let n: i64 = lengths.try_get(position)?;
+                if !resource_compare(session, n, 0)?.is_gt()
+                    || resource_compare(session, n, maximum)?.is_gt()
+                {
+                    return Err(invalid());
+                }
+            }
+            drop(lengths);
+            self.financial_finish_io(session).await?;
+            return self
+                .read_head_projection(
+                    AGREEMENT_LENGTHS,
+                    AGREEMENT_VALUES,
+                    bindings,
+                    8 * 104,
+                    session,
+                )
+                .await;
+        }
         if let HeadKey::CostOwner(line) = key {
             if resource_compare(session, version, 14)?.is_lt() {
                 return Err(StoreError::BillingUpgradeRequired.into());
@@ -245,8 +295,21 @@ impl SqliteTx {
         bindings: [&str; N],
         session: &mut OriginalAuditSession,
     ) -> Result<Option<HeadLocator>, FinancialReadError> {
+        self.read_head_projection(length_sql, value_sql, bindings, 0, session)
+            .await
+    }
+    async fn read_head_projection<const N: usize>(
+        &mut self,
+        length_sql: &'static str,
+        value_sql: &'static str,
+        bindings: [&str; N],
+        join_payload: usize,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<HeadLocator>, FinancialReadError> {
         let bytes = bindings.map(str::as_bytes);
-        let payload = io::binding_payload(&bytes, &[], 0, 0, session)?;
+        session.semantic_work().scan_bytes(join_payload)?;
+        session.semantic_work().write_bytes(join_payload)?;
+        let payload = io::binding_payload(&bytes, &[], 0, join_payload, session)?;
         self.financial_reserve_io(session, payload)?;
         let lengths = bind(length_sql, &bindings)
             .fetch_optional(self.conn())
@@ -271,7 +334,19 @@ impl SqliteTx {
         session
             .semantic_work()
             .write_bytes(8 * (20 + 48 + 104 + 71))?;
-        let payload = io::binding_payload(&bytes, &[], 0, 8 * (20 + 48 + 104 + 71), session)?;
+        session.semantic_work().scan_bytes(join_payload)?;
+        session.semantic_work().write_bytes(join_payload)?;
+        session.semantic_work().arithmetic(
+            ArithmeticOperation::Add,
+            &[
+                &(8usize * (20 + 48 + 104 + 71)).into(),
+                &join_payload.into(),
+            ],
+        )?;
+        let overlap = (8usize * (20 + 48 + 104 + 71))
+            .checked_add(join_payload)
+            .ok_or_else(invalid)?;
+        let payload = io::binding_payload(&bytes, &[], 0, overlap, session)?;
         self.financial_reserve_io(session, payload)?;
         let row = bind(value_sql, &bindings)
             .fetch_optional(self.conn())

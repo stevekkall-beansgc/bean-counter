@@ -360,6 +360,57 @@ pub(super) async fn observe_all(
 }
 
 impl Coverage {
+    /// Select the already normalized, fully checked material for one literal
+    /// inline assent. Retained-only material does not enter inline documents.
+    pub(super) fn normalized_inline<'a>(
+        &'a self,
+        raw: &Value,
+        input: &AppAcceptanceInput,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<&'a wire::SourceRecord>> {
+        let schema = request_wrapper::text(raw, "schema", s)?;
+        let customer = assents::equal(schema, "ledger-workflow-assent/1", s)?;
+        let platform = assents::equal(schema, input.party_assent_schema(), s)?;
+        if !customer && !platform {
+            return Ok(None);
+        }
+        let party = if platform {
+            Some(request_wrapper::text(
+                request_wrapper::field(raw, "consent", s)?,
+                "party",
+                s,
+            )?)
+        } else {
+            None
+        };
+        require(
+            assents::Inputs::matches(raw, input, party, s)?,
+            "ASSENT_TERMS_MISMATCH",
+        )?;
+        let mut found: Option<&wire::SourceRecord> = None;
+        for observation in &self.observations {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let candidate = if customer {
+                observation.customer().assent()
+            } else {
+                observation.party_assent()
+            };
+            let body = s
+                .parse_representation(candidate.bytes(), Kind::SourceDefinition)
+                .map_err(core_error)?;
+            if assents::Inputs::matches(body.value(), input, party, s)? {
+                if let Some(prior) = found {
+                    same_bytes(prior.bytes(), candidate.bytes(), s)?;
+                }
+                found = Some(candidate);
+            }
+        }
+        found
+            .map(Some)
+            .ok_or_else(|| reject("ASSENT_TERMS_MISMATCH"))
+    }
     pub(super) fn verification_refs(&self) -> impl ExactSizeIterator<Item = &ExactRef> {
         self.observations
             .iter()

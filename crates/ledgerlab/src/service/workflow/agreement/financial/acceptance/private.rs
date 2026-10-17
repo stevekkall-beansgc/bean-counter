@@ -31,6 +31,29 @@ pub(super) struct InlineDocuments {
     _control: ExternalBufferLease,
 }
 impl InlineDocuments {
+    pub(super) fn inline_records(&self) -> impl Iterator<Item = &wire::SourceRecord> {
+        self.documents.iter().filter_map(|d| match d {
+            Document::Inline { record, .. } => Some(record),
+            Document::Retained(_) => None,
+        })
+    }
+    /// Inline bodies are newly produced at this acceptance. Retained bodies
+    /// must instead belong to the actual completed earlier prefix.
+    pub(super) fn match_retained(
+        &self,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        for document in &self.documents {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            if let Document::Retained(record) = document {
+                prefix.require_record(record.reference(), s)?;
+            }
+        }
+        Ok(())
+    }
     /// Exact immutable body lookup in this attempt. Matching retained bytes is
     /// DATA; chronological origin completion is a separate mandatory gate.
     fn find<'a>(&'a self, reference: &Value, s: &mut OriginalAuditSession) -> Result<&'a Document> {

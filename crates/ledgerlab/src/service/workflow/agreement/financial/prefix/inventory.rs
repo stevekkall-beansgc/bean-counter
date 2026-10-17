@@ -1390,6 +1390,23 @@ impl Inventory {
             .tree
             .find(&key, s)?
             .ok_or(ServiceError::IntegrityFailure)?;
+        self.entry_body(&entry, s)
+    }
+    pub(in super::super) fn head_body(
+        &mut self,
+        key: &StateKey,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>> {
+        let Some(entry) = self.tree.find(&key.0, s)? else {
+            return Ok(None);
+        };
+        self.entry_body(&entry, s).map(Some)
+    }
+    fn entry_body(
+        &mut self,
+        entry: &Entry,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedBytes> {
         copied(12, s)?;
         let mut offset = [0u8; 8];
         offset.copy_from_slice(&entry.0[216..224]);

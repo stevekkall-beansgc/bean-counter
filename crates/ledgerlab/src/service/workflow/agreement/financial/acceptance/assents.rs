@@ -70,7 +70,7 @@ impl<'a> Inputs<'a> {
         }
         Ok(out)
     }
-    fn matches(
+    pub(super) fn matches(
         value: &Value,
         input: &AppAcceptanceInput,
         party: Option<&str>,

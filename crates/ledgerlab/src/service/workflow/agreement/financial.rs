@@ -342,17 +342,10 @@ impl LocalWorkflowLedger {
                         let pending =
                             current::party::produce::prepare(self, tx, &req, &mut session).await?;
                         let evidence = evidence::party(&req, &pending, &mut session)?;
-                        session
-                            .semantic_work()
-                            .arithmetic(
-                                ledgerlab_core::validation_work::ArithmeticOperation::Add,
-                                &[&pending.before.into(), &1i64.into()],
-                            )
-                            .map_err(core_error)?;
-                        let sequence = pending
-                            .before
-                            .checked_add(1)
-                            .ok_or(ServiceError::IntegrityFailure)?;
+                        // workflow_sequence returns the next sequence, not
+                        // the last committed one. Retained reads use it as an
+                        // exclusive cutoff; the new frame uses it unchanged.
+                        let sequence = pending.before;
                         let _journal =
                             wire::frame_party(&req, &pending, &evidence, sequence, &mut session)?;
                         // The real result is constructed, but all consumed original

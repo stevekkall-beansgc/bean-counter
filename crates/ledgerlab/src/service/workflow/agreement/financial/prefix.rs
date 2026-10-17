@@ -869,3 +869,25 @@ impl FoldedInventory {
         self._inventory.match_head(&key, body.bytes(), session)
     }
 }
+
+impl FoldedInventory {
+    pub(super) fn acceptance_head(
+        &mut self,
+        customer: &Value,
+        agreement: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>> {
+        let customer = s
+            .canonical_representation(customer, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let agreement = s
+            .canonical_representation(agreement, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let key = inventory::StateKey::new(
+            "agreement-acceptance-head",
+            &[customer.bytes(), agreement.bytes()],
+            s,
+        )?;
+        self._inventory.head_body(&key, s)
+    }
+}
