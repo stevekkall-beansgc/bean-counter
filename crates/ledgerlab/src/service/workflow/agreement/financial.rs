@@ -15,6 +15,7 @@ mod current;
 mod evidence;
 mod ingress;
 mod prefix;
+mod publication_prepare;
 mod recovery;
 mod request_wrapper;
 mod wire;

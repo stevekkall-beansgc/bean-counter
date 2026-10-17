@@ -15,6 +15,7 @@ use ledgerlab_core::{
 enum IngressRecipe {
     Current,
     OriginalAdministration,
+    SelectedPublication,
 }
 
 pub(super) struct IncomingRequest {
@@ -38,6 +39,16 @@ impl IncomingRequest {
         session: &mut OriginalAuditSession,
     ) -> Result<Self> {
         let result = Self::parse_inner(raw, session, IngressRecipe::OriginalAdministration);
+        if result.is_err() {
+            session.invalidate();
+        }
+        result
+    }
+    pub(super) fn parse_publication(
+        raw: &[u8],
+        session: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let result = Self::parse_inner(raw, session, IngressRecipe::SelectedPublication);
         if result.is_err() {
             session.invalidate();
         }
@@ -122,6 +133,7 @@ impl IncomingRequest {
         for candidate in [
             "work.accept",
             "agreement.accept",
+            "policy.publish",
             "work.reverse",
             "quantity.correct",
             "outcome.submit",
@@ -153,6 +165,11 @@ impl IncomingRequest {
             }
         }
         let kind = kind.ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+        if matches!(recipe, IngressRecipe::SelectedPublication) {
+            request_wrapper::same_text(kind, "policy.publish", session)?;
+        } else if acceptance::same_recipe_text(kind, "policy.publish", session)? {
+            return Err(reject("UNSUPPORTED_SCHEMA_PROFILE"));
+        }
         if matches!(recipe, IngressRecipe::OriginalAdministration) {
             if !acceptance::same_recipe_text(kind, "authority.change", session)? {
                 request_wrapper::same_text(kind, "evidence.retain", session)?;
