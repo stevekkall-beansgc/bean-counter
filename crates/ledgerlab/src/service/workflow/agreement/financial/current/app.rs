@@ -3,6 +3,7 @@
 use super::super::request_wrapper as check;
 use super::*;
 mod work_capture;
+mod work_context;
 mod work_heads;
 mod work_seeds;
 use ledgerlab_core::validation_work::ValidationVisit;

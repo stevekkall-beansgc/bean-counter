@@ -203,7 +203,7 @@ pub(super) fn select(
         key: &core_key,
         actor,
         canonical_economic_namespace: namespace,
-        installation_mode: "real",
+        installation_mode: "real_local",
         received_at: received_at.as_str(),
         accepted_at: observed.at.as_str(),
         sources: &frames,

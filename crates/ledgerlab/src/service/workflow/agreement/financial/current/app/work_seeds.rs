@@ -21,7 +21,7 @@ fn same_ref(a: &ExactRef, b: &ExactRef, s: &mut OriginalAuditSession) -> Result<
     }
     Ok(true)
 }
-fn original_refs(
+pub(super) fn original_refs(
     observed: &ObservedAppBinding,
     source: &source::ObservedSource,
     s: &mut OriginalAuditSession,
