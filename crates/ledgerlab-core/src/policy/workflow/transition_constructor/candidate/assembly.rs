@@ -92,6 +92,9 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     let associations=product(m,c.authorities.len(),mem::size_of::<super::ObservationAssociation>()+2*(64+128+71))?;
     bytes=w::usize_add(m,bytes,associations)?;
     let metadata=arena.reserve_external_payload(bytes,m)?;
+    // Includes all native controls before any Vec/String/ExactRef allocation;
+    // payload copy helpers retain their actual subsequent scan/write charges.
+    m.write_bytes(bytes)?;
     let mut schemas=Vec::new();schemas.try_reserve_exact(t.new_envelopes.len()).map_err(|_|shape::fail("candidate schema vector"))?;
     let result_count=w::usize_add(m,t.new_envelopes.len(),usize::from(t.reused_result.is_some()))?;
     let mut result_refs=Vec::new();result_refs.try_reserve_exact(result_count).map_err(|_|shape::fail("candidate result reference vector"))?;

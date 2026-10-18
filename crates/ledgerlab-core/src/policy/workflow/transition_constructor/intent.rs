@@ -93,6 +93,10 @@ pub(super) fn sort_owned_set(
     // Declare the lease before owned vectors; reverse local drop order destroys
     // all metadata/key owners first on every error and successful return.
     let _metadata = arena.reserve_external_payload(bytes,m)?;
+    // Vector controls and first insert/zero initialization must remain paid
+    // even when an allocation or a later member refuses. Moves still pay
+    // their separate actual scans/writes below.
+    m.write_bytes(bytes)?;
     let mut ordered: Vec<(usize, AuditedBytes)> = Vec::new();
     ordered
         .try_reserve_exact(n)
