@@ -99,6 +99,17 @@ pub(in super::super) async fn reconstruct_initial(
         let parsed = s
             .parse_representation(payload.bytes(), RepresentationKind::SourceDefinition)
             .map_err(core_error)?;
+        // agreement.activate also names replacement payloads. Only the exact
+        // initial recipe can complete here; revision zero and an absent head
+        // alone do not establish a valid replacement target/history.
+        let schema = request_wrapper::text(parsed.value(), "schema", s)?;
+        if !acceptance::same_recipe_text(schema, "ledger-workflow-activation/1", s)? {
+            return Err(ServiceError::Unavailable);
+        }
+        let shape = activation_verify::shape::select(incoming.kind(), schema, |a, b| {
+            acceptance::same_recipe_text(a, b, s)
+        })?;
+        request_wrapper::same_text(shape.action, "activate", s)?;
         // This bounded bridge implements the first schedule entry. It never
         // fabricates an empty history for an existing head or target.
         let expected = request_wrapper::text(parsed.value(), "expected_revision", s)?;
