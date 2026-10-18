@@ -336,9 +336,18 @@ impl SqliteStore {
     /// Mandatory R3 work has a reserved admission slot that optional callers
     /// cannot consume. Both lanes still share the same fair physical writer gate.
     async fn begin_lane(&self, deadline: Instant, mandatory: bool) -> Result<SqliteTx, StoreError> {
+        let mut work=ledgerlab_core::validation_work::NoopValidationWork;
+        self.begin_lane_work(deadline,mandatory,&mut work,&mut false).await.map_err(|error|match error {
+            workflow::financial::FinancialReadError::Store(error)=>error,
+            workflow::financial::FinancialReadError::Resource(_)=>StoreError::Integrity("legacy begin resource callback"),
+        })
+    }
+    async fn begin_lane_work<W:ledgerlab_core::validation_work::ValidationWork+Send>(&self, deadline:Instant, mandatory:bool, work:&mut W,io_started:&mut bool)->Result<SqliteTx,workflow::financial::FinancialReadError> {
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         if self.inner.disabled.load(Ordering::Acquire) {
-            return Err(StoreError::WritesDisabled);
+            return Err(StoreError::WritesDisabled.into());
         }
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         let queue = if mandatory {
             &self.inner._owner.mandatory_queue
         } else {
@@ -347,11 +356,13 @@ impl SqliteStore {
         let slot = Arc::clone(queue)
             .try_acquire_owned()
             .map_err(|_| StoreError::Overloaded)?;
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         let wait = if mandatory {
             deadline
         } else {
             deadline.min(Instant::now() + Duration::from_millis(500))
         };
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         let physical_lane = if self.inner.adjudication_enabled.load(Ordering::Acquire) {
             let lane = timeout_at(
                 wait,
@@ -361,15 +372,22 @@ impl SqliteStore {
             .map_err(|_| StoreError::Deadline)?;
             // The gate excludes every admitted profile reader/writer. SQLx first
             // drains a cancelled prior transaction before this acquisition.
+            *io_started=true;
             let mut connection = timeout_at(wait, self.inner.writer.acquire())
                 .await
                 .map_err(|_| StoreError::Deadline)??;
+            work.write_bytes(std::mem::size_of::<(i64,i64,i64)>())?;
+            work.visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)?;
             let (busy, log, checkpointed): (i64, i64, i64) =
                 sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
                     .fetch_one(&mut *connection)
                     .await?;
-            if busy != 0 || log != 0 || checkpointed != 0 {
-                return Err(StoreError::Overloaded);
+            fn nonzero(work:&mut dyn ledgerlab_core::validation_work::ValidationWork,value:i64)->ledgerlab_core::Result<bool> {
+                work.arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare,&[&value.into(),&0i64.into()])?;
+                Ok(value!=0)
+            }
+            if nonzero(work,busy)? || nonzero(work,log)? || nonzero(work,checkpointed)? {
+                return Err(StoreError::Overloaded.into());
             }
             Some(lane)
         } else {
@@ -379,12 +397,15 @@ impl SqliteStore {
         if let Some(reached) = self.inner.begin_attempt.lock().unwrap().take() {
             reached.notify_one();
         }
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)?;
+        *io_started=true;
         let mut transaction = timeout_at(wait, self.inner.writer.begin_with("BEGIN IMMEDIATE"))
             .await
             .map_err(|_| StoreError::Deadline)??;
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         if self.inner.disabled.load(Ordering::Acquire) {
             transaction.rollback().await?;
-            return Err(StoreError::WritesDisabled);
+            return Err(StoreError::WritesDisabled.into());
         }
         #[cfg(test)]
         {
@@ -394,20 +415,22 @@ impl SqliteStore {
                 pause.release.notified().await;
             }
         }
-        let physical_start_pages = if self
-            .inner
-            ._owner
-            .adjudication_max_pages
-            .load(Ordering::Acquire)
-            > 0
-        {
-            Some(adjudication::physical_usage(&mut transaction).await?)
+        let max_pages=self.inner._owner.adjudication_max_pages.load(Ordering::Acquire);
+        work.arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare,&[&u64::from(max_pages).into(),&0u64.into()])?;
+        let physical_start_pages = if max_pages>0 {
+            Some(adjudication::physical_usage_with_work(&mut transaction,work).await?)
         } else {
             None
         };
-        let start_changes = if self.inner._owner.fence.is_some()
-            || self.inner.workflow_guard_enabled.load(Ordering::Acquire)
-        {
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
+        let fenced=self.inner._owner.fence.is_some();
+        let guarded=if fenced {true} else {
+            work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
+            self.inner.workflow_guard_enabled.load(Ordering::Acquire)
+        };
+        let start_changes = if guarded {
+            work.write_bytes(std::mem::size_of::<i64>())?;
+            work.visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)?;
             Some(
                 sqlx::query_scalar("SELECT total_changes()")
                     .fetch_one(&mut *transaction)
@@ -416,6 +439,7 @@ impl SqliteStore {
         } else {
             None
         };
+        work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         let fence_start_changes = if self.inner._owner.fence.is_some() {
             start_changes
         } else {
@@ -455,6 +479,7 @@ pub(crate) struct BeginPause {
 mod adjudication_tests;
 
 pub(crate) mod workflow;
+mod resource_begin;
 
 #[cfg(test)]
 mod workflow_integration_tests;

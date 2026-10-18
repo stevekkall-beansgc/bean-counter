@@ -289,9 +289,9 @@ impl LocalWorkflowLedger {
         let key = req.key();
         let mut tx = self
             .store
-            .begin(deadline())
+            .begin_with_resource_session(deadline(),&mut session)
             .await
-            .map_err(crate::service::store_error)?;
+            .map_err(prefix::read_error)?;
         let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
         let attempted = proof_session::with_proofs(&mut tx, key, |tx| {
             Box::pin(async {

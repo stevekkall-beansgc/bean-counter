@@ -52,16 +52,33 @@ pub(super) fn backing_needed(pages: u32, workspace: Count) -> Result<u128, Store
 pub(in crate::store::sqlite) async fn physical_usage(
     c: &mut SqliteConnection,
 ) -> Result<u32, StoreError> {
+    physical_usage_with_work(c,&mut ledgerlab_core::validation_work::NoopValidationWork).await.map_err(|error|match error {
+        crate::store::sqlite::workflow::financial::FinancialReadError::Store(error)=>error,
+        crate::store::sqlite::workflow::financial::FinancialReadError::Resource(_)=>invalid(),
+    })
+}
+pub(in crate::store::sqlite) async fn physical_usage_with_work<W:ledgerlab_core::validation_work::ValidationWork+Send>(c:&mut SqliteConnection,work:&mut W)->Result<u32,crate::store::sqlite::workflow::financial::FinancialReadError> {
+    use ledgerlab_core::validation_work::{ArithmeticOperation as Op,ValidationVisit as Visit};
+    work.write_bytes(2*std::mem::size_of::<i64>())?;
+    work.visit(Visit::RefLookup)?;
     let pages: i64 = sqlx::query_scalar("PRAGMA page_count")
         .fetch_one(&mut *c)
         .await?;
+    work.visit(Visit::RefLookup)?;
     let free: i64 = sqlx::query_scalar("PRAGMA freelist_count")
         .fetch_one(c)
         .await?;
-    if free < 0 || pages < free {
-        return Err(invalid());
-    }
-    u32::try_from(pages - free).map_err(|_| invalid())
+    work.arithmetic(Op::Compare,&[&free.into(),&0i64.into()])?;
+    let invalid_free=free<0;
+    let invalid_pages=if invalid_free {false} else {
+        work.arithmetic(Op::Compare,&[&pages.into(),&free.into()])?;
+        pages<free
+    };
+    if invalid_free || invalid_pages {return Err(invalid().into());}
+    work.arithmetic(Op::Subtract,&[&pages.into(),&free.into()])?;
+    let used=pages-free;
+    work.visit(Visit::Constraint)?;
+    u32::try_from(used).map_err(|_| invalid().into())
 }
 /// Optional legacy work owns a separate finite allowance. Reuse of a free page
 /// is charged too; raw file growth alone would let it consume R3's reserved room.
