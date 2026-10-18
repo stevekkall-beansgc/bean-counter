@@ -252,12 +252,17 @@ impl Fence {
         type Limits = (i64, i64, i64, i64);
         const LIMIT_STORAGE: usize =
             std::mem::size_of::<Vec<Limits>>() + 4 * std::mem::size_of::<Limits>();
-        const HEAD_STORAGE: usize = 2 * (1115 + 16 + 256 + 256)
+        // Native TEXT<=256 is not a UTF8 output bound. Pinned SQLite
+        // MemTranslate requests2*n+1; retain native statement/row copies,
+        // conversion+terminator and owned UTF8 separately in this conservative
+        // 8*n+2 per-cell envelope, including every decoding refusal prefix.
+        const TEXT_STORAGE: usize = 8 * 256 + 2;
+        const HEAD_STORAGE: usize = 2 * (1115 + 16 + 2 * TEXT_STORAGE)
             + 4 * std::mem::size_of::<Head>()
             + std::mem::size_of::<Vec<Head>>();
         const IO_STORAGE: usize = HEAD_STORAGE
             + LIMIT_STORAGE
-            + 2 * 256
+            + 2 * TEXT_STORAGE
             + 2 * std::mem::size_of::<String>()
             + 8 * std::mem::size_of::<sqlx::sqlite::SqliteArgumentValue>()
             + std::mem::size_of::<sqlx::sqlite::SqliteQueryResult>();
@@ -268,9 +273,9 @@ impl Fence {
         let (a,b):(i64,i64)=sqlx::query_as("SELECT octet_length(anchor),octet_length(hash) FROM r3_commit_witness WHERE singleton=1").fetch_one(&mut*c).await?;
         bounded(a, 256, s)?;
         bounded(b, 256, s)?;
-        s.semantic_work().scan_bytes(512)?;
+        s.semantic_work().scan_bytes(2 * TEXT_STORAGE)?;
         s.semantic_work()
-            .write_bytes(512 + 2 * std::mem::size_of::<String>())?;
+            .write_bytes(2 * TEXT_STORAGE + 2 * std::mem::size_of::<String>())?;
         s.semantic_work().visit(V::RefLookup)?;
         let (id, hash): (String, String) =
             sqlx::query_as("SELECT anchor,hash FROM r3_commit_witness WHERE singleton=1")
