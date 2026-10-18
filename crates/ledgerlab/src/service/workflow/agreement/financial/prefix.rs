@@ -12,7 +12,7 @@ mod members;
 mod programs;
 mod publication;
 mod witness;
-pub(super) use members::{ResolvedEconomicInputs, ResolvedMembers};
+pub(super) use members::{ResolvedEconomicInputs, ResolvedMembers, RetainedEconomicBodies};
 pub(super) use witness::ObservationHeader;
 pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};

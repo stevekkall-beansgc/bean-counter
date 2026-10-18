@@ -468,6 +468,26 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                     )
                 );
             }
+            // SAME selected-body owner used by the app caller, over actual
+            // completed prerequisite records. This emits no financial header,
+            // original, economic result or capability.
+            {
+                use ledgerlab_core::policy::workflow::transition_constructor::OperationKey as CoreKey;
+                let core_key=CoreKey{logical_store_id:selected.logical_store_id.clone(),scope:selected.scope.clone(),source:selected.source.clone(),operation_id:selected.operation_id.clone()};
+                let seeds=&enrolled["receipt"]["result_refs"];
+                let inputs=prefix::ResolvedEconomicInputs::select(&mut folded,&core_key,seeds,&json!([]),&mut session)?;
+                let bodies=folded.retain_economic_inputs(inputs,&mut session)?;
+                let views=bodies.views(&mut session)?;
+                assert_eq!(views.rows.len(),bodies.selected().members.len());
+                assert!(views.rows.iter().any(|row|row.reference.kind=="workflow-source-enrollment"));
+                assert!(views.rows.iter().any(|row|row.reference.kind=="workflow-source-state"));
+                for row in &views.rows {
+                    assert!(!row.canonical_body.is_empty());
+                    let body=session.parse_representation(row.canonical_body,ledgerlab_core::validation_work::RepresentationKind::Record).map_err(core_error)?;
+                    folded._inventory.compare_record(row.reference,row.canonical_body,&mut session)?;
+                    assert!(body.value().is_object());
+                }
+            }
             // These pointers come from the actual four public committed
             // prerequisite recipes, after their original semantic/custody fold.
             // They are not a financial witness membership or audit digest.

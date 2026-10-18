@@ -499,3 +499,124 @@ impl LocatedAppAcceptance {
         result
     }
 }
+
+/// Only the selected immediate operand set is retained for the child. This is
+/// bounded by existing M/M-bytes, not a resident collection of history bodies.
+pub(in super::super) struct RetainedEconomicBodies {
+    bodies: Vec<AuditedBytes>,
+    selected: ResolvedEconomicInputs,
+    _storage: ExternalBufferLease,
+}
+pub(in super::super) struct EconomicInputViews<'a> {
+    pub(in super::super) rows:
+        Vec<ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'a>>,
+    _storage: ExternalBufferLease,
+}
+impl LocatedAppAcceptance {
+    pub(in super::super) fn retain_economic_inputs(
+        &mut self,
+        selected: ResolvedEconomicInputs,
+        s: &mut OriginalAuditSession,
+    ) -> Result<RetainedEconomicBodies> {
+        self._prefix.retain_economic_inputs(selected, s)
+    }
+}
+impl FoldedInventory {
+    pub(in super::super) fn retain_economic_inputs(
+        &mut self,
+        selected: ResolvedEconomicInputs,
+        s: &mut OriginalAuditSession,
+    ) -> Result<RetainedEconomicBodies> {
+        let result = (|| {
+            let count = selected.members.len();
+            let bytes = arithmetic(count, mem::size_of::<AuditedBytes>(), Op::Multiply, s)?;
+            let bytes = arithmetic(bytes, mem::size_of::<RetainedEconomicBodies>(), Op::Add, s)?;
+            let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+            let mut bodies = Vec::new();
+            bodies
+                .try_reserve_exact(count)
+                .map_err(|_| ServiceError::Unavailable)?;
+            let mut total = 0usize;
+            for member in &selected.members.entries {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                let reference = wire::reference(&member.reference, s)?;
+                let parsed = s
+                    .parse_representation(reference.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                // The SAME completed prefix provides both the exact body and
+                // earliest introduction. The child independently hashes and
+                // selects every operand; no DATA-to-origin conversion occurs.
+                let body = self._inventory.body(parsed.value(), s)?;
+                total = arithmetic(total, body.bytes().len(), Op::Add, s)?;
+                require(
+                    !compare(total, 8388608, s)?.is_gt(),
+                    "CORRECTION_CAPACITY_EXCEEDED",
+                )?;
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<AuditedBytes>())
+                    .map_err(core_error)?;
+                bodies.push(body);
+            }
+            s.semantic_work()
+                .write_bytes(mem::size_of::<RetainedEconomicBodies>())
+                .map_err(core_error)?;
+            Ok(RetainedEconomicBodies {
+                bodies,
+                selected,
+                _storage: storage,
+            })
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
+}
+impl RetainedEconomicBodies {
+    pub(in super::super) fn selected(&self) -> &ResolvedEconomicInputs {
+        &self.selected
+    }
+    pub(in super::super) fn views<'a>(
+        &'a self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<EconomicInputViews<'a>> {
+        use ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView;
+        require(
+            compare(self.bodies.len(), self.selected.members.entries.len(), s)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let count = self.bodies.len();
+        let bytes = arithmetic(
+            count,
+            mem::size_of::<EconomicRecordView<'_>>(),
+            Op::Multiply,
+            s,
+        )?;
+        let bytes = arithmetic(bytes, mem::size_of::<EconomicInputViews<'_>>(), Op::Add, s)?;
+        let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+        let mut rows = Vec::new();
+        rows.try_reserve_exact(count)
+            .map_err(|_| ServiceError::Unavailable)?;
+        for (body, member) in self.bodies.iter().zip(&self.selected.members.entries) {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .write_bytes(mem::size_of::<EconomicRecordView<'_>>())
+                .map_err(core_error)?;
+            rows.push(EconomicRecordView {
+                reference: &member.reference,
+                canonical_body: body.bytes(),
+            });
+        }
+        s.semantic_work()
+            .write_bytes(mem::size_of::<EconomicInputViews<'_>>())
+            .map_err(core_error)?;
+        Ok(EconomicInputViews {
+            rows,
+            _storage: storage,
+        })
+    }
+}

@@ -95,9 +95,10 @@ impl ObservedAppBinding {
                 .ok_or(ServiceError::IntegrityFailure)?;
             let root = self.work_root.as_ref().ok_or(ServiceError::Unavailable)?;
             let inputs = self
-                .work_explicit_inputs
+                .work_input_bodies
                 .as_ref()
-                .ok_or(ServiceError::Unavailable)?;
+                .ok_or(ServiceError::Unavailable)?
+                .selected();
             let heads = self.work_heads.as_ref().ok_or(ServiceError::Unavailable)?;
             s.semantic_work()
                 .arithmetic(Op::Subtract, &[&self.before.into(), &1i64.into()])

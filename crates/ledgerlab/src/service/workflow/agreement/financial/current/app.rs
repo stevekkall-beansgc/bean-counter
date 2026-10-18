@@ -20,7 +20,7 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) work_received_at: Option<Timestamp>,
     _work_received_storage: Option<ExternalBufferLease>,
     pub(super) work_input_seeds: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
-    pub(super) work_explicit_inputs: Option<prefix::ResolvedEconomicInputs>,
+    pub(super) work_input_bodies: Option<prefix::RetainedEconomicBodies>,
     work_heads: Option<work_heads::ObservedWorkHeads>,
     pub(super) work_state: Option<work_heads::OwnedWorkState>,
     pub(super) work_head_locators:
@@ -114,10 +114,13 @@ pub(in super::super) async fn observe(
             parsed_heads.value(),
             session,
         )?;
+        let input_bodies = observed
+            .original
+            .retain_economic_inputs(explicit, session)?;
+        observed.work_input_bodies = Some(input_bodies);
         observed.work_source_slot = Some(slot);
         observed.work_source_index = Some(index);
         observed.work_input_seeds = Some(seeds);
-        observed.work_explicit_inputs = Some(explicit);
         observed.work_head_locators = Some(heads);
         observed.work_heads = Some(observed_heads);
         observed.work_state = Some(state);
@@ -447,7 +450,7 @@ async fn observe_binding(
             work_received_at: None,
             _work_received_storage: None,
             work_input_seeds: None,
-            work_explicit_inputs: None,
+            work_input_bodies: None,
             work_head_locators: None,
             work_heads: None,
             work_state: None,
