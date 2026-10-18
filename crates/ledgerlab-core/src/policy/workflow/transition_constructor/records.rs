@@ -210,7 +210,7 @@ impl AsRef<[u8]> for RecordBytes<'_> {
 struct SourceBirthFacts {
     state_position:usize,grant_position:usize,registered:RecordBody,accepted:[u8;32],accepted_len:usize,
 }
-struct SourceObservationFacts {state:RecordBody,verifier:RecordBody,root:RecordBody}
+struct SourceObservationFacts {state:RecordBody,verifier:RecordBody,root:RecordBody,app_catalog:bool}
 struct SourceGrantFacts {ceiling_position:usize,at:i64,accepted:[u8;32],accepted_len:usize}
 struct SourceOutputFacts {bytes:[u8;285],_ownership:ExternalBufferLease}
 pub(super) struct SourceBirthCheck {
@@ -574,20 +574,22 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     /// and root-basis joins. The cached portion is bound to the SAME owning
     /// state/observation/verifier/root values in this inventory only. It never
     /// attests the serialized prefix's truth or supplies current-head custody.
-    pub(super) fn source_observation_after_joins(&mut self,m:&mut CoreMeter,c:&super::data::DraftContextData,reference:&ExactRef,state:&RecordBody,observation:&RecordBody,verifier:&RecordBody,root:&RecordBody)->Result<()> {
+    pub(super) fn source_observation_after_joins(&mut self,m:&mut CoreMeter,c:&super::data::DraftContextData,reference:&ExactRef,state:&RecordBody,observation:&RecordBody,verifier:&RecordBody,root:&RecordBody,app_catalog:bool)->Result<()> {
         let position=if self.source_context_owner(m,c)?{self.source_body_position(m,reference,observation)?}else{None};
         if let Some(position)=position{
             if let Some(facts)=self.operands[position].source_observation.as_ref(){
-                let same=m.check("source.observation_same_state",||facts.state.is_same_owning_value(state))?
+                let same=m.check("source.observation_same_catalog",||facts.app_catalog==app_catalog)?
+                    &&m.check("source.observation_same_state",||facts.state.is_same_owning_value(state))?
                     &&m.check("source.observation_same_verifier",||facts.verifier.is_same_owning_value(verifier))?
                     &&m.check("source.observation_same_root",||facts.root.is_same_owning_value(root))?;
                 if same{return Ok(());}
             }
         }
-        super::inventory::observation::validate(m,c,state,observation,verifier,root)?;
+        if app_catalog{super::inventory::observation::validate_app_catalog(m,c,state,observation,verifier,root)?;}
+        else{super::inventory::observation::validate(m,c,state,observation,verifier,root)?;}
         if let Some(position)=position{
             m.visit("source.retain_same_invocation_observation")?;
-            self.operands[position].source_observation=Some(SourceObservationFacts{state:state.clone(),verifier:verifier.clone(),root:root.clone()});
+            self.operands[position].source_observation=Some(SourceObservationFacts{state:state.clone(),verifier:verifier.clone(),root:root.clone(),app_catalog});
         }
         Ok(())
     }

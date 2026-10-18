@@ -337,7 +337,8 @@ pub(super) fn source(
     ] {
         eq(m, &root["basis"][key], &want)?;
     }
-    r.source_observation_after_joins(m,c,&a.authority_observation_ref,&state,&observation,&verifier,&root)?;
+    let app_catalog=super::audit_metadata::selected_catalog(m,program)?;
+    r.source_observation_after_joins(m,c,&a.authority_observation_ref,&state,&observation,&verifier,&root,app_catalog)?;
     m.scan_bytes(source_slot.len())?;m.write_bytes(source_slot.len())?;
     let source_slot=source_slot.to_owned();
     Ok(SourceSelection {

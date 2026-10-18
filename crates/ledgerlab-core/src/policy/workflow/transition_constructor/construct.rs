@@ -110,7 +110,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
             let mut construction=super::app_cost::produce_parsed(program,c,p,inputs,state,m)?.into_construction(c,m)?;
             construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
             construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
-            construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,&mut construction,c,state)?);
+            construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);
             construction.funding_effects=Some(super::funding::construction_effect(m,program,c,state,&mut construction)?);
             return Ok(construction);
         }
@@ -120,7 +120,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
     construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
     construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
     if program.uses_app_owned_cost_recipe(){
-        construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,&mut construction,c,state)?);
+        construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);
         construction.funding_effects=Some(super::funding::construction_effect(m,program,c,state,&mut construction)?);
     }
     Ok(construction)

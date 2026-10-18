@@ -39,7 +39,7 @@ fn pin(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,value:&serde_json::Va
     else{return Err(shape::fail("financial app head kind"));}
     if !w::compare(m,matches,1usize)?.is_eq(){return Err(shape::fail("financial pin lacks unique held head"));}Ok(())
 }
-pub(in crate::policy::workflow::transition_constructor) fn select(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,state:&EconomicStateData)->Result<CheckedObservation>{
+pub(in crate::policy::workflow::transition_constructor) fn select(m:&mut CoreMeter,program:&super::super::super::selected_program::SelectedProgram,r:&mut Records,c:&DraftContextData,state:&EconomicStateData)->Result<CheckedObservation>{
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning financial observation"))?;
     let pair=state.observation.ok_or_else(||shape::fail("complete financial observation pair missing"))?;
     let observation=r.observation_output(m,&c.key,pair.observation,"workflow-financial-history-observation","ledger-workflow-financial-history-observation/3")?;
@@ -48,6 +48,7 @@ pub(in crate::policy::workflow::transition_constructor) fn select(m:&mut CoreMet
     let verification=r.observation_output(m,&c.key,pair.verification,"workflow-authority-audit-verifier","ledger-authority-audit-verifier/2")?;
     shape::closed(m,&verification,&["schema","profile","algorithm","resources","artifacts","origin_recipes"],&[])?;
     literal(m,&verification,"profile","ledger-financial-origin-audit/1")?;literal(m,&verification,"algorithm","verified-introduction-fixed-point/1")?;literal(m,&verification,"resources","workflow-profile-b-origin-audit/1")?;
+    if super::super::audit_metadata::selected_catalog(m,program)?{super::super::audit_metadata::check_financial(m,&verification)?;}
     let key=super::super::cost_postings::operation_key(m,&arena,c)?;shape::equal(m,&observation["pending_operation_key"],key.value())?;
     for k in ["logical_store_id","scope"]{shape::equal(m,&observation[k],&key.value()[k])?;}
     literal(m,&observation,"installation_mode",&c.installation_mode)?;literal(m,&observation,"observed_at",&c.accepted_at)?;
@@ -73,11 +74,11 @@ pub(in crate::policy::workflow::transition_constructor) fn select(m:&mut CoreMet
 /// New-versus-reused result partition uses the actual pre-operation inventory.
 /// Saved replay supplies the same partition from authenticated introductions;
 /// saved comparison results never make a new observation preexisting.
-pub(in crate::policy::workflow::transition_constructor) fn select_and_introduce(m:&mut CoreMeter,t:&mut Construction,c:&DraftContextData,state:&EconomicStateData)->Result<CheckedObservation>{
+pub(in crate::policy::workflow::transition_constructor) fn select_and_introduce(m:&mut CoreMeter,program:&super::super::super::selected_program::SelectedProgram,t:&mut Construction,c:&DraftContextData,state:&EconomicStateData)->Result<CheckedObservation>{
     use super::super::emitted_record::{ConstructedEnvelope,EncodedBody};
     use crate::validation_work::ArithmeticOperation;
     use std::mem;
-    let mut checked=select(m,&mut t.records,c,state)?;
+    let mut checked=select(m,program,&mut t.records,c,state)?;
     let pair=state.observation.ok_or_else(||shape::fail("financial observation pair missing"))?;
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning financial results"))?;
     if t.records.optional(m,&c.key,&checked.observation_ref,"workflow-financial-history-observation","ledger-workflow-financial-history-observation/3")?.is_some(){

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bean-counter:resource-profile:2",
+  "title": "Exact RP01 code-owned classification profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile_id",
+    "semantic_schedule",
+    "semantic_limits",
+    "representation_schedule",
+    "representation_limits",
+    "representation_operations",
+    "shape_limits",
+    "history_limits",
+    "resumption",
+    "persistent_checkpoint_trust",
+    "financial_semantics",
+    "qualification"
+  ],
+  "properties": {
+    "schema": {
+      "const": "ledger-workflow-resource-profile/2"
+    },
+    "profile_id": {
+      "const": "workflow-resource-vector/1"
+    },
+    "semantic_schedule": {
+      "const": "bounded-limb-visits/1"
+    },
+    "semantic_limits": {
+      "const": {
+        "economic": 65536,
+        "compile": 1048576,
+        "original_composed": 1048576
+      }
+    },
+    "representation_schedule": {
+      "const": "bounded-limb-visits/1"
+    },
+    "representation_limits": {
+      "const": "closed-source-envelope/1"
+    },
+    "representation_operations": {
+      "const": [
+        "json.parse",
+        "jcs.emit",
+        "base64.decode",
+        "base64.encode",
+        "bytes.copy",
+        "bytes.sha256"
+      ]
+    },
+    "shape_limits": {
+      "const": {
+        "raw_request_bytes": 262144,
+        "canonical_record_bytes": 4194304,
+        "resolved_bytes": 8388608,
+        "resolved_refs": 4096,
+        "source_closure_bytes": 1048576,
+        "json_depth": 32,
+        "arithmetic_bits": 512,
+        "attempt_arena_bytes": 67108864,
+        "io_buffer_bytes": 262144
+      }
+    },
+    "history_limits": {
+      "const": "unchanged-profile-b"
+    },
+    "resumption": {
+      "const": "same-attempt-untrusted-cursor/1"
+    },
+    "persistent_checkpoint_trust": {
+      "const": false
+    },
+    "financial_semantics": {
+      "const": "unchanged"
+    },
+    "qualification": {
+      "const": "requires-complete-source-envelope-and-admission-obligations"
+    }
+  }
+}

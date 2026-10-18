@@ -14,11 +14,11 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
     #[cfg(test)]
     {
         return m.diagnostic_scope("inventory::observation::validate", |m| {
-            validate_data(m, c, state, ob, verifier, root)
+            validate_data(m, c, state, ob, verifier, root, false)
         });
     }
     #[cfg(not(test))]
-    validate_data(m, c, state, ob, verifier, root)
+    validate_data(m, c, state, ob, verifier, root, false)
 }
 fn validate_data(
     m: &mut CoreMeter,
@@ -27,6 +27,7 @@ fn validate_data(
     ob: &Value,
     verifier: &Value,
     root: &Value,
+    app_catalog:bool,
 ) -> Result<()> {
     invoke!(
         shape::closed,
@@ -124,6 +125,7 @@ fn validate_data(
         "canonical_economic_namespace",
         &json!(c.canonical_economic_namespace)
     )?;
+    if app_catalog{return super::super::audit_metadata::check_source(m,verifier);}
     invoke!(
         shape::closed,
         m,
@@ -258,3 +260,7 @@ pub(in crate::policy::workflow::transition_constructor) const SUPPORTED_ARTIFACT
         "ee113e7761e130002162c162845600a7de561e86618d1e5eb8d4b62f9743895b",
     ),
 ];
+
+pub(in crate::policy::workflow::transition_constructor) fn validate_app_catalog(m:&mut CoreMeter,c:&DraftContextData,state:&Value,ob:&Value,verifier:&Value,root:&Value)->Result<()>{
+    validate_data(m,c,state,ob,verifier,root,true)
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "ledger-workflow-resource-profile/2",
+  "profile_id": "workflow-resource-vector/1",
+  "semantic_schedule": "bounded-limb-visits/1",
+  "semantic_limits": {
+    "economic": 65536,
+    "compile": 1048576,
+    "original_composed": 1048576
+  },
+  "representation_schedule": "bounded-limb-visits/1",
+  "representation_limits": "closed-source-envelope/1",
+  "representation_operations": [
+    "json.parse",
+    "jcs.emit",
+    "base64.decode",
+    "base64.encode",
+    "bytes.copy",
+    "bytes.sha256"
+  ],
+  "shape_limits": {
+    "raw_request_bytes": 262144,
+    "canonical_record_bytes": 4194304,
+    "resolved_bytes": 8388608,
+    "resolved_refs": 4096,
+    "source_closure_bytes": 1048576,
+    "json_depth": 32,
+    "arithmetic_bits": 512,
+    "attempt_arena_bytes": 67108864,
+    "io_buffer_bytes": 262144
+  },
+  "history_limits": "unchanged-profile-b",
+  "resumption": "same-attempt-untrusted-cursor/1",
+  "persistent_checkpoint_trust": false,
+  "financial_semantics": "unchanged",
+  "qualification": "requires-complete-source-envelope-and-admission-obligations"
+}

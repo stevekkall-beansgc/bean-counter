@@ -70,6 +70,8 @@ pub use inventory::slots::validate_app_slot_projection;
 // Per-kind immutable DATA; never a host completed-origin capability.
 pub(in crate::policy::workflow) mod intrinsic_record;
 
+mod audit_metadata;
+pub use audit_metadata::{produce_app_audit_metadata,AppAuditMetadata,AuditVerifierDocument};
 mod candidate;
 mod capacity;
 pub use candidate::{

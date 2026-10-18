@@ -222,7 +222,7 @@ fn owned_document(m:&mut CoreMeter,body:&Value,plan:bool)->Result<SelectedDocume
     let owned=arena.clone_value(body,m)?;
     finish_owned_document(m,owned,plan)
 }
-pub(super) fn finish_owned_document(m:&mut CoreMeter,owned:AuditedValue,plan:bool)->Result<SelectedDocument>{
+pub(in crate::policy::workflow) fn finish_owned_document(m:&mut CoreMeter,owned:AuditedValue,plan:bool)->Result<SelectedDocument>{
     let arena=m.representation_arena().ok_or_else(||err("owning selected document arena"))?;
     let body=owned.value();
     codec::validate_selected_types(m,body)?;

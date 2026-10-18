@@ -23,3 +23,5 @@ mod owning_plan;
 mod owning_policy;
 
 mod policy_decode;
+
+pub(in crate::policy::workflow) use compiler::finish_owned_document;

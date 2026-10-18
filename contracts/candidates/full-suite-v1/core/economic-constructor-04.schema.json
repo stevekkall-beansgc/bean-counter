@@ -1,0 +1,2391 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bean-counter.invalid/candidates/economic-constructor-04.schema.json",
+  "title": "ECON-CONSTRUCTOR04 additive financial origin recipe repair; copied definitions not newly frozen",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AuditVerifier"
+    }
+  ],
+  "$defs": {
+    "Ref": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/RecordKind"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "digest"
+      ],
+      "additionalProperties": false,
+      "description": "Kind and ID prefix must pass the compiled record-family registry; see normative-amendment.md. Structural acceptance alone is never authorization."
+    },
+    "RecordKind": {
+      "enum": [
+        "legacy-document",
+        "legacy-event",
+        "workflow-acceptance-terms",
+        "workflow-accepted-agreement",
+        "workflow-action",
+        "workflow-activation",
+        "workflow-agreement-intent",
+        "workflow-assent",
+        "workflow-authority",
+        "workflow-binding",
+        "workflow-build-manifest",
+        "workflow-capacity",
+        "workflow-capacity-retirement",
+        "workflow-chain-state",
+        "workflow-compiled-plan",
+        "workflow-compiler-descriptor",
+        "workflow-correction",
+        "workflow-correction-capacity",
+        "workflow-cost",
+        "workflow-customer",
+        "workflow-decision",
+        "workflow-delegation",
+        "workflow-dependency",
+        "workflow-economic-authority",
+        "workflow-evaluation",
+        "workflow-evidence",
+        "workflow-evidence-verification",
+        "workflow-fact-attestation",
+        "workflow-fact-schema",
+        "workflow-family-state",
+        "workflow-head-transition",
+        "workflow-invocation",
+        "workflow-link",
+        "workflow-manifest",
+        "workflow-offer",
+        "workflow-operation",
+        "workflow-outcome",
+        "workflow-outcome-claim",
+        "workflow-policy",
+        "workflow-product",
+        "workflow-publication",
+        "workflow-receipt",
+        "workflow-roles",
+        "workflow-slot-catalog",
+        "workflow-slot-instantiation",
+        "workflow-slot-template",
+        "workflow-slot-terms",
+        "workflow-source-enrollment",
+        "workflow-source-grant",
+        "workflow-source-state",
+        "workflow-stage-instance",
+        "workflow-target",
+        "workflow-verification",
+        "workflow-verified-fact",
+        "workflow-work",
+        "workflow-work-claim",
+        "workflow-authority-prefix-observation",
+        "workflow-authority-audit-verifier",
+        "workflow-financial-history-observation"
+      ]
+    },
+    "Id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "Digest": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "OperationKey": {
+      "type": "object",
+      "properties": {
+        "logical_store_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "operation_id": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "logical_store_id",
+        "scope",
+        "source",
+        "operation_id"
+      ],
+      "additionalProperties": false
+    },
+    "Scope": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/Id"
+        },
+        {
+          "$ref": "#/$defs/Id"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "SourceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "Time": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 27,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "Counter": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 19,
+      "pattern": "^(0|[1-9][0-9]{0,18})$"
+    },
+    "Version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 19,
+      "pattern": "^[1-9][0-9]{0,18}$"
+    },
+    "Artifact": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9_./-]+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "OriginRecipe": {
+      "type": "object",
+      "properties": {
+        "registry_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "operation_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "payload_schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "normalization_profile": {
+          "const": "ledger-operation-normalization/2"
+        },
+        "closure_profile": {
+          "enum": [
+            "ledger-workflow-publication-manifest/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-source-manifest/1",
+            "ledger-economic-resolved-inputs/2",
+            "ledger-economic-resolved-inputs/3"
+          ]
+        },
+        "variant": {
+          "enum": [
+            "all",
+            "customer.register",
+            "source.enroll",
+            "source.restrict",
+            "source.revoke"
+          ]
+        }
+      },
+      "required": [
+        "registry_digest",
+        "operation_kind",
+        "payload_schema",
+        "normalization_profile",
+        "closure_profile",
+        "variant"
+      ],
+      "additionalProperties": false
+    },
+    "AuditVerifier": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-authority-audit-verifier/2"
+        },
+        "profile": {
+          "enum": [
+            "ledger-authority-origin-audit/1",
+            "ledger-financial-origin-audit/1"
+          ]
+        },
+        "algorithm": {
+          "const": "verified-introduction-fixed-point/1"
+        },
+        "resources": {
+          "const": "workflow-profile-b-origin-audit/1"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 64
+        },
+        "origin_recipes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OriginRecipe"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "schema",
+        "profile",
+        "algorithm",
+        "resources",
+        "artifacts",
+        "origin_recipes"
+      ],
+      "additionalProperties": false
+    },
+    "OriginPointer": {
+      "type": "object",
+      "properties": {
+        "commit_sequence": {
+          "$ref": "#/$defs/Counter"
+        },
+        "operation_key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "operation_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "manifest_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "receipt_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "required": [
+        "commit_sequence",
+        "operation_key",
+        "operation_ref",
+        "manifest_ref",
+        "receipt_ref"
+      ],
+      "additionalProperties": false
+    },
+    "AuthorityPrefixObservation": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-authority-prefix-observation/1"
+        },
+        "logical_store_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "installation_mode": {
+          "enum": [
+            "isolated_synthetic",
+            "real_local"
+          ]
+        },
+        "root_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "enrollment_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "current_state_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "current_grant_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_grant_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 32
+        },
+        "head_revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "verified_through_sequence": {
+          "$ref": "#/$defs/Counter"
+        },
+        "verification_profile": {
+          "const": "ledger-authority-origin-audit/1"
+        },
+        "verifier_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "prefix_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "origin_count": {
+          "$ref": "#/$defs/Counter"
+        },
+        "document_count": {
+          "$ref": "#/$defs/Counter"
+        },
+        "audited_retained_bytes": {
+          "$ref": "#/$defs/Counter"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "logical_store_id",
+        "scope",
+        "installation_mode",
+        "root_ref",
+        "enrollment_ref",
+        "current_state_ref",
+        "original_grant_refs",
+        "head_revision",
+        "verified_through_sequence",
+        "verification_profile",
+        "verifier_ref",
+        "prefix_digest",
+        "origin_count",
+        "document_count",
+        "audited_retained_bytes",
+        "observed_at"
+      ],
+      "additionalProperties": false
+    },
+    "EncodedRecord": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "canonical_bytes_base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 5592408,
+          "pattern": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+      },
+      "required": [
+        "ref",
+        "canonical_bytes_base64"
+      ],
+      "additionalProperties": false
+    },
+    "AuthorityAuditPackage": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-authority-audit-package/1"
+        },
+        "observation": {
+          "$ref": "#/$defs/EncodedRecord"
+        },
+        "verifier": {
+          "$ref": "#/$defs/EncodedRecord"
+        },
+        "root_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "origin_pointers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OriginPointer"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 100000
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EncodedRecord"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "origin_records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EncodedRecord"
+          },
+          "minItems": 3,
+          "uniqueItems": true,
+          "maxItems": 300000
+        },
+        "required_verifier_artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 64
+        },
+        "qualification": {
+          "const": "requires-independent-installation-trust-context"
+        }
+      },
+      "required": [
+        "schema",
+        "observation",
+        "verifier",
+        "root_ref",
+        "origin_pointers",
+        "documents",
+        "origin_records",
+        "required_verifier_artifacts",
+        "qualification"
+      ],
+      "additionalProperties": false
+    },
+    "EconomicAuthority": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-authority/1"
+        },
+        "operation": {
+          "enum": [
+            "evidence.retain",
+            "work.accept",
+            "link.assert",
+            "outcome.submit",
+            "outcome.correct",
+            "outcome.close",
+            "quantity.correct",
+            "work.reverse"
+          ]
+        },
+        "actor": {
+          "$ref": "#/$defs/Id"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "customer": {
+          "$ref": "#/$defs/Id"
+        },
+        "canonical_economic_namespace": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "installation_mode": {
+          "enum": [
+            "isolated_synthetic",
+            "real_local"
+          ]
+        },
+        "enrollment_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "current_state_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "current_grant_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_accepted_agreement_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_grant_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "source_slot": {
+          "$ref": "#/$defs/Name"
+        },
+        "rights": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "read",
+              "submit",
+              "link",
+              "correct",
+              "close"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "verified_fact_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "actor",
+        "source",
+        "scope",
+        "customer",
+        "canonical_economic_namespace",
+        "installation_mode",
+        "enrollment_ref",
+        "current_state_ref",
+        "current_grant_ref",
+        "original_binding_ref",
+        "original_accepted_agreement_ref",
+        "original_grant_refs",
+        "source_slot",
+        "rights",
+        "evidence_refs",
+        "verified_fact_refs",
+        "observed_at"
+      ],
+      "additionalProperties": false
+    },
+    "Name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,62}:[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+    },
+    "EconomicAuthority2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-authority/2"
+        },
+        "operation": {
+          "enum": [
+            "evidence.retain",
+            "work.accept",
+            "link.assert",
+            "outcome.submit",
+            "outcome.correct",
+            "outcome.close",
+            "quantity.correct",
+            "work.reverse"
+          ]
+        },
+        "actor": {
+          "$ref": "#/$defs/Id"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "customer": {
+          "$ref": "#/$defs/Id"
+        },
+        "canonical_economic_namespace": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "installation_mode": {
+          "enum": [
+            "isolated_synthetic",
+            "real_local"
+          ]
+        },
+        "enrollment_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "current_state_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "current_grant_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_accepted_agreement_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "original_grant_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "source_slot": {
+          "$ref": "#/$defs/Name"
+        },
+        "rights": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "read",
+              "submit",
+              "link",
+              "correct",
+              "close"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "verified_fact_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "authority_observation_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "required": [
+        "schema",
+        "operation",
+        "actor",
+        "source",
+        "scope",
+        "customer",
+        "canonical_economic_namespace",
+        "installation_mode",
+        "enrollment_ref",
+        "current_state_ref",
+        "current_grant_ref",
+        "original_binding_ref",
+        "original_accepted_agreement_ref",
+        "original_grant_refs",
+        "source_slot",
+        "rights",
+        "evidence_refs",
+        "verified_fact_refs",
+        "observed_at",
+        "authority_observation_ref"
+      ],
+      "additionalProperties": false
+    },
+    "EconomicManifest": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-manifest/1"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "members"
+      ],
+      "additionalProperties": false
+    },
+    "EconomicManifest2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-manifest/2"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "closure_profile": {
+          "const": "ledger-economic-resolved-inputs/2"
+        },
+        "audit_observation_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "members",
+        "closure_profile",
+        "audit_observation_refs"
+      ],
+      "additionalProperties": false
+    },
+    "EconomicOperationRecord": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-operation/1"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "kind": {
+          "enum": [
+            "evidence.retain",
+            "work.accept",
+            "link.assert",
+            "outcome.submit",
+            "outcome.correct",
+            "outcome.close",
+            "quantity.correct",
+            "work.reverse"
+          ]
+        },
+        "contract": {
+          "const": "workflow/1"
+        },
+        "request_evidence": {
+          "$ref": "#/$defs/RequestEvidence"
+        },
+        "authority_snapshot": {
+          "$ref": "#/$defs/EconomicAuthority"
+        },
+        "received_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "commit_sequence": {
+          "$ref": "#/$defs/Counter"
+        },
+        "result_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "kind",
+        "contract",
+        "request_evidence",
+        "authority_snapshot",
+        "received_at",
+        "accepted_at",
+        "commit_sequence",
+        "result_refs"
+      ],
+      "additionalProperties": false
+    },
+    "RequestEvidence": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-operation-request-evidence/2"
+        },
+        "normalization_profile": {
+          "const": "ledger-operation-normalization/2"
+        },
+        "original_request_bytes_base64": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 349528
+        },
+        "original_request_bytes_sha256": {
+          "$ref": "#/$defs/RawSha256"
+        },
+        "normalized_request": {
+          "$ref": "#/$defs/OperationEnvelope"
+        },
+        "request_hash": {
+          "$ref": "#/$defs/Digest"
+        },
+        "schema_bundle_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "descriptor_resolution": {
+          "$ref": "#/$defs/DescriptorResolution"
+        }
+      },
+      "required": [
+        "schema",
+        "normalization_profile",
+        "original_request_bytes_base64",
+        "original_request_bytes_sha256",
+        "normalized_request",
+        "request_hash",
+        "schema_bundle_digest",
+        "descriptor_resolution"
+      ],
+      "additionalProperties": false
+    },
+    "RawSha256": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "OperationEnvelope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "evidence.retain"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/FactAttest"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "work.accept"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/Work"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "link.assert"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/LinkAssert"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "outcome.submit"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/OutcomeSubmit"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "outcome.correct"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/OutcomeCorrect"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "outcome.close"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/OutcomeClose"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "quantity.correct"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/QuantityCorrection"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema": {
+              "const": "ledger-operation/1"
+            },
+            "key": {
+              "$ref": "#/$defs/OperationKey"
+            },
+            "kind": {
+              "const": "work.reverse"
+            },
+            "contract": {
+              "const": "workflow/1"
+            },
+            "payload": {
+              "$ref": "#/$defs/WorkReverse"
+            }
+          },
+          "required": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "payload"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "FactAttest": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-fact-attest/1"
+        },
+        "attestation": {
+          "$ref": "#/$defs/FieldAttestation"
+        }
+      },
+      "required": [
+        "schema",
+        "attestation"
+      ],
+      "additionalProperties": false
+    },
+    "FieldAttestation": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-fact-attestation/1"
+        },
+        "attestation_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceId"
+        },
+        "evidence_kind": {
+          "$ref": "#/$defs/EvidenceKind"
+        },
+        "subject": {
+          "$ref": "#/$defs/EconomicSubject"
+        },
+        "subject_schema_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "$ref": "#/$defs/Name"
+              },
+              "value": {
+                "$ref": "#/$defs/FactScalar"
+              }
+            },
+            "required": [
+              "field",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "issued_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "supporting_evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "attestation_id",
+        "source",
+        "evidence_kind",
+        "subject",
+        "subject_schema_ref",
+        "claims",
+        "issued_at",
+        "supporting_evidence_refs"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceKind": {
+      "enum": [
+        "occurrence",
+        "outcome",
+        "supplier_final_cost",
+        "meter_quantity",
+        "allocation_input"
+      ]
+    },
+    "EconomicSubject": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "work"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "canonical_source_namespace": {
+              "$ref": "#/$defs/SourceId"
+            },
+            "business_operation_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "customer": {
+              "$ref": "#/$defs/Id"
+            },
+            "activity": {
+              "$ref": "#/$defs/Name"
+            },
+            "product_ref": {
+              "$ref": "#/$defs/DocRef"
+            },
+            "binding_ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "canonical_source_namespace",
+            "business_operation_id",
+            "customer",
+            "activity",
+            "product_ref",
+            "binding_ref"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "outcome"
+            },
+            "logical_store_id": {
+              "$ref": "#/$defs/Id"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "target_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "family_slot": {
+              "$ref": "#/$defs/Id"
+            },
+            "business_outcome_token": {
+              "$ref": "#/$defs/Id"
+            },
+            "activity": {
+              "$ref": "#/$defs/Name"
+            },
+            "binding_ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [
+            "kind",
+            "logical_store_id",
+            "scope",
+            "target_ref",
+            "family_slot",
+            "business_outcome_token",
+            "activity",
+            "binding_ref"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DocRef": {
+      "$ref": "#/$defs/Ref"
+    },
+    "FactScalar": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string",
+          "maxLength": 1024
+        },
+        {
+          "$ref": "#/$defs/Ref"
+        }
+      ]
+    },
+    "Work": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-work/1"
+        },
+        "external_event_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "business_operation_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "customer": {
+          "$ref": "#/$defs/Id"
+        },
+        "chain": {
+          "$ref": "#/$defs/Id"
+        },
+        "activity": {
+          "$ref": "#/$defs/Name"
+        },
+        "product_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "policy_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "fact_schema_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "facts": {
+          "$ref": "#/$defs/Facts"
+        },
+        "fact_proofs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FactProof"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LinkInput"
+          },
+          "minItems": 0,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "invocation_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "stage_instance_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "external_event_id",
+        "business_operation_id",
+        "customer",
+        "chain",
+        "activity",
+        "product_ref",
+        "policy_ref",
+        "fact_schema_ref",
+        "binding_ref",
+        "status",
+        "facts",
+        "fact_proofs",
+        "links",
+        "evidence_refs",
+        "invocation_refs"
+      ],
+      "additionalProperties": false
+    },
+    "Facts": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/Name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/FactScalar"
+      },
+      "maxProperties": 64,
+      "description": "Dynamic keys are declared by an exact retained FactSchema; reject undeclared fields and validate original types/provenance at runtime. This is the only dynamic business-field object."
+    },
+    "FactProof": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "$ref": "#/$defs/Name"
+        },
+        "attestation_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "required": [
+        "field",
+        "attestation_ref"
+      ],
+      "additionalProperties": false
+    },
+    "LinkInput": {
+      "type": "object",
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/Name"
+        },
+        "predecessor": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "required": [
+        "slot",
+        "predecessor"
+      ],
+      "additionalProperties": false
+    },
+    "LinkAssert": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-link-assert/1"
+        },
+        "child": {
+          "$ref": "#/$defs/Ref"
+        },
+        "product_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "link": {
+          "$ref": "#/$defs/LinkInput"
+        },
+        "expected_chain_revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "child",
+        "product_ref",
+        "binding_ref",
+        "link",
+        "expected_chain_revision",
+        "evidence_refs"
+      ],
+      "additionalProperties": false
+    },
+    "OutcomeSubmit": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-outcome/1"
+        },
+        "target_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "family_slot": {
+          "$ref": "#/$defs/Id"
+        },
+        "business_outcome_token": {
+          "$ref": "#/$defs/Id"
+        },
+        "activity": {
+          "$ref": "#/$defs/Name"
+        },
+        "product_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "policy_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "fact_schema_ref": {
+          "$ref": "#/$defs/DocRef"
+        },
+        "binding_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "facts": {
+          "$ref": "#/$defs/Facts"
+        },
+        "fact_proofs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FactProof"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "target_ref",
+        "family_slot",
+        "business_outcome_token",
+        "activity",
+        "product_ref",
+        "policy_ref",
+        "fact_schema_ref",
+        "binding_ref",
+        "facts",
+        "fact_proofs",
+        "evidence_refs",
+        "occurred_at"
+      ],
+      "additionalProperties": false
+    },
+    "OutcomeCorrect": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-outcome-correction/1"
+        },
+        "original_claim_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "replacement": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OutcomeSubmit"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "none"
+                },
+                "evidence_refs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "minItems": 0,
+                  "maxItems": 16,
+                  "uniqueItems": true
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                }
+              },
+              "required": [
+                "kind",
+                "evidence_refs",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "original_claim_ref",
+        "expected_revision",
+        "replacement"
+      ],
+      "additionalProperties": false
+    },
+    "OutcomeClose": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-outcome-close/1"
+        },
+        "target_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "family_slot": {
+          "$ref": "#/$defs/Id"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/Version"
+        },
+        "reason": {
+          "enum": [
+            "deadline",
+            "no_success"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "target_ref",
+        "family_slot",
+        "expected_revision",
+        "reason",
+        "evidence_refs"
+      ],
+      "additionalProperties": false
+    },
+    "QuantityCorrection": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-quantity-correction/1"
+        },
+        "work_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "field": {
+          "$ref": "#/$defs/Name"
+        },
+        "replacement_quantity": {
+          "$ref": "#/$defs/Decimal"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "fact_proofs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FactProof"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "dependent_reversals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CorrectionClosure"
+          },
+          "minItems": 0,
+          "maxItems": 31,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "work_ref",
+        "field",
+        "replacement_quantity",
+        "expected_revision",
+        "evidence_refs",
+        "fact_proofs",
+        "dependent_reversals"
+      ],
+      "additionalProperties": false
+    },
+    "Decimal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$"
+    },
+    "CorrectionClosure": {
+      "type": "object",
+      "properties": {
+        "decision_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/Counter"
+        },
+        "authority_evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "decision_ref",
+        "expected_revision",
+        "authority_evidence_refs"
+      ],
+      "additionalProperties": false
+    },
+    "WorkReverse": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-work-reverse/1"
+        },
+        "work_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "expected_revision": {
+          "$ref": "#/$defs/Version"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "dependent_reversals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CorrectionClosure"
+          },
+          "minItems": 0,
+          "maxItems": 31,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schema",
+        "work_ref",
+        "expected_revision",
+        "reason",
+        "evidence_refs",
+        "dependent_reversals"
+      ],
+      "additionalProperties": false
+    },
+    "DescriptorResolution": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-operation-descriptors/1"
+        },
+        "registry_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "operation_kind": {
+          "enum": [
+            "evidence.retain",
+            "link.assert",
+            "outcome.close",
+            "outcome.correct",
+            "outcome.submit",
+            "quantity.correct",
+            "work.accept",
+            "work.reverse"
+          ]
+        },
+        "payload_schema": {
+          "$ref": "#/$defs/Id"
+        },
+        "locator_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DescriptorAnchor"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "descriptors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocRef"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "normalization_profile": {
+          "const": "ledger-operation-normalization/2"
+        },
+        "closure_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "schema",
+        "registry_digest",
+        "operation_kind",
+        "payload_schema",
+        "locator_digest",
+        "anchors",
+        "descriptors",
+        "normalization_profile",
+        "closure_digest"
+      ],
+      "additionalProperties": false
+    },
+    "DescriptorAnchor": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/DescriptorRole"
+        },
+        "record_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "relation": {
+          "enum": [
+            "accepted_binding",
+            "activation_target",
+            "agreement_input",
+            "context_schema",
+            "customer_registration",
+            "dependent_decision",
+            "direct",
+            "evidence_input",
+            "original_binding",
+            "original_claim",
+            "original_target",
+            "original_transition",
+            "original_work",
+            "publication_source",
+            "source_enrollment"
+          ]
+        },
+        "descriptor_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocRef"
+          },
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "role",
+        "record_ref",
+        "relation",
+        "descriptor_refs"
+      ],
+      "additionalProperties": false
+    },
+    "DescriptorRole": {
+      "enum": [
+        "accepted_binding",
+        "activation_target",
+        "assent",
+        "authority",
+        "binding",
+        "claim",
+        "customer",
+        "dependent_decision",
+        "evidence",
+        "fact_schema",
+        "family",
+        "inline_document",
+        "policy",
+        "private_document",
+        "product",
+        "publication",
+        "quantity_field",
+        "slot_catalog",
+        "slot_instantiation",
+        "source_enrollment",
+        "stage_instance",
+        "target",
+        "transition",
+        "work"
+      ]
+    },
+    "EconomicOperationRecord2": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-operation/2"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "kind": {
+          "enum": [
+            "evidence.retain",
+            "work.accept",
+            "link.assert",
+            "outcome.submit",
+            "outcome.correct",
+            "outcome.close",
+            "quantity.correct",
+            "work.reverse"
+          ]
+        },
+        "contract": {
+          "const": "workflow/1"
+        },
+        "request_evidence": {
+          "$ref": "#/$defs/RequestEvidence"
+        },
+        "authority_snapshot": {
+          "$ref": "#/$defs/EconomicAuthority2"
+        },
+        "received_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "commit_sequence": {
+          "$ref": "#/$defs/Counter"
+        },
+        "result_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "closure_profile": {
+          "const": "ledger-economic-resolved-inputs/2"
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "kind",
+        "contract",
+        "request_evidence",
+        "authority_snapshot",
+        "received_at",
+        "accepted_at",
+        "commit_sequence",
+        "result_refs",
+        "closure_profile"
+      ],
+      "additionalProperties": false
+    },
+    "FinancialHistoryEdge": {
+      "type": "object",
+      "properties": {
+        "owner_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "field": {
+          "const": "prior_ref"
+        },
+        "target_ref": {
+          "$ref": "#/$defs/Ref"
+        }
+      },
+      "required": [
+        "owner_ref",
+        "field",
+        "target_ref"
+      ],
+      "additionalProperties": false
+    },
+    "FinancialHeadPin": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "decision",
+            "family",
+            "chain",
+            "capacity"
+          ]
+        },
+        "ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "revision": {
+          "$ref": "#/$defs/Counter"
+        }
+      },
+      "required": [
+        "kind",
+        "ref",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "FinancialHistoryObservation": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-financial-history-observation/1"
+        },
+        "logical_store_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "installation_mode": {
+          "enum": [
+            "isolated_synthetic",
+            "real_local"
+          ]
+        },
+        "root_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "pending_operation_key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "snapshot_through_sequence": {
+          "$ref": "#/$defs/Counter"
+        },
+        "preexisting_input_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 4096
+        },
+        "history_edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FinancialHistoryEdge"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 4096
+        },
+        "head_pins": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FinancialHeadPin"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "maxItems": 4096
+        },
+        "verifier_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "prefix_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "origin_count": {
+          "$ref": "#/$defs/Counter"
+        },
+        "document_count": {
+          "$ref": "#/$defs/Counter"
+        },
+        "audited_retained_bytes": {
+          "$ref": "#/$defs/Counter"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Time"
+        }
+      },
+      "required": [
+        "schema",
+        "logical_store_id",
+        "scope",
+        "installation_mode",
+        "root_ref",
+        "pending_operation_key",
+        "snapshot_through_sequence",
+        "preexisting_input_refs",
+        "history_edges",
+        "head_pins",
+        "verifier_ref",
+        "prefix_digest",
+        "origin_count",
+        "document_count",
+        "audited_retained_bytes",
+        "observed_at"
+      ],
+      "additionalProperties": false
+    },
+    "FinancialAuditPackage": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-financial-audit-package/1"
+        },
+        "observation": {
+          "$ref": "#/$defs/EncodedRecord"
+        },
+        "verifier": {
+          "$ref": "#/$defs/EncodedRecord"
+        },
+        "root_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "origin_pointers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OriginPointer"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 100000
+        },
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EncodedRecord"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "origin_records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EncodedRecord"
+          },
+          "minItems": 3,
+          "uniqueItems": true,
+          "maxItems": 300000
+        },
+        "required_verifier_artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 64
+        },
+        "qualification": {
+          "const": "requires-independent-installation-trust-context"
+        }
+      },
+      "required": [
+        "schema",
+        "observation",
+        "verifier",
+        "root_ref",
+        "origin_pointers",
+        "documents",
+        "origin_records",
+        "required_verifier_artifacts",
+        "qualification"
+      ],
+      "additionalProperties": false
+    },
+    "EconomicOperationRecord3": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-operation/3"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "kind": {
+          "enum": [
+            "evidence.retain",
+            "work.accept",
+            "link.assert",
+            "outcome.submit",
+            "outcome.correct",
+            "outcome.close",
+            "quantity.correct",
+            "work.reverse"
+          ]
+        },
+        "contract": {
+          "const": "workflow/1"
+        },
+        "request_evidence": {
+          "$ref": "#/$defs/RequestEvidence"
+        },
+        "authority_snapshot": {
+          "$ref": "#/$defs/EconomicAuthority2"
+        },
+        "received_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "accepted_at": {
+          "$ref": "#/$defs/Time"
+        },
+        "commit_sequence": {
+          "$ref": "#/$defs/Counter"
+        },
+        "result_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "closure_profile": {
+          "const": "ledger-economic-resolved-inputs/3"
+        },
+        "source_observation_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 32
+        },
+        "financial_observation_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "combined_audit_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "kind",
+        "contract",
+        "request_evidence",
+        "authority_snapshot",
+        "received_at",
+        "accepted_at",
+        "commit_sequence",
+        "result_refs",
+        "closure_profile",
+        "source_observation_refs",
+        "financial_observation_ref",
+        "combined_audit_digest"
+      ],
+      "additionalProperties": false
+    },
+    "EconomicManifest3": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-economic-manifest/3"
+        },
+        "key": {
+          "$ref": "#/$defs/OperationKey"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "closure_profile": {
+          "const": "ledger-economic-resolved-inputs/3"
+        },
+        "source_observation_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 32
+        },
+        "financial_observation_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "combined_audit_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "schema",
+        "key",
+        "members",
+        "closure_profile",
+        "source_observation_refs",
+        "financial_observation_ref",
+        "combined_audit_digest"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
