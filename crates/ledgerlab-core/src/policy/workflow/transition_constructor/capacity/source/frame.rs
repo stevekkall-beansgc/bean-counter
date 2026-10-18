@@ -261,11 +261,12 @@ pub(super) fn derive(
     let observation_refs=mul(m,39,g)?;let observation_guard=add(m,332,observation_refs)?;
     guards=sum(m,&[guards,227,frame.grant.maximum_decoded_guard_work,observation_guard,424,154])?;
     let loads=add(m,t,15)?;let loads=mul(m,478,loads)?;
-    // The SAME immutable operand table validated Ref grammar at construction.
-    // Each typed get reuses only an exact full-Ref index match: three typed
-    // string comparisons (12S) plus the explicit grammar-reuse visit (1S).
-    // Index traversal stays in loads; body/schema/owner checks stay there too.
-    let typed=add(m,t,7)?;let typed=mul(m,13,typed)?;
+    // No blanket constructor grammar credit: first typed use pays exact
+    // match12 + marker check1 + ordinary grammar151 =164S. Already-checked
+    // hits cost14S; overcount every call as first use until the containing
+    // executor proves its particular repeated-reference multiplicities.
+    // Index/body/schema/owner work remains in loads; marker writes add bytes.
+    let typed=add(m,t,7)?;let typed=mul(m,164,typed)?;
     let parsed=mul(m,183,8)?;
     let source_parsed=add(m,t,3)?;let source_parsed=mul(m,182,source_parsed)?;
     let records=sum(m,&[loads,typed,parsed,source_parsed,381,guards])?;

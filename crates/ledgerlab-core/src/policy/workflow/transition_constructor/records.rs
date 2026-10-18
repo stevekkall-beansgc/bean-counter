@@ -232,6 +232,7 @@ struct Operand<'inv, 'raw> {
     // ONLY canonicality+exact schema/kind framing/digest+ID FAMILY were checked.
     // No per-kind semantic-ID, subject, authority, rights or currentness proof.
     canonical_frame_digest_checked: bool,
+    reference_grammar_checked:bool,
     // Exact operand-position membership, not origin or semantic validation.
     consumed_in_invocation: bool,
     partition:OperandPartition,
@@ -294,7 +295,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 body: None,
                 intrinsic: None,
                 admitted: false,
-                canonical_frame_digest_checked: false,
+                canonical_frame_digest_checked: false,reference_grammar_checked:false,
                 consumed_in_invocation: false,
                 partition:OperandPartition::Preexisting,
                 source_birth:None,source_grant:None,source_observation:None,initial_source_outputs:None,
@@ -437,7 +438,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 body: None,
                 intrinsic: None,
                 admitted: false,
-                canonical_frame_digest_checked: false,
+                canonical_frame_digest_checked: false,reference_grammar_checked:false,
                 consumed_in_invocation: false,
                 partition,
                 source_birth:None,source_grant:None,source_observation:None,initial_source_outputs:None,
@@ -657,15 +658,17 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         // Ordinary uncommitted/new operands still run their raw validator.
         Ok(None)
     }
-    /// Operand metadata is grammar-checked before this immutable table is
-    /// built. Reuse ONLY that SAME table's exact full-Ref grammar fact; every
-    /// consuming kind/schema/store/scope/body and authority check still runs.
-    /// Parent and economic child always build independent tables/charges.
+    /// Reuse ONLY grammar actually established by an earlier successful Ref
+    /// check in THIS table. Construction validates metadata lengths, not full
+    /// grammar. First use and misses execute reference() before any body use;
+    /// every kind/schema/store/scope/body/authority check still runs.
     fn checked_reference(&self,m:&mut CoreMeter,r:&ExactRef)->Result<Option<usize>>{
         if self.arena.is_some(){
             if let Some(position)=self.index.find_exact(m,r,|i|&self.operands[i].reference)?{
                 if super::shape::same_ref(m,&self.operands[position].reference,r)?{
-                    m.visit("resolve.same_inventory_reference_grammar")?;
+                    if m.check("resolve.reference_grammar_previously_checked",||self.operands[position].reference_grammar_checked)?{
+                        m.visit("resolve.same_inventory_reference_grammar")?;
+                    }else{reference(m,r)?;}
                     return Ok(Some(position));
                 }
             }
@@ -841,6 +844,14 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             let operand = &mut self.operands[position];
             m.visit("resolve.ref_lookup")?;
             if super::shape::same_ref(m, &operand.reference, r)? {
+                if self.arena.is_some(){
+                    // Every entry to this private function is preceded by
+                    // reference(), or by same-invocation ParsedRef::parse +
+                    // owner check, or the already-established marker above.
+                    // Record only grammar, never schema/type/body semantics.
+                    m.write_bytes(mem::size_of::<bool>())?;
+                    operand.reference_grammar_checked=true;
+                }
                 if let Some(record) = operand.intrinsic {
                     let owner = self
                         .intrinsic_owner
@@ -1188,6 +1199,33 @@ mod owning_tests {
     use super::*;
     use crate::validation_work::OriginalAuditSession;
     use serde_json::json;
+
+    #[test]
+    fn matching_metadata_does_not_establish_reference_grammar() {
+        // A same-table exact metadata match is only a locator. Both required
+        // and optional first use must reject grammar before parsing the body.
+        let key=OperationKey{logical_store_id:"store".into(),scope:["scope".into(),"test".into()],source:"source".into(),operation_id:"operation".into()};
+        let reference=ExactRef{kind:"workflow-evidence".into(),id:format!("wdoc_{}","a".repeat(64)),digest:format!("sha256:{}","A".repeat(64))};
+        let views=[EconomicRecordView{reference:&reference,canonical_body:br#"{"schema":"ledger-workflow-retained-evidence/1"}"#}];
+        for optional in [false,true]{
+            let arena=AuditArena::new().unwrap();let baseline=arena.usage().unwrap().live_bytes;
+            let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut m=session.meter_mut().original_economic_meter().unwrap();
+            let mut table=Records::borrowed_app(&mut m,&arena,&key,&views,&[]).unwrap();
+            assert!(!table.operands[0].reference_grammar_checked);
+            let error=if optional{
+                table.optional(&mut m,&key,&reference,&reference.kind,"ledger-workflow-retained-evidence/1").unwrap_err()
+            }else{
+                table.get(&mut m,&key,&reference,&reference.kind,"ledger-workflow-retained-evidence/1").unwrap_err()
+            };
+            assert_eq!(error.detail,"digest hex");
+            assert!(!table.operands[0].reference_grammar_checked);
+            assert!(table.operands[0].body.is_none());
+            assert!(table.consumed().is_empty());
+            session.invalidate();drop(table);drop(m);drop(session);
+            assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+        }
+    }
 
     #[test]
     fn pending_used_body_never_becomes_a_preexisting_input() {

@@ -274,14 +274,14 @@ pub(super) fn original_frames(
         frame.maximum_uncached_grant_predicate_work=mul(m,calls,frame.grant.semantic_work)?;
         // Source-authority loads ALL T original grants, not only this
         // enrollment's matching subset. Add selected enrollment/current grant.
-        // This child's own immutable table validates every Ref's grammar.
-        // Typed get then pays13S for exact full-Ref grammar reuse, plus
-        // Records::get_grammatical<=98+guard+index. Existing4096 operands
-        // imply <=13 search candidates at29S + final3, index<=380.
-        // 491=13+98+380. First decoded guards remain additional; no
-        // parent semantic/property cache or authority predicate is reused.
+        // First typed use pays164S: exact match12 + marker check1 + paid
+        // grammar151. No constructor grammar is assumed. Already-established
+        // same-table hits pay14S, but all calls are conservatively first-use
+        // here. Get_grammatical<=98+guard+index; index<=13*29+3=380.
+        // 642=164+98+380. Marker byte writes and first decoded guards remain
+        // separate; no parent semantic cache or authority work is reused.
         let loads=add(m,maximum_terms_grants,2)?;
-        let record_controls=mul(m,loads,491)?;
+        let record_controls=mul(m,loads,642)?;
         let guards=add(m,maximum_terms_grant_guards,frame.original_enrollment_decoded_guard_work)?;
         let guards=add(m,guards,frame.grant.maximum_decoded_guard_work)?;
         frame.maximum_grant_records_work=add(m,record_controls,guards)?;
