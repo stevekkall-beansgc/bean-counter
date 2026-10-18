@@ -132,6 +132,10 @@ impl WitnessPrefixProduction<'_, '_, '_> {
         let result = (|| {
             self.session
                 .semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            self.session
+                .semantic_work()
                 .visit(Visit::RefLookup)
                 .map_err(core_error)?;
             let prefix = self
@@ -160,6 +164,10 @@ impl WitnessPrefixProduction<'_, '_, '_> {
         seed: &Value,
     ) -> Result<wire::SourceRecord> {
         let result = (|| {
+            self.session
+                .semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
             self.session
                 .semantic_work()
                 .visit(Visit::RefLookup)

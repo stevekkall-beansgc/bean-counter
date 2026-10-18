@@ -364,6 +364,9 @@ impl Memberships {
                     .map_err(core_error)?;
                 let candidate = ConfiguredRoot::from_value(parsed.value(), s)?;
                 if root.same(&candidate, s)? {
+                    s.semantic_work()
+                        .visit(Visit::Constraint)
+                        .map_err(core_error)?;
                     require(root_body.is_none(), "INTEGRITY_FAILURE")?;
                     root_body = Some(record.bytes());
                 }
@@ -428,6 +431,12 @@ impl Memberships {
                 }
             }
         }
+        s.semantic_work()
+            .scan_bytes(mem::size_of_val(&out))
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(mem::size_of_val(&out))
+            .map_err(core_error)?;
         Ok(out)
     }
 }
@@ -833,6 +842,9 @@ impl WitnessPrefixProduction<'_, '_, '_> {
             _control,
         } = self;
         let result = (|| {
+            s.semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
             let accounting = accounting.ok_or(ServiceError::IntegrityFailure)?;
             let _control = s
                 .reserve_external_payload(

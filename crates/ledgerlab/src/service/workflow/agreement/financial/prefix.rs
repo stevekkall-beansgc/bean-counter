@@ -8,8 +8,8 @@ mod members;
 mod programs;
 mod publication;
 mod witness;
-pub(super) use witness::ObservationHeader;
 pub(super) use members::ResolvedMembers;
+pub(super) use witness::ObservationHeader;
 pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
 use ledgerlab_core::{
@@ -417,6 +417,100 @@ pub(super) struct LocatedAppAcceptance {
     pub(super) publication: RecompiledPublication,
     pub(super) acceptance: super::acceptance::ReplayedAcceptance,
     _prefix: FoldedInventory,
+    through: i64,
+}
+impl LocatedAppAcceptance {
+    /// Extend the SAME already-completed acceptance prefix to today's held
+    /// cutoff. Each later original executes once on its own existing owner;
+    /// the saved acceptance is not reconstructed a second time.
+    pub(super) async fn current_sources(
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        setup: &crate::service::billing::Setup,
+        sources: &[current::source::ObservedSource],
+        before: i64,
+        parent: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let mut attempt = InputAttempt {
+            failure: tx.workflow_proof_failure_handle(),
+            finished: false,
+        };
+        let result = async {
+            require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
+            parent
+                .semantic_work()
+                .arithmetic(Op::Subtract, &[&before.into(), &1i64.into()])
+                .map_err(core_error)?;
+            let through = before
+                .checked_sub(1)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            parent
+                .semantic_work()
+                .arithmetic(Op::Compare, &[&self.through.into(), &through.into()])
+                .map_err(core_error)?;
+            require(self.through <= through, "INTEGRITY_FAILURE")?;
+            loop {
+                parent
+                    .semantic_work()
+                    .arithmetic(Op::Compare, &[&self.through.into(), &through.into()])
+                    .map_err(core_error)?;
+                if self.through == through {
+                    break;
+                }
+                let mut original = OriginalAuditSession::for_resource_profile_v2(parent.arena())
+                    .map_err(core_error)?;
+                let Some(input) = next(tx, key, self.through, through, &mut original).await? else {
+                    return Err(ServiceError::IntegrityFailure);
+                };
+                let origin = input.checked_wrappers(tx, &mut original).await?;
+                original
+                    .semantic_work()
+                    .arithmetic(
+                        Op::Compare,
+                        &[&origin.wrappers().sequence().into(), &self.through.into()],
+                    )
+                    .map_err(core_error)?;
+                require(
+                    origin.wrappers().sequence() > self.through,
+                    "INTEGRITY_FAILURE",
+                )?;
+                self._prefix
+                    ._inventory
+                    .next_origin(&origin, &mut original)?;
+                // Every later PUB registers its own exact execution reload key
+                // in fold_origin. The accepted program remains its original PUB.
+                let _later_publication = fold_origin(
+                    tx,
+                    &origin,
+                    &mut self._prefix,
+                    setup,
+                    Some(&self.publication),
+                    &mut original,
+                )
+                .await?;
+                self.through = origin.wrappers().sequence();
+                original.check_cancelled().map_err(core_error)?;
+            }
+            self._prefix
+                .require_record(self.acceptance.binding.reference(), parent)?;
+            for source in sources {
+                parent
+                    .semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                self._prefix.match_source(source, parent)?;
+            }
+            parent.check_cancelled().map_err(core_error)
+        }
+        .await;
+        if result.is_ok() {
+            attempt.finish();
+        } else {
+            parent.invalidate();
+        }
+        result
+    }
 }
 pub(super) async fn acceptance_for(
     ledger: &LocalWorkflowLedger,
@@ -485,6 +579,8 @@ pub(super) async fn acceptance_for(
         )
         .await?;
         let setup = ledger.admin.read(&ledger.store, tx, key).await?;
+        prefix._inventory.next_origin(&origin, session)?;
+        prefix._inventory.begin_origin_links(sequence, session)?;
         let acceptance = super::acceptance::reconstruct_held(
             tx,
             &origin,
@@ -501,11 +597,14 @@ pub(super) async fn acceptance_for(
         ] {
             request_wrapper::same_text(a, b, session)?;
         }
+        acceptance.fold_original(&origin, &mut prefix, session)?;
+        finish_origin(&origin, &mut prefix, session)?;
         Ok(LocatedAppAcceptance {
             origin,
             publication,
             acceptance,
             _prefix: prefix,
+            through: sequence,
         })
     }
     .await;
@@ -1239,6 +1338,14 @@ async fn fold_origin(
         }
         publication
     };
+    finish_origin(origin, prefix, s)?;
+    Ok(publication)
+}
+fn finish_origin(
+    origin: &LocatedWrappers,
+    prefix: &mut FoldedInventory,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     prefix
         ._inventory
         .finish_origin_links(origin.wrappers().sequence(), s)?;
@@ -1249,11 +1356,16 @@ async fn fold_origin(
     // Intrinsic representation facts are registered only AFTER this original's
     // actual semantic/custody/as-of fold. They do not replace that completion.
     // The table and this scratch association belong to the same held attempt.
-    let (offset, _length) = prefix
-        ._inventory
-        .remember_origin_pointer(origin.wrappers().sequence(), pointer.bytes(), s)?;
-    let ordinal = prefix.pointers.record_at(&parsed, offset, s).map_err(core_error)?;
+    let (offset, _length) = prefix._inventory.remember_origin_pointer(
+        origin.wrappers().sequence(),
+        pointer.bytes(),
+        s,
+    )?;
+    let ordinal = prefix
+        .pointers
+        .record_at(&parsed, offset, s)
+        .map_err(core_error)?;
     prefix._inventory.check_origin_ordinal(ordinal, s)?;
     drop(parsed);
-    Ok(publication)
+    Ok(())
 }

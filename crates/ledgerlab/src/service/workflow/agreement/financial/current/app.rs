@@ -85,7 +85,7 @@ async fn observe_binding(
             .reserve_external_payload(4 * 64 + 27)
             .map_err(core_error)?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
-        let original =
+        let mut original =
             prefix::acceptance_for(ledger, tx, key, binding_ref, before, session).await?;
         let binding = session
             .parse_representation(
@@ -161,6 +161,9 @@ async fn observe_binding(
                 .map_err(core_error)?;
             sources.push(observed);
         }
+        original
+            .current_sources(tx, key, &setup, &sources, before, session)
+            .await?;
         Ok(ObservedAppBinding {
             original,
             sources,

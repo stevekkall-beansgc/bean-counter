@@ -1132,109 +1132,58 @@ fn birth_records(
     root: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
     s: &mut OriginalAuditSession,
 ) -> Result<[wire::SourceRecord; 3]> {
+    use ledgerlab_core::policy::workflow::transition_constructor::{
+        OperationKey as CoreKey, produce_initial_source_records,
+    };
     let ceiling = request.ceiling().ok_or(ServiceError::IntegrityFailure)?;
-    let scope = value(key_value, "scope", s)?;
-    let enrollment_id = value(p, "enrollment_id", s)?;
-    let customers_bytes = value(p, "customer_refs", s)?;
-    let proof_bytes = value(p, "evidence_ref", s)?;
-    let actor_bytes = wire::string(actor, s)?;
-    let at_bytes = wire::string(at.as_str(), s)?;
-    let root_ref = wire::reference(root, s)?;
-    let body = wire::object(
-        &[
-            ("authority_ref", root_ref.bytes()),
-            (
-                "ceiling",
-                request
-                    .ceiling
-                    .as_ref()
-                    .ok_or(ServiceError::IntegrityFailure)?
-                    .canonical_bytes(),
-            ),
-            ("customer_refs", customers_bytes.bytes()),
-            ("enrolled_at", at_bytes.bytes()),
-            ("enrolled_by", actor_bytes.bytes()),
-            ("enrollment_id", enrollment_id.bytes()),
-            ("evidence_ref", proof_bytes.bytes()),
-            ("installation_mode", b"\"real_local\""),
-            ("schema", b"\"ledger-workflow-source-enrollment/1\""),
-            ("scope", scope.bytes()),
-        ],
-        262144,
-        s,
-    )?;
-    let enrollment = wire::source_record(
-        "workflow-source-enrollment",
-        "ledger-workflow-source-enrollment/1",
-        body,
-        s,
-    )?;
-    let enrollment_ref = wire::reference(enrollment.reference(), s)?;
-    let activities = value(ceiling, "activity_selectors", s)?;
-    let namespace = value(ceiling, "canonical_economic_namespace", s)?;
-    let customers_scope = value(ceiling, "customer_scope", s)?;
-    let ends = value(ceiling, "ends_at", s)?;
-    let links = value(ceiling, "link_selectors", s)?;
-    let operations = value(ceiling, "operations", s)?;
-    let permissions = value(ceiling, "permissions", s)?;
-    let principal = value(ceiling, "principal_id", s)?;
-    let products = value(ceiling, "product_selectors", s)?;
-    let source = value(ceiling, "source", s)?;
-    let slots = value(ceiling, "source_slots", s)?;
-    let starts = value(ceiling, "starts_at", s)?;
-    let body = wire::object(
-        &[
-            ("activity_selectors", activities.bytes()),
-            ("canonical_economic_namespace", namespace.bytes()),
-            ("customer_scope", customers_scope.bytes()),
-            ("ends_at", ends.bytes()),
-            ("grant_id", enrollment_id.bytes()),
-            ("link_selectors", links.bytes()),
-            ("operations", operations.bytes()),
-            ("original_ceiling_ref", enrollment_ref.bytes()),
-            ("permissions", permissions.bytes()),
-            ("principal_id", principal.bytes()),
-            ("product_selectors", products.bytes()),
-            ("revision", b"\"1\""),
-            ("schema", b"\"ledger-workflow-source-grant/1\""),
-            ("source", source.bytes()),
-            ("source_slots", slots.bytes()),
-            ("starts_at", starts.bytes()),
-        ],
-        262144,
-        s,
-    )?;
-    let grant = wire::source_record(
-        "workflow-source-grant",
-        "ledger-workflow-source-grant/1",
-        body,
-        s,
-    )?;
-    let grant_ref = wire::reference(grant.reference(), s)?;
-    let key_bytes = encode(key_value, s)?;
-    let body = wire::object(
-        &[
-            ("accepted_at", at_bytes.bytes()),
-            ("actor", actor_bytes.bytes()),
-            ("current_grant_ref", grant_ref.bytes()),
-            ("enrollment_ref", enrollment_ref.bytes()),
-            ("operation_key", key_bytes.bytes()),
-            ("revision", b"\"1\""),
-            ("schema", b"\"ledger-workflow-source-state/1\""),
-            ("status", b"\"active\""),
-        ],
-        262144,
-        s,
-    )?;
-    let state = wire::source_state_record(
-        body,
+    request_wrapper::key(key_value, key, s)?;
+    // The pure producer borrows a typed key. Admit its actual temporary String
+    // copies before construction; its independent output rows retain their own
+    // complete owners after this temporary key goes away.
+    let mut bytes = std::mem::size_of::<CoreKey>();
+    for text in [
         &key.logical_store_id,
-        request_wrapper::field(key_value, "scope", s)?,
-        request_wrapper::text(p, "enrollment_id", s)?,
-        "1",
-        s,
-    )?;
-    Ok([enrollment, grant, state])
+        &key.scope[0],
+        &key.scope[1],
+        &key.source,
+        &key.operation_id,
+    ] {
+        s.semantic_work()
+            .arithmetic(Op::Add, &[&bytes.into(), &text.len().into()])
+            .map_err(core_error)?;
+        bytes = bytes
+            .checked_add(text.len())
+            .ok_or(ServiceError::Unavailable)?;
+    }
+    let _key_owner = s.reserve_external_payload(bytes).map_err(core_error)?;
+    fn copy(text: &str, s: &mut OriginalAuditSession) -> Result<String> {
+        s.semantic_work()
+            .scan_bytes(text.len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(text.len())
+            .map_err(core_error)?;
+        let mut out = String::new();
+        out.try_reserve_exact(text.len())
+            .map_err(|_| ServiceError::Unavailable)?;
+        out.push_str(text);
+        Ok(out)
+    }
+    let key = CoreKey {
+        logical_store_id: copy(&key.logical_store_id, s)?,
+        scope: [copy(&key.scope[0], s)?, copy(&key.scope[1], s)?],
+        source: copy(&key.source, s)?,
+        operation_id: copy(&key.operation_id, s)?,
+    };
+    let [enrollment, grant, state] =
+        produce_initial_source_records(&key, p, ceiling, "real_local", actor, at.as_str(), root, s)
+            .map_err(core_error)?
+            .into_parts();
+    Ok([
+        wire::initial_source_record("ledger-workflow-source-enrollment/1", enrollment, s)?,
+        wire::initial_source_record("ledger-workflow-source-grant/1", grant, s)?,
+        wire::initial_source_record("ledger-workflow-source-state/1", state, s)?,
+    ])
 }
 
 #[cfg(test)]

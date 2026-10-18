@@ -532,19 +532,60 @@ pub(super) fn domain_digest(
 /// An owning canonical source record; still no origin or append capability.
 pub(super) struct SourceRecord {
     schema: &'static str,
-    body: AuditedBytes,
-    reference: WireRef,
+    storage: SourceRecordStorage,
+}
+enum SourceRecordStorage {
+    Wire {
+        body: AuditedBytes,
+        reference: WireRef,
+    },
+    Initial {
+        row: ledgerlab_core::policy::workflow::transition_constructor::InitialSourceRecord,
+        _wrapper: ExternalBufferLease,
+    },
 }
 impl SourceRecord {
     pub(super) fn schema(&self) -> &'static str {
         self.schema
     }
     pub(super) fn reference(&self) -> &ExactRef {
-        &self.reference.reference
+        match &self.storage {
+            SourceRecordStorage::Wire { reference, .. } => &reference.reference,
+            SourceRecordStorage::Initial { row, .. } => row.reference(),
+        }
     }
     pub(super) fn bytes(&self) -> &[u8] {
-        self.body.bytes()
+        match &self.storage {
+            SourceRecordStorage::Wire { body, .. } => body.bytes(),
+            SourceRecordStorage::Initial { row, .. } => row.canonical_body(),
+        }
     }
+}
+pub(super) fn initial_source_record(
+    schema: &'static str,
+    row: ledgerlab_core::policy::workflow::transition_constructor::InitialSourceRecord,
+    session: &mut OriginalAuditSession,
+) -> Result<SourceRecord> {
+    // Retain the actual core row/Ref/body owner. No output byte or Ref copy,
+    // second hash, Arc/triple cache or origin correspondence is introduced.
+    let owner = session
+        .reserve_external_payload(std::mem::size_of::<SourceRecord>())
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .scan_bytes(std::mem::size_of_val(&row))
+        .map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(std::mem::size_of::<SourceRecord>())
+        .map_err(core_error)?;
+    Ok(SourceRecord {
+        schema,
+        storage: SourceRecordStorage::Initial {
+            row,
+            _wrapper: owner,
+        },
+    })
 }
 pub(super) fn source_record(
     kind: &'static str,
@@ -562,8 +603,7 @@ pub(super) fn source_record(
     let reference = owned_reference(kind, "wdoc_", &hashed, &hashed, session)?;
     Ok(SourceRecord {
         schema: schema_name,
-        body,
-        reference,
+        storage: SourceRecordStorage::Wire { body, reference },
     })
 }
 
@@ -612,8 +652,7 @@ pub(super) fn source_state_record(
     let reference = owned_reference("workflow-source-state", "wsource_", &id, &digest, session)?;
     Ok(SourceRecord {
         schema: "ledger-workflow-source-state/1",
-        body,
-        reference,
+        storage: SourceRecordStorage::Wire { body, reference },
     })
 }
 
@@ -1292,7 +1331,6 @@ pub(super) fn agreement_record(
     let reference = owned_reference(kind, prefix, &id, &digest, session)?;
     Ok(SourceRecord {
         schema,
-        body,
-        reference,
+        storage: SourceRecordStorage::Wire { body, reference },
     })
 }
