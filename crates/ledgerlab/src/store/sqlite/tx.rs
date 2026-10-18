@@ -4,7 +4,7 @@ use crate::store::{
     ports::AcceptanceTx,
     records::*,
 };
-use sqlx::{Sqlite, SqliteConnection, Transaction};
+use sqlx::{Connection as _, Sqlite, SqliteConnection, Transaction};
 use std::{
     sync::{Arc, atomic::Ordering},
     time::Duration,
@@ -810,17 +810,36 @@ impl SqliteTx {
                 let new = if let (Some(fence), Some(before)) =
                     (&store._owner.fence, fence_start_changes)
                 {
+                    if let Some(s)=owner.resource.as_mut() {
+                        s.semantic_work().write_bytes(std::mem::size_of::<i64>()).map_err(|_|StoreError::ReadBudgetExhausted)?;
+                        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup).map_err(|_|StoreError::ReadBudgetExhausted)?;
+                    }
                     let after: i64 = sqlx::query_scalar("SELECT total_changes()")
                         .fetch_one(&mut *tx)
                         .await?;
+                    if let Some(s)=owner.resource.as_mut() {
+                        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare,&[&after.into(),&before.into()]).map_err(|_|StoreError::ReadBudgetExhausted)?;
+                    }
                     if after != before {
-                        Some(fence.prepare(&mut tx).await?)
+                        if let Some(s)=owner.resource.as_mut() {
+                            Some(Ok(fence.prepare_with_session(&mut tx,s).await.map_err(|error|match error {
+                                super::workflow::financial::FinancialReadError::Store(error)=>error,
+                                super::workflow::financial::FinancialReadError::Resource(_)=>StoreError::ReadBudgetExhausted,
+                            })?))
+                        } else {Some(Err(fence.prepare(&mut tx).await?))}
                     } else {
                         None
                     }
                 } else {
                     None
                 };
+                if let Some(s)=owner.resource.as_mut() {
+                    // Finalize the actual fence/total_changes statements before
+                    // their worker workspace can be released at COMMIT ACK.
+                    s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup).map_err(|_|StoreError::ReadBudgetExhausted)?;
+                    tx.clear_cached_statements().await?;
+                    s.check_cancelled().map_err(|_|StoreError::ReadBudgetExhausted)?;
+                }
                 #[cfg(test)]
                 if store.fence_cut.load(Ordering::Acquire) == 11 {
                     std::process::exit(77);
@@ -839,7 +858,13 @@ impl SqliteTx {
                     return Err(StoreError::Deadline);
                 }
                 if let (Some(fence), Some(new)) = (&store._owner.fence, new) {
-                    fence.finish(new)?;
+                    match new {
+                        Ok(new)=>fence.finish_with_session(new,owner.resource.as_mut().expect("same consuming owner")).map_err(|error|match error {
+                            super::workflow::financial::FinancialReadError::Store(error)=>error,
+                            super::workflow::financial::FinancialReadError::Resource(_)=>StoreError::ReadBudgetExhausted,
+                        })?,
+                        Err(new)=>fence.finish(new)?,
+                    }
                 }
                 #[cfg(test)]
                 if store.fence_cut.load(Ordering::Acquire) == 13 {
