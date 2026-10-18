@@ -320,6 +320,7 @@ impl ResolvedEconomicInputs {
         prefix: &mut FoldedInventory,
         key: &ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
         seeds: &Value,
+        head_seeds: &Value,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
         use ledgerlab_core::policy::workflow::transition_constructor::{
@@ -328,7 +329,10 @@ impl ResolvedEconomicInputs {
         let result = (|| {
             let rows = seeds.as_array().ok_or(ServiceError::IntegrityFailure)?;
             let mut members = ResolvedMembers::new(s)?;
-            for row in rows {
+            let heads = head_seeds
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            for row in rows.iter().chain(heads) {
                 s.semantic_work()
                     .visit(Visit::Element)
                     .map_err(core_error)?;
@@ -419,6 +423,7 @@ impl LocatedAppAcceptance {
         &mut self,
         key: &OperationKey,
         seeds: &Value,
+        head_seeds: &Value,
         s: &mut OriginalAuditSession,
     ) -> Result<ResolvedEconomicInputs> {
         let result = (|| {
@@ -465,7 +470,28 @@ impl LocatedAppAcceptance {
             s.semantic_work()
                 .write_bytes(mem::size_of::<CoreKey>())
                 .map_err(core_error)?;
-            ResolvedEconomicInputs::select(&mut self._prefix, &key, seeds, s)
+            ResolvedEconomicInputs::select(&mut self._prefix, &key, seeds, head_seeds, s)
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
+}
+
+impl LocatedAppAcceptance {
+    pub(in super::super) fn require_held_reference(
+        &mut self,
+        bytes: &[u8],
+        kind: &str,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let result = (|| {
+            let value = s
+                .parse_representation(bytes, RepresentationKind::Record)
+                .map_err(core_error)?;
+            super::super::acceptance::validate_reference(value.value(), kind, s)?;
+            self._prefix._inventory.require_value(value.value(), s)
         })();
         if result.is_err() {
             s.invalidate();

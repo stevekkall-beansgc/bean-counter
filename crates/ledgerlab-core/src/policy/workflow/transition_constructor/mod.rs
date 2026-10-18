@@ -2,6 +2,8 @@
 //! authenticated host capability or future-correction capacity certificate.
 mod input_edges;
 pub use input_edges::{ResolvedInputEdges9,select_resolved_inputs9_edges};
+mod work_keys;
+pub use input_selection::{WorkHeadLocators,WorkFamilyHeadLocator,select_work_head_locators};
 pub(in crate::policy::workflow) mod arithmetic;
 pub(in crate::policy::workflow) mod codec;
 pub(in crate::policy::workflow) mod meter;

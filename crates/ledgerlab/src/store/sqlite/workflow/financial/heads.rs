@@ -82,7 +82,7 @@ fn bind<'q>(
     }
     query
 }
-fn locator_text(
+pub(super) fn locator_text(
     value: &str,
     maximum: usize,
     session: &mut OriginalAuditSession,
@@ -199,7 +199,7 @@ impl SqliteTx {
         }
         self.financial_head_inner(store, scope, key, session).await
     }
-    async fn financial_head_inner(
+    pub(super) async fn financial_head_inner(
         &mut self,
         store: &str,
         scope: &[String; 2],

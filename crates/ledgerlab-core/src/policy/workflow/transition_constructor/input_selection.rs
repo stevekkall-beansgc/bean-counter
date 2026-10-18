@@ -210,12 +210,17 @@ mod tests {
     use crate::canonical::{self,audit_arena::AuditArena};
     #[test]
     fn parent_work_locator_uses_same_compiled_activity_without_observation_refs(){
-        let(_,c,raw,_)=super::super::first_work_tests::test_inputs();
+        let(_,c,raw,inputs)=super::super::first_work_tests::test_inputs();
         let source:Value=serde_json::from_slice(include_bytes!("../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json")).unwrap();
         let arena=AuditArena::new().unwrap();let before=arena.usage().unwrap().live_bytes;
         let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let support=SelectedCompilerSupport::builtin().unwrap();
         let program=compile_selected_publication(SelectedSourceInput{documents:source["documents"].as_array().unwrap().iter().map(|v|canonical::CanonicalBytes::from_value(v).unwrap().into_vec()).collect(),root_policy_ref:serde_json::from_value(source["root_policy_ref"].clone()).unwrap()},&support,&mut session).unwrap();
+        // A publication compiler and its consuming work origin have separate
+        // existing original ledgers in the SAME attempt. No work child/reset
+        // is used to acquire the source or head locator DATA.
+        drop(session);
+        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let a=&c.authorities[0];
         let frame=||SourceAuthorityCapture{source_slot:&a.source_slot,source:&c.key.source,principal:&c.actor,canonical_economic_namespace:&c.canonical_economic_namespace,enrollment_ref:&a.enrollment_ref,current_state_ref:&a.current_state_ref,current_grant_ref:&a.current_grant_ref,original_grant_refs:&a.original_grant_refs,binding_ref:&a.binding_ref,accepted_agreement_ref:&a.accepted_agreement_ref,activation_ref:&a.activation_ref};
         let mut unrelated=frame();unrelated.principal="another captured principal";
@@ -231,6 +236,24 @@ mod tests {
         // digest, or origin/admission bit. The draft support stays nonadmitting.
         assert_eq!(program.execution_registry(),None);
         drop(locator);
+        let views:Vec<_>=inputs.iter().map(|r|EconomicRecordView{reference:&r.reference,canonical_body:&r.canonical_body}).collect();
+        let heads=select_work_head_locators(&program,&capture,&raw,&views,&mut session).unwrap();
+        // Comparison-only frozen independent oracle, never selector input.
+        let oracle:Value=serde_json::from_slice(include_bytes!("fixtures/first-work-expected.json")).unwrap();
+        let rows=oracle["expected"]["new_records"].as_array().unwrap();
+        for row in rows{
+            let reference=&row["ref"];let kind=reference["kind"].as_str().unwrap();
+            let value=&row["body"];
+            match kind{
+                "workflow-work-claim"=>assert_eq!(heads.work_claim_id(),reference["id"].as_str().unwrap()),
+                "workflow-work"=>assert_eq!(heads.work_event_id(),reference["id"].as_str().unwrap()),
+                "workflow-decision"=>assert_eq!(heads.root_decision_id(),value["decision_id"].as_str().unwrap()),
+                "workflow-family-state"=>assert!(heads.family_keys().iter().any(|h|h.target_id()==value["target_ref"]["id"].as_str().unwrap()&&h.family_slot()==value["family_slot"].as_str().unwrap())),
+                _=>{},
+            }
+        }
+        match heads.chain_key(){super::super::candidate::FinancialHeadKey::Chain{customer,chain,..}=>{assert_eq!(customer,payload["customer"].as_str().unwrap());assert_eq!(chain,payload["chain"].as_str().unwrap());},_=>panic!("wrong work chain locator")}
+        drop(heads);
         let mut other=OriginalAuditSession::for_resource_profile_v2(&AuditArena::new().unwrap()).unwrap();
         assert!(select_work_source_frame(&program,&capture,&raw,&mut other).is_err());
         let duplicate=[frame(),frame()];let duplicate_capture=EconomicCapture{sources:&duplicate,..capture};
@@ -238,4 +261,97 @@ mod tests {
         drop(program);drop(session);
         assert_eq!(arena.usage().unwrap().live_bytes,before);
     }
+}
+
+/// Lookup DATA only. Target IDs deliberately do not pretend to be full Refs:
+/// their bodies include pricing results produced only inside the economic child.
+pub struct WorkFamilyHeadLocator { target_id:String,family_slot:String,decision_id:String }
+impl WorkFamilyHeadLocator {
+ pub fn target_id(&self)->&str{&self.target_id}
+ pub fn family_slot(&self)->&str{&self.family_slot}
+ pub fn decision_id(&self)->&str{&self.decision_id}
+}
+pub struct WorkHeadLocators {
+ claim:super::candidate::PermanentClaimKey,
+ claim_id:String,event_id:String,root_decision_id:String,
+ chain:super::candidate::FinancialHeadKey,
+ families:Vec<WorkFamilyHeadLocator>,app_decisions:Vec<String>,
+ _ownership:ExternalBufferLease,
+}
+impl WorkHeadLocators {
+ pub fn work_claim_key(&self)->&super::candidate::PermanentClaimKey{&self.claim}
+ pub fn work_claim_id(&self)->&str{&self.claim_id}
+ pub fn work_event_id(&self)->&str{&self.event_id}
+ pub fn root_decision_id(&self)->&str{&self.root_decision_id}
+ pub fn chain_key(&self)->&super::candidate::FinancialHeadKey{&self.chain}
+ pub fn family_keys(&self)->&[WorkFamilyHeadLocator]{&self.families}
+ pub fn app_decision_ids(&self)->&[String]{&self.app_decisions}
+}
+fn head_rows(program:&SelectedProgram,p:&Value,inst:&Value,m:&mut CoreMeter,f:&mut dyn FnMut(&str,Option<&str>,&mut CoreMeter)->Result<()>)->Result<()>{
+ let activity=shape::field(m,p,"activity")?;
+ for instruction in shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?{
+  m.visit("work.parent_head_instruction")?;let opcode=shape::text(m,instruction,"opcode")?;
+  if shape::same_text(m,opcode,"evaluate_family")?{
+   let family=shape::field(m,instruction,"family")?;let selector=shape::field(m,family,"selector")?;
+   let target_activity=shape::field(m,selector,"target_activity")?;if !shape::same(m,target_activity,activity)?{continue;}
+   let component=shape::text(m,selector,"component_key")?;
+   let mappings=shape::array(m,inst,"component_map")?;let mapping=shape::named(m,mappings,"template_key",component)?;
+   let root_slot=shape::text(m,mapping,"slot_id")?;
+   let family_key=shape::text(m,family,"family_key")?;
+   let mappings=shape::array(m,inst,"family_map")?;let mapping=shape::named(m,mappings,"template_key",family_key)?;
+   let slot=shape::text(m,mapping,"slot_id")?;f(root_slot,Some(slot),m)?;
+  }else if shape::same_text(m,opcode,"evaluate_rule")?{
+   let rule=shape::field(m,instruction,"rule")?;
+   let rule_activity=shape::field(m,rule,"activity")?;if !shape::same(m,rule_activity,activity)?{continue;}
+   let formula=shape::field(m,rule,"formula")?;
+   let kind=shape::text(m,formula,"kind")?;if !shape::same_text(m,kind,"app_final_cost")?{continue;}
+   let component=shape::text(m,rule,"component_key")?;
+   let mappings=shape::array(m,inst,"component_map")?;let mapping=shape::named(m,mappings,"template_key",component)?;
+   let slot=shape::text(m,mapping,"slot_id")?;f(slot,None,m)?;
+  }
+ }Ok(())
+}
+fn head_copy(m:&mut CoreMeter,s:&str)->Result<String>{m.scan_bytes(s.len())?;m.write_bytes(s.len())?;Ok(s.to_owned())}
+/// SAME semantic-ID recipes as owning work/target/original-app reservation
+/// construction. This performs no pricing or authority check and proves no
+/// head/claim absence. Actual held query/current/original proof remains host
+/// owned; the single economic child repeats every semantic selection.
+pub fn select_work_head_locators(program:&SelectedProgram,capture:&EconomicCapture<'_>,raw:&[u8],inputs:&[EconomicRecordView<'_>],s:&mut OriginalAuditSession)->Result<WorkHeadLocators>{
+ let result=(||{
+  let source=select_work_source_frame(program,capture,raw,s)?;
+  let arena=s.arena().shared_handle();let p=s.parse_representation(raw,RepresentationKind::OriginalRequest)?;
+  let m=s.meter_mut();let mut records=Records::borrowed_parent_app(m,&arena,capture.key,inputs)?;
+  let binding_schema=if program.uses_app_owned_cost_recipe(){"ledger-workflow-binding/2"}else{"ledger-workflow-binding/1"};
+  let binding=records.get(m,capture.key,source.captured_source().binding_ref,"workflow-binding",binding_schema)?;
+  for field in ["customer","policy_ref","product_ref"]{m.visit("work.parent_head_binding_subject")?;let actual=shape::field(m,&binding,field)?;let expected=shape::field(m,p.value(),field)?;shape::equal(m,actual,expected)?;}
+  let inst_value=shape::field(m,&binding,"slot_instantiation_ref")?;let inst_ref=super::working_value::parse_owned_reference(m,&arena,inst_value)?;
+  let inst=records.get(m,capture.key,inst_ref.reference(),"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
+  let customer=shape::text(m,p.value(),"customer")?;let chain=shape::text(m,p.value(),"chain")?;let business=shape::text(m,p.value(),"business_operation_id")?;
+  let mut bytes=2*mem::size_of::<WorkHeadLocators>()+8*mem::size_of::<String>()+8*128+mem::size_of::<super::candidate::PermanentClaimKey>()+mem::size_of::<super::candidate::FinancialHeadKey>();
+  for text in [&capture.key.logical_store_id,&capture.key.scope[0],&capture.key.scope[1]]{bytes=w::usize_add(m,bytes,text.len())?;bytes=w::usize_add(m,bytes,text.len())?;}
+  for text in [capture.canonical_economic_namespace,business,customer,chain,"completion"]{bytes=w::usize_add(m,bytes,text.len())?;}
+  let(mut families,mut apps)=(0usize,0usize);
+  head_rows(program,p.value(),&inst,m,&mut |_,family,m|{
+   if let Some(slot)=family{families=w::usize_add(m,families,1)?;bytes=w::usize_add(m,bytes,mem::size_of::<WorkFamilyHeadLocator>()+2*128)?;bytes=w::usize_add(m,bytes,slot.len())?;}
+   else{apps=w::usize_add(m,apps,1)?;bytes=w::usize_add(m,bytes,mem::size_of::<String>()+128)?;}Ok(())
+  })?;
+  let ownership=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
+  let mut family_keys=Vec::new();family_keys.try_reserve_exact(families).map_err(|_|shape::fail("work family locator allocation"))?;
+  let mut app_decisions=Vec::new();app_decisions.try_reserve_exact(apps).map_err(|_|shape::fail("work app locator allocation"))?;
+  let claim_id=super::work_keys::claim(m,capture.key,capture.canonical_economic_namespace,p.value())?;
+  let event_id=super::work_keys::event(m,capture.key,p.value())?;
+  let root_decision_id=super::work_keys::decision(m,&claim_id)?;
+  let scope=super::work_keys::scope(m,capture.key)?;
+  let agreement=shape::field(m,&binding,"agreement_id")?;
+  head_rows(program,p.value(),&inst,m,&mut |slot,family,m|{
+   if let Some(family)=family{
+    let target_id=super::work_keys::target(m,capture.key,agreement,&claim_id,slot)?;
+    let decision_id=super::targets::prospective_decision(m,&target_id,family)?;
+    family_keys.push(WorkFamilyHeadLocator{target_id,family_slot:head_copy(m,family)?,decision_id});
+   }else{app_decisions.push(super::work_keys::app_decision(m,scope.value(),&event_id,slot)?);}Ok(())
+  })?;
+  let claim=super::candidate::PermanentClaimKey::Work{logical_store_id:head_copy(m,&capture.key.logical_store_id)?,scope:[head_copy(m,&capture.key.scope[0])?,head_copy(m,&capture.key.scope[1])?],source_namespace:head_copy(m,capture.canonical_economic_namespace)?,business_operation_id:head_copy(m,business)?,completion:head_copy(m,"completion")?};
+  let chain=super::candidate::FinancialHeadKey::Chain{logical_store_id:head_copy(m,&capture.key.logical_store_id)?,scope:[head_copy(m,&capture.key.scope[0])?,head_copy(m,&capture.key.scope[1])?],customer:head_copy(m,customer)?,chain:head_copy(m,chain)?};
+  Ok(WorkHeadLocators{claim,claim_id,event_id,root_decision_id,chain,families:family_keys,app_decisions,_ownership:ownership})
+ })();if result.is_err(){s.invalidate();}result
 }

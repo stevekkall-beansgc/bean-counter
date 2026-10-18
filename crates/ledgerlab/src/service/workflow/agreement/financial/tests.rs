@@ -659,3 +659,93 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
         enrolled["receipt"]
     );
 }
+
+#[tokio::test]
+async fn fresh_work_projection_reads_real_empty_installation_without_writes() {
+    use crate::store::sqlite::workflow::financial::HeadKey;
+    use ledgerlab_core::{
+        canonical::audit_arena::AuditArena,
+        policy::workflow::transition_constructor::PermanentClaimKey,
+        validation_work::OriginalAuditSession,
+    };
+    let (_dir, ledger, _path) = installation("work-projection-empty").await;
+    let key = key("work-projection-empty", "read-only-work-locators");
+    let arena = AuditArena::new().unwrap();
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    let held_ledger = &ledger;
+    proof_session::with_proofs(&mut tx, &key, |tx| {
+        Box::pin(async {
+            // Empty real prerequisite prefix, actual local admin, existing
+            // mechanical migration only; no financial origins are seeded.
+            held_ledger
+                .admin
+                .fresh(&held_ledger.store, tx, &key)
+                .await?;
+            assert_eq!(
+                tx.workflow_sequence()
+                    .await
+                    .map_err(crate::service::store_error)?,
+                1
+            );
+            tx.workflow_enable_financial_schema()
+                .await
+                .map_err(crate::service::store_error)?;
+            let before = tx
+                .workflow_test_meter()
+                .await
+                .map_err(crate::service::store_error)?;
+            let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let claim = PermanentClaimKey::Work {
+                logical_store_id: key.logical_store_id.clone(),
+                scope: key.scope.clone(),
+                source_namespace: key.source.clone(),
+                business_operation_id: "new-event".into(),
+                completion: "completed".into(),
+            };
+            assert!(
+                tx.workflow_work_claim(&claim, &mut s)
+                    .await
+                    .map_err(prefix::read_error)?
+                    .is_none()
+            );
+            assert!(
+                tx.workflow_family_head_by_target_identity(
+                    &key.logical_store_id,
+                    &key.scope,
+                    "new-target",
+                    "assessment",
+                    &mut s
+                )
+                .await
+                .map_err(prefix::read_error)?
+                .is_none()
+            );
+            for locator in [
+                HeadKey::Decision("new-decision"),
+                HeadKey::Capacity("new-decision"),
+                HeadKey::Chain {
+                    customer: "customer",
+                    chain: "service",
+                },
+            ] {
+                assert!(
+                    tx.workflow_financial_head(&key.logical_store_id, &key.scope, locator, &mut s)
+                        .await
+                        .map_err(prefix::read_error)?
+                        .is_none()
+                );
+            }
+            assert_eq!(
+                tx.workflow_test_meter()
+                    .await
+                    .map_err(crate::service::store_error)?,
+                before
+            );
+            Ok(())
+        })
+    })
+    .await
+    .unwrap();
+    tx.rollback().await.unwrap();
+    ledger.close().await;
+}

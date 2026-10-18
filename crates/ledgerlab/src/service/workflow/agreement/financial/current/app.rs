@@ -3,6 +3,7 @@
 use super::super::request_wrapper as check;
 use super::*;
 mod work_capture;
+mod work_heads;
 use ledgerlab_core::validation_work::ValidationVisit;
 
 pub(in super::super) struct ObservedAppBinding {
@@ -12,8 +13,12 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) activation: Option<prefix::CompletedInitialActivation>,
     pub(super) work_source_slot: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
     pub(super) work_source_birth: Option<prefix::SourceBirthInputs>,
+    pub(super) work_root: Option<source::SourceRecord>,
     pub(super) work_input_seeds: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
     pub(super) work_explicit_inputs: Option<prefix::ResolvedEconomicInputs>,
+    work_heads: Option<work_heads::ObservedWorkHeads>,
+    pub(super) work_head_locators:
+        Option<ledgerlab_core::policy::workflow::transition_constructor::WorkHeadLocators>,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     pub(super) setup: crate::service::billing::Setup,
@@ -73,18 +78,36 @@ pub(in super::super) async fn observe(
             .source_birth_inputs(tx, key, source.enrollment_ref(), observed.before, session)
             .await?;
         observed.work_source_birth = Some(birth);
-        let (slot, seeds) =
+        let root = work_capture::retained_root(&mut observed, tx, key, index, session).await?;
+        observed.work_root = Some(root);
+        let (slot, seeds, heads) =
             work_capture::select(&observed, key, payload, index, &received_at, session)?;
+        let observed_heads = work_heads::observe(
+            tx,
+            &mut observed.original,
+            key,
+            &heads,
+            observed.parties.as_ref().ok_or(ServiceError::Unavailable)?,
+            session,
+        )
+        .await?;
+        let parsed_heads = session
+            .parse_representation(observed_heads.seeds.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
         let parsed_seeds = session
             .parse_representation(seeds.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
-        let explicit =
-            observed
-                .original
-                .work_explicit_inputs(key, parsed_seeds.value(), session)?;
+        let explicit = observed.original.work_explicit_inputs(
+            key,
+            parsed_seeds.value(),
+            parsed_heads.value(),
+            session,
+        )?;
         observed.work_source_slot = Some(slot);
         observed.work_input_seeds = Some(seeds);
         observed.work_explicit_inputs = Some(explicit);
+        observed.work_head_locators = Some(heads);
+        observed.work_heads = Some(observed_heads);
         Ok(observed)
     }
     .await;
@@ -404,8 +427,11 @@ async fn observe_binding(
             activation,
             work_source_slot: None,
             work_source_birth: None,
+            work_root: None,
             work_input_seeds: None,
             work_explicit_inputs: None,
+            work_head_locators: None,
+            work_heads: None,
             at,
             before,
             setup,

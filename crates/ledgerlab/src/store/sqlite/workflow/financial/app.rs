@@ -398,9 +398,26 @@ impl SqliteTx {
         let parameters = &values[..count];
         let bytes = values.map(str::as_bytes);
         let bound = &bytes[..count];
+        self.read_financial_claim_projection(
+            selected.lengths,
+            selected.values,
+            parameters,
+            bound,
+            session,
+        )
+        .await
+    }
+    pub(super) async fn read_financial_claim_projection(
+        &mut self,
+        lengths_sql: &'static str,
+        values_sql: &'static str,
+        parameters: &[&str],
+        bound: &[&[u8]],
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<AppClaimLocator>, FinancialReadError> {
         let payload = io::binding_payload(bound, &[], 0, 0, session)?;
         self.financial_reserve_io(session, payload)?;
-        let lengths = bind_lookup(selected.lengths, parameters)
+        let lengths = bind_lookup(lengths_sql, parameters)
             .fetch_optional(self.conn())
             .await?;
         let Some(lengths) = lengths else {
@@ -428,7 +445,7 @@ impl SqliteTx {
         session.semantic_work().write_bytes(8 * (48 + 104 + 71))?;
         let payload = io::binding_payload(bound, &[], 0, 8 * (48 + 104 + 71), session)?;
         self.financial_reserve_io(session, payload)?;
-        let row = bind_lookup(selected.values, parameters)
+        let row = bind_lookup(values_sql, parameters)
             .fetch_optional(self.conn())
             .await?
             .ok_or_else(|| StoreError::Integrity("app projection vanished in held snapshot"))?;

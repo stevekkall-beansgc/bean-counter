@@ -195,6 +195,13 @@ pub(super) fn prospective_decision(
     target_id: &str,
     family_slot: &str,
 ) -> Result<String> {
+    if let Some(arena)=m.representation_arena(){
+        let target=arena.string_value(target_id,m)?;
+        let slot=arena.string_value(family_slot,m)?;
+        let discriminator=arena.string_value("outcome",m)?;
+        let tuple=arena.array_from_values(&[target.value(),slot.value(),discriminator.value()],m)?;
+        return body::semantic_id(m,"wdecision_","workflow-decision",tuple.value());
+    }
     body::semantic_id(
         m,
         "wdecision_",

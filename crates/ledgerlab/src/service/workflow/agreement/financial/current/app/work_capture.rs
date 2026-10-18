@@ -5,7 +5,7 @@ use ledgerlab_core::{
     canonical::audit_arena::AuditedBytes,
     policy::workflow::transition_constructor::{
         EconomicCapture, EconomicRecordView, OperationKey as CoreKey, SourceAuthorityCapture,
-        select_work_input_seeds,
+        WorkHeadLocators, select_work_head_locators, select_work_input_seeds,
     },
 };
 use std::mem;
@@ -45,7 +45,7 @@ pub(super) fn select(
     source_index: usize,
     received_at: &Timestamp,
     s: &mut OriginalAuditSession,
-) -> Result<(AuditedBytes, AuditedBytes)> {
+) -> Result<(AuditedBytes, AuditedBytes, WorkHeadLocators)> {
     let _controls = s
         .reserve_external_payload(
             mem::size_of::<Vec<ExactRef>>()
@@ -227,7 +227,15 @@ pub(super) fn select(
         s,
     )?
     .encode(s)?;
-    Ok((slot, refs))
+    let heads = select_work_head_locators(
+        observed.original.publication.program(),
+        &capture,
+        raw.bytes(),
+        &pool.rows,
+        s,
+    )
+    .map_err(core_error)?;
+    Ok((slot, refs, heads))
 }
 
 pub(super) fn source_index(
@@ -394,4 +402,62 @@ fn input_pool<'a>(
         _storage: owner,
         _controls: controls,
     })
+}
+
+/// Select the real already-retained source root for the unchanged local setup.
+/// Historical completion is conjunctive with today's held admin/setup check;
+/// no fresh snapshot body is inserted into pending observation inputs.
+pub(super) async fn retained_root(
+    observed: &mut ObservedAppBinding,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    index: usize,
+    s: &mut OriginalAuditSession,
+) -> Result<source::SourceRecord> {
+    s.semantic_work()
+        .visit(ValidationVisit::RefLookup)
+        .map_err(core_error)?;
+    let selected = observed
+        .sources
+        .get(index)
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let reference = check::field(selected.enrollment_record().body(), "authority_ref", s)?;
+    let root = source::retained_record(
+        tx,
+        key,
+        reference,
+        "workflow-authority",
+        "ledger-workflow-local-authority-snapshot/1",
+        observed.before,
+        s,
+    )
+    .await?;
+    let encoded = wire::reference(root.reference(), s)?;
+    observed
+        .original
+        .require_held_reference(encoded.bytes(), "workflow-authority", s)?;
+    super::super::party::produce::validate_original_root(
+        root.body(),
+        key,
+        &observed.setup.operator,
+        &observed.at,
+        s,
+    )?;
+    prefix::source::custody(root.body(), &observed.setup, s)?;
+    let basis = check::field(root.body(), "basis", s)?;
+    let revision = super::super::super::acceptance::counter(
+        check::text(basis, "source_grant_revision", s)?,
+        s,
+    )?;
+    s.semantic_work()
+        .arithmetic(
+            Op::Compare,
+            &[&revision.into(), &observed.setup.grant_revision.into()],
+        )
+        .map_err(core_error)?;
+    require(
+        revision == observed.setup.grant_revision,
+        "AUTHORITY_REQUIRED",
+    )?;
+    Ok(root)
 }
