@@ -345,9 +345,10 @@ impl PendingSelectedPublication {
         &self,
         ledger: &LocalWorkflowLedger,
         tx: &mut SqliteTx,
+        session: &mut OriginalAuditSession,
     ) -> Result<()> {
         self.management
-            .recheck(ledger, tx, self.incoming.key())
+            .recheck(ledger, tx, self.incoming.key(), session)
             .await
     }
 }
@@ -388,7 +389,9 @@ where
             drop(original);
             return Err(ServiceError::Unavailable);
         }
-        let management = ManagementObservation::capture(ledger, tx, incoming.key()).await?;
+        let key_body = request_wrapper::field(incoming.value(), "key", session)?;
+        let management =
+            ManagementObservation::capture(ledger, tx, incoming.key(), key_body, session).await?;
         let setup = ledger
             .admin
             .fresh(&ledger.store, tx, incoming.key())
@@ -409,7 +412,9 @@ where
             session,
         )?;
         let local_root = current::party::produce::root(&setup, scope, &at, session)?;
-        management.recheck(ledger, tx, incoming.key()).await?;
+        management
+            .recheck(ledger, tx, incoming.key(), session)
+            .await?;
         Ok(PendingSelectedPublication {
             incoming,
             compiled,

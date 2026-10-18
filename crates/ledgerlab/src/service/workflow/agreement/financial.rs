@@ -15,6 +15,8 @@ mod activation;
 mod current;
 mod evidence;
 mod ingress;
+mod management;
+use management::ManagementObservation;
 mod prefix;
 mod publication_prepare;
 mod recovery;
@@ -76,71 +78,6 @@ pub(in crate::service::workflow) fn is_kind(kind: &str) -> bool {
             | "cost.finalize"
             | "cost.correct"
     )
-}
-
-/// Actual private-owner/setup observation bound to one held transaction/key.
-/// This excludes workflow SourceGrant/assent/funding eligibility and financial
-/// heads, reservations or absence proofs. It is not serialized or exported.
-struct ManagementObservation {
-    owner: Arc<AtomicBool>,
-    key: OperationKey,
-    fingerprint: Vec<u8>,
-}
-impl ManagementObservation {
-    async fn capture(
-        ledger: &LocalWorkflowLedger,
-        tx: &mut SqliteTx,
-        key: &OperationKey,
-    ) -> Result<Self> {
-        require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
-        Ok(Self {
-            owner: tx.workflow_proof_failure_handle(),
-            key: key.clone(),
-            fingerprint: management_fingerprint(ledger, tx, key).await?,
-        })
-    }
-    async fn recheck(
-        &self,
-        ledger: &LocalWorkflowLedger,
-        tx: &mut SqliteTx,
-        key: &OperationKey,
-    ) -> Result<()> {
-        let provided = tx.workflow_proof_failure_handle();
-        if !Arc::ptr_eq(&self.owner, &provided) || &self.key != key {
-            self.owner.store(true, Ordering::Release);
-            provided.store(true, Ordering::Release);
-            return Err(ServiceError::IntegrityFailure);
-        }
-        require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
-        let fresh = management_fingerprint(ledger, tx, key).await?;
-        require(fresh == self.fingerprint, "STALE_REVISION")
-    }
-}
-async fn management_fingerprint(
-    ledger: &LocalWorkflowLedger,
-    tx: &mut SqliteTx,
-    key: &OperationKey,
-) -> Result<Vec<u8>> {
-    let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
-    let installation = tx
-        .load_installation()
-        .await
-        .map_err(crate::service::store_error)?;
-    // Setup serde intentionally skips grant_revision for legacy canonical
-    // records. Bind it explicitly here; this is private comparison data only.
-    records::bytes(&json!([
-        key,
-        setup.grant_revision.to_string(),
-        setup,
-        installation.logical_store_id,
-        installation.scope.tenant,
-        installation.scope.environment,
-        installation.mode,
-        installation.admission,
-        installation.dispatch_hold,
-        installation.dispatch_enabled,
-        installation.generation.to_string()
-    ]))
 }
 
 /// The actual request lifetime and held-writer deadline feed the same terminal
@@ -366,8 +303,10 @@ impl LocalWorkflowLedger {
                         .await
                         .map(TransactionResult::Original);
                 }
-                let management = ManagementObservation::capture(self, tx, key).await?;
-                management.recheck(self, tx, key).await?;
+                let key_body = request_wrapper::field(req.value(), "key", &mut session)?;
+                let management =
+                    ManagementObservation::capture(self, tx, key, key_body, &mut session).await?;
+                management.recheck(self, tx, key, &mut session).await?;
                 if req.kind() == "agreement.accept" {
                     // AppAccept8 reaches the actual saved publication and SAME
                     // terms/binding assembly. Its DATA owners do not bypass

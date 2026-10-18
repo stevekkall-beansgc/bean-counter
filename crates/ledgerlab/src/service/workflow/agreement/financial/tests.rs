@@ -126,15 +126,34 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     let (_a, first, _path_a) = installation("frame-store").await;
     let (_b, second, _path_b) = installation("frame-store").await;
     let key = key("frame-store", "frame-only");
+    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let key_body = serde_json::to_value(&key).unwrap();
     let mut a = first.store.begin(deadline()).await.unwrap();
     let frame = proof_session::with_proofs(&mut a, &key, |tx| {
-        Box::pin(ManagementObservation::capture(&first, tx, &key))
+        Box::pin(ManagementObservation::capture(&first, tx, &key, &key_body, &mut session))
     })
     .await
     .unwrap();
+    let setup = first.admin.fresh(&first.store, &mut a, &key).await.unwrap();
+    let state = a.load_installation().await.unwrap();
+    let legacy = records::bytes(&json!([
+        key,
+        setup.grant_revision.to_string(),
+        setup,
+        state.logical_store_id,
+        state.scope.tenant,
+        state.scope.environment,
+        state.mode,
+        state.admission,
+        state.dispatch_hold,
+        state.dispatch_enabled,
+        state.generation.to_string()
+    ])).unwrap();
+    assert_eq!(frame.fingerprint_bytes(), legacy);
     let mut b = second.store.begin(deadline()).await.unwrap();
     assert_eq!(
-        frame.recheck(&second, &mut b, &key).await.unwrap_err(),
+        frame.recheck(&second, &mut b, &key, &mut session).await.unwrap_err(),
         ServiceError::IntegrityFailure
     );
     assert!(matches!(a.commit().await, Err(CommitError::RolledBack(_))));
