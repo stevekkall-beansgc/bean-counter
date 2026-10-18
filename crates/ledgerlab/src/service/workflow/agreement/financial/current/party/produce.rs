@@ -17,6 +17,7 @@ pub(in super::super::super) struct PendingPartyOperation {
     // Fresh preparation retains the actual completed earlier recipe inventory.
     // This is not a serialized origin/resource completion capability.
     _prefix: Option<prefix::FoldedInventory>,
+    local_members:Option<prefix::ResolvedMembers>,
     _clock_owner: Option<ExternalBufferLease>,
 }
 impl PendingPartyOperation {
@@ -27,6 +28,7 @@ impl PendingPartyOperation {
         &mut self,
         session: &mut OriginalAuditSession,
     ) -> Result<prefix::ResolvedMembers> {
+        if let Some(members)=self.local_members.take() {return Ok(members);}
         let mut prefix = self._prefix.take();
         let result = self.resolve_members_in(prefix.as_mut().map(|p| &mut p._inventory), session);
         self._prefix = prefix;
@@ -807,6 +809,24 @@ pub(in super::super::super) async fn prepare_observed(
     }
     result
 }
+/// New local entry only. Its caller selects the exact new journal registry;
+/// no old audit tuple is reclassified and no resource/origin flag is returned.
+pub(in super::super::super) async fn prepare_local_observed(
+    ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,req:&IncomingRequest,
+    management:&crate::service::workflow::local::OwnedLocalManagement,
+    session:&mut OriginalAuditSession,
+)->Result<PendingPartyOperation> {
+    let result=async {
+        ledger.admin.recheck_management_fresh(management,&ledger.store,tx,req.key(),session).await?;
+        prepare_selected_inner(ledger,tx,req,management,PartyPreparation::LocalSelected,session).await
+    }.await;
+    if result.is_err() {
+        session.invalidate();
+        tx.workflow_proof_failure_handle().store(true,std::sync::atomic::Ordering::Release);
+    }
+    result
+}
+enum PartyPreparation { Chronological,LocalSelected }
 async fn prepare_inner(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -814,6 +834,13 @@ async fn prepare_inner(
     management:&crate::service::workflow::local::OwnedLocalManagement,
     session: &mut OriginalAuditSession,
 ) -> Result<PendingPartyOperation> {
+    prepare_selected_inner(ledger,tx,req,management,PartyPreparation::Chronological,session).await
+}
+async fn prepare_selected_inner(
+    ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,req:&IncomingRequest,
+    management:&crate::service::workflow::local::OwnedLocalManagement,
+    preparation:PartyPreparation,session:&mut OriginalAuditSession,
+)->Result<PendingPartyOperation> {
     session.check_cancelled().map_err(core_error)?;
     let setup=management.setup();
     // The two fixed-width calendar renderings and their String growth overlap
@@ -928,9 +955,30 @@ async fn prepare_inner(
         prior,
         session,
     )?;
-    let mut earlier = prefix::party_before_observed(ledger, tx, req.key(), before, management, session).await?;
-    pending.check_prestate(earlier.as_mut().map(|p| &mut p._inventory), &setup, session)?;
-    pending._prefix = earlier;
+    match preparation {
+        PartyPreparation::Chronological=>{
+            let mut earlier = prefix::party_before_observed(ledger, tx, req.key(), before, management, session).await?;
+            pending.check_prestate(earlier.as_mut().map(|p| &mut p._inventory), &setup, session)?;
+            pending._prefix = earlier;
+        }
+        PartyPreparation::LocalSelected=>{
+            // Exact current head/absence and active mapping/interval were read
+            // above under this held writer. Required retained dependencies are
+            // now checked directly; unrelated history is not an admission cut.
+            let root=session.parse_representation(pending.root.bytes(),RepresentationKind::Record).map_err(core_error)?;
+            prefix::source::custody(root.value(),setup,session)?;
+            if let Some(authorization)=pending.consent_basis[0].as_ref() {
+                // Both consent evidence and its later operator attestation
+                // require the actual active mapping at THIS retention time.
+                let reference=wire::reference(&authorization.reference,session)?;
+                let reference=session.parse_representation(reference.bytes(),RepresentationKind::Record).map_err(core_error)?;
+                observe(tx,req.key(),reference.value(),&pending.at,before,session).await?;
+            }
+            let members=prefix::ResolvedMembers::resolve_local_party(tx,req.key(),before,
+                &[&pending.root,&pending.authority,&pending.result],pending.dependency_refs(),session).await?;
+            pending.local_members=Some(members);
+        }
+    }
     pending._clock_owner=Some(clock_owner);
     Ok(pending)
 }
@@ -1072,6 +1120,7 @@ fn construct(
         at,
         before,
         _prefix: None,
+        local_members:None,
         _clock_owner: None,
     })
 }

@@ -55,7 +55,7 @@ impl WorkflowReply {
         evidence: &evidence::RequestEvidence,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
-        Self::from_parts(journal.receipt_bytes(), evidence.bytes(), None, s)
+        Self::from_parts(journal.receipt_bytes(), evidence.bytes(), None, false, s)
     }
     pub(super) fn original(value: &Value, s: &mut OriginalAuditSession) -> Result<Self> {
         let receipt = request_wrapper::field(value, "receipt", s)?;
@@ -66,19 +66,29 @@ impl WorkflowReply {
         let evidence = s
             .canonical_representation(evidence, K::OperationFrame)
             .map_err(core_error)?;
-        Self::from_parts(receipt.bytes(), evidence.bytes(), Some("identity"), s)
+        Self::from_parts(receipt.bytes(), evidence.bytes(), Some("identity"), false, s)
+    }
+    pub(super) fn status(original:&prefix::LocatedWrappers,s:&mut OriginalAuditSession)->Result<Self> {
+        let receipt=s.canonical_representation(original.wrappers().receipt(),K::ReceiptFrame).map_err(core_error)?;
+        let evidence=request_wrapper::field(original.wrappers().operation(),"request_evidence",s)?;
+        let evidence=s.canonical_representation(evidence,K::OperationFrame).map_err(core_error)?;
+        Self::from_parts(receipt.bytes(),evidence.bytes(),None,true,s)
     }
     fn from_parts(
         receipt: &[u8],
         evidence: &[u8],
         duplicate: Option<&str>,
+        status: bool,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
         const FIELDS: usize = 5 * std::mem::size_of::<(&str, &[u8])>();
         let _fields = s.reserve_external_payload(FIELDS).map_err(core_error)?;
         s.semantic_work().write_bytes(FIELDS).map_err(core_error)?;
         s.semantic_work().visit(V::Constraint).map_err(core_error)?;
-        let body = if duplicate.is_some() {
+        let body = if status {
+            wire::object(&[("receipt",receipt),("request_evidence",evidence),
+                ("schema",b"\"ledger-operation-status/1\""),("status",b"\"committed\"")],4194304,s)?
+        } else if duplicate.is_some() {
             wire::object(
                 &[
                     ("duplicate_kind", b"\"identity\""),
@@ -383,7 +393,7 @@ mod tests {
                 expected["duplicate_kind"] = json!("identity");
             }
             let reply =
-                WorkflowReply::from_parts(&raw_receipt, &raw_evidence, duplicate, &mut s).unwrap();
+                WorkflowReply::from_parts(&raw_receipt, &raw_evidence, duplicate, false, &mut s).unwrap();
             assert_eq!(reply.json_bytes(), serde_json::to_vec(&expected).unwrap());
             assert_eq!(
                 reply.pretty_bytes(),

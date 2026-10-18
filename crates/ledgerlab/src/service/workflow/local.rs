@@ -207,7 +207,11 @@ impl LocalWorkflowLedger {
                 Some(kind) if agreement::financial::is_kind(&kind) => {
                     agreement::financial::original_status(self, tx, &key, raw_key).await
                 }
-                Some(_) => agreement::status(tx, &key).await,
+                Some(_) => {
+                    if let Some(original)=agreement::financial::local_management_status(tx,&key,raw_key).await? {
+                        Ok(original)
+                    } else { agreement::status(tx,&key).await }
+                },
                 None => Ok(
                     json!({"schema":"ledger-operation-status/1","status":"not_observed","key":key}),
                 ),

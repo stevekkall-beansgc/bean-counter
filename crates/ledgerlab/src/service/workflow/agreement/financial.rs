@@ -16,6 +16,7 @@ mod current;
 mod evidence;
 mod ingress;
 mod management;
+mod local_party;
 pub(in crate::service::workflow) use management::effective_setup;
 use management::ManagementObservation;
 mod prefix;
@@ -127,6 +128,7 @@ enum OriginalQuery<'a> {
 // factory, caller flag or serialization. No present fresh branch produces it.
 enum TransactionResult {
     Original(Value),
+    OriginalOwned(WorkflowReply),
     Appended(WorkflowReply),
 }
 
@@ -153,6 +155,10 @@ async fn finish_transaction(
         Err(error) => {
             tx.rollback().await.map_err(crate::service::store_error)?;
             Err(error)
+        }
+        Ok(TransactionResult::OriginalOwned(response)) => {
+            tx.rollback().await.map_err(crate::service::store_error)?;
+            Ok(response)
         }
         Ok(TransactionResult::Original(response)) => {
             let response=WorkflowReply::original(&response,&mut session);
@@ -186,6 +192,21 @@ async fn finish_transaction(
     }
 }
 
+pub(in crate::service::workflow) async fn local_management_status(
+    tx:&mut SqliteTx,key:&OperationKey,raw_key:&[u8],
+)->Result<Option<Value>> {
+    use ledgerlab_core::validation_work::{OriginalAuditSession,RepresentationKind};
+    let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+    let _cancellation=AttemptCancellation::new(&arena,tx.workflow_deadline());
+    let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+    let parsed=s.parse_representation(raw_key,RepresentationKind::Record).map_err(core_error)?;
+    request_wrapper::key(parsed.value(),key,&mut s)?;
+    let identity=s.canonical_representation(parsed.value(),RepresentationKind::Record).map_err(core_error)?;
+    let acquired=prefix::target(tx,key,identity,&mut s).await?;
+    let original=acquired.checked_wrappers(tx,&mut s).await?;
+    if !local_party::verify_original(tx,&original,&mut s).await? {return Ok(None);}
+    WorkflowReply::status(&original,&mut s).map(|r|Some(r.into_legacy_value()))
+}
 pub(in crate::service::workflow) async fn original_status(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
@@ -268,6 +289,10 @@ async fn original_query_in(
             .map_err(core_error)?;
         require(saved_kind == request.kind(), "IDENTITY_CONFLICT")?;
     }
+    if local_party::verify_original(tx,&original,session).await? {
+        input.compare_party_intent(&original,session)?;
+        return WorkflowReply::status(&original,session).map(WorkflowReply::into_legacy_value);
+    }
     let _prefix = prefix::fold_original_prefix(ledger, tx, key, &original, session).await?;
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
@@ -313,6 +338,9 @@ impl LocalWorkflowLedger {
                     // frame below, never an unleased asserted kind column.
                     // No fresh selection, grant check, compiler or capacity admission
                     // precedes this original identity branch.
+                    if let Some(reply)=local_party::retry(tx,&req,&mut session).await? {
+                        return Ok(TransactionResult::OriginalOwned(reply));
+                    }
                     return original_retry(self, tx, &req, &mut session)
                         .await
                         .map(TransactionResult::Original);
@@ -398,34 +426,8 @@ impl LocalWorkflowLedger {
                             | "ledger-workflow-party-authorize/1"
                             | "ledger-workflow-party-revoke/1"
                     ) {
-                        let mut pending =
-                            current::party::produce::prepare_observed(self, tx, &req, management.held(), &mut session).await?;
-                        let evidence = evidence::party(&req, &pending, &mut session)?;
-                        // workflow_sequence returns the next sequence, not
-                        // the last committed one. Retained reads use it as an
-                        // exclusive cutoff; the new frame uses it unchanged.
-                        let sequence = pending.before;
-                        let members = pending.resolve_members(&mut session)?;
-                        let journal = wire::frame_party(
-                            &req,
-                            &pending,
-                            &evidence,
-                            sequence,
-                            members,
-                            &mut session,
-                        )?;
-                        let write_data = current::party::write::PartyWriteData::new(
-                            &pending,
-                            &req,
-                            &evidence,
-                            &journal,
-                            &mut session,
-                        )?;
-                        let _write_operands = write_data.append_view(&mut session)?;
-                        let _response=WorkflowReply::party(&journal,&evidence,&mut session)?;
-                        // The real result is constructed, but all consumed original
-                        // origins and the new wrapper recipe still must complete.
-                        // No DATA result can skip that preparation boundary.
+                        let reply=local_party::prepare_append(self,tx,&req,&management,&mut session).await?;
+                        return Ok(TransactionResult::Appended(reply));
                     }
                 }
 

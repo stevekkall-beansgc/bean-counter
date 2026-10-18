@@ -64,6 +64,57 @@ fn cmp(reference: &ExactRef, v: [&str; 3], s: &mut OriginalAuditSession) -> Resu
     Ok(Ordering::Equal)
 }
 impl ResolvedMembers {
+    /// Selected local party operands only. Local committed membership supplies
+    /// scope/retention selection; every loaded Ref and canonical document hash
+    /// is checked by the SAME party record reader. This is not chronological
+    /// origin completion and is never used by the old audited recipe.
+    pub(in super::super) async fn resolve_local_party<'a>(
+        tx:&mut SqliteTx,key:&OperationKey,before:i64,
+        generated:&[&wire::SourceRecord],old:impl Iterator<Item=&'a ExactRef>,
+        s:&mut OriginalAuditSession,
+    )->Result<Self> {
+        let mut out=Self::new(s)?;
+        let payload=arithmetic(LIMIT,mem::size_of::<Option<&wire::SourceRecord>>(),Op::Multiply,s)?;
+        let _slots=s.reserve_external_payload(payload).map_err(core_error)?;
+        s.semantic_work().write_bytes(payload).map_err(core_error)?;
+        let mut pending:[Option<&wire::SourceRecord>;LIMIT]=[None;LIMIT];
+        for record in generated {
+            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+            let raw=wire::reference(record.reference(),s)?;
+            let parsed=s.parse_representation(raw.bytes(),RepresentationKind::Record).map_err(core_error)?;
+            let index=out.add(parsed.value(),s)?;
+            if let Some(previous)=pending[index] {
+                s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+                s.semantic_work().scan_bytes(previous.bytes().len()).map_err(core_error)?;
+                s.semantic_work().scan_bytes(record.bytes().len()).map_err(core_error)?;
+                require(previous.bytes()==record.bytes(),"INTEGRITY_FAILURE")?;
+            }
+            pending[index]=Some(*record);
+        }
+        for reference in old {
+            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+            out.add_record_ref(reference,s)?;
+        }
+        let mut position=0usize;
+        while compare(position,out.entries.len(),s)?.is_lt() {
+            let loaded;
+            let body=if let Some(record)=pending[position] {
+                record.bytes()
+            } else {
+                let reference=&out.entries[position].reference;
+                let encoded=wire::reference(reference,s)?;
+                let parsed=s.parse_representation(encoded.bytes(),RepresentationKind::Record).map_err(core_error)?;
+                loaded=current::party::record(tx,key,parsed.value(),&reference.kind,before,s).await?;
+                verify_selected_association(tx,key,reference,before,s).await?;
+                loaded.canonical_bytes()
+            };
+            let body=s.parse_representation(body,RepresentationKind::Record).map_err(core_error)?;
+            dependencies::body(body.value(),&mut|reference,s|out.add(reference,s).map(|_|()),s)?;
+            position=arithmetic(position,1,Op::Add,s)?;
+        }
+        require(compare(out.entries.len(),LIMIT,s)?.is_lt(),"REFERENCE_LIMIT")?;
+        Ok(out)
+    }
     fn new(s: &mut OriginalAuditSession) -> Result<Self> {
         let stride = arithmetic(
             mem::size_of::<OwnedRef>(),

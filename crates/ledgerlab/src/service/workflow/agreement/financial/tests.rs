@@ -375,11 +375,11 @@ async fn chronological_owning_frames_follow_actual_public_prerequisite_history()
 }
 
 #[tokio::test]
-async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append() {
+async fn actual_local_party_retention_commits_retries_and_reopens() {
     use ledgerlab_core::{
         canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession,
     };
-    let (_directory, ledger, _path) = installation("actual-party-input").await;
+    let (_directory, ledger, path) = installation("actual-party-input").await;
     let operation = key("actual-party-input", "party-authorization-proof");
     let material = b"Explicit local operator representation material";
     let spec = json!({"authorization_id":"platform-owner-mapping","scope":operation.scope,
@@ -437,19 +437,21 @@ async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append
     .unwrap();
     assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
     tx.rollback().await.unwrap();
-    assert_eq!(
-        ledger
-            .financial(&records::bytes(&input).unwrap())
-            .await
-            .unwrap_err(),
-        ServiceError::Unavailable
-    );
-    let mut tx = ledger.store.begin(deadline()).await.unwrap();
-    assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
+    let committed=ledger.financial(&raw).await.unwrap();
+    let retried=ledger.financial(&raw).await.unwrap();
+    assert_eq!(retried["receipt"],committed["receipt"]);
+    assert_eq!(retried["duplicate_kind"],"identity");
+    let status=ledger.status(&operation.bytes().unwrap()).await.unwrap();
+    assert_eq!(status["schema"],"ledger-operation-status/1");
+    assert_eq!(status["receipt"],committed["receipt"]);
+    let mut tx=ledger.store.begin(deadline()).await.unwrap();
+    let committed_meter=tx.workflow_test_meter().await.unwrap();
+    assert_ne!(committed_meter,before);
     tx.rollback().await.unwrap();
     // The empty-prefix case covers only a recipe with no retained operands.
     // A genuine immediate target cannot disappear into that representation.
     let mut missing = input.clone();
+    missing["key"]["operation_id"]=json!("missing-party-target");
     missing["payload"]["metadata"] = json!({
         "purpose":"party_operator_attestation",
         "statement":"operator_verified_party_acceptor_authority",
@@ -463,7 +465,7 @@ async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append
         reject("AUTHORITY_REQUIRED")
     );
     let mut tx = ledger.store.begin(deadline()).await.unwrap();
-    assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
+    assert_eq!(tx.workflow_test_meter().await.unwrap(), committed_meter);
     tx.rollback().await.unwrap();
     input["payload"]["content_sha256"] = json!("0".repeat(64));
     assert!(
@@ -474,9 +476,13 @@ async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append
     );
     assert_eq!(
         ledger.status(&operation.bytes().unwrap()).await.unwrap()["status"],
-        "not_observed"
+        "committed"
     );
     ledger.close().await;
+    let reopened=LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(reopened.status(&operation.bytes().unwrap()).await.unwrap()["receipt"],committed["receipt"]);
+    assert_eq!(reopened.financial(&raw).await.unwrap()["receipt"],committed["receipt"]);
+    reopened.close().await;
 }
 
 #[tokio::test]

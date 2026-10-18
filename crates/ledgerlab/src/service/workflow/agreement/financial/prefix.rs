@@ -80,6 +80,23 @@ pub(super) struct LocatedWrappers {
     identity: ledgerlab_core::canonical::audit_arena::AuditedBytes,
     wrappers: wrappers::OriginalWrappers,
 }
+/// New local selection validates the actual committed association of this
+/// required operand without replaying unrelated originals. Body canonicality,
+/// full Ref, schema and semantic relationships remain the caller's checks.
+pub(super) async fn verify_selected_association(
+    tx:&mut SqliteTx,key:&OperationKey,reference:&ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    before:i64,session:&mut OriginalAuditSession,
+)->Result<()> {
+    let sequence=tx.workflow_selected_association_sequence(reference,&key.logical_store_id,&key.scope,before,session)
+        .await.map_err(read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    session.semantic_work().arithmetic(Op::Subtract,&[&sequence.into(),&1i64.into()]).map_err(core_error)?;
+    let after=sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
+    let original=next(tx,key,after,sequence,session).await?.ok_or(ServiceError::IntegrityFailure)?;
+    let original=original.checked_wrappers(tx,session).await?;
+    let encoded=wire::reference(reference,session)?;
+    let parsed=session.parse_representation(encoded.bytes(),RepresentationKind::Record).map_err(core_error)?;
+    original.require_member(parsed.value(),session)
+}
 impl LocatedWrappers {
     pub(super) fn key(&self) -> &OperationKey {
         &self.key.key

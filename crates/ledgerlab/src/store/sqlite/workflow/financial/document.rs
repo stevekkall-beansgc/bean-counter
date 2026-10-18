@@ -34,6 +34,38 @@ fn bind<'a>(
 }
 
 impl SqliteTx {
+    /// Select one actual committed association for a targeted local operand.
+    /// The caller still verifies that operation/manifest/receipt and the body;
+    /// this derived lookup is not an original-recipe completion certificate.
+    pub(crate) async fn workflow_selected_association_sequence(
+        &mut self,reference:&ExactRef,store:&str,scope:&[String;2],before:i64,
+        session:&mut OriginalAuditSession,
+    )->Result<Option<i64>,FinancialReadError> {
+        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(StoreError::Integrity("poisoned selected association read").into());
+        }
+        self.failed=true;
+        let result=timeout_at(self.deadline,async {
+            let bindings=[reference.kind.as_bytes(),reference.id.as_bytes(),reference.digest.as_bytes(),store.as_bytes(),scope[0].as_bytes(),scope[1].as_bytes()];
+            let payload=io::binding_payload(&bindings,&[],0,0,session)?;
+            self.financial_reserve_io(session,payload)?;
+            session.semantic_work().write_bytes(std::mem::size_of::<Option<i64>>())?;
+            session.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let sequence:Option<i64>=sqlx::query_scalar("SELECT min(o.commit_sequence) FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key JOIN workflow_documents d ON d.kind=m.kind AND d.id=m.id AND d.digest=m.digest WHERE m.kind=? AND m.id=? AND m.digest=? AND o.logical_store_id=? AND o.tenant=? AND o.environment=? AND o.commit_sequence<?")
+                .bind(&reference.kind).bind(&reference.id).bind(&reference.digest).bind(store).bind(&scope[0]).bind(&scope[1]).bind(before).fetch_one(self.conn()).await?;
+            self.financial_finish_io(session).await?;
+            if let Some(sequence)=sequence {
+                if !resource_compare(session,sequence,0)?.is_gt() || !resource_compare(session,sequence,before)?.is_lt() {return Err(invalid());}
+            }
+            Ok(sequence)
+        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        if result.is_ok() {
+            session.check_cancelled()?;
+            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {return Err(invalid());}
+            self.failed=false;
+        }
+        result
+    }
     /// An exact reference and earlier scoped membership select retained bytes,
     /// never completed provenance. Bodies retain their SAME arena ownership
     /// after worker finalization. No ordinary Vec/body clone is returned.

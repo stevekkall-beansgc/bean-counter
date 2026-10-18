@@ -865,12 +865,53 @@ fn supplier_recipe(
     }
     Ok(None)
 }
+pub(super) const LOCAL_REGISTRY: &str =
+    "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a";
+// Exact adopted local-execution-01 dispatch. Historical registries retain
+// their original tuples; recognition here does not certify an executor.
+fn local_recipe(kind: &str, payload: &str, s: &mut OriginalAuditSession)
+    -> Result<Option<(Recipe, &'static str)>> {
+    const ROWS: &[(&str, &str, &str, &str, &str, &str, &str)] = &[
+        ("agreement.accept", "ledger-workflow-agreement-accept/9", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-agreement-authority/5", "ledger-operation-descriptors/7"),
+        ("agreement.activate", "ledger-workflow-activation-replace/1", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-agreement-authority/5", "ledger-operation-descriptors/7"),
+        ("agreement.activate", "ledger-workflow-activation/1", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-agreement-authority/5", "ledger-operation-descriptors/7"),
+        ("agreement.revoke", "ledger-workflow-agreement-revoke/1", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-agreement-authority/2", "ledger-operation-descriptors/3"),
+        ("authority.change", "ledger-workflow-party-authorize/1", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-party-management-authority/1", "ledger-operation-descriptors/3"),
+        ("authority.change", "ledger-workflow-party-revoke/1", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-party-management-authority/1", "ledger-operation-descriptors/3"),
+        ("cost.correct", "ledger-workflow-cost-correct/2", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("cost.finalize", "ledger-workflow-cost-finalize/2", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("evidence.retain", "ledger-workflow-app-cost-attest/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("evidence.retain", "ledger-workflow-app-observe/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("evidence.retain", "ledger-workflow-fact-attest/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("evidence.retain", "ledger-workflow-family-close-attest/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("evidence.retain", "ledger-workflow-party-evidence-retain/1", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-party-management-authority/1", "ledger-operation-descriptors/3"),
+        ("evidence.retain", "ledger-workflow-party-evidence-retain/2", "ledger-workflow-operation-record/1", "ledger-workflow-agreement-manifest/1", "absent", "ledger-workflow-party-management-authority/1", "ledger-operation-descriptors/7"),
+        ("link.assert", "ledger-workflow-link-assert/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("outcome.close", "ledger-workflow-outcome-close/2", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("outcome.correct", "ledger-workflow-outcome-correction/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("outcome.submit", "ledger-workflow-outcome/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("policy.publish", "ledger-workflow-policy-publication/6", "ledger-workflow-operation-record/1", "ledger-workflow-publication-manifest/1", "absent", "ledger-workflow-publication-authority/1", "ledger-operation-descriptors/1"),
+        ("quantity.correct", "ledger-workflow-quantity-correction/2", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("work.accept", "ledger-workflow-work/1", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+        ("work.reverse", "ledger-workflow-work-reverse/2", "ledger-workflow-economic-operation/10", "ledger-workflow-economic-manifest/10", "ledger-local-selected-inputs/1", "ledger-workflow-economic-authority/8", "ledger-operation-descriptors/8"),
+    ];
+    for &(k,p,operation,manifest,closure,authority,descriptor) in ROWS {
+        if equal_text(kind,k,s)? && equal_text(payload,p,s)? {
+            return Ok(Some((Recipe{operation,manifest,closure,authority},descriptor)));
+        }
+    }
+    Ok(None)
+}
 pub(super) fn descriptor_schema(
     kind: &str,
     payload: &str,
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<&'static str> {
+    if equal_text(registry, LOCAL_REGISTRY, session)? {
+        return local_recipe(kind,payload,session)?.map(|(_,descriptor)|descriptor)
+            .ok_or_else(||reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, PARTY_COMMITMENT_REGISTRY, session)? {
         let selected = party_commitment_recipe(kind, payload, session)?
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
@@ -952,6 +993,10 @@ pub(super) fn recipe(
     registry: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<Recipe> {
+    if equal_text(registry, LOCAL_REGISTRY, session)? {
+        return local_recipe(kind,payload,session)?.map(|(recipe,_)|recipe)
+            .ok_or_else(||reject("UNSUPPORTED_SCHEMA_PROFILE"));
+    }
     if equal_text(registry, PARTY_COMMITMENT_REGISTRY, session)? {
         return party_commitment_recipe(kind, payload, session)?
             .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"));
@@ -1703,6 +1748,11 @@ pub(super) async fn validate_frame(
         // registry-support grant. Each dedicated semantic handler must still
         // reproduce its own original descriptor/normalization/alias recipe.
         let consent = if equal_text(
+            request::text(descriptors,"registry_digest",session)?,LOCAL_REGISTRY,session,
+        )? {
+            Some(local_recipe(frame.kind,request::text(payload,"schema",session)?,session)?
+                .ok_or_else(||reject("UNSUPPORTED_SCHEMA_PROFILE"))?.0)
+        } else if equal_text(
             request::text(descriptors, "registry_digest", session)?,
             PARTY_COMMITMENT_REGISTRY,
             session,

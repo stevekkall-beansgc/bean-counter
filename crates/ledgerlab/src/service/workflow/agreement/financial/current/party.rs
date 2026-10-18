@@ -8,13 +8,14 @@ use sha2::{Digest, Sha256};
 pub(in super::super) mod normalize;
 pub(in super::super) mod produce;
 pub(in super::super) mod write;
-struct PartyRecord {
+pub(in super::super) struct PartyRecord {
     parsed: AuditedValue,
     stored: RetainedDocument,
     reference: ExactRef,
     _lease: ExternalBufferLease,
 }
 impl PartyRecord {
+    pub(in super::super) fn canonical_bytes(&self)->&[u8] {self.stored.body.bytes()}
     fn body(&self) -> &Value {
         self.parsed.value()
     }
@@ -284,7 +285,7 @@ fn ref_parts<'a>(
     }
     Ok((k, i, d))
 }
-async fn record(
+pub(in super::super) async fn record(
     tx: &mut SqliteTx,
     key: &OperationKey,
     value: &Value,
