@@ -451,6 +451,7 @@ pub(super) fn object(
         length = arithmetic(length, name.len(), Op::Add, session)?;
         length = arithmetic(length, value.len(), Op::Add, session)?;
         length = arithmetic(length, 3, Op::Add, session)?;
+        session.semantic_work().arithmetic(Op::Compare,&[&index.into(),&0usize.into()]).map_err(core_error)?;
         if index != 0 {
             length = arithmetic(length, 1, Op::Add, session)?;
         }
@@ -462,6 +463,7 @@ pub(super) fn object(
     let mut out = buffer(length, session)?;
     append(&mut out, b"{", session)?;
     for (index, (name, value)) in fields.iter().enumerate() {
+        session.semantic_work().arithmetic(Op::Compare,&[&index.into(),&0usize.into()]).map_err(core_error)?;
         if index != 0 {
             append(&mut out, b",", session)?;
         }
@@ -570,6 +572,7 @@ pub(super) fn string(text: &str, session: &mut OriginalAuditSession) -> Result<A
         .semantic_work()
         .write_bytes(text.len())
         .map_err(core_error)?;
+    session.semantic_work().write_bytes(std::mem::size_of::<Value>()).map_err(core_error)?;
     let mut copy = String::new();
     copy.try_reserve_exact(text.len())
         .map_err(|_| ServiceError::Unavailable)?;
