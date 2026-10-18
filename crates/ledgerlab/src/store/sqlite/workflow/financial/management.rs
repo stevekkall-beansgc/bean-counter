@@ -281,6 +281,33 @@ impl SqliteTx {
         }
         result
     }
+    /// Connection-local mutation baseline for one live held management owner.
+    /// Never refreshed by a reuse check; BEGIN IMMEDIATE excludes other writers.
+    pub(crate) async fn workflow_management_changes(
+        &mut self, s: &mut OriginalAuditSession,
+    ) -> Result<i64, FinancialReadError> {
+        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(StoreError::Integrity("poisoned management baseline").into());
+        }
+        self.failed = true;
+        let result = timeout_at(self.deadline, async {
+            self.financial_reserve_io(s, 262144)?;
+            s.semantic_work().write_bytes(mem::size_of::<i64>())?;
+            s.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let changes = sqlx::query_scalar("SELECT total_changes()")
+                .fetch_one(self.conn()).await?;
+            self.financial_finish_io(s).await?;
+            Ok(changes)
+        }).await.map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() {
+            s.check_cancelled()?;
+            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {
+                return Err(StoreError::Integrity("management baseline retains failed work").into());
+            }
+            self.failed = false;
+        }
+        result
+    }
     /// Actual final guard, called from the SAME consuming commit owner. This
     /// replaces the legacy Noop pass there; an earlier append check never
     /// suppresses these executed retained-meter equations.

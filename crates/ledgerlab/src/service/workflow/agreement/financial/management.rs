@@ -13,6 +13,7 @@ mod setup;
 pub(in crate::service::workflow) use setup::effective as effective_setup;
 
 pub(super) struct ManagementObservation {
+    held: crate::service::workflow::local::OwnedLocalManagement,
     owner: Arc<AtomicBool>,
     key_body: ledgerlab_core::canonical::audit_arena::AuditedValue,
     fingerprint: AuditedBytes,
@@ -29,6 +30,15 @@ impl ManagementObservation {
         key_body: &Value,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
+        let held=ledger.admin.fresh_management(&ledger.store,tx,key,s).await?;
+        Self::capture_owned(ledger,tx,key,key_body,held,s).await
+    }
+    pub(super) fn held(&self)->&crate::service::workflow::local::OwnedLocalManagement { &self.held }
+    pub(super) async fn capture_owned(
+        ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,key:&OperationKey,key_body:&Value,
+        held:crate::service::workflow::local::OwnedLocalManagement,s:&mut OriginalAuditSession,
+    )->Result<Self> {
+        ledger.admin.recheck_management_fresh(&held,&ledger.store,tx,key,s).await?;
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
         request_wrapper::key(key_body, key, s)?;
         let control = s
@@ -43,8 +53,9 @@ impl ManagementObservation {
         let key_body = s
             .parse_representation(encoded_key.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
-        let fingerprint = fingerprint(ledger, tx, key, key_body.value(), s).await?;
+        let fingerprint = fingerprint(&held, key_body.value(), s)?;
         Ok(Self {
+            held,
             owner: tx.workflow_proof_failure_handle(),
             key_body,
             fingerprint,
@@ -69,7 +80,8 @@ impl ManagementObservation {
         }
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
         request_wrapper::key(self.key_body.value(), key, s)?;
-        let actual = fingerprint(ledger, tx, key, self.key_body.value(), s).await?;
+        ledger.admin.recheck_management_fresh(&self.held,&ledger.store,tx,key,s).await?;
+        let actual = fingerprint(&self.held, self.key_body.value(), s)?;
         s.semantic_work()
             .visit(Visit::MemberCompare)
             .map_err(core_error)?;
@@ -219,14 +231,11 @@ fn setup_bytes(
     }
     wire::object(&fields, 262144, s)
 }
-async fn fingerprint(
-    ledger: &LocalWorkflowLedger,
-    tx: &mut SqliteTx,
-    key: &OperationKey,
+fn fingerprint(
+    held: &crate::service::workflow::local::OwnedLocalManagement,
     key_body: &Value,
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedBytes> {
-    let held = ledger.admin.fresh_management(&ledger.store, tx, key, s).await?;
     let setup = held.setup();
     let installation = held.installation();
     let controls = 12 * mem::size_of::<AuditedBytes>() + 12 * mem::size_of::<&[u8]>();

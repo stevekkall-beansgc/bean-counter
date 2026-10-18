@@ -43,6 +43,11 @@ impl OriginalAuditSession {
             .reserve_external_payload(bytes, &mut self.meter)
             .inspect_err(|_| self.meter.fail_original())
     }
+    /// Retained owning DATA must remain charged to this same attempt.
+    pub fn require_external_owner(&mut self, lease:&crate::canonical::audit_arena::ExternalBufferLease)->Result<()> {
+        self.arena.require_external_owner(lease,&mut self.meter)
+            .inspect_err(|_|self.meter.fail_original())
+    }
     pub fn parts(&mut self) -> (&AuditArena, &mut dyn ValidationWork) {
         (&self.arena, &mut self.meter)
     }

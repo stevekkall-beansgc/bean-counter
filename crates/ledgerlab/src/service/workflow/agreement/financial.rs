@@ -295,7 +295,7 @@ impl LocalWorkflowLedger {
         let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
         let attempted = proof_session::with_proofs(&mut tx, key, |tx| {
             Box::pin(async {
-                self.admin.read_management(&self.store, tx, key, &mut session).await?;
+                let held_management=self.admin.read_management(&self.store, tx, key, &mut session).await?;
                 if tx
                     .workflow_original_identity_exists(req.identity(), &mut session)
                     .await
@@ -311,7 +311,7 @@ impl LocalWorkflowLedger {
                 }
                 let key_body = request_wrapper::field(req.value(), "key", &mut session)?;
                 let management =
-                    ManagementObservation::capture(self, tx, key, key_body, &mut session).await?;
+                    ManagementObservation::capture_owned(self, tx, key, key_body, held_management, &mut session).await?;
                 management.recheck(self, tx, key, &mut session).await?;
                 if req.kind() == "agreement.accept" {
                     // AppAccept8 reaches the actual saved publication and SAME
@@ -391,7 +391,7 @@ impl LocalWorkflowLedger {
                             | "ledger-workflow-party-revoke/1"
                     ) {
                         let mut pending =
-                            current::party::produce::prepare(self, tx, &req, &mut session).await?;
+                            current::party::produce::prepare_observed(self, tx, &req, management.held(), &mut session).await?;
                         let evidence = evidence::party(&req, &pending, &mut session)?;
                         // workflow_sequence returns the next sequence, not
                         // the last committed one. Retained reads use it as an

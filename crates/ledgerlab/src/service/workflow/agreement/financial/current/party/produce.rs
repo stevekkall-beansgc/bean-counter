@@ -780,7 +780,10 @@ pub(in super::super::super) async fn prepare(
     req: &IncomingRequest,
     session: &mut OriginalAuditSession,
 ) -> Result<PendingPartyOperation> {
-    let result = prepare_inner(ledger, tx, req, session).await;
+    let result = async {
+        let management=ledger.admin.fresh_management(&ledger.store,tx,req.key(),session).await?;
+        prepare_inner(ledger,tx,req,&management,session).await
+    }.await;
     if result.is_err() {
         session.invalidate();
         tx.workflow_proof_failure_handle()
@@ -788,14 +791,30 @@ pub(in super::super::super) async fn prepare(
     }
     result
 }
+/// Same producer, borrowing the actual unchanged held management snapshot.
+pub(in super::super::super) async fn prepare_observed(
+    ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,req:&IncomingRequest,
+    management:&crate::service::workflow::local::OwnedLocalManagement,
+    session:&mut OriginalAuditSession,
+)->Result<PendingPartyOperation> {
+    let result=async {
+        ledger.admin.recheck_management_fresh(management,&ledger.store,tx,req.key(),session).await?;
+        prepare_inner(ledger,tx,req,management,session).await
+    }.await;
+    if result.is_err() {
+        session.invalidate();
+        tx.workflow_proof_failure_handle().store(true,std::sync::atomic::Ordering::Release);
+    }
+    result
+}
 async fn prepare_inner(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     req: &IncomingRequest,
+    management:&crate::service::workflow::local::OwnedLocalManagement,
     session: &mut OriginalAuditSession,
 ) -> Result<PendingPartyOperation> {
     session.check_cancelled().map_err(core_error)?;
-    let management=ledger.admin.fresh_management(&ledger.store,tx,req.key(),session).await?;
     let setup=management.setup();
     // The two fixed-width calendar renderings and their String growth overlap
     // remain owned through the produced PendingPartyOperation timestamp.

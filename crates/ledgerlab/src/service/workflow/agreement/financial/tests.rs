@@ -142,7 +142,21 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     let key_body = serde_json::to_value(&key).unwrap();
     let mut a = first.store.begin(deadline()).await.unwrap();
     let frame = proof_session::with_proofs(&mut a, &key, |tx| {
-        Box::pin(ManagementObservation::capture(&first, tx, &key, &key_body, &mut session))
+        Box::pin(async {
+            let frame=ManagementObservation::capture(&first,tx,&key,&key_body,&mut session).await?;
+            frame.recheck(&first,tx,&key,&mut session).await?;
+            // SQLite's held writer does not freeze native filesystem privacy.
+            #[cfg(unix)] {
+                use std::os::unix::fs::PermissionsExt;
+                let database=path_a.join(".ledger/local.db");
+                let prior=std::fs::metadata(&database).unwrap().permissions();
+                std::fs::set_permissions(&database,std::fs::Permissions::from_mode(0o644)).unwrap();
+                assert_eq!(frame.recheck(&first,tx,&key,&mut session).await.unwrap_err(),reject("AUTHORITY_REQUIRED"));
+                std::fs::set_permissions(&database,prior).unwrap();
+                frame.recheck(&first,tx,&key,&mut session).await?;
+            }
+            Ok(frame)
+        })
     })
     .await
     .unwrap();
@@ -383,8 +397,11 @@ async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append
         Box::pin(async {
             let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
             let request = ingress::IncomingRequest::parse(&raw, &mut session)?;
-            let pending =
-                current::party::produce::prepare(&ledger, tx, &request, &mut session).await?;
+            let held=ledger.admin.read_management(&ledger.store,tx,request.key(),&mut session).await?;
+            let key_body=request_wrapper::field(request.value(),"key",&mut session)?;
+            let management=ManagementObservation::capture_owned(&ledger,tx,request.key(),key_body,held,&mut session).await?;
+            management.recheck(&ledger,tx,request.key(),&mut session).await?;
+            let pending=current::party::produce::prepare_observed(&ledger,tx,&request,management.held(),&mut session).await?;
             for record in [&pending.root, &pending.authority, &pending.result] {
                 let body: Value = serde_json::from_slice(record.bytes()).unwrap();
                 let expected = records::source_document(&record.reference().kind, body).unwrap();
@@ -405,6 +422,7 @@ async fn actual_party_retention_derives_custody_bytes_and_refuses_without_append
                 records::bytes(&input["payload"]).unwrap()
             );
             drop(pending);
+            drop(management);
             drop(request);
             drop(session);
             assert_eq!(arena.usage().unwrap().live_bytes, baseline);
@@ -843,5 +861,30 @@ async fn fresh_work_projection_reads_real_empty_installation_without_writes() {
     .await
     .unwrap();
     tx.rollback().await.unwrap();
+    ledger.close().await;
+}
+
+#[tokio::test]
+async fn held_management_reuse_refuses_actual_same_transaction_mutation() {
+    use ledgerlab_core::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
+    let (_directory,ledger,_path)=installation("held-management-change").await;
+    let key=key("held-management-change","held-management-change");
+    let arena=AuditArena::new().unwrap();
+    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut tx=ledger.store.begin(deadline()).await.unwrap();
+    let error=proof_session::with_proofs(&mut tx,&key,|tx|Box::pin(async {
+        let held=ledger.admin.read_management(&ledger.store,tx,&key,&mut session).await?;
+        ledger.admin.recheck_management_fresh(&held,&ledger.store,tx,&key,&mut session).await?;
+        // An actual existing validated control producer changes this connection.
+        // Even equal resulting rights must invalidate the captured baseline.
+        let snapshot=tx.billing_meta().await.map_err(crate::service::store_error)?;
+        let setup=held.setup();
+        let raw=records::bytes(&json!({"schema":"ledger-billing-permissions/2","customer":setup.customer,"source":setup.source,"change_id":"after-management-read","expected_revision":setup.grant_revision.to_string(),"permissions":setup.permissions,"reason":"Validate held snapshot mutation refusal"}))?;
+        let (_,plan)=crate::service::billing::permissions::prepare_scoped(&snapshot,&setup.customer,&setup.source,&raw,&crate::local::now().unwrap())?;
+        tx.billing_m2_permissions(&plan.ok_or(ServiceError::IntegrityFailure)?).await.map_err(crate::service::store_error)?;
+        ledger.admin.recheck_management_fresh(&held,&ledger.store,tx,&key,&mut session).await
+    })).await.unwrap_err();
+    assert_eq!(error,reject("STALE_REVISION"));
+    assert!(matches!(tx.commit().await,Err(CommitError::RolledBack(_))));
     ledger.close().await;
 }

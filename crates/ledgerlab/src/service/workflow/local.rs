@@ -600,8 +600,12 @@ async fn setup_identity(tx: &mut SqliteTx) -> Result<billing::Setup> {
 /// Private actual held-snapshot DATA. Neither this owning observation nor its
 /// normalized fields are a prepared append capability.
 pub(super) struct OwnedLocalManagement {
+    key: request::OperationKey,
+    owner: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    changes: i64,
     setup: crate::service::billing::setup_owned::OwnedSetup,
     installation: crate::store::sqlite::workflow::financial::ManagementInstallation,
+    _key_storage: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
     _control: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
 }
 impl OwnedLocalManagement {
@@ -630,6 +634,57 @@ impl LocalOwnerAdmin {
         let control=s.reserve_external_payload(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
         s.semantic_work().write_bytes(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
         checked(s,||self.instance.workflow_same_instance(store))?;
+        self.management_paths(store,s)?;
+        let setup=agreement::financial::effective_setup(tx,s).await?;
+        let body=setup.setup();
+        let installation=tx.workflow_management_installation(&body.store_id,body.scope.tenant(),body.scope.environment(),s).await
+            .map_err(agreement::financial::management_read_error)?.ok_or_else(||reject("AUTHORITY_REQUIRED"))?;
+        let mode=same(&installation.installation().mode,"real",s)?;checked(s,||mode)?;
+        for (a,b) in [(&self.logical_store_id,body.store_id.as_str()),(&self.scope[0],body.scope.tenant()),(&self.scope[1],body.scope.environment()),(&self.operator,body.operator.as_str()),(&key.logical_store_id,self.logical_store_id.as_str()),(&key.scope[0],self.scope[0].as_str()),(&key.scope[1],self.scope[1].as_str())] {
+            let equal=same(a,b,s)?;checked(s,||equal)?;
+        }
+        let mut key_bytes=0usize;
+        for text in [&key.logical_store_id,&key.scope[0],&key.scope[1],&key.source,&key.operation_id] {
+            s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add,&[&key_bytes.into(),&text.len().into()]).map_err(core_error)?;
+            key_bytes=key_bytes.checked_add(text.len()).ok_or(ServiceError::Unavailable)?;
+            s.semantic_work().scan_bytes(text.len()).map_err(core_error)?;
+        }
+        let key_storage=s.reserve_external_payload(key_bytes).map_err(core_error)?;
+        s.semantic_work().write_bytes(key_bytes).map_err(core_error)?;
+        let saved_key=key.clone();
+        let changes=tx.workflow_management_changes(s).await.map_err(agreement::financial::management_read_error)?;
+        Ok(OwnedLocalManagement{key:saved_key,owner:tx.workflow_proof_failure_handle(),changes,setup,installation,_key_storage:key_storage,_control:control})
+    }
+    pub(super) async fn fresh_management(
+        &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
+        s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
+    )->Result<OwnedLocalManagement> {
+        let held=self.read_management(store,tx,key,s).await?;
+        self.management_available(&held,key,s)?;
+        Ok(held)
+    }
+    fn management_available(&self,held:&OwnedLocalManagement,key:&request::OperationKey,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<()> {
+        use ledgerlab_core::validation_work::ValidationVisit as Visit;
+        let setup=held.setup();
+        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        s.semantic_work().scan_bytes(key.source.len()).map_err(core_error)?;
+        s.semantic_work().scan_bytes(setup.source.len()).map_err(core_error)?;
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        require(key.source==setup.source,"AUTHORITY_REQUIRED")?;
+        let state=held.installation();
+        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        s.semantic_work().scan_bytes(state.admission.len()).map_err(core_error)?;
+        s.semantic_work().scan_bytes(4).map_err(core_error)?;
+        let open=state.admission=="open";
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        if !open {return Err(ServiceError::Unavailable);}
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        if !state.dispatch_hold {return Err(ServiceError::Unavailable);}
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        if state.dispatch_enabled {return Err(ServiceError::Unavailable);}
+        Ok(())
+    }
+    fn management_paths(&self,store:&SqliteStore,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<()> {
         #[cfg(target_os="macos")]
         {
             let paths=store.workflow_management_paths(s).map_err(agreement::financial::management_read_error)?;
@@ -648,40 +703,36 @@ impl LocalOwnerAdmin {
             local_io::private_existing(&directory,true).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
             local_io::private_existing(&database,false).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
         }
-        let setup=agreement::financial::effective_setup(tx,s).await?;
-        let body=setup.setup();
-        let installation=tx.workflow_management_installation(&body.store_id,body.scope.tenant(),body.scope.environment(),s).await
-            .map_err(agreement::financial::management_read_error)?.ok_or_else(||reject("AUTHORITY_REQUIRED"))?;
-        let mode=same(&installation.installation().mode,"real",s)?;checked(s,||mode)?;
-        for (a,b) in [(&self.logical_store_id,body.store_id.as_str()),(&self.scope[0],body.scope.tenant()),(&self.scope[1],body.scope.environment()),(&self.operator,body.operator.as_str()),(&key.logical_store_id,self.logical_store_id.as_str()),(&key.scope[0],self.scope[0].as_str()),(&key.scope[1],self.scope[1].as_str())] {
-            let equal=same(a,b,s)?;checked(s,||equal)?;
-        }
-        Ok(OwnedLocalManagement{setup,installation,_control:control})
+        Ok(())
     }
-    pub(super) async fn fresh_management(
-        &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
-        s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
-    )->Result<OwnedLocalManagement> {
-        use ledgerlab_core::validation_work::ValidationVisit as Visit;
-        let held=self.read_management(store,tx,key,s).await?;
-        let setup=held.setup();
-        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-        s.semantic_work().scan_bytes(key.source.len()).map_err(core_error)?;
-        s.semantic_work().scan_bytes(setup.source.len()).map_err(core_error)?;
+    /// Only immutable normalized DATA is reused. Actual native paths and the
+    /// connection mutation baseline are checked again at every consuming stage.
+    pub(super) async fn recheck_management_fresh(&self,held:&OwnedLocalManagement,store:&SqliteStore,tx:&mut SqliteTx,key:&request::OperationKey,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<()> {
+        use ledgerlab_core::validation_work::{ValidationVisit as Visit,ArithmeticOperation as Op};
+        s.check_cancelled().map_err(core_error)?;
+        s.require_external_owner(&held._control).map_err(core_error)?;
         s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        require(key.source==setup.source,"AUTHORITY_REQUIRED")?;
-        let state=held.installation();
-        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-        s.semantic_work().scan_bytes(state.admission.len()).map_err(core_error)?;
-        s.semantic_work().scan_bytes(4).map_err(core_error)?;
-        let open=state.admission=="open";
+        require(proof_session::present(tx,key)?,"INTEGRITY_FAILURE")?;
         s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        if !open {return Err(ServiceError::Unavailable);}
+        let owner=tx.workflow_proof_failure_handle();
+        if !std::sync::Arc::ptr_eq(&held.owner,&owner) {
+            held.owner.store(true,std::sync::atomic::Ordering::Release);
+            owner.store(true,std::sync::atomic::Ordering::Release);
+            return Err(ServiceError::IntegrityFailure);
+        }
         s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        if !state.dispatch_hold {return Err(ServiceError::Unavailable);}
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        if state.dispatch_enabled {return Err(ServiceError::Unavailable);}
-        Ok(held)
+        require(self.instance.workflow_same_instance(store),"AUTHORITY_REQUIRED")?;
+        for (a,b) in [(&held.key.logical_store_id,&key.logical_store_id),(&held.key.scope[0],&key.scope[0]),(&held.key.scope[1],&key.scope[1]),(&held.key.source,&key.source),(&held.key.operation_id,&key.operation_id)] {
+            s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+            s.semantic_work().scan_bytes(a.len()).map_err(core_error)?;
+            s.semantic_work().scan_bytes(b.len()).map_err(core_error)?;
+            require(a==b,"INTEGRITY_FAILURE")?;
+        }
+        let actual=tx.workflow_management_changes(s).await.map_err(agreement::financial::management_read_error)?;
+        s.semantic_work().arithmetic(Op::Compare,&[&actual.into(),&held.changes.into()]).map_err(core_error)?;
+        require(actual==held.changes,"STALE_REVISION")?;
+        self.management_paths(store,s)?;
+        self.management_available(held,key,s)
     }
     pub(super) async fn read(
         &self,
