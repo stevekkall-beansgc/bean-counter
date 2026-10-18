@@ -70,6 +70,13 @@ impl<'c> EconomicAuditStream<'c>{
             let ownership=arena.reserve_external_payload(mem::size_of::<PreparedOriginBatch<'s,'c,'p>>(),m)?;
             m.write_bytes(mem::size_of::<[[u32;ORIGIN_POINTER_BATCH_WORDS];33]>()+mem::size_of::<[u32;ORIGIN_POINTER_BATCH_WORDS]>()+mem::size_of::<[bool;33]>()+2*32*ORIGIN_POINTER_BLOCK)?;
             let mut masks=[[0u32;ORIGIN_POINTER_BATCH_WORDS];33];let mut union=[0u32;ORIGIN_POINTER_BATCH_WORDS];let mut started=[false;33];
+            if self.reused_prefixes {
+                for input in source_masks.iter().copied().chain(std::iter::once(financial_masks)){
+                    m.visit("audit.produced_union_witness")?;
+                    if !w::compare(m,input.len(),words)?.is_eq(){return Err(fail("produced union mask words"));}
+                    for (combined,mask) in union.iter_mut().zip(input){m.visit("audit.produced_union_word")?;word(m,ArithmeticOperation::BitOr,*combined,Some(*mask))?;*combined|=*mask;}
+                }
+            } else {
             for(index,(state,input))in self.sources.iter_mut().zip(source_masks.iter().copied()).chain(self.financial.iter_mut().map(|state|(state,financial_masks))).enumerate(){
                 m.visit("audit.batch_witness")?;
                 if !w::compare(m,input.len(),words)?.is_eq(){return Err(fail("audit source mask words"));}
@@ -89,6 +96,7 @@ impl<'c> EconomicAuditStream<'c>{
                     ValidationWork::arithmetic(m,ArithmeticOperation::Add,&[&state.count.into(),&count.into()])?;
                     state.count=state.count.checked_add(count).ok_or_else(||fail("audit batch witness count overflow"))?;
                 }
+            }
             }
             let last_sequence=last_selected(m,batch.entries,&union[..words])?;
             let union_started=!w::compare(m,self.union_count,0u64)?.is_eq();
@@ -127,12 +135,14 @@ impl PreparedOriginBatch<'_,'_,'_>{
             let mut partial:[Option<(usize,&mut Prefix<'_>)>;33]=std::array::from_fn(|_|None);
             let mut memberships=[[false;ORIGIN_POINTER_BLOCK];33];
             let mut uniform_slots=uniform.iter_mut();let mut partial_slots=partial.iter_mut();
+            if !self.stream.reused_prefixes {
             for(index,state)in self.stream.sources.iter_mut().chain(self.stream.financial.iter_mut()).enumerate(){
                 m.visit("audit.batch_chunk_witness")?;let mask=self.masks[index][self.next_word];
                 if !w::compare(m,mask,0u32)?.is_eq(){
                     if w::compare(m,mask,union)?.is_eq(){*uniform_slots.next().ok_or_else(||fail("audit uniform witness capacity"))?=Some((index,state));}
                     else{memberships[index]=flags(m,mask)?;*partial_slots.next().ok_or_else(||fail("audit partial witness capacity"))?=Some((index,state));}
                 }
+            }
             }
             let mut raw=canonical_pointers.iter();
             // Fixed-width physical ordinal slots, including paired zero
@@ -155,6 +165,7 @@ impl PreparedOriginBatch<'_,'_,'_>{
                     m.visit("audit.batch_partial_membership")?;
                     if memberships[*index][position]{if self.started[*index]{syntax(m,&mut state.hash,b",")?;}bytes(m,&mut state.hash,raw)?;self.started[*index]=true;}
                 }
+                if let Some(union)=self.stream.union_digest.as_mut(){bytes(m,union,&digest)?;}
                 if let Some(combined)=self.stream.combined.as_mut(){if self.union_started{syntax(m,combined,b",")?;}bytes(m,combined,raw)?;}self.union_started=true;
             }
             ValidationWork::visit(m,w::ValidationVisit::MemberCompare)?;

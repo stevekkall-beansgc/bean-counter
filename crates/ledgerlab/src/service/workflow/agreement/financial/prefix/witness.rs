@@ -203,6 +203,9 @@ impl Memberships {
         _pointers: &ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        let _reader = s
+            .reserve_external_payload(inventory::REQUIRED_EDGE_READER_PAYLOAD)
+            .map_err(core_error)?;
         // The actual output masks ARE the reachability representation. An
         // earlier dependency is ORed as one ordinal word; there is no per-new
         // witness-bit transpose or secondary by-origin membership array.
@@ -665,7 +668,8 @@ impl WitnessPrefixProduction<'_, '_, '_> {
             )?;
             // Headers are now in canonical Ref order. Match each to one actual
             // first-pass output; identical commitments have identical masks
-            // absent a SHA collision. Core rehashes the actual seeds/pointers.
+            // absent a SHA collision. Core binds these actual header seeds to
+            // the produced facts and rechecks the exact ordered raw union.
             let mut used = [false; 32];
             let mut order = [0usize; 32];
             let mut stream =
@@ -707,6 +711,9 @@ impl WitnessPrefixProduction<'_, '_, '_> {
             }
             stream
                 .set_financial_header(financial.reference, financial.body, s)
+                .map_err(core_error)?;
+            stream
+                .reuse_produced_prefixes(produced, &order[..sources.len()], s)
                 .map_err(core_error)?;
             prefix.stream_memberships(
                 &memberships,

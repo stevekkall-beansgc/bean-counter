@@ -14,6 +14,10 @@ use sha2::{Digest, Sha256};
 
 const ENTRY_BYTES: usize = 256;
 const KEY_BYTES: usize = 216;
+// One sequential graph reader is live throughout each consumer walk. Includes
+// its SHA state, raw/root row, numeric copies, location and both digests.
+pub(in super::super) const REQUIRED_EDGE_READER_PAYLOAD: usize =
+    std::mem::size_of::<Sha256>() + ENTRY_BYTES + 16 + 64 + std::mem::size_of::<EdgeLocation>();
 const ORDINAL_BITS: [u32; 32] = {
     let mut out = [0; 32];
     let mut i = 0;
@@ -2080,9 +2084,8 @@ impl Inventory {
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
         let location = self.edge_locations.get(ordinal, s)?;
-        let _control = s
-            .reserve_external_payload(std::mem::size_of::<Sha256>() + ENTRY_BYTES + 8 + 64)
-            .map_err(core_error)?;
+        // Enclosing close() / diagnostic test owns this fixed sequential
+        // reader payload once, through every read and final digest comparison.
         let mut hash = Sha256::new();
         s.check_cancelled().map_err(core_error)?;
         self.bodies

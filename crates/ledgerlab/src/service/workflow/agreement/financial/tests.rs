@@ -535,6 +535,9 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 )?,
                 Some(2)
             );
+            let _reader = session
+                .reserve_external_payload(prefix::inventory::REQUIRED_EDGE_READER_PAYLOAD)
+                .map_err(core_error)?;
             // These genuine committed prefixes use dense sequences1..4;
             // the stored masks themselves are ordinal keyed, not sequence keyed.
             for (ordinal, expected) in [(1, vec![1]), (2, vec![])] {

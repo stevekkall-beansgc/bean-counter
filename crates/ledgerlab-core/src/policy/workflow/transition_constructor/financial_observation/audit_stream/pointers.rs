@@ -222,6 +222,7 @@ impl EconomicAuditStream<'_>{
                     m.visit("audit.block_pointer_membership")?;
                     if memberships[*index][position]{if started[*index]{syntax(m,&mut state.hash,b",")?;}bytes(m,&mut state.hash,raw)?;started[*index]=true;}
                 }
+                if let Some(union)=self.union_digest.as_mut(){bytes(m,union,&digest)?;}
                 if let Some(combined)=self.combined.as_mut(){if union_started{syntax(m,combined,b",")?;}bytes(m,combined,raw)?;}union_started=true;
             }
             ValidationWork::arithmetic(m,ArithmeticOperation::Add,&[&self.union_count.into(),&u64::from(union_count).into()])?;
