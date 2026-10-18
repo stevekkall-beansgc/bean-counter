@@ -7,7 +7,7 @@ use ledgerlab_core::validation_work::ValidationVisit;
 pub(in super::super) struct ObservedAppBinding {
     pub(super) original: prefix::LocatedAppAcceptance,
     pub(super) sources: Vec<source::ObservedSource>,
-    pub(super) parties: super::super::acceptance::CurrentPlatformConsents,
+    pub(super) parties: Option<super::super::acceptance::CurrentPlatformConsents>,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     pub(super) setup: crate::service::billing::Setup,
@@ -19,6 +19,7 @@ pub(in super::super) struct ObservedAppActivation {
     pub(in super::super) binding: ObservedAppBinding,
     pub(in super::super) normalized_payload: ledgerlab_core::canonical::audit_arena::AuditedBytes,
     pub(in super::super) records: super::super::activation::ActivationRecords,
+    pub(in super::super) admission_source: Option<usize>,
     _held_head: Option<crate::store::sqlite::workflow::financial::HeadLocator>,
 }
 pub(in super::super) async fn observe(
@@ -30,7 +31,17 @@ pub(in super::super) async fn observe(
 ) -> Result<ObservedAppBinding> {
     let binding = check::field(payload, "binding_ref", session)?;
     let customer = check::field(payload, "customer", session)?;
-    observe_binding(ledger, tx, key, binding, Some(customer), None, session).await
+    observe_binding(
+        ledger,
+        tx,
+        key,
+        "work.accept",
+        binding,
+        Some(customer),
+        None,
+        session,
+    )
+    .await
 }
 /// Activation supplies its literal accepted Binding and agreement identity.
 /// This reuses source identity/current-state acquisition only; the activation
@@ -46,8 +57,17 @@ pub(in super::super) async fn observe_activation(
     let kind = incoming.kind();
     let binding = check::field(payload, "accepted_binding_ref", session)?;
     let agreement = check::field(payload, "agreement_id", session)?;
-    let observed =
-        observe_binding(ledger, tx, key, binding, None, Some(agreement), session).await?;
+    let observed = observe_binding(
+        ledger,
+        tx,
+        key,
+        kind,
+        binding,
+        None,
+        Some(agreement),
+        session,
+    )
+    .await?;
     let normalized_payload = super::super::activation::normalize(
         kind,
         payload,
@@ -67,6 +87,19 @@ pub(in super::super) async fn observe_activation(
             )
             .map_err(core_error)?;
         let binding = observed._parsed_binding.value();
+        let admission_source =
+            if super::super::acceptance::same_recipe_text(kind, "agreement.revoke", session)? {
+                None
+            } else {
+                Some(observed.original.current_activation_source(
+                    &observed.sources,
+                    binding,
+                    key,
+                    &observed.setup.operator,
+                    &observed.at,
+                    session,
+                )?)
+            };
         let customer = check::text(binding, "customer", session)?;
         let agreement = check::text(binding, "agreement_id", session)?;
         let head = tx
@@ -134,10 +167,10 @@ pub(in super::super) async fn observe_activation(
             prior.as_ref().map(|v| v.value()),
             session,
         )?;
-        Ok((head, records))
+        Ok((head, records, admission_source))
     }
     .await;
-    let (head, records) = built.inspect_err(|_| {
+    let (head, records, admission_source) = built.inspect_err(|_| {
         session.invalidate();
         tx.workflow_proof_failure_handle()
             .store(true, std::sync::atomic::Ordering::Release);
@@ -146,6 +179,7 @@ pub(in super::super) async fn observe_activation(
         binding: observed,
         normalized_payload,
         records,
+        admission_source,
         _held_head: head,
     })
 }
@@ -153,6 +187,7 @@ async fn observe_binding(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
     key: &OperationKey,
+    operation: &str,
     binding_ref: &Value,
     expected_customer: Option<&Value>,
     expected_agreement: Option<&Value>,
@@ -253,9 +288,22 @@ async fn observe_binding(
         original
             .current_sources(tx, key, &setup, &sources, before, session)
             .await?;
-        let parties = original
-            .current_platforms(tx, key, binding.value(), &at, before, session)
-            .await?;
+        // Stop remains the existing Authority2 recipe: current admission
+        // mapping expiry/revocation cannot erase the right to stop accrued
+        // work. Its explicit stop evidence and target checks remain required.
+        let parties = if super::super::acceptance::same_recipe_text(
+            operation,
+            "agreement.revoke",
+            session,
+        )? {
+            None
+        } else {
+            Some(
+                original
+                    .current_platforms(tx, key, binding.value(), &at, before, session)
+                    .await?,
+            )
+        };
         Ok(ObservedAppBinding {
             original,
             sources,

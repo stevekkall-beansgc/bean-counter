@@ -419,3 +419,31 @@ impl ReplayedAcceptance {
             .await
     }
 }
+
+impl ReplayedAcceptance {
+    /// Activation's current coverage uses the SAME originally accepted graph
+    /// and nominated-source validator. The selected index is DATA only; stop
+    /// deliberately follows its separate evidence-based Authority2 recipe.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) fn current_activation_source(
+        &self,
+        sources: &[current::source::ObservedSource],
+        publication: &prefix::RecompiledPublication,
+        binding: &Value,
+        key: &OperationKey,
+        actor: &str,
+        at: &Timestamp,
+        s: &mut OriginalAuditSession,
+    ) -> Result<usize> {
+        nominations::validate(
+            sources,
+            &self.private_documents,
+            &self.original.input,
+            publication,
+            binding,
+            at.as_str(),
+            s,
+        )?;
+        admission::select(sources, actor, key, s)
+    }
+}

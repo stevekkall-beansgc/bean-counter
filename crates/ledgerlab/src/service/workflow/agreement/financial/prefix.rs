@@ -1433,3 +1433,25 @@ impl LocatedAppAcceptance {
         result
     }
 }
+
+impl LocatedAppAcceptance {
+    pub(super) fn current_activation_source(
+        &self,
+        sources: &[current::source::ObservedSource],
+        binding: &Value,
+        key: &OperationKey,
+        actor: &str,
+        at: &Timestamp,
+        s: &mut OriginalAuditSession,
+    ) -> Result<usize> {
+        self.acceptance.current_activation_source(
+            sources,
+            &self.publication,
+            binding,
+            key,
+            actor,
+            at,
+            s,
+        )
+    }
+}
