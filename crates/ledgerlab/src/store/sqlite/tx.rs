@@ -777,10 +777,9 @@ impl SqliteTx {
             self.failed = false;
         }
         if self.failed || !self.workflow_in_time() {
+            let error=if !self.workflow_in_time(){self.workflow_timeout_error()}else{StoreError::Integrity("failed or cancelled transaction")};
             return match self.rollback().await {
-                Ok(()) => Err(CommitError::RolledBack(StoreError::Integrity(
-                    "failed, cancelled or expired transaction",
-                ))),
+                Ok(()) => Err(CommitError::RolledBack(error)),
                 Err(_) => Err(CommitError::OutcomeUnknown),
             };
         }

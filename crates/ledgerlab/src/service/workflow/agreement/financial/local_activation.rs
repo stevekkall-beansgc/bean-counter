@@ -43,12 +43,12 @@ pub(super) async fn prepare_append(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
 
 /// Routing DATA only. The selected writer independently reloads and validates
 /// the exact original agreement before preparation; no decision comes from this read.
-pub(super) async fn selected(ledger:&LocalWorkflowLedger,raw:&[u8],s:&mut OriginalAuditSession)->Result<bool>{
+pub(super) async fn selected(ledger:&LocalWorkflowLedger,raw:&[u8],snapshot:&crate::service::workflow::resources::Snapshot,s:&mut OriginalAuditSession)->Result<bool>{
  use crate::store::ports::{AcceptanceStore,AcceptanceTx};
  let req=super::super::request::Request::parse_agreement(raw)?;
  if req.kind()!="agreement.activate"{return Ok(false);}
  let Some(r)=req.payload().get("accepted_binding_ref") else{return Ok(false)};
- let mut tx=ledger.store.begin(deadline()).await.map_err(crate::service::store_error)?;
+ let mut tx=snapshot.begin(&ledger.store,s).await?;
  let result=async{
   ledger.admin.read(&ledger.store,&mut tx,req.key()).await?;
   let before=tx.workflow_sequence().await.map_err(crate::service::store_error)?;

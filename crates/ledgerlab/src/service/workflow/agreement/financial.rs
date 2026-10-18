@@ -119,7 +119,7 @@ impl LocalWorkflowLedger {
   let snapshot=self.resource_snapshot()?;let arena=snapshot.arena()?;
   let mut session=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
   let _cancellation=AttemptCancellation::new(&arena,snapshot.deadline()?);
-  if local_activation::selected(self,raw,&mut session).await?{if snapshot.settings.is_some(){self.financial_owned_reply_in(raw,snapshot,session).await.map(Some)}else{self.financial_owned_reply(raw).await.map(Some)}}else{Ok(None)}
+  if local_activation::selected(self,raw,&snapshot,&mut session).await?{if snapshot.settings.is_some(){self.financial_owned_reply_in(raw,snapshot,session).await.map(Some)}else{self.financial_owned_reply(raw).await.map(Some)}}else{Ok(None)}
  }
 }
 
@@ -207,7 +207,7 @@ async fn finish_transaction(
     match attempted {
         Err(error) => {
             tx.rollback().await.map_err(crate::service::store_error)?;
-            Err(error)
+            Err(configured_error(error,resources))
         }
         Ok(TransactionResult::OriginalOwned(response)) => {
             tx.rollback().await.map_err(crate::service::store_error)?;
@@ -221,7 +221,7 @@ async fn finish_transaction(
         Ok(TransactionResult::Appended(response)) => {
             if let Some(snapshot)=resources {if let Err(e)=snapshot.recheck(){tx.rollback().await.map_err(crate::service::store_error)?;return Err(e);}}
             tx.commit_with_resource_session(session).await.map_err(|error| match error {
-                crate::store::sqlite::FinancialCommitError::Resource(error)=>core_error(error),
+                crate::store::sqlite::FinancialCommitError::Resource(error)=>configured_error(core_error(error),resources),
                 crate::store::sqlite::FinancialCommitError::Commit(error)=>match error {
                 crate::store::errors::CommitError::RolledBack(error) => {
                     crate::service::store_error(error)
@@ -566,4 +566,13 @@ fn take_read_session(tx:&mut SqliteTx)->Result<ledgerlab_core::validation_work::
 fn retain_read_session(tx:&mut SqliteTx,s:ledgerlab_core::validation_work::OriginalAuditSession){
  tx.workflow_read_active=false;
  if tx.workflow_snapshot.as_ref().is_some_and(|v|v.settings.is_some()){tx.workflow_read_session=Some(s);}else{tx.workflow_read_cancellation.take();}
+}
+
+fn configured_error(error:ServiceError,resources:Option<&crate::service::workflow::resources::Snapshot>)->ServiceError {
+ // A timer cancellation is a request budget refusal; keep other semantic and
+ // named quota errors intact rather than hiding them behind a generic code.
+ if matches!(&error,ServiceError::Rejection(code) if *code=="PROGRAM_BUDGET_EXCEEDED") {
+  if let Some(timeout)=resources.and_then(|r|r.timeout_error()){return crate::service::store_error(timeout);}
+ }
+ error
 }

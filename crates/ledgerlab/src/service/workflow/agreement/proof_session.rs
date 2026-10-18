@@ -313,12 +313,15 @@ pub(super) fn enter(
             }
             // The installed Profile B operation bound counts both publication
             // and agreement identities; duplicates do not consume this set.
-            if state.active.contains(identity)
-                || tx.workflow_snapshot.as_ref().and_then(|s|s.settings.as_ref()).map(|r|r.resolved_records).unwrap_or(Some(100_000)).is_some_and(|maximum|state.active.len().checked_add(state.complete.len()).is_none_or(|n|n>=maximum))
-            {
-                state.invalidate();
-                return Err(ServiceError::IntegrityFailure);
+            if state.active.contains(identity) {
+                state.invalidate();return Err(ServiceError::IntegrityFailure);
             }
+            let observed=state.active.len().checked_add(state.complete.len()).and_then(|n|n.checked_add(1)).ok_or(ServiceError::Unavailable)?;
+            if let Some(settings)=tx.workflow_snapshot.as_ref().and_then(|s|s.settings.as_ref()) {
+                if let Some(limit)=settings.resolved_records {if observed>limit {
+                    state.invalidate();return Err(ServiceError::ResourceLimit{setting:"resolved_records",limit:limit as u64,observed:observed as u64});
+                }}
+            }else if observed>100_000 {state.invalidate();return Err(ServiceError::IntegrityFailure);}
             state.active.insert(identity.to_vec());
             Ok(Entry::Started(Guard {
                 identity: identity.to_vec(),
