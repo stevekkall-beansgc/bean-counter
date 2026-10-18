@@ -23,19 +23,9 @@ impl<'a> PartyWriteData<'a> {
         journal: &'a wire::PartyJournalData,
         session: &mut OriginalAuditSession,
     ) -> Result<Self> {
-        let result = session
-            .parse_representation(pending.result.bytes(), RepresentationKind::Record)
-            .map_err(core_error)?;
-        session
-            .semantic_work()
-            .write_bytes(std::mem::size_of::<[FinancialDocument; 3]>())
-            .map_err(core_error)?;
-        let documents =
-            [&pending.root, &pending.authority, &pending.result].map(|r| FinancialDocument {
-                reference: r.reference(),
-                schema: r.schema(),
-                canonical_bytes: r.bytes(),
-            });
+        // Reserve both the retained row controls and the entire member output
+        // before parsing/constructing any of them. A later member refusal must
+        // not leave the Vec allocation or earlier writes outside its owner.
         let count = journal.members().len();
         let payload = number(
             count,
@@ -43,9 +33,23 @@ impl<'a> PartyWriteData<'a> {
             Op::Multiply,
             session,
         )?;
+        let payload = number(payload, std::mem::size_of::<Self>(), Op::Add, session)?;
         let members_storage = session
             .reserve_external_payload(payload)
             .map_err(core_error)?;
+        session
+            .semantic_work()
+            .write_bytes(payload)
+            .map_err(core_error)?;
+        let result = session
+            .parse_representation(pending.result.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let documents =
+            [&pending.root, &pending.authority, &pending.result].map(|r| FinancialDocument {
+                reference: r.reference(),
+                schema: r.schema(),
+                canonical_bytes: r.bytes(),
+            });
         let mut members = Vec::new();
         members
             .try_reserve_exact(count)
@@ -69,10 +73,6 @@ impl<'a> PartyWriteData<'a> {
                 }
             }
             if !same {
-                session
-                    .semantic_work()
-                    .write_bytes(std::mem::size_of::<&ExactRef>())
-                    .map_err(core_error)?;
                 members.push(r);
             }
         }

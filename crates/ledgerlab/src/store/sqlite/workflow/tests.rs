@@ -162,6 +162,23 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
             payload_bytes: 30258
         }
     );
+    // The new prepared writer calls this SAME paid Profile-B equation kernel.
+    // Compare it against the existing writer's actual committed row dimensions;
+    // a rejected prospective delta is a read and leaves those rows unchanged.
+    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    assert_eq!(
+        capacity::check_with_session(tx.conn(), 0, 0, &mut session).await.unwrap(),
+        capacity::WorkflowMeter { operations: 1, payload_bytes: 30258 },
+    );
+    assert!(matches!(
+        capacity::check_with_session(tx.conn(), 100000, 0, &mut session).await,
+        Err(financial::FinancialReadError::Store(crate::store::errors::StoreError::BillingHistoryLimit)),
+    ));
+    assert_eq!(
+        capacity::check_with_session(tx.conn(), 0, 0, &mut session).await.unwrap(),
+        capacity::WorkflowMeter { operations: 1, payload_bytes: 30258 },
+    );
     tx.commit().await.unwrap();
     // Simulate a response lost after real durable commit. Lookup returns the
     // original retained bytes without any compiler or current policy selection.

@@ -1,5 +1,6 @@
 //! Borrowed mechanical write operands from the private coordinator. Owning
 //! artifacts and their resource session remain alive in that coordinator.
+use super::effects::same_text;
 use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{EconomicCandidate, ExactRef};
 
@@ -62,10 +63,80 @@ pub(super) struct JournalDelta {
     before: super::super::capacity::WorkflowMeter,
     additional: i64,
 }
-fn extra(total: i64, amount: usize) -> Result<i64, StoreError> {
+fn extra(
+    total: i64,
+    amount: usize,
+    session: &mut OriginalAuditSession,
+) -> Result<i64, FinancialReadError> {
+    session.semantic_work().arithmetic(
+        ArithmeticOperation::Compare,
+        &[&amount.into(), &(i64::MAX as u64).into()],
+    )?;
+    let amount = i64::try_from(amount).map_err(|_| StoreError::BillingHistoryLimit)?;
+    session
+        .semantic_work()
+        .arithmetic(ArithmeticOperation::Add, &[&total.into(), &amount.into()])?;
     total
-        .checked_add(i64::try_from(amount).map_err(|_| StoreError::BillingHistoryLimit)?)
-        .ok_or(StoreError::BillingHistoryLimit)
+        .checked_add(amount)
+        .ok_or_else(|| StoreError::BillingHistoryLimit.into())
+}
+fn at_most(
+    length: usize,
+    maximum: usize,
+    session: &mut OriginalAuditSession,
+) -> Result<bool, FinancialReadError> {
+    session.semantic_work().arithmetic(
+        ArithmeticOperation::Compare,
+        &[&length.into(), &maximum.into()],
+    )?;
+    Ok(length <= maximum)
+}
+fn payload_bound(
+    raw: &[u8],
+    maximum: usize,
+    session: &mut OriginalAuditSession,
+) -> Result<bool, FinancialReadError> {
+    session.semantic_work().visit(ValidationVisit::Constraint)?;
+    Ok(!raw.is_empty() && at_most(raw.len(), maximum, session)?)
+}
+fn journal_framing(
+    documents: &[FinancialDocument<'_>],
+    o: &FinancialJournal<'_>,
+    session: &mut OriginalAuditSession,
+) -> Result<bool, FinancialReadError> {
+    session.semantic_work().visit(ValidationVisit::Constraint)?;
+    let mut kind = false;
+    for allowed in [
+        "agreement.accept",
+        "work.accept",
+        "work.reverse",
+        "quantity.correct",
+        "outcome.submit",
+        "outcome.correct",
+        "outcome.close",
+        "link.assert",
+        "evidence.retain",
+        "authority.change",
+        "invocation.authorize",
+        "invocation.close",
+        "cost.finalize",
+        "cost.correct",
+    ] {
+        if same_text(o.kind, allowed, session)? {
+            kind = true;
+            break;
+        }
+    }
+    Ok(kind
+        && same_text(&o.operation_ref.kind, "workflow-operation", session)?
+        && same_text(&o.manifest_ref.kind, "workflow-manifest", session)?
+        && same_text(&o.receipt_ref.kind, "workflow-receipt", session)?
+        && payload_bound(o.identity, 262144, session)?
+        && payload_bound(o.operation_bytes, 8388608, session)?
+        && payload_bound(o.manifest_bytes, 4194304, session)?
+        && payload_bound(o.receipt_bytes, 1048576, session)?
+        && at_most(documents.len(), 4095, session)?
+        && at_most(o.members.len(), 4095, session)?)
 }
 impl SqliteTx {
     /// Same writer/poison/unknown-commit boundary as the administrative journal.
@@ -197,42 +268,19 @@ impl SqliteTx {
         o: &FinancialJournal<'_>,
         session: &mut OriginalAuditSession,
     ) -> Result<JournalDelta, FinancialReadError> {
+        let payload = io::binding_payload(&[], &[], 0, 0, session)?;
+        self.financial_reserve_io(session, payload)?;
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if version != 13 && version != 14 && version != 15 {
+        self.financial_finish_io(session).await?;
+        if !resource_compare(session, version, 13)?.is_eq()
+            && !resource_compare(session, version, 14)?.is_eq()
+            && !resource_compare(session, version, 15)?.is_eq()
+        {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
-        if !matches!(
-            o.kind,
-            "agreement.accept"
-                | "work.accept"
-                | "work.reverse"
-                | "quantity.correct"
-                | "outcome.submit"
-                | "outcome.correct"
-                | "outcome.close"
-                | "link.assert"
-                | "evidence.retain"
-                | "authority.change"
-                | "invocation.authorize"
-                | "invocation.close"
-                | "cost.finalize"
-                | "cost.correct"
-        ) || o.operation_ref.kind != "workflow-operation"
-            || o.manifest_ref.kind != "workflow-manifest"
-            || o.receipt_ref.kind != "workflow-receipt"
-            || o.identity.is_empty()
-            || o.identity.len() > 262144
-            || o.operation_bytes.is_empty()
-            || o.operation_bytes.len() > 8388608
-            || o.manifest_bytes.is_empty()
-            || o.manifest_bytes.len() > 4194304
-            || o.receipt_bytes.is_empty()
-            || o.receipt_bytes.len() > 1048576
-            || documents.len() > 4095
-            || o.members.len() > 4095
-        {
+        if !journal_framing(documents, o, session)? {
             return Err(StoreError::Integrity("financial prepared framing").into());
         }
         let payload = io::binding_payload(&[o.identity], &[], 0, 0, session)?;
@@ -254,12 +302,12 @@ impl SqliteTx {
             o.manifest_bytes,
             o.receipt_bytes,
         ] {
-            additional = extra(additional, bytes.len())?;
+            additional = extra(additional, bytes.len(), session)?;
         }
         for d in documents {
-            if d.reference.kind == "workflow-operation"
-                || d.canonical_bytes.is_empty()
-                || d.canonical_bytes.len() > 4194304
+            session.semantic_work().visit(ValidationVisit::Element)?;
+            if same_text(&d.reference.kind, "workflow-operation", session)?
+                || !payload_bound(d.canonical_bytes, 4194304, session)?
             {
                 return Err(StoreError::Integrity("financial prepared document bounds").into());
             }
@@ -293,15 +341,26 @@ impl SqliteTx {
                 }
                 Some(true) => {}
                 None => {
-                    additional = extra(additional, d.canonical_bytes.len())?;
+                    additional = extra(additional, d.canonical_bytes.len(), session)?;
                 }
             }
         }
-        let before = super::super::capacity::check(self.conn(), 1, additional).await?;
-        if before.operations.checked_add(1) != Some(o.sequence) {
+        let before = self
+            .accounted_capacity_check(1, additional, session)
+            .await?;
+        session.semantic_work().arithmetic(
+            ArithmeticOperation::Add,
+            &[&before.operations.into(), &1i64.into()],
+        )?;
+        let next = before
+            .operations
+            .checked_add(1)
+            .ok_or(StoreError::BillingHistoryLimit)?;
+        if !resource_compare(session, next, o.sequence)?.is_eq() {
             return Err(StoreError::Integrity("financial journal sequence gap").into());
         }
         for d in documents {
+            session.semantic_work().visit(ValidationVisit::Element)?;
             let r = d.reference;
             let bound = [
                 r.kind.as_bytes(),
@@ -415,9 +474,11 @@ impl SqliteTx {
                 reference.id.as_str(),
                 reference.digest.as_str(),
             );
-            if kind == "workflow-operation" {
-                if id == o.operation_ref.id && digest == o.operation_ref.digest {
-                    own_operation_members += 1;
+            if same_text(kind, "workflow-operation", session)? {
+                if same_text(id, &o.operation_ref.id, session)?
+                    && same_text(digest, &o.operation_ref.digest, session)?
+                {
+                    own_operation_members = resource_add(session, own_operation_members, 1)?;
                 } else {
                     let bound = [
                         key.logical_store_id.as_bytes(),
@@ -481,10 +542,11 @@ impl SqliteTx {
                 .await?;
             self.financial_finish_io(session).await?;
         }
-        if own_operation_members != 1 {
+        if !resource_compare(session, own_operation_members, 1)?.is_eq() {
             return Err(StoreError::Integrity("financial operation manifest membership").into());
         }
         for d in documents {
+            session.semantic_work().visit(ValidationVisit::Element)?;
             let bound = [
                 o.identity,
                 d.reference.kind.as_bytes(),
@@ -504,6 +566,23 @@ impl SqliteTx {
         }
         Ok(JournalDelta { before, additional })
     }
+    // This fixed scalar query sequence uses the SAME Profile-B equations and
+    // existing retained limits as every other workflow writer. Its worker
+    // ownership spans all query results; no canonical body is materialized.
+    async fn accounted_capacity_check(
+        &mut self,
+        operations: i64,
+        bytes: i64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<super::super::capacity::WorkflowMeter, FinancialReadError> {
+        let payload = io::binding_payload(&[], &[], 0, 0, session)?;
+        self.financial_reserve_io(session, payload)?;
+        let meter =
+            super::super::capacity::check_with_session(self.conn(), operations, bytes, session)
+                .await?;
+        self.financial_finish_io(session).await?;
+        Ok(meter)
+    }
     pub(super) async fn finish_journal_rows(
         &mut self,
         o: &FinancialJournal<'_>,
@@ -521,16 +600,28 @@ impl SqliteTx {
         self.financial_finish_io(session).await?;
         let payload = io::binding_payload(&[], &[], 4, 0, session)?;
         self.financial_reserve_io(session, payload)?;
+        session.semantic_work().arithmetic(
+            ArithmeticOperation::Add,
+            &[&before.payload_bytes.into(), &additional.into()],
+        )?;
+        let next_bytes = before
+            .payload_bytes
+            .checked_add(additional)
+            .ok_or(StoreError::BillingHistoryLimit)?;
         let changed=sqlx::query("UPDATE workflow_state SET operation_count=?,payload_bytes=? WHERE singleton=1 AND operation_count=? AND payload_bytes=?")
-            .bind(o.sequence).bind(before.payload_bytes.checked_add(additional).ok_or(StoreError::BillingHistoryLimit)?)
+            .bind(o.sequence).bind(next_bytes)
             .bind(before.operations).bind(before.payload_bytes).execute(self.conn()).await?.rows_affected();
         self.financial_finish_io(session).await?;
+        session.semantic_work().arithmetic(
+            ArithmeticOperation::Compare,
+            &[&changed.into(), &1u64.into()],
+        )?;
         if changed != 1 {
             return Err(StoreError::ExpectedCurrent.into());
         }
         // Exact counted final state catches duplicate preflight documents and
         // any mismatch before this append may clear its poison bit.
-        super::super::capacity::check(self.conn(), 0, 0).await?;
+        self.accounted_capacity_check(0, 0, session).await?;
         Ok(())
     }
 }
