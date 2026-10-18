@@ -5,7 +5,7 @@ use crate::Result;
 use serde_json::{Value, json};
 /// Match the existing shared document normalizers, not whole-object JCS
 /// ordering: catalog IDs use UTF16, mapping template Names use Rust text order.
-fn keyed_order(m:&mut CoreMeter,rows:&[Value],key:&str,utf16:bool)->Result<()> {
+pub(super) fn keyed_order(m:&mut CoreMeter,rows:&[Value],key:&str,utf16:bool)->Result<()> {
     let mut previous:Option<&str>=None;
     for row in rows {
         m.visit("inventory.slot_key_order")?;

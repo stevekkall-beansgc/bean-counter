@@ -108,7 +108,9 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
     }
     let sources = invoke!(shape::array, m, v, "source_slots")?;
     bounds(m, sources.len(), 1, 32)?;
-    ordered(m, sources)?;
+    // App Binding2 shares the actual AcceptanceTerms source-slot normalizer:
+    // explicit named rows order by name, rather than whole-object JCS bytes.
+    if app {super::slots::keyed_order(m,sources,"name",false)?;} else {ordered(m,sources)?;}
     for source in sources {
         shape::closed(m, source, &["name", "sources", "evidence_kinds"], &[])?;
         invoke!(qualified, m, invoke!(shape::text, m, source, "name")?)?;
@@ -142,7 +144,7 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
     }
     let funding = invoke!(shape::array, m, v, "funding_legs")?;
     bounds(m, funding.len(), 1, 16)?;
-    ordered(m, funding)?;
+    if app {super::slots::keyed_order(m,funding,"name",false)?;} else {ordered(m,funding)?;}
     for leg in funding {
         shape::closed(
             m,
