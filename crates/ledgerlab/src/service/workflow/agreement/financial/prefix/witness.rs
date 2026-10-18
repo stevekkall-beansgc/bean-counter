@@ -437,30 +437,42 @@ impl FoldedInventory {
     /// Real first-pass prefix production uses the same original-completed
     /// inventory, exact root cuts, packed memberships and bounded raw reader.
     /// The actual current seed/header emitter still owns custody and framing.
-    pub(super) fn produce_witness_prefixes<'p, 'k>(
+    pub(super) fn produce_witness_prefixes<'p, 'k, 's>(
         &'p mut self,
         key: &'k ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
         sources: &[SourcePrefixInput<'_>],
         financial: FinancialPrefixInput<'_>,
-        s: &mut OriginalAuditSession,
-    ) -> Result<WitnessPrefixProduction<'p, 'k>> {
+        s: &'s mut OriginalAuditSession,
+    ) -> Result<WitnessPrefixProduction<'p, 'k, 's>> {
         let result = self.produce_witness_prefixes_inner(key, sources, financial, s);
-        if result.is_err() {
-            s.invalidate();
-        }
-        result
+        let (produced, memberships, control) = match result {
+            Ok(value) => value,
+            Err(error) => {
+                s.invalidate();
+                return Err(error);
+            }
+        };
+        Ok(WitnessPrefixProduction {
+            prefix: self,
+            key,
+            produced,
+            memberships,
+            session: s,
+            _control: control,
+        })
     }
-    fn produce_witness_prefixes_inner<'p, 'k>(
-        &'p mut self,
-        key: &'k ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
+    fn produce_witness_prefixes_inner(
+        &mut self,
+        key: &ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
         sources: &[SourcePrefixInput<'_>],
         financial: FinancialPrefixInput<'_>,
         s: &mut OriginalAuditSession,
-    ) -> Result<WitnessPrefixProduction<'p, 'k>> {
+    ) -> Result<(ProducedOriginPrefixes, Memberships, ExternalBufferLease)> {
         require(!compare(sources.len(), 32, s)?.is_gt(), "INTEGRITY_FAILURE")?;
         let control = s
             .reserve_external_payload(
-                mem::size_of::<[&Value; 32]>() + mem::size_of::<WitnessPrefixProduction<'p, 'k>>(),
+                mem::size_of::<[&Value; 32]>()
+                    + mem::size_of::<WitnessPrefixProduction<'_, '_, '_>>(),
             )
             .map_err(core_error)?;
         let mut bodies = [financial.fields; 32];
@@ -497,13 +509,7 @@ impl FoldedInventory {
             self.witness_memberships(&bodies[..sources.len()], financial.fields, s)?;
         self.stream_memberships(&memberships, sources.len(), &mut producer, None, s)?;
         let produced = producer.finish_prefixes(s).map_err(core_error)?;
-        Ok(WitnessPrefixProduction {
-            prefix: self,
-            key,
-            produced,
-            memberships,
-            _control: control,
-        })
+        Ok((produced, memberships, control))
     }
     fn stream_memberships(
         &mut self,
@@ -626,14 +632,20 @@ impl FoldedInventory {
 /// The first pass's actual membership owner stays with its exact immutable
 /// completed inventory while the host emits headers. No fresh graph walk,
 /// serialized flag, replacement snapshot or new original meter is introduced.
-pub(super) struct WitnessPrefixProduction<'p, 'k> {
+pub(super) struct WitnessPrefixProduction<'p, 'k, 's> {
     prefix: &'p mut FoldedInventory,
     key: &'k ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
     produced: ProducedOriginPrefixes,
     memberships: Memberships,
+    session: &'s mut OriginalAuditSession,
     _control: ExternalBufferLease,
 }
-impl WitnessPrefixProduction<'_, '_> {
+impl WitnessPrefixProduction<'_, '_, '_> {
+    /// Header emission borrows this SAME retained consumer, never new credit.
+    pub(super) fn session(&mut self) -> &mut OriginalAuditSession {
+        self.session
+    }
+
     pub(super) fn prefixes(&self) -> &ProducedOriginPrefixes {
         &self.produced
     }
@@ -642,8 +654,15 @@ impl WitnessPrefixProduction<'_, '_> {
         context: &'a DraftContextData,
         sources: &[ObservationHeader<'a>],
         financial: ObservationHeader<'a>,
-        s: &mut OriginalAuditSession,
     ) -> Result<RecomputedAuditDigest<'a>> {
+        let WitnessPrefixProduction {
+            prefix,
+            key,
+            produced,
+            memberships,
+            session: s,
+            _control,
+        } = self;
         let result = (|| {
             let _control = s
                 .reserve_external_payload(
@@ -651,21 +670,21 @@ impl WitnessPrefixProduction<'_, '_> {
                 )
                 .map_err(core_error)?;
             require(
-                compare(sources.len(), self.produced.sources().len(), s)?.is_eq(),
+                compare(sources.len(), produced.sources().len(), s)?.is_eq(),
                 "INTEGRITY_FAILURE",
             )?;
             for (original, current) in [
-                (&self.key.logical_store_id, &context.key.logical_store_id),
-                (&self.key.scope[0], &context.key.scope[0]),
-                (&self.key.scope[1], &context.key.scope[1]),
-                (&self.key.source, &context.key.source),
-                (&self.key.operation_id, &context.key.operation_id),
+                (&key.logical_store_id, &context.key.logical_store_id),
+                (&key.scope[0], &context.key.scope[0]),
+                (&key.scope[1], &context.key.scope[1]),
+                (&key.source, &context.key.source),
+                (&key.operation_id, &context.key.operation_id),
             ] {
                 request_wrapper::same_text(original, current, s)?;
             }
             request_wrapper::same_text(
                 request_wrapper::text(financial.body, "prefix_digest", s)?,
-                self.produced.financial().prefix_digest(),
+                produced.financial().prefix_digest(),
                 s,
             )?;
             // Headers are now in canonical Ref order. Match each to one actual
@@ -681,7 +700,7 @@ impl WitnessPrefixProduction<'_, '_> {
                     .map_err(core_error)?;
                 let digest = request_wrapper::text(header.body, "prefix_digest", s)?;
                 let mut selected = None;
-                for (index, prefix) in self.produced.sources().iter().enumerate() {
+                for (index, prefix) in produced.sources().iter().enumerate() {
                     s.semantic_work()
                         .visit(Visit::Element)
                         .map_err(core_error)?;
@@ -713,8 +732,8 @@ impl WitnessPrefixProduction<'_, '_> {
             stream
                 .set_financial_header(financial.reference, financial.body, s)
                 .map_err(core_error)?;
-            self.prefix.stream_memberships(
-                &self.memberships,
+            prefix.stream_memberships(
+                &memberships,
                 sources.len(),
                 &mut stream,
                 Some(&order[..sources.len()]),
