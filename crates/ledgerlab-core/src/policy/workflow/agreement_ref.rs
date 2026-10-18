@@ -74,6 +74,7 @@ fn validate(kind: &str, id: &str, digest: &str, work: &mut dyn ValidationWork) -
         ("workflow-compiler-descriptor", "wdoc_", true),
         ("workflow-build-manifest", "wdoc_", true),
         ("workflow-authority", "wdoc_", true),
+        ("workflow-verification", "wdoc_", true),
         ("workflow-evidence", "wdoc_", true),
         ("workflow-customer", "wdoc_", true),
         ("workflow-source-enrollment", "wdoc_", true),

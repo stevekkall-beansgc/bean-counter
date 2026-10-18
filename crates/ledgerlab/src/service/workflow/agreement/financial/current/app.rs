@@ -7,27 +7,30 @@ mod work_capture;
 mod work_context;
 mod work_heads;
 mod work_seeds;
+mod nonwork;
 use ledgerlab_core::validation_work::ValidationVisit;
 
 pub(in super::super) struct ObservedAppBinding {
-    pub(super) original: prefix::LocatedAppAcceptance,
-    pub(super) sources: Vec<source::ObservedSource>,
-    pub(super) parties: Option<super::super::acceptance::CurrentPlatformConsents>,
+    pub(in super::super) original: prefix::LocatedAppAcceptance,
+    pub(in super::super) sources: Vec<source::ObservedSource>,
+    pub(in super::super) parties: Option<super::super::acceptance::CurrentPlatformConsents>,
     pub(super) activation: Option<prefix::CompletedInitialActivation>,
     pub(super) work_source_slot: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
-    work_source_index: Option<usize>,
+    pub(super) work_source_index: Option<usize>,
     pub(super) work_source_birth: Option<prefix::SourceBirthInputs>,
     pub(super) work_root: Option<source::SourceRecord>,
     pub(super) work_received_at: Option<Timestamp>,
     _work_received_storage: Option<ExternalBufferLease>,
     pub(super) work_input_seeds: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
     pub(super) work_input_bodies: Option<prefix::RetainedEconomicBodies>,
+    pub(super) local_extra:Option<nonwork::ExtraState>,
+    pub(super) local_input_bodies:Option<super::super::local_inputs::LocalInputs>,
     work_heads: Option<work_heads::ObservedWorkHeads>,
     pub(super) work_state: Option<work_heads::OwnedWorkState>,
     pub(super) work_head_locators:
         Option<ledgerlab_core::policy::workflow::transition_constructor::WorkHeadLocators>,
-    pub(super) at: Timestamp,
-    pub(super) before: i64,
+    pub(in super::super) at: Timestamp,
+    pub(in super::super) before: i64,
     pub(super) setup: crate::service::billing::Setup,
     _parsed_binding: AuditedValue,
     _source_storage: ExternalBufferLease,
@@ -109,6 +112,18 @@ pub(in super::super) async fn observe(
         let parsed_seeds = session
             .parse_representation(seeds.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
+        if observed.original.publication.program().uses_local_execution_recipe(){
+            let mut pool=super::super::local_inputs::LocalInputs::new(session)?;
+            pool.payload_refs(parsed_seeds.value(),session)?;pool.payload_refs(parsed_heads.value(),session)?;
+            for r in observed.original.publication.required_refs().chain(observed.original.acceptance.work_locator_records().map(|v|v.reference))
+              .chain(observed.sources.iter().flat_map(source::ObservedSource::record_refs))
+              .chain(observed.parties.iter().flat_map(|p|p.selected_refs())) {pool.add(r,session)?;}
+            if let Some(root)=observed.work_root.as_ref(){pool.add(root.reference(),session)?;}
+            if let Some(birth)=observed.work_source_birth.as_ref(){pool.add(birth.state.reference(),session)?;pool.add(birth.grant.reference(),session)?;}
+            if let Some(active)=observed.activation.as_ref(){pool.add(active.head.reference(),session)?;pool.add(active.activation.reference(),session)?;}
+            pool.payload_refs(payload,session)?;pool.complete(tx,key,observed.before,session).await?;
+            observed.local_input_bodies=Some(pool);
+        }else{
         let explicit = observed.original.work_explicit_inputs(
             key,
             parsed_seeds.value(),
@@ -119,6 +134,7 @@ pub(in super::super) async fn observe(
             .original
             .retain_economic_inputs(explicit, session)?;
         observed.work_input_bodies = Some(input_bodies);
+        }
         observed.work_source_slot = Some(slot);
         observed.work_source_index = Some(index);
         observed.work_input_seeds = Some(seeds);
@@ -452,6 +468,8 @@ async fn observe_binding(
             _work_received_storage: None,
             work_input_seeds: None,
             work_input_bodies: None,
+            local_extra:None,
+            local_input_bodies:None,
             work_head_locators: None,
             work_heads: None,
             work_state: None,
@@ -521,3 +539,10 @@ impl ObservedAppActivation {
         )
     }
 }
+
+impl ObservedAppBinding {
+ pub(in super::super) fn construct_local(&self,key:&OperationKey,payload:&Value,raw_request:&[u8],s:&mut OriginalAuditSession)->Result<(ledgerlab_core::policy::workflow::transition_constructor::EconomicCandidate,ledgerlab_core::policy::workflow::transition_constructor::LocalFinancialRequestEvidence)>{work_capture::construct_local(self,key,payload,raw_request,s)}
+ pub(in super::super) fn received_at(&self)->Result<&Timestamp>{self.work_received_at.as_ref().ok_or(ServiceError::IntegrityFailure)}
+}
+
+pub(in super::super) use nonwork::observe as observe_nonwork;

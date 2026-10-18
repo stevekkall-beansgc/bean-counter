@@ -160,7 +160,7 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutpu
         "policy.publish" => ledger.publish(raw).await.map(CommandOutput::Legacy),
         "local-publication" => ledger.publish_local_owned(raw).await.map(CommandOutput::Workflow),
         "prerequisite" => ledger.prerequisite(raw).await.map(CommandOutput::Legacy),
-        "agreement" => ledger.agreement(raw).await.map(CommandOutput::Legacy),
+        "agreement" => match ledger.local_activation_owned(raw).await? {Some(reply)=>Ok(CommandOutput::Workflow(reply)),None=>ledger.agreement(raw).await.map(CommandOutput::Legacy)},
         "financial" => ledger.financial_owned_reply(raw).await.map(CommandOutput::Workflow),
         _ => Err(ServiceError::IntegrityFailure),
     }

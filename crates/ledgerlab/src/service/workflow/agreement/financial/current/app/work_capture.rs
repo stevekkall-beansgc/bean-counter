@@ -42,14 +42,15 @@ fn copy(v: &str, s: &mut OriginalAuditSession) -> Result<String> {
     s.semantic_work().write_bytes(v.len()).map_err(core_error)?;
     Ok(v.to_owned())
 }
-pub(super) fn select(
+pub(super) fn with_capture<T>(
     observed: &ObservedAppBinding,
     key: &OperationKey,
     payload: &Value,
     source_index: usize,
     received_at: &Timestamp,
     s: &mut OriginalAuditSession,
-) -> Result<(AuditedBytes, AuditedBytes, WorkHeadLocators)> {
+    run:impl FnOnce(&EconomicCapture<'_>,&InputPool<'_>,&[u8],&mut OriginalAuditSession)->Result<T>,
+) -> Result<T> {
     let _controls = s
         .reserve_external_payload(
             mem::size_of::<Vec<ExactRef>>()
@@ -215,10 +216,22 @@ pub(super) fn select(
         .canonical_representation(payload, RepresentationKind::OriginalRequest)
         .map_err(core_error)?;
     let pool = input_pool(observed, s)?;
+    run(&capture,&pool,raw.bytes(),s)
+}
+
+pub(super) fn select(
+    observed: &ObservedAppBinding,
+    key: &OperationKey,
+    payload: &Value,
+    source_index: usize,
+    received_at: &Timestamp,
+    s: &mut OriginalAuditSession,
+) -> Result<(AuditedBytes, AuditedBytes, WorkHeadLocators)> {
+    with_capture(observed,key,payload,source_index,received_at,s,|capture,pool,raw,s|{
     let located = select_work_input_seeds(
         observed.original.publication.program(),
-        &capture,
-        raw.bytes(),
+        capture,
+        raw,
         &pool.rows,
         s,
     )
@@ -233,13 +246,14 @@ pub(super) fn select(
     .encode(s)?;
     let heads = select_work_head_locators(
         observed.original.publication.program(),
-        &capture,
-        raw.bytes(),
+        capture,
+        raw,
         &pool.rows,
         s,
     )
     .map_err(core_error)?;
     Ok((slot, refs, heads))
+    })
 }
 
 pub(super) fn source_index(
@@ -295,8 +309,8 @@ pub(super) fn source_index(
 
     representative.ok_or_else(|| reject("AUTHORITY_REQUIRED"))
 }
-struct InputPool<'a> {
-    rows: Vec<EconomicRecordView<'a>>,
+pub(super) struct InputPool<'a> {
+    pub(super) rows: Vec<EconomicRecordView<'a>>,
     _storage: ExternalBufferLease,
     _controls: ExternalBufferLease,
 }
@@ -464,4 +478,20 @@ pub(super) async fn retained_root(
         "AUTHORITY_REQUIRED",
     )?;
     Ok(root)
+}
+
+pub(super) fn construct_local(observed:&ObservedAppBinding,key:&OperationKey,payload:&Value,raw_request:&[u8],s:&mut OriginalAuditSession)->Result<(ledgerlab_core::policy::workflow::transition_constructor::EconomicCandidate,ledgerlab_core::policy::workflow::transition_constructor::LocalFinancialRequestEvidence)>{
+ use ledgerlab_core::policy::workflow::transition_constructor::{EconomicStateData,construct_local_financial_candidate,produce_local_financial_request_evidence};
+ let index=observed.work_source_index.ok_or(ServiceError::IntegrityFailure)?;
+ let received=observed.work_received_at.as_ref().ok_or(ServiceError::IntegrityFailure)?;
+ with_capture(observed,key,payload,index,received,s,|capture,_locator,raw,s|{
+  let state=observed.work_state.as_ref().ok_or(ServiceError::IntegrityFailure)?;
+  let inputs=observed.local_input_bodies.as_ref().ok_or(ServiceError::IntegrityFailure)?.views();
+  let extra=observed.local_extra.as_ref();
+  let app=extra.map(|e|ledgerlab_core::policy::workflow::transition_constructor::AppStateData{cost_heads:&e.costs,observation_refs:&e.observations,cost_claim_refs:&e.claims,evidence_consumption_refs:&e.consumed});
+  let state=EconomicStateData{retained_assertion:extra.and_then(|e|e.assertion.as_ref()),financial:&state.financial,capacity_heads:&state.capacities,supplier:None,app:app.as_ref(),current_party_authorizations:&state.parties,observation:None,audit:None,initial_source_correspondences:&[]};
+  let candidate=construct_local_financial_candidate(observed.original.publication.program(),capture,raw,&inputs,&state,s).map_err(core_error)?;
+  let evidence=produce_local_financial_request_evidence(observed.original.publication.program(),raw_request,&candidate,&inputs,&state,s).map_err(core_error)?;
+  Ok((candidate,evidence))
+ })
 }

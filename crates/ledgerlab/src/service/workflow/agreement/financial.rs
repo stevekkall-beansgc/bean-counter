@@ -19,6 +19,10 @@ mod management;
 mod local_party;
 mod local_publication;
 mod local_acceptance;
+mod local_activation;
+mod local_inputs;
+mod local_financial;
+mod local_financial_original;
 pub(in crate::service::workflow) use management::effective_setup;
 use management::ManagementObservation;
 mod prefix;
@@ -58,6 +62,16 @@ pub(super) async fn local_selected_origin(
  s.check_cancelled().map_err(core_error)?;Ok(true)
 }
 
+pub(super) async fn local_publication_origin(tx:&mut SqliteTx,key:&OperationKey,sequence:i64)->Result<bool>{
+ let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+ let _cancel=AttemptCancellation::new(&arena,tx.workflow_deadline());
+ let mut s=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+ let previous=sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
+ let old=prefix::next(tx,key,previous,sequence,&mut s).await?.ok_or(ServiceError::IntegrityFailure)?
+    .checked_wrappers(tx,&mut s).await?;
+ Ok(local_publication::verify_original(tx,&old,&mut s).await?.is_some())
+}
+
 /// Explicit local enable coordinator only. The mechanical migrations establish
 /// empty projection storage, never financial eligibility or supplier rights.
 /// Keep the completed original owners alive through all three schema steps.
@@ -94,6 +108,12 @@ pub(in crate::service::workflow) async fn enable_app_schemas(
         })
     })
     .await
+}
+
+impl LocalWorkflowLedger {
+ pub async fn local_activation_owned(&self,raw:&[u8])->Result<Option<WorkflowReply>>{
+  if local_activation::selected(self,raw).await?{self.financial_owned_reply(raw).await.map(Some)}else{Ok(None)}
+ }
 }
 
 pub(in crate::service::workflow) fn is_kind(kind: &str) -> bool {
@@ -323,6 +343,11 @@ async fn original_query_in(
         if let OriginalQuery::Retry(req)=&input {local_publication::compare_retry(tx,req,&original,&publication,session).await?;}
         return WorkflowReply::status(&original,session).map(WorkflowReply::into_legacy_value);
     }
+    let retry=match &input{OriginalQuery::Retry(req)=>Some(*req),_=>None};
+    if local_financial_original::verify(tx,&original,retry,session).await? {
+        let reply=recovery::party_reply(&original,session)?;
+        return if retry.is_some(){WorkflowReply::original(reply.value(),session).map(WorkflowReply::into_legacy_value)}else{WorkflowReply::status(&original,session).map(WorkflowReply::into_legacy_value)};
+    }
     let _prefix = prefix::fold_original_prefix(ledger, tx, key, &original, session).await?;
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
@@ -437,6 +462,10 @@ impl LocalWorkflowLedger {
                     // full original/current/resource private preparation still
                     // precedes any call to workflow_app_acceptance_append.
                 }
+                if req.kind()=="agreement.activate" && request_wrapper::text(req.payload(&mut session)?,"schema",&mut session)?=="ledger-workflow-activation/1" {
+                    let reply=local_activation::prepare_append(self,tx,&req,&management,&mut session).await?;
+                    return Ok(TransactionResult::Appended(reply));
+                }
                 if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {
                     let payload = req.payload(&mut session)?;
                     let mut observed =
@@ -466,13 +495,6 @@ impl LocalWorkflowLedger {
                     // Whole historical schedule, original/current consent and
                     // activation rights must finish before private preparation.
                 }
-                if req.kind() == "work.accept" {
-                    let payload = req.payload(&mut session)?;
-                    let _observed =
-                        current::app::observe(self, tx, key, payload, &mut session).await?;
-                    // Actual observed inputs remain noncommittable until full
-                    // original audit, core candidate and capacity gates close.
-                }
 
                 if matches!(req.kind(), "evidence.retain" | "authority.change") {
                     let payload = req.payload(&mut session)?;
@@ -487,6 +509,15 @@ impl LocalWorkflowLedger {
                         let reply=local_party::prepare_append(self,tx,&req,&management,&mut session).await?;
                         return Ok(TransactionResult::Appended(reply));
                     }
+                }
+
+                if matches!(request_wrapper::text(req.payload(&mut session)?,"schema",&mut session)?,
+                    "ledger-workflow-work/1"|"ledger-workflow-fact-attest/1"|"ledger-workflow-family-close-attest/1"|
+                    "ledger-workflow-app-observe/1"|"ledger-workflow-app-cost-attest/1"|"ledger-workflow-cost-finalize/2"|
+                    "ledger-workflow-cost-correct/2"|"ledger-workflow-outcome/1"|"ledger-workflow-outcome-correction/1"|
+                    "ledger-workflow-outcome-close/2"|"ledger-workflow-quantity-correction/2"|"ledger-workflow-work-reverse/2") {
+                    let reply=local_financial::prepare_work_append(self,tx,&req,&management,&mut session).await?;
+                    return Ok(TransactionResult::Appended(reply));
                 }
 
                 // No normalized economic selection is manufactured here. The current

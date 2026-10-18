@@ -261,3 +261,9 @@ pub fn select_local_input_edges(key:&OperationKey,input:EconomicRecordView<'_>,s
   Ok(LocalInputEdges{direct,_ownership:owner})
  })();if result.is_err(){s.invalidate();}result
 }
+
+/// Borrowed DATA syntax only. Record kind/schema/hash and semantic authority
+/// remain independently checked by the actual selected-record consumer.
+pub fn validate_local_record_reference(reference:&ExactRef,s:&mut OriginalAuditSession)->Result<()>{
+ let result=super::records::reference(s.meter_mut(),reference);if result.is_err(){s.invalidate();}result
+}

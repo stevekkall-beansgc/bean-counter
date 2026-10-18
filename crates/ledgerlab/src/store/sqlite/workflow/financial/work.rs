@@ -84,3 +84,36 @@ impl SqliteTx {
             .await
     }
 }
+impl SqliteTx {
+    /// Exact immutable identity locator; positive rows still require canonical
+    /// body and committed operation/manifest/receipt association verification.
+    pub(crate) async fn workflow_local_record_identity(&mut self,store:&str,scope:&[String;2],kind:&str,id:&str,schema:&str,s:&mut OriginalAuditSession)->Result<Option<AppClaimLocator>,FinancialReadError>{
+        if self.failed||self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire){return Err(invalid());}
+        self.failed=true;
+        let result=timeout_at(self.deadline,async{
+            let values=[kind,id,schema,store,&scope[0],&scope[1]];
+            for v in values {heads::locator_text(v,256,s)?;}
+            let bound=values.map(str::as_bytes);
+            self.read_financial_claim_projection(
+                "SELECT octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.schema_name=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?)",
+                "SELECT d.kind,d.id,d.digest FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.schema_name=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?)",&values,&bound,s).await
+        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        if result.is_ok(){s.check_cancelled()?;if self.financial_io.is_some()||self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire){return Err(invalid());}self.failed=false;}
+        result
+    }
+    pub(crate) async fn workflow_outcome_claim(&mut self,store:&str,key:&PermanentClaimKey,s:&mut OriginalAuditSession)->Result<Option<AppClaimLocator>,FinancialReadError>{
+        if self.failed||self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire){return Err(invalid());}
+        self.failed=true;
+        let result=timeout_at(self.deadline,async{
+            let PermanentClaimKey::Outcome{scope,agreement_id,family_slot,target_id,source_namespace,business_outcome_token}=key else{return Err(invalid());};
+            let values=[store,&scope[0],&scope[1],agreement_id,family_slot,target_id,source_namespace,business_outcome_token];
+            for v in values{heads::locator_text(v,256,s)?;}
+            let bound=values.map(str::as_bytes);
+            self.read_financial_claim_projection(
+                "SELECT octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND family_slot=? AND target_id=? AND source_namespace=? AND business_outcome_token=?",
+                "SELECT record_kind,record_id,record_digest FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND family_slot=? AND target_id=? AND source_namespace=? AND business_outcome_token=?",&values,&bound,s).await
+        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        if result.is_ok(){s.check_cancelled()?;if self.financial_io.is_some()||self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire){return Err(invalid());}self.failed=false;}
+        result
+    }
+}

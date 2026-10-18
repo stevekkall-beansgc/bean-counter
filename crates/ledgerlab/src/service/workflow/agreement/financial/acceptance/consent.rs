@@ -827,3 +827,30 @@ impl Coverage {
         .await
     }
 }
+
+/// Held local maps are acquired from the exact committed original assent set;
+/// each actual map/material is still checked at the captured current time.
+pub(super) async fn observe_local_platforms(input:&AppAcceptanceInput,incoming:&ingress::IncomingRequest,
+ binding:&Value,tx:&mut SqliteTx,key:&OperationKey,at:&Timestamp,before:i64,s:&mut OriginalAuditSession)->Result<CurrentPlatformConsents>{
+ let legs=request_wrapper::field(binding,"funding_legs",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
+ size(legs.len(),1,16,s)?;
+ let storage=s.reserve_external_payload(legs.len()*mem::size_of::<current::party::ObservedPlatformConsent>()).map_err(core_error)?;
+ let mut observations=Vec::with_capacity(legs.len());
+ let assents=assents::Inputs::load(tx,key,incoming,input,before,s).await?;
+ for leg in legs {
+  if request_wrapper::text(leg,"mode",s)?!="platform" {continue;}
+  let name=request_wrapper::text(leg,"name",s)?;
+  let party=request_wrapper::text(leg,"payer",s)?;
+  let assent=assents.select(input,Some(party),s)?;
+  let observed=input.platform_consent(tx,key,name,assent,at,before,s).await?;
+  for r in std::iter::once(observed.mapping().reference()).chain(observed.mapping().evidence_refs()).chain(observed.evidence_refs()) {
+   prefix::verify_selected_association(tx,key,r,before,s).await?;
+  }
+  observations.push(observed);
+ }
+ size(observations.len(),1,16,s)?;
+ Ok(CurrentPlatformConsents{observations,_storage:storage})
+}
+impl CurrentPlatformConsents{
+ pub(in super::super) fn selected_refs(&self)->impl Iterator<Item=&ExactRef>{self.observations.iter().flat_map(|o|std::iter::once(o.mapping().reference()).chain(o.mapping().evidence_refs()).chain(o.evidence_refs()))}
+}

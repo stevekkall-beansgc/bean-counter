@@ -68,6 +68,7 @@ impl WorkflowReply {
             .map_err(core_error)?;
         Self::from_parts(receipt.bytes(), evidence.bytes(), Some("identity"), false, s)
     }
+    pub(super) fn financial(journal:&wire::JournalData<'_>,evidence:&ledgerlab_core::policy::workflow::transition_constructor::LocalFinancialRequestEvidence,s:&mut OriginalAuditSession)->Result<Self>{Self::from_parts(journal.receipt_bytes(),evidence.bytes(),None,false,s)}
     pub(super) fn agreement(journal:&wire::AgreementJournalData,evidence:&evidence::RequestEvidence,
         s:&mut OriginalAuditSession)->Result<Self> {
         Self::from_parts(journal.receipt_bytes(),evidence.bytes(),None,false,s)

@@ -433,11 +433,23 @@ pub(super) async fn publication_for(
 /// Actual original binding/PUB operands acquired from the held scoped journal.
 /// No current compiler/acceptance or ID-only latest lookup is substituted.
 /// This remains DATA until the chronological owner completes every origin.
+pub(super) enum AcceptanceMaterial { Audited(super::acceptance::ReplayedAcceptance), Local(super::acceptance::TargetedAcceptance) }
+impl std::ops::Deref for AcceptanceMaterial {type Target=super::acceptance::ReconstructedAcceptance;fn deref(&self)->&Self::Target{match self{Self::Audited(a)=>a,Self::Local(a)=>a}}}
+impl AcceptanceMaterial {
+ fn audited(&self)->Result<&super::acceptance::ReplayedAcceptance>{match self{Self::Audited(a)=>Ok(a),_=>Err(ServiceError::Unavailable)}}
+ pub(super) fn accepted_reference(&self)->&ledgerlab_core::policy::workflow::transition_constructor::ExactRef{match self{Self::Audited(a)=>a.accepted_reference(),Self::Local(a)=>a.accepted_reference()}}
+ pub(super) fn work_locator_records(&self)->impl Iterator<Item=ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>>{
+ let (a,b)=match self {Self::Audited(a)=>(Some(a),None),Self::Local(b)=>(None,Some(b))};
+ a.into_iter().flat_map(|a|a.work_locator_records()).chain(b.into_iter().flat_map(|a|a.work_locator_records()))
+ }
+ fn current_activation_source(&self,sources:&[current::source::ObservedSource],publication:&RecompiledPublication,binding:&Value,key:&OperationKey,actor:&str,at:&Timestamp,s:&mut OriginalAuditSession)->Result<usize>{match self{Self::Audited(a)=>a.current_activation_source(sources,publication,binding,key,actor,at,s),Self::Local(a)=>a.current_activation_source(sources,publication,binding,key,actor,at,s)}}
+ fn activation_authority(&self,source:&current::source::ObservedSource,root:&wire::SourceRecord,key:&OperationKey,actor:&str,at:&Timestamp,s:&mut OriginalAuditSession)->Result<wire::SourceRecord>{match self{Self::Audited(a)=>a.activation_authority(source,root,key,actor,at,s),Self::Local(a)=>a.activation_authority(source,root,key,actor,at,s)}}
+}
 pub(super) struct LocatedAppAcceptance {
     pub(super) origin: LocatedWrappers,
     pub(super) publication: RecompiledPublication,
-    pub(super) acceptance: super::acceptance::ReplayedAcceptance,
-    _prefix: FoldedInventory,
+    pub(super) acceptance: AcceptanceMaterial,
+    _prefix: Option<FoldedInventory>,
     through: i64,
 }
 impl LocatedAppAcceptance {
@@ -486,7 +498,7 @@ impl LocatedAppAcceptance {
                 .parse_representation(enrollment.bytes(), RepresentationKind::Record)
                 .map_err(core_error)?;
             let correspondence = self
-                ._prefix
+                ._prefix.as_mut().ok_or(ServiceError::Unavailable)?
                 .initial_source_correspondence(enrollment.value(), s)?;
             s.semantic_work()
                 .write_bytes(std::mem::size_of::<[&InitialSourceCorrespondence; 1]>())
@@ -533,6 +545,10 @@ impl LocatedAppAcceptance {
         before: i64,
         parent: &mut OriginalAuditSession,
     ) -> Result<()> {
+        if self._prefix.is_none() {
+            for source in sources {for r in source.record_refs(){verify_selected_association(tx,key,r,before,parent).await?;}}
+            self.through=before.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;return Ok(());
+        }
         let mut attempt = InputAttempt {
             failure: tx.workflow_proof_failure_handle(),
             finished: false,
@@ -576,21 +592,21 @@ impl LocatedAppAcceptance {
                     origin.wrappers().sequence() > self.through,
                     "INTEGRITY_FAILURE",
                 )?;
-                self._prefix
+                self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?
                     ._inventory
                     .next_origin(&origin, &mut original)?;
                 let kind =
                     request_wrapper::text(origin.wrappers().operation(), "kind", &mut original)?;
                 if super::acceptance::same_recipe_text(kind, "agreement.activate", &mut original)? {
-                    self._prefix
+                    self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?
                         ._inventory
                         .begin_origin_links(origin.wrappers().sequence(), &mut original)?;
                     let replay = super::activation::reconstruct_initial(
                         tx,
                         &origin,
-                        &self.acceptance,
+                        self.acceptance.audited()?,
                         &self.publication,
-                        &mut self._prefix,
+                        self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?,
                         setup,
                         &mut original,
                     )
@@ -601,15 +617,15 @@ impl LocatedAppAcceptance {
                             RepresentationKind::SourceDefinition,
                         )
                         .map_err(core_error)?;
-                    replay.fold(&origin, &mut self._prefix, binding.value(), &mut original)?;
-                    finish_origin(&origin, &mut self._prefix, &mut original)?;
+                    replay.fold(&origin, self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?, binding.value(), &mut original)?;
+                    finish_origin(&origin, self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?, &mut original)?;
                 } else {
                     // Every later PUB registers its own exact execution reload
                     // key. The accepted program remains its original PUB.
                     let _later_publication = fold_origin(
                         tx,
                         &origin,
-                        &mut self._prefix,
+                        self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?,
                         setup,
                         Some(&self.publication),
                         &mut original,
@@ -619,14 +635,14 @@ impl LocatedAppAcceptance {
                 self.through = origin.wrappers().sequence();
                 original.check_cancelled().map_err(core_error)?;
             }
-            self._prefix
+            self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?
                 .require_record(self.acceptance.binding.reference(), parent)?;
             for source in sources {
                 parent
                     .semantic_work()
                     .visit(Visit::Element)
                     .map_err(core_error)?;
-                self._prefix.match_source(source, parent)?;
+                self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?.match_source(source, parent)?;
             }
             parent.check_cancelled().map_err(core_error)
         }
@@ -696,6 +712,15 @@ pub(super) async fn acceptance_for(
         if !acceptance::same_recipe_text(schema, "ledger-workflow-agreement-accept/9", session)? {
             request_wrapper::same_text(schema, "ledger-workflow-agreement-accept/8", session)?;
         }
+        let evidence=request_wrapper::field(origin.wrappers().operation(),"request_evidence",session)?;
+        let resolution=request_wrapper::field(evidence,"descriptor_resolution",session)?;
+        if request_wrapper::text(resolution,"registry_digest",session)?==wrappers::LOCAL_REGISTRY {
+            let publication=publication_for(tx,key,request_wrapper::field(raw_payload,"publication_ref",session)?,sequence,session).await?;
+            let acceptance=super::acceptance::TargetedAcceptance::load(tx,&origin,&publication,session).await?;
+            let actual=acceptance.binding.reference();
+            for(a,b)in[(&expected.0.kind,&actual.kind),(&expected.0.id,&actual.id),(&expected.0.digest,&actual.digest)]{request_wrapper::same_text(a,b,session)?;}
+            return Ok(LocatedAppAcceptance{origin,publication,acceptance:AcceptanceMaterial::Local(acceptance),_prefix:None,through:sequence});
+        }
         let (mut prefix, publication) = publication_before(
             ledger,
             tx,
@@ -729,8 +754,8 @@ pub(super) async fn acceptance_for(
         Ok(LocatedAppAcceptance {
             origin,
             publication,
-            acceptance,
-            _prefix: prefix,
+            acceptance:AcceptanceMaterial::Audited(acceptance),
+            _prefix: Some(prefix),
             through: sequence,
         })
     }
@@ -1563,6 +1588,7 @@ impl LocatedAppAcceptance {
         before: i64,
         s: &mut OriginalAuditSession,
     ) -> Result<super::acceptance::CurrentPlatformConsents> {
+        if let AcceptanceMaterial::Local(a)=&self.acceptance {return a.current_platforms(tx,key,binding,at,before,s).await;}
         let result = async {
             s.semantic_work()
                 .arithmetic(Op::Subtract, &[&before.into(), &1i64.into()])
@@ -1574,8 +1600,8 @@ impl LocatedAppAcceptance {
                 .arithmetic(Op::Compare, &[&self.through.into(), &through.into()])
                 .map_err(core_error)?;
             require(self.through == through, "INTEGRITY_FAILURE")?;
-            self.acceptance
-                .current_platforms(tx, key, binding, at, before, &mut self._prefix, s)
+            self.acceptance.audited()?
+                .current_platforms(tx, key, binding, at, before, self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?, s)
                 .await
         }
         .await;
@@ -1633,7 +1659,7 @@ impl LocatedAppAcceptance {
     ) -> Result<ResolvedMembers> {
         // The accepted agreement is an actual required origin operand even
         // though its body points to the Binding rather than the reverse.
-        self._prefix.resolve_members(
+        self._prefix.as_mut().ok_or(ServiceError::Unavailable)?.resolve_members(
             generated,
             std::iter::once(self.acceptance.accepted_reference())
                 .chain(self.publication.required_refs()),

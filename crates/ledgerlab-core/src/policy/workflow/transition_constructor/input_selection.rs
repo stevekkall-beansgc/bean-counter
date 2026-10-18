@@ -287,7 +287,7 @@ impl WorkHeadLocators {
  pub fn family_keys(&self)->&[WorkFamilyHeadLocator]{&self.families}
  pub fn app_decision_ids(&self)->&[String]{&self.app_decisions}
 }
-fn head_rows(program:&SelectedProgram,p:&Value,inst:&Value,m:&mut CoreMeter,f:&mut dyn FnMut(&str,Option<&str>,&mut CoreMeter)->Result<()>)->Result<()>{
+pub(super) fn head_rows(program:&SelectedProgram,p:&Value,inst:&Value,m:&mut CoreMeter,f:&mut dyn FnMut(&str,Option<&str>,&mut CoreMeter)->Result<()>)->Result<()>{
  let activity=shape::field(m,p,"activity")?;
  for instruction in shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?{
   m.visit("work.parent_head_instruction")?;let opcode=shape::text(m,instruction,"opcode")?;
@@ -326,32 +326,38 @@ pub fn select_work_head_locators(program:&SelectedProgram,capture:&EconomicCaptu
   for field in ["customer","policy_ref","product_ref"]{m.visit("work.parent_head_binding_subject")?;let actual=shape::field(m,&binding,field)?;let expected=shape::field(m,p.value(),field)?;shape::equal(m,actual,expected)?;}
   let inst_value=shape::field(m,&binding,"slot_instantiation_ref")?;let inst_ref=super::working_value::parse_owned_reference(m,&arena,inst_value)?;
   let inst=records.get(m,capture.key,inst_ref.reference(),"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
-  let customer=shape::text(m,p.value(),"customer")?;let chain=shape::text(m,p.value(),"chain")?;let business=shape::text(m,p.value(),"business_operation_id")?;
+  derive_work_head_locators(program,capture.key,capture.canonical_economic_namespace,p.value(),&binding,&inst,m)
+ })();if result.is_err(){s.invalidate();}result
+}
+
+// SAME owning identity producer, also used by targeted local non-work DATA acquisition.
+pub(super) fn derive_work_head_locators(program:&SelectedProgram,key:&super::OperationKey,namespace:&str,p:&Value,binding:&Value,inst:&Value,m:&mut CoreMeter)->Result<WorkHeadLocators>{
+ let arena=m.representation_arena().ok_or_else(||shape::fail("owning original work head locators"))?;
+  let customer=shape::text(m,p,"customer")?;let chain=shape::text(m,p,"chain")?;let business=shape::text(m,p,"business_operation_id")?;
   let mut bytes=2*mem::size_of::<WorkHeadLocators>()+8*mem::size_of::<String>()+8*128+mem::size_of::<super::candidate::PermanentClaimKey>()+mem::size_of::<super::candidate::FinancialHeadKey>();
-  for text in [&capture.key.logical_store_id,&capture.key.scope[0],&capture.key.scope[1]]{bytes=w::usize_add(m,bytes,text.len())?;bytes=w::usize_add(m,bytes,text.len())?;}
-  for text in [capture.canonical_economic_namespace,business,customer,chain,"completion"]{bytes=w::usize_add(m,bytes,text.len())?;}
+  for text in [&key.logical_store_id,&key.scope[0],&key.scope[1]]{bytes=w::usize_add(m,bytes,text.len())?;bytes=w::usize_add(m,bytes,text.len())?;}
+  for text in [namespace,business,customer,chain,"completion"]{bytes=w::usize_add(m,bytes,text.len())?;}
   let(mut families,mut apps)=(0usize,0usize);
-  head_rows(program,p.value(),&inst,m,&mut |_,family,m|{
+  head_rows(program,p,inst,m,&mut |_,family,m|{
    if let Some(slot)=family{families=w::usize_add(m,families,1)?;bytes=w::usize_add(m,bytes,mem::size_of::<WorkFamilyHeadLocator>()+2*128)?;bytes=w::usize_add(m,bytes,slot.len())?;}
    else{apps=w::usize_add(m,apps,1)?;bytes=w::usize_add(m,bytes,mem::size_of::<String>()+128)?;}Ok(())
   })?;
   let ownership=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
   let mut family_keys=Vec::new();family_keys.try_reserve_exact(families).map_err(|_|shape::fail("work family locator allocation"))?;
   let mut app_decisions=Vec::new();app_decisions.try_reserve_exact(apps).map_err(|_|shape::fail("work app locator allocation"))?;
-  let claim_id=super::work_keys::claim(m,capture.key,capture.canonical_economic_namespace,p.value())?;
-  let event_id=super::work_keys::event(m,capture.key,p.value())?;
+  let claim_id=super::work_keys::claim(m,key,namespace,p)?;
+  let event_id=super::work_keys::event(m,key,p)?;
   let root_decision_id=super::work_keys::decision(m,&claim_id)?;
-  let scope=super::work_keys::scope(m,capture.key)?;
-  let agreement=shape::field(m,&binding,"agreement_id")?;
-  head_rows(program,p.value(),&inst,m,&mut |slot,family,m|{
+  let scope=super::work_keys::scope(m,key)?;
+  let agreement=shape::field(m,binding,"agreement_id")?;
+  head_rows(program,p,inst,m,&mut |slot,family,m|{
    if let Some(family)=family{
-    let target_id=super::work_keys::target(m,capture.key,agreement,&claim_id,slot)?;
+    let target_id=super::work_keys::target(m,key,agreement,&claim_id,slot)?;
     let decision_id=super::targets::prospective_decision(m,&target_id,family)?;
     family_keys.push(WorkFamilyHeadLocator{target_id,family_slot:head_copy(m,family)?,decision_id});
    }else{app_decisions.push(super::work_keys::app_decision(m,scope.value(),&event_id,slot)?);}Ok(())
   })?;
-  let claim=super::candidate::PermanentClaimKey::Work{logical_store_id:head_copy(m,&capture.key.logical_store_id)?,scope:[head_copy(m,&capture.key.scope[0])?,head_copy(m,&capture.key.scope[1])?],source_namespace:head_copy(m,capture.canonical_economic_namespace)?,business_operation_id:head_copy(m,business)?,completion:head_copy(m,"completion")?};
-  let chain=super::candidate::FinancialHeadKey::Chain{logical_store_id:head_copy(m,&capture.key.logical_store_id)?,scope:[head_copy(m,&capture.key.scope[0])?,head_copy(m,&capture.key.scope[1])?],customer:head_copy(m,customer)?,chain:head_copy(m,chain)?};
+  let claim=super::candidate::PermanentClaimKey::Work{logical_store_id:head_copy(m,&key.logical_store_id)?,scope:[head_copy(m,&key.scope[0])?,head_copy(m,&key.scope[1])?],source_namespace:head_copy(m,namespace)?,business_operation_id:head_copy(m,business)?,completion:head_copy(m,"completion")?};
+  let chain=super::candidate::FinancialHeadKey::Chain{logical_store_id:head_copy(m,&key.logical_store_id)?,scope:[head_copy(m,&key.scope[0])?,head_copy(m,&key.scope[1])?],customer:head_copy(m,customer)?,chain:head_copy(m,chain)?};
   Ok(WorkHeadLocators{claim,claim_id,event_id,root_decision_id,chain,families:family_keys,app_decisions,_ownership:ownership})
- })();if result.is_err(){s.invalidate();}result
 }

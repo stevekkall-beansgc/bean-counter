@@ -974,6 +974,9 @@ async fn verify_publication_origin(
                 .or_default() += 1;
         });
     }
+    if financial::local_publication_origin(tx,&saved_key,sequence).await? {
+        return guard.finish(true);
+    }
     let proof = records::verify_retained(tx, &saved_key, &origin).await?;
     guard.finish(proof["receipt"]["result_kind"] != "semantic_alias")
 }

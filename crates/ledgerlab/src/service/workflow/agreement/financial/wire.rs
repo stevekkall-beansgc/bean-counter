@@ -781,6 +781,7 @@ pub(super) struct JournalData<'a> {
     members: RefSet<'a>,
 }
 impl JournalData<'_> {
+    pub(super) fn receipt_bytes(&self)->&[u8]{self.receipt.bytes()}
     /// Exact borrowed storage operands. This view remains DATA: only the private
     /// service preparation may submit it after original/current authentication,
     /// candidate completion, locked rereads and resource checks have succeeded.

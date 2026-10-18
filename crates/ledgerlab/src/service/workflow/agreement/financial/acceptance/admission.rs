@@ -54,6 +54,13 @@ pub(super) fn authority(
     operation: &'static str,
     s: &mut OriginalAuditSession,
 ) -> Result<wire::SourceRecord> {
+    let refs=wire::RefSet::new(consents.verification_refs(),consents.verification_refs().len(),true,s)?.encode(s)?;
+    authority_with_refs(input,source,refs.bytes(),root,key,actor,at,operation,s)
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn authority_with_refs(input:&AppAcceptanceInput, source:&current::source::ObservedSource,
+ verification_refs:&[u8],root:&wire::SourceRecord,key:&OperationKey,actor:&str,at:&Timestamp,
+ operation:&'static str,s:&mut OriginalAuditSession)->Result<wire::SourceRecord>{
     require(acceptance_operation(operation, s)?, "INVALID_SHAPE")?;
     let operation = wire::string(operation, s)?;
     let grant = source
@@ -64,13 +71,6 @@ pub(super) fn authority(
         .ok_or(ServiceError::IntegrityFailure)?;
     let grants = wire::RefSet::new(std::iter::once(grant_ref), 1, true, s)?.encode(s)?;
     let states = wire::RefSet::new(std::iter::once(source.state_ref()), 1, true, s)?.encode(s)?;
-    let verification_refs = wire::RefSet::new(
-        consents.verification_refs(),
-        consents.verification_refs().len(),
-        true,
-        s,
-    )?
-    .encode(s)?;
     let root = wire::reference(root.reference(), s)?;
     let actor = wire::string(actor, s)?;
     let current_source = request_wrapper::text(grant, "source", s)?;
@@ -100,7 +100,7 @@ pub(super) fn authority(
         &[
             ("actor", actor.bytes()),
             ("agreement_id", agreement.bytes()),
-            ("app_consent_verification_refs", verification_refs.bytes()),
+            ("app_consent_verification_refs", verification_refs),
             ("assent_refs", assents.bytes()),
             ("canonical_economic_namespace", namespace.bytes()),
             ("customer", customer.bytes()),

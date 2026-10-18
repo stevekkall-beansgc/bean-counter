@@ -1,7 +1,7 @@
 //! Pure selected draft/replay foundation. No output is a financial commit,
 //! authenticated host capability or future-correction capacity certificate.
 mod input_edges;
-pub use input_edges::{ResolvedInputEdges9,select_resolved_inputs9_edges,LocalInputEdges,select_local_input_edges};
+pub use input_edges::{ResolvedInputEdges9,select_resolved_inputs9_edges,LocalInputEdges,select_local_input_edges, validate_local_record_reference};
 mod work_keys;
 pub use input_selection::{WorkHeadLocators,WorkFamilyHeadLocator,select_work_head_locators};
 pub(in crate::policy::workflow) mod arithmetic;
@@ -83,3 +83,9 @@ pub use candidate::{
 
 mod economic;
 pub use economic::{construct_economic_candidate,reconstruct_original_candidate,construct_local_financial_candidate};
+
+mod local_financial_evidence;
+pub use local_financial_evidence::{LocalFinancialRequestEvidence,produce_local_financial_request_evidence};
+
+mod local_locators;
+pub use local_locators::{LocalSubjectBinding,locate_local_subject_binding,LocalOperationLocators,LocalRecordIdentity,select_local_operation_locators};

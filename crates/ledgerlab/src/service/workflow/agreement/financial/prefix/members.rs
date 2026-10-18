@@ -544,7 +544,7 @@ impl LocatedAppAcceptance {
             s.semantic_work()
                 .write_bytes(mem::size_of::<CoreKey>())
                 .map_err(core_error)?;
-            ResolvedEconomicInputs::select(&mut self._prefix, &key, seeds, head_seeds, s)
+            ResolvedEconomicInputs::select(self._prefix.as_mut().ok_or(ServiceError::Unavailable)?, &key, seeds, head_seeds, s)
         })();
         if result.is_err() {
             s.invalidate();
@@ -565,7 +565,7 @@ impl LocatedAppAcceptance {
                 .parse_representation(bytes, RepresentationKind::Record)
                 .map_err(core_error)?;
             super::super::acceptance::validate_reference(value.value(), kind, s)?;
-            self._prefix._inventory.require_value(value.value(), s)
+            if let Some(prefix)=self._prefix.as_mut(){prefix._inventory.require_value(value.value(),s)}else{Ok(())}
         })();
         if result.is_err() {
             s.invalidate();
@@ -592,7 +592,7 @@ impl LocatedAppAcceptance {
         selected: ResolvedEconomicInputs,
         s: &mut OriginalAuditSession,
     ) -> Result<RetainedEconomicBodies> {
-        self._prefix.retain_economic_inputs(selected, s)
+        self._prefix.as_mut().ok_or(ServiceError::Unavailable)?.retain_economic_inputs(selected, s)
     }
 }
 impl FoldedInventory {

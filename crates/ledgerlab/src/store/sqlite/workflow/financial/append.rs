@@ -108,6 +108,7 @@ fn journal_framing(
     let mut kind = false;
     for allowed in [
         "agreement.accept",
+        "agreement.activate",
         "work.accept",
         "work.reverse",
         "quantity.correct",

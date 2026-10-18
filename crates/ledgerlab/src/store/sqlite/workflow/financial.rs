@@ -30,7 +30,7 @@ pub(crate) use document::RetainedDocument;
 pub(crate) use heads::{HeadKey, HeadLocator};
 mod agreement;
 mod append;
-pub(crate) use agreement::AppAcceptanceAppend;
+pub(crate) use agreement::{AppAcceptanceAppend,AppActivationAppend};
 pub(crate) mod io;
 pub(crate) use append::{FinancialAppend, FinancialDocument, FinancialJournal};
 

@@ -14,6 +14,8 @@ mod emit;
 mod nominations;
 mod private;
 mod replay;
+mod local;
+pub(super) use local::TargetedAcceptance;
 mod request;
 pub(super) use customer::ObservedCustomerConsent;
 use ledgerlab_core::{
@@ -39,6 +41,7 @@ pub(super) struct AppAcceptanceInput {
     authorities: AuditedValue,
     expected_revision: u64,
     commitment: bool,
+    local: bool,
 }
 impl AppAcceptanceInput {
     /// `program` must come from the actual completed original publication. Its
@@ -228,9 +231,11 @@ impl AppAcceptanceInput {
             authorities,
             expected_revision,
             commitment,
+            local: registry==wrappers::LOCAL_REGISTRY,
         })
     }
     fn registry(&self) -> &'static str {
+        if self.local { return wrappers::LOCAL_REGISTRY; }
         if self.commitment {
             APP_COMMITMENT
         } else {
