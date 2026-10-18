@@ -1395,3 +1395,41 @@ fn finish_origin(
     drop(parsed);
     Ok(())
 }
+
+impl LocatedAppAcceptance {
+    /// Current maps are checked only after extending this same chronological
+    /// owner to the actual held cutoff; saved verification fields are not
+    /// today's mapping authority.
+    pub(super) async fn current_platforms(
+        &mut self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        binding: &Value,
+        at: &Timestamp,
+        before: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<super::acceptance::CurrentPlatformConsents> {
+        let result = async {
+            s.semantic_work()
+                .arithmetic(Op::Subtract, &[&before.into(), &1i64.into()])
+                .map_err(core_error)?;
+            let through = before
+                .checked_sub(1)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            s.semantic_work()
+                .arithmetic(Op::Compare, &[&self.through.into(), &through.into()])
+                .map_err(core_error)?;
+            require(self.through == through, "INTEGRITY_FAILURE")?;
+            self.acceptance
+                .current_platforms(tx, key, binding, at, before, &mut self._prefix, s)
+                .await
+        }
+        .await;
+        if result.is_err() {
+            s.invalidate();
+            tx.workflow_proof_failure_handle()
+                .store(true, Ordering::Release);
+        }
+        result
+    }
+}

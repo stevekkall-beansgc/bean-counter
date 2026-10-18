@@ -7,6 +7,7 @@ use ledgerlab_core::validation_work::ValidationVisit;
 pub(in super::super) struct ObservedAppBinding {
     pub(super) original: prefix::LocatedAppAcceptance,
     pub(super) sources: Vec<source::ObservedSource>,
+    pub(super) parties: super::super::acceptance::CurrentPlatformConsents,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     pub(super) setup: crate::service::billing::Setup,
@@ -252,9 +253,13 @@ async fn observe_binding(
         original
             .current_sources(tx, key, &setup, &sources, before, session)
             .await?;
+        let parties = original
+            .current_platforms(tx, key, binding.value(), &at, before, session)
+            .await?;
         Ok(ObservedAppBinding {
             original,
             sources,
+            parties,
             at,
             before,
             setup,

@@ -8,6 +8,7 @@ mod admission;
 mod assents;
 mod binding;
 mod consent;
+pub(super) use consent::CurrentPlatformConsents;
 mod customer;
 mod emit;
 mod nominations;

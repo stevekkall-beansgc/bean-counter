@@ -390,3 +390,32 @@ impl ReplayedAcceptance {
             .set_head(&head, self.head_records.head.reference(), s)
     }
 }
+
+impl ReplayedAcceptance {
+    /// Reuse the actual completed acceptance's original normalized assents;
+    /// never substitute current terms or the admin as resource payer/acceptor.
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) async fn current_platforms(
+        &self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        binding: &Value,
+        at: &Timestamp,
+        before: i64,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<consent::CurrentPlatformConsents> {
+        self.consents
+            .observe_current_platforms(
+                &self.original.input,
+                binding,
+                tx,
+                key,
+                at,
+                before,
+                prefix,
+                s,
+            )
+            .await
+    }
+}

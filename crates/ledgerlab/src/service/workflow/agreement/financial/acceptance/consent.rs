@@ -613,3 +613,141 @@ impl Coverage {
         Ok(())
     }
 }
+
+/// Owning current observations from the original accepted fullterms assents.
+/// This is a locked mapping view, not a replacement acceptance verification.
+pub(in super::super) struct CurrentPlatformConsents {
+    observations: Vec<current::party::ObservedPlatformConsent>,
+    _storage: ExternalBufferLease,
+}
+impl CurrentPlatformConsents {
+    pub(in super::super) fn mappings(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &current::party::ObservedPartyAuthorization> {
+        self.observations.iter().map(|o| o.mapping())
+    }
+}
+impl Coverage {
+    fn accepted_party_assent<'a>(
+        &'a self,
+        input: &AppAcceptanceInput,
+        party: &str,
+        s: &mut OriginalAuditSession,
+    ) -> Result<&'a wire::SourceRecord> {
+        let mut found: Option<&wire::SourceRecord> = None;
+        for observation in &self.observations {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let candidate = observation.party_assent();
+            let body = s
+                .parse_representation(candidate.bytes(), Kind::SourceDefinition)
+                .map_err(core_error)?;
+            if assents::Inputs::matches(body.value(), input, Some(party), s)? {
+                if let Some(prior) = found {
+                    same_bytes(prior.bytes(), candidate.bytes(), s)?;
+                }
+                found = Some(candidate);
+            }
+        }
+        found.ok_or_else(|| reject("ASSENT_TERMS_MISMATCH"))
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn observe_current_platforms(
+        &self,
+        input: &AppAcceptanceInput,
+        binding: &Value,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        at: &Timestamp,
+        before: i64,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<CurrentPlatformConsents> {
+        let result = async {
+            let legs = request_wrapper::field(binding, "funding_legs", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            size(legs.len(), 1, 16, s)?;
+            s.semantic_work()
+                .arithmetic(
+                    Op::Multiply,
+                    &[
+                        &legs.len().into(),
+                        &mem::size_of::<current::party::ObservedPlatformConsent>().into(),
+                    ],
+                )
+                .map_err(core_error)?;
+            let bytes = legs
+                .len()
+                .checked_mul(mem::size_of::<current::party::ObservedPlatformConsent>())
+                .ok_or(ServiceError::Unavailable)?;
+            s.semantic_work()
+                .arithmetic(
+                    Op::Add,
+                    &[
+                        &bytes.into(),
+                        &(2 * mem::size_of::<CurrentPlatformConsents>()).into(),
+                    ],
+                )
+                .map_err(core_error)?;
+            let bytes = bytes
+                .checked_add(2 * mem::size_of::<CurrentPlatformConsents>())
+                .ok_or(ServiceError::Unavailable)?;
+            let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+            let mut observations = Vec::new();
+            observations
+                .try_reserve_exact(legs.len())
+                .map_err(|_| ServiceError::Unavailable)?;
+            for leg in legs {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                if !assents::equal(request_wrapper::text(leg, "mode", s)?, "platform", s)? {
+                    continue;
+                }
+                let party = request_wrapper::text(leg, "payer", s)?;
+                let assent = self.accepted_party_assent(input, party, s)?;
+                let parsed = s
+                    .parse_representation(assent.bytes(), Kind::SourceDefinition)
+                    .map_err(core_error)?;
+                // SAME original fullterms verifier; only its held current map
+                // and interval are observed at today's captured time.
+                let observed = input
+                    .platform_consent(
+                        tx,
+                        key,
+                        request_wrapper::text(leg, "name", s)?,
+                        parsed.value(),
+                        at,
+                        before,
+                        s,
+                    )
+                    .await?;
+                prefix.match_party(observed.mapping(), s)?;
+                for reference in observed
+                    .mapping()
+                    .evidence_refs()
+                    .into_iter()
+                    .chain(observed.evidence_refs())
+                {
+                    s.semantic_work()
+                        .visit(Visit::Element)
+                        .map_err(core_error)?;
+                    prefix.require_record(reference, s)?;
+                }
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<current::party::ObservedPlatformConsent>())
+                    .map_err(core_error)?;
+                observations.push(observed);
+            }
+            size(observations.len(), 1, 16, s)?;
+            Ok(CurrentPlatformConsents {
+                observations,
+                _storage: storage,
+            })
+        }
+        .await;
+        terminal(result, tx, s)
+    }
+}
