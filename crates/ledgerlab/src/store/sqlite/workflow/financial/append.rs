@@ -270,6 +270,7 @@ impl SqliteTx {
     ) -> Result<JournalDelta, FinancialReadError> {
         let payload = io::binding_payload(&[], &[], 0, 0, session)?;
         self.financial_reserve_io(session, payload)?;
+        session.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
