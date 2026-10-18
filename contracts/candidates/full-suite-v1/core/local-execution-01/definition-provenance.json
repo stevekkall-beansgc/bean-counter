@@ -1,0 +1,19 @@
+{
+  "base_schema": "../party-commitment-first-01/party-commitment-first.schema.json",
+  "base_raw_sha256": "af7617bd19697ceceae13be33695cb8300c90cb8826e9e5b5b5c1155bf1b5199",
+  "copied_definitions": 333,
+  "new_definitions": [
+    "LocalPendingCostClosureCheck2",
+    "LocalAuthority8",
+    "LocalCausalAuthority2",
+    "LocalPendingCausalAuthority2",
+    "LocalDependency2",
+    "LocalCorrectionCapacity2",
+    "LocalWorkDependency2",
+    "LocalDescriptor8",
+    "LocalRequestEvidence4",
+    "LocalOperation10",
+    "LocalManifest10"
+  ],
+  "change_rule": "Only schema-delta.json exact_patch transformations; all copied definitions byte-equivalent as JSON values; no old file mutation."
+}

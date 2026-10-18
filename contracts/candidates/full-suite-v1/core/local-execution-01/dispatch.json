@@ -1,0 +1,313 @@
+{
+  "schema": "local-execution-dispatch/1",
+  "rows": [
+    {
+      "operation_kind": "agreement.accept",
+      "payload_schema": "ledger-workflow-agreement-accept/9",
+      "recipe_id": "agreement.accept/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/7",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-agreement-authority/5",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "agreement.activate",
+      "payload_schema": "ledger-workflow-activation-replace/1",
+      "recipe_id": "agreement.activate/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/7",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-agreement-authority/5",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "agreement.activate",
+      "payload_schema": "ledger-workflow-activation/1",
+      "recipe_id": "agreement.activate/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/7",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-agreement-authority/5",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "agreement.revoke",
+      "payload_schema": "ledger-workflow-agreement-revoke/1",
+      "recipe_id": "agreement.revoke/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/3",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-agreement-authority/2",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "authority.change",
+      "payload_schema": "ledger-workflow-party-authorize/1",
+      "recipe_id": "authority.change/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/3",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-party-management-authority/1",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "authority.change",
+      "payload_schema": "ledger-workflow-party-revoke/1",
+      "recipe_id": "authority.change/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/3",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-party-management-authority/1",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "cost.correct",
+      "payload_schema": "ledger-workflow-cost-correct/2",
+      "recipe_id": "cost.correct/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "cost.finalize",
+      "payload_schema": "ledger-workflow-cost-finalize/2",
+      "recipe_id": "cost.finalize/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "evidence.retain",
+      "payload_schema": "ledger-workflow-app-cost-attest/1",
+      "recipe_id": "evidence.retain/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "evidence.retain",
+      "payload_schema": "ledger-workflow-app-observe/1",
+      "recipe_id": "evidence.retain/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "evidence.retain",
+      "payload_schema": "ledger-workflow-fact-attest/1",
+      "recipe_id": "evidence.retain/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "evidence.retain",
+      "payload_schema": "ledger-workflow-family-close-attest/1",
+      "recipe_id": "evidence.retain/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "evidence.retain",
+      "payload_schema": "ledger-workflow-party-evidence-retain/1",
+      "recipe_id": "evidence.retain/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/3",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-party-management-authority/1",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "evidence.retain",
+      "payload_schema": "ledger-workflow-party-evidence-retain/2",
+      "recipe_id": "evidence.retain/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/7",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-party-management-authority/1",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-agreement-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "link.assert",
+      "payload_schema": "ledger-workflow-link-assert/1",
+      "recipe_id": "link.assert/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "outcome.close",
+      "payload_schema": "ledger-workflow-outcome-close/2",
+      "recipe_id": "outcome.close/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "outcome.correct",
+      "payload_schema": "ledger-workflow-outcome-correction/1",
+      "recipe_id": "outcome.correct/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "outcome.submit",
+      "payload_schema": "ledger-workflow-outcome/1",
+      "recipe_id": "outcome.submit/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "policy.publish",
+      "payload_schema": "ledger-workflow-policy-publication/6",
+      "recipe_id": "policy.publish/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/1",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-publication-authority/1",
+        "operation_schema": "ledger-workflow-operation-record/1",
+        "manifest_schema": "ledger-workflow-publication-manifest/1",
+        "closure_profile": "absent",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "quantity.correct",
+      "payload_schema": "ledger-workflow-quantity-correction/2",
+      "recipe_id": "quantity.correct/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "work.accept",
+      "payload_schema": "ledger-workflow-work/1",
+      "recipe_id": "work.accept/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    },
+    {
+      "operation_kind": "work.reverse",
+      "payload_schema": "ledger-workflow-work-reverse/2",
+      "recipe_id": "work.reverse/local-execution-1",
+      "descriptor_schema": "ledger-operation-descriptors/8",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/8",
+        "operation_schema": "ledger-workflow-economic-operation/10",
+        "manifest_schema": "ledger-workflow-economic-manifest/10",
+        "closure_profile": "ledger-local-selected-inputs/1",
+        "authority_audit_profile": "none",
+        "financial_audit_profile": "none"
+      }
+    }
+  ]
+}

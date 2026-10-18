@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bean-counter.local/contracts/local-execution-01/profile",
+  "const": {
+    "schema": "ledger-local-execution-capability/1",
+    "execution_profile": "ledger-local-execution/1",
+    "closure_profile": "ledger-local-selected-inputs/1",
+    "compiler_semantics": "ledger-policy-compiler/app-cost-causal-1",
+    "compiler_descriptor_schema": "ledger-workflow-compiler-descriptor/6",
+    "plan_schema": "ledger-workflow-compiled-plan/6",
+    "authority_audit_profile": "none",
+    "financial_audit_profile": "none",
+    "normalization_profile": "ledger-operation-normalization/2",
+    "limits_profile": "workflow-limits/1",
+    "trust": "released_local_owner_transactional_projections_with_targeted_record_verification",
+    "whole_history_audit": "explicit_audit_or_recovery",
+    "future_machine_completion": "not_guaranteed",
+    "financial_exposure_and_topology": "unchanged_required",
+    "all_selected_policy_executors": "implemented_before_admission",
+    "runtime_resources": "actual_finite_guards_no_universal_reservation",
+    "optional_supplier_ap": "separate_preserved_scope_not_first_app_bill",
+    "availability": "operational_refusal_does_not_extend_deadlines",
+    "runtime_qualification": "not_conferred_by_this_dictionary"
+  }
+}

@@ -1,0 +1,756 @@
+{
+  "schema": "local-execution-input/1",
+  "qualification": "Conditional shapes/identity/joins and arithmetic only. Opaque prior anchors do not prove custody, compilation, source rights, app support or runtime success.",
+  "scope": [
+    "fixture",
+    "app-cost"
+  ],
+  "key": {
+    "logical_store_id": "fixture-owner",
+    "scope": [
+      "fixture",
+      "app-cost"
+    ],
+    "source": "urn:fixture:cost-source",
+    "operation_id": "local-cost-1"
+  },
+  "anchors": {
+    "binding": {
+      "kind": "workflow-binding",
+      "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    "work": {
+      "kind": "workflow-work",
+      "id": "wevent_4444444444444444444444444444444444444444444444444444444444444444",
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "app_terms": {
+      "kind": "workflow-slot-terms",
+      "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+      "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "observation": {
+      "kind": "workflow-fact-attestation",
+      "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+      "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "final_2": {
+      "kind": "workflow-fact-attestation",
+      "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+      "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "initial_cost_decision": {
+      "kind": "workflow-decision",
+      "id": "wdrev_8888888888888888888888888888888888888888888888888888888888888888",
+      "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "claim": {
+      "kind": "workflow-cost",
+      "id": "wdoc_9999999999999999999999999999999999999999999999999999999999999999",
+      "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "final_2_verification": {
+      "kind": "workflow-evidence-verification",
+      "id": "wdoc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "records": [
+    {
+      "name": "dependency",
+      "definition": "LocalWorkDependency2",
+      "kind": "workflow-dependency",
+      "identity": {
+        "type": "record",
+        "prefix": "wdep_",
+        "domain": "workflow-dependency",
+        "tuple": [
+          "wdecision_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wdecision_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          {
+            "kind": "workflow-binding",
+            "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+            "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "body": {
+        "schema": "ledger-workflow-dependency/2",
+        "ancestor_decision_id": "wdecision_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dependent_decision_id": "wdecision_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "kind": "delayed_cost",
+        "target_ref": {
+          "kind": "workflow-work",
+          "id": "wevent_4444444444444444444444444444444444444444444444444444444444444444",
+          "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "original_terms_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "maximum_actions": "2",
+        "operation_key": {
+          "logical_store_id": "fixture-owner",
+          "scope": [
+            "fixture",
+            "app-cost"
+          ],
+          "source": "urn:fixture:cost-source",
+          "operation_id": "local-cost-1"
+        }
+      },
+      "set_paths": []
+    },
+    {
+      "name": "capacity",
+      "definition": "LocalCorrectionCapacity2",
+      "kind": "workflow-correction-capacity",
+      "identity": {
+        "type": "record",
+        "prefix": "wcapacity_",
+        "domain": "workflow-correction-capacity",
+        "tuple": [
+          "wdecision_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "1"
+        ]
+      },
+      "body": {
+        "schema": "ledger-correction-capacity/2",
+        "root_ref": {
+          "kind": "workflow-decision",
+          "id": "wdrev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "revision": "1",
+        "dependency_root": {
+          "$hash": {
+            "domain": "workflow-dependency-set",
+            "value": [
+              {
+                "$record": "dependency"
+              }
+            ]
+          }
+        },
+        "affected_decisions": "2",
+        "maximum_actions": "4",
+        "reserved_dependency_refs": [
+          {
+            "$record": "dependency"
+          }
+        ],
+        "retirement_refs": []
+      },
+      "set_paths": []
+    },
+    {
+      "name": "causal_authority",
+      "definition": "LocalCausalAuthority2",
+      "kind": "workflow-economic-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-app-causal-authority/2",
+        "operation": "cost.correct",
+        "actor": "fixture-cost-principal",
+        "source": "urn:fixture:cost-source",
+        "scope": [
+          "fixture",
+          "app-cost"
+        ],
+        "customer": "customer-B",
+        "canonical_economic_namespace": "urn:fixture:cost-source",
+        "installation_mode": "isolated_synthetic",
+        "enrollment_ref": {
+          "kind": "workflow-source-enrollment",
+          "id": "wdoc_1111111111111111111111111111111111111111111111111111111111111111",
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "current_state_ref": {
+          "kind": "workflow-source-state",
+          "id": "wdoc_2222222222222222222222222222222222222222222222222222222222222222",
+          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "current_grant_ref": {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "original_binding_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "original_accepted_agreement_ref": {
+          "kind": "workflow-accepted-agreement",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "original_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "source_slot": "support:cost-source",
+        "rights": [
+          "correct",
+          "read"
+        ],
+        "evidence_refs": [],
+        "verified_fact_refs": [],
+        "observed_at": "2026-10-19T12:01:00.000000Z",
+        "causal_closure_checks": [],
+        "app_observation_refs": [
+          {
+            "kind": "workflow-fact-attestation",
+            "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+            "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          }
+        ],
+        "app_final_evidence_refs": [
+          {
+            "kind": "workflow-fact-attestation",
+            "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "app_cost_revision_refs": [
+          {
+            "kind": "workflow-cost",
+            "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "app_cost_closure_checks": [],
+        "causal_root_ref": {
+          "kind": "workflow-decision",
+          "id": "wdrev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "causal_root_operation": "quantity.correct",
+        "original_work_ref": {
+          "kind": "workflow-work",
+          "id": "wevent_4444444444444444444444444444444444444444444444444444444444444444",
+          "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "dependency_ref": {
+          "$record": "dependency"
+        },
+        "component_slot": "component:model",
+        "original_app_terms_ref": {
+          "kind": "workflow-slot-terms",
+          "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+          "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        },
+        "standalone_correction_until": "2026-10-18T12:03:00.000000Z",
+        "deadline_basis": "accepted_app_causal_clause",
+        "causal_reversal": {
+          "root_relation": "original_work_delayed_cost_dependency",
+          "mode": "exact_inverse_and_permanent_close",
+          "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+        },
+        "initial_cost_decision_ref": {
+          "kind": "workflow-decision",
+          "id": "wdrev_8888888888888888888888888888888888888888888888888888888888888888",
+          "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+        },
+        "initial_cost_accepted_at": "2026-10-17T12:03:00.000000Z"
+      },
+      "set_paths": []
+    },
+    {
+      "name": "pending_authority",
+      "definition": "LocalPendingCausalAuthority2",
+      "kind": "workflow-economic-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-app-pending-causal-authority/2",
+        "operation": "cost.correct",
+        "actor": "fixture-cost-principal",
+        "source": "urn:fixture:cost-source",
+        "scope": [
+          "fixture",
+          "app-cost"
+        ],
+        "customer": "customer-B",
+        "canonical_economic_namespace": "urn:fixture:cost-source",
+        "installation_mode": "isolated_synthetic",
+        "enrollment_ref": {
+          "kind": "workflow-source-enrollment",
+          "id": "wdoc_1111111111111111111111111111111111111111111111111111111111111111",
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "current_state_ref": {
+          "kind": "workflow-source-state",
+          "id": "wdoc_2222222222222222222222222222222222222222222222222222222222222222",
+          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "current_grant_ref": {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "original_binding_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "original_accepted_agreement_ref": {
+          "kind": "workflow-accepted-agreement",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "original_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "source_slot": "support:cost-source",
+        "rights": [
+          "correct",
+          "read"
+        ],
+        "evidence_refs": [],
+        "verified_fact_refs": [],
+        "observed_at": "2026-10-17T12:05:00.000000Z",
+        "causal_closure_checks": [],
+        "app_observation_refs": [
+          {
+            "kind": "workflow-fact-attestation",
+            "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+            "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          }
+        ],
+        "app_final_evidence_refs": [],
+        "app_cost_revision_refs": [],
+        "app_cost_closure_checks": [],
+        "causal_root_ref": {
+          "kind": "workflow-decision",
+          "id": "wdrev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "causal_root_operation": "quantity.correct",
+        "original_work_ref": {
+          "kind": "workflow-work",
+          "id": "wevent_4444444444444444444444444444444444444444444444444444444444444444",
+          "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "dependency_ref": {
+          "$record": "dependency"
+        },
+        "component_slot": "component:model",
+        "original_app_terms_ref": {
+          "kind": "workflow-slot-terms",
+          "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+          "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+        },
+        "causal_reversal": {
+          "root_relation": "original_work_delayed_cost_dependency",
+          "mode": "exact_inverse_and_permanent_close",
+          "standalone_deadline_effect": "does_not_expire_preaccepted_causal_reversal"
+        },
+        "absence_kind": "no_initial_app_cost_claim"
+      },
+      "set_paths": []
+    },
+    {
+      "name": "authority",
+      "definition": "LocalAuthority8",
+      "kind": "workflow-economic-authority",
+      "identity": {
+        "type": "document"
+      },
+      "body": {
+        "schema": "ledger-workflow-economic-authority/8",
+        "operation": "cost.correct",
+        "actor": "fixture-cost-principal",
+        "source": "urn:fixture:cost-source",
+        "scope": [
+          "fixture",
+          "app-cost"
+        ],
+        "customer": "customer-B",
+        "canonical_economic_namespace": "urn:fixture:cost-source",
+        "installation_mode": "isolated_synthetic",
+        "enrollment_ref": {
+          "kind": "workflow-source-enrollment",
+          "id": "wdoc_1111111111111111111111111111111111111111111111111111111111111111",
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "current_state_ref": {
+          "kind": "workflow-source-state",
+          "id": "wdoc_2222222222222222222222222222222222222222222222222222222222222222",
+          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "current_grant_ref": {
+          "kind": "workflow-source-grant",
+          "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "original_binding_ref": {
+          "kind": "workflow-binding",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "original_accepted_agreement_ref": {
+          "kind": "workflow-accepted-agreement",
+          "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+          "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        "original_grant_refs": [
+          {
+            "kind": "workflow-source-grant",
+            "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "source_slot": "support:cost-source",
+        "rights": [
+          "correct",
+          "read"
+        ],
+        "evidence_refs": [],
+        "verified_fact_refs": [],
+        "observed_at": "2026-10-17T12:05:00.000000Z",
+        "causal_closure_checks": [],
+        "app_observation_refs": [
+          {
+            "kind": "workflow-fact-attestation",
+            "id": "wdoc_6666666666666666666666666666666666666666666666666666666666666666",
+            "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          }
+        ],
+        "app_final_evidence_refs": [
+          {
+            "kind": "workflow-fact-attestation",
+            "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "app_cost_revision_refs": [
+          {
+            "kind": "workflow-cost",
+            "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ],
+        "app_cost_closure_checks": [],
+        "app_pending_cost_closure_checks": []
+      },
+      "set_paths": []
+    }
+  ],
+  "journal_input": {
+    "operation_kind": "cost.correct",
+    "payload": {
+      "schema": "ledger-workflow-cost-correct/2",
+      "original_cost_claim_ref": {
+        "kind": "workflow-cost",
+        "id": "wdoc_9999999999999999999999999999999999999999999999999999999999999999",
+        "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "expected_revision": "1",
+      "replacement_final_cost_proof": {
+        "attestation_ref": {
+          "kind": "workflow-fact-attestation",
+          "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "verification_ref": {
+          "kind": "workflow-evidence-verification",
+          "id": "wdoc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "dependent_reversals": [],
+      "evidence_refs": []
+    },
+    "received_at": "2026-10-17T12:05:00.000000Z",
+    "accepted_at": "2026-10-17T12:05:00.000000Z",
+    "commit_sequence": "12",
+    "selected_input_refs": [
+      {
+        "kind": "workflow-work",
+        "id": "wevent_4444444444444444444444444444444444444444444444444444444444444444",
+        "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      {
+        "kind": "workflow-binding",
+        "id": "wdoc_3333333333333333333333333333333333333333333333333333333333333333",
+        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      {
+        "kind": "workflow-slot-terms",
+        "id": "wdoc_5555555555555555555555555555555555555555555555555555555555555555",
+        "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      {
+        "kind": "workflow-fact-attestation",
+        "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+        "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "kind": "workflow-cost",
+        "id": "wdoc_9999999999999999999999999999999999999999999999999999999999999999",
+        "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      {
+        "kind": "workflow-evidence-verification",
+        "id": "wdoc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "result_records": [
+      "authority"
+    ],
+    "direct_anchors": [
+      {
+        "role": "app_cost_claim",
+        "record_ref": {
+          "kind": "workflow-cost",
+          "id": "wdoc_9999999999999999999999999999999999999999999999999999999999999999",
+          "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+        },
+        "relation": "original_app_cost_claim",
+        "descriptor_refs": []
+      },
+      {
+        "role": "evidence",
+        "record_ref": {
+          "kind": "workflow-fact-attestation",
+          "id": "wdoc_7777777777777777777777777777777777777777777777777777777777777777",
+          "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        "relation": "evidence_input",
+        "descriptor_refs": []
+      },
+      {
+        "role": "evidence",
+        "record_ref": {
+          "kind": "workflow-evidence-verification",
+          "id": "wdoc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "relation": "evidence_input",
+        "descriptor_refs": []
+      }
+    ],
+    "qualification": "Wrapper framing only: authority-only result set deliberately is not a complete cost.correct candidate. Production must additionally derive decision/evaluation/actions/claim/consumption/revision and all required effects; missing any required result refuses. Money fixtures are independent of this framing specimen."
+  },
+  "money_inputs": {
+    "scale": 18,
+    "service": "1",
+    "policy_variant_service": "1.2",
+    "final_cost": "2",
+    "replacement_cost": "1.6",
+    "multiplier": {
+      "numerator": "1",
+      "denominator": "1"
+    },
+    "markup": "0",
+    "success_percent": "25",
+    "replacement_outcome_percent": "-20"
+  },
+  "cases": [
+    {
+      "name": "valid_financial_preparation",
+      "patch": {}
+    },
+    {
+      "name": "missing_promised_close",
+      "patch": {
+        "all_policy_executors": false
+      }
+    },
+    {
+      "name": "missing_promised_correction",
+      "patch": {
+        "all_policy_executors": false
+      }
+    },
+    {
+      "name": "exhausted_now",
+      "patch": {
+        "actual_resource_guard": false
+      }
+    },
+    {
+      "name": "future_fit_absent",
+      "patch": {
+        "future_fit": false
+      }
+    },
+    {
+      "name": "whole_history_not_replayed",
+      "patch": {
+        "whole_history_replayed": false
+      }
+    },
+    {
+      "name": "wrong_selected_digest",
+      "patch": {
+        "selected_bodies_verified": false
+      }
+    },
+    {
+      "name": "head_cas_changed",
+      "patch": {
+        "heads_current": false
+      }
+    },
+    {
+      "name": "source_revoked",
+      "patch": {
+        "current_rights": false
+      }
+    },
+    {
+      "name": "missing_original_terms",
+      "patch": {
+        "original_terms": false
+      }
+    },
+    {
+      "name": "second_call_claim",
+      "patch": {
+        "once_only": false
+      }
+    },
+    {
+      "name": "financial_exposure_exceeded",
+      "patch": {
+        "financial_exposure": false
+      }
+    },
+    {
+      "name": "missing_dependent_inverse",
+      "patch": {
+        "complete_dependency_actions": false
+      }
+    },
+    {
+      "name": "expired_standalone",
+      "patch": {
+        "now": "2026-10-18T12:03:00.000001Z"
+      }
+    },
+    {
+      "name": "deadline_equal",
+      "patch": {
+        "now": "2026-10-18T12:03:00.000000Z"
+      }
+    },
+    {
+      "name": "pending_without_actual_absence",
+      "patch": {
+        "pending": true,
+        "held_claim_absent": false
+      }
+    },
+    {
+      "name": "pending_with_actual_absence",
+      "patch": {
+        "pending": true
+      }
+    },
+    {
+      "name": "old_registry_with_new_body",
+      "patch": {
+        "registry_matches": false
+      }
+    },
+    {
+      "name": "unknown_commit",
+      "patch": {
+        "commit_outcome": "unknown"
+      }
+    },
+    {
+      "name": "lost_reply_committed",
+      "patch": {
+        "commit_outcome": "committed",
+        "reply_delivered": false
+      }
+    },
+    {
+      "name": "retry_after_revocation",
+      "patch": {
+        "retry": true,
+        "current_rights": false
+      }
+    },
+    {
+      "name": "retry_intent_mismatch",
+      "patch": {
+        "retry": true,
+        "same_intent": false
+      }
+    },
+    {
+      "name": "incomplete_cost_results",
+      "patch": {
+        "complete_result_effects": false
+      }
+    }
+  ],
+  "context": {
+    "all_policy_executors": true,
+    "actual_resource_guard": true,
+    "future_fit": false,
+    "whole_history_replayed": false,
+    "selected_bodies_verified": true,
+    "heads_current": true,
+    "current_rights": true,
+    "original_terms": true,
+    "once_only": true,
+    "financial_exposure": true,
+    "complete_dependency_actions": true,
+    "registry_matches": true,
+    "pending": false,
+    "held_claim_absent": true,
+    "retry": false,
+    "same_intent": true,
+    "read_right": true,
+    "original_receipt_verified": true,
+    "commit_outcome": "committed",
+    "reply_delivered": true,
+    "now": "2026-10-17T12:05:00.000000Z",
+    "initial_cost_accepted_at": "2026-10-17T12:03:00.000000Z",
+    "correction_within_us": "86400000000",
+    "complete_result_effects": true
+  },
+  "schema_negatives": [
+    {
+      "record": "authority",
+      "add_field": "authority_observation_ref",
+      "value": {
+        "kind": "workflow-authority-prefix-observation",
+        "id": "wdoc_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "record": "capacity",
+      "add_field": "maximum_work",
+      "value": "0"
+    },
+    {
+      "record": "pending_authority",
+      "add_field": "financial_observation_ref",
+      "value": {
+        "kind": "workflow-financial-history-observation",
+        "id": "wdoc_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    }
+  ]
+}

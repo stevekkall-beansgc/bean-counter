@@ -1,0 +1,14 @@
+{
+  "status": "PASS_CONDITIONAL_ONLY",
+  "comparison": "complete structured author output exactly equals independently sealed root output",
+  "author_expected_raw_sha256": "f1d18cd0b5562b5ab4726b66249165d0971990fcddc16bfc0ee278f80fac3939",
+  "independent_expected_raw_sha256": "1c956eddb6dbfb80b76977e117efbd54e230c60c72698fc4a637ab91a822ab01",
+  "independent_seal_raw_sha256": "438e8ab4d9505a8d55f6239d0ef2ab767ce70675447cd67421fbd282cc622358",
+  "input_handoff_raw_sha256": "e9bc04b1803cf6b365d85f554ad13081ecf57b853ad5a495fcd297c9d8745ba8",
+  "all_13_input_pins_unchanged": true,
+  "old_definitions_unchanged": 333,
+  "new_definition_patches_verified": 11,
+  "author_output_created_before_reading_independent_output": true,
+  "production_support": false,
+  "runtime_qualified": false
+}

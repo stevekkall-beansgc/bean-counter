@@ -1,0 +1,479 @@
+{
+  "copied_definitions": 333,
+  "added_definitions": 11,
+  "deltas": [
+    {
+      "base_definition": "AppPendingCostClosureCheck1",
+      "new_definition": "LocalPendingCostClosureCheck2",
+      "new_wire_schema": null,
+      "remove_properties": [
+        "financial_observation_ref"
+      ],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/financial_observation_ref"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "original_work_ref",
+            "dependency_ref",
+            "original_binding_ref",
+            "original_terms_ref",
+            "original_source_grant_refs",
+            "current_source_grant_ref",
+            "correction_source_slot",
+            "causal_root_ref",
+            "causal_root_operation",
+            "component_slot",
+            "dependent_authority_ref",
+            "absence_kind"
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "AppAuthority7",
+      "new_definition": "LocalAuthority8",
+      "new_wire_schema": "ledger-workflow-economic-authority/8",
+      "remove_properties": [
+        "authority_observation_ref"
+      ],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/authority_observation_ref"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/app_pending_cost_closure_checks/items/$ref",
+          "value": "#/$defs/LocalPendingCostClosureCheck2"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-workflow-economic-authority/8"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "schema",
+            "operation",
+            "actor",
+            "source",
+            "scope",
+            "customer",
+            "canonical_economic_namespace",
+            "installation_mode",
+            "enrollment_ref",
+            "current_state_ref",
+            "current_grant_ref",
+            "original_binding_ref",
+            "original_accepted_agreement_ref",
+            "original_grant_refs",
+            "source_slot",
+            "rights",
+            "evidence_refs",
+            "verified_fact_refs",
+            "observed_at",
+            "causal_closure_checks",
+            "app_observation_refs",
+            "app_final_evidence_refs",
+            "app_cost_revision_refs",
+            "app_cost_closure_checks",
+            "app_pending_cost_closure_checks"
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "AppCausalAuthority1",
+      "new_definition": "LocalCausalAuthority2",
+      "new_wire_schema": "ledger-workflow-app-causal-authority/2",
+      "remove_properties": [
+        "authority_observation_ref"
+      ],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/authority_observation_ref"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-workflow-app-causal-authority/2"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "schema",
+            "operation",
+            "actor",
+            "source",
+            "scope",
+            "customer",
+            "canonical_economic_namespace",
+            "installation_mode",
+            "enrollment_ref",
+            "current_state_ref",
+            "current_grant_ref",
+            "original_binding_ref",
+            "original_accepted_agreement_ref",
+            "original_grant_refs",
+            "source_slot",
+            "rights",
+            "evidence_refs",
+            "verified_fact_refs",
+            "observed_at",
+            "causal_closure_checks",
+            "app_observation_refs",
+            "app_final_evidence_refs",
+            "app_cost_revision_refs",
+            "app_cost_closure_checks",
+            "causal_root_ref",
+            "causal_root_operation",
+            "original_work_ref",
+            "dependency_ref",
+            "component_slot",
+            "original_app_terms_ref",
+            "standalone_correction_until",
+            "deadline_basis",
+            "initial_cost_decision_ref",
+            "initial_cost_accepted_at"
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "AppPendingCausalAuthority1",
+      "new_definition": "LocalPendingCausalAuthority2",
+      "new_wire_schema": "ledger-workflow-app-pending-causal-authority/2",
+      "remove_properties": [
+        "authority_observation_ref",
+        "financial_observation_ref"
+      ],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/authority_observation_ref"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/financial_observation_ref"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-workflow-app-pending-causal-authority/2"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "schema",
+            "operation",
+            "actor",
+            "source",
+            "scope",
+            "customer",
+            "canonical_economic_namespace",
+            "installation_mode",
+            "enrollment_ref",
+            "current_state_ref",
+            "current_grant_ref",
+            "original_binding_ref",
+            "original_accepted_agreement_ref",
+            "original_grant_refs",
+            "source_slot",
+            "rights",
+            "evidence_refs",
+            "verified_fact_refs",
+            "observed_at",
+            "causal_closure_checks",
+            "app_observation_refs",
+            "app_final_evidence_refs",
+            "app_cost_revision_refs",
+            "app_cost_closure_checks",
+            "causal_root_ref",
+            "causal_root_operation",
+            "original_work_ref",
+            "dependency_ref",
+            "component_slot",
+            "original_app_terms_ref",
+            "absence_kind"
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "DependencyRecord",
+      "new_definition": "LocalDependency2",
+      "new_wire_schema": "ledger-workflow-dependency/2",
+      "remove_properties": [
+        "maximum_records",
+        "maximum_bytes",
+        "maximum_work"
+      ],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/maximum_bytes"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/maximum_records"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/maximum_work"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-workflow-dependency/2"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "schema",
+            "ancestor_decision_id",
+            "dependent_decision_id",
+            "kind",
+            "target_ref",
+            "original_terms_ref",
+            "maximum_actions",
+            "operation_key"
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "CorrectionCapacity",
+      "new_definition": "LocalCorrectionCapacity2",
+      "new_wire_schema": "ledger-correction-capacity/2",
+      "remove_properties": [
+        "maximum_records",
+        "maximum_bytes",
+        "maximum_work"
+      ],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/maximum_bytes"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/maximum_records"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/maximum_work"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-correction-capacity/2"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "schema",
+            "root_ref",
+            "revision",
+            "dependency_root",
+            "affected_decisions",
+            "maximum_actions",
+            "reserved_dependency_refs",
+            "retirement_refs"
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "AppWorkDependency1",
+      "new_definition": "LocalWorkDependency2",
+      "replace_ref": {
+        "#/$defs/DependencyRecord": "#/$defs/LocalDependency2"
+      },
+      "exact_patch": [
+        {
+          "op": "replace",
+          "path": "/allOf",
+          "value": [
+            {
+              "$ref": "#/$defs/LocalDependency2"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "delayed_cost"
+                },
+                "target_ref": {
+                  "$ref": "#/$defs/WorkRef"
+                }
+              },
+              "not": {
+                "required": [
+                  "family_slot"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "AppDescriptor6",
+      "new_definition": "LocalDescriptor8",
+      "new_wire_schema": "ledger-operation-descriptors/8",
+      "remove_properties": [],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-operation-descriptors/8"
+        }
+      ]
+    },
+    {
+      "base_definition": "AppRequestEvidence3",
+      "new_definition": "LocalRequestEvidence4",
+      "new_wire_schema": null,
+      "remove_properties": [],
+      "replace_property_refs": {
+        "descriptor_resolution": "LocalDescriptor8"
+      },
+      "exact_patch": [
+        {
+          "op": "replace",
+          "path": "/properties/descriptor_resolution/$ref",
+          "value": "#/$defs/LocalDescriptor8"
+        }
+      ]
+    },
+    {
+      "base_definition": "AppOperation9",
+      "new_definition": "LocalOperation10",
+      "new_wire_schema": "ledger-workflow-economic-operation/10",
+      "remove_properties": [
+        "source_observation_refs",
+        "financial_observation_ref",
+        "combined_audit_digest"
+      ],
+      "replace_property_refs": {
+        "request_evidence": "LocalRequestEvidence4",
+        "authority_snapshot": "LocalAuthority8"
+      },
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/combined_audit_digest"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/financial_observation_ref"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/source_observation_refs"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/authority_snapshot/$ref",
+          "value": "#/$defs/LocalAuthority8"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/closure_profile/const",
+          "value": "ledger-local-selected-inputs/1"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/request_evidence/$ref",
+          "value": "#/$defs/LocalRequestEvidence4"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-workflow-economic-operation/10"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "schema",
+            "key",
+            "kind",
+            "contract",
+            "request_evidence",
+            "authority_snapshot",
+            "received_at",
+            "accepted_at",
+            "commit_sequence",
+            "result_refs",
+            "closure_profile"
+          ]
+        }
+      ]
+    },
+    {
+      "base_definition": "AppManifest9",
+      "new_definition": "LocalManifest10",
+      "new_wire_schema": "ledger-workflow-economic-manifest/10",
+      "remove_properties": [
+        "source_observation_refs",
+        "financial_observation_ref",
+        "combined_audit_digest"
+      ],
+      "replace_property_refs": {},
+      "exact_patch": [
+        {
+          "op": "remove",
+          "path": "/properties/combined_audit_digest"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/financial_observation_ref"
+        },
+        {
+          "op": "remove",
+          "path": "/properties/source_observation_refs"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/closure_profile/const",
+          "value": "ledger-local-selected-inputs/1"
+        },
+        {
+          "op": "replace",
+          "path": "/properties/schema/const",
+          "value": "ledger-workflow-economic-manifest/10"
+        },
+        {
+          "op": "replace",
+          "path": "/required",
+          "value": [
+            "schema",
+            "key",
+            "members",
+            "closure_profile"
+          ]
+        }
+      ]
+    }
+  ]
+}

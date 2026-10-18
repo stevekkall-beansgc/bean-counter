@@ -1,0 +1,77 @@
+{
+  "sources": [
+    {
+      "path": "contracts/candidates/full-suite-v1/core/party-commitment-first-01/party-commitment-first.schema.json",
+      "bytes": 581495,
+      "sha256": "af7617bd19697ceceae13be33695cb8300c90cb8826e9e5b5b5c1155bf1b5199"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/party-commitment-first-01/registry.json",
+      "bytes": 14361,
+      "sha256": "c13aa2ac1cf68e42c4048ebaf71cb65f52142f8e34e3b6b67a0031890d731433"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/party-commitment-first-01/dispatch.json",
+      "bytes": 14178,
+      "sha256": "202f4cb1186c85586c55acedf759bfd7377ef0043ca38e1cee5e8b1fe7929631"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/party-commitment-first-01/SPEC.md",
+      "bytes": 13168,
+      "sha256": "afa8b5fbba7571fd7cce04bbad0b359cf7f1f7dad7507db1e9cb91b773998929"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/app-cost-causal-01/SPEC.md",
+      "bytes": 18476,
+      "sha256": "e4379bfb51ab13b6af2ae0f26f591200102bc591c60be4277408387b435737da"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/app-cost-causal-01/fixture-input.json",
+      "bytes": 152759,
+      "sha256": "ed8d32f13eb58af8fe6d2c39a8960db6a63bef6b59ce527c04c0f58983399862"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/app-owned-cost-01/fixture-input.json",
+      "bytes": 75808,
+      "sha256": "21ae83b82ae943415716022bd9fed2d5762b8f91df676436b42077cb9321378e"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/app-owned-cost-01/SPEC.md",
+      "bytes": 23887,
+      "sha256": "09fba631a274ffc6062c2df5151945ef0cb4900f50b630f0455e6a13f7c5d283"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/ASTRA-SIMPLIFIED-LOCAL-ARCHITECTURE-REVIEW-20261018.md",
+      "bytes": 33315,
+      "sha256": "974705be69226f34f65661dafdc70aa8e184235db966550748b20e54dfe3a064"
+    },
+    {
+      "path": "/Users/stephenkall/beans/reviews/bean-counter-2026-10-12/waves12/committed-bill-sprint-20261016/SIMPLIFIED-LOCAL-APPROVAL-AND-RESUME-20261018.json",
+      "bytes": 2712,
+      "sha256": "7f4395f80f58918e1aec82b06b6d5bdb4d3521d3f869aef59f9bc6dec5492427"
+    }
+  ],
+  "identity_source_bindings": [
+    {
+      "repository": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-integration-20261012",
+      "commit": "32f00d3d79d1f93f6d8e897e0b6c7aaa013b8cb1",
+      "path": "crates/ledgerlab/src/service/workflow/records.rs",
+      "bytes": 25570,
+      "sha256": "1ab03ad863bf0b1fc0b01aac05714de9b89a13a1d44a68feed95b98e8c52c3a2"
+    },
+    {
+      "repository": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-integration-20261012",
+      "commit": "32f00d3d79d1f93f6d8e897e0b6c7aaa013b8cb1",
+      "path": "crates/ledgerlab-core/src/policy/workflow/transition_constructor/body.rs",
+      "bytes": 7997,
+      "sha256": "02281d59581454f6c1bf410f21f228de56aec02feb86162168eaf0e2e852166d"
+    },
+    {
+      "repository": "/Users/stephenkall/beans/worktrees/bean-counter-waves12-integration-20261012",
+      "commit": "32f00d3d79d1f93f6d8e897e0b6c7aaa013b8cb1",
+      "path": "crates/ledgerlab-core/src/policy/workflow/transition_constructor/capacity/production.rs",
+      "bytes": 16266,
+      "sha256": "0fc8071d54795e1aae04c38ba8a734605e782ed6f2be821a78d3fb96ed8048b5"
+    }
+  ]
+}
