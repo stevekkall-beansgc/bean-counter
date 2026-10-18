@@ -1,0 +1,38 @@
+{
+  "status": "PASS",
+  "meaning": "Author dictionary consistency only; no production descriptor or executable qualification",
+  "meta_schema_valid": true,
+  "reachable_definitions": [
+    "Artifact",
+    "AuditVerifier",
+    "Digest",
+    "OriginRecipe"
+  ],
+  "sole_definition_delta": {
+    "operation": "append_enum_literal",
+    "pointer": "/$defs/OriginRecipe/properties/closure_profile/enum",
+    "old": [
+      "ledger-workflow-publication-manifest/1",
+      "ledger-workflow-agreement-manifest/1",
+      "ledger-workflow-source-manifest/1",
+      "ledger-economic-resolved-inputs/2",
+      "ledger-economic-resolved-inputs/3"
+    ],
+    "new": [
+      "ledger-workflow-publication-manifest/1",
+      "ledger-workflow-agreement-manifest/1",
+      "ledger-workflow-source-manifest/1",
+      "ledger-economic-resolved-inputs/2",
+      "ledger-economic-resolved-inputs/3",
+      "ledger-economic-resolved-inputs/9"
+    ],
+    "added": "ledger-economic-resolved-inputs/9"
+  },
+  "exact_registered_tuples": 13,
+  "old_schema_rejects_all_13_closure9_tuples": true,
+  "new_schema_accepts_all_13_closure9_tuples": true,
+  "closures4_through8_remain_rejected": true,
+  "inherited_closure2_and3_shape_unchanged": true,
+  "source_pins_verified": 12,
+  "runtime_or_build_executed": false
+}

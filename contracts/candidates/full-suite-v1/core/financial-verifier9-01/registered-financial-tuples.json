@@ -1,0 +1,269 @@
+{
+  "purpose": "Exact existing registry associations, NOT a production verifier body, advertised support set, or qualification.",
+  "source_registry": "../party-commitment-first-01/registry.json",
+  "source_dispatch": "../party-commitment-first-01/dispatch.json",
+  "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+  "tuple_count": 13,
+  "rows": [
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "cost.correct",
+        "payload_schema": "ledger-workflow-cost-correct/2",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "cost.correct/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "cost.finalize",
+        "payload_schema": "ledger-workflow-cost-finalize/2",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "cost.finalize/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "evidence.retain",
+        "payload_schema": "ledger-workflow-app-cost-attest/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "evidence.retain/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "evidence.retain",
+        "payload_schema": "ledger-workflow-app-observe/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "evidence.retain/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "evidence.retain",
+        "payload_schema": "ledger-workflow-fact-attest/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "evidence.retain/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "evidence.retain",
+        "payload_schema": "ledger-workflow-family-close-attest/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "evidence.retain/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "link.assert",
+        "payload_schema": "ledger-workflow-link-assert/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "link.assert/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "outcome.close",
+        "payload_schema": "ledger-workflow-outcome-close/2",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "outcome.close/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "outcome.correct",
+        "payload_schema": "ledger-workflow-outcome-correction/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "outcome.correct/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "outcome.submit",
+        "payload_schema": "ledger-workflow-outcome/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "outcome.submit/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "quantity.correct",
+        "payload_schema": "ledger-workflow-quantity-correction/2",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "quantity.correct/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "work.accept",
+        "payload_schema": "ledger-workflow-work/1",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "work.accept/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    },
+    {
+      "origin_recipe": {
+        "registry_digest": "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276",
+        "operation_kind": "work.reverse",
+        "payload_schema": "ledger-workflow-work-reverse/2",
+        "normalization_profile": "ledger-operation-normalization/2",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "variant": "all"
+      },
+      "recipe_id": "work.reverse/app-party-commitment-1",
+      "descriptor_schema": "ledger-operation-descriptors/6",
+      "saved_recipe": {
+        "authority_schema": "ledger-workflow-economic-authority/7",
+        "operation_schema": "ledger-workflow-economic-operation/9",
+        "manifest_schema": "ledger-workflow-economic-manifest/9",
+        "closure_profile": "ledger-economic-resolved-inputs/9",
+        "authority_audit_profile": "ledger-authority-origin-audit/1",
+        "financial_audit_profile": "ledger-financial-origin-audit/1"
+      }
+    }
+  ]
+}

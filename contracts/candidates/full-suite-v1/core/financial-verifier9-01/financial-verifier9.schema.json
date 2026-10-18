@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bean-counter.invalid/candidates/financial-verifier9-01/financial-verifier9.schema.json",
+  "title": "Additive verifier2 financial closure9 dictionary; no executable support claim",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AuditVerifier"
+    }
+  ],
+  "$defs": {
+    "Digest": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "Artifact": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9_./-]+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "OriginRecipe": {
+      "type": "object",
+      "properties": {
+        "registry_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "operation_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "payload_schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "normalization_profile": {
+          "const": "ledger-operation-normalization/2"
+        },
+        "closure_profile": {
+          "enum": [
+            "ledger-workflow-publication-manifest/1",
+            "ledger-workflow-agreement-manifest/1",
+            "ledger-workflow-source-manifest/1",
+            "ledger-economic-resolved-inputs/2",
+            "ledger-economic-resolved-inputs/3",
+            "ledger-economic-resolved-inputs/9"
+          ]
+        },
+        "variant": {
+          "enum": [
+            "all",
+            "customer.register",
+            "source.enroll",
+            "source.restrict",
+            "source.revoke"
+          ]
+        }
+      },
+      "required": [
+        "registry_digest",
+        "operation_kind",
+        "payload_schema",
+        "normalization_profile",
+        "closure_profile",
+        "variant"
+      ],
+      "additionalProperties": false
+    },
+    "AuditVerifier": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-authority-audit-verifier/2"
+        },
+        "profile": {
+          "enum": [
+            "ledger-authority-origin-audit/1",
+            "ledger-financial-origin-audit/1"
+          ]
+        },
+        "algorithm": {
+          "const": "verified-introduction-fixed-point/1"
+        },
+        "resources": {
+          "const": "workflow-profile-b-origin-audit/1"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 64
+        },
+        "origin_recipes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OriginRecipe"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "schema",
+        "profile",
+        "algorithm",
+        "resources",
+        "artifacts",
+        "origin_recipes"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

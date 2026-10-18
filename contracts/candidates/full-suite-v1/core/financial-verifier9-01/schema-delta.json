@@ -1,0 +1,36 @@
+{
+  "base": "../economic-constructor-04.schema.json",
+  "target": "financial-verifier9.schema.json",
+  "scope": "Reachable AuditVerifier definition graph only; packaging metadata has a new identity.",
+  "definition_changes": [
+    {
+      "operation": "append_enum_literal",
+      "pointer": "/$defs/OriginRecipe/properties/closure_profile/enum",
+      "old": [
+        "ledger-workflow-publication-manifest/1",
+        "ledger-workflow-agreement-manifest/1",
+        "ledger-workflow-source-manifest/1",
+        "ledger-economic-resolved-inputs/2",
+        "ledger-economic-resolved-inputs/3"
+      ],
+      "new": [
+        "ledger-workflow-publication-manifest/1",
+        "ledger-workflow-agreement-manifest/1",
+        "ledger-workflow-source-manifest/1",
+        "ledger-economic-resolved-inputs/2",
+        "ledger-economic-resolved-inputs/3",
+        "ledger-economic-resolved-inputs/9"
+      ],
+      "added": "ledger-economic-resolved-inputs/9"
+    }
+  ],
+  "exact_copies": [
+    "Digest",
+    "Artifact",
+    "AuditVerifier"
+  ],
+  "no_other_definition_change": true,
+  "new_wire_version": false,
+  "old_files_modified": false,
+  "limits_changed": false
+}

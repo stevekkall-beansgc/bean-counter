@@ -1,0 +1,24 @@
+{
+  "source": "../economic-constructor-04.schema.json",
+  "definitions": {
+    "Digest": {
+      "source_definition": "Digest",
+      "status": "exact_copy"
+    },
+    "Artifact": {
+      "source_definition": "Artifact",
+      "status": "exact_copy"
+    },
+    "OriginRecipe": {
+      "source_definition": "OriginRecipe",
+      "status": "closure_enum_addition_only"
+    },
+    "AuditVerifier": {
+      "source_definition": "AuditVerifier",
+      "status": "exact_copy"
+    }
+  },
+  "omitted_definitions": "All unreachable definitions; the transitive local $ref closure of AuditVerifier is exactly these four definitions.",
+  "wire_schema_unchanged": "ledger-authority-audit-verifier/2",
+  "production_descriptor_supplied": false
+}

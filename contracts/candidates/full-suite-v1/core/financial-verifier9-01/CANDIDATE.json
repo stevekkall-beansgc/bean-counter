@@ -1,0 +1,52 @@
+{
+  "status": "CANDIDATE_DICTIONARY_ONLY_PENDING_INDEPENDENT_SEAL",
+  "base_commit": "aaabcb0caa7e1d0d1fc2a764cd219fa741ebb03f",
+  "package": "contracts/candidates/full-suite-v1/core/financial-verifier9-01",
+  "files": [
+    {
+      "path": "SPEC.md",
+      "bytes": 6821,
+      "sha256": "8b26feb00030d5d55561307e8b2a7cb3fbd3d77204b106401b01811c82dd7938"
+    },
+    {
+      "path": "check-result.json",
+      "bytes": 1285,
+      "sha256": "ad997f0db5490e01db8df3641bf4c3a6b24679bbe6286ab57590f7b810017944"
+    },
+    {
+      "path": "check_dictionary.py",
+      "bytes": 3926,
+      "sha256": "02bc0cfd72889091d56eb98621406a2c7f5abdc0bf244d2c4b85dd9fc58f3cd0"
+    },
+    {
+      "path": "definition-provenance.json",
+      "bytes": 732,
+      "sha256": "8d87929993ac69cc430f2341b8bba457c02568bd708718a81b944d2f4ff25587"
+    },
+    {
+      "path": "financial-verifier9.schema.json",
+      "bytes": 3340,
+      "sha256": "af5406cf461c81cb75af7a4340afa8d76bebba83ef1e1bd122b90b1fe64c785f"
+    },
+    {
+      "path": "registered-financial-tuples.json",
+      "bytes": 12994,
+      "sha256": "be2ded56b8c9d2982ec011b4ced4496ddef28889ba504f16b87d990350f985a7"
+    },
+    {
+      "path": "schema-delta.json",
+      "bytes": 1167,
+      "sha256": "9a3c9cfaec8bbca8d8886b7f83f99e568e3d4bb0e9d213c7206c72bd7666d5f6"
+    },
+    {
+      "path": "source-pins.json",
+      "bytes": 2177,
+      "sha256": "ae3e92d26ef2ba078db0f58bc4cd3ceb23050830ae915a129285b1939323bab0"
+    }
+  ],
+  "old_tracked_diff_empty": true,
+  "all_new_files_inside_package": true,
+  "wire_schema": "ledger-authority-audit-verifier/2",
+  "production_verifier_body_supplied": false,
+  "runtime_qualification": false
+}

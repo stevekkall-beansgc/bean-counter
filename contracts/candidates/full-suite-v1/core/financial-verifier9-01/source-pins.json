@@ -1,0 +1,65 @@
+{
+  "base_commit": "aaabcb0caa7e1d0d1fc2a764cd219fa741ebb03f",
+  "sources": [
+    {
+      "path": "../economic-constructor-04.schema.json",
+      "bytes": 57620,
+      "sha256": "27198e1d5b142b8d6caed7f53296ea80c30427d0be70dd7fec91f31cbb0bae81"
+    },
+    {
+      "path": "../ECON-CONSTRUCTOR-04-BOUNDARY.md",
+      "bytes": 13529,
+      "sha256": "1304d55d3ca619d02f675ffd64f2f792470f96923127edebf9964fa07d40b7a8"
+    },
+    {
+      "path": "../authority-audit-03.schema.json",
+      "bytes": 58050,
+      "sha256": "c2d50718592e7d4ac824a62f0f9635b9472b0dbf0b4b3d9c658ee7333a1b213b"
+    },
+    {
+      "path": "../AUTHORITY-AUDIT-02.md",
+      "bytes": 24680,
+      "sha256": "898e38d07876a8dd2ca50b19e5e396fe07168b2ba513c66bc80a69ebe1c6156e"
+    },
+    {
+      "path": "../AUTHORITY-AUDIT-03.md",
+      "bytes": 16009,
+      "sha256": "760f97f7dc7281bc01c6ca462f0c4c55f9460fca85a8d7a6bb08b4448acd5087"
+    },
+    {
+      "path": "../AUTHORITY-AUDIT-04-REPAIR.md",
+      "bytes": 3330,
+      "sha256": "ee113e7761e130002162c162845600a7de561e86618d1e5eb8d4b62f9743895b"
+    },
+    {
+      "path": "../party-commitment-first-01/SPEC.md",
+      "bytes": 13168,
+      "sha256": "afa8b5fbba7571fd7cce04bbad0b359cf7f1f7dad7507db1e9cb91b773998929"
+    },
+    {
+      "path": "../party-commitment-first-01/registry.json",
+      "bytes": 14361,
+      "sha256": "c13aa2ac1cf68e42c4048ebaf71cb65f52142f8e34e3b6b67a0031890d731433"
+    },
+    {
+      "path": "../party-commitment-first-01/dispatch.json",
+      "bytes": 14178,
+      "sha256": "202f4cb1186c85586c55acedf759bfd7377ef0043ca38e1cee5e8b1fe7929631"
+    },
+    {
+      "path": "../party-commitment-first-01/party-commitment-first.schema.json",
+      "bytes": 581495,
+      "sha256": "af7617bd19697ceceae13be33695cb8300c90cb8826e9e5b5b5c1155bf1b5199"
+    },
+    {
+      "path": "../party-commitment-first-01/profile.json",
+      "bytes": 2640,
+      "sha256": "d790caa588e7439c5744858aa7e3cdd0421d0fdff3f8f42a8798d8a503ad373a"
+    },
+    {
+      "path": "../party-commitment-first-01/definition-provenance.json",
+      "bytes": 55608,
+      "sha256": "1f566bd49c4f224015309946598ccd6fb733dcdf920cb1efba81e04592445a3f"
+    }
+  ]
+}
