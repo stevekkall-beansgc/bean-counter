@@ -160,9 +160,14 @@ impl SqliteTx {
         session: &mut OriginalAuditSession,
     ) -> Result<Option<HeadLocator>, FinancialReadError> {
         session.check_cancelled()?;
+        let io=io::binding_payload(&[],&[],0,0,session)?;
+        self.financial_reserve_io(session,io)?;
+        session.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
+        session.semantic_work().visit(ValidationVisit::RefLookup)?;
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
+        self.financial_finish_io(session).await?;
         if !resource_compare(session, version, 15)?.is_eq() {
             return Err(StoreError::BillingUpgradeRequired.into());
         }

@@ -58,6 +58,8 @@ fn quoted(out: &mut AuditedByteBuilder, text: &str, s: &mut Session) -> Result<(
         &[&std::mem::size_of::<Value>().into(), &text.len().into()],
     )?;
     let _temporary = s.reserve_external_payload(std::mem::size_of::<Value>() + text.len())?;
+    s.semantic_work()
+        .write_bytes(std::mem::size_of::<Value>())?;
     let value = Value::String(copy(text, s)?);
     let bytes = s.canonical_representation(&value, K::SourceDefinition)?;
     append(out, bytes.bytes(), s)
@@ -195,8 +197,23 @@ impl Fence {
         s.semantic_work().scan_bytes(path_bytes)?;
         s.semantic_work().write_bytes(path_max)?;
         s.semantic_work().write_bytes(path_max)?;
-        let staging = self.directory.join("state.next");
-        let target = self.directory.join("state.json");
+        s.semantic_work()
+            .write_bytes(2 * std::mem::size_of::<PathBuf>())?;
+        // Reserve final path capacity BEFORE copying either component. A
+        // clone-then-grow join would require a separate old/new overlap.
+        let mut staging = PathBuf::new();
+        let mut target = PathBuf::new();
+        for path in [&mut staging, &mut target] {
+            s.semantic_work().visit(V::Element)?;
+            path.try_reserve_exact(path_max).map_err(|_| invalid())?;
+            s.semantic_work()
+                .arithmetic(Op::Compare, &[&path.capacity().into(), &path_max.into()])?;
+            check(path.capacity() <= path_max, s)?;
+            path.push(&self.directory);
+        }
+        s.semantic_work().scan_bytes(20)?;
+        staging.push("state.next");
+        target.push("state.json");
         s.semantic_work().visit(V::RefLookup)?;
         reject_link(&staging)?;
         s.semantic_work().visit(V::RefLookup)?;
@@ -232,9 +249,14 @@ impl Fence {
         c: &mut SqliteConnection,
         s: &mut Session,
     ) -> Result<PaidWitness> {
-        const HEAD_STORAGE: usize = 2 * (1115 + 16 + 256 + 256 + std::mem::size_of::<Head>())
-            + 4 * std::mem::size_of::<Head>();
+        type Limits = (i64, i64, i64, i64);
+        const LIMIT_STORAGE: usize =
+            std::mem::size_of::<Vec<Limits>>() + 4 * std::mem::size_of::<Limits>();
+        const HEAD_STORAGE: usize = 2 * (1115 + 16 + 256 + 256)
+            + 4 * std::mem::size_of::<Head>()
+            + std::mem::size_of::<Vec<Head>>();
         const IO_STORAGE: usize = HEAD_STORAGE
+            + LIMIT_STORAGE
             + 2 * 256
             + 2 * std::mem::size_of::<String>()
             + 8 * std::mem::size_of::<sqlx::sqlite::SqliteArgumentValue>()
@@ -271,14 +293,19 @@ impl Fence {
         s.semantic_work().write_bytes(32)?;
         s.semantic_work().visit(V::RefLookup)?;
         native(native(File::open("/dev/urandom"))?.read_exact(&mut nonce))?;
+        // Probe columns directly: a projected-text subquery could materialize
+        // a NUL-tailed corrupt TEXT before an outer octet_length sees it.
         s.semantic_work()
-            .write_bytes(4 * std::mem::size_of::<i64>())?;
+            .write_bytes(std::mem::size_of::<Vec<Limits>>() + 4 * std::mem::size_of::<Limits>())?;
         s.semantic_work().visit(V::RefLookup)?;
-        let limits:(i64,i64,i64,i64)=sqlx::query_as("SELECT coalesce(max(octet_length(journal)),0),coalesce(max(octet_length(ordinal)),0),coalesce(max(octet_length(segment)),0),coalesce(max(octet_length(replay_root)),0) FROM (SELECT journal,ordinal,segment,replay_root FROM r3_journals ORDER BY journal LIMIT 2)").fetch_one(&mut*c).await?;
-        bounded(limits.0, 1115, s)?;
-        bounded(limits.1, 16, s)?;
-        bounded(limits.2, 256, s)?;
-        bounded(limits.3, 256, s)?;
+        let limits:Vec<Limits>=sqlx::query_as("SELECT octet_length(journal),octet_length(ordinal),octet_length(segment),octet_length(replay_root) FROM r3_journals ORDER BY journal LIMIT 2").fetch_all(&mut*c).await?;
+        for limits in limits {
+            s.semantic_work().visit(V::Element)?;
+            bounded(limits.0, 1115, s)?;
+            bounded(limits.1, 16, s)?;
+            bounded(limits.2, 256, s)?;
+            bounded(limits.3, 256, s)?;
+        }
         s.semantic_work().scan_bytes(HEAD_STORAGE)?;
         s.semantic_work().write_bytes(HEAD_STORAGE)?;
         s.semantic_work().visit(V::RefLookup)?;
