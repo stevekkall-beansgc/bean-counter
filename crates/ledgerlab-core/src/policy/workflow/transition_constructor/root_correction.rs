@@ -984,6 +984,9 @@ fn execute_with_state<'inv, 'raw>(
     let evidence = causal::references(m, &request["evidence_refs"], 0, 32)?;
     request.replace(m,"evidence_refs",&json!(evidence))?;
     let plan = prepare(program, &local, &mut request, &mut r, state, m)?;
+    let original_reservations=if let Some(arena)=m.representation_arena(){
+        Some(super::capacity::original::derive_retained(&arena,m,&mut r,&local,program,&plan.original_ref,&plan.original,&plan.work_ref,&plan.work,&plan.claim_ref,&plan.operands.terms)?)
+    }else{None};
     dependent::evidence_membership(m, &mut r, &local, &plan.operands, &evidence)?;
     let active = active_actions(m, &mut r, &local, &plan)?;
     let current_capacity=if program.uses_app_owned_cost_recipe(){
@@ -1212,7 +1215,7 @@ fn execute_with_state<'inv, 'raw>(
         (Some(AppEffects{claims:Vec::new(),heads:app_heads}),Some(owner))
     }else{(None,None)};
     Ok(Construction {
-        original_reservations: None,
+        original_reservations,
         economic: EconomicConstruction {
             terms: plan.operands.terms,
             original_work: OriginalWorkPayload::Retained(plan.work),

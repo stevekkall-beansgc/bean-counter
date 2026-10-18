@@ -94,7 +94,7 @@ fn active_work_total(m:&mut CoreMeter,r:&mut super::records::Records,c:&super::d
 /// rows do not spend this work's exposure. Complete head/absence provenance is
 /// still the caller's held-prefix and final role/capacity proof obligation.
 pub(super) fn construction_effect(m:&mut CoreMeter,p:&SelectedProgram,c:&super::data::DraftContextData,state:&super::data::EconomicStateData,t:&mut super::data::Construction)->Result<OwnedFundingEffects>{
-    if t.original_reservations.is_some(){return initial_construction_effect(m,p,t)?.ok_or_else(||fail("initial work funding effect missing"));}
+    if m.check("funding.original_work_introduction",||matches!(&t.economic.original_work,super::data::OriginalWorkPayload::New(_)))?{return initial_construction_effect(m,p,t)?.ok_or_else(||fail("initial work funding effect missing"));}
     let work=match &t.economic.original_work{super::data::OriginalWorkPayload::Retained(work)=>work.clone(),_=>return Err(fail("retained funding work selection"))};
     let arena=m.representation_arena().ok_or_else(||fail("owning per-work funding update"))?;
     let _references=arena.reserve_external_payload(2*(std::mem::size_of::<ExactRef>()+64+128+71),m)?;

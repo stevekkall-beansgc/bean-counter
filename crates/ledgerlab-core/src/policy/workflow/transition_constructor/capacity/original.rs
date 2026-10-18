@@ -6,6 +6,8 @@ use super::super::super::selected_program::SelectedProgram;
 use crate::{Result,canonical::audit_arena::{AuditArena,ExternalBufferLease},validation_work::{self as w,ArithmeticOperation,ValidationWork}};
 use serde_json::Value;
 use std::mem;
+mod retained;
+pub(in crate::policy::workflow::transition_constructor) use retained::derive_retained;
 
 pub(in crate::policy::workflow::transition_constructor) struct FamilyReservation {
     pub target_ref:ExactRef,
@@ -55,6 +57,30 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     decision:&ConstructedEnvelope,targets:&[ConstructedEnvelope],work:&ConstructedEnvelope,
     claim:&ConstructedEnvelope,terms:&super::super::authority::Terms,
 )->Result<OriginalReservations>{
+    let count=targets.len();
+    let per=mem::size_of::<(ExactRef,super::super::record_body::RecordBody)>()+64+128+71;
+    let bytes=mul(m,count,per)?;
+    let bytes=add(m,bytes,mem::size_of::<Vec<(ExactRef,super::super::record_body::RecordBody)>>())?;
+    let _views=arena.reserve_external_payload(bytes,m)?;
+    m.write_bytes(bytes)?;
+    let mut selected=Vec::new();selected.try_reserve_exact(count).map_err(|_|shape::fail("original target views"))?;
+    for target in targets{
+        m.visit("capacity.fresh_target_view")?;
+        if !shape::same_text(m,&target.reference.kind,"workflow-target")?{continue;}
+        selected.push((copy_ref(m,&target.reference)?,target.decoded(m,4194304)?));
+    }
+    let decision_value=decision.decoded(m,4194304)?;
+    let work_value=work.decoded(m,4194304)?;let claim_value=claim.decoded(m,4194304)?;
+    derive_data(arena,m,r,c,program,payload,&decision.reference,&decision_value,&selected,&work.reference,&work_value,&claim.reference,&claim_value,terms)
+}
+
+/// The same original reservation derivation receives actual decoded fresh OR
+/// retained bodies. A retained input never impersonates an emitted envelope.
+fn derive_data(
+    arena:&AuditArena,m:&mut CoreMeter,r:&mut super::super::records::Records,c:&super::super::data::DraftContextData,program:&SelectedProgram,payload:&Value,
+    decision_ref:&ExactRef,original_decision:&Value,targets:&[(ExactRef,super::super::record_body::RecordBody)],
+    work_ref:&ExactRef,original_work:&Value,claim_ref:&ExactRef,original_claim:&Value,terms:&super::super::authority::Terms,
+)->Result<OriginalReservations>{
     let instructions=shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?;
     let mut family_count=0usize;
     let mut roots=0usize;
@@ -92,7 +118,6 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     let metadata=arena.reserve_external_payload(bytes,m)?;
     let mut families=Vec::new();
     families.try_reserve_exact(family_count).map_err(|_|shape::fail("original dependency vector allocation"))?;
-    let original_decision=decision.decoded(m,4194304)?;
     let first=shape::text(m,&original_decision,"revision")?;
     if !shape::same_text(m,first,"1")?{return Err(shape::fail("capacity original root must be revision1"));}
     let root_id=shape::text(m,&original_decision,"decision_id")?;
@@ -102,11 +127,9 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     let mut delayed_costs=Vec::new();
     delayed_costs.try_reserve_exact(delayed_count).map_err(|_|shape::fail("delayed reservation allocation"))?;
     let mut app_costs=Vec::new();app_costs.try_reserve_exact(app_count).map_err(|_|shape::fail("app reservation allocation"))?;
-    let original_work=work.decoded(m,4194304)?;
-    let original_claim=claim.decoded(m,4194304)?;
     super::super::outcome::original_claim_association(m,&original_claim,&original_work)?;
-    if !shape::same(m,&original_claim["work_ref"],&serde_json::json!(work.reference))?
-        || !shape::same(m,&original_decision["subject_ref"],&serde_json::json!(work.reference))?{
+    if !shape::same(m,&original_claim["work_ref"],&serde_json::json!(work_ref))?
+        || !shape::same(m,&original_decision["subject_ref"],&serde_json::json!(work_ref))?{
         return Err(shape::fail("original delayed reservation work/claim/decision"));
     }
     for instruction in instructions{
@@ -140,8 +163,8 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
             }
         }
         shape::equal(m,&original_claim["scope"],&original_work["key"]["scope"])?;
-        let dependent=super::super::body::semantic_id(m,"wdecision_","workflow-decision",&serde_json::json!([original_claim["scope"],claim.reference.id,slot,"cost"]))?;
-        delayed_costs.push(DelayedCostReservation{target_ref:copy_ref(m,&work.reference)?,component_slot:copy(m,slot)?,supplier_binding_slot:copy(m,bindingslot)?,dependent_decision_id:dependent,maximum_inverse_actions});
+        let dependent=super::super::body::semantic_id(m,"wdecision_","workflow-decision",&serde_json::json!([original_claim["scope"],claim_ref.id,slot,"cost"]))?;
+        delayed_costs.push(DelayedCostReservation{target_ref:copy_ref(m,&work_ref)?,component_slot:copy(m,slot)?,supplier_binding_slot:copy(m,bindingslot)?,dependent_decision_id:dependent,maximum_inverse_actions});
     }
     for instruction in instructions{
         m.visit("capacity.app_original_instruction")?;
@@ -160,18 +183,16 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
         let declared=shape::named(m,declared,"slot_id",slot)?;
         let book=shape::text(m,declared,"book")?;
         if !shape::same_text(m,book,"retail")?{return Err(shape::fail("app reservation catalog book"));}
-        let dependent=super::super::work_keys::app_decision(m,&original_work["key"]["scope"],&work.reference.id,slot)?;
+        let dependent=super::super::work_keys::app_decision(m,&original_work["key"]["scope"],&work_ref.id,slot)?;
         // Each original declaration selects one terminal customer cost posting.
         // Its zero alternative retains the decision vertex; a root inverse
         // requires at most that one active action, never an AP action.
-        app_costs.push(AppCostReservation{target_ref:copy_ref(m,&work.reference)?,component_slot:copy(m,slot)?,dependent_decision_id:dependent,maximum_inverse_actions:1});
+        app_costs.push(AppCostReservation{target_ref:copy_ref(m,&work_ref)?,component_slot:copy(m,slot)?,dependent_decision_id:dependent,maximum_inverse_actions:1});
     }
     if !w::compare(m,app_costs.len(),app_count)?.is_eq(){return Err(shape::fail("app reservation omission"));}
-    for target in targets {
+    for (target_ref,value) in targets {
         m.visit("capacity.emitted_target")?;
-        if !shape::same_text(m,&target.reference.kind,"workflow-target")?{continue;}
-        let value=target.decoded(m,4194304)?;
-        if !shape::same(m,&value["original_decision_ref"],&serde_json::json!(decision.reference))?
+        if !shape::same(m,&value["original_decision_ref"],&serde_json::json!(decision_ref))?
             || !shape::same(m,&value["binding_ref"],&payload["binding_ref"])? {
             return Err(shape::fail("emitted original reservation association"));
         }
@@ -218,7 +239,7 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
                 }
             }
             if !w::compare(m,families.len(),family_count)?.is_lt(){return Err(shape::fail("original family dimension widened"));}
-            families.push(FamilyReservation{target_ref:copy_ref(m,&target.reference)?,family_slot:copy(m,slot)?,dependent_decision_id:copy(m,dependent)?,maximum_inverse_actions});
+            families.push(FamilyReservation{target_ref:copy_ref(m,&target_ref)?,family_slot:copy(m,slot)?,dependent_decision_id:copy(m,dependent)?,maximum_inverse_actions});
         }
     }
     if !w::compare(m,families.len(),family_count)?.is_eq(){return Err(shape::fail("original family reservation omission"));}
@@ -230,7 +251,7 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     let app_body_bytes=if app_costs.is_empty(){None}else{Some(super::app_bytes::derive(m,&original_work["key"]["logical_store_id"],payload,terms)?)};
     let source_bounds=super::source::original_frames(m,r,c,terms,program)?;
     let pricing_kernels=if delayed_costs.is_empty(){Some(super::pricing::derive(m,program.compiled_plan().canonical_value(),&payload["activity"])?)}else{None};
-    let reservations=OriginalReservations{root_decision_id,original_root_ref:copy_ref(m,&decision.reference)?,original_binding_ref,maximum_root_actions,families,delayed_costs,app_costs,future_records,app_body_bytes,source_bounds,pricing_kernels,_metadata:metadata};
+    let reservations=OriginalReservations{root_decision_id,original_root_ref:copy_ref(m,&decision_ref)?,original_binding_ref,maximum_root_actions,families,delayed_costs,app_costs,future_records,app_body_bytes,source_bounds,pricing_kernels,_metadata:metadata};
     let checked=reservations.structural_union(arena,m)?;
     drop(checked);
     Ok(reservations)
