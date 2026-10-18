@@ -7,6 +7,8 @@ pub(super) mod inventory;
 mod members;
 mod programs;
 mod publication;
+mod witness;
+pub(super) use witness::ObservationHeader;
 pub(super) use members::ResolvedMembers;
 pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};
@@ -1247,10 +1249,10 @@ async fn fold_origin(
     // Intrinsic representation facts are registered only AFTER this original's
     // actual semantic/custody/as-of fold. They do not replace that completion.
     // The table and this scratch association belong to the same held attempt.
-    prefix.pointers.record(&parsed, s).map_err(core_error)?;
-    drop(parsed);
-    prefix
+    let (offset, _length) = prefix
         ._inventory
         .remember_origin_pointer(origin.wrappers().sequence(), pointer.bytes(), s)?;
+    prefix.pointers.record_at(&parsed, offset, s).map_err(core_error)?;
+    drop(parsed);
     Ok(publication)
 }

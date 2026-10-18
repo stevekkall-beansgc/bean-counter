@@ -9,7 +9,14 @@ fn multiply(m:&mut CoreMeter,a:usize,b:usize)->Result<usize>{
     ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&a.into(),&b.into()])?;
     a.checked_mul(b).ok_or_else(||fail("pointer payload multiplication overflow"))
 }
-struct Intrinsic {sequence:u64,digest:[u8;32]}
+/// Borrowed immutable pointer DATA. A scratch location is only an acquisition
+/// hint from the actual append; the consumer must still rebind the raw digest.
+pub struct OriginPointerEntry {sequence:u64,digest:[u8;32],offset:u64,length:u32,located:bool}
+impl OriginPointerEntry {
+    pub fn sequence(&self)->u64{self.sequence}
+    pub fn scratch_location(&self)->Option<(u64,usize)>{if self.located{Some((self.offset,self.length as usize))}else{None}}
+}
+type Intrinsic=OriginPointerEntry;
 pub struct ValidatedOriginPointers {
     entries:Vec<Intrinsic>,cancellation:AuditCancellation,
     ownership:ExternalBufferLease,_control:ExternalBufferLease,
@@ -28,6 +35,14 @@ impl ValidatedOriginPointers {
     /// Validate once under the actual original's existing owner. The returned
     /// ordinal is DATA, not a completed-origin token or a persistent checkpoint.
     pub fn record(&mut self,pointer:&AuditedValue,s:&mut OriginalAuditSession)->Result<usize>{
+        self.record_inner(pointer,None,s)
+    }
+    /// The offset is untrusted lookup DATA from the same scratch append owner,
+    /// not custody or completion evidence. Length comes from this SAME emitter.
+    pub fn record_at(&mut self,pointer:&AuditedValue,scratch_offset:u64,s:&mut OriginalAuditSession)->Result<usize>{
+        self.record_inner(pointer,Some(scratch_offset),s)
+    }
+    fn record_inner(&mut self,pointer:&AuditedValue,location:Option<u64>,s:&mut OriginalAuditSession)->Result<usize>{
         let result=(||{
             s.check_cancelled()?;let arena=s.arena().shared_handle();let m=s.meter_mut();
             m.visit("audit.pointer_table_attempt")?;
@@ -50,7 +65,8 @@ impl ValidatedOriginPointers {
                 self.ownership=lease;
             }
             let ordinal=self.entries.len();m.write_bytes(mem::size_of::<Intrinsic>())?;
-            self.entries.push(Intrinsic{sequence,digest});Ok(ordinal)
+            // Record emission is bounded by4MiB, strictly below u32::MAX.
+            self.entries.push(Intrinsic{sequence,digest,offset:location.unwrap_or(0),length:encoded.bytes().len() as u32,located:location.is_some()});Ok(ordinal)
         })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
     }
     pub fn block<'a>(&'a self,first:usize,s:&mut OriginalAuditSession)->Result<OriginPointerBlock<'a>>{
@@ -66,6 +82,18 @@ impl ValidatedOriginPointers {
     }
 }
 impl OriginPointerBlock<'_>{
+    /// A paid borrowed acquisition view; no second sequence/location vector is
+    /// allocated. Getters only expose DATA, never the private digest or a token
+    /// establishing that an origin actually completed.
+    pub fn entries<'a>(&'a self,s:&mut OriginalAuditSession)->Result<&'a [OriginPointerEntry]>{
+        let result=(||{
+            s.check_cancelled()?;let arena=s.arena().shared_handle();let m=s.meter_mut();
+            m.visit("audit.pointer_entries_attempt")?;
+            if !self.cancellation.same_attempt(&arena.cancellation_handle()){return Err(fail("pointer entry attempt owner"));}
+            for _ in self.entries{ValidationWork::visit(m,w::ValidationVisit::RefLookup)?;m.scan_bytes(mem::size_of::<Intrinsic>())?;}
+            Ok(self.entries)
+        })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
+    }
     /// Actual sequence keys for bounded scratch acquisition, including gaps in
     /// the numeric domain. No resident second ordinal map is required.
     pub fn sequences(&self,s:&mut OriginalAuditSession)->Result<[Option<u64>;ORIGIN_POINTER_BLOCK]>{

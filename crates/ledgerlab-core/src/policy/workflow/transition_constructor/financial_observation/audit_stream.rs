@@ -8,7 +8,7 @@ use serde_json::Value;
 use sha2::{Digest,Sha256};
 use std::mem;
 mod pointers;
-pub use pointers::{ValidatedOriginPointers,OriginPointerBlock,ORIGIN_POINTER_BLOCK};
+pub use pointers::{ValidatedOriginPointers,OriginPointerBlock,OriginPointerEntry,ORIGIN_POINTER_BLOCK};
 
 pub enum OriginWitness { Financial,Source(usize) }
 struct Prefix<'a>{reference:&'a ExactRef,hash:Sha256,expected:String,expected_count:u64,through:u64,count:u64}
@@ -229,9 +229,13 @@ mod tests{
                 // witness/membership work stays in this actual consumer owner.
                 let mut historical=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
                 let mut table=ValidatedOriginPointers::new(&mut historical).unwrap();
-                for value in [&first,&second]{let p=historical.parse_representation(&encoded(value),RepresentationKind::Record).unwrap();table.record(&p,&mut historical).unwrap();}
+                for (offset,value) in [(17u64,&first),(117,&second)]{let p=historical.parse_representation(&encoded(value),RepresentationKind::Record).unwrap();table.record_at(&p,offset,&mut historical).unwrap();}
                 let block=table.block(0,&mut session).unwrap();
                 assert_eq!(block.sequences(&mut session).unwrap()[..3],[Some(1),Some(2),None]);
+                let entries=block.entries(&mut session).unwrap();
+                assert_eq!(entries[0].sequence(),1);
+                assert_eq!(entries[0].scratch_location(),Some((17,encoded(&first).len())));
+                assert_eq!(entries[1].scratch_location(),Some((117,encoded(&second).len())));
                 let a=encoded(&first);let b=encoded(&second);
                 if mode==8{
                     stream.push_origin_block(&block,1,&[1],&[&a],&mut session).unwrap();

@@ -1103,6 +1103,12 @@ pub(in super::super) struct StateKey(Locator);
 /// authenticate a root body or turn any other local snapshot into a cut.
 pub(in super::super) struct ConfiguredRoot(Locator);
 impl ConfiguredRoot {
+    pub(super) fn same(&self, other: &Self, s: &mut OriginalAuditSession) -> Result<bool> {
+        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        s.semantic_work().scan_bytes(KEY_BYTES).map_err(core_error)?;
+        s.semantic_work().scan_bytes(KEY_BYTES).map_err(core_error)?;
+        Ok(self.0.key() == other.0.key())
+    }
     pub(in super::super) fn from_value(
         value: &Value,
         s: &mut OriginalAuditSession,
@@ -1541,7 +1547,7 @@ impl Inventory {
         sequence: i64,
         body: &[u8],
         s: &mut OriginalAuditSession,
-    ) -> Result<()> {
+    ) -> Result<(u64, usize)> {
         require(
             compare(sequence as u64, 0, s)?.is_gt()
                 && !compare(sequence as u64, 100000, s)?.is_gt(),
@@ -1561,7 +1567,7 @@ impl Inventory {
         sequence: i64,
         body: &[u8],
         s: &mut OriginalAuditSession,
-    ) -> Result<()> {
+    ) -> Result<(u64, usize)> {
         self.absent(key, s)?;
         // Charge existing scratch only. Unlike actual introduced documents,
         // this derived pointer is NOT added to the W/WB profile dimension.
@@ -1596,6 +1602,28 @@ impl Inventory {
         }
         self.body_bytes = next;
         require(self.tree.insert(&entry, s)?.is_none(), "INTEGRITY_FAILURE")?;
+        s.check_cancelled().map_err(core_error)?;
+        Ok((offset, body.len()))
+    }
+    /// Read into the caller's already admitted bounded block buffer. Location
+    /// is DATA retained with the same attempt's intrinsic pointer; the core
+    /// still compares the exact raw digest before accepting its membership.
+    pub(super) fn read_pointer_at(
+        &mut self,
+        offset: u64,
+        output: &mut [u8],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        // The only caller supplies a slice of its fixed5355-byte pointer row
+        // and the intrinsic location returned by this SAME Inventory append.
+        // Original append checked offset/length; no new numeric selection or
+        // a second per-pointer builder is performed here. Core subsequently
+        // rebinds these exact raw bytes to the intrinsic canonical digest.
+        s.check_cancelled().map_err(core_error)?;
+        self.bodies.seek(SeekFrom::Start(offset)).map_err(io)?;
+        s.semantic_work().scan_bytes(output.len()).map_err(core_error)?;
+        s.semantic_work().write_bytes(output.len()).map_err(core_error)?;
+        self.bodies.read_exact(output).map_err(io)?;
         s.check_cancelled().map_err(core_error)
     }
     pub(in super::super) fn origin_pointer(
@@ -1823,7 +1851,7 @@ impl Inventory {
         drop(ordinary_storage);
         let sequence_value = wire::counter_string(sequence as u64, s)?;
         let key = StateKey::new("origin-links", &[sequence_value.bytes()], s)?;
-        self.remember_auxiliary(&key, sequence, encoded.bytes(), s)
+        self.remember_auxiliary(&key, sequence, encoded.bytes(), s).map(|_| ())
     }
     pub(in super::super) fn origin_links(
         &mut self,
