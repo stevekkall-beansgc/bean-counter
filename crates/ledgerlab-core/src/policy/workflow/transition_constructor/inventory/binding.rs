@@ -177,7 +177,7 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
                 slot.as_str().ok_or_else(|| shape::fail("supplier slot"))?,
             )?;
         }
-        invoke!(refs, m, data_field!(m, leg, "evidence_refs"), 1, 16)?;
+        invoke!(refs, m, data_field!(m, leg, "evidence_refs"), if app {0}else{1}, 16)?;
     }
     let start = time(m, v, "starts_at")?;
     if v.get("ends_at").is_some() {
