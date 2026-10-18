@@ -77,7 +77,7 @@ impl SqliteTx {
         if !resource_compare(s, version, 13)?.is_eq()
             && !resource_compare(s, version, 14)?.is_eq()
             && !resource_compare(s, version, 15)?.is_eq()
-            && !resource_compare(s, version, 16)?.is_eq()
+            && !resource_compare(s, version, 16)?.is_eq() && !resource_compare(s, version, 17)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
