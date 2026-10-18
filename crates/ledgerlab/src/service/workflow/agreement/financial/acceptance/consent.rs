@@ -653,7 +653,7 @@ impl Coverage {
         found.ok_or_else(|| reject("ASSENT_TERMS_MISMATCH"))
     }
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn observe_current_platforms(
+    async fn observe_platforms_at(
         &self,
         input: &AppAcceptanceInput,
         binding: &Value,
@@ -663,6 +663,7 @@ impl Coverage {
         before: i64,
         prefix: &mut prefix::FoldedInventory,
         s: &mut OriginalAuditSession,
+        snapshot: PlatformSnapshot,
     ) -> Result<CurrentPlatformConsents> {
         let result = async {
             let legs = request_wrapper::field(binding, "funding_legs", s)?
@@ -713,17 +714,28 @@ impl Coverage {
                     .map_err(core_error)?;
                 // SAME original fullterms verifier; only its held current map
                 // and interval are observed at today's captured time.
-                let observed = input
-                    .platform_consent(
-                        tx,
-                        key,
-                        request_wrapper::text(leg, "name", s)?,
-                        parsed.value(),
-                        at,
-                        before,
-                        s,
-                    )
-                    .await?;
+                let resource_leg = request_wrapper::text(leg, "name", s)?;
+                let observed = match snapshot {
+                    PlatformSnapshot::Held => {
+                        input
+                            .platform_consent(tx, key, resource_leg, parsed.value(), at, before, s)
+                            .await?
+                    }
+                    PlatformSnapshot::Original => {
+                        let material = input
+                            .original_platform_consent(
+                                tx,
+                                key,
+                                resource_leg,
+                                parsed.value(),
+                                at,
+                                before,
+                                s,
+                            )
+                            .await?;
+                        prefix.original_platform_at(material, s)?
+                    }
+                };
                 prefix.match_party(observed.mapping(), s)?;
                 for reference in observed
                     .mapping()
@@ -749,5 +761,63 @@ impl Coverage {
         }
         .await;
         terminal(result, tx, s)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PlatformSnapshot {
+    Held,
+    Original,
+}
+impl Coverage {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn observe_current_platforms(
+        &self,
+        input: &AppAcceptanceInput,
+        binding: &Value,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        at: &Timestamp,
+        before: i64,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<CurrentPlatformConsents> {
+        self.observe_platforms_at(
+            input,
+            binding,
+            tx,
+            key,
+            at,
+            before,
+            prefix,
+            s,
+            PlatformSnapshot::Held,
+        )
+        .await
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn reconstruct_activation_platforms(
+        &self,
+        input: &AppAcceptanceInput,
+        binding: &Value,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        at: &Timestamp,
+        before: i64,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<CurrentPlatformConsents> {
+        self.observe_platforms_at(
+            input,
+            binding,
+            tx,
+            key,
+            at,
+            before,
+            prefix,
+            s,
+            PlatformSnapshot::Original,
+        )
+        .await
     }
 }

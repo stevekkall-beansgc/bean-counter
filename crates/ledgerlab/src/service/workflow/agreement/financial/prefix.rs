@@ -2,7 +2,9 @@
 //! cursor nor this parsed key establishes an origin, an introduction or a head.
 //! Recipe semantics and their complete inputs must finish before inventory use.
 use super::*;
+mod current_activation;
 mod dependencies;
+pub(super) use current_activation::CompletedInitialActivation;
 pub(super) mod inventory;
 mod members;
 mod programs;
@@ -478,17 +480,43 @@ impl LocatedAppAcceptance {
                 self._prefix
                     ._inventory
                     .next_origin(&origin, &mut original)?;
-                // Every later PUB registers its own exact execution reload key
-                // in fold_origin. The accepted program remains its original PUB.
-                let _later_publication = fold_origin(
-                    tx,
-                    &origin,
-                    &mut self._prefix,
-                    setup,
-                    Some(&self.publication),
-                    &mut original,
-                )
-                .await?;
+                let kind =
+                    request_wrapper::text(origin.wrappers().operation(), "kind", &mut original)?;
+                if super::acceptance::same_recipe_text(kind, "agreement.activate", &mut original)? {
+                    self._prefix
+                        ._inventory
+                        .begin_origin_links(origin.wrappers().sequence(), &mut original)?;
+                    let replay = super::activation::reconstruct_initial(
+                        tx,
+                        &origin,
+                        &self.acceptance,
+                        &self.publication,
+                        &mut self._prefix,
+                        setup,
+                        &mut original,
+                    )
+                    .await?;
+                    let binding = original
+                        .parse_representation(
+                            self.acceptance.binding.bytes(),
+                            RepresentationKind::SourceDefinition,
+                        )
+                        .map_err(core_error)?;
+                    replay.fold(&origin, &mut self._prefix, binding.value(), &mut original)?;
+                    finish_origin(&origin, &mut self._prefix, &mut original)?;
+                } else {
+                    // Every later PUB registers its own exact execution reload
+                    // key. The accepted program remains its original PUB.
+                    let _later_publication = fold_origin(
+                        tx,
+                        &origin,
+                        &mut self._prefix,
+                        setup,
+                        Some(&self.publication),
+                        &mut original,
+                    )
+                    .await?;
+                }
                 self.through = origin.wrappers().sequence();
                 original.check_cancelled().map_err(core_error)?;
             }
@@ -1485,5 +1513,87 @@ impl LocatedAppAcceptance {
                 .chain(self.publication.required_refs()),
             s,
         )
+    }
+}
+
+impl FoldedInventory {
+    pub(super) fn activation_head(
+        &mut self,
+        binding: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>> {
+        let customer_value = request_wrapper::field(binding, "customer", s)?;
+        let customer = s
+            .canonical_representation(customer_value, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let agreement_value = request_wrapper::field(binding, "agreement_id", s)?;
+        let agreement = s
+            .canonical_representation(agreement_value, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let key = inventory::StateKey::new(
+            "agreement-activation-head",
+            &[customer.bytes(), agreement.bytes()],
+            s,
+        )?;
+        self._inventory.head_body(&key, s)
+    }
+    pub(super) fn fold_initial_activation(
+        &mut self,
+        origin: &LocatedWrappers,
+        binding: &Value,
+        root: &wire::SourceRecord,
+        authority: &wire::SourceRecord,
+        records: &super::activation::ActivationRecords,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let customer_value = request_wrapper::field(binding, "customer", s)?;
+        let customer = s
+            .canonical_representation(customer_value, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let agreement_value = request_wrapper::field(binding, "agreement_id", s)?;
+        let agreement = s
+            .canonical_representation(agreement_value, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
+        let revision = wire::string("1", s)?;
+        let head = inventory::StateKey::new(
+            "agreement-activation-head",
+            &[customer.bytes(), agreement.bytes()],
+            s,
+        )?;
+        let semantic = inventory::StateKey::new(
+            "agreement-activation-semantic",
+            &[customer.bytes(), agreement.bytes(), revision.bytes()],
+            s,
+        )?;
+        let boundary = inventory::StateKey::new(
+            "agreement-initial-activation",
+            &[customer.bytes(), agreement.bytes()],
+            s,
+        )?;
+        self._inventory.absent(&head, s)?;
+        self._inventory.absent(&semantic, s)?;
+        self._inventory.absent(&boundary, s)?;
+        for record in [
+            root,
+            authority,
+            &records.intent,
+            &records.head,
+            &records.activation,
+        ] {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            self._inventory.introduce(
+                record.reference(),
+                record.bytes(),
+                origin.wrappers().sequence(),
+                s,
+            )?;
+        }
+        self._inventory
+            .set_head(&semantic, records.head.reference(), s)?;
+        self._inventory
+            .set_head(&boundary, records.activation.reference(), s)?;
+        self._inventory.set_head(&head, records.head.reference(), s)
     }
 }

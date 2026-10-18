@@ -8,6 +8,7 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) original: prefix::LocatedAppAcceptance,
     pub(super) sources: Vec<source::ObservedSource>,
     pub(super) parties: Option<super::super::acceptance::CurrentPlatformConsents>,
+    pub(super) activation: Option<prefix::CompletedInitialActivation>,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     pub(super) setup: crate::service::billing::Setup,
@@ -341,10 +342,21 @@ async fn observe_binding(
                     .await?,
             )
         };
+        let activation =
+            if super::super::acceptance::same_recipe_text(operation, "work.accept", session)? {
+                Some(
+                    original
+                        .current_initial_activation(tx, key, binding.value(), &at, before, session)
+                        .await?,
+                )
+            } else {
+                None
+            };
         Ok(ObservedAppBinding {
             original,
             sources,
             parties,
+            activation,
             at,
             before,
             setup,

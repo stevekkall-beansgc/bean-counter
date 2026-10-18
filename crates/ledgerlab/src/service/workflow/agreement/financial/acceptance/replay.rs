@@ -483,3 +483,30 @@ impl ReplayedAcceptance {
         self.head_records.accepted.reference()
     }
 }
+
+impl ReplayedAcceptance {
+    #[allow(clippy::too_many_arguments)]
+    pub(in super::super) async fn reconstruct_activation_platforms(
+        &self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        binding: &Value,
+        at: &Timestamp,
+        before: i64,
+        prefix: &mut prefix::FoldedInventory,
+        s: &mut OriginalAuditSession,
+    ) -> Result<consent::CurrentPlatformConsents> {
+        self.consents
+            .reconstruct_activation_platforms(
+                &self.original.input,
+                binding,
+                tx,
+                key,
+                at,
+                before,
+                prefix,
+                s,
+            )
+            .await
+    }
+}
