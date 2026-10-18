@@ -177,3 +177,43 @@ pub fn load_local_selected_execution(input:SelectedSourceInput,saved_plan:&[u8],
   Ok(program)
  })();if result.is_err(){session.invalidate();}result
 }
+
+pub struct NormalizedLocalSourceInput{documents:Vec<SelectedDocument>,root:DefinitionRef,_owners:Vec<ExternalBufferLease>,_metadata:ExternalBufferLease}
+impl NormalizedLocalSourceInput{
+ pub fn source_documents(&self)->&[SelectedDocument]{&self.documents}
+ pub fn root_policy_ref(&self)->&DefinitionRef{&self.root}
+}
+/// Original-intent normalization over ACTUAL incoming bodies, using the same
+/// source normalizers as compilation. No saved body replaces incoming input;
+/// no compiler/evaluator or current support selector is invoked.
+pub fn normalize_local_publication_input(input:SelectedSourceInput,original:&SelectedProgram,session:&mut OriginalAuditSession)->Result<NormalizedLocalSourceInput>{
+ let result=(||{
+  let m=session.meter_mut();original.require_attempt_owner(m)?;
+  if !original.uses_local_execution_recipe(){return Err(fail("local normalization requires exact original local recipe"));}
+  let a=m.representation_arena().ok_or_else(||fail("local incoming source owner"))?;
+  let count=input.documents.len();if count==0||count>128{return Err(fail("local incoming source count"));}
+  let metadata=a.reserve_external_payload(count*(mem::size_of::<SelectedDocument>()+mem::size_of::<FactSchema>()+mem::size_of::<SourceValue>()+2*mem::size_of::<ExternalBufferLease>())+512,m)?;
+  let mut owners=Vec::new();let mut schemas=Vec::new();let mut docs=Vec::new();let mut deferred=Vec::new();let mut total=0usize;
+  for raw in input.documents{
+   total=work::usize_add(m,total,raw.len())?;if work::compare(m,total,1048576usize)?.is_gt(){return Err(fail("local incoming source bytes"));}
+   let body=SourceValue::parse(m,&raw)?;let schema=body["schema"].as_str().ok_or_else(||fail("local source schema"))?;
+   if same_literal(m,schema,"ledger-workflow-fact-schema/1")?{
+    let bound=FactSchema::normalization_payload_bound_with_work(&body,m)?;let value=body.projection_with_payload(m,&mut owners,bound)?;
+    let typed=FactSchema::from_value_complete_with_work(value,m)?;docs.push(borrowed_doc(m,typed.canonical_value())?);schemas.push(typed);
+   }else{deferred.push(body);}
+  }
+  for body in deferred{
+   let schema=body["schema"].as_str().ok_or_else(||fail("local deferred source schema"))?;
+   match schema{
+    "ledger-workflow-product/1"=>{let n=Product::normalization_payload_bound_with_work(&body,&schemas,m)?;let value=body.projection_with_payload(m,&mut owners,n)?;let typed=Product::from_value_complete_with_work(value,&schemas,m)?;docs.push(borrowed_doc(m,typed.canonical_value())?);},
+    "ledger-workflow-slot-template/1"=>{let n=SlotTemplate::normalization_payload_bound_with_work(&body,None,m)?;let value=body.projection_with_payload(m,&mut owners,n)?;let typed=SlotTemplate::from_value_complete_with_work(value,None,m)?;docs.push(borrowed_doc(m,typed.canonical_value())?);},
+    "ledger-workflow-policy/4"=>{let n=super::super::policy_decode::payload_bound(m,&body)?;let owner=a.reserve_external_payload(n,m)?;let value=body.projection(m,&mut owners)?;let(mut policy,owner)=super::super::policy_decode::decode(m,value,owner)?;super::super::normalize::policy(m,&mut policy)?;let value=super::super::owning_policy::build(m,&policy)?;docs.push(borrowed_doc(m,value.value())?);owners.push(owner);},
+    "ledger-workflow-compiler-descriptor/6"=>{let expected=lookup(m,&original.sources,&original.policy.compiler_ref)?;if !crate::policy::workflow::transition_constructor::shape::same(m,&body,expected.canonical_value())?{return Err(fail("incoming original compiler descriptor differs"));}docs.push(body.document(m)?);},
+    _=>return Err(fail("unsupported local incoming source schema")),
+   }
+  }
+  let mut root_hits=0usize;for d in &docs{m.visit("local.incoming_root_association")?;if d.reference()==&input.root_policy_ref{root_hits=work::usize_add(m,root_hits,1)?;}}
+  if root_hits!=1{return Err(fail("normalized incoming root mismatch"));}
+  Ok(NormalizedLocalSourceInput{documents:docs,root:input.root_policy_ref,_owners:owners,_metadata:metadata})
+ })();if result.is_err(){session.invalidate();}result
+}

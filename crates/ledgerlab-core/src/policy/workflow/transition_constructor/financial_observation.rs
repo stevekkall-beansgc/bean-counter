@@ -139,7 +139,7 @@ pub(super) fn validate(
     let source = r.get(
         m,
         &c.key,
-        &c.authorities[0].authority_observation_ref,
+        c.authorities[0].required_observation_ref()?,
         "workflow-authority-prefix-observation",
         "ledger-workflow-authority-prefix-observation/1",
     )?;

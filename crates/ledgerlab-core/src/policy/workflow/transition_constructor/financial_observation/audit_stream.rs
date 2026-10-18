@@ -39,7 +39,7 @@ impl RecomputedAuditDigest<'_>{
             }
             if !shape::same_ref(m,self.financial_ref,financial)?{return Err(fail("audit digest financial observation association"));}
             for (left,right)in[(&self.context.authorities,&c.authorities),(&c.authorities,&self.context.authorities)]{
-                for a in left{m.visit("audit.digest_source_set")?;let mut found=false;for b in right{if shape::same_ref(m,&a.authority_observation_ref,&b.authority_observation_ref)?{found=true;break;}}if !found{return Err(fail("audit digest source observation association"));}}
+                for a in left{m.visit("audit.digest_source_set")?;let mut found=false;for b in right{if shape::same_ref(m,a.required_observation_ref()?,b.required_observation_ref()?)?{found=true;break;}}if !found{return Err(fail("audit digest source observation association"));}}
             }
             Ok(self.digest.as_str())
         })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
@@ -105,7 +105,7 @@ impl<'a> EconomicAuditStream<'a>{
             session.check_cancelled()?;let arena=session.arena().shared_handle();let m=session.meter_mut();
             if m.resource_vector_usage().is_none(){return Err(fail("audit stream requires RP01 owning session"));}
             let mut count=0usize;
-            for(i,a)in context.authorities.iter().enumerate(){m.visit("audit.actual_source_witness")?;let mut seen=false;for previous in &context.authorities[..i]{if shape::same_ref(m,&previous.authority_observation_ref,&a.authority_observation_ref)?{seen=true;break;}}if !seen{count=w::usize_add(m,count,1)?;}}
+            for(i,a)in context.authorities.iter().enumerate(){m.visit("audit.actual_source_witness")?;let mut seen=false;for previous in &context.authorities[..i]{if shape::same_ref(m,previous.required_observation_ref()?,a.required_observation_ref()?)?{seen=true;break;}}if !seen{count=w::usize_add(m,count,1)?;}}
             let per=w::usize_add(m,mem::size_of::<Prefix>(),71usize)?;
             ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&count.into(),&per.into()])?;
             let payload=count.checked_mul(per).ok_or_else(||fail("audit source-state allocation product"))?;
@@ -131,7 +131,7 @@ impl<'a> EconomicAuditStream<'a>{
             if !w::compare(m,self.phase,0u8)?.is_eq()||!w::compare(m,self.sources.len(),self.source_count)?.is_lt(){return Err(fail("audit source header phase/count"));}
             let context=self.context.ok_or_else(||fail("verification requires original context"))?;
             let combined=self.combined.as_mut().ok_or_else(||fail("verification requires combined header"))?;
-            let mut selected=None;for a in &context.authorities{m.visit("audit.source_header_association")?;if shape::same_ref(m,&a.authority_observation_ref,reference)?{selected=Some(&a.authority_observation_ref);break;}}
+            let mut selected=None;for a in &context.authorities{m.visit("audit.source_header_association")?;if shape::same_ref(m,a.required_observation_ref()?,reference)?{selected=Some(a.required_observation_ref()?);break;}}
             let selected=selected.ok_or_else(||fail("audit source header absent from actual source frames"))?;records::reference(m,selected)?;
             let value=owning_reference(m,&arena,selected)?;let order=m.canonical_owned_representation(&arena,value.value(),RepresentationKind::SourceDefinition)?;
             if let Some(previous)=&self.previous_source{if !shape::byte_order(m,previous.bytes(),order.bytes())?.is_lt(){return Err(fail("audit source header order/duplicate"));}}
@@ -238,7 +238,7 @@ mod tests{
         let financial=json!({"schema":"ledger-workflow-financial-history-observation/3","logical_store_id":"store","scope":["org","scope"],"installation_mode":"real_local","root_ref":root,"pending_operation_key":key("pending"),"snapshot_through_sequence":"2","preexisting_input_refs":[],"history_edges":[],"head_pins":[],"verifier_ref":verifier,"origin_count":"2","prefix_digest":financial_prefix});
         let financial_document=super::super::super::body::document(&mut old,"workflow-financial-history-observation",financial.clone()).unwrap();
         let expected_combined=records::hash(&mut old,"economic-origin-audits",&json!([key("pending"),[source_document.reference],financial_document.reference,[first,second]])).unwrap();
-        let context=DraftContextData{key:key("pending"),actor:"principal".into(),canonical_economic_namespace:"namespace".into(),installation_mode:"real_local".into(),received_at:"2026-10-17T00:00:00.000000Z".into(),accepted_at:"2026-10-17T00:00:00.000000Z".into(),authorities:vec![AuthorityContextData{source_slot:"test:slot".into(),enrollment_ref:enrollment,current_state_ref:state,current_grant_ref:grant.clone(),original_grant_refs:vec![grant],binding_ref:root.clone(),accepted_agreement_ref:root.clone(),activation_ref:root,authority_observation_ref:source_document.reference.clone()}],source_observation_inputs:vec![]};
+        let context=DraftContextData{key:key("pending"),actor:"principal".into(),canonical_economic_namespace:"namespace".into(),installation_mode:"real_local".into(),received_at:"2026-10-17T00:00:00.000000Z".into(),accepted_at:"2026-10-17T00:00:00.000000Z".into(),authorities:vec![AuthorityContextData{source_slot:"test:slot".into(),enrollment_ref:enrollment,current_state_ref:state,current_grant_ref:grant.clone(),original_grant_refs:vec![grant],binding_ref:root.clone(),accepted_agreement_ref:root.clone(),activation_ref:root,authority_observation_ref:Some(source_document.reference.clone())}],source_observation_inputs:vec![]};
         let mut long_pointers=vec![first.clone(),second.clone()];
         for seq in 3..=33{long_pointers.push(pointer(&format!("origin-{seq}"),&seq.to_string(),"8"));}
         let mut long_financial=financial.clone();long_financial["snapshot_through_sequence"]=json!("33");long_financial["origin_count"]=json!("33");

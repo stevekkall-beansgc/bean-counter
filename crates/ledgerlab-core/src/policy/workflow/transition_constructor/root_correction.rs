@@ -131,7 +131,7 @@ fn prepare(
     state: &DraftStateData,
     m: &mut CoreMeter,
 ) -> Result<RootPlan> {
-    entry::context(m, c)?;
+    entry::context_selected(m,c,program)?;
     let (metadata,maximum_roots)=if let Some(arena)=m.representation_arena(){
         use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
         let components=shape::array(m,program.compiled_plan().canonical_value(),"component_slots")?;
@@ -1065,10 +1065,11 @@ fn slot_context(
             "original correction source nomination missing",
         )
     })?;
+    if frame.authority_observation_ref.is_none(){return context::selected_local(m,c,frame);}
     let observation = r.get(
         m,
         &c.key,
-        &frame.authority_observation_ref,
+        frame.required_observation_ref()?,
         "workflow-authority-prefix-observation",
         "ledger-workflow-authority-prefix-observation/1",
     )?;
@@ -1077,7 +1078,7 @@ fn slot_context(
     let mut pending = vec![];
     for input in &c.source_observation_inputs {
         m.visit("root.pending_source_operand")?;
-        if !shape::same_ref(m, &input.reference, &frame.authority_observation_ref)?
+        if !shape::same_ref(m, &input.reference, frame.required_observation_ref()?)?
             && !shape::same_ref(m, &input.reference, &verifier)?
         {
             continue;
@@ -1212,14 +1213,17 @@ fn execute_with_state<'inv, 'raw>(
     }else{request.replace(m,"evidence_refs",&json!(evidence))?;}
     let _evidence_owner=evidence_owner;
     let plan = prepare(program, &local, &mut request, &mut r, state, m)?;
+    let mut financial_reservations=None;
     let original_reservations=if let Some(arena)=m.representation_arena(){
+        if program.uses_local_execution_recipe(){financial_reservations=Some(super::capacity::original::derive_financial_retained(&arena,m,&mut r,&local,program,&plan.original_ref,&plan.original,&plan.work_ref,&plan.work,&plan.claim_ref,&plan.operands.terms)?);None}else{
         Some(super::capacity::original::derive_retained(&arena,m,&mut r,&local,program,&plan.original_ref,&plan.original,&plan.work_ref,&plan.work,&plan.claim_ref,&plan.operands.terms)?)
+        }
     }else{None};
     dependent::evidence_membership(m, &mut r, &local, &plan.operands, &evidence)?;
     let active = active_actions(m, &mut r, &local, &plan)?;
     let current_capacity=if program.uses_app_owned_cost_recipe(){
         let complete=complete_state.ok_or_else(||shape::fail("app root capacity requires complete economic state"))?;
-        Some(super::capacity::current::retained_root_head(m,&mut r,&local,&plan.original_ref,&plan.current_ref,complete)?)
+        Some(if program.uses_local_execution_recipe(){super::capacity::current::retained_local_root_head(m,&mut r,&local,&plan.original_ref,&plan.current_ref,complete)?}else{super::capacity::current::retained_root_head(m,&mut r,&local,&plan.original_ref,&plan.current_ref,complete)?})
     }else{None};
     let app_closures=if program.uses_app_owned_cost_recipe(){
         let complete=complete_state.ok_or_else(||shape::fail("app root closure requires complete economic state"))?;
@@ -1545,7 +1549,7 @@ fn execute_with_state<'inv, 'raw>(
         (Some(AppEffects{claims:Vec::new(),heads:app_heads}),Some(owner))
     }else{(None,None)};
     Ok(Construction {
-        original_reservations,
+        original_reservations,financial_reservations,
         economic: EconomicConstruction {
             terms: plan.operands.terms,
             original_work: OriginalWorkPayload::Retained(plan.work),

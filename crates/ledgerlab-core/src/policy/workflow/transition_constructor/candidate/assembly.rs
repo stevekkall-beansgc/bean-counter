@@ -50,7 +50,9 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning candidate assembly"))?;
     let payload=m.parse_owned_representation(&arena,&t.normalized_payload,crate::validation_work::RepresentationKind::OriginalRequest)?;
     let kind=operation(m,payload.value())?;
-    if m.check("capacity.retained_original_derivation_needed",||t.original_reservations.is_none())? && !shape::same_text(m,kind,"evidence.retain")?{
+    let local=program.uses_local_execution_recipe();
+    if local&&!shape::same_text(m,kind,"evidence.retain")?{capacity::local::produce(m,c,program,state,&mut t)?;}
+    if !local&&m.check("capacity.retained_original_derivation_needed",||t.original_reservations.is_none())? && !shape::same_text(m,kind,"evidence.retain")?{
         if let OriginalWorkPayload::Retained(work)=&t.economic.original_work{
             // Independent same-child resolution, not a saved maximum or a
             // parent inventory/cache transfer. The immutable Arc clone only
@@ -62,7 +64,7 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
             t.original_reservations=Some(capacity::original::derive_for_work(&arena,m,&mut t.records,c,program,&work,&t.economic.terms)?);
         }
     }
-    if m.check("capacity.retained_ancestor_head_needed",||t.current_capacity.is_none()&&matches!(&t.economic.original_work,OriginalWorkPayload::Retained(_)))? && !shape::same_text(m,kind,"evidence.retain")?{
+    if !local&&m.check("capacity.retained_ancestor_head_needed",||t.current_capacity.is_none()&&matches!(&t.economic.original_work,OriginalWorkPayload::Retained(_)))? && !shape::same_text(m,kind,"evidence.retain")?{
         let original=t.original_reservations.as_ref().ok_or_else(||shape::fail("retained ancestor original reservations missing"))?;
         t.current_capacity=Some(capacity::current::retained_original_head(m,&mut t.records,c,&original.original_root_ref,&original.root_decision_id,state)?);
     }
@@ -102,7 +104,7 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     for(i,row)in t.new_envelopes.iter().enumerate(){
         m.visit("candidate.assembly_authoritative_result")?;let value=row.decoded(m,4194304)?;
         let schema=shape::text(m,&value,"schema")?;
-        if shape::same_text(m,&row.reference.kind,"workflow-economic-authority")?&&shape::same_text(m,schema,"ledger-workflow-economic-authority/7")?{
+        if shape::same_text(m,&row.reference.kind,"workflow-economic-authority")?&&shape::same_text(m,schema,if local{"ledger-workflow-economic-authority/8"}else{"ledger-workflow-economic-authority/7"})?{
             let actual=shape::text(m,&value,"operation")?;
             if shape::same_text(m,actual,kind)?{if authority.is_some(){return Err(shape::fail("ambiguous root operation authority result"));}authority=Some(i);}
         }
@@ -116,16 +118,16 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     }
     let authority_position=authority.ok_or_else(||shape::fail("actual root authority result missing"))?;
     let mut source_observations=Vec::new();source_observations.try_reserve_exact(c.authorities.len()).map_err(|_|shape::fail("candidate source association vector"))?;
-    for source in &c.authorities{
+    for source in c.authorities.iter().filter(|_|!local){
         m.visit("candidate.assembly_source_observation")?;
         for prior in &source_observations{
             let prior:&super::ObservationAssociation=prior;
-            if shape::same_ref(m,&prior.observation_ref,&source.authority_observation_ref)?{return Err(shape::fail("duplicate candidate source observation"));}
+            if shape::same_ref(m,&prior.observation_ref,source.required_observation_ref()?)?{return Err(shape::fail("duplicate candidate source observation"));}
         }
-        let observation=t.records.get(m,&c.key,&source.authority_observation_ref,"workflow-authority-prefix-observation","ledger-workflow-authority-prefix-observation/1")?;
+        let observation=t.records.get(m,&c.key,source.required_observation_ref()?,"workflow-authority-prefix-observation","ledger-workflow-authority-prefix-observation/1")?;
         let verifier=super::super::working_value::parse_owned_reference(m,&arena,&observation["verifier_ref"])?;
         t.records.get(m,&c.key,verifier.reference(),"workflow-authority-audit-verifier","ledger-authority-audit-verifier/2")?;
-        source_observations.push(super::ObservationAssociation{observation_ref:copy_ref(m,&source.authority_observation_ref)?,verifier_ref:copy_ref(m,verifier.reference())?});
+        source_observations.push(super::ObservationAssociation{observation_ref:copy_ref(m,source.required_observation_ref()?)?,verifier_ref:copy_ref(m,verifier.reference())?});
     }
     let heads=t.candidate_heads.as_ref().ok_or_else(||shape::fail("actual candidate head effects missing"))?;
     for head in &heads.effects{
@@ -134,15 +136,17 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
         if !shape::same_ref(m,&head.proposed,&t.new_envelopes[head.introduced_position].reference)?{return Err(shape::fail("candidate head output exact association"));}
     }
     t.candidate_introductions.as_ref().ok_or_else(||shape::fail("actual candidate introductions missing"))?;
+    if !local{
     let financial=t.financial_observation.as_ref().ok_or_else(||shape::fail("actual financial observation missing"))?;
     let observed=owning_reference(m,&arena,&financial.observation_ref)?;
     // The selected pair has already been checked against the complete held
     // preoperation projections by execute_complete; keep the owner attached.
     let verifier=owning_reference(m,&arena,&financial.verification_ref)?;shape::equal(m,&financial.observation["verifier_ref"],verifier.value())?;
     let _=observed;
-    let reservations=super::reservations::derive(m,c,state,&mut t)?;
+    }
+    let reservations=super::reservations::derive(m,c,state,&mut t,local)?;
     program_inputs(m,c,program,&mut t.records)?;
-    super::super::financial_observation::containment::check(m,c,&mut t)?;
+    if !local{super::super::financial_observation::containment::check(m,c,&mut t)?;}
     let actual_members=capacity::actual_members(m,&t)?;
     Ok(Self{construction:t,schemas,result_refs,authority_position,source_observations,actual_members,reservations,_metadata:metadata})
  }
@@ -180,14 +184,22 @@ pub(in crate::policy::workflow::transition_constructor) struct CandidateOwnershi
     metadata:ExternalBufferLease,
     reservations:super::reservations::OwnedReservations,
     head_transfer:ExternalBufferLease,
+    _financial_reservations:Option<capacity::original::FinancialReservations>,
 }
 impl Assembly<'_, '_>{
  pub(in crate::policy::workflow::transition_constructor) fn into_complete(self,c:&DraftContextData,digest:&str,m:&mut CoreMeter)->Result<super::EconomicCandidate>{
-    // Called only AFTER require_complete_capacity_and_resources succeeds and
-    // the SAME attempt's closed AUTH03 digest has been bound to c/financial.
-    let Self{mut construction,schemas,result_refs,authority_position,source_observations,actual_members:_,mut reservations,_metadata}=self;
-    let financial=construction.financial_observation.as_ref().ok_or_else(||shape::fail("candidate financial owner"))?;
+    let financial=self.construction.financial_observation.as_ref().ok_or_else(||shape::fail("candidate financial owner"))?;
     let financial_observation=super::ObservationAssociation{observation_ref:copy_ref(m,&financial.observation_ref)?,verifier_ref:copy_ref(m,&financial.verification_ref)?};
+    let sources=self.source_observations.iter().map(|s|Ok(super::ObservationAssociation{observation_ref:copy_ref(m,&s.observation_ref)?,verifier_ref:copy_ref(m,&s.verifier_ref)?})).collect::<Result<Vec<_>>>()?;
+    let execution=super::CandidateExecutionMetadata::ExperimentalAudit9(super::ExperimentalAuditMetadata{source_observations:sources,financial_observation,combined_audit_digest:copy(m,digest)?});
+    self.into_candidate(c,execution,m)
+ }
+ pub(in crate::policy::workflow::transition_constructor) fn into_local(self,c:&DraftContextData,m:&mut CoreMeter)->Result<super::EconomicCandidate>{
+    if self.construction.financial_observation.is_some()||!self.source_observations.is_empty(){return Err(shape::fail("local candidate cannot carry experimental observations"));}
+    self.into_candidate(c,super::CandidateExecutionMetadata::LocalSelected1,m)
+ }
+ fn into_candidate(self,c:&DraftContextData,execution:super::CandidateExecutionMetadata,m:&mut CoreMeter)->Result<super::EconomicCandidate>{
+    let Self{mut construction,schemas,result_refs,authority_position,source_observations:_,actual_members:_,mut reservations,_metadata}=self;
     let authority_ref=copy_ref(m,&construction.new_envelopes[authority_position].reference)?;
     let mut introduced=Vec::new();introduced.try_reserve_exact(construction.new_envelopes.len()).map_err(|_|shape::fail("candidate owning envelope vector"))?;
     for(row,schema)in construction.new_envelopes.drain(..).zip(schemas){
@@ -211,7 +223,7 @@ impl Assembly<'_, '_>{
     let mut funding=construction.funding_effects.take();let funding_effects=match &mut funding{Some(v)=>std::mem::take(&mut v.effects),None=>Vec::new()};
     let mut consumed=construction.records.into_consumed_owned();let consumed_refs=std::mem::take(&mut consumed.references);
     let key=OperationKey{logical_store_id:copy(m,&c.key.logical_store_id)?,scope:[copy(m,&c.key.scope[0])?,copy(m,&c.key.scope[1])?],source:copy(m,&c.key.source)?,operation_id:copy(m,&c.key.operation_id)?};
-    let result=super::CandidateResultMetadata{kind:super::CandidateResultKind::Economic,result_refs,authority_ref,source_observations,financial_observation,combined_audit_digest:copy(m,digest)?};
-    Ok(super::EconomicCandidate{key,normalized_payload:construction.normalized_payload,introduced,consumed_refs,heads:head_effects,claims,links,dependencies,funding:funding_effects,account_enrollments:Vec::new(),result,_ownership:CandidateOwnership{heads,introductions,funding,consumed,controls:construction.control_owners,metadata:_metadata,reservations,head_transfer}})
+    let result=super::CandidateResultMetadata{kind:super::CandidateResultKind::Economic,result_refs,authority_ref,execution};
+    Ok(super::EconomicCandidate{key,normalized_payload:construction.normalized_payload,introduced,consumed_refs,heads:head_effects,claims,links,dependencies,funding:funding_effects,account_enrollments:Vec::new(),result,_ownership:CandidateOwnership{heads,introductions,funding,consumed,controls:construction.control_owners,metadata:_metadata,reservations,head_transfer,_financial_reservations:construction.financial_reservations.take()}})
  }
 }

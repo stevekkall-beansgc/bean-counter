@@ -32,7 +32,7 @@ pub(super) fn build(
 ) -> Result<ClosedFamily> {
     let source_slot = text(m, &f.family, "correction_source_slot")?.to_owned();
     let local = slot_context(m, r, c, &source_slot, already)?;
-    entry::context(m, &local)?;
+    entry::context_selected(m,&local,program)?;
     let product = original_product(m, program, &root.payload["product_ref"])?;
     let activities = shape::array(m, product, "activities")?;
     let trigger = text(m, &f.family, "trigger_activity")?;

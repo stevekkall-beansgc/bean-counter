@@ -21,13 +21,14 @@ pub(super) fn value(m:&mut CoreMeter,c:&DraftContextData,program:&SelectedProgra
     let operation=arena.string_value(operation,m)?;let actor=arena.string_value(&c.actor,m)?;let source=arena.string_value(&c.key.source,m)?;let namespace=arena.string_value(&c.canonical_economic_namespace,m)?;let installation=arena.string_value(&c.installation_mode,m)?;let at=arena.string_value(&c.accepted_at,m)?;
     let frame=&c.authorities[0];let slot=arena.string_value(&source_selection.source_slot,m)?;
     let enrollment=owning_reference(m,&arena,&frame.enrollment_ref)?;let state=owning_reference(m,&arena,&frame.current_state_ref)?;let grant=owning_reference(m,&arena,&frame.current_grant_ref)?;
-    let binding=owning_reference(m,&arena,&original.binding_ref)?;let accepted=owning_reference(m,&arena,&frame.accepted_agreement_ref)?;let observation=owning_reference(m,&arena,&frame.authority_observation_ref)?;
+    let binding=owning_reference(m,&arena,&original.binding_ref)?;let accepted=owning_reference(m,&arena,&frame.accepted_agreement_ref)?;
     let originals=grant_refs(m,&source_selection.original_grant_refs)?;
     let app_observations=match observed{Some(reference)=>super::retention::refs(m,&arena,&[reference])?,None=>super::retention::refs(m,&arena,&[])?};
     let final_evidence=super::retention::refs(m,&arena,final_refs)?;
     let revision=match revision{Some(reference)=>super::retention::refs(m,&arena,&[reference])?,None=>super::retention::refs(m,&arena,&[])?};
-    let value=arena.object_from_fields(&[("schema",if program.uses_app_cost_causal_recipe(){&constants.value()["new_schema"]}else{&constants.value()["schema"]}),("operation",operation.value()),("actor",actor.value()),("source",source.value()),("scope",&original.work["key"]["scope"]),("customer",&original.terms.binding["customer"]),("canonical_economic_namespace",namespace.value()),("installation_mode",installation.value()),("enrollment_ref",enrollment.value()),("current_state_ref",state.value()),("current_grant_ref",grant.value()),("original_binding_ref",binding.value()),("original_accepted_agreement_ref",accepted.value()),("original_grant_refs",originals.value()),("source_slot",slot.value()),("rights",rights.value()),("evidence_refs",&constants.value()["empty"]),("verified_fact_refs",&constants.value()["empty"]),("observed_at",at.value()),("authority_observation_ref",observation.value()),("causal_closure_checks",&constants.value()["empty"]),("app_observation_refs",app_observations.value()),("app_final_evidence_refs",final_evidence.value()),("app_cost_revision_refs",revision.value()),("app_cost_closure_checks",&constants.value()["empty"])],m)?;
+    let value=arena.object_from_fields(&[("schema",if program.uses_app_cost_causal_recipe(){&constants.value()["new_schema"]}else{&constants.value()["schema"]}),("operation",operation.value()),("actor",actor.value()),("source",source.value()),("scope",&original.work["key"]["scope"]),("customer",&original.terms.binding["customer"]),("canonical_economic_namespace",namespace.value()),("installation_mode",installation.value()),("enrollment_ref",enrollment.value()),("current_state_ref",state.value()),("current_grant_ref",grant.value()),("original_binding_ref",binding.value()),("original_accepted_agreement_ref",accepted.value()),("original_grant_refs",originals.value()),("source_slot",slot.value()),("rights",rights.value()),("evidence_refs",&constants.value()["empty"]),("verified_fact_refs",&constants.value()["empty"]),("observed_at",at.value()),("causal_closure_checks",&constants.value()["empty"]),("app_observation_refs",app_observations.value()),("app_final_evidence_refs",final_evidence.value()),("app_cost_revision_refs",revision.value()),("app_cost_closure_checks",&constants.value()["empty"])],m)?;
     let value=if program.uses_app_cost_causal_recipe(){super::super::working_value::WorkingValue::Owned(value).with_fields(m,&[("app_pending_cost_closure_checks",&constants.value()["empty"])])?.into_owned()?}else{value};
+ let value=super::authority::attach_source_observation(m,program,frame,value)?;
     Ok(value)
 }
 pub(super) fn document(m:&mut CoreMeter,c:&DraftContextData,program:&SelectedProgram,original:&OriginalApp,source_selection:&SourceSelection,mode:EconomicMode,observed:&ExactRef,final_refs:&[&ExactRef],revision:Option<&ExactRef>)->Result<ConstructedEnvelope>{
@@ -42,4 +43,18 @@ pub(super) fn for_plan(m:&mut CoreMeter,r:&mut super::super::records::Records,c:
     let _=old;
     let authority=if let Some(old)=&plan.old_cost{document(m,c,program,&plan.original,&source,mode,&plan.observation.pair.attestation_ref,&[&old.pair.attestation_ref,&plan.final_cost.pair.attestation_ref],revision)?}else{document(m,c,program,&plan.original,&source,mode,&plan.observation.pair.attestation_ref,&[&plan.final_cost.pair.attestation_ref],revision)?};
     Ok((authority,source))
+}
+
+/// Shared exact authority version boundary. Local execution has no audit
+/// observation operand; experimental authority retains its mandatory real Ref.
+pub(in crate::policy::workflow::transition_constructor) fn attach_source_observation(m:&mut CoreMeter,program:&SelectedProgram,frame:&AuthorityContextData,value:AuditedValue)->Result<AuditedValue>{
+ let arena=m.representation_arena().ok_or_else(||shape::fail("owning authority recipe"))?;
+ if program.uses_local_execution_recipe(){
+  if frame.authority_observation_ref.is_some(){return Err(shape::fail("local authority cannot carry an experimental observation"));}
+  let schema=arena.string_value("ledger-workflow-economic-authority/8",m)?;
+  super::super::working_value::WorkingValue::Owned(value).with_fields(m,&[("schema",schema.value())])?.into_owned()
+ }else{
+  let observed=owning_reference(m,&arena,frame.required_observation_ref()?)?;
+  super::super::working_value::WorkingValue::Owned(value).with_fields(m,&[("authority_observation_ref",observed.value())])?.into_owned()
+ }
 }

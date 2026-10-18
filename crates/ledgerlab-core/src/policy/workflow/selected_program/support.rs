@@ -20,6 +20,14 @@ fn raw(bytes: &[u8]) -> String {
     format!("sha256:{}", canonical::hex(&Sha256::digest(bytes)))
 }
 impl SelectedCompilerSupport {
+    /// Exact binary-owned local executor selection. This profile preserves
+    /// finite guards and financial rights; it makes no universal future
+    /// resource or whole-history audit promise. Caller descriptors cannot
+    /// select or widen this capability.
+    pub fn local_execution_with_session(session:&mut crate::validation_work::OriginalAuditSession)->Result<Self>{
+        let document=super::local::local_compiler_descriptor_with_session(session)?;
+        Ok(Self{document:SupportDocument::Owned(document),execution_registry:Some(super::local::REGISTRY)})
+    }
     pub fn builtin() -> Result<Self> {
         let limits = canonical::parse(include_bytes!(
             "../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/limits.json"

@@ -254,6 +254,18 @@ pub fn normalize_saved_intent(
     result
 }
 
+/// Local original-key intent normalization only. Before calling, the host
+/// verifies the actual saved local10 normalized original, descriptor/registry,
+/// committed operation/manifest/receipt/results and targeted original program
+/// and terms. This DATA helper does not rerate or grant current mutation rights.
+pub fn normalize_local_saved_intent(program:&SelectedProgram,original_normalized_payload:&[u8],incoming_raw:&[u8],session:&mut OriginalAuditSession)->Result<AuditedBytes>{
+ let result=(||{
+  session.check_cancelled()?;program.require_attempt_owner(session.meter_mut())?;
+  if !program.uses_local_execution_recipe(){return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","local original intent requires exact original local program"));}
+  normalize_saved_intent(program,original_normalized_payload,incoming_raw,session)
+ })();if result.is_err(){session.invalidate();}result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

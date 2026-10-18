@@ -241,7 +241,7 @@ impl ObservedAppBinding {
                     s,
                 )?,
                 activation_ref: copied_ref(activation.activation.reference(), s)?,
-                authority_observation_ref: copied_ref(observation.reference(), s)?,
+                authority_observation_ref: Some(copied_ref(observation.reference(), s)?),
             };
             let mut authorities = Vec::new();
             authorities

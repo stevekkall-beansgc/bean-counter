@@ -206,12 +206,12 @@ pub(super) fn prepare<'p>(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,pr
     let dependent=arena.string_value(&decision_id,m)?;let binding=owning_reference(m,&arena,&original.binding_ref)?;
     let dependency_key=arena.array_from_values(&[&original_decision["decision_id"],dependent.value(),binding.value()],m)?;
     let dependency_id=body::semantic_id(m,"wdep_","workflow-dependency",dependency_key.value())?;
-    let (dependency_ref,dependency)=r.by_identity(m,&c.key,"workflow-dependency",&dependency_id,"ledger-workflow-dependency/1")?;
-    shape::closed(m,&dependency,&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","maximum_records","maximum_bytes","maximum_work","operation_key"],&[])?;
+    let (dependency_ref,dependency)=r.by_identity(m,&c.key,"workflow-dependency",&dependency_id,if program.uses_local_execution_recipe(){"ledger-workflow-dependency/2"}else{"ledger-workflow-dependency/1"})?;
+    if program.uses_local_execution_recipe(){shape::closed(m,&dependency,&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","operation_key"],&[])?;}else{shape::closed(m,&dependency,&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","maximum_records","maximum_bytes","maximum_work","operation_key"],&[])?;}
     literal(m,&dependency,"kind","delayed_cost")?;
     eq(m,&dependency["ancestor_decision_id"],&original_decision["decision_id"])?;eq(m,&dependency["dependent_decision_id"],dependent.value())?;eq(m,&dependency["original_terms_ref"],binding.value())?;
     let work=owning_reference(m,&arena,&original.work_ref)?;eq(m,&dependency["target_ref"],work.value())?;
-    for name in ["maximum_actions","maximum_records","maximum_bytes","maximum_work"]{crate::policy::workflow::facts::counter_with_work(shape::text(m,&dependency,name)?,m)?;}
+    for name in ["maximum_actions","maximum_records","maximum_bytes","maximum_work"]{if program.uses_local_execution_recipe()&&name!="maximum_actions"{continue;}crate::policy::workflow::facts::counter_with_work(shape::text(m,&dependency,name)?,m)?;}
     if let Some(old)=&current{let dep=owning_reference(m,&arena,&dependency_ref)?;eq(m,&old.claim["dependency_ref"],dep.value())?;}
     for reference in shape::array(m,&request,"evidence_refs")?{let reference=shape::reference(m,reference)?;r.provenance(m,&c.key,&reference)?;}
     Ok(AppPlan{request,original,observation,final_cost,old_cost,current,dependency_ref,dependency,decision_id,revision,_ownership:ownership})

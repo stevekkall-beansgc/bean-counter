@@ -62,7 +62,14 @@ pub struct AuthorityContextData {
     pub binding_ref: ExactRef,
     pub accepted_agreement_ref: ExactRef,
     pub activation_ref: ExactRef,
-    pub authority_observation_ref: ExactRef,
+    pub authority_observation_ref: Option<ExactRef>,
+}
+impl AuthorityContextData {
+    /// Old audit recipes require their real observation. The new local recipe
+    /// supplies genuine absence and never manufactures a content-addressed Ref.
+    pub(super) fn required_observation_ref(&self)->crate::Result<&ExactRef>{
+        self.authority_observation_ref.as_ref().ok_or_else(||crate::Error::new("INTEGRITY_FAILURE","experimental source observation is required"))
+    }
 }
 #[derive(Clone, Debug)]
 pub struct DecisionHead {
@@ -230,6 +237,7 @@ pub(super) struct AppEffects {
 pub(super) struct Construction<'inv, 'raw> {
     pub economic: EconomicConstruction,
     pub original_reservations: Option<super::capacity::original::OriginalReservations>,
+    pub financial_reservations:Option<super::capacity::original::FinancialReservations>,
     pub normalized_payload: super::emitted_record::EncodedBody,
     pub new_envelopes: Vec<super::emitted_record::ConstructedEnvelope>,
     pub reused_result:Option<ExactRef>,

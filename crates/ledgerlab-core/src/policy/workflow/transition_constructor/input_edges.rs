@@ -212,3 +212,52 @@ pub(super) fn body(v:&Value,owner_kind:&str,old:bool,m:&mut CoreMeter,emit:&mut 
     Ok(())
 }
 
+
+/// Targeted local semantic-role acquisition DATA. This is a distinct selector,
+/// not resolved-inputs9 traversal or proof of currentness/completeness. The
+/// interpreter still executes all required current/original predicates and
+/// records exactly the committed bodies actually used in I.
+pub struct LocalInputEdges {direct:Vec<OwnedExactRef>,_ownership:ExternalBufferLease}
+impl LocalInputEdges{pub fn direct_refs(&self)->impl Iterator<Item=&ExactRef>{self.direct.iter().map(|r|r.reference())}}
+pub fn select_local_input_edges(key:&OperationKey,input:EconomicRecordView<'_>,s:&mut OriginalAuditSession)->Result<LocalInputEdges>{
+ let result=(||{
+  s.check_cancelled()?;let a=s.arena().shared_handle();let m=s.meter_mut();let inputs=[input];
+  let mut records=Records::borrowed_parent_app(m,&a,key,&inputs)?;let v=records.provenance(m,key,input.reference)?;
+  let schema=shape::text(m,&v,"schema")?;
+  let fields:Option<&[&str]>=match schema{
+   "ledger-workflow-party-authorization/1"|"ledger-workflow-party-authorization/2"=>Some(&["evidence_ref","operator_attestation_ref","authority_ref"]),
+   "ledger-workflow-retained-evidence/1"=>Some(&["authority_ref"]),
+   "ledger-workflow-source-state/1"=>Some(&["enrollment_ref","current_grant_ref"]),
+   "ledger-workflow-economic-authority/8"|"ledger-workflow-app-causal-authority/2"|"ledger-workflow-app-pending-causal-authority/2"=>Some(&["enrollment_ref","current_grant_ref","original_binding_ref","original_accepted_agreement_ref","original_grant_refs"]),
+   "ledger-workflow-decision-revision/1"|"ledger-workflow-decision-revision/2"|"ledger-workflow-decision-revision/3"=>Some(&["subject_ref","original_terms_ref","authority_ref","evaluation_ref","active_action_refs","dependency_refs"]),
+   "ledger-workflow-family-state/1"|"ledger-workflow-family-state/2"=>Some(&["target_ref","anchor_work_ref","claim_ref","decision_ref","closure_evidence_refs","causal_closure"]),
+   "ledger-workflow-app-cost-revision/1"=>Some(&["cost_claim_ref","current_decision_ref","current_evidence_ref","consumption_ref"]),
+   "ledger-workflow-chain-state/1"=>Some(&["binding_ref","accepted_agreement_ref","activation_ref"]),
+   "ledger-workflow-dependency/2"=>Some(&["target_ref","original_terms_ref"]),
+   "ledger-correction-capacity/2"=>Some(&["root_ref","reserved_dependency_refs","retirement_refs"]),
+   "ledger-workflow-app-final-cost/1"=>Some(&["subject"]),
+   _=>None,
+  };
+  let mut count=0usize;
+  let mut walk=|emit:&mut Emit<'_>,m:&mut CoreMeter|->Result<()>{
+   if let Some(fields)=fields{for field in fields{m.visit("local.selected_semantic_role")?;if let Some(value)=v.get(*field){generic(value,1,m,emit)?;}}Ok(())}
+   else{
+    // Fact values are opaque; original acceptance/context/schema relations
+    // retain their typed reference handling. These immutable role records do
+    // not include an unbounded state/decision/authority predecessor chain.
+    if matches!(schema,"ledger-workflow-binding/1"|"ledger-workflow-binding/2"){binding(&v,m,emit)}
+    else if schema=="ledger-workflow-work-record/1"{for(field,value)in v.as_object().ok_or_else(||shape::fail("local work object"))?{if field=="payload"{work_payload(value,m,emit)?;}else{generic(value,1,m,emit)?;}}Ok(())}
+    else if schema=="ledger-workflow-evaluation-proof/1"{for(field,value)in v.as_object().ok_or_else(||shape::fail("local evaluation object"))?{if field=="facts"{continue;}if field=="context"{context(value,m,emit)?;}else{generic(value,1,m,emit)?;}}Ok(())}
+    else if schema=="ledger-workflow-party-evidence/2"{body(&v,&input.reference.kind,true,m,emit,&mut |_,_,_|Ok(()))}
+    else if schema=="ledger-workflow-verified-fact/1"{for(field,value)in v.as_object().ok_or_else(||shape::fail("local verified fact object"))?{if field!="value"{generic(value,1,m,emit)?;}}Ok(())}
+    else{generic(&v,1,m,emit)}
+   }
+  };
+  walk(&mut |_,m|{count=w::usize_add(m,count,1)?;Ok(())},m)?;
+  if w::compare(m,count,4096usize)?.is_gt(){return Err(shape::fail("local selected Ref count"));}
+  let bytes=product(m,count,mem::size_of::<OwnedExactRef>())?;let bytes=w::usize_add(m,bytes,mem::size_of::<LocalInputEdges>())?;
+  let owner=a.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;let mut direct=Vec::new();direct.try_reserve_exact(count).map_err(|_|shape::fail("local selected role allocation"))?;
+  walk(&mut |v,m|{direct.push(parse_owned_reference(m,&a,v)?);Ok(())},m)?;
+  Ok(LocalInputEdges{direct,_ownership:owner})
+ })();if result.is_err(){s.invalidate();}result
+}

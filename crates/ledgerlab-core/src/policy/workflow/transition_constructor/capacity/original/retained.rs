@@ -7,10 +7,10 @@ use super::super::super::{data::DraftContextData,record_body::RecordBody,records
 
 /// Resolve the original work root for a retained family/app executor. The
 /// current request's cost/family decision is never substituted for that root.
-pub(in crate::policy::workflow::transition_constructor) fn derive_for_work(
+fn derive_for_work_with<T>(
     arena:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,
-    program:&SelectedProgram,work:&Value,terms:&super::super::super::authority::Terms,
-)->Result<OriginalReservations>{
+    program:&SelectedProgram,work:&Value,terms:&super::super::super::authority::Terms,finish:Derive<T>,
+)->Result<T>{
     let scratch=2*(mem::size_of::<ExactRef>()+64+128+71)+2*(mem::size_of::<String>()+128);
     let _metadata=arena.reserve_external_payload(scratch,m)?;m.write_bytes(scratch)?;
     let payload=shape::field(m,work,"payload")?;
@@ -35,14 +35,14 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_for_work(
         let actual=shape::text(m,&decision,field)?;
         if !shape::same_text(m,actual,want)?{return Err(shape::fail("retained original work decision identity"));}
     }
-    super::derive_retained(arena,m,r,c,program,&decision_ref,&decision,work_ref.reference(),work,&claim_ref,terms)
+    derive_retained_with(arena,m,r,c,program,&decision_ref,&decision,work_ref.reference(),work,&claim_ref,terms,finish)
 }
 
-pub(in crate::policy::workflow::transition_constructor) fn derive_retained(
+fn derive_retained_with<T>(
     arena:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,
     program:&SelectedProgram,decision_ref:&ExactRef,decision:&Value,
-    work_ref:&ExactRef,work:&Value,claim_ref:&ExactRef,terms:&super::super::super::authority::Terms,
-)->Result<OriginalReservations>{
+    work_ref:&ExactRef,work:&Value,claim_ref:&ExactRef,terms:&super::super::super::authority::Terms,finish:Derive<T>,
+)->Result<T>{
     let payload=shape::field(m,work,"payload")?;
     let claim=r.get(m,&c.key,claim_ref,"workflow-work-claim","ledger-workflow-work-claim/1")?;
     let instructions=shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?;
@@ -108,5 +108,11 @@ pub(in crate::policy::workflow::transition_constructor) fn derive_retained(
         }
         targets.push((reference,target));
     }
-    super::derive_data(arena,m,r,c,program,payload,decision_ref,decision,&targets,work_ref,work,claim_ref,&claim,terms)
+    finish(arena,m,r,c,program,payload,decision_ref,decision,&targets,work_ref,work,claim_ref,&claim,terms)
 }
+
+type Derive<T>=fn(&AuditArena,&mut CoreMeter,&mut Records,&DraftContextData,&SelectedProgram,&Value,&ExactRef,&Value,&[(ExactRef,RecordBody)],&ExactRef,&Value,&ExactRef,&Value,&super::super::super::authority::Terms)->Result<T>;
+pub(in crate::policy::workflow::transition_constructor) fn derive_for_work(a:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,p:&SelectedProgram,w:&Value,t:&super::super::super::authority::Terms)->Result<OriginalReservations>{derive_for_work_with(a,m,r,c,p,w,t,super::derive_data)}
+pub(in crate::policy::workflow::transition_constructor) fn derive_financial_for_work(a:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,p:&SelectedProgram,w:&Value,t:&super::super::super::authority::Terms)->Result<FinancialReservations>{derive_for_work_with(a,m,r,c,p,w,t,super::derive_financial_data)}
+pub(in crate::policy::workflow::transition_constructor) fn derive_retained(a:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,p:&SelectedProgram,d:&ExactRef,dv:&Value,w:&ExactRef,wv:&Value,cl:&ExactRef,t:&super::super::super::authority::Terms)->Result<OriginalReservations>{derive_retained_with(a,m,r,c,p,d,dv,w,wv,cl,t,super::derive_data)}
+pub(in crate::policy::workflow::transition_constructor) fn derive_financial_retained(a:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,p:&SelectedProgram,d:&ExactRef,dv:&Value,w:&ExactRef,wv:&Value,cl:&ExactRef,t:&super::super::super::authority::Terms)->Result<FinancialReservations>{derive_retained_with(a,m,r,c,p,d,dv,w,wv,cl,t,super::derive_financial_data)}

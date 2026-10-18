@@ -116,14 +116,56 @@ fn compare_saved(m:&mut super::CoreMeter,c:&DraftContextData,a:&EconomicCandidat
  let expected_key=key(m,c)?;let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-operation/1","contract":"workflow/1"}"#,RepresentationKind::SourceDefinition)?;
  let normalized=arena.object_from_fields(&[("schema",&constants.value()["schema"]),("key",expected_key.value()),("kind",&op["kind"]),("contract",&constants.value()["contract"]),("payload",payload.value())],m)?;
  shape::equal(m,&evidence["normalized_request"],normalized.value())?;
- let results=a.result_metadata().result_refs().len();let sources=a.result_metadata().source_observations().len();let n=if w::compare(m,results,sources)?.is_gt(){results}else{sources};ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&n.into(),&std::mem::size_of::<&ExactRef>().into()])?;
+ let audit=a.result_metadata().experimental_audit().ok_or_else(||shape::fail("experimental wrapper requires actual audit metadata"))?;
+ let results=a.result_metadata().result_refs().len();let sources=audit.source_observations().len();let n=if w::compare(m,results,sources)?.is_gt(){results}else{sources};ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&n.into(),&std::mem::size_of::<&ExactRef>().into()])?;
  let size=n.checked_mul(std::mem::size_of::<&ExactRef>()).ok_or_else(||shape::fail("original result ordering workspace"))?;let _owner=arena.reserve_external_payload(size,m)?;
  let mut borrowed=Vec::new();borrowed.try_reserve_exact(n).map_err(|_|shape::fail("original result reference workspace"))?;
  for reference in a.result_metadata().result_refs(){m.visit("original.actual_result_reference")?;borrowed.push(reference);}
  let result=super::app_cost::reference_set(m,&arena,&borrowed)?;shape::equal(m,&op["result_refs"],result.value())?;
  borrowed.clear();
- for pair in a.result_metadata().source_observations(){m.visit("original.actual_source_observation_reference")?;borrowed.push(pair.observation_ref());}
+ for pair in audit.source_observations(){m.visit("original.actual_source_observation_reference")?;borrowed.push(pair.observation_ref());}
  let sources=super::app_cost::reference_set(m,&arena,&borrowed)?;shape::equal(m,&op["source_observation_refs"],sources.value())?;
- let financial_ref=owning_reference(m,&arena,a.result_metadata().financial_observation_ref())?;shape::equal(m,&op["financial_observation_ref"],financial_ref.value())?;
+ let financial_ref=owning_reference(m,&arena,audit.financial_observation_ref())?;shape::equal(m,&op["financial_observation_ref"],financial_ref.value())?;
  Ok(())
+}
+
+/// Financial preparation for the explicitly selected local recipe. The actual
+/// interpreter, original/current authority, claims, inverse and exposure paths
+/// run once; no experimental audit/result or DraftTransition is promoted.
+pub fn construct_local_financial_candidate(program:&SelectedProgram,capture:&super::input_selection::EconomicCapture<'_>,payload:&[u8],inputs:&[EconomicRecordView<'_>],state:&EconomicStateData<'_>,session:&mut OriginalAuditSession)->Result<EconomicCandidate>{
+ let result=(||{
+  session.check_cancelled()?;program.require_attempt_owner(session.meter_mut())?;
+  if !program.uses_local_execution_recipe(){return Err(unfinished("local factory requires exact local code-owned program recipe"));}
+  if state.observation.is_some()||state.audit.is_some(){return Err(shape::fail("local capture cannot substitute experimental witness metadata"));}
+  if capture.sources.is_empty()||capture.sources.len()>32{return Err(shape::fail("local captured source count"));}
+  // Concrete ownership for the bounded captured DATA copies. This does not
+  // assert a universal future resource proof or lend parent semantic credit
+  // to the independently validating economic child.
+  let arena=session.arena().shared_handle();let m=session.meter_mut();
+  let mut bytes=std::mem::size_of::<DraftContextData>();
+  for text in [&capture.key.logical_store_id,&capture.key.scope[0],&capture.key.scope[1],&capture.key.source,&capture.key.operation_id,capture.actor,capture.canonical_economic_namespace,capture.installation_mode,capture.received_at,capture.accepted_at]{bytes=w::usize_add(m,bytes,text.len())?;}
+  for source in capture.sources{
+   bytes=w::usize_add(m,bytes,std::mem::size_of::<AuthorityContextData>())?;bytes=w::usize_add(m,bytes,source.source_slot.len())?;
+   for reference in [source.enrollment_ref,source.current_state_ref,source.current_grant_ref,source.binding_ref,source.accepted_agreement_ref,source.activation_ref].into_iter().chain(source.original_grant_refs.iter()){
+    bytes=w::usize_add(m,bytes,std::mem::size_of::<ExactRef>())?;
+    for field in [&reference.kind,&reference.id,&reference.digest]{bytes=w::usize_add(m,bytes,field.len())?;}
+   }
+  }
+  let _capture_owner=arena.reserve_external_payload(bytes,m)?;m.scan_bytes(bytes)?;m.write_bytes(bytes)?;
+  let mut authorities=Vec::new();authorities.try_reserve_exact(capture.sources.len()).map_err(|_|shape::fail("local source capture allocation"))?;
+  let submitting=|source:&&super::input_selection::SourceAuthorityCapture<'_>|source.source==capture.key.source&&source.principal==capture.actor&&source.canonical_economic_namespace==capture.canonical_economic_namespace;
+  if !capture.sources.iter().any(|s|submitting(&s)){return Err(shape::fail("actual local submitting source frame missing"));}
+  for source in capture.sources.iter().filter(submitting).chain(capture.sources.iter().filter(|s|!submitting(s))){
+   authorities.push(AuthorityContextData{source_slot:source.source_slot.to_owned(),enrollment_ref:source.enrollment_ref.clone(),current_state_ref:source.current_state_ref.clone(),current_grant_ref:source.current_grant_ref.clone(),original_grant_refs:source.original_grant_refs.to_vec(),binding_ref:source.binding_ref.clone(),accepted_agreement_ref:source.accepted_agreement_ref.clone(),activation_ref:source.activation_ref.clone(),authority_observation_ref:None});
+  }
+  let c=DraftContextData{key:capture.key.clone(),actor:capture.actor.to_owned(),canonical_economic_namespace:capture.canonical_economic_namespace.to_owned(),installation_mode:capture.installation_mode.to_owned(),received_at:capture.received_at.to_owned(),accepted_at:capture.accepted_at.to_owned(),authorities,source_observation_inputs:Vec::new()};
+  let mut child=session.meter_mut().original_economic_meter()?;
+  let construction=construct::execute_complete(program,&c,payload,inputs,state,&mut child)?;
+  let assembly=Assembly::derive(&mut child,&c,program,state,construction)?;
+  // Financial/topology production and actual finite interpreter/record/arena
+  // guards have already run. Local1 makes no universal future resource claim.
+  let candidate=assembly.into_local(&c,&mut child)?;
+  session.meter_mut().finish_original_economic(child)?;
+  Ok(candidate)
+ })();if result.is_err(){session.invalidate();}result
 }

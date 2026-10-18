@@ -30,9 +30,10 @@ pub(in crate::policy::workflow::transition_constructor) fn refs(m:&mut CoreMeter
 fn pending(m:&mut CoreMeter,r:&Records,c:&DraftContextData,source:&SourceSelection,output:&mut Vec<RetainedAssertionEnvelope>)->Result<()> {
     for row in &c.source_observation_inputs{
         m.visit("app.pending_source_exact_set")?;
-        if !shape::same_ref(m,&row.reference,&source.verifier_ref)?&&!shape::same_ref(m,&row.reference,&c.authorities[0].authority_observation_ref)?{return Err(shape::fail("extra pending app source observation"));}
+        if !shape::same_ref(m,&row.reference,source.required_verifier_ref()?)?&&!shape::same_ref(m,&row.reference,c.authorities[0].required_observation_ref()?)?{return Err(shape::fail("extra pending app source observation"));}
     }
-    for expected in [&source.verifier_ref,&c.authorities[0].authority_observation_ref]{
+    if source.observation.is_none(){if !c.source_observation_inputs.is_empty(){return Err(shape::fail("local retention pending audit input"));}return Ok(());}
+    for expected in [source.required_verifier_ref()?,c.authorities[0].required_observation_ref()?]{
         let mut found=false;
         for input in &c.source_observation_inputs{m.visit("app.pending_source_representation")?;if shape::same_ref(m,&input.reference,expected)?{if found{return Err(shape::fail("duplicate pending app source representation"));}found=true;}}
         if found{
@@ -68,7 +69,7 @@ pub(in crate::policy::workflow::transition_constructor) fn execute_complete<'raw
  let mut envelopes=Vec::new();envelopes.try_reserve_exact(introduced.len()).map_err(|_|shape::fail("complete app retention output transfer"))?;
  for row in introduced.drain(..){m.visit("app.retention_move_same_envelope")?;m.scan_bytes(std::mem::size_of::<ConstructedEnvelope>())?;envelopes.push(row.inner);}
  let normalized_payload=super::super::emitted_record::EncodedBody::owned(arena,normalized,m)?;
- Ok(Construction{economic:EconomicConstruction{terms,original_work:OriginalWorkPayload::Retained(work)},original_reservations:None,
+ Ok(Construction{economic:EconomicConstruction{terms,original_work:OriginalWorkPayload::Retained(work)},original_reservations:None,financial_reservations:None,
  normalized_payload,new_envelopes:envelopes,reused_result:reused_assertion.map(|x|x.inner.reference),evaluation_steps:Vec::new(),proposed_heads:ProposedHeads{decision:Vec::new(),family:Vec::new(),chain:None},
  claim_introductions:Vec::new(),link_introductions:Vec::new(),prospective_obligations:Vec::new(),records,history_edges:Vec::new(),
  app_effects:Some(AppEffects{claims,heads:Vec::new()}),app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,
@@ -147,13 +148,14 @@ fn produce<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,mut parsed:Au
     let observed_at=arena.string_value(&c.accepted_at,m)?;let slot=arena.string_value(source_slot,m)?;
     let frame=&c.authorities[0];
     let enrollment=owning_reference(m,arena,&frame.enrollment_ref)?;let current_state=owning_reference(m,arena,&frame.current_state_ref)?;let current_grant=owning_reference(m,arena,&frame.current_grant_ref)?;
-    let binding=owning_reference(m,arena,&original.binding_ref)?;let accepted_agreement=owning_reference(m,arena,&frame.accepted_agreement_ref)?;let authority_observation=owning_reference(m,arena,&frame.authority_observation_ref)?;
+    let binding=owning_reference(m,arena,&original.binding_ref)?;let accepted_agreement=owning_reference(m,arena,&frame.accepted_agreement_ref)?;
     let per=mul(m,frame.original_grant_refs.len(),std::mem::size_of::<&ExactRef>())?;let _originals=arena.reserve_external_payload(per,m)?;
     let mut original_grants=Vec::new();original_grants.try_reserve_exact(frame.original_grant_refs.len()).map_err(|_|shape::fail("app original grant borrow allocation"))?;
     for reference in &frame.original_grant_refs{m.visit("app.original_grant_borrow")?;original_grants.push(reference);}
     let original_grants=refs(m,arena,&original_grants)?;
-    let authority=arena.object_from_fields(&[("schema",if program.uses_app_cost_causal_recipe(){&constants.value()["new_schema"]}else{&constants.value()["schema"]}),("operation",&constants.value()["operation"]),("actor",actor.value()),("source",source_name.value()),("scope",&original.work["key"]["scope"]),("customer",&original.terms.binding["customer"]),("canonical_economic_namespace",namespace.value()),("installation_mode",mode.value()),("enrollment_ref",enrollment.value()),("current_state_ref",current_state.value()),("current_grant_ref",current_grant.value()),("original_binding_ref",binding.value()),("original_accepted_agreement_ref",accepted_agreement.value()),("original_grant_refs",original_grants.value()),("source_slot",slot.value()),("rights",&constants.value()["rights"]),("evidence_refs",&constants.value()["empty"]),("verified_fact_refs",&constants.value()["empty"]),("observed_at",observed_at.value()),("authority_observation_ref",authority_observation.value()),("causal_closure_checks",&constants.value()["empty"]),("app_observation_refs",observation_refs.value()),("app_final_evidence_refs",final_refs.value()),("app_cost_revision_refs",&constants.value()["empty"]),("app_cost_closure_checks",&constants.value()["empty"])],m)?;
+    let authority=arena.object_from_fields(&[("schema",if program.uses_app_cost_causal_recipe(){&constants.value()["new_schema"]}else{&constants.value()["schema"]}),("operation",&constants.value()["operation"]),("actor",actor.value()),("source",source_name.value()),("scope",&original.work["key"]["scope"]),("customer",&original.terms.binding["customer"]),("canonical_economic_namespace",namespace.value()),("installation_mode",mode.value()),("enrollment_ref",enrollment.value()),("current_state_ref",current_state.value()),("current_grant_ref",current_grant.value()),("original_binding_ref",binding.value()),("original_accepted_agreement_ref",accepted_agreement.value()),("original_grant_refs",original_grants.value()),("source_slot",slot.value()),("rights",&constants.value()["rights"]),("evidence_refs",&constants.value()["empty"]),("verified_fact_refs",&constants.value()["empty"]),("observed_at",observed_at.value()),("causal_closure_checks",&constants.value()["empty"]),("app_observation_refs",observation_refs.value()),("app_final_evidence_refs",final_refs.value()),("app_cost_revision_refs",&constants.value()["empty"]),("app_cost_closure_checks",&constants.value()["empty"])],m)?;
     let authority=if program.uses_app_cost_causal_recipe(){super::super::working_value::WorkingValue::Owned(authority).with_fields(m,&[("app_pending_cost_closure_checks",&constants.value()["empty"])])?.into_owned()?}else{authority};
+ let authority=super::authority::attach_source_observation(m,program,frame,authority)?;
     let authority=body::document_borrowed(m,"workflow-economic-authority",authority.value())?;
     let subject_refs=if let Some(observation)=&observation{refs(m,arena,&[&original.work_ref,&original.binding_ref,observation])?}else{refs(m,arena,&[&original.work_ref,&original.binding_ref])?};
     let canonical=m.canonical_owned_representation(arena,att,RepresentationKind::Record)?;

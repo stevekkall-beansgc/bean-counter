@@ -19,10 +19,14 @@ pub(super) struct SourceSelection {
     pub original_grant_refs:Vec<ExactRef>,
     pub current: RecordBody,
     pub state: RecordBody,
-    pub observation: RecordBody,
-    pub verifier_ref: ExactRef,
-    pub root: RecordBody,
+    pub observation: Option<RecordBody>,
+    pub verifier_ref: Option<ExactRef>,
+    pub root: Option<RecordBody>,
     _ownership: ExternalBufferLease,
+}
+impl SourceSelection {
+    pub(super) fn required_verifier_ref(&self)->Result<&ExactRef>{self.verifier_ref.as_ref().ok_or_else(||shape::fail("experimental verifier is required"))}
+    pub(super) fn required_observation(&self)->Result<&RecordBody>{self.observation.as_ref().ok_or_else(||shape::fail("experimental observation body is required"))}
 }
 fn eq(m: &mut CoreMeter, a: &Value, b: &Value) -> Result<()> {
     shape::equal(m, a, b)
@@ -51,7 +55,30 @@ pub(super) fn source(
     source_slot: &str,
     mode: EconomicMode,
 ) -> Result<SourceSelection> {
-    inventory::entry::context(m, c)?;
+    source_data(m,r,c,program,selected,source_slot,mode,!program.uses_local_execution_recipe())
+}
+pub(super) fn source_local(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    selected: OriginalSourceSubject<'_>,
+    source_slot: &str,
+    mode: EconomicMode,
+) -> Result<SourceSelection> {
+    source_data(m,r,c,program,selected,source_slot,mode,false)
+}
+pub(super) fn source_data(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    selected: OriginalSourceSubject<'_>,
+    source_slot: &str,
+    mode: EconomicMode,
+    audit_observation:bool,
+) -> Result<SourceSelection> {
+    if audit_observation{inventory::entry::context(m,c)?;}else{inventory::entry::local_context(m,c)?;}
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning supplier authority"))?;
@@ -287,10 +314,14 @@ pub(super) fn source(
     }
     let originals = body::ref_set(m, original_refs)?;
     eq(m, &json!(originals), &json!(a.original_grant_refs))?;
+    if !audit_observation{
+        m.scan_bytes(source_slot.len())?;m.write_bytes(source_slot.len())?;
+        return Ok(SourceSelection{enrollment,registered,source_slot:source_slot.to_owned(),original_grant_refs:originals,current,state,observation:None,verifier_ref:None,root:None,_ownership:ownership});
+    }
     let observation = r.get(
         m,
         &c.key,
-        &a.authority_observation_ref,
+        a.required_observation_ref()?,
         "workflow-authority-prefix-observation",
         "ledger-workflow-authority-prefix-observation/1",
     )?;
@@ -338,7 +369,7 @@ pub(super) fn source(
         eq(m, &root["basis"][key], &want)?;
     }
     let app_catalog=super::audit_metadata::selected_catalog(m,program)?;
-    r.source_observation_after_joins(m,c,&a.authority_observation_ref,&state,&observation,&verifier,&root,app_catalog)?;
+    r.source_observation_after_joins(m,c,a.required_observation_ref()?,&state,&observation,&verifier,&root,app_catalog)?;
     m.scan_bytes(source_slot.len())?;m.write_bytes(source_slot.len())?;
     let source_slot=source_slot.to_owned();
     Ok(SourceSelection {
@@ -348,9 +379,9 @@ pub(super) fn source(
         original_grant_refs:originals,
         current,
         state,
-        observation,
-        verifier_ref,
-        root,
+        observation:Some(observation),
+        verifier_ref:Some(verifier_ref),
+        root:Some(root),
         _ownership: ownership,
     })
 }

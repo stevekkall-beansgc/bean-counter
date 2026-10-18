@@ -31,14 +31,15 @@ pub(in crate::policy::workflow::transition_constructor) fn dependency(m:&mut Cor
  let dependent=arena.string_value(dependent_id,m)?;
  let seed=arena.array_from_values(&[&root["decision_id"],dependent.value(),binding.value()],m)?;
  let id=body::semantic_id(m,"wdep_","workflow-dependency",seed.value())?;
- let(reference,value)=r.by_identity(m,&c.key,"workflow-dependency",&id,"ledger-workflow-dependency/1")?;
- shape::closed(m,&value,&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","maximum_records","maximum_bytes","maximum_work","operation_key"],&[])?;
+ let local=c.authorities.first().is_some_and(|a|a.authority_observation_ref.is_none());
+ let(reference,value)=r.by_identity(m,&c.key,"workflow-dependency",&id,if local{"ledger-workflow-dependency/2"}else{"ledger-workflow-dependency/1"})?;
+ if local{shape::closed(m,&value,&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","operation_key"],&[])?;}else{shape::closed(m,&value,&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","maximum_records","maximum_bytes","maximum_work","operation_key"],&[])?;}
  literal(m,&value,"kind","delayed_cost")?;
  shape::equal(m,&value["ancestor_decision_id"],&root["decision_id"])?;
  shape::equal(m,&value["dependent_decision_id"],dependent.value())?;
  shape::equal(m,&value["original_terms_ref"],binding.value())?;
  let work=owning_reference(m,&arena,&original.work_ref)?;shape::equal(m,&value["target_ref"],work.value())?;
- for key in ["maximum_actions","maximum_records","maximum_bytes","maximum_work"]{let raw=shape::text(m,&value,key)?;crate::policy::workflow::facts::counter_with_work(raw,m)?;}
+ for key in ["maximum_actions","maximum_records","maximum_bytes","maximum_work"]{if local&&key!="maximum_actions"{continue;}let raw=shape::text(m,&value,key)?;crate::policy::workflow::facts::counter_with_work(raw,m)?;}
  Ok((reference,value))
 }
 /// Select the immutable original dependent edge, then consume an actual
@@ -98,7 +99,8 @@ pub(in crate::policy::workflow::transition_constructor) fn finalized(m:&mut Core
  let deadline=arena.string_value(until.as_str(),m)?;
  let initial=owning_reference(m,&arena,&current.initial_decision_ref)?;
  let basis=if late{&constants.value()["clause"]}else{&constants.value()["window"]};
- fields.extend_from_slice(&[("schema",&constants.value()["schema"]),("evidence_refs",&evidence.value()["refs"]),("causal_root_ref",root_value.value()),("causal_root_operation",operation.value()),("original_work_ref",work.value()),("dependency_ref",dependency_value.value()),("component_slot",slot_value.value()),("original_app_terms_ref",terms.value()),("standalone_correction_until",deadline.value()),("deadline_basis",basis),("initial_cost_decision_ref",initial.value()),("initial_cost_accepted_at",&current.initial_decision["accepted_at"])]);
+ let selected_schema=arena.string_value(if program.uses_local_execution_recipe(){"ledger-workflow-app-causal-authority/2"}else{"ledger-workflow-app-causal-authority/1"},m)?;
+ fields.extend_from_slice(&[("schema",selected_schema.value()),("evidence_refs",&evidence.value()["refs"]),("causal_root_ref",root_value.value()),("causal_root_operation",operation.value()),("original_work_ref",work.value()),("dependency_ref",dependency_value.value()),("component_slot",slot_value.value()),("original_app_terms_ref",terms.value()),("standalone_correction_until",deadline.value()),("deadline_basis",basis),("initial_cost_decision_ref",initial.value()),("initial_cost_accepted_at",&current.initial_decision["accepted_at"])]);
  if original.declaration.get("causal_reversal").is_some(){super::timing::clause(m,original.declaration)?;fields.push(("causal_reversal",&original.declaration["causal_reversal"]));}
  let value=arena.object_from_fields(&fields,m)?;
  let authority=body::document_borrowed(m,"workflow-economic-authority",value.value())?;
@@ -166,6 +168,10 @@ pub(in crate::policy::workflow::transition_constructor) fn pending(m:&mut CoreMe
  let slot=shape::text(m,original.declaration,"correction_source_slot")?;
  let source=original.source(m,r,c,program,slot,EconomicMode::CostCorrect)?;
  super::consent::current(program,m,r,c,&original.terms.binding,&original.terms.accepted,state)?;
+ let observed=if program.uses_local_execution_recipe(){
+  for head in &state.financial.decision_heads{m.visit("app.local_pending_decision_absence")?;if shape::same_text(m,&head.decision_id,dependent_id)?{return Err(shape::fail("existing dependent decision cannot be pending"));}}
+  None
+ }else{
  let pair=state.observation.ok_or_else(||shape::fail("pending app requires actual financial observation pair"))?;
  let pair_inputs=[pair.observation,pair.verification];
  let mut observation_records=Records::borrowed_app(m,&arena,&c.key,&pair_inputs,&[])?;
@@ -181,24 +187,30 @@ pub(in crate::policy::workflow::transition_constructor) fn pending(m:&mut CoreMe
  let key=cost_postings::operation_key(m,&arena,c)?;
  shape::equal(m,&observation["pending_operation_key"],key.value())?;
  for name in ["logical_store_id","scope"]{shape::equal(m,&observation[name],&key.value()[name])?;}
- shape::equal(m,&observation["root_ref"],&source.observation["root_ref"])?;
+ shape::equal(m,&observation["root_ref"],&source.required_observation()?["root_ref"])?;
  let mode=arena.string_value(&c.installation_mode,m)?;let at=arena.string_value(&c.accepted_at,m)?;
  shape::equal(m,&observation["installation_mode"],mode.value())?;shape::equal(m,&observation["observed_at"],at.value())?;
  for key in ["snapshot_through_sequence","origin_count","document_count","audited_retained_bytes"]{let raw=shape::text(m,&observation,key)?;crate::policy::workflow::facts::counter_with_work(raw,m)?;}
  for key in ["preexisting_input_refs","history_edges","head_pins"]{let values=shape::array(m,&observation,key)?;if w::compare(m,values.len(),4096usize)?.is_gt(){return Err(shape::fail("pending observation set bound"));}}
  // No cost head for this dependent may be hidden behind another claim key.
  for pin in shape::array(m,&observation,"head_pins")?{m.visit("app.pending_observation_head")?;shape::closed(m,pin,&["kind","ref","revision"],&[])?;let kind=shape::text(m,pin,"kind")?;if shape::same_text(m,kind,"decision")?{let reference=shape::reference(m,&pin["ref"])?;let selected=r.get_schemas(m,&c.key,&reference,"workflow-decision",&["ledger-workflow-decision-revision/1","ledger-workflow-decision-revision/3"])?;let id=shape::text(m,&selected,"decision_id")?;if shape::same_text(m,id,dependent_id)?{return Err(shape::fail("initial app decision cannot be pending"));}}}
+ let observed=owning_reference(m,&arena,pair.observation.reference)?;
+ Some(observed)
+ };
  let base=super::authority::value(m,c,program,original,&source,EconomicMode::CostCorrect,None,&[],None)?;
  let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-workflow-app-pending-causal-authority/1","absence":"no_initial_app_cost_claim"}"#,RepresentationKind::SourceDefinition)?;
  let fields_size=w::usize_add(m,44*std::mem::size_of::<(&str,&Value)>(),0)?;let _fields=arena.reserve_external_payload(fields_size,m)?;
  let mut fields=Vec::new();fields.try_reserve_exact(44).map_err(|_|shape::fail("app pending authority fields"))?;
  for(key,value)in base.value().as_object().ok_or_else(||shape::fail("app pending authority object"))?{m.visit("app.pending_authority_field")?;if !shape::same_text(m,key,"schema")?&&!shape::same_text(m,key,"app_pending_cost_closure_checks")?{fields.push((key.as_str(),value));}}
- let root_value=owning_reference(m,&arena,root_ref)?;let operation=arena.string_value(root_operation,m)?;let terms=owning_reference(m,&arena,&original.terms.slot_terms_ref)?;let observed=owning_reference(m,&arena,pair.observation.reference)?;
- fields.extend_from_slice(&[("schema",&constants.value()["schema"]),("causal_root_ref",root_value.value()),("causal_root_operation",operation.value()),("original_work_ref",work.value()),("dependency_ref",dependency.value()),("component_slot",component.value()),("original_app_terms_ref",terms.value()),("financial_observation_ref",observed.value()),("absence_kind",&constants.value()["absence"])]);
+ let root_value=owning_reference(m,&arena,root_ref)?;let operation=arena.string_value(root_operation,m)?;let terms=owning_reference(m,&arena,&original.terms.slot_terms_ref)?;
+ let selected_schema=arena.string_value(if program.uses_local_execution_recipe(){"ledger-workflow-app-pending-causal-authority/2"}else{"ledger-workflow-app-pending-causal-authority/1"},m)?;
+ fields.extend_from_slice(&[("schema",selected_schema.value()),("causal_root_ref",root_value.value()),("causal_root_operation",operation.value()),("original_work_ref",work.value()),("dependency_ref",dependency.value()),("component_slot",component.value()),("original_app_terms_ref",terms.value()),("absence_kind",&constants.value()["absence"])]);
+ if let Some(observed)=&observed{fields.push(("financial_observation_ref",observed.value()));}
  if original.declaration.get("causal_reversal").is_some(){super::timing::clause(m,original.declaration)?;fields.push(("causal_reversal",&original.declaration["causal_reversal"]));}
  let value=arena.object_from_fields(&fields,m)?;let authority=body::document_borrowed(m,"workflow-economic-authority",value.value())?;
  let authority_value=owning_reference(m,&arena,&authority.reference)?;let binding=owning_reference(m,&arena,&original.binding_ref)?;let grants=super::authority::grant_refs(m,&source.original_grant_refs)?;let current=owning_reference(m,&arena,&c.authorities[0].current_grant_ref)?;let source_slot=arena.string_value(slot,m)?;
- let check=arena.object_from_fields(&[("original_work_ref",work.value()),("dependency_ref",dependency.value()),("original_binding_ref",binding.value()),("original_terms_ref",terms.value()),("original_source_grant_refs",grants.value()),("current_source_grant_ref",current.value()),("correction_source_slot",source_slot.value()),("causal_root_ref",root_value.value()),("causal_root_operation",operation.value()),("component_slot",component.value()),("dependent_authority_ref",authority_value.value()),("financial_observation_ref",observed.value()),("absence_kind",&constants.value()["absence"])],m)?;
+ let check=arena.object_from_fields(&[("original_work_ref",work.value()),("dependency_ref",dependency.value()),("original_binding_ref",binding.value()),("original_terms_ref",terms.value()),("original_source_grant_refs",grants.value()),("current_source_grant_ref",current.value()),("correction_source_slot",source_slot.value()),("causal_root_ref",root_value.value()),("causal_root_operation",operation.value()),("component_slot",component.value()),("dependent_authority_ref",authority_value.value()),("absence_kind",&constants.value()["absence"])],m)?;
+ let check=if let Some(observed)=&observed{WorkingValue::Owned(check).with_fields(m,&[("financial_observation_ref",observed.value())])?.into_owned()?}else{check};
  use crate::validation_work::ValidationWork;m.scan_bytes(slot.len())?;m.write_bytes(slot.len())?;let source_slot=slot.to_owned();
  let original_work_ref=ExactRef{kind:copy(m,&original.work_ref.kind)?,id:copy(m,&original.work_ref.id)?,digest:copy(m,&original.work_ref.digest)?};
  Ok(PendingClosure{authority,check,dependency_ref,source_slot,original_root,original_work_ref,_ownership:ownership})
@@ -338,7 +350,7 @@ fn prior_retired(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original:&O
    shape::closed(m,&retired,&["schema","dependency_ref","closure_state_refs","reason","authority_ref","operation_key"],&[])?;
    literal(m,&retired,"reason","no_future_or_active_dependency")?;
    let authority_ref=shape::reference(m,&retired["authority_ref"])?;
-   let authority=r.get(m,&c.key,&authority_ref,"workflow-economic-authority","ledger-workflow-app-pending-causal-authority/1")?;
+   let authority=r.get(m,&c.key,&authority_ref,"workflow-economic-authority",if c.authorities.first().is_some_and(|a|a.authority_observation_ref.is_none()){"ledger-workflow-app-pending-causal-authority/2"}else{"ledger-workflow-app-pending-causal-authority/1"})?;
    for(key,expected)in[("dependency_ref",dependency.value()),("original_work_ref",work.value()),("original_binding_ref",binding.value()),("original_app_terms_ref",terms.value()),("component_slot",slot.value())]{shape::equal(m,&authority[key],expected)?;}
    literal(m,&authority,"absence_kind","no_initial_app_cost_claim")?;literal(m,&authority,"operation","cost.correct")?;
    let key=arena.array_from_values(&[dependency.value(),&retired["operation_key"]],m)?;
@@ -361,7 +373,7 @@ fn prior_retired(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original:&O
      let prior_revision=shape::text(m,&closed,"revision")?;let prior_revision=arithmetic::integer(m,prior_revision,false)?;
      let current_revision=shape::text(m,&current,"revision")?;let current_revision=arithmetic::integer(m,current_revision,false)?;
      let order=meter::cmp(m,&current_revision,&prior_revision)?;if order.is_lt()||(order.is_eq()&&!shape::same_ref(m,current_root,&state_ref)?){return Err(shape::fail("current root precedes permanent app closure"));}
-     let parent_ref=shape::reference(m,&closed["authority_ref"])?;let parent=r.get(m,&c.key,&parent_ref,"workflow-economic-authority","ledger-workflow-economic-authority/7")?;
+     let parent_ref=shape::reference(m,&closed["authority_ref"])?;let parent=r.get(m,&c.key,&parent_ref,"workflow-economic-authority",if c.authorities.first().is_some_and(|a|a.authority_observation_ref.is_none()){"ledger-workflow-economic-authority/8"}else{"ledger-workflow-economic-authority/7"})?;
      let authority_value=owning_reference(m,&arena,&authority_ref)?;
      let mut check_found=false;
      for check in shape::array(m,&parent,"app_pending_cost_closure_checks")?{m.visit("app.prior_parent_pending_join")?;if shape::same(m,&check["dependency_ref"],dependency.value())?{if check_found{return Err(shape::fail("duplicate prior pending parent check"));}check_found=true;shape::equal(m,&check["dependent_authority_ref"],authority_value.value())?;shape::equal(m,&check["original_work_ref"],work.value())?;shape::equal(m,&check["original_binding_ref"],binding.value())?;shape::equal(m,&check["original_terms_ref"],terms.value())?;shape::equal(m,&check["component_slot"],slot.value())?;}}

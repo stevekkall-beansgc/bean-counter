@@ -118,7 +118,7 @@ pub fn retain_attestation(
 }
 fn execute<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,raw:&[u8],inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<RetainedAssertionData>{
     m.begin_request(raw)?;
-    entry::context(m,c)?;
+    entry::context_selected(m,c,program)?;
     let mut parsed=m.parse_owned_representation(arena,raw,RepresentationKind::OriginalRequest)?;
     let p=parsed.value();
     // Generic syntax parsing does not discharge economic closed/type guards.
@@ -146,7 +146,7 @@ impl GenericRetention<'_>{
 /// SAME retention producer inside the complete factory's already-open child;
 /// the real unique Records owner moves with its outputs, as for app retention.
 pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,parsed:AuditedValue,inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<Construction<'raw,'raw>>{
-    entry::context(m,c)?;
+    entry::context_selected(m,c,program)?;
     let output=produce(program,c,parsed,inputs,state,arena,m)?;
     let GenericRetention{normalized,mut introduced,records,terms,work,claims,reused_assertion,ownership,..}=output;
     use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
@@ -159,7 +159,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
     for row in introduced.drain(..){m.visit("retention.move_same_owning_envelope")?;m.scan_bytes(per)?;envelopes.push(row.inner);}
     let normalized_payload=super::emitted_record::EncodedBody::owned(arena,normalized,m)?;
     let original_work=match work{Some(work)=>OriginalWorkPayload::Retained(work),None=>OriginalWorkPayload::Unattached};
-    Ok(Construction{economic:EconomicConstruction{terms,original_work},original_reservations:None,normalized_payload,new_envelopes:envelopes,reused_result:reused_assertion.map(|x|x.inner.reference),
+    Ok(Construction{economic:EconomicConstruction{terms,original_work},original_reservations:None,financial_reservations:None,normalized_payload,new_envelopes:envelopes,reused_result:reused_assertion.map(|x|x.inner.reference),
         evaluation_steps:Vec::new(),proposed_heads:ProposedHeads{decision:Vec::new(),family:Vec::new(),chain:None},claim_introductions:Vec::new(),link_introductions:Vec::new(),prospective_obligations:Vec::new(),records,history_edges:Vec::new(),app_effects:Some(AppEffects{claims,heads:Vec::new()}),app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[Some(ownership),Some(transfer),None,None,None]})
 }
 fn produce<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,mut parsed:AuditedValue,inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<GenericRetention<'raw>>{

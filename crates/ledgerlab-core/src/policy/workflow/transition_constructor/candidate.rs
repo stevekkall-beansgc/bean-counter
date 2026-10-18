@@ -352,25 +352,29 @@ impl ObservationAssociation {
 /// the manifest closure, while result_refs names exactly this recipe's newly
 /// produced authoritative results. The combined digest binds the separately
 /// checked source and financial witnesses; it cannot replace either audit.
+pub struct ExperimentalAuditMetadata {
+    source_observations:Vec<ObservationAssociation>,
+    financial_observation:ObservationAssociation,
+    combined_audit_digest:String,
+}
+impl ExperimentalAuditMetadata {
+    pub fn source_observations(&self)->&[ObservationAssociation]{&self.source_observations}
+    pub fn source_observation_refs(&self)->impl ExactSizeIterator<Item=&ExactRef>{self.source_observations.iter().map(|x|&x.observation_ref)}
+    pub fn financial_observation(&self)->&ObservationAssociation{&self.financial_observation}
+    pub fn financial_observation_ref(&self)->&ExactRef{&self.financial_observation.observation_ref}
+    pub fn combined_audit_digest(&self)->&str{&self.combined_audit_digest}
+}
+enum CandidateExecutionMetadata {ExperimentalAudit9(ExperimentalAuditMetadata),LocalSelected1}
 pub struct CandidateResultMetadata {
-    kind: CandidateResultKind,
-    result_refs: Vec<ExactRef>,
-    authority_ref: ExactRef,
-    source_observations: Vec<ObservationAssociation>,
-    financial_observation: ObservationAssociation,
-    combined_audit_digest: String,
+    kind:CandidateResultKind,result_refs:Vec<ExactRef>,authority_ref:ExactRef,
+    execution:CandidateExecutionMetadata,
 }
 impl CandidateResultMetadata {
-    pub fn result_kind(&self) -> &'static str { self.kind.as_str() }
-    pub fn result_refs(&self) -> &[ExactRef] { &self.result_refs }
-    pub fn authority_ref(&self) -> &ExactRef { &self.authority_ref }
-    pub fn source_observations(&self) -> &[ObservationAssociation] { &self.source_observations }
-    pub fn source_observation_refs(&self) -> impl ExactSizeIterator<Item = &ExactRef> {
-        self.source_observations.iter().map(|item| &item.observation_ref)
-    }
-    pub fn financial_observation(&self) -> &ObservationAssociation { &self.financial_observation }
-    pub fn financial_observation_ref(&self) -> &ExactRef { &self.financial_observation.observation_ref }
-    pub fn combined_audit_digest(&self) -> &str { &self.combined_audit_digest }
+    pub fn result_kind(&self)->&'static str{self.kind.as_str()}
+    pub fn result_refs(&self)->&[ExactRef]{&self.result_refs}
+    pub fn authority_ref(&self)->&ExactRef{&self.authority_ref}
+    pub fn experimental_audit(&self)->Option<&ExperimentalAuditMetadata>{match &self.execution{CandidateExecutionMetadata::ExperimentalAudit9(v)=>Some(v),CandidateExecutionMetadata::LocalSelected1=>None}}
+    pub fn is_local_execution(&self)->bool{matches!(self.execution,CandidateExecutionMetadata::LocalSelected1)}
 }
 pub struct EconomicCandidate {
     key: OperationKey,

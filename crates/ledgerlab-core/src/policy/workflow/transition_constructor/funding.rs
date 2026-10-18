@@ -40,7 +40,7 @@ pub(super) struct OwnedFundingEffects {
 /// before it can become a complete candidate. Original pricing is reused;
 /// evidence/roles/ceilings come from the actual resolved accepted terms.
 pub(super) fn initial_construction_effect(m:&mut CoreMeter,p:&SelectedProgram,t:&super::data::Construction)->Result<Option<OwnedFundingEffects>>{
-    let Some(original)=&t.original_reservations else{return Ok(None)};
+    let Some(original)=t.financial_reservations.as_ref().or_else(||t.original_reservations.as_ref().map(|x|&x.financial)) else{return Ok(None)};
     let arena=m.representation_arena().ok_or_else(||fail("owning original-work funding"))?;
     let mut found=None;
     for claim in &t.claim_introductions{m.visit("funding.initial_constructed_claim")?;if shape::same_text(m,&claim.kind,"workflow-work-claim")?{if found.is_some(){return Err(fail("multiple original-work funding claims"));}found=Some(claim);}}

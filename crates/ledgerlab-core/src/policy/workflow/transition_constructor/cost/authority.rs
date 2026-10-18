@@ -221,7 +221,7 @@ pub(super) fn document(
     let binding = owning_reference(m, &arena, &plan.selected.binding_ref)?;
     let accepted = owning_reference(m, &arena, &frame.accepted_agreement_ref)?;
     let originals = super::records::reference_array(m, &arena, &frame.original_grant_refs)?;
-    let observation = owning_reference(m, &arena, &frame.authority_observation_ref)?;
+    let observation = owning_reference(m, &arena, frame.required_observation_ref()?)?;
     let invocation = owning_reference(m, &arena, &plan.selected.original_ref)?;
     let terms = owning_reference(m, &arena, &plan.selected.terms_ref)?;
     let value = arena.object_from_fields(

@@ -284,7 +284,7 @@ fn connected_causal_repairs_chain_validates_actual_nonempty_immutable_links() {
         binding_ref: binding.clone(),
         accepted_agreement_ref: rf("workflow-accepted-agreement", "waccepted_"),
         activation_ref: rf("workflow-activation", "wactivation_"),
-        authority_observation_ref: rf("workflow-authority-prefix-observation", "wdoc_"),
+        authority_observation_ref: Some(rf("workflow-authority-prefix-observation", "wdoc_")),
     };
     let c = DraftContextData {
         key: key.clone(),

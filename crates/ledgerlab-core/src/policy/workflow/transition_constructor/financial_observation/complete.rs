@@ -54,7 +54,7 @@ pub(in crate::policy::workflow::transition_constructor) fn select(m:&mut CoreMet
     literal(m,&observation,"installation_mode",&c.installation_mode)?;literal(m,&observation,"observed_at",&c.accepted_at)?;
     let at=crate::domain::Timestamp::parse_with_work(&c.accepted_at,m)?;let _=at;
     let observation_root=parse_owned_reference(m,&arena,&observation["root_ref"])?;
-    for authority in &c.authorities{m.visit("financial.complete_source_root")?;let source=r.get(m,&c.key,&authority.authority_observation_ref,"workflow-authority-prefix-observation","ledger-workflow-authority-prefix-observation/1")?;let root=parse_owned_reference(m,&arena,&source["root_ref"])?;if !shape::same_ref(m,root.reference(),observation_root.reference())?{return Err(shape::fail("financial/source root association"));}}
+    for authority in &c.authorities{m.visit("financial.complete_source_root")?;let source=r.get(m,&c.key,authority.required_observation_ref()?,"workflow-authority-prefix-observation","ledger-workflow-authority-prefix-observation/1")?;let root=parse_owned_reference(m,&arena,&source["root_ref"])?;if !shape::same_ref(m,root.reference(),observation_root.reference())?{return Err(shape::fail("financial/source root association"));}}
     for k in ["snapshot_through_sequence","origin_count","document_count","audited_retained_bytes"]{counter(m,&observation,k)?;}
     let prefix=shape::text(m,&observation,"prefix_digest")?;super::super::records::reference_parts(m,&pair.observation.reference.kind,&pair.observation.reference.id,prefix)?;
     let preexisting=shape::array(m,&observation,"preexisting_input_refs")?;ordered(m,preexisting)?;for value in preexisting{m.visit("financial.complete_preexisting_ref")?;reference_grammar(m,value)?;}

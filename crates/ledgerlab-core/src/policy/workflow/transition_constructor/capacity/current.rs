@@ -19,7 +19,7 @@ fn copy_ref(m:&mut CoreMeter,value:&ExactRef)->Result<ExactRef>{Ok(ExactRef{kind
 /// retirement. Wire record/byte/work maxima are deliberately NOT credited by
 /// this check. A retired graph still needs its separate proved after-union.
 pub(in crate::policy::workflow::transition_constructor) fn compare_original_structure(
- m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original:&super::original::OriginalReservations,current:&CurrentCapacity,
+ m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original:&super::original::FinancialReservations,current:&CurrentCapacity,
 )->Result<bool>{
  if m.check("capacity.original_graph_has_retirements",||!current.retirements.is_empty())?{return Ok(false);}
  let arena=m.representation_arena().ok_or_else(||shape::fail("owning original capacity comparison"))?;
@@ -68,9 +68,10 @@ fn original_edge(
    }
  }
  let reference=selected.ok_or_else(||shape::fail("missing original dependency reservation"))?;
- let value=r.get(m,&c.key,reference,"workflow-dependency","ledger-workflow-dependency/1")?;
+ let schema=shape::text(m,&current.body,"schema")?;let local=shape::same_text(m,schema,"ledger-correction-capacity/2")?;
+ let value=r.get(m,&c.key,reference,"workflow-dependency",if local{"ledger-workflow-dependency/2"}else{"ledger-workflow-dependency/1"})?;
  let fields=&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","maximum_records","maximum_bytes","maximum_work","operation_key"];
- shape::closed(m,&value,fields,if family.is_some(){&["family_slot"]}else{&[]})?;
+ if local{shape::closed(m,&value,&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","operation_key"],if family.is_some(){&["family_slot"]}else{&[]})?;}else{shape::closed(m,&value,fields,if family.is_some(){&["family_slot"]}else{&[]})?;}
  for (field,want) in [("ancestor_decision_id",ancestor),("dependent_decision_id",dependent.value()),("original_terms_ref",binding),("operation_key",key)]{shape::equal(m,&value[field],want)?;}
  let actual_kind=shape::text(m,&value,"kind")?;if !shape::same_text(m,actual_kind,kind)?{return Err(shape::fail("original dependency kind"));}
  let target=owning_reference(m,&arena,target)?;shape::equal(m,&value["target_ref"],target.value())?;
@@ -100,7 +101,9 @@ pub(in crate::policy::workflow::transition_constructor) fn retained_original_hea
 }
 /// root_ref is ALWAYS the actual original revision1 root, independently of
 /// today's root/head/CAS and independently of the stable capacity counter.
-pub(in crate::policy::workflow::transition_constructor) fn retained_root_head(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original_root:&ExactRef,current_root:&ExactRef,state:&EconomicStateData)->Result<CurrentCapacity>{
+pub(in crate::policy::workflow::transition_constructor) fn retained_root_head(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original_root:&ExactRef,current_root:&ExactRef,state:&EconomicStateData)->Result<CurrentCapacity>{retained_root_head_mode(m,r,c,original_root,current_root,state,false)}
+pub(in crate::policy::workflow::transition_constructor) fn retained_local_root_head(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original_root:&ExactRef,current_root:&ExactRef,state:&EconomicStateData)->Result<CurrentCapacity>{retained_root_head_mode(m,r,c,original_root,current_root,state,true)}
+fn retained_root_head_mode(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original_root:&ExactRef,current_root:&ExactRef,state:&EconomicStateData,local:bool)->Result<CurrentCapacity>{
  let arena=m.representation_arena().ok_or_else(||shape::fail("owning capacity head"))?;
  let original=r.get(m,&c.key,original_root,"workflow-decision","ledger-workflow-decision-revision/1")?;
  let first=shape::text(m,&original,"revision")?;if !shape::same_text(m,first,"1")?{return Err(shape::fail("capacity root is not original revision1"));}
@@ -111,8 +114,8 @@ pub(in crate::policy::workflow::transition_constructor) fn retained_root_head(m:
  let mut found=None;
  for head in state.capacity_heads{m.visit("capacity.current_stable_root_head")?;if shape::same_text(m,&head.root_decision_id,root_id)?{if found.is_some(){return Err(shape::fail("duplicate current capacity root head"));}found=Some(head);}}
  let head=found.ok_or_else(||shape::fail("current root capacity is missing"))?;
- let capacity=r.get(m,&c.key,&head.reference,"workflow-correction-capacity","ledger-correction-capacity/1")?;
- shape::closed(m,&capacity,&["schema","root_ref","revision","dependency_root","affected_decisions","maximum_actions","maximum_records","maximum_bytes","maximum_work","reserved_dependency_refs","retirement_refs"],&[])?;
+ let capacity=r.get(m,&c.key,&head.reference,"workflow-correction-capacity",if local{"ledger-correction-capacity/2"}else{"ledger-correction-capacity/1"})?;
+ if local{shape::closed(m,&capacity,&["schema","root_ref","revision","dependency_root","affected_decisions","maximum_actions","reserved_dependency_refs","retirement_refs"],&[])?;}else{shape::closed(m,&capacity,&["schema","root_ref","revision","dependency_root","affected_decisions","maximum_actions","maximum_records","maximum_bytes","maximum_work","reserved_dependency_refs","retirement_refs"],&[])?;}
  let root=owning_reference(m,&arena,original_root)?;shape::equal(m,&capacity["root_ref"],root.value())?;
  let counter=shape::text(m,&capacity,"revision")?;if !shape::same_text(m,counter,&head.revision)?{return Err(shape::fail("capacity current head counter"));}
  let revision=arithmetic::integer(m,counter,false)?;if !meter::cmp(m,&revision,&0.into())?.is_gt(){return Err(shape::fail("positive capacity revision"));}
@@ -121,6 +124,7 @@ pub(in crate::policy::workflow::transition_constructor) fn retained_root_head(m:
  let id=body::semantic_id(m,"wcapacity_","workflow-correction-capacity",seed.value())?;
  if !shape::same_text(m,&id,&head.reference.id)?{return Err(shape::fail("stable capacity identity/counter"));}
  for(name,minimum,maximum)in[("affected_decisions",1u64,32u64),("maximum_actions",0,128),("maximum_records",0,4096),("maximum_bytes",0,8388608),("maximum_work",0,65536)]{
+   if local&&matches!(name,"maximum_records"|"maximum_bytes"|"maximum_work"){continue;}
    let raw=shape::text(m,&capacity,name)?;let value=arithmetic::integer(m,raw,false)?;
    if meter::cmp(m,&value,&minimum.into())?.is_lt()||meter::cmp(m,&value,&maximum.into())?.is_gt(){return Err(shape::fail("retained capacity exceeds original domain"));}
  }
@@ -133,7 +137,7 @@ pub(in crate::policy::workflow::transition_constructor) fn retained_root_head(m:
  let bytes=w::usize_add(m,bytes,std::mem::size_of::<CurrentCapacity>()+64+128+71)?;
  let ownership=arena.reserve_external_payload(bytes,m)?;
  let mut reserved_refs=Vec::new();reserved_refs.try_reserve_exact(reserved.len()).map_err(|_|shape::fail("capacity reservation references"))?;
- for value in reserved{m.visit("capacity.retained_reservation_ref")?;let reference=shape::reference(m,value)?;let dependency=r.get(m,&c.key,&reference,"workflow-dependency","ledger-workflow-dependency/1")?;let _=dependency;reserved_refs.push(reference);}
+ for value in reserved{m.visit("capacity.retained_reservation_ref")?;let reference=shape::reference(m,value)?;let dependency=r.get(m,&c.key,&reference,"workflow-dependency",if local{"ledger-workflow-dependency/2"}else{"ledger-workflow-dependency/1"})?;let _=dependency;reserved_refs.push(reference);}
  let mut retired_refs=Vec::new();retired_refs.try_reserve_exact(retired.len()).map_err(|_|shape::fail("capacity retirement references"))?;
  for value in retired{m.visit("capacity.retained_retirement_ref")?;let reference=shape::reference(m,value)?;let retirement=r.get(m,&c.key,&reference,"workflow-capacity-retirement","ledger-workflow-capacity-retirement/1")?;shape::closed(m,&retirement,&["schema","dependency_ref","closure_state_refs","reason","authority_ref","operation_key"],&[])?;let reason=shape::text(m,&retirement,"reason")?;if !shape::same_text(m,reason,"no_future_or_active_dependency")?{return Err(shape::fail("capacity retirement reason"));}retired_refs.push(reference);}
  // The retained complete sets must already equal their canonical sorted form;

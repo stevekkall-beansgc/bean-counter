@@ -7,7 +7,7 @@ use crate::{Result,canonical::audit_arena::{AuditArena,ExternalBufferLease},vali
 use serde_json::Value;
 use std::mem;
 mod retained;
-pub(in crate::policy::workflow::transition_constructor) use retained::{derive_retained,derive_for_work};
+pub(in crate::policy::workflow::transition_constructor) use retained::{derive_retained,derive_for_work,derive_financial_for_work,derive_financial_retained};
 
 pub(in crate::policy::workflow::transition_constructor) struct FamilyReservation {
     pub target_ref:ExactRef,
@@ -15,21 +15,34 @@ pub(in crate::policy::workflow::transition_constructor) struct FamilyReservation
     pub dependent_decision_id:String,
     pub maximum_inverse_actions:usize,
 }
-pub(in crate::policy::workflow::transition_constructor) struct OriginalReservations {
+/// Pure financial promises retained by BOTH profiles. These fields are not
+/// evidence that a future history fits a resource envelope.
+pub(in crate::policy::workflow::transition_constructor) struct FinancialReservations {
     pub root_decision_id:String,
     pub original_root_ref:ExactRef,
     pub original_binding_ref:ExactRef,
     pub maximum_root_actions:usize,
+    pub root_rule_count:usize,
     pub families:Vec<FamilyReservation>,
     pub delayed_costs:Vec<DelayedCostReservation>,
     pub app_costs:Vec<AppCostReservation>,
+    _metadata:ExternalBufferLease,
+}
+/// Preserved experimental resource promises. The new local path consumes
+/// FinancialReservations directly and cannot manufacture this certificate.
+pub(in crate::policy::workflow::transition_constructor) struct OriginalReservations {
+    pub financial:FinancialReservations,
     pub future_records:Option<super::future_records::FutureRecords>,
     pub app_body_bytes:Option<super::app_bytes::AppBodyBounds>,
     pub family_body_bytes:Option<super::app_bytes::FamilyBodyBounds>,
     pub root_body_bytes:Option<super::app_bytes::RootBodyBounds>,
     pub source_bounds:super::source::OriginalSourceBounds,
     pub pricing_kernels:Option<super::pricing::PricingKernels>,
-    _metadata:ExternalBufferLease,
+    _resource_metadata:ExternalBufferLease,
+}
+impl std::ops::Deref for OriginalReservations {
+    type Target=FinancialReservations;
+    fn deref(&self)->&Self::Target{&self.financial}
 }
 pub(in crate::policy::workflow::transition_constructor) struct DelayedCostReservation {
     pub target_ref:ExactRef,
@@ -59,11 +72,22 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     decision:&ConstructedEnvelope,targets:&[ConstructedEnvelope],work:&ConstructedEnvelope,
     claim:&ConstructedEnvelope,terms:&super::super::authority::Terms,
 )->Result<OriginalReservations>{
+    let selected=fresh_target_views(arena,m,targets)?;
+    let decision_value=decision.decoded(m,4194304)?;
+    let work_value=work.decoded(m,4194304)?;let claim_value=claim.decoded(m,4194304)?;
+    derive_data(arena,m,r,c,program,payload,&decision.reference,&decision_value,&selected.rows,&work.reference,&work_value,&claim.reference,&claim_value,terms)
+}
+
+struct FreshTargetViews {
+ rows:Vec<(ExactRef,super::super::record_body::RecordBody)>,
+ _ownership:ExternalBufferLease,
+}
+fn fresh_target_views(arena:&AuditArena,m:&mut CoreMeter,targets:&[ConstructedEnvelope])->Result<FreshTargetViews>{
     let count=targets.len();
     let per=mem::size_of::<(ExactRef,super::super::record_body::RecordBody)>()+64+128+71;
     let bytes=mul(m,count,per)?;
     let bytes=add(m,bytes,mem::size_of::<Vec<(ExactRef,super::super::record_body::RecordBody)>>())?;
-    let _views=arena.reserve_external_payload(bytes,m)?;
+    let ownership=arena.reserve_external_payload(bytes,m)?;
     m.write_bytes(bytes)?;
     let mut selected=Vec::new();selected.try_reserve_exact(count).map_err(|_|shape::fail("original target views"))?;
     for target in targets{
@@ -71,18 +95,27 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
         if !shape::same_text(m,&target.reference.kind,"workflow-target")?{continue;}
         selected.push((copy_ref(m,&target.reference)?,target.decoded(m,4194304)?));
     }
+    Ok(FreshTargetViews{rows:selected,_ownership:ownership})
+}
+
+pub(in crate::policy::workflow::transition_constructor) fn derive_financial(
+    arena:&AuditArena,m:&mut CoreMeter,r:&mut super::super::records::Records,c:&super::super::data::DraftContextData,program:&SelectedProgram,payload:&Value,
+    decision:&ConstructedEnvelope,targets:&[ConstructedEnvelope],work:&ConstructedEnvelope,
+    claim:&ConstructedEnvelope,terms:&super::super::authority::Terms,
+)->Result<FinancialReservations>{
+    let selected=fresh_target_views(arena,m,targets)?;
     let decision_value=decision.decoded(m,4194304)?;
     let work_value=work.decoded(m,4194304)?;let claim_value=claim.decoded(m,4194304)?;
-    derive_data(arena,m,r,c,program,payload,&decision.reference,&decision_value,&selected,&work.reference,&work_value,&claim.reference,&claim_value,terms)
+    derive_financial_data(arena,m,r,c,program,payload,&decision.reference,&decision_value,&selected.rows,&work.reference,&work_value,&claim.reference,&claim_value,terms)
 }
 
 /// The same original reservation derivation receives actual decoded fresh OR
 /// retained bodies. A retained input never impersonates an emitted envelope.
-fn derive_data(
+pub(super) fn derive_financial_data(
     arena:&AuditArena,m:&mut CoreMeter,r:&mut super::super::records::Records,c:&super::super::data::DraftContextData,program:&SelectedProgram,payload:&Value,
     decision_ref:&ExactRef,original_decision:&Value,targets:&[(ExactRef,super::super::record_body::RecordBody)],
     work_ref:&ExactRef,original_work:&Value,claim_ref:&ExactRef,original_claim:&Value,terms:&super::super::authority::Terms,
-)->Result<OriginalReservations>{
+)->Result<FinancialReservations>{
     let instructions=shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?;
     let mut family_count=0usize;
     let mut roots=0usize;
@@ -116,7 +149,7 @@ fn derive_data(
     let app_row=add(m,mem::size_of::<AppCostReservation>(),128+128+64+128+71)?;
     let app_bytes=mul(m,app_count,app_row)?;
     let bytes=add(m,bytes,app_bytes)?;
-    let bytes=add(m,bytes,mem::size_of::<OriginalReservations>()+128+2*(64+128+71))?;
+    let bytes=add(m,bytes,mem::size_of::<FinancialReservations>()+128+2*(64+128+71))?;
     let metadata=arena.reserve_external_payload(bytes,m)?;
     // All three Vec controls/rows and the returned struct are written only
     // after this debit, including allocation-failure prefixes. String copies
@@ -261,6 +294,21 @@ fn derive_data(
     // original alternative. A root correction may inverse all and replace all.
     let maximum_root_actions=mul(m,roots,2)?;
     if w::compare(m,maximum_root_actions,128usize)?.is_gt(){return Err(shape::fail("original root action capacity"));}
+    let financial=FinancialReservations{root_decision_id,original_root_ref:copy_ref(m,decision_ref)?,original_binding_ref,maximum_root_actions,root_rule_count:roots,families,delayed_costs,app_costs,_metadata:metadata};
+    let checked=financial.structural_union(arena,m)?;drop(checked);
+    Ok(financial)
+}
+/// Original experimental caller still derives every former resource term.
+fn derive_data(
+    arena:&AuditArena,m:&mut CoreMeter,r:&mut super::super::records::Records,c:&super::super::data::DraftContextData,program:&SelectedProgram,payload:&Value,
+    decision_ref:&ExactRef,original_decision:&Value,targets:&[(ExactRef,super::super::record_body::RecordBody)],
+    work_ref:&ExactRef,original_work:&Value,claim_ref:&ExactRef,original_claim:&Value,terms:&super::super::authority::Terms,
+)->Result<OriginalReservations>{
+    let financial=derive_financial_data(arena,m,r,c,program,payload,decision_ref,original_decision,targets,work_ref,original_work,claim_ref,original_claim,terms)?;
+    let resource_metadata=arena.reserve_external_payload(mem::size_of::<OriginalReservations>(),m)?;
+    m.write_bytes(mem::size_of::<OriginalReservations>())?;
+    let roots=financial.root_rule_count;let families=&financial.families;let delayed_costs=&financial.delayed_costs;let app_costs=&financial.app_costs;
+    let family_count=families.len();let maximum_root_actions=financial.maximum_root_actions;
     let future_records=if delayed_costs.is_empty(){Some(super::future_records::derive(m,program,payload,maximum_root_actions,families.len(),app_costs.len())?)}else{None};
     let app_body_bytes=if app_costs.is_empty(){None}else{Some(super::app_bytes::derive(m,&original_work["key"]["logical_store_id"],payload,terms)?)};
     let family_body_bytes=if families.is_empty(){None}else if let Some(records)=&future_records{
@@ -271,12 +319,12 @@ fn derive_data(
     let root_body_bytes=if delayed_costs.is_empty(){Some(super::app_bytes::root_bodies(m,program,payload,terms,&original_work["key"]["logical_store_id"],roots,families.len(),app_costs.len(),app_body_bytes.as_ref())?)}else{None};
     let source_bounds=super::source::original_frames(m,r,c,terms,program)?;
     let pricing_kernels=if delayed_costs.is_empty(){Some(super::pricing::derive(m,program.compiled_plan().canonical_value(),&payload["activity"])?)}else{None};
-    let reservations=OriginalReservations{root_decision_id,original_root_ref:copy_ref(m,&decision_ref)?,original_binding_ref,maximum_root_actions,families,delayed_costs,app_costs,future_records,app_body_bytes,family_body_bytes,root_body_bytes,source_bounds,pricing_kernels,_metadata:metadata};
+    let reservations=OriginalReservations{financial,future_records,app_body_bytes,family_body_bytes,root_body_bytes,source_bounds,pricing_kernels,_resource_metadata:resource_metadata};
     let checked=reservations.structural_union(arena,m)?;
     drop(checked);
     Ok(reservations)
 }
-impl OriginalReservations {
+impl FinancialReservations {
     pub(in crate::policy::workflow::transition_constructor) fn structural_union<'a>(&'a self,arena:&AuditArena,m:&mut CoreMeter)->Result<super::topology::Union<'a>> {
         // This temporary borrowed-edge vector has its own pre-admission and
         // remains live only through the common distinct-decision DAG traversal.

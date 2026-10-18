@@ -135,7 +135,9 @@ pub(super) fn historical_namespace(
     namespace:&Value,source:Option<&Value>,operation:&str,binding:&Value,at:&Value,
 ) -> Result<()> {
     let reference=super::shape::reference(m,authority_ref)?;
-    let original=r.get_schemas(m,&c.key,&reference,"workflow-economic-authority",&["ledger-workflow-economic-authority/2","ledger-workflow-economic-authority/3","ledger-workflow-economic-authority/5","ledger-workflow-economic-authority/6","ledger-workflow-economic-authority/7"])?;
+    let local=c.authorities.first().is_some_and(|a|a.authority_observation_ref.is_none());
+    let schemas:&[&str]=if local{&["ledger-workflow-economic-authority/8"]}else{&["ledger-workflow-economic-authority/2","ledger-workflow-economic-authority/3","ledger-workflow-economic-authority/5","ledger-workflow-economic-authority/6","ledger-workflow-economic-authority/7"]};
+    let original=r.get_schemas(m,&c.key,&reference,"workflow-economic-authority",schemas)?;
     equal(m,&original["scope"],&json!(c.key.scope))?;
     equal(m,&original["operation"],&json!(operation))?;
     equal(m,&original["canonical_economic_namespace"],namespace)?;
@@ -1305,7 +1307,7 @@ fn resolve_economic_identity(
     let observation = r.get(
         m,
         &c.key,
-        &a.authority_observation_ref,
+        a.required_observation_ref()?,
         "workflow-authority-prefix-observation",
         "ledger-workflow-authority-prefix-observation/1",
     )?;
@@ -1373,7 +1375,7 @@ fn resolve_economic_identity(
     for input in &c.source_observation_inputs {
         m.visit("authority.pending_required")?;
         if !shape::same_ref(m, &input.reference, &verifier_ref)?
-            && !shape::same_ref(m, &input.reference, &a.authority_observation_ref)?
+            && !shape::same_ref(m, &input.reference, a.required_observation_ref()?)?
         {
             return Err(crate::Error::new(
                 "UNSUPPORTED_COMPOSITION",
@@ -1382,7 +1384,7 @@ fn resolve_economic_identity(
         }
     }
     let mut introduced = vec![];
-    for reference in [verifier_ref, a.authority_observation_ref.clone()] {
+    for reference in [verifier_ref, a.required_observation_ref()?.clone()] {
         let mut pending = false;
         for input in &c.source_observation_inputs {
             m.visit("authority.pending_representation")?;

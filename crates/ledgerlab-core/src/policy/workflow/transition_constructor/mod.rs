@@ -1,7 +1,7 @@
 //! Pure selected draft/replay foundation. No output is a financial commit,
 //! authenticated host capability or future-correction capacity certificate.
 mod input_edges;
-pub use input_edges::{ResolvedInputEdges9,select_resolved_inputs9_edges};
+pub use input_edges::{ResolvedInputEdges9,select_resolved_inputs9_edges,LocalInputEdges,select_local_input_edges};
 mod work_keys;
 pub use input_selection::{WorkHeadLocators,WorkFamilyHeadLocator,select_work_head_locators};
 pub(in crate::policy::workflow) mod arithmetic;
@@ -38,7 +38,7 @@ pub use financial_observation::audit_stream::{EconomicAuditStream,SourcePrefixIn
 mod funding;
 mod family_context;
 mod intent;
-pub use intent::normalize_saved_intent;
+pub use intent::{normalize_saved_intent,normalize_local_saved_intent};
 mod emitted_record;
 pub(in crate::policy::workflow) mod original_financial;
 mod outcome;
@@ -82,4 +82,4 @@ pub use candidate::{
 };
 
 mod economic;
-pub use economic::{construct_economic_candidate,reconstruct_original_candidate};
+pub use economic::{construct_economic_candidate,reconstruct_original_candidate,construct_local_financial_candidate};

@@ -32,7 +32,7 @@ fn deadline_grant_allows(m:&mut CoreMeter,g:&Value,c:&DraftContextData,slot:&Val
 /// this same source, original Binding and target role. Failure returns no result.
 fn deadline_slot(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&SelectedProgram,selected:&FamilyContext<'_>)->Result<crate::canonical::audit_arena::AuditedValue>{
     const REGISTRY:&str="sha256:8ebed26695ae3594d40f91d733839bddcc31b94dcb688b2aa5890af7775af0da";
-    let registry=if program.uses_app_cost_causal_recipe(){"sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2"}else if program.uses_app_owned_cost_recipe(){"sha256:9a6379b0f0d20005f1406ca6ed3a5b55c40d275cec5435e1648d9b482332509b"}else{REGISTRY};
+    let registry=if program.uses_local_execution_recipe(){"sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a"}else if program.uses_app_cost_causal_recipe(){"sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2"}else if program.uses_app_owned_cost_recipe(){"sha256:9a6379b0f0d20005f1406ca6ed3a5b55c40d275cec5435e1648d9b482332509b"}else{REGISTRY};
     if program.execution_registry()!=Some(registry){return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","exact original deadline-close recipe not enabled"));}
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning deadline profile"))?;
     let a=&c.authorities[0];
@@ -182,7 +182,7 @@ fn retained_proof(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&S
 }
 
 pub(super) fn execute<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,mut p:WorkingValue,inputs:SuppliedRecords<'raw>,state:&DraftStateData,m:&mut CoreMeter,intrinsic:Option<(&'inv super::intrinsic_record::IntrinsicDataScope,&[&'inv super::intrinsic_record::IntrinsicRecord<'inv>])>)->Result<Construction<'inv,'raw>>{
-    super::inventory::entry::context(m,c)?;
+    super::inventory::entry::context_selected(m,c,program)?;
     if !program.uses_family_close_recipe(){return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","close original compiler recipe"));}
     shape::closed(m,&p,&["schema","target_ref","family_slot","expected_revision","reason","evidence_refs"],&["close_proof"])?;
     let reason=shape::text(m,&p,"reason")?;
@@ -241,7 +241,7 @@ pub(super) fn execute<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextDa
     m.scan_bytes(next_text.len())?;m.write_bytes(next_text.len())?;
     let proposed_heads=ProposedHeads{decision:vec![],family:vec![(selected.target_ref,slot.to_owned(),next_text.to_owned(),family.reference.clone())],chain:None};
     let mut introduced=resolved.introduced;introduced.push(authority);introduced.push(family);
-    Ok(Construction{economic:EconomicConstruction{terms:resolved.terms,original_work:OriginalWorkPayload::Retained(selected.work)},original_reservations:None,normalized_payload,new_envelopes:introduced,reused_result:None,evaluation_steps:vec![],proposed_heads,claim_introductions:vec![],link_introductions:vec![],prospective_obligations:vec![],records:r,history_edges:vec![],app_effects:None,app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None,None]})
+    Ok(Construction{economic:EconomicConstruction{terms:resolved.terms,original_work:OriginalWorkPayload::Retained(selected.work)},original_reservations:None,financial_reservations:None,normalized_payload,new_envelopes:introduced,reused_result:None,evaluation_steps:vec![],proposed_heads,claim_introductions:vec![],link_introductions:vec![],prospective_obligations:vec![],records:r,history_edges:vec![],app_effects:None,app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None,None]})
 }
 pub(super) fn counter_value(m:&mut CoreMeter,arena:&crate::canonical::audit_arena::AuditArena,n:u64)->Result<crate::canonical::audit_arena::AuditedValue>{
     // unsigned_string: requested digit capacities8+16+32, plus the <=20-byte

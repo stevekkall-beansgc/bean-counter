@@ -42,7 +42,7 @@ pub(super) fn select_for_root<'p>(m:&mut CoreMeter,r:&mut Records,c:&DraftContex
 }
 fn select_mode<'p>(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&'p SelectedProgram,work_ref:&ExactRef,component_slot:&str,state:&EconomicStateData,require_initial_root:bool)->Result<OriginalApp<'p>>{
     if !program.uses_app_owned_cost_recipe(){return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","original app cost recipe"));}
-    entry::context(m,c)?;
+    entry::context_selected(m,c,program)?;
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning app original selection"))?;
     // All copied references below have the existing (64,128,71) grammar; one
     // slot<=128. Six Ref payloads plus typed headers precede their producers.

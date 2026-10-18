@@ -45,7 +45,7 @@ pub(super) fn produce_parsed<'program,'raw>(program:&'program super::super::sele
  let mut records=super::records::Records::borrowed_app(m,&arena,&c.key,inputs,&c.source_observation_inputs)?;
  records.install_initial_source_outputs(m,state.initial_source_correspondences)?;
  let plan=plan::prepare(m,&mut records,c,program,request,state)?;
- let current_capacity=super::capacity::current::retained_root_head(m,&mut records,c,&plan.original.original_decision_ref,&plan.original.original_decision_ref,state)?;
+ let current_capacity=if program.uses_local_execution_recipe(){super::capacity::current::retained_local_root_head(m,&mut records,c,&plan.original.original_decision_ref,&plan.original.original_decision_ref,state)?}else{super::capacity::current::retained_root_head(m,&mut records,c,&plan.original.original_decision_ref,&plan.original.original_decision_ref,state)?};
  let mut held=false;for reference in &current_capacity.reserved{m.visit("app.current_dependency_hold")?;if super::shape::same_ref(m,reference,&plan.dependency_ref)?{held=true;}}
  if !held{return Err(super::shape::fail("app original dependency capacity is not held"));}
  let _clocks=timing::standalone(m,c,program,&plan)?;
@@ -93,7 +93,7 @@ impl<'program,'raw> AppConstruction<'program,'raw> {
   let mut output=Vec::new();output.try_reserve_exact(count).map_err(|_|shape::fail("app constructor output vector"))?;
   for input in &c.source_observation_inputs{
     m.visit("app.monetary_pending_source_result")?;
-    if !shape::same_ref(m,&input.reference,&c.authorities[0].authority_observation_ref)?&&!shape::same_ref(m,&input.reference,&source.verifier_ref)?{return Err(shape::fail("extra app monetary source observation input"));}
+    if !shape::same_ref(m,&input.reference,c.authorities[0].required_observation_ref()?)?&&!shape::same_ref(m,&input.reference,source.required_verifier_ref()?)?{return Err(shape::fail("extra app monetary source observation input"));}
     let raw=records.canonical(m,&input.reference)?;m.new_body(raw.len())?;
     let bytes=m.copy_owned_representation(&arena,raw,RepresentationKind::SourceClosure)?;
     let reference=ExactRef{kind:copy_output(m,&input.reference.kind)?,id:copy_output(m,&input.reference.id)?,digest:copy_output(m,&input.reference.digest)?};
@@ -113,7 +113,7 @@ impl<'program,'raw> AppConstruction<'program,'raw> {
   // copied output/control payloads retain their own original producer leases.
   Ok(Construction{
     economic:EconomicConstruction{terms:plan.original.terms,original_work:OriginalWorkPayload::Retained(plan.original.work)},
-    original_reservations:None,normalized_payload,new_envelopes:output,reused_result:None,evaluation_steps:Vec::new(),
+    original_reservations:None,financial_reservations:None,normalized_payload,new_envelopes:output,reused_result:None,evaluation_steps:Vec::new(),
     proposed_heads:ProposedHeads{decision:decision_heads,family:Vec::new(),chain:None},
     claim_introductions:Vec::new(),link_introductions:Vec::new(),prospective_obligations:Vec::new(),
     records,history_edges:Vec::new(),app_effects:Some(AppEffects{claims:monetary.claims,heads:app_heads}),app_causal:None,current_capacity:Some(current_capacity),

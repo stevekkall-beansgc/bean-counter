@@ -919,9 +919,10 @@ fn frame_inner<'a>(
     )?;
     require(!results.refs.is_empty(), "INTEGRITY_FAILURE")?;
     let results_bytes = results.encode(session)?;
+    let audit=metadata.experimental_audit().ok_or_else(||reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
     let observations = RefSet::new(
-        metadata.source_observation_refs(),
-        metadata.source_observation_refs().len(),
+        audit.source_observation_refs(),
+        audit.source_observation_refs().len(),
         true,
         session,
     )?;
@@ -930,8 +931,8 @@ fn frame_inner<'a>(
         "INTEGRITY_FAILURE",
     )?;
     let observations_bytes = observations.encode(session)?;
-    let financial = reference(metadata.financial_observation_ref(), session)?;
-    let combined = literal(metadata.combined_audit_digest(), session)?;
+    let financial = reference(audit.financial_observation_ref(), session)?;
+    let combined = literal(audit.combined_audit_digest(), session)?;
     let kind_value = literal(kind, session)?;
     let received = literal(received_at.as_str(), session)?;
     let at = literal(accepted_at.as_str(), session)?;

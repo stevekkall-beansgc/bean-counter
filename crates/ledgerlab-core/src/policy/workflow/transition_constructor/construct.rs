@@ -109,7 +109,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
         let mut construction=super::retention::execute_complete(program,c,p.into_owned()?,inputs,state,&arena,m)?;
         construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
         construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
-        construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);
+        if !program.uses_local_execution_recipe(){construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);}
         return Ok(construction);
     }
     if program.uses_app_owned_cost_recipe(){
@@ -118,7 +118,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
             let mut construction=super::app_cost::retain_complete(program,c,p.into_owned()?,inputs,state,&arena,m)?;
             construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
             construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
-            construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);
+            if !program.uses_local_execution_recipe(){construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);}
             // This is unattached evidence retention. No monetary association,
             // funding mutation or ancestor capacity revision is introduced.
             return Ok(construction);
@@ -127,7 +127,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
             let mut construction=super::app_cost::produce_parsed(program,c,p,inputs,state,m)?.into_construction(c,m)?;
             construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
             construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
-            construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);
+            if !program.uses_local_execution_recipe(){construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);}
             construction.funding_effects=Some(super::funding::construction_effect(m,program,c,state,&mut construction)?);
             return Ok(construction);
         }
@@ -137,7 +137,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
     construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
     construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
     if program.uses_app_owned_cost_recipe(){
-        construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);
+        if !program.uses_local_execution_recipe(){construction.financial_observation=Some(super::financial_observation::complete::select_and_introduce(m,program,&mut construction,c,state)?);}
         construction.funding_effects=Some(super::funding::construction_effect(m,program,c,state,&mut construction)?);
     }
     Ok(construction)
@@ -228,7 +228,7 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
     if !shape::same(m, &p["status"], &json!("succeeded"))? {
         return Err(unsupported("failed work construction pending"));
     }
-    super::inventory::entry::validate(m, c, &p, state)?;
+    super::inventory::entry::validate_selected(m,c,&p,state,program)?;
     let owner = InvocationToken::new();
     let times = ParsedDraftTimes::parse(m, &owner, &c.received_at, &c.accepted_at)?;
     let (received, at) = times.get(m, &owner)?;
@@ -826,8 +826,11 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
         family: targets.heads,
         chain: Some(chain.reference.clone()),
     };
+    let mut financial_reservations=None;
     let original_reservations=if let Some(arena)=m.representation_arena() {
+        if program.uses_local_execution_recipe(){financial_reservations=Some(super::capacity::original::derive_financial(&arena,m,&mut r,c,program,&p,&decision,&targets.records,&work,&claim,&a.terms)?);None}else{
         Some(super::capacity::original::derive(&arena,m,&mut r,c,program,&p,&decision,&targets.records,&work,&claim,&a.terms)?)
+        }
     } else {None};
     let envelopes=if let Some(arena)=m.representation_arena(){
         use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
@@ -864,7 +867,7 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
         envelopes
     };
     Ok(Construction {
-        original_reservations,
+        original_reservations,financial_reservations,
         economic: EconomicConstruction {
             terms: a.terms,
             original_work: OriginalWorkPayload::New(p),

@@ -363,7 +363,7 @@ fn snapshot_context(
                 call!(shape::field, m, a, "original_accepted_agreement_ref")?
             )?,
             activation_ref: activation.clone(),
-            authority_observation_ref: observation_ref,
+            authority_observation_ref: Some(observation_ref),
         }],
         key,
         source_observation_inputs: observations,

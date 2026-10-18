@@ -24,7 +24,9 @@ fn validate_data(
     p: &Value,
     state: &DraftStateData,
 ) -> Result<()> {
-    context(m, c)?;
+    context(m,c)?;validate_body(m,c,p,state)
+}
+fn validate_body(m:&mut CoreMeter,c:&DraftContextData,p:&Value,state:&DraftStateData)->Result<()> {
     for name in ["activity"] {
         invoke!(qualified, m, invoke!(shape::text, m, p, name)?)?;
     }
@@ -106,10 +108,16 @@ fn validate_data(
     }
     Ok(())
 }
-pub(in crate::policy::workflow::transition_constructor) fn context(
-    m: &mut CoreMeter,
-    c: &DraftContextData,
-) -> Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn validate_selected(m:&mut CoreMeter,c:&DraftContextData,p:&Value,state:&DraftStateData,program:&crate::policy::workflow::selected_program::SelectedProgram)->Result<()>{
+    if !program.uses_local_execution_recipe(){return validate(m,c,p,state);}
+    local_context(m,c)?;validate_body(m,c,p,state)
+}
+pub(in crate::policy::workflow::transition_constructor) fn context_selected(m:&mut CoreMeter,c:&DraftContextData,program:&crate::policy::workflow::selected_program::SelectedProgram)->Result<()>{
+    if program.uses_local_execution_recipe(){local_context(m,c)}else{context(m,c)}
+}
+pub(in crate::policy::workflow::transition_constructor) fn context(m:&mut CoreMeter,c:&DraftContextData)->Result<()>{context_data(m,c,true)}
+pub(in crate::policy::workflow::transition_constructor) fn local_context(m:&mut CoreMeter,c:&DraftContextData)->Result<()>{context_data(m,c,false)}
+fn context_data(m:&mut CoreMeter,c:&DraftContextData,require_observation:bool)->Result<()> {
     for value in [&c.key.logical_store_id, &c.key.operation_id, &c.actor] {
         binding::id(m, &json!(value), 128)?;
     }
@@ -124,8 +132,8 @@ pub(in crate::policy::workflow::transition_constructor) fn context(
         &c.installation_mode,
         &["real_local", "isolated_synthetic"],
     )?;
-    bounds(m, c.authorities.len(), 1, 1)?;
-    let a = &c.authorities[0];
+    bounds(m, c.authorities.len(), 1, if require_observation{1}else{32})?;
+    for a in &c.authorities{
     qualified(m, &a.source_slot)?;
     for r in [
         &a.enrollment_ref,
@@ -134,12 +142,14 @@ pub(in crate::policy::workflow::transition_constructor) fn context(
         &a.binding_ref,
         &a.accepted_agreement_ref,
         &a.activation_ref,
-        &a.authority_observation_ref,
     ] {
         shape::reference(m, &json!(r))?;
     }
+    if require_observation{shape::reference(m,&json!(a.required_observation_ref()?))?;}
+    else if a.authority_observation_ref.is_some(){return Err(super::super::shape::fail("local context cannot carry an experimental observation"));}
     binding::refs(m, &json!(a.original_grant_refs), 1, 32)?;
-    bounds(m, c.source_observation_inputs.len(), 0, 2)?;
+    }
+    bounds(m, c.source_observation_inputs.len(), 0, if require_observation{2}else{0})?;
     for input in &c.source_observation_inputs {
         one_of(
             m,
@@ -499,10 +509,10 @@ mod chain_tests {
                 binding_ref: binding,
                 accepted_agreement_ref: reference("workflow-accepted-agreement", "waccepted_"),
                 activation_ref: reference("workflow-activation", "wactivation_"),
-                authority_observation_ref: reference(
+                authority_observation_ref: Some(reference(
                     "workflow-authority-prefix-observation",
                     "wdoc_",
-                ),
+                )),
             }],
         }
     }

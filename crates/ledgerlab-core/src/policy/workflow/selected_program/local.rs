@@ -31,3 +31,35 @@ pub fn local_compiler_descriptor_with_session(s:&mut OriginalAuditSession)->Resu
   finish_owned_document(m,body,false)
  })();if result.is_err(){s.invalidate();}result
 }
+
+#[cfg(test)]mod tests{
+ use super::*;
+ use crate::{canonical::{self,audit_arena::AuditArena},policy::workflow::{DefinitionRef,document_digest,selected_program::*}};
+ use serde_json::{Value,json};
+ #[test]
+ fn actual_first_policy_local_compile_load_and_incoming_intent(){
+  let arena=AuditArena::new().unwrap();let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+  let support=SelectedCompilerSupport::local_execution_with_session(&mut s).unwrap();
+  let data:Value=serde_json::from_slice(include_bytes!("fixtures/local-first-policy-input.json")).unwrap();
+  let mut docs=data["documents"].as_array().unwrap().clone();
+  let policy=docs.iter_mut().find(|v|v["schema"]=="ledger-workflow-policy/4").unwrap();
+  policy["compiler_ref"]=serde_json::to_value(support.reference()).unwrap();
+  let digest=document_digest("ledger-workflow-policy/4",policy).unwrap();
+  let root=DefinitionRef::new("workflow-policy",&format!("wdoc_{}",&digest[7..]),&digest).unwrap();
+  docs.push(support.canonical_value().clone());
+  let input=||SelectedSourceInput{documents:docs.iter().map(|d|canonical::CanonicalBytes::from_value(d).unwrap().into_vec()).collect(),root_policy_ref:root.clone()};
+  let program=compile_selected_publication(input(),&support,&mut s).unwrap();
+  assert!(program.uses_local_execution_recipe());
+  let plan=program.compiled_plan().canonical_bytes().to_vec();let plan_ref=program.compiled_plan().reference().clone();
+  let source=SelectedSourceInput{documents:program.source_documents().iter().map(|d|d.canonical_bytes().to_vec()).collect(),root_policy_ref:program.root_policy_ref().clone()};
+  let loaded=load_local_selected_execution(source,&plan,&plan_ref,&mut s).unwrap();
+  assert_eq!(loaded.compiled_plan().canonical_bytes(),program.compiled_plan().canonical_bytes());
+  assert_eq!(loaded.static_analysis().compile_work,None);
+  let normalized=normalize_local_publication_input(input(),&loaded,&mut s).unwrap();
+  assert_eq!(normalized.root_policy_ref(),program.root_policy_ref());
+  assert_eq!(normalized.source_documents().len(),program.source_documents().len());
+  for actual in normalized.source_documents(){assert!(program.source_documents().iter().any(|p|p.reference()==actual.reference()&&p.canonical_bytes()==actual.canonical_bytes()));}
+  let mut changed=input();let mut value:Value=canonical::parse(&changed.documents[5]).unwrap();value["version"]=json!("2");changed.documents[5]=canonical::CanonicalBytes::from_value(&value).unwrap().into_vec();
+  assert!(normalize_local_publication_input(changed,&loaded,&mut s).is_err());
+ }
+}

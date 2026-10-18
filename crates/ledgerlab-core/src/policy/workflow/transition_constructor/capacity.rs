@@ -159,3 +159,5 @@ pub(super) fn accounted_root_source_bodies(m:&mut super::CoreMeter,original:&ori
     let observations=observation.checked_mul(records.maximum_source_frames).ok_or_else(||super::shape::fail("source observation product"))?;
     Ok((inputs,observations))
 }
+
+pub(super) mod local;

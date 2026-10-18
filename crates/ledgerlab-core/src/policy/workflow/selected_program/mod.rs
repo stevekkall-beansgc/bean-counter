@@ -6,7 +6,7 @@ pub use support::SelectedCompilerSupport;
 mod compiler;
 pub use compiler::{
     SelectedDocument, SelectedProgram, SelectedSourceInput, StaticAnalysis, SelectedExecutionReloadKey,
-    compile_selected_program, compile_selected_publication, restore_selected_program, rehydrate_selected_execution, load_local_selected_execution,
+    compile_selected_program, compile_selected_publication, restore_selected_program, rehydrate_selected_execution, load_local_selected_execution, normalize_local_publication_input,NormalizedLocalSourceInput,
 };
 
 #[cfg(test)]

@@ -111,7 +111,7 @@ pub(super) fn test_inputs() -> (
             binding_ref: named["A.binding"].clone(),
             accepted_agreement_ref: named["A.accepted"].clone(),
             activation_ref: named["A.activation"].clone(),
-            authority_observation_ref: observation.reference.clone(),
+            authority_observation_ref: Some(observation.reference.clone()),
         }],
         source_observation_inputs: vec![verifier, observation],
     };

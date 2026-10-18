@@ -152,7 +152,7 @@ fn closed_lineage(
         c,
         &cause["authority_ref"],
         "workflow-economic-authority",
-        if program.uses_app_cost_causal_recipe(){"ledger-workflow-economic-authority/7"}else{"ledger-workflow-economic-authority/3"},
+        if program.uses_local_execution_recipe(){"ledger-workflow-economic-authority/8"}else if program.uses_app_cost_causal_recipe(){"ledger-workflow-economic-authority/7"}else{"ledger-workflow-economic-authority/3"},
     )?;
     equal(m, &authority["scope"], &json!(c.key.scope))?;
     equal(
