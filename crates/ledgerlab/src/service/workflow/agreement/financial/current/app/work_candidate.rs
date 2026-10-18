@@ -32,6 +32,8 @@ impl ObservedAppBinding {
                 .write_bytes(mem::size_of::<EconomicStateData<'_>>())
                 .map_err(core_error)?;
             let state = EconomicStateData {
+                // Work creates no assertion and performs no assertion-key lookup.
+                retained_assertion: None,
                 financial: &state.financial,
                 capacity_heads: &state.capacities,
                 supplier: None,

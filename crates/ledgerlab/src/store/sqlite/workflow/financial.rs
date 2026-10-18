@@ -20,6 +20,7 @@ pub(crate) use family::FamilyIdentityHead;
 mod source;
 pub(crate) use source::SourceHeadLocator;
 mod app;
+mod assertion;
 mod party;
 pub(crate) use app::AppClaimLocator;
 pub(crate) use party::{PartyAppend, PartyHeadEffect, PartyHeadKey};

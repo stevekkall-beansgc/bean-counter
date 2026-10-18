@@ -479,6 +479,7 @@ impl LocatedAppAcceptance {
                 .write_bytes(std::mem::size_of::<EconomicStateData<'_>>())
                 .map_err(core_error)?;
             let state = EconomicStateData {
+                retained_assertion: state.retained_assertion,
                 financial: state.financial,
                 capacity_heads: state.capacity_heads,
                 supplier: state.supplier,
