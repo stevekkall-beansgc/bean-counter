@@ -101,7 +101,10 @@ pub(super) fn build(m:&mut CoreMeter,docs:&[SelectedDocument],root:&DefinitionRe
         let compare=if phase.is_eq(){let slot=order(m,&left.1.binding_slot,&right.1.binding_slot)?;if slot.is_eq(){w::compare(m,left.0,right.0)?}else{slot}}else{phase};
         if !compare.is_gt(){break;}m.visit("plan.rule_sort_move")?;rules.swap(j-1,j);j-=1;
     }}
-    let constants=m.parse_owned_representation(&a,br#"{"rule":"evaluate_rule","family":"evaluate_family","family_primitive":"family","occurrence":"occurrence","evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits":"workflow-limits/1","worst":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"}}"#,RepresentationKind::SourceDefinition)?;
+    let constants_raw: &[u8]=if plan_schema=="ledger-workflow-compiled-plan/7" {
+        br#"{"rule":"evaluate_rule","family":"evaluate_family","family_primitive":"family","occurrence":"occurrence","evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits":"workflow-local-limits/1","worst":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576"}}"#
+    } else {br#"{"rule":"evaluate_rule","family":"evaluate_family","family_primitive":"family","occurrence":"occurrence","evaluator":"ledger-workflow-evaluator/1","grammar":"ledger-policy-grammar/1","limits":"workflow-limits/1","worst":{"fields":"1088","nodes":"256","hops":"16","loaded_refs":"4096","actions":"128","explanations":"256","bytes":"4194304","compile_work":"1048576","runtime_work":"65536"}}"#};
+    let constants=m.parse_owned_representation(&a,constants_raw,RepresentationKind::SourceDefinition)?;
     let empty=a.array_from_values(&[],m)?;
     let activities=shape::array(m,product.canonical_value(),"activities")?;
     for &(index,rule)in rules.iter(){

@@ -156,8 +156,8 @@ fn rehydrate_inner(input:SelectedSourceInput,saved_plan:&[u8],key:&ReloadBinding
         family_close_recipe:!matches!(recipe,SelectedRecipe::RetailDraft1),
         owner_local_cost_recipe:matches!(recipe,SelectedRecipe::OwnerLocalCost1|SelectedRecipe::SupplierScopedConsent1),
         supplier_scoped_consent_recipe:matches!(recipe,SelectedRecipe::SupplierScopedConsent1),
-        app_owned_cost_recipe:matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1),
-        app_cost_causal_recipe:matches!(recipe,SelectedRecipe::AppCostCausal1),execution_registry:key.registry,
+        app_owned_cost_recipe:matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1|SelectedRecipe::LocalParentBudget1),
+        app_cost_causal_recipe:matches!(recipe,SelectedRecipe::AppCostCausal1|SelectedRecipe::LocalParentBudget1),execution_registry:key.registry,
         _policy_decode_ownership:Some(policy_owner),_source_projection_ownership:projection_ownership,_control_ownership:Some(ownership)})
 }
 
@@ -169,11 +169,22 @@ pub fn load_local_selected_execution(input:SelectedSourceInput,saved_plan:&[u8],
  let result=(||{
   let m=session.meter_mut();
   if !same_literal(m,expected_plan.kind(),"workflow-compiled-plan")?{return Err(fail("local expected plan kind"));}
-  let binding=ReloadBinding{root:digest_bits(m,input.root_policy_ref.digest())?,plan:digest_bits(m,expected_plan.digest())?,recipe:SelectedRecipe::AppCostCausal1,registry:Some(super::super::local::REGISTRY),compile_work:None};
+  let mut recipe=None;
+  for raw in &input.documents {
+    m.visit("local.reload_exact_compiler_selection")?;
+    let selected=if super::super::support::same_bytes(m,raw,super::super::local::PARENT_DESCRIPTOR)? {Some(SelectedRecipe::LocalParentBudget1)}
+      else if super::super::support::same_bytes(m,raw,super::super::local::DESCRIPTOR)? {Some(SelectedRecipe::AppCostCausal1)}else{None};
+    if let Some(selected)=selected {
+      if recipe.replace(selected).is_some(){return Err(fail("ambiguous local compiler identity"));}
+    }
+  }
+  let recipe=recipe.ok_or_else(||fail("local program compiler recipe unavailable"))?;
+  let binding=ReloadBinding{root:digest_bits(m,input.root_policy_ref.digest())?,plan:digest_bits(m,expected_plan.digest())?,recipe,registry:Some(super::super::local::REGISTRY),compile_work:None};
   let program=rehydrate_inner(input,saved_plan,&binding,m)?;
   if !same_literal(m,program.compiled_plan().reference().id(),expected_plan.id())?{return Err(fail("local expected plan full identity"));}
   let descriptor=lookup(m,&program.sources,&program.policy.compiler_ref)?;
-  if !super::super::support::same_bytes(m,descriptor.canonical_bytes(),super::super::local::DESCRIPTOR)?{return Err(fail("local program compiler recipe identity"));}
+  let expected_descriptor=if matches!(recipe,SelectedRecipe::LocalParentBudget1){super::super::local::PARENT_DESCRIPTOR}else{super::super::local::DESCRIPTOR};
+  if !super::super::support::same_bytes(m,descriptor.canonical_bytes(),expected_descriptor)?{return Err(fail("local program compiler recipe identity"));}
   Ok(program)
  })();if result.is_err(){session.invalidate();}result
 }
@@ -208,7 +219,7 @@ pub fn normalize_local_publication_input(input:SelectedSourceInput,original:&Sel
     "ledger-workflow-product/1"=>{let n=Product::normalization_payload_bound_with_work(&body,&schemas,m)?;let value=body.projection_with_payload(m,&mut owners,n)?;let typed=Product::from_value_complete_with_work(value,&schemas,m)?;docs.push(borrowed_doc(m,typed.canonical_value())?);},
     "ledger-workflow-slot-template/1"=>{let n=SlotTemplate::normalization_payload_bound_with_work(&body,None,m)?;let value=body.projection_with_payload(m,&mut owners,n)?;let typed=SlotTemplate::from_value_complete_with_work(value,None,m)?;docs.push(borrowed_doc(m,typed.canonical_value())?);},
     "ledger-workflow-policy/4"=>{let n=super::super::policy_decode::payload_bound(m,&body)?;let owner=a.reserve_external_payload(n,m)?;let value=body.projection(m,&mut owners)?;let(mut policy,owner)=super::super::policy_decode::decode(m,value,owner)?;super::super::normalize::policy(m,&mut policy)?;let value=super::super::owning_policy::build(m,&policy)?;docs.push(borrowed_doc(m,value.value())?);owners.push(owner);},
-    "ledger-workflow-compiler-descriptor/6"=>{let expected=lookup(m,&original.sources,&original.policy.compiler_ref)?;if !crate::policy::workflow::transition_constructor::shape::same(m,&body,expected.canonical_value())?{return Err(fail("incoming original compiler descriptor differs"));}docs.push(body.document(m)?);},
+    "ledger-workflow-compiler-descriptor/6"|"ledger-workflow-compiler-descriptor/7"=>{let expected=lookup(m,&original.sources,&original.policy.compiler_ref)?;if !crate::policy::workflow::transition_constructor::shape::same(m,&body,expected.canonical_value())?{return Err(fail("incoming original compiler descriptor differs"));}docs.push(body.document(m)?);},
     _=>return Err(fail("unsupported local incoming source schema")),
    }
   }

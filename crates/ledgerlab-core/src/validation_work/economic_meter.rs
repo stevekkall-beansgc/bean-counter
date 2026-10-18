@@ -61,6 +61,11 @@ pub enum BudgetDomain {
 // Dropping an unfinished child irreversibly closes the parent. No allowance is
 // refunded and no public state/reset accessor exists.
 struct AuditChildToken(Arc<AtomicU8>);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EconomicChildFlavor {
+    Original,
+    Local,
+}
 impl Drop for AuditChildToken {
     fn drop(&mut self) {
         let _ = self
@@ -74,6 +79,7 @@ pub struct Meter {
     original_inner_started: bool,
     original_owner: Option<Arc<AtomicU8>>,
     original_child_token: Option<AuditChildToken>,
+    economic_child_flavor: Option<EconomicChildFlavor>,
     resource_v2: bool,
     representation_arena: Option<crate::canonical::audit_arena::AuditArena>,
     cancellation: Option<crate::canonical::audit_arena::AuditCancellation>,
@@ -122,6 +128,7 @@ impl Meter {
             original_inner_started: false,
             original_owner: None,
             original_child_token: None,
+            economic_child_flavor: None,
             resource_v2: false,
             representation_arena: None,
             cancellation: None,
@@ -160,6 +167,14 @@ impl Meter {
     /// Reserve a single tighter original economic invocation inside this audit.
     /// Its lower maximum ensures the composed cap BEFORE each inner operation.
     pub(crate) fn original_economic_meter(&mut self) -> Result<Self> {
+        self.begin_economic_child(EconomicChildFlavor::Original)
+    }
+    /// The exact local recipe shares its parent's actual remaining allowance;
+    /// it has no independent 65,536 ceiling or replacement allowance.
+    pub(crate) fn local_economic_meter(&mut self) -> Result<Self> {
+        self.begin_economic_child(EconomicChildFlavor::Local)
+    }
+    fn begin_economic_child(&mut self, flavor: EconomicChildFlavor) -> Result<Self> {
         if self.domain != BudgetDomain::OriginalAudit
             || self.maximum != 1_048_576
             || self.original_inner_started
@@ -174,6 +189,10 @@ impl Meter {
             .checked_sub(self.usage.semantic_work)
             .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "original audit exhausted"))?;
         let mut inner = Self::new(remaining.min(MAXIMUM_WORK))?;
+        if flavor == EconomicChildFlavor::Local {
+            inner.maximum = remaining;
+        }
+        inner.economic_child_flavor = Some(flavor);
         let owner = self
             .original_owner
             .as_ref()
@@ -295,6 +314,12 @@ impl Meter {
     /// Subsequent framing retains only the actual remaining composed allowance.
     /// This is counter composition, not a charge refund or semantic exemption.
     pub(crate) fn finish_original_economic(&mut self, inner: Self) -> Result<Usage> {
+        self.finish_economic_child(inner, EconomicChildFlavor::Original)
+    }
+    pub(crate) fn finish_local_economic(&mut self, inner: Self) -> Result<Usage> {
+        self.finish_economic_child(inner, EconomicChildFlavor::Local)
+    }
+    fn finish_economic_child(&mut self, inner: Self, flavor: EconomicChildFlavor) -> Result<Usage> {
         let same_owner = match (&self.original_owner, &inner.original_owner) {
             (Some(a), Some(b)) => Arc::ptr_eq(a, b),
             _ => false,
@@ -304,7 +329,11 @@ impl Meter {
             || self.maximum != 1_048_576
             || !self.original_inner_started
             || inner.domain != BudgetDomain::Draft
-            || inner.maximum > MAXIMUM_WORK
+            || inner.economic_child_flavor != Some(flavor)
+            || match flavor {
+                EconomicChildFlavor::Original => inner.maximum > MAXIMUM_WORK,
+                EconomicChildFlavor::Local => self.maximum.checked_sub(self.usage.semantic_work) != Some(inner.maximum),
+            }
         {
             if let Some(owner) = &self.original_owner {
                 owner.store(3, AtomicOrdering::SeqCst);
@@ -356,6 +385,7 @@ impl Meter {
             original_inner_started: false,
             original_owner: None,
             original_child_token: None,
+            economic_child_flavor: None,
             resource_v2: false,
             representation_arena: None,
             cancellation: None,
@@ -1309,6 +1339,46 @@ mod diagnostic_tests {
 #[cfg(test)]
 mod original_audit_domain_tests {
     use super::*;
+    #[test]
+    fn local_child_uses_remaining_parent_without_the_original_child_ceiling() {
+        let mut outer = Meter::original_audit().unwrap();
+        outer.visit("test.host_before").unwrap();
+        let mut inner = outer.local_economic_meter().unwrap();
+        assert_eq!(inner.maximum, 1_048_575);
+        assert!(outer.local_economic_meter().is_err());
+        assert!(outer.original_economic_meter().is_err());
+        // Synthetic boundary state tests the guard, not a workload or fit.
+        inner.usage.semantic_work = MAXIMUM_WORK;
+        inner.visit("test.local_beyond_original_ceiling").unwrap();
+        let used = outer.finish_local_economic(inner).unwrap();
+        assert_eq!(used.semantic_work, 65_537);
+        assert_eq!(outer.original_remaining_work(), 1_048_576 - 65_538);
+        outer.visit("test.host_after").unwrap();
+        assert_eq!(outer.original_remaining_work(), 1_048_576 - 65_539);
+        assert!(outer.local_economic_meter().is_err());
+        assert!(outer.original_economic_meter().is_err());
+        assert!(Meter::new(MAXIMUM_WORK + 1).is_err());
+    }
+    #[test]
+    fn local_child_preserves_parent_exhaustion_and_rejects_wrong_finish_flavor() {
+        let mut outer = Meter::original_audit().unwrap();
+        outer.usage.semantic_work = 1_048_575;
+        let mut inner = outer.local_economic_meter().unwrap();
+        assert_eq!(inner.maximum, 1);
+        inner.visit("test.last_local_work").unwrap();
+        let used = outer.finish_local_economic(inner).unwrap();
+        assert_eq!(outer.usage.semantic_work + used.semantic_work, 1_048_576);
+        assert!(outer.visit("test.parent_still_bounded").is_err());
+
+        let mut wrong = Meter::original_audit().unwrap();
+        let inner = wrong.local_economic_meter().unwrap();
+        assert!(wrong.finish_original_economic(inner).is_err());
+        assert!(wrong.visit("test.wrong_finish_poisoned").is_err());
+        let mut wrong = Meter::original_audit().unwrap();
+        let inner = wrong.original_economic_meter().unwrap();
+        assert!(wrong.finish_local_economic(inner).is_err());
+        assert!(wrong.visit("test.old_child_not_local").is_err());
+    }
     #[test]
     fn original_audit_domain_cannot_enter_product_or_reset_its_inner_invocation() {
         let mut outer = Meter::original_audit().unwrap();

@@ -28,6 +28,11 @@ impl SelectedCompilerSupport {
         let document=super::local::local_compiler_descriptor_with_session(session)?;
         Ok(Self{document:SupportDocument::Owned(document),execution_registry:Some(super::local::REGISTRY)})
     }
+    #[cfg(test)]
+    pub(super) fn legacy_local_for_test(session:&mut crate::validation_work::OriginalAuditSession)->Result<Self>{
+        let document=super::local::legacy_descriptor_for_test(session)?;
+        Ok(Self{document:SupportDocument::Owned(document),execution_registry:Some(super::local::REGISTRY)})
+    }
     pub fn builtin() -> Result<Self> {
         let limits = canonical::parse(include_bytes!(
             "../../../../../../contracts/candidates/full-suite-v1/core/runtime-support/limits.json"

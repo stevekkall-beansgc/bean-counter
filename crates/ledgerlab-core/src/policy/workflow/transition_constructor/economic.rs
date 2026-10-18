@@ -159,13 +159,14 @@ pub fn construct_local_financial_candidate(program:&SelectedProgram,capture:&sup
    authorities.push(AuthorityContextData{source_slot:source.source_slot.to_owned(),enrollment_ref:source.enrollment_ref.clone(),current_state_ref:source.current_state_ref.clone(),current_grant_ref:source.current_grant_ref.clone(),original_grant_refs:source.original_grant_refs.to_vec(),binding_ref:source.binding_ref.clone(),accepted_agreement_ref:source.accepted_agreement_ref.clone(),activation_ref:source.activation_ref.clone(),authority_observation_ref:None});
   }
   let c=DraftContextData{key:capture.key.clone(),actor:capture.actor.to_owned(),canonical_economic_namespace:capture.canonical_economic_namespace.to_owned(),installation_mode:capture.installation_mode.to_owned(),received_at:capture.received_at.to_owned(),accepted_at:capture.accepted_at.to_owned(),authorities,source_observation_inputs:Vec::new()};
-  let mut child=session.meter_mut().original_economic_meter()?;
+  let parent_budget=program.uses_local_parent_budget_recipe();
+  let mut child=if parent_budget {session.meter_mut().local_economic_meter()?}else{session.meter_mut().original_economic_meter()?};
   let construction=construct::execute_complete(program,&c,payload,inputs,state,&mut child)?;
   let assembly=Assembly::derive(&mut child,&c,program,state,construction)?;
   // Financial/topology production and actual finite interpreter/record/arena
   // guards have already run. Local1 makes no universal future resource claim.
   let candidate=assembly.into_local(&c,&mut child)?;
-  session.meter_mut().finish_original_economic(child)?;
+  if parent_budget {session.meter_mut().finish_local_economic(child)?;}else{session.meter_mut().finish_original_economic(child)?;}
   Ok(candidate)
  })();if result.is_err(){session.invalidate();}result
 }
