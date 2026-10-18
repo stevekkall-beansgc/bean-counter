@@ -20,11 +20,13 @@ pub struct InitialSourceRecords {
 // original separately. Full bodies and every consumer-specific check remain.
 const CORRESPONDENCE_BYTES:usize=3*71+72;
 pub struct InitialSourceCorrespondence {
-    bytes:[u8;CORRESPONDENCE_BYTES],boxed_once:bool,_ownership:ExternalBufferLease,
+    enrollment_digest:String,grant_digest:String,state_digest:String,state_id:String,
+    boxed_once:bool,_ownership:ExternalBufferLease,
 }
 impl InitialSourceCorrespondence {
-    /// The original producer prepaid TWO complete carrier payloads: its inline
-    /// result plus this one heap move. There is no caller-selected allowance,
+    /// The original producer prepaid TWO carrier controls plus its four actual
+    /// string payloads: inline controls plus this heap move. No string is copied
+    /// during the move. There is no caller-selected allowance,
     /// naked Box allocation, second pool or repeated reboxing credit.
     pub fn into_boxed(mut self,s:&mut OriginalAuditSession)->Result<Box<Self>>{
         let result=(||{
@@ -38,8 +40,10 @@ impl InitialSourceCorrespondence {
             Ok(Box::new(self))
         })();if result.is_err(){s.invalidate();}result
     }
-    pub(super) fn checked_bytes<'a>(&'a self,a:&AuditArena,m:&mut CoreMeter)->Result<&'a [u8;CORRESPONDENCE_BYTES]>{
-        a.require_external_owner(&self._ownership,m)?;Ok(&self.bytes)
+    pub(super) fn checked_parts<'a>(&'a self,a:&AuditArena,m:&mut CoreMeter)->Result<[&'a str;4]>{
+        a.require_external_owner(&self._ownership,m)?;
+        m.write_bytes(4*mem::size_of::<&str>())?;
+        Ok([&self.enrollment_digest,&self.grant_digest,&self.state_digest,&self.state_id])
     }
 }
 impl InitialSourceRecords {
@@ -50,18 +54,17 @@ impl InitialSourceRecords {
         let result=(||{
             let a=s.arena().shared_handle();let m=s.meter_mut();
             a.require_external_owner(&self._ownership,m)?;
-            let owner=a.reserve_external_payload(2*mem::size_of::<InitialSourceCorrespondence>(),m)?;
-            // Initialize the fixed array, copy all three digest/ID bindings,
-            // then move it into the returned immutable carrier.
-            m.scan_bytes(CORRESPONDENCE_BYTES)?;m.write_bytes(3*CORRESPONDENCE_BYTES)?;
-            let mut bytes=[0;CORRESPONDENCE_BYTES];
-            // These exact lengths follow from the closed SHA256 producers and
-            // the fixed wsource_ prefix above, rather than supplied strings.
-            bytes[..71].copy_from_slice(self.enrollment.reference.digest.as_bytes());
-            bytes[71..142].copy_from_slice(self.grant.reference.digest.as_bytes());
-            bytes[142..213].copy_from_slice(self.state.reference.digest.as_bytes());
-            bytes[213..].copy_from_slice(self.state.reference.id.as_bytes());
-            Ok(InitialSourceCorrespondence{bytes,boxed_once:false,_ownership:owner})
+            let owner=a.reserve_external_payload(2*mem::size_of::<InitialSourceCorrespondence>()+CORRESPONDENCE_BYTES,m)?;
+            // Keep the producer's typed strings. Reconstructing a str from a
+            // byte array later would run a redundant UTF8 decoder. Their exact
+            // lengths follow from SHA256 and the fixed wsource_ prefix, not
+            // supplied bounds. This owner also covers the single Box handoff.
+            let enrollment_digest=copy(m,&self.enrollment.reference.digest)?;
+            let grant_digest=copy(m,&self.grant.reference.digest)?;
+            let state_digest=copy(m,&self.state.reference.digest)?;
+            let state_id=copy(m,&self.state.reference.id)?;
+            m.write_bytes(2*mem::size_of::<InitialSourceCorrespondence>())?;
+            Ok(InitialSourceCorrespondence{enrollment_digest,grant_digest,state_digest,state_id,boxed_once:false,_ownership:owner})
         })();if result.is_err(){s.invalidate();}result
     }
     /// Every row carries its own Ref/control owner. Splitting the triple cannot
@@ -191,7 +194,7 @@ mod tests {
             if case==0{result.unwrap();}else{assert!(result.is_err(),"consumer case {case} was bypassed");}
         }
         let other=AuditArena::new().unwrap();let mut foreign=OriginalAuditSession::for_resource_profile_v2(&other).unwrap();
-        assert!(facts.checked_bytes(&other,foreign.meter_mut()).is_err());
+        assert!(facts.checked_parts(&other,foreign.meter_mut()).is_err());
         let rows=actual.into_parts();
         assert!(arena.usage().unwrap().live_bytes>baseline.live_bytes);
         assert_eq!(rows[0].reference(),&enrollment.reference);

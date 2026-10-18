@@ -1,11 +1,13 @@
 //! Owning app activation payload projection through the existing activation
 //! grammar and scalar normalizers. No schedule or source authority is granted.
 use super::*;
+mod transition_records;
 use ledgerlab_core::{
     canonical::audit_arena::AuditedBytes,
     policy::workflow::transition_constructor::ExactRef,
     validation_work::{OriginalAuditSession, RepresentationKind, ValidationVisit as Visit},
 };
+pub(super) use transition_records::{ActivationRecords, build_records};
 
 fn encode(v: &Value, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     s.canonical_representation(v, RepresentationKind::SourceDefinition)

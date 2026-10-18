@@ -363,6 +363,15 @@ impl LocalWorkflowLedger {
                     // full original/current/resource private preparation still
                     // precedes any call to workflow_app_acceptance_append.
                 }
+                if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {
+                    let payload = req.payload(&mut session)?;
+                    let _observed =
+                        current::app::observe_activation(self, tx, &req, payload, &mut session)
+                            .await?;
+                    // Exact captured head and generated records remain DATA.
+                    // Whole historical schedule, original/current consent and
+                    // activation rights must finish before private preparation.
+                }
                 if req.kind() == "work.accept" {
                     let payload = req.payload(&mut session)?;
                     let _observed =

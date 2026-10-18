@@ -8,6 +8,10 @@ pub(crate) enum HeadKey<'a> {
         customer: &'a str,
         agreement: &'a str,
     },
+    AgreementActivation {
+        customer: &'a str,
+        agreement: &'a str,
+    },
     Decision(&'a str),
     Family {
         target_kind: &'a str,
@@ -42,7 +46,9 @@ impl<'a> HeadKey<'a> {
             Self::AppCost(r) => ("app_cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::Cost(r) => ("cost", [&r.kind, &r.id, &r.digest, ""]),
             Self::CostConsumption(r) => ("cost_consumption", [&r.kind, &r.id, &r.digest, ""]),
-            Self::CostOwner(_) | Self::AgreementAcceptance { .. } => return Err(invalid()),
+            Self::CostOwner(_)
+            | Self::AgreementAcceptance { .. }
+            | Self::AgreementActivation { .. } => return Err(invalid()),
         })
     }
 }
@@ -61,8 +67,11 @@ const OWNER_VALUES: &str = "SELECT revision,record_kind,record_id,record_digest 
 // The integer revision is intrinsically bounded before its textual conversion.
 // Ref columns retain the direct-column BYTELEN probe; no CAST wraps them.
 const AGREEMENT_KEY_LENGTHS: &str = "SELECT octet_length(transition_id),CASE WHEN typeof(revision)='integer' THEN octet_length(revision) ELSE -1 END FROM workflow_agreement_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND customer=? AND agreement_id=? AND head_kind='agreement_acceptance'";
+const ACTIVATION_KEY_LENGTHS: &str = "SELECT octet_length(transition_id),CASE WHEN typeof(revision)='integer' THEN octet_length(revision) ELSE -1 END FROM workflow_agreement_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND customer=? AND agreement_id=? AND head_kind='agreement_activation'";
 const AGREEMENT_LENGTHS: &str = "SELECT CASE WHEN typeof(h.revision)='integer' THEN octet_length(h.revision) ELSE -1 END,octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind='agreement_acceptance'";
+const ACTIVATION_LENGTHS: &str = "SELECT CASE WHEN typeof(h.revision)='integer' THEN octet_length(h.revision) ELSE -1 END,octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind='agreement_activation'";
 const AGREEMENT_VALUES: &str = "SELECT CAST(h.revision AS TEXT),d.kind,d.id,d.digest FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind='agreement_acceptance'";
+const ACTIVATION_VALUES: &str = "SELECT CAST(h.revision AS TEXT),d.kind,d.id,d.digest FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind='agreement_activation'";
 fn bind<'q>(
     sql: &'static str,
     bindings: &[&'q str],
@@ -213,10 +222,31 @@ impl SqliteTx {
         if matches!(key, HeadKey::AppCost(_)) && !resource_compare(session, version, 15)?.is_eq() {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
-        if let HeadKey::AgreementAcceptance {
-            customer,
-            agreement,
-        } = key
+        let agreement_projection = match key {
+            HeadKey::AgreementAcceptance {
+                customer,
+                agreement,
+            } => Some((
+                customer,
+                agreement,
+                AGREEMENT_KEY_LENGTHS,
+                AGREEMENT_LENGTHS,
+                AGREEMENT_VALUES,
+            )),
+            HeadKey::AgreementActivation {
+                customer,
+                agreement,
+            } => Some((
+                customer,
+                agreement,
+                ACTIVATION_KEY_LENGTHS,
+                ACTIVATION_LENGTHS,
+                ACTIVATION_VALUES,
+            )),
+            _ => None,
+        };
+        if let Some((customer, agreement, key_lengths, lengths_sql, values_sql)) =
+            agreement_projection
         {
             locator_text(customer, 128, session)?;
             locator_text(agreement, 128, session)?;
@@ -226,7 +256,7 @@ impl SqliteTx {
             let bytes = bindings.map(str::as_bytes);
             let payload = io::binding_payload(&bytes, &[], 0, 0, session)?;
             self.financial_reserve_io(session, payload)?;
-            let lengths = bind(AGREEMENT_KEY_LENGTHS, &bindings)
+            let lengths = bind(key_lengths, &bindings)
                 .fetch_optional(self.conn())
                 .await?;
             let Some(lengths) = lengths else {
@@ -245,13 +275,7 @@ impl SqliteTx {
             drop(lengths);
             self.financial_finish_io(session).await?;
             return self
-                .read_head_projection(
-                    AGREEMENT_LENGTHS,
-                    AGREEMENT_VALUES,
-                    bindings,
-                    8 * 104,
-                    session,
-                )
+                .read_head_projection(lengths_sql, values_sql, bindings, 8 * 104, session)
                 .await;
         }
         if let HeadKey::CostOwner(line) = key {

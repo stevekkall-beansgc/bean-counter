@@ -17,6 +17,8 @@ pub(in super::super) struct ObservedAppBinding {
 pub(in super::super) struct ObservedAppActivation {
     pub(in super::super) binding: ObservedAppBinding,
     pub(in super::super) normalized_payload: ledgerlab_core::canonical::audit_arena::AuditedBytes,
+    pub(in super::super) records: super::super::activation::ActivationRecords,
+    _held_head: Option<crate::store::sqlite::workflow::financial::HeadLocator>,
 }
 pub(in super::super) async fn observe(
     ledger: &LocalWorkflowLedger,
@@ -35,11 +37,12 @@ pub(in super::super) async fn observe(
 pub(in super::super) async fn observe_activation(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
-    key: &OperationKey,
-    kind: &str,
+    incoming: &super::super::ingress::IncomingRequest,
     payload: &Value,
     session: &mut OriginalAuditSession,
 ) -> Result<ObservedAppActivation> {
+    let key = incoming.key();
+    let kind = incoming.kind();
     let binding = check::field(payload, "accepted_binding_ref", session)?;
     let agreement = check::field(payload, "agreement_id", session)?;
     let observed =
@@ -55,9 +58,94 @@ pub(in super::super) async fn observe_activation(
         tx.workflow_proof_failure_handle()
             .store(true, std::sync::atomic::Ordering::Release);
     })?;
+    let built = async {
+        let payload = session
+            .parse_representation(
+                normalized_payload.bytes(),
+                RepresentationKind::SourceDefinition,
+            )
+            .map_err(core_error)?;
+        let binding = observed._parsed_binding.value();
+        let customer = check::text(binding, "customer", session)?;
+        let agreement = check::text(binding, "agreement_id", session)?;
+        let head = tx
+            .workflow_financial_head(
+                &key.logical_store_id,
+                &key.scope,
+                crate::store::sqlite::workflow::financial::HeadKey::AgreementActivation {
+                    customer,
+                    agreement,
+                },
+                session,
+            )
+            .await
+            .map_err(prefix::read_error)?;
+        let expected = check::text(payload.value(), "expected_revision", session)?;
+        let prior = if let Some(head) = &head {
+            let revision = std::str::from_utf8(head.revision.bytes())
+                .map_err(|_| ServiceError::IntegrityFailure)?;
+            check::same_text(revision, expected, session)?;
+            let kind = wire::string(
+                std::str::from_utf8(head.kind.bytes())
+                    .map_err(|_| ServiceError::IntegrityFailure)?,
+                session,
+            )?;
+            let id = wire::string(
+                std::str::from_utf8(head.id.bytes()).map_err(|_| ServiceError::IntegrityFailure)?,
+                session,
+            )?;
+            let digest = wire::string(
+                std::str::from_utf8(head.digest.bytes())
+                    .map_err(|_| ServiceError::IntegrityFailure)?,
+                session,
+            )?;
+            Some(wire::object(
+                &[
+                    ("digest", digest.bytes()),
+                    ("id", id.bytes()),
+                    ("kind", kind.bytes()),
+                ],
+                262144,
+                session,
+            )?)
+        } else {
+            check::same_text(expected, "0", session)?;
+            None
+        };
+        let prior = prior
+            .as_ref()
+            .map(|v| {
+                session
+                    .parse_representation(v.bytes(), RepresentationKind::SourceDefinition)
+                    .map_err(core_error)
+            })
+            .transpose()?;
+        let key_body = check::field(incoming.value(), "key", session)?;
+        let records = super::super::activation::build_records(
+            kind,
+            payload.value(),
+            key_body,
+            observed.original.acceptance.binding.reference(),
+            binding,
+            &observed.setup.operator,
+            &observed.at,
+            observed.before,
+            prior.as_ref().map(|v| v.value()),
+            session,
+        )?;
+        Ok((head, records))
+    }
+    .await;
+    let (head, records) = built.inspect_err(|_| {
+        session.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    })?;
     Ok(ObservedAppActivation {
         binding: observed,
         normalized_payload,
+        records,
+        _held_head: head,
     })
 }
 async fn observe_binding(

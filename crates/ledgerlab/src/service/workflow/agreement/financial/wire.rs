@@ -1259,6 +1259,8 @@ pub(super) fn counter_string(
 pub(super) enum AgreementRecord {
     Accepted,
     AcceptanceHead,
+    ActivationHead,
+    Activation,
 }
 pub(super) fn agreement_record(
     record: AgreementRecord,
@@ -1294,6 +1296,20 @@ pub(super) fn agreement_record(
             "whead_",
             b"bean-counter/workflow-head-transition/1\0".as_slice(),
             b",\"agreement_acceptance\"".as_slice(),
+        ),
+        AgreementRecord::ActivationHead => (
+            "workflow-head-transition",
+            "ledger-workflow-head-transition/1",
+            "whead_",
+            b"bean-counter/workflow-head-transition/1\0".as_slice(),
+            b",\"agreement_activation\"".as_slice(),
+        ),
+        AgreementRecord::Activation => (
+            "workflow-activation",
+            "ledger-workflow-activation-transition/1",
+            "wactivation_",
+            b"bean-counter/workflow-activation-transition/1\0".as_slice(),
+            b"".as_slice(),
         ),
     };
     let id = hash(

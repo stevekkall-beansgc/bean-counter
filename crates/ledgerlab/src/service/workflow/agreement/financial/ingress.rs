@@ -133,6 +133,8 @@ impl IncomingRequest {
         for candidate in [
             "work.accept",
             "agreement.accept",
+            "agreement.activate",
+            "agreement.revoke",
             "policy.publish",
             "work.reverse",
             "quantity.correct",
