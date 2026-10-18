@@ -238,6 +238,7 @@ impl PublicationRequest {
                                     | "ledger-workflow-slot-template/1"
                                     | "ledger-workflow-policy/4"
                                     | "ledger-workflow-compiler-descriptor/6"
+                                    | "ledger-workflow-compiler-descriptor/7"
                             )
                         )
                     }),
