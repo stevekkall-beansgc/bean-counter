@@ -26,7 +26,7 @@ mod source_authority;
 mod source_projection;
 pub use source_projection::{NominatedSourceFrame,NominatedSourceGrant,validate_app_nominated_sources};
 mod financial_observation;
-pub use financial_observation::audit_stream::{EconomicAuditStream,OriginWitness,RecomputedAuditDigest,ValidatedOriginPointers,OriginPointerBlock,OriginPointerEntry,ORIGIN_POINTER_BLOCK,ORIGIN_POINTER_MAX_BYTES,OriginPointerBatch,PreparedOriginBatch,ORIGIN_POINTER_BATCH,ORIGIN_POINTER_BATCH_WORDS};
+pub use financial_observation::audit_stream::{EconomicAuditStream,SourcePrefixInput,FinancialPrefixInput,ProducedOriginPrefix,ProducedOriginPrefixes,OriginWitness,RecomputedAuditDigest,ValidatedOriginPointers,OriginPointerBlock,OriginPointerEntry,ORIGIN_POINTER_BLOCK,ORIGIN_POINTER_MAX_BYTES,OriginPointerBatch,PreparedOriginBatch,ORIGIN_POINTER_BATCH,ORIGIN_POINTER_BATCH_WORDS};
 mod funding;
 mod family_context;
 mod intent;

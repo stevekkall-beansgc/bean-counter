@@ -155,7 +155,7 @@ impl PreparedOriginBatch<'_,'_,'_>{
                     m.visit("audit.batch_partial_membership")?;
                     if memberships[*index][position]{if self.started[*index]{syntax(m,&mut state.hash,b",")?;}bytes(m,&mut state.hash,raw)?;self.started[*index]=true;}
                 }
-                if self.union_started{syntax(m,&mut self.stream.combined,b",")?;}bytes(m,&mut self.stream.combined,raw)?;self.union_started=true;
+                if let Some(combined)=self.stream.combined.as_mut(){if self.union_started{syntax(m,combined,b",")?;}bytes(m,combined,raw)?;}self.union_started=true;
             }
             ValidationWork::visit(m,w::ValidationVisit::MemberCompare)?;
             m.scan_bytes(mem::size_of_val(&self.actual_hashes))?;m.scan_bytes(mem::size_of_val(&self.expected_hashes))?;

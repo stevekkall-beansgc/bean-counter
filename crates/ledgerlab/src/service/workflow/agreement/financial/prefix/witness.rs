@@ -4,8 +4,8 @@
 use super::*;
 use inventory::ConfiguredRoot;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    DraftContextData, EconomicAuditStream, ExactRef, ORIGIN_POINTER_MAX_BYTES,
-    RecomputedAuditDigest,
+    DraftContextData, EconomicAuditStream, ExactRef, FinancialPrefixInput,
+    ORIGIN_POINTER_MAX_BYTES, ProducedOriginPrefixes, RecomputedAuditDigest, SourcePrefixInput,
 };
 use std::{cmp::Ordering, mem};
 
@@ -366,23 +366,45 @@ impl FoldedInventory {
         stream
             .set_financial_header(financial.reference, financial.body, s)
             .map_err(core_error)?;
-        let count = self.pointers.len();
-        let mut memberships = Memberships::new(count, sources.len(), s)?;
+        let _control = s
+            .reserve_external_payload(mem::size_of::<[&Value; 32]>())
+            .map_err(core_error)?;
+        let mut bodies = [financial.body; 32];
+        for (target, header) in bodies.iter_mut().zip(sources) {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .write_bytes(mem::size_of::<&Value>())
+                .map_err(core_error)?;
+            *target = header.body;
+        }
+        let memberships = self.witness_memberships(&bodies[..sources.len()], financial.body, s)?;
+        self.stream_memberships(&memberships, sources.len(), &mut stream, s)?;
+        stream.finish(s).map_err(core_error)
+    }
+    fn witness_memberships(
+        &mut self,
+        sources: &[&Value],
+        financial: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Memberships> {
+        let mut memberships = Memberships::new(self.pointers.len(), sources.len(), s)?;
         for (index, header) in sources.iter().enumerate() {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
-            let group = memberships.group(header.body, index, s)?;
+            let group = memberships.group(*header, index, s)?;
             for name in ["enrollment_ref", "current_state_ref"] {
                 memberships.seed(
                     &mut self._inventory,
                     group,
                     index,
-                    request_wrapper::field(header.body, name, s)?,
+                    request_wrapper::field(*header, name, s)?,
                     s,
                 )?;
             }
-            for grant in rows(header.body, "original_grant_refs", s)? {
+            for grant in rows(*header, "original_grant_refs", s)? {
                 s.semantic_work()
                     .visit(Visit::Element)
                     .map_err(core_error)?;
@@ -390,15 +412,15 @@ impl FoldedInventory {
             }
         }
         let f = sources.len();
-        let group = memberships.group(financial.body, f, s)?;
-        for reference in rows(financial.body, "preexisting_input_refs", s)? {
+        let group = memberships.group(financial, f, s)?;
+        for reference in rows(financial, "preexisting_input_refs", s)? {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
             memberships.seed(&mut self._inventory, group, f, reference, s)?;
         }
         for (name, field) in [("history_edges", "target_ref"), ("head_pins", "ref")] {
-            for row in rows(financial.body, name, s)? {
+            for row in rows(financial, name, s)? {
                 s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
                 memberships.seed(
                     &mut self._inventory,
@@ -410,8 +432,62 @@ impl FoldedInventory {
             }
         }
         memberships.close(&mut self._inventory, &self.pointers, s)?;
-        self.stream_memberships(&memberships, sources.len(), &mut stream, s)?;
-        stream.finish(s).map_err(core_error)
+        Ok(memberships)
+    }
+    /// Real first-pass prefix production uses the same original-completed
+    /// inventory, exact root cuts, packed memberships and bounded raw reader.
+    /// The actual current seed/header emitter still owns custody and framing.
+    pub(super) fn produce_witness_prefixes(
+        &mut self,
+        key: &ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
+        sources: &[SourcePrefixInput<'_>],
+        financial: FinancialPrefixInput<'_>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ProducedOriginPrefixes> {
+        let result = (|| {
+            require(!compare(sources.len(), 32, s)?.is_gt(), "INTEGRITY_FAILURE")?;
+            let _control = s
+                .reserve_external_payload(mem::size_of::<[&Value; 32]>())
+                .map_err(core_error)?;
+            let mut bodies = [financial.fields; 32];
+            let mut producer =
+                EconomicAuditStream::prefix_producer(key, sources.len(), s).map_err(core_error)?;
+            for (target, input) in bodies.iter_mut().zip(sources) {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<&Value>())
+                    .map_err(core_error)?;
+                *target = input.fields;
+                producer
+                    .add_source_prefix(
+                        SourcePrefixInput {
+                            fields: input.fields,
+                            through: input.through,
+                        },
+                        s,
+                    )
+                    .map_err(core_error)?;
+            }
+            producer
+                .set_financial_prefix(
+                    FinancialPrefixInput {
+                        fields: financial.fields,
+                        through: financial.through,
+                    },
+                    s,
+                )
+                .map_err(core_error)?;
+            let memberships =
+                self.witness_memberships(&bodies[..sources.len()], financial.fields, s)?;
+            self.stream_memberships(&memberships, sources.len(), &mut producer, s)?;
+            producer.finish_prefixes(s).map_err(core_error)
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
     }
     fn stream_memberships(
         &mut self,

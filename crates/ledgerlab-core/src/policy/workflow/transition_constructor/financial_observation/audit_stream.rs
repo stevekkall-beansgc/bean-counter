@@ -8,14 +8,17 @@ use serde_json::Value;
 use sha2::{Digest,Sha256};
 use std::mem;
 mod pointers;
+mod production;
+pub use production::{SourcePrefixInput,FinancialPrefixInput,ProducedOriginPrefix,ProducedOriginPrefixes};
 pub use pointers::{ValidatedOriginPointers,OriginPointerBlock,OriginPointerEntry,ORIGIN_POINTER_BLOCK,ORIGIN_POINTER_MAX_BYTES,OriginPointerBatch,PreparedOriginBatch,ORIGIN_POINTER_BATCH,ORIGIN_POINTER_BATCH_WORDS};
 
 pub enum OriginWitness { Financial,Source(usize) }
-struct Prefix<'a>{reference:&'a ExactRef,hash:Sha256,expected:String,expected_count:u64,through:u64,count:u64}
+struct ExpectedPrefix<'a>{reference:&'a ExactRef,digest:String,count:u64}
+struct Prefix<'a>{hash:Sha256,expected:Option<ExpectedPrefix<'a>>,through:u64,count:u64}
 pub struct EconomicAuditStream<'a>{
-    context:&'a DraftContextData,financial_ref:&'a ExactRef,
+    context:Option<&'a DraftContextData>,financial_ref:Option<&'a ExactRef>,production_key:Option<&'a OperationKey>,
     sources:Vec<Prefix<'a>>,source_count:usize,previous_source:Option<AuditedBytes>,financial:Option<Prefix<'a>>,
-    combined:Sha256,last_sequence:Option<u64>,union_count:u64,phase:u8,sealed:bool,
+    combined:Option<Sha256>,last_sequence:Option<u64>,union_count:u64,phase:u8,sealed:bool,
     cancellation:AuditCancellation,ownership:Option<ExternalBufferLease>,
 }
 pub struct RecomputedAuditDigest<'a>{context:&'a DraftContextData,financial_ref:&'a ExactRef,digest:String,cancellation:AuditCancellation,_ownership:ExternalBufferLease}
@@ -47,9 +50,10 @@ fn owning_reference(m:&mut CoreMeter,arena:&crate::canonical::audit_arena::Audit
     let kind=arena.string_value(&r.kind,m)?;let id=arena.string_value(&r.id,m)?;let digest=arena.string_value(&r.digest,m)?;
     arena.object_from_fields(&[("kind",kind.value()),("id",id.value()),("digest",digest.value())],m)
 }
-fn operation_key(m:&mut CoreMeter,arena:&crate::canonical::audit_arena::AuditArena,c:&DraftContextData)->Result<AuditedValue>{
-    let store=arena.string_value(&c.key.logical_store_id,m)?;let source=arena.string_value(&c.key.source,m)?;let id=arena.string_value(&c.key.operation_id,m)?;
-    let a=arena.string_value(&c.key.scope[0],m)?;let b=arena.string_value(&c.key.scope[1],m)?;let scope=arena.array_from_values(&[a.value(),b.value()],m)?;
+fn operation_key(m:&mut CoreMeter,arena:&crate::canonical::audit_arena::AuditArena,c:&DraftContextData)->Result<AuditedValue>{operation_key_value(m,arena,&c.key)}
+fn operation_key_value(m:&mut CoreMeter,arena:&crate::canonical::audit_arena::AuditArena,key:&OperationKey)->Result<AuditedValue>{
+    let store=arena.string_value(&key.logical_store_id,m)?;let source=arena.string_value(&key.source,m)?;let id=arena.string_value(&key.operation_id,m)?;
+    let a=arena.string_value(&key.scope[0],m)?;let b=arena.string_value(&key.scope[1],m)?;let scope=arena.array_from_values(&[a.value(),b.value()],m)?;
     arena.object_from_fields(&[("logical_store_id",store.value()),("scope",scope.value()),("source",source.value()),("operation_id",id.value())],m)
 }
 
@@ -58,6 +62,13 @@ fn syntax(m:&mut CoreMeter,h:&mut Sha256,b:&[u8])->Result<()>{m.write_bytes(b.le
 fn part(m:&mut CoreMeter,h:&mut Sha256,v:&Value)->Result<()>{
     let arena=m.representation_arena().ok_or_else(||fail("owning audit commitment"))?;
     let encoded=m.canonical_owned_representation(&arena,v,RepresentationKind::Record)?;bytes(m,h,encoded.bytes())
+}
+const SOURCE_PREFIX_KEYS:&[&str]=&["logical_store_id","scope","root_ref","enrollment_ref","current_state_ref","original_grant_refs","verifier_ref"];
+const FINANCIAL_PREFIX_KEYS:&[&str]=&["logical_store_id","scope","root_ref","pending_operation_key","snapshot_through_sequence","preexisting_input_refs","history_edges","head_pins","verifier_ref"];
+fn prefix_start(m:&mut CoreMeter,domain:&'static [u8],keys:&[&str],label:&'static str,seed:&Value)->Result<Sha256>{
+    let mut hash=start(m,domain)?;
+    for(i,key)in keys.iter().enumerate(){m.visit(label)?;if i>0{syntax(m,&mut hash,b",")?;}let value=shape::field(m,seed,key)?;part(m,&mut hash,value)?;}
+    syntax(m,&mut hash,b",[")?;Ok(hash)
 }
 fn start(m:&mut CoreMeter,domain:&'static [u8])->Result<Sha256>{let mut h=Sha256::new();bytes(m,&mut h,domain)?;syntax(m,&mut h,b"[")?;Ok(h)}
 fn add(m:&mut CoreMeter,n:u64)->Result<u64>{ValidationWork::arithmetic(m,ArithmeticOperation::Add,&[&n.into(),&1u64.into()])?;n.checked_add(1).ok_or_else(||fail("audit count overflow"))}
@@ -104,7 +115,7 @@ impl<'a> EconomicAuditStream<'a>{
             let mut sources=Vec::new();sources.try_reserve_exact(count).map_err(|_|fail("audit source-state vector"))?;
             let key=operation_key(m,&arena,context)?;
             let mut combined=start(m,b"bean-counter/economic-origin-audits/1\0")?;part(m,&mut combined,key.value())?;syntax(m,&mut combined,b",[")?;
-            Ok(Self{context,financial_ref,sources,source_count:count,previous_source:None,financial:None,combined,last_sequence:None,union_count:0,phase:0,sealed:false,cancellation:arena.cancellation_handle(),ownership:Some(ownership)})
+            Ok(Self{context:Some(context),financial_ref:Some(financial_ref),production_key:None,sources,source_count:count,previous_source:None,financial:None,combined:Some(combined),last_sequence:None,union_count:0,phase:0,sealed:false,cancellation:arena.cancellation_handle(),ownership:Some(ownership)})
         })();if result.is_err(){session.invalidate();}result
     }
     fn check_owner(&self,s:&mut OriginalAuditSession)->Result<()>{
@@ -117,17 +128,17 @@ impl<'a> EconomicAuditStream<'a>{
         let result=(||{
             self.check_owner(s)?;let arena=s.arena().shared_handle();let m=s.meter_mut();
             if !w::compare(m,self.phase,0u8)?.is_eq()||!w::compare(m,self.sources.len(),self.source_count)?.is_lt(){return Err(fail("audit source header phase/count"));}
-            let mut selected=None;for a in &self.context.authorities{m.visit("audit.source_header_association")?;if shape::same_ref(m,&a.authority_observation_ref,reference)?{selected=Some(&a.authority_observation_ref);break;}}
+            let context=self.context.ok_or_else(||fail("verification requires original context"))?;
+            let combined=self.combined.as_mut().ok_or_else(||fail("verification requires combined header"))?;
+            let mut selected=None;for a in &context.authorities{m.visit("audit.source_header_association")?;if shape::same_ref(m,&a.authority_observation_ref,reference)?{selected=Some(&a.authority_observation_ref);break;}}
             let selected=selected.ok_or_else(||fail("audit source header absent from actual source frames"))?;records::reference(m,selected)?;
             let value=owning_reference(m,&arena,selected)?;let order=m.canonical_owned_representation(&arena,value.value(),RepresentationKind::SourceDefinition)?;
             if let Some(previous)=&self.previous_source{if !shape::byte_order(m,previous.bytes(),order.bytes())?.is_lt(){return Err(fail("audit source header order/duplicate"));}}
-            common_header(m,observation,self.context)?;
+            common_header(m,observation,context)?;
             exact_header(m,reference,observation,"workflow-authority-prefix-observation","ledger-workflow-authority-prefix-observation/1",br#""ledger-workflow-authority-prefix-observation/1""#)?;
-            let mut hash=start(m,b"bean-counter/authority-origin-prefix/1\0")?;
-            for(i,key)in["logical_store_id","scope","root_ref","enrollment_ref","current_state_ref","original_grant_refs","verifier_ref"].iter().enumerate(){m.visit("audit.source_header_part")?;if i>0{syntax(m,&mut hash,b",")?;}let value=shape::field(m,observation,key)?;part(m,&mut hash,value)?;}
-            syntax(m,&mut hash,b",[")?;
-            let state=Prefix{reference:selected,hash,expected:expected(m,selected,observation)?,expected_count:counter(m,observation,"origin_count")?,through:counter(m,observation,"verified_through_sequence")?,count:0};
-            if !self.sources.is_empty(){syntax(m,&mut self.combined,b",")?;}bytes(m,&mut self.combined,order.bytes())?;self.previous_source=Some(order);
+            let hash=prefix_start(m,b"bean-counter/authority-origin-prefix/1\0",SOURCE_PREFIX_KEYS,"audit.source_header_part",observation)?;
+            let state=Prefix{hash,expected:Some(ExpectedPrefix{reference:selected,digest:expected(m,selected,observation)?,count:counter(m,observation,"origin_count")?}),through:counter(m,observation,"verified_through_sequence")?,count:0};
+            if !self.sources.is_empty(){syntax(m,combined,b",")?;}bytes(m,combined,order.bytes())?;self.previous_source=Some(order);
             let index=self.sources.len();self.sources.push(state);Ok(index)
         })();self.terminal(s,result)
     }
@@ -135,18 +146,19 @@ impl<'a> EconomicAuditStream<'a>{
         let result=(||{
             self.check_owner(s)?;let arena=s.arena().shared_handle();let m=s.meter_mut();
             if !w::compare(m,self.phase,0u8)?.is_eq()||!w::compare(m,self.sources.len(),self.source_count)?.is_eq()||self.financial.is_some(){return Err(fail("audit financial header phase"));}
-            if !shape::same_ref(m,reference,self.financial_ref)?{return Err(fail("audit financial exact observation"));}
-            common_header(m,observation,self.context)?;let key=operation_key(m,&arena,self.context)?;shape::equal(m,&observation["pending_operation_key"],key.value())?;
+            let context=self.context.ok_or_else(||fail("verification requires original context"))?;
+            let financial_ref=self.financial_ref.ok_or_else(||fail("verification requires financial Ref"))?;
+            let combined=self.combined.as_mut().ok_or_else(||fail("verification requires combined header"))?;
+            if !shape::same_ref(m,reference,financial_ref)?{return Err(fail("audit financial exact observation"));}
+            common_header(m,observation,context)?;let key=operation_key(m,&arena,context)?;shape::equal(m,&observation["pending_operation_key"],key.value())?;
             exact_header(m,reference,observation,"workflow-financial-history-observation","ledger-workflow-financial-history-observation/3",br#""ledger-workflow-financial-history-observation/3""#)?;
-            let mut hash=start(m,b"bean-counter/financial-origin-prefix/1\0")?;
-            for(i,key)in["logical_store_id","scope","root_ref","pending_operation_key","snapshot_through_sequence","preexisting_input_refs","history_edges","head_pins","verifier_ref"].iter().enumerate(){m.visit("audit.financial_header_part")?;if i>0{syntax(m,&mut hash,b",")?;}let value=shape::field(m,observation,key)?;part(m,&mut hash,value)?;}
-            syntax(m,&mut hash,b",[")?;
-            self.financial=Some(Prefix{reference:self.financial_ref,hash,expected:expected(m,reference,observation)?,expected_count:counter(m,observation,"origin_count")?,through:counter(m,observation,"snapshot_through_sequence")?,count:0});
-            syntax(m,&mut self.combined,b"],")?;let reference=owning_reference(m,&arena,reference)?;part(m,&mut self.combined,reference.value())?;syntax(m,&mut self.combined,b",[")?;
+            let hash=prefix_start(m,b"bean-counter/financial-origin-prefix/1\0",FINANCIAL_PREFIX_KEYS,"audit.financial_header_part",observation)?;
+            self.financial=Some(Prefix{hash,expected:Some(ExpectedPrefix{reference:financial_ref,digest:expected(m,reference,observation)?,count:counter(m,observation,"origin_count")?}),through:counter(m,observation,"snapshot_through_sequence")?,count:0});
+            syntax(m,combined,b"],")?;let reference=owning_reference(m,&arena,reference)?;part(m,combined,reference.value())?;syntax(m,combined,b",[")?;
             self.phase=1;Ok(())
         })();self.terminal(s,result)
     }
-    pub fn source_observation_ref(&self,index:usize)->Option<&ExactRef>{self.sources.get(index).map(|s|s.reference)}
+    pub fn source_observation_ref(&self,index:usize)->Option<&ExactRef>{self.sources.get(index).and_then(|s|s.expected.as_ref().map(|e|e.reference))}
     /// The original's SAME owner includes its actual pre/core/post work. One
     /// union pointer is delivered once, with all actual witness memberships.
     pub fn push_origin(&mut self,pointer:&AuditedValue,memberships:&[OriginWitness],s:&mut OriginalAuditSession)->Result<()>{
@@ -164,15 +176,15 @@ impl<'a> EconomicAuditStream<'a>{
                 let state=match member{OriginWitness::Financial=>self.financial.as_mut().ok_or_else(||fail("audit financial header missing"))?,OriginWitness::Source(index)=>{if !w::compare(m,*index,self.sources.len())?.is_lt(){return Err(fail("audit source membership index"));}&mut self.sources[*index]}};
                 if w::compare(m,sequence,state.through)?.is_gt(){return Err(fail("audit pointer exceeds snapshot"));}if !w::compare(m,state.count,0u64)?.is_eq(){syntax(m,&mut state.hash,b",")?;}bytes(m,&mut state.hash,encoded.bytes())?;state.count=add(m,state.count)?;
             }
-            if !w::compare(m,self.union_count,0u64)?.is_eq(){syntax(m,&mut self.combined,b",")?;}bytes(m,&mut self.combined,encoded.bytes())?;self.union_count=add(m,self.union_count)?;self.last_sequence=Some(sequence);Ok(())
+            if let Some(combined)=self.combined.as_mut(){if !w::compare(m,self.union_count,0u64)?.is_eq(){syntax(m,combined,b",")?;}bytes(m,combined,encoded.bytes())?;}self.union_count=add(m,self.union_count)?;self.last_sequence=Some(sequence);Ok(())
         })();self.terminal(s,result)
     }
     pub fn finish(mut self,s:&mut OriginalAuditSession)->Result<RecomputedAuditDigest<'a>>{
         let result=(||{
             self.check_owner(s)?;let m=s.meter_mut();if !w::compare(m,self.phase,1u8)?.is_eq(){return Err(fail("audit unfinished headers"));}
-            for state in self.sources.iter_mut().chain(self.financial.iter_mut()){m.visit("audit.witness_finish")?;if !w::compare(m,state.count,state.expected_count)?.is_eq(){return Err(fail("audit witness origin count mismatch"));}syntax(m,&mut state.hash,b"]]")?;let hash=state.hash.clone().finalize();let text=canonical::hex_with_work(&hash,m)?;if !shape::same_text(m,state.expected.get(7..).unwrap_or(""),&text)?{return Err(fail("audit witness prefix mismatch"));}}
-            syntax(m,&mut self.combined,b"]]")?;let hash=self.combined.clone().finalize();let text=canonical::hex_with_work(&hash,m)?;m.write_bytes(71)?;let digest=format!("sha256:{text}");
-            let ownership=self.ownership.take().ok_or_else(||fail("audit stream owner missing"))?;self.sealed=true;Ok(RecomputedAuditDigest{context:self.context,financial_ref:self.financial_ref,digest,cancellation:self.cancellation.clone(),_ownership:ownership})
+            for state in self.sources.iter_mut().chain(self.financial.iter_mut()){m.visit("audit.witness_finish")?;let expected=state.expected.as_ref().ok_or_else(||fail("verification requires expected prefix"))?;if !w::compare(m,state.count,expected.count)?.is_eq(){return Err(fail("audit witness origin count mismatch"));}syntax(m,&mut state.hash,b"]]")?;let hash=state.hash.clone().finalize();let text=canonical::hex_with_work(&hash,m)?;if !shape::same_text(m,expected.digest.get(7..).unwrap_or(""),&text)?{return Err(fail("audit witness prefix mismatch"));}}
+            let combined=self.combined.as_mut().ok_or_else(||fail("verification requires combined header"))?;syntax(m,combined,b"]]")?;let hash=combined.clone().finalize();let text=canonical::hex_with_work(&hash,m)?;m.write_bytes(71)?;let digest=format!("sha256:{text}");
+            let ownership=self.ownership.take().ok_or_else(||fail("audit stream owner missing"))?;self.sealed=true;Ok(RecomputedAuditDigest{context:self.context.ok_or_else(||fail("verification requires original context"))?,financial_ref:self.financial_ref.ok_or_else(||fail("verification requires financial Ref"))?,digest,cancellation:self.cancellation.clone(),_ownership:ownership})
         })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
     }
 }
@@ -223,6 +235,30 @@ mod tests{
         long_financial["prefix_digest"]=json!(records::hash(&mut old,"financial-origin-prefix",&json!(["store",["org","scope"],financial["root_ref"],key("pending"),"33",[],[],[],financial["verifier_ref"],long_pointers])).unwrap());
         let long_document=super::super::super::body::document(&mut old,"workflow-financial-history-observation",long_financial.clone()).unwrap();
         let long_combined=records::hash(&mut old,"economic-origin-audits",&json!([key("pending"),[source_document.reference],long_document.reference,long_pointers])).unwrap();
+        // Actual first-pass producer uses no Observation Ref or expected
+        // prefix/count. These are commitment-only synthetic inputs, just as
+        // the verifier parity cases below; no origin completion is asserted.
+        {
+            let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let pending=key("pending");
+            let mut source_seed=source.clone();source_seed.as_object_mut().unwrap().remove("prefix_digest");source_seed.as_object_mut().unwrap().remove("origin_count");
+            let mut financial_seed=financial.clone();financial_seed.as_object_mut().unwrap().remove("prefix_digest");financial_seed.as_object_mut().unwrap().remove("origin_count");
+            let mut table=ValidatedOriginPointers::new(&mut session).unwrap();
+            for pointer in [&first,&second]{let owner=session.parse_representation(&encoded(pointer),RepresentationKind::Record).unwrap();table.record(&owner,&mut session).unwrap();}
+            let mut producer=EconomicAuditStream::prefix_producer(&pending,1,&mut session).unwrap();
+            producer.add_source_prefix(SourcePrefixInput{fields:&source_seed,through:2},&mut session).unwrap();
+            producer.set_financial_prefix(FinancialPrefixInput{fields:&financial_seed,through:2},&mut session).unwrap();
+            let batch=table.batch(0,&mut session).unwrap();
+            let mut prepared=producer.prepare_origin_batch(&batch,&[3],&[&[1]],&mut session).unwrap();
+            let a=encoded(&first);let b=encoded(&second);prepared.push_chunk(&[&a,&b],&mut session).unwrap();prepared.finish(&mut session).unwrap();
+            let prefixes=producer.finish_prefixes(&mut session).unwrap();
+            assert_eq!(prefixes.sources()[0].prefix_digest(),source["prefix_digest"].as_str().unwrap());assert_eq!(prefixes.sources()[0].origin_count(),1);
+            assert_eq!(prefixes.financial().prefix_digest(),financial["prefix_digest"].as_str().unwrap());assert_eq!(prefixes.financial().origin_count(),2);
+            // First-pass output cannot escape through the verifier capability.
+            let mut bad=EconomicAuditStream::prefix_producer(&pending,0,&mut session).unwrap();
+            financial_seed["pending_operation_key"]=json!(key("different"));
+            assert!(bad.set_financial_prefix(FinancialPrefixInput{fields:&financial_seed,through:2},&mut session).is_err());assert!(session.check_cancelled().is_err());
+        }
         for mode in 0..15{
             let financial=if mode>=11{&long_financial}else{&financial};
             let financial_document=if mode>=11{&long_document}else{&financial_document};
