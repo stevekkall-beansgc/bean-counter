@@ -42,11 +42,10 @@ fn pin(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,value:&serde_json::Va
 pub(in crate::policy::workflow::transition_constructor) fn select(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,state:&EconomicStateData)->Result<CheckedObservation>{
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning financial observation"))?;
     let pair=state.observation.ok_or_else(||shape::fail("complete financial observation pair missing"))?;
-    let views=[pair.observation,pair.verification];let mut local=Records::borrowed_app(m,&arena,&c.key,&views,&[])?;
-    let observation=local.get(m,&c.key,pair.observation.reference,"workflow-financial-history-observation","ledger-workflow-financial-history-observation/3")?;
+    let observation=r.observation_output(m,&c.key,pair.observation,"workflow-financial-history-observation","ledger-workflow-financial-history-observation/3")?;
     shape::closed(m,&observation,&["schema","logical_store_id","scope","installation_mode","root_ref","pending_operation_key","snapshot_through_sequence","preexisting_input_refs","history_edges","head_pins","verifier_ref","prefix_digest","origin_count","document_count","audited_retained_bytes","observed_at"],&[])?;
     let verifier_ref=parse_owned_reference(m,&arena,&observation["verifier_ref"])?;if !shape::same_ref(m,verifier_ref.reference(),pair.verification.reference)?{return Err(shape::fail("financial observation exact verifier pair"));}
-    let verification=local.get(m,&c.key,pair.verification.reference,"workflow-authority-audit-verifier","ledger-authority-audit-verifier/2")?;
+    let verification=r.observation_output(m,&c.key,pair.verification,"workflow-authority-audit-verifier","ledger-authority-audit-verifier/2")?;
     shape::closed(m,&verification,&["schema","profile","algorithm","resources","artifacts","origin_recipes"],&[])?;
     literal(m,&verification,"profile","ledger-financial-origin-audit/1")?;literal(m,&verification,"algorithm","verified-introduction-fixed-point/1")?;literal(m,&verification,"resources","workflow-profile-b-origin-audit/1")?;
     let key=super::super::cost_postings::operation_key(m,&arena,c)?;shape::equal(m,&observation["pending_operation_key"],key.value())?;

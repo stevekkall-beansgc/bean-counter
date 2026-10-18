@@ -1,5 +1,5 @@
 // Closed operation names transcribed from pinned agreement-ready.schema.json SHA256 1f5764768505214a2b5c143b87a198d56671eef1363f9ed574b4b15c71c4943b
-const OPERATIONS: &[&str] = &[
+pub(in crate::policy::workflow::transition_constructor) const OPERATIONS: &[&str] = &[
     "installation.initialize",
     "installation.upgrade",
     "evidence.retain",
@@ -214,6 +214,7 @@ pub(in crate::policy::workflow::transition_constructor) fn initial(
                 &c.authorities[0].enrollment_ref,
                 &c.authorities[0].current_state_ref,
                 &c.authorities[0].current_grant_ref,
+                false,
             )
         });
     }
@@ -230,6 +231,7 @@ pub(in crate::policy::workflow::transition_constructor) fn initial(
         &c.authorities[0].enrollment_ref,
         &c.authorities[0].current_state_ref,
         &c.authorities[0].current_grant_ref,
+        false,
     )
 }
 /// Exact initial birth operands remain separate from a later current source
@@ -247,11 +249,12 @@ pub(in crate::policy::workflow::transition_constructor) fn birth(
     state_ref: &ExactRef,
     grant_ref: &ExactRef,
 ) -> Result<RecordBody> {
-    if let Some(registered)=r.source_birth_facts(m,c,enrollment,state,grant,customer,enrollment_ref,state_ref,grant_ref)?{return Ok(registered);}
+    let checked=r.source_birth_facts(m,c,enrollment,state,grant,customer,enrollment_ref,state_ref,grant_ref)?;
+    if let Some(registered)=checked.registered{return Ok(registered);}
     let registered=initial_data(
-        m,r,c,o,enrollment,state,grant,customer,enrollment_ref,state_ref,grant_ref,
+        m,r,c,o,enrollment,state,grant,customer,enrollment_ref,state_ref,grant_ref,checked.outputs,
     )?;
-    r.remember_source_birth(m,c,enrollment,state,grant,enrollment_ref,state_ref,grant_ref,&registered)?;
+    r.remember_source_birth(m,c,&checked,&registered)?;
     Ok(registered)
 }
 fn initial_data(
@@ -266,7 +269,9 @@ fn initial_data(
     enrollment_ref: &ExactRef,
     state_ref: &ExactRef,
     grant_ref: &ExactRef,
+    produced:bool,
 ) -> Result<RecordBody> {
+    if !produced {
     invoke!(
         shape::closed,
         m,
@@ -288,10 +293,13 @@ fn initial_data(
     let mut grant_fields = CEILING.to_vec();
     grant_fields.extend(["schema", "grant_id", "revision", "original_ceiling_ref"]);
     shape::closed(m, grant, &grant_fields, &[])?;
+    }
     let ceiling = invoke!(shape::field, m, enrollment, "ceiling")?;
     invoke!(shape::closed, m, ceiling, CEILING, &[])?;
+    if !produced {
     for k in CEILING {
         invoke!(copy, m, grant, k, ceiling, k)?;
+    }
     }
     invoke!(opaque, m, ceiling, "principal_id", 128)?;
     for k in ["source", "canonical_economic_namespace"] {
@@ -367,11 +375,12 @@ fn initial_data(
             }
         }
     }
-    let start = invoke!(time, m, ceiling, "starts_at")?;
-    let end = invoke!(time, m, ceiling, "ends_at")?;
+    let start = invoke!(time_owned, m, o, ceiling, "starts_at")?;
+    let end = invoke!(time_owned, m, o, ceiling, "ends_at")?;
     if !invoke!(meter::cmp, m, &start, &end)?.is_lt() {
         return Err(shape::fail("ceiling interval"));
     }
+    if !produced {
     invoke!(
         shape::closed,
         m,
@@ -395,18 +404,20 @@ fn initial_data(
     invoke!(eq, m, grant, "original_ceiling_ref", &json!(enrollment_ref))?;
     invoke!(eq, m, grant, "revision", &json!("1"))?;
     invoke!(copy, m, grant, "grant_id", enrollment, "enrollment_id")?;
+    }
     invoke!(
-        before,
+        before_owned,
         m,
+        o,
         state,
         "accepted_at",
         &json!({"accepted_at":c.accepted_at}),
         "accepted_at"
     )?;
     invoke!(key, m, invoke!(shape::field, m, state, "operation_key")?, c)?;
-    invoke!(copy, m, state, "actor", enrollment, "enrolled_by")?;
+    if !produced {invoke!(copy, m, state, "actor", enrollment, "enrolled_by")?;}
     invoke!(copy, m, ceiling, "principal_id", enrollment, "enrolled_by")?;
-    invoke!(copy, m, state, "accepted_at", enrollment, "enrolled_at")?;
+    if !produced {invoke!(copy, m, state, "accepted_at", enrollment, "enrolled_at")?;}
     invoke!(
         eq,
         m,
@@ -456,8 +467,9 @@ fn initial_data(
     )?;
     invoke!(name, m, &registered, "acceptor")?;
     invoke!(
-        before,
+        before_owned,
         m,
+        o,
         &registered,
         "registered_at",
         enrollment,
@@ -543,6 +555,7 @@ fn initial_data(
         data_field!(m, enrollment, "enrolled_by"),
         None
     )?;
+    if !produced {
     let expected = invoke!(
         body::semantic_id,
         m,
@@ -556,5 +569,6 @@ fn initial_data(
         ])
     )?;
     invoke!(eq, m, &json!({"id":state_ref.id}), "id", &json!(expected))?;
+    }
     Ok(registered)
 }

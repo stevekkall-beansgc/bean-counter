@@ -100,7 +100,7 @@ pub(super) fn execute<'inv, 'raw>(
 }
 /// SAME monetary interpreter with the actual held extra app/capacity/party
 /// state. No caller-ready flag and no independent meter/budget is introduced.
-pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,payload:&[u8],inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData,m:&mut CoreMeter)->Result<Construction<'raw,'raw>>{
+pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,payload:&[u8],inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'raw>,m:&mut CoreMeter)->Result<Construction<'raw,'raw>>{
     m.begin_request(payload)?;m.phase(Phase::ParseNormalize);
     let p=super::working_value::WorkingValue::parse(m,payload)?;
     let arena=m.representation_arena().ok_or_else(||shape::fail("complete constructor requires owning resource session"))?;
@@ -115,7 +115,7 @@ pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftConte
             return Ok(construction);
         }
     }
-    let mut construction=execute_parsed(program,c,p,SuppliedRecords::BorrowedApp{records:inputs,arena},state.financial,Some(state),m,None)?;
+    let mut construction=execute_parsed(program,c,p,SuppliedRecords::BorrowedApp{records:inputs,arena,sources:state.initial_source_correspondences},state.financial,Some(state),m,None)?;
     if program.uses_app_owned_cost_recipe(){super::app_cost::check_current_consent(program,m,&mut construction.records,c,&construction.economic.terms.binding,&construction.economic.terms.accepted,state)?;}
     construction.candidate_heads=Some(super::candidate::heads::derive(m,c,state,&construction)?);
     construction.candidate_introductions=Some(super::candidate::introductions::derive(m,c,&construction)?);
@@ -224,6 +224,13 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
     {
         return Err(shape::fail("received after accepted"));
     }
+    let (product,activity,legacy_activity_name)=if m.representation_arena().is_some(){
+        // Parent DATA preselection and this consuming child execute the SAME
+        // locator independently. No parent tuple replaces semantic work here.
+        let(product,activity)=super::input_selection::work_activity(program,&p,m)?;
+        (product,activity,None)
+    }else{
+    // Preserve the old non-RP01 draft's exact traversal and paid trace.
     let mut product = None;
     for d in program.source_documents() {
         m.visit("draft.product_ref")?;
@@ -241,6 +248,9 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
     if !shape::same(m, &p["fact_schema_ref"], &activity["fact_schema"])? {
         return Err(shape::fail("fact schema relation"));
     }
+    (product,activity,Some(activity_name))
+    };
+    let activity_name=match &legacy_activity_name{Some(name)=>name.as_str(),None=>shape::text(m,activity,"name")?};
     let mut schema = None;
     for (reference, s) in program.fact_schemas() {
         m.visit("draft.schema_lookup")?;
@@ -269,7 +279,8 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
         return Err(shape::fail("original plan substitution"));
     }
     let agreement = &a.binding["agreement_id"];
-    let claim_id = body::semantic_id(
+    let claim_id = if m.representation_arena().is_some(){super::work_keys::claim(m,&c.key,&c.canonical_economic_namespace,&p)?}else{
+        body::semantic_id(
         m,
         "wclaim_",
         "workflow-work-claim",
@@ -280,7 +291,8 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
             p["business_operation_id"],
             "completion"
         ]),
-    )?;
+    )?
+    };
     for claim in &state.work_claims {
         let prior = r.get(
             m,
@@ -294,7 +306,8 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
             return Err(Error::new("IDENTITY_CONFLICT", "permanent work claim"));
         }
     }
-    let work_id = body::semantic_id(
+    let work_id = if m.representation_arena().is_some(){super::work_keys::event(m,&c.key,&p)?}else{
+        body::semantic_id(
         m,
         "wevent_",
         "workflow-event",
@@ -304,7 +317,8 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
             c.key.source,
             p["external_event_id"]
         ]),
-    )?;
+    )?
+    };
     let work = body::record(
         m,
         &c.key,
@@ -337,12 +351,14 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
         claim_id.clone(),
         json!({"schema":"ledger-workflow-work-claim/1","logical_store_id":c.key.logical_store_id,"scope":c.key.scope,"source_namespace":c.canonical_economic_namespace,"business_operation_id":p["business_operation_id"],"completion":"completion","work_ref":work.reference,"facts_digest":facts_digest}),
     )?;
-    let decision_id = body::semantic_id(
+    let decision_id = if m.representation_arena().is_some(){super::work_keys::decision(m,&claim_id)?}else{
+        body::semantic_id(
         m,
         "wdecision_",
         "workflow-decision",
         &json!([claim_id, "work"]),
-    )?;
+    )?
+    };
     let prices = pricing::work(program, &activity_name, &p["facts"], m)?;
     super::inventory::entry::quantities(m, &a.binding, &a.slot_terms, &activity_name, &p["facts"])?;
     let mut total = num_bigint::BigInt::from(0);

@@ -114,6 +114,15 @@ pub(super) fn time(m: &mut CoreMeter, v: &Value, k: &str) -> Result<BigInt> {
     .micros()
     .into())
 }
+pub(in crate::policy::workflow::transition_constructor) fn time_owned(m:&mut CoreMeter,o:&InvocationToken,v:&Value,k:&str)->Result<BigInt>{
+    let raw=shape::text(m,v,k)?;
+    Ok(o.timestamp(m,raw,super::super::meter::timestamp_site(k))?.micros().into())
+}
+pub(super) fn before_owned(m:&mut CoreMeter,o:&InvocationToken,a:&Value,ak:&str,b:&Value,bk:&str)->Result<()>{
+    let a=time_owned(m,o,a,ak)?;let b=time_owned(m,o,b,bk)?;
+    if meter::cmp(m,&a,&b)?.is_gt(){return Err(shape::fail("captured time order"));}
+    Ok(())
+}
 pub(super) fn decimal(m: &mut CoreMeter, v: &Value, k: &str) -> Result<arithmetic::Ratio> {
     let text = shape::text(m, v, k)?;
     let value = arithmetic::decimal(m, text)?;

@@ -328,7 +328,8 @@ pub(super) fn build(
             return Err(fail("negative original target net"));
         }
         let basis = body::ref_set(m, basis)?;
-        let target_id = body::semantic_id(
+        let target_id=if m.representation_arena().is_some(){super::work_keys::target(m,&c.key,&operands.binding["agreement_id"],&claim.reference.id,&root_slot)?}else{
+            body::semantic_id(
             m,
             "wtarget_",
             "workflow-target",
@@ -338,7 +339,8 @@ pub(super) fn build(
                 claim.reference.id,
                 root_slot
             ]),
-        )?;
+        )?
+        };
         let mut target_families = vec![];
         let mut family_states = vec![];
         let mut total_discount = BigInt::from(0);

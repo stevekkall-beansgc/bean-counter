@@ -358,3 +358,33 @@ fn connected_causal_repairs_chain_validates_actual_nonempty_immutable_links() {
         .is_err()
     );
 }
+
+#[test]
+fn rp01_timestamp_memo_exact_bytes_owner_fallback_and_legacy_parity(){
+    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession,domain::Timestamp};
+    let arena=AuditArena::new().unwrap();
+    let before=arena.usage().unwrap();
+    let token=InvocationToken::new();
+    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let raw="2026-10-18T01:00:00.000000Z";
+    let first=token.timestamp(session.meter_mut(),raw,"test.timestamp").unwrap().micros();
+    assert_eq!(first,Timestamp::parse(raw).unwrap().micros());
+    let parsed=Some(token.memo_len());
+    assert_eq!(parsed,Some(1));
+    assert_eq!(token.timestamp(session.meter_mut(),raw,"test.timestamp").unwrap().micros(),first);
+    assert_eq!(token.memo_len(),1);
+    assert!(token.timestamp(session.meter_mut(),"2026-02-30T00:00:00.000000Z","test.timestamp").is_err());
+    assert_eq!(token.memo_len(),1);
+    // Fill the optimization and execute the ordinary parser beyond it: no
+    // otherwise-valid timestamp is refused because the memo has no room.
+    for second in 1..=33 {
+        let text=format!("2026-10-18T01:00:{second:02}.000000Z");
+        assert_eq!(token.timestamp(session.meter_mut(),&text,"test.timestamp").unwrap().micros(),Timestamp::parse(&text).unwrap().micros());
+    }
+    assert_eq!(token.memo_len(),32);
+    let other=AuditArena::new().unwrap();
+    let mut other_session=OriginalAuditSession::for_resource_profile_v2(&other).unwrap();
+    assert!(token.timestamp(other_session.meter_mut(),raw,"test.timestamp").is_err());
+    drop(token);drop(session);
+    assert_eq!(arena.usage().unwrap().live_bytes,before.live_bytes);
+}

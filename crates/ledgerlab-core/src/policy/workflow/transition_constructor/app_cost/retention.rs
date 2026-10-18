@@ -69,6 +69,7 @@ pub(in crate::policy::workflow::transition_constructor) fn execute(program:&Sele
     let work_ref=shape::reference(m,&subject["original_work_ref"])?;
     let slot=shape::text(m,subject,"component_slot")?;
     let mut r=Records::borrowed_app(m,arena,&c.key,inputs,&c.source_observation_inputs)?;
+    r.install_initial_source_outputs(m,state.initial_source_correspondences)?;
     let original=original::select(m,&mut r,c,program,&work_ref,slot,state)?;
     let mut observation=None;
     let source_slot=if observe {

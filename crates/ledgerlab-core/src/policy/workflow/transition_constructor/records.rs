@@ -158,7 +158,7 @@ pub(super) fn reference_parts(m:&mut CoreMeter,kind:&str,id:&str,digest:&str)->R
 /// legacy draft keeps its original independent raw input behavior.
 pub(super) enum SuppliedRecords<'a> {
     Legacy(&'a [RecordInput]),
-    BorrowedApp {records:&'a [EconomicRecordView<'a>],arena:AuditArena},
+    BorrowedApp {records:&'a [EconomicRecordView<'a>],arena:AuditArena,sources:&'a [&'a super::source_records::InitialSourceCorrespondence]},
     Borrowed {
         records: &'a [EconomicRecordView<'a>],
         arena: &'a AuditArena,
@@ -180,7 +180,10 @@ impl<'a> SuppliedRecords<'a> {
                 pool.extend_from_slice(pending);
                 Records::new(m, &pool)
             }
-            Self::BorrowedApp{records,arena}=>Records::borrowed_app(m,&arena,key,records,pending),
+            Self::BorrowedApp{records,arena,sources}=>{
+                let mut result=Records::borrowed_app(m,&arena,key,records,pending)?;
+                result.install_initial_source_outputs(m,sources)?;Ok(result)
+            },
             Self::Borrowed { records, arena } => Records::borrowed(m, arena, key, records, pending),
         }
     }
@@ -209,6 +212,11 @@ struct SourceBirthFacts {
 }
 struct SourceObservationFacts {state:RecordBody,verifier:RecordBody,root:RecordBody}
 struct SourceGrantFacts {ceiling_position:usize,at:i64,accepted:[u8;32],accepted_len:usize}
+struct SourceOutputFacts {bytes:[u8;285],_ownership:ExternalBufferLease}
+pub(super) struct SourceBirthCheck {
+    pub registered:Option<RecordBody>,pub outputs:bool,
+    positions:Option<(usize,usize,usize)>,owner:usize,
+}
 // Input partition DATA from the existing separate constructor parameters.
 // This does not authenticate introduction; the held chronological owner must
 // independently establish that partition. A pending header is never old I.
@@ -231,6 +239,9 @@ struct Operand<'inv, 'raw> {
     source_birth:Option<SourceBirthFacts>,
     source_grant:Option<SourceGrantFacts>,
     source_observation:Option<SourceObservationFacts>,
+    // Only the SAME producer's exact immutable output correspondence. This
+    // does not include historical authority, custody or consumer predicates.
+    initial_source_outputs:Option<Box<SourceOutputFacts>>,
 }
 pub(super) struct Records<'inv, 'raw> {
     operands: Vec<Operand<'inv, 'raw>>,
@@ -286,7 +297,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 canonical_frame_digest_checked: false,
                 consumed_in_invocation: false,
                 partition:OperandPartition::Preexisting,
-                source_birth:None,source_grant:None,source_observation:None,
+                source_birth:None,source_grant:None,source_observation:None,initial_source_outputs:None,
             });
         }
         Ok(Self {
@@ -429,7 +440,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 canonical_frame_digest_checked: false,
                 consumed_in_invocation: false,
                 partition,
-                source_birth:None,source_grant:None,source_observation:None,
+                source_birth:None,source_grant:None,source_observation:None,initial_source_outputs:None,
             });
         }
         m.write_bytes(2*mem::size_of::<Self>())?;
@@ -453,32 +464,70 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         m.visit("source.exact_owning_body")?;
         Ok(if super::shape::same_ref(m,&operand.reference,reference)? && operand.canonical_frame_digest_checked && operand.body.as_ref().is_some_and(|v|v.is_same_owning_value(value)){Some(position)}else{None})
     }
+    pub(super) fn install_initial_source_outputs(&mut self,m:&mut CoreMeter,facts:&[&super::source_records::InitialSourceCorrespondence])->Result<()>{
+        let Some(arena)=self.arena.as_ref() else{return Err(invalid("source construction facts require owning records"));};
+        m.visit("source.output_facts_presence")?;
+        if facts.is_empty(){return Ok(());}
+        // One bounded lookup Ref/formatting workspace. Only actual selected
+        // facts allocate a separately preadmitted immutable per-operand Box.
+        let _scratch=arena.reserve_external_payload(mem::size_of::<ExactRef>()+64+128+71+285+4*mem::size_of::<&str>(),m)?;
+        for fact in facts{
+            m.visit("source.install_actual_output_correspondence")?;
+            let parts=fact.checked_parts(arena,m)?;let digest=parts[0];
+            m.scan_bytes(71+64)?;m.write_bytes(71+69+26)?;
+            let reference=ExactRef{kind:"workflow-source-enrollment".to_owned(),id:format!("wdoc_{}",&digest[7..]),digest:digest.to_owned()};
+            let position=self.index.find_exact(m,&reference,|i|&self.operands[i].reference)?.ok_or_else(||invalid("construction fact lacks selected enrollment operand"))?;
+            m.visit("source.output_fact_unique")?;
+            if self.operands[position].initial_source_outputs.is_some(){return Err(invalid("duplicate selected source construction fact"));}
+            let ownership=arena.reserve_external_payload(2*mem::size_of::<SourceOutputFacts>()+mem::size_of::<Box<SourceOutputFacts>>(),m)?;
+            m.scan_bytes(285)?;m.write_bytes(2*285+2*mem::size_of::<SourceOutputFacts>())?;
+            let mut bytes=[0;285];
+            bytes[..71].copy_from_slice(parts[0].as_bytes());bytes[71..142].copy_from_slice(parts[1].as_bytes());
+            bytes[142..213].copy_from_slice(parts[2].as_bytes());bytes[213..].copy_from_slice(parts[3].as_bytes());
+            self.operands[position].initial_source_outputs=Some(Box::new(SourceOutputFacts{bytes,_ownership:ownership}));
+        }
+        Ok(())
+    }
+    fn initial_source_outputs(&self,m:&mut CoreMeter,e:usize,enrollment_ref:&ExactRef,state_ref:&ExactRef,grant_ref:&ExactRef)->Result<bool>{
+        m.visit("source.output_correspondence_presence")?;
+        let Some(facts)=self.operands[e].initial_source_outputs.as_ref() else{return Ok(false)};
+        let bytes=&facts.bytes;
+        Ok(super::shape::same_bytes(m,&bytes[..71],enrollment_ref.digest.as_bytes())?
+            &&super::shape::same_bytes(m,&bytes[71..142],grant_ref.digest.as_bytes())?
+            &&super::shape::same_bytes(m,&bytes[142..213],state_ref.digest.as_bytes())?
+            &&super::shape::same_bytes(m,&bytes[213..],state_ref.id.as_bytes())?
+            // Document IDs are part of the exact full Ref, even when their
+            // spelling is determined by the same body digest. Do not infer
+            // the supplied grant ID merely from a matching digest/ID family.
+            &&super::shape::same_bytes(m,grant_ref.id.as_bytes().get(..5).unwrap_or(&[]),b"wdoc_")?
+            &&super::shape::same_bytes(m,grant_ref.id.as_bytes().get(5..).unwrap_or(&[]),&bytes[78..142])?)
+    }
     fn source_context_owner(&self,m:&mut CoreMeter,c:&super::data::DraftContextData)->Result<bool>{
         let Some(owner)=self.owner_key else{return Ok(false)};
         if !super::shape::same_text(m,&owner.logical_store_id,&c.key.logical_store_id)?{return Ok(false);}
         for(a,b)in owner.scope.iter().zip(&c.key.scope){if !super::shape::same_text(m,a,b)?{return Ok(false);}}
         Ok(true)
     }
-    pub(super) fn source_birth_facts(&self,m:&mut CoreMeter,c:&super::data::DraftContextData,enrollment:&Value,state:&Value,grant:&Value,customer:&Value,enrollment_ref:&ExactRef,state_ref:&ExactRef,grant_ref:&ExactRef)->Result<Option<RecordBody>>{
-        if !self.source_context_owner(m,c)?{return Ok(None);}
-        let Some(e)=self.source_body_position(m,enrollment_ref,enrollment)?else{return Ok(None)};
-        let Some(facts)=self.operands[e].source_birth.as_ref()else{return Ok(None)};
-        let Some(s)=self.source_body_position(m,state_ref,state)?else{return Ok(None)};
-        let Some(g)=self.source_body_position(m,grant_ref,grant)?else{return Ok(None)};
-        if !w::compare(m,s,facts.state_position)?.is_eq()||!w::compare(m,g,facts.grant_position)?.is_eq(){return Ok(None);}
-        if !super::shape::same_bytes(m,c.accepted_at.as_bytes(),&facts.accepted[..facts.accepted_len])?{return Ok(None);}
+    pub(super) fn source_birth_facts(&self,m:&mut CoreMeter,c:&super::data::DraftContextData,enrollment:&Value,state:&Value,grant:&Value,customer:&Value,enrollment_ref:&ExactRef,state_ref:&ExactRef,grant_ref:&ExactRef)->Result<SourceBirthCheck>{
+        let mut check=SourceBirthCheck{registered:None,outputs:false,positions:None,owner:std::ptr::from_ref(self) as usize};
+        if !self.source_context_owner(m,c)?{return Ok(check);}
+        let Some(e)=self.source_body_position(m,enrollment_ref,enrollment)?else{return Ok(check)};
+        let Some(s)=self.source_body_position(m,state_ref,state)?else{return Ok(check)};
+        let Some(g)=self.source_body_position(m,grant_ref,grant)?else{return Ok(check)};
+        check.positions=Some((e,s,g));check.outputs=self.initial_source_outputs(m,e,enrollment_ref,state_ref,grant_ref)?;
+        let Some(facts)=self.operands[e].source_birth.as_ref()else{return Ok(check)};
+        if !w::compare(m,s,facts.state_position)?.is_eq()||!w::compare(m,g,facts.grant_position)?.is_eq(){return Ok(check);}
+        if !super::shape::same_bytes(m,c.accepted_at.as_bytes(),&facts.accepted[..facts.accepted_len])?{return Ok(check);}
         let mode=super::shape::text(m,enrollment,"installation_mode")?;
-        if !super::shape::same_text(m,mode,&c.installation_mode)?{return Ok(None);}
+        if !super::shape::same_text(m,mode,&c.installation_mode)?{return Ok(check);}
         let registered_customer=super::shape::field(m,&facts.registered,"customer")?;
         super::shape::equal(m,registered_customer,customer)?;
         m.visit("source.reuse_same_invocation_birth")?;
-        Ok(Some(facts.registered.clone()))
+        check.registered=Some(facts.registered.clone());Ok(check)
     }
-    pub(super) fn remember_source_birth(&mut self,m:&mut CoreMeter,c:&super::data::DraftContextData,enrollment:&Value,state:&Value,grant:&Value,enrollment_ref:&ExactRef,state_ref:&ExactRef,grant_ref:&ExactRef,registered:&RecordBody)->Result<()> {
-        if !self.source_context_owner(m,c)?{return Ok(());}
-        let Some(e)=self.source_body_position(m,enrollment_ref,enrollment)?else{return Ok(())};
-        let Some(s)=self.source_body_position(m,state_ref,state)?else{return Ok(())};
-        let Some(g)=self.source_body_position(m,grant_ref,grant)?else{return Ok(())};
+    pub(super) fn remember_source_birth(&mut self,m:&mut CoreMeter,c:&super::data::DraftContextData,check:&SourceBirthCheck,registered:&RecordBody)->Result<()> {
+        let Some((e,s,g))=check.positions else{return Ok(())};
+        if !m.check("source.birth_checked_inventory",||check.owner==std::ptr::from_ref(self) as usize)?{return Err(invalid("birth positions belong to another invocation inventory"));}
         if w::compare(m,c.accepted_at.len(),32usize)?.is_gt(){return Err(invalid("validated source time representation"));}
         m.scan_bytes(c.accepted_at.len())?;m.write_bytes(c.accepted_at.len())?;
         let mut accepted=[0;32];accepted[..c.accepted_at.len()].copy_from_slice(c.accepted_at.as_bytes());
@@ -608,6 +657,22 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         // Ordinary uncommitted/new operands still run their raw validator.
         Ok(None)
     }
+    /// Operand metadata is grammar-checked before this immutable table is
+    /// built. Reuse ONLY that SAME table's exact full-Ref grammar fact; every
+    /// consuming kind/schema/store/scope/body and authority check still runs.
+    /// Parent and economic child always build independent tables/charges.
+    fn checked_reference(&self,m:&mut CoreMeter,r:&ExactRef)->Result<Option<usize>>{
+        if self.arena.is_some(){
+            if let Some(position)=self.index.find_exact(m,r,|i|&self.operands[i].reference)?{
+                if super::shape::same_ref(m,&self.operands[position].reference,r)?{
+                    m.visit("resolve.same_inventory_reference_grammar")?;
+                    return Ok(Some(position));
+                }
+            }
+        }
+        // Misses and raw legacy lookups retain the ordinary grammar validator.
+        reference(m,r)?;Ok(None)
+    }
     pub(super) fn optional(
         &mut self,
         m: &mut CoreMeter,
@@ -616,6 +681,17 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         kind: &str,
         schema: &str,
     ) -> Result<Option<RecordBody>> {
+        if self.arena.is_some(){
+            let position=self.checked_reference(m,r)?;
+            m.visit("resolve.optional_identity")?;
+            if let Some(position)=position{return self.get_grammatical_schemas(m,key,r,kind,&[schema],false,Some(position)).map(Some);}
+            // In once-only identity tables, a valid but different digest at
+            // the same (kind,id) is a conflicting required Ref, not absence.
+            // Preserve the old optional miss/conflict behavior and ordering.
+            return match self.index.find_exact(m,r,|i|&self.operands[i].reference)?{
+                None=>Ok(None),Some(_)=>self.get_grammatical_schemas(m,key,r,kind,&[schema],false,None).map(Some),
+            };
+        }
         reference(m, r)?;
         m.visit("resolve.optional_identity")?;
         match self
@@ -626,6 +702,42 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             Some(_) => self.get_grammatical(m, key, r, kind, schema).map(Some),
         }
     }
+    /// Validate a genuinely pending financial-observation output under THIS
+    /// existing inventory owner. No second inventory claim or old-I insertion
+    /// is permitted. A reused verifier is resolved through the actual table.
+    pub(super) fn observation_output(&mut self,m:&mut CoreMeter,key:&OperationKey,input:EconomicRecordView<'_>,kind:&str,schema:&str)->Result<RecordBody>{
+        m.visit("resolve.pending_observation_recipe")?;
+        if !m.check("resolve.pending_economic_inventory",||!self.parent_data)?{return Err(invalid("pending observation requires economic inventory"));}
+        let financial=super::shape::same_text(m,kind,"workflow-financial-history-observation")?;
+        let allowed=if financial{super::shape::same_text(m,schema,"ledger-workflow-financial-history-observation/3")?}
+            else{super::shape::same_text(m,kind,"workflow-authority-audit-verifier")?&&super::shape::same_text(m,schema,"ledger-authority-audit-verifier/2")?};
+        if !allowed{return Err(invalid("pending observation exact recipe"));}
+        if let Some(body)=self.optional(m,key,input.reference,kind,schema)?{
+            if financial{return Err(invalid("pending financial observation is already preexisting"));}
+            let canonical=self.canonical(m,input.reference)?;
+            if !super::shape::same_bytes(m,canonical,input.canonical_body)?{return Err(invalid("reused financial verifier body mismatch"));}
+            return Ok(body);
+        }
+        if !super::shape::same_text(m,&input.reference.kind,kind)?{return Err(invalid("pending observation kind"));}
+        let arena=self.arena.as_ref().ok_or_else(||invalid("owning pending financial observation"))?;
+        // The ONE child inventory owns the total input/pending-body counter.
+        // These output bytes are not appended to preexisting consumed I.
+        m.borrowed_body(input.canonical_body)?;
+        let parsed=m.parse_owned_representation(arena,input.canonical_body,RepresentationKind::Record)?;
+        codec::validate_selected_types(m,parsed.value())?;
+        let canonical=m.canonical_owned_representation(arena,parsed.value(),RepresentationKind::Record)?;
+        if !super::shape::same_bytes(m,canonical.bytes(),input.canonical_body)?{return Err(invalid("noncanonical pending observation body"));}
+        let actual=super::shape::text(m,parsed.value(),"schema")?;
+        if !super::shape::same_text(m,actual,schema)?{return Err(invalid("pending observation schema"));}
+        let schema_value=super::shape::field(m,parsed.value(),"schema")?;
+        let schema_bytes=m.canonical_owned_representation(arena,schema_value,RepresentationKind::SourceDefinition)?;
+        let digest=hash_parts(m,"workflow-document",&[schema_bytes.bytes(),canonical.bytes()],true)?;
+        if !super::shape::same_text(m,&digest,&input.reference.digest)?{return Err(invalid("pending observation body hash mismatch"));}
+        m.visit("resolve.pending_id_family")?;
+        let id=input.reference.id.strip_prefix("wdoc_").ok_or_else(||invalid("pending observation ID family"))?;
+        if !super::shape::same_text(m,id,&digest[7..])?{return Err(invalid("pending observation content ID"));}
+        RecordBody::owned(arena,parsed,m)
+    }
     pub(super) fn get(
         &mut self,
         m: &mut CoreMeter,
@@ -634,8 +746,8 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         expected_kind: &str,
         expected_schema: &str,
     ) -> Result<RecordBody> {
-        reference(m, r)?;
-        self.get_grammatical(m, key, r, expected_kind, expected_schema)
+        let position=self.checked_reference(m,r)?;
+        self.get_grammatical_schemas(m,key,r,expected_kind,&[expected_schema],false,position)
     }
     pub(super) fn get_parsed(
         &mut self,
@@ -657,7 +769,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         expected_kind: &str,
         expected_schema: &str,
     ) -> Result<RecordBody> {
-        self.get_grammatical_schemas(m, key, r, expected_kind, &[expected_schema], false)
+        self.get_grammatical_schemas(m, key, r, expected_kind, &[expected_schema], false,None)
     }
     pub(super) fn get_parsed_schemas(
         &mut self,
@@ -669,7 +781,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         schemas: &[&str],
     ) -> Result<RecordBody> {
         reference.require_owner(m, owner)?;
-        self.get_grammatical_schemas(m, key, reference.exact(), kind, schemas, false)
+        self.get_grammatical_schemas(m, key, reference.exact(), kind, schemas, false,None)
     }
     /// Exact closed saved-schema dispatch. The resolved body chooses only among
     /// the caller's code-owned per-kind versions; kind/domain/hash checks are
@@ -682,14 +794,14 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         expected_kind: &str,
         schemas: &[&str],
     ) -> Result<RecordBody> {
-        reference(m, r)?;
-        self.get_grammatical_schemas(m, key, r, expected_kind, schemas, false)
+        let position=self.checked_reference(m,r)?;
+        self.get_grammatical_schemas(m, key, r, expected_kind, schemas, false,position)
     }
     /// Supplemental immutable provenance, not an intrinsic per-kind proof or
     /// an authorization operand. The host must complete its actual origin.
     pub(super) fn provenance(&mut self,m:&mut CoreMeter,key:&OperationKey,r:&ExactRef)->Result<RecordBody>{
-        reference(m,r)?;
-        self.get_grammatical_schemas(m,key,r,&r.kind,&[],true)
+        let position=self.checked_reference(m,r)?;
+        self.get_grammatical_schemas(m,key,r,&r.kind,&[],true,position)
     }
     fn get_grammatical_schemas(
         &mut self,
@@ -699,6 +811,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         expected_kind: &str,
         schemas: &[&str],
         provenance_only:bool,
+        checked_reference_position:Option<usize>,
     ) -> Result<RecordBody> {
         // Framing reuse is owned by this invocation's store/scope. A cached
         // hash whose tuple included the original scope cannot authorize a
@@ -722,10 +835,8 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         let mut intrinsic_reused = false;
         let mut checked_position = None;
         let mut resolved_position = None;
-        if let Some(position) = self
-            .index
-            .find_exact(m, r, |i| &self.operands[i].reference)?
-        {
+        let selected_position=match checked_reference_position{Some(position)=>Some(position),None=>self.index.find_exact(m,r,|i|&self.operands[i].reference)?};
+        if let Some(position) = selected_position {
             resolved_position=Some(position);
             let operand = &mut self.operands[position];
             m.visit("resolve.ref_lookup")?;
@@ -1111,6 +1222,40 @@ mod owning_tests {
     }
 
     #[test]
+    fn financial_output_framing_reuses_the_one_inventory_claim() {
+        // The existing representation owner test, not origin/authority or
+        // whole-assembly admission. The pair's semantic validator remains
+        // complete::select, and the full capacity boundary stays closed.
+        let key=OperationKey{logical_store_id:"store".into(),scope:["scope".into(),"test".into()],source:"source".into(),operation_id:"operation".into()};
+        let mut build=CoreMeter::new(65536).unwrap();
+        for (kind,schema) in [("workflow-financial-history-observation","ledger-workflow-financial-history-observation/3"),("workflow-authority-audit-verifier","ledger-authority-audit-verifier/2")]{
+            let value=json!({"schema":schema});
+            let digest=hash(&mut build,"workflow-document",&json!([schema,value])).unwrap();
+            let reference=ExactRef{kind:kind.into(),id:format!("wdoc_{}",&digest[7..]),digest};
+            let raw=codec::encode(&mut build,&value,4194304).unwrap();
+            let view=EconomicRecordView{reference:&reference,canonical_body:&raw};
+            for reused in [false,true]{
+                let arena=AuditArena::new().unwrap();let baseline=arena.usage().unwrap().live_bytes;
+                let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+                let mut child=session.meter_mut().original_economic_meter().unwrap();
+                let views=[view];
+                let mut records=Records::borrowed_app(&mut child,&arena,&key,if reused{&views}else{&[]},&[]).unwrap();
+                let result=records.observation_output(&mut child,&key,view,kind,schema);
+                if reused&&kind=="workflow-financial-history-observation"{
+                    assert_eq!(result.unwrap_err().detail,"pending financial observation is already preexisting");
+                    session.invalidate();
+                }else{
+                    let output=result.unwrap();assert_eq!(output,value);
+                    assert_eq!(records.consumed().len(),usize::from(reused));
+                    assert_eq!(records.used_pending_count(),0);
+                    drop(output);session.meter_mut().finish_original_economic(child).unwrap();
+                }
+                drop(records);drop(session);assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+            }
+        }
+    }
+
+    #[test]
     fn same_invocation_frame_is_owned_once_but_every_use_checks_association() {
         // This intentionally establishes only canonical frame/hash properties,
         // not a retained-evidence purpose, historical origin or admission proof.
@@ -1196,6 +1341,7 @@ mod owning_tests {
         let mut wrong = reference.clone();
         wrong.digest = format!("sha256:{}", "0".repeat(64));
         assert!(table.consumed_canonical(&mut m,&wrong).unwrap().is_none());
+        assert!(table.optional(&mut m,&key,&wrong,&reference.kind,"ledger-workflow-retained-evidence/1").is_err());
         assert!(
             table
                 .get(

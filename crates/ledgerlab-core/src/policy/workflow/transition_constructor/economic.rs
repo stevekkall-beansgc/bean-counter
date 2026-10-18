@@ -35,7 +35,8 @@ pub fn construct_economic_candidate<'a>(program:&SelectedProgram,c:&'a DraftCont
 /// completed prefix. N is comparison-only; it never seeds economic inputs.
 pub fn reconstruct_original_candidate<'a>(program:&SelectedProgram,saved:&'a SavedFinancialInput<'a>,session:&mut OriginalAuditSession)->Result<EconomicCandidate>{
  let result=(||{
-  session.check_cancelled()?;program.require_attempt_owner(session.meter_mut())?;
+  session.check_cancelled()?;
+  program.require_attempt_owner(session.meter_mut())?;
   let c=saved.original_context;let arena=session.arena().shared_handle();
   let op=session.parse_representation(saved.operation.canonical_body,RepresentationKind::OperationFrame)?;
   super::codec::validate_selected_types(session.meter_mut(),op.value())?;

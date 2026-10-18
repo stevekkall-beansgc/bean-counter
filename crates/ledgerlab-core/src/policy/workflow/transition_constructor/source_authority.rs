@@ -4,7 +4,7 @@
 //! current snapshot custody remain the held host's independent obligations.
 use super::{CoreMeter,authority::{self,EconomicMode},body,data::*,inventory,meter,record_body::RecordBody,records::Records,representation::InvocationToken,shape};
 use super::super::selected_program::SelectedProgram;
-use crate::{Error,Result,canonical::audit_arena::ExternalBufferLease,domain::Timestamp,validation_work as w};
+use crate::{Error,Result,canonical::audit_arena::ExternalBufferLease,validation_work as w};
 use serde_json::{Value,json};
 pub(super) struct OriginalSourceSubject<'a>{
     pub binding_ref:&'a ExactRef,
@@ -191,8 +191,9 @@ pub(super) fn source(
         &current["original_ceiling_ref"],
         &json!(a.enrollment_ref),
     )?;
-    let at = Timestamp::parse_with_work(&c.accepted_at, m)?.micros();
-    let state_at = Timestamp::parse_with_work(shape::text(m, &state, "accepted_at")?, m)?.micros();
+    let at = token.timestamp(m,&c.accepted_at,"Timestamp::parse_with_work.accepted_at")?.micros();
+    let state_raw=shape::text(m,&state,"accepted_at")?;
+    let state_at = token.timestamp(m,state_raw,"Timestamp::parse_with_work.accepted_at")?.micros();
     if meter::cmp(m, &state_at.into(), &at.into())?.is_gt() {
         return Err(shape::fail("supplier source originates in future"));
     }
@@ -250,9 +251,14 @@ pub(super) fn source(
         if !shape::member(m, binding_grants, value)? {
             return Err(shape::fail("supplier grant absent original Binding"));
         }
-        let matches = shape::same(m, &grant["source"], &json!(c.key.source))?
-            && shape::same(m, &grant["principal_id"], &json!(c.actor))?
-            && shape::same(m, &grant["original_ceiling_ref"], &json!(a.enrollment_ref))?;
+        let matches = if m.representation_arena().is_some(){
+            super::input_selection::source_grant_matches(m,&grant,&c.key.source,&c.actor,&a.enrollment_ref)?
+        }else{
+            // The legacy DATA recipe retains its original comparisons/trace.
+            shape::same(m, &grant["source"], &json!(c.key.source))?
+                && shape::same(m, &grant["principal_id"], &json!(c.actor))?
+                && shape::same(m, &grant["original_ceiling_ref"], &json!(a.enrollment_ref))?
+        };
         if !matches {
             continue;
         }

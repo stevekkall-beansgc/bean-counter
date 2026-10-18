@@ -224,7 +224,7 @@ fn root_data(
     invoke!(number, m, basis, "source_grant_revision", true)?;
     let digest = invoke!(records::hash, m, "local-authority-basis", basis)?;
     invoke!(eq, m, &root, "basis_digest", &json!(digest))?;
-    invoke!(before, m, &root, "verified_at", before_doc, before_key)?;
+    invoke!(before_owned, m, o, &root, "verified_at", before_doc, before_key)?;
     Ok(root)
 }
 pub(in crate::policy::workflow::transition_constructor) fn retained(
@@ -272,7 +272,7 @@ fn retained_data(
         invoke!(eq, m, e, "subject", subject)?;
         invoke!(eq, m, e, "metadata", metadata)?;
         invoke!(eq, m, e, "installation_mode", &json!(c.installation_mode))?;
-        let limit = invoke!(time, m, before_doc, before_key)?;
+        let limit = invoke!(time_owned, m, o, before_doc, before_key)?;
         if meter::cmp(m, &actual.into(), &limit)?.is_gt() {
             return Err(shape::fail("captured time order"));
         }
@@ -340,7 +340,7 @@ fn retained_data(
         let hash = canonical::hex_with_work(&Sha256::digest(&bytes), m)?;
         invoke!(eq, m, e, "content_sha256", &json!(hash))?;
     }
-    invoke!(before, m, e, "retained_at", before_doc, before_key)?;
+    invoke!(before_owned, m, o, e, "retained_at", before_doc, before_key)?;
     invoke!(
         root,
         m,

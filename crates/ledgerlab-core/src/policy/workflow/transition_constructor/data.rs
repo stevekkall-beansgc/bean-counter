@@ -48,6 +48,8 @@ pub struct DraftContextData {
     pub received_at: String,
     pub accepted_at: String,
     pub authorities: Vec<AuthorityContextData>,
+    /// Newly produced pending source-header bodies only. A reused verifier or
+    /// other retained header belongs in the separate preexisting input slice.
     pub source_observation_inputs: Vec<RecordInput>,
 }
 #[derive(Clone, Debug)]

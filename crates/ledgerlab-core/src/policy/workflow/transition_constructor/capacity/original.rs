@@ -24,6 +24,7 @@ pub(in crate::policy::workflow::transition_constructor) struct OriginalReservati
     pub future_records:Option<super::future_records::FutureRecords>,
     pub app_body_bytes:Option<super::app_bytes::AppBodyBounds>,
     pub source_bounds:super::source::OriginalSourceBounds,
+    pub pricing_kernels:Option<super::pricing::PricingKernels>,
     _metadata:ExternalBufferLease,
 }
 pub(in crate::policy::workflow::transition_constructor) struct DelayedCostReservation {
@@ -159,12 +160,7 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
         let declared=shape::named(m,declared,"slot_id",slot)?;
         let book=shape::text(m,declared,"book")?;
         if !shape::same_text(m,book,"retail")?{return Err(shape::fail("app reservation catalog book"));}
-        let scope=super::super::working_value::WorkingValue::copy(m,&original_work["key"]["scope"])?;
-        let work_id=arena.string_value(&work.reference.id,m)?;
-        let slot_value=arena.string_value(slot,m)?;
-        let discriminator=arena.string_value("app_cost",m)?;
-        let tuple=arena.array_from_values(&[&scope,work_id.value(),slot_value.value(),discriminator.value()],m)?;
-        let dependent=super::super::body::semantic_id(m,"wdecision_","workflow-decision",tuple.value())?;
+        let dependent=super::super::work_keys::app_decision(m,&original_work["key"]["scope"],&work.reference.id,slot)?;
         // Each original declaration selects one terminal customer cost posting.
         // Its zero alternative retains the decision vertex; a root inverse
         // requires at most that one active action, never an AP action.
@@ -232,8 +228,9 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(
     if w::compare(m,maximum_root_actions,128usize)?.is_gt(){return Err(shape::fail("original root action capacity"));}
     let future_records=if delayed_costs.is_empty(){Some(super::future_records::derive(m,program,payload,maximum_root_actions,families.len(),app_costs.len())?)}else{None};
     let app_body_bytes=if app_costs.is_empty(){None}else{Some(super::app_bytes::derive(m,&original_work["key"]["logical_store_id"],payload,terms)?)};
-    let source_bounds=super::source::original_frames(m,r,c,&terms.slot_terms)?;
-    let reservations=OriginalReservations{root_decision_id,original_root_ref:copy_ref(m,&decision.reference)?,original_binding_ref,maximum_root_actions,families,delayed_costs,app_costs,future_records,app_body_bytes,source_bounds,_metadata:metadata};
+    let source_bounds=super::source::original_frames(m,r,c,terms,program)?;
+    let pricing_kernels=if delayed_costs.is_empty(){Some(super::pricing::derive(m,program.compiled_plan().canonical_value(),&payload["activity"])?)}else{None};
+    let reservations=OriginalReservations{root_decision_id,original_root_ref:copy_ref(m,&decision.reference)?,original_binding_ref,maximum_root_actions,families,delayed_costs,app_costs,future_records,app_body_bytes,source_bounds,pricing_kernels,_metadata:metadata};
     let checked=reservations.structural_union(arena,m)?;
     drop(checked);
     Ok(reservations)

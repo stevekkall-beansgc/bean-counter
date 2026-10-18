@@ -2,7 +2,7 @@
 //! by the common draft/replay path. Broader lineages and host authentication
 //! remain explicit unsupported branches or unresolved admission obligations.
 #[macro_use]
-mod check;
+pub(super) mod check;
 pub(super) mod evidence;
 pub(super) mod slots;
 pub(super) mod source;

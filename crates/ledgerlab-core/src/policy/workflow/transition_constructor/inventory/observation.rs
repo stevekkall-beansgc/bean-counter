@@ -228,7 +228,7 @@ fn validate_data(
     // authenticating their physical/code-owned origin belongs to the host auditor.
     Ok(())
 }
-const SUPPORTED_ARTIFACTS: &[(&str, &str)] = &[
+pub(in crate::policy::workflow::transition_constructor) const SUPPORTED_ARTIFACTS: &[(&str, &str)] = &[
     (
         "AUTHORITY-AUDIT-03.md",
         "760f97f7dc7281bc01c6ca462f0c4c55f9460fca85a8d7a6bb08b4448acd5087",

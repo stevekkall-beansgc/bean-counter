@@ -42,6 +42,7 @@ pub(super) fn produce<'program,'raw>(program:&'program super::super::selected_pr
 pub(super) fn produce_parsed<'program,'raw>(program:&'program super::super::selected_program::SelectedProgram,c:&'raw super::data::DraftContextData,request:super::working_value::WorkingValue,inputs:&'raw [super::data::EconomicRecordView<'raw>],state:&super::data::EconomicStateData<'_>,m:&mut super::CoreMeter)->crate::Result<AppConstruction<'program,'raw>>{
  let arena=m.representation_arena().ok_or_else(||super::shape::fail("owning app execution"))?;
  let mut records=super::records::Records::borrowed_app(m,&arena,&c.key,inputs,&c.source_observation_inputs)?;
+ records.install_initial_source_outputs(m,state.initial_source_correspondences)?;
  let plan=plan::prepare(m,&mut records,c,program,request,state)?;
  let current_capacity=super::capacity::current::retained_root_head(m,&mut records,c,&plan.original.original_decision_ref,&plan.original.original_decision_ref,state)?;
  let mut held=false;for reference in &current_capacity.reserved{m.visit("app.current_dependency_hold")?;if super::shape::same_ref(m,reference,&plan.dependency_ref)?{held=true;}}

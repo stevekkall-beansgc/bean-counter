@@ -10,6 +10,7 @@ mod future_records;
 mod app_bytes;
 mod source;
 mod production;
+mod pricing;
 
 /// Exact measured I∪N portion of the executed transition. This is deliberately
 /// distinct from a prospective capacity proof: O is added by the closed wrapper

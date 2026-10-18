@@ -344,8 +344,8 @@ pub(super) fn grant_intersection(m:&mut CoreMeter,owner:&InvocationToken,g:&Valu
     let (gs, ge) = prepared.get(m, owner)?;
     let gs = BigInt::from(gs.micros());
     let ge = BigInt::from(ge.micros());
-    let cs = invoke!(time, m, ceiling, "starts_at")?;
-    let ce = invoke!(time, m, ceiling, "ends_at")?;
+    let cs = super::inventory::check::time_owned(m,owner,ceiling,"starts_at")?;
+    let ce = super::inventory::check::time_owned(m,owner,ceiling,"ends_at")?;
     if meter::cmp(m, &gs, &cs)?.is_lt() || meter::cmp(m, &ge, &ce)?.is_gt() {
         return Err(fail("original ceiling time"));
     }

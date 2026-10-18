@@ -137,6 +137,7 @@ fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[Econo
     if meter::cmp(m,&supporting.len().into(),&16usize.into())?.is_gt(){return Err(shape::fail("assertion supporting reference bound"));}
     // Generic supporting provenance is resolved below; never used as authority.
     let mut r=if program.uses_app_owned_cost_recipe(){Records::borrowed_app(m,arena,&c.key,inputs,&c.source_observation_inputs)?}else{Records::borrowed(m,arena,&c.key,inputs,&c.source_observation_inputs)?};
+    r.install_initial_source_outputs(m,state.initial_source_correspondences)?;
     let subject=shape::field(m,att,"subject")?;
     subject_owner(m,c,subject)?;
     let (resolved,subject_bindings)=if close {

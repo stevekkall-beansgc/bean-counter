@@ -394,6 +394,8 @@ impl EconomicCandidate {
     pub fn introduced(&self) -> &[CandidateEnvelope] {
         &self.introduced
     }
+    /// Used preexisting inputs I. Pending source headers belong to introduced
+    /// results N and cannot become financial-history seeds through this view.
     pub fn consumed_refs(&self) -> &[ExactRef] {
         &self.consumed_refs
     }

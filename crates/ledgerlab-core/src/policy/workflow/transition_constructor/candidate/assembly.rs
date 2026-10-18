@@ -106,6 +106,7 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     let _=observed;
     let reservations=super::reservations::derive(m,c,state,&mut t)?;
     program_inputs(m,c,program,&mut t.records)?;
+    super::super::financial_observation::containment::check(m,c,&mut t)?;
     let actual_members=capacity::actual_members(m,&t)?;
     Ok(Self{construction:t,schemas,result_refs,authority_position,source_observations,actual_members,reservations,_metadata:metadata})
  }
