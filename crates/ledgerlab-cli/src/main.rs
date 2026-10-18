@@ -167,10 +167,11 @@ fn error(code: &str, message: &str, exit: u8) -> (Value, u8) {
         exit,
     )
 }
-async fn run(a: &Args) -> Result<(Value, u8), LocalError> {
-    if a.command == "workflow" {
-        return workflow::run(a).await;
-    }
+async fn run(a:&Args)->Result<(workflow::CommandOutput,u8),LocalError> {
+    if a.command=="workflow" {return workflow::run(a).await;}
+    run_legacy(a).await.map(|(value,code)|(workflow::CommandOutput::Legacy(value),code))
+}
+async fn run_legacy(a: &Args) -> Result<(Value, u8), LocalError> {
     #[cfg(feature = "zen-charge-candidate")]
     if a.command == "zen-charge-candidate" {
         return zen_candidate::run(a).await;
@@ -313,7 +314,7 @@ fn main() -> ExitCode {
     let (result, code, json_output, billing_output) = match parse(&raw) {
         Err(message) => {
             let (v, c) = error("USAGE", message, 2);
-            (v, c, wants_json, false)
+            (workflow::CommandOutput::Legacy(v), c, wants_json, false)
         }
         Ok(a) if a.help => match help(&a) {
             Ok(text) => {
@@ -322,7 +323,7 @@ fn main() -> ExitCode {
             }
             Err(message) => {
                 let (v, c) = error("USAGE", message, 2);
-                (v, c, a.json, false)
+                (workflow::CommandOutput::Legacy(v), c, a.json, false)
             }
         },
         Ok(a) => {
@@ -332,8 +333,8 @@ fn main() -> ExitCode {
             {
                 Ok(runtime) => runtime
                     .block_on(run(&a))
-                    .unwrap_or_else(output::local_error),
-                Err(_) => error("UNAVAILABLE", "could not start local runtime", 7),
+                    .unwrap_or_else(|e|{let (v,c)=output::local_error(e);(workflow::CommandOutput::Legacy(v),c)}),
+                Err(_) => {let(v,c)=error("UNAVAILABLE","could not start local runtime",7);(workflow::CommandOutput::Legacy(v),c)},
             };
             (
                 result.0,
@@ -342,6 +343,15 @@ fn main() -> ExitCode {
                 matches!(a.command.as_str(), "billing" | "workflow"),
             )
         }
+    };
+    let result=match result {
+        workflow::CommandOutput::Workflow(reply)=>{
+            // All formatting is already paid/owned by the original host
+            // attempt. Retain its actual output/native leases through write.
+            if reply.write_stdout(!json_output).is_err() {return ExitCode::from(7);}
+            return ExitCode::from(code);
+        }
+        workflow::CommandOutput::Legacy(value)=>value,
     };
     if json_output {
         println!("{}", serde_json::to_string(&result).expect("JSON output"));

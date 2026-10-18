@@ -22,6 +22,8 @@ mod prefix;
 pub(in crate::service::workflow) use prefix::read_error as management_read_error;
 mod publication_prepare;
 mod recovery;
+mod response;
+pub use response::WorkflowReply;
 mod request_wrapper;
 mod wire;
 mod wrappers;
@@ -122,7 +124,7 @@ enum OriginalQuery<'a> {
 // factory, caller flag or serialization. No present fresh branch produces it.
 enum TransactionResult {
     Original(Value),
-    Appended(Value),
+    Appended(WorkflowReply),
 }
 
 #[cfg(test)]
@@ -142,20 +144,19 @@ async fn finish_transaction(
     tx: SqliteTx,
     key: &OperationKey,
     attempted: Result<TransactionResult>,
-    session: ledgerlab_core::validation_work::OriginalAuditSession,
-) -> Result<Value> {
+    mut session: ledgerlab_core::validation_work::OriginalAuditSession,
+) -> Result<WorkflowReply> {
     match attempted {
         Err(error) => {
             tx.rollback().await.map_err(crate::service::store_error)?;
             Err(error)
         }
-        Ok(TransactionResult::Original(mut response)) => {
+        Ok(TransactionResult::Original(response)) => {
+            let response=WorkflowReply::original(&response,&mut session);
             tx.rollback().await.map_err(crate::service::store_error)?;
-            response["schema"] = json!("ledger-operation-result/1");
-            response["duplicate_kind"] = json!("identity");
-            Ok(response)
+            response
         }
-        Ok(TransactionResult::Appended(mut response)) => {
+        Ok(TransactionResult::Appended(response)) => {
             tx.commit_with_resource_session(session).await.map_err(|error| match error {
                 crate::store::sqlite::FinancialCommitError::Resource(error)=>core_error(error),
                 crate::store::sqlite::FinancialCommitError::Commit(error)=>match error {
@@ -177,7 +178,6 @@ async fn finish_transaction(
                     return Err(ServiceError::ResponseLost);
                 }
             }
-            response["schema"] = json!("ledger-operation-result/1");
             Ok(response)
         }
     }
@@ -279,7 +279,12 @@ impl LocalWorkflowLedger {
     /// Financial admission is disabled. This validates lexical ingress and
     /// authenticates local management/identity ordering, but creates no receipt,
     /// financial record, claim, reservation, alias, projection or meter delta.
-    pub async fn financial(&self, raw: &[u8]) -> Result<Value> {
+    pub async fn financial(&self,raw:&[u8])->Result<Value> {
+        self.financial_owned_reply(raw).await.map(WorkflowReply::into_legacy_value)
+    }
+    /// New-profile owning endpoint. Exact same request/prepare/commit route;
+    /// the CLI retains its rendered output rather than decoding another tree.
+    pub async fn financial_owned_reply(&self, raw: &[u8]) -> Result<WorkflowReply> {
         let arena =
             ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
         let mut session =
@@ -414,6 +419,7 @@ impl LocalWorkflowLedger {
                             &mut session,
                         )?;
                         let _write_operands = write_data.append_view(&mut session)?;
+                        let _response=WorkflowReply::party(&journal,&evidence,&mut session)?;
                         // The real result is constructed, but all consumed original
                         // origins and the new wrapper recipe still must complete.
                         // No DATA result can skip that preparation boundary.

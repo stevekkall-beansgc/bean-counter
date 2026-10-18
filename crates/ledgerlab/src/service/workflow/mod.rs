@@ -7,6 +7,7 @@ mod request;
 mod agreement;
 use crate::ServiceError;
 pub use local::LocalWorkflowLedger;
+pub use agreement::WorkflowReply;
 use serde_json::Value;
 type Result<T> = std::result::Result<T, ServiceError>;
 fn reject(code: &str) -> ServiceError {

@@ -6,6 +6,7 @@ mod activation_verify;
 mod context;
 mod descriptor;
 pub(super) mod financial;
+pub use financial::WorkflowReply;
 mod journal;
 mod origin_driver;
 pub(super) mod proof_session;

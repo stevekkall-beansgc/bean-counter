@@ -16,6 +16,7 @@ pub(in super::super) struct PartyJournalData {
     members: super::super::prefix::ResolvedMembers,
 }
 impl PartyJournalData {
+    pub(in super::super) fn receipt_bytes(&self)->&[u8] {self.receipt.bytes()}
     pub(in super::super) fn members(&self) -> &super::super::prefix::ResolvedMembers {
         &self.members
     }

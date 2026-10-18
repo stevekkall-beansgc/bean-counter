@@ -36,17 +36,22 @@ pub fn help(raw: &[String]) -> Result<String, &'static str> {
         _ => Err("unknown workflow command; use ledger workflow --help"),
     }
 }
-pub async fn run(args: &Args) -> Result<(Value, u8), LocalError> {
+pub(super) enum CommandOutput {
+    Legacy(Value),
+    Workflow(ledgerlab::WorkflowReply),
+}
+fn legacy((value,code):(Value,u8))->(CommandOutput,u8) {(CommandOutput::Legacy(value),code)}
+pub async fn run(args: &Args) -> Result<(CommandOutput, u8), LocalError> {
     if args.config != Path::new("ledger.json") {
-        return Ok(error(
+        return Ok(legacy(error(
             "USAGE",
             "workflow uses --directory DIR, not --config",
             2,
-        ));
+        )));
     }
     let (directory, words) = match arguments(&args.rest) {
         Ok(parsed) => parsed,
-        Err(message) => return Ok(error("USAGE", message, 2)),
+        Err(message) => return Ok(legacy(error("USAGE", message, 2))),
     };
     let (command, input) = match words.as_slice() {
         ["enable"] => ("enable", None),
@@ -56,11 +61,11 @@ pub async fn run(args: &Args) -> Result<(Value, u8), LocalError> {
             (*command, Some(*path))
         }
         _ => {
-            return Ok(error(
+            return Ok(legacy(error(
                 "USAGE",
                 "use workflow enable, or workflow submit|status|read FILE|-",
                 2,
-            ));
+            )));
         }
     };
     // Read stdin/file completely before acquiring the existing owner/writer.
@@ -74,17 +79,17 @@ pub async fn run(args: &Args) -> Result<(Value, u8), LocalError> {
         })
         .transpose()?;
     let ledger = LocalWorkflowLedger::open_local(&directory).await?;
-    let result: Result<Value, ServiceError> = match (command, raw.as_deref()) {
-        ("enable", None) => ledger.enable_profile_b().await.map(|()| json!({"schema":"ledger-cli/1","status":"workflow_enabled","profile":"workflow-dual-legacy-capacity/1"})),
-        ("status", Some(raw)) => ledger.status(raw).await,
-        ("read", Some(raw)) => ledger.read(raw).await,
+    let result: Result<CommandOutput, ServiceError> = match (command, raw.as_deref()) {
+        ("enable", None) => ledger.enable_profile_b().await.map(|()| CommandOutput::Legacy(json!({"schema":"ledger-cli/1","status":"workflow_enabled","profile":"workflow-dual-legacy-capacity/1"}))),
+        ("status", Some(raw)) => ledger.status(raw).await.map(CommandOutput::Legacy),
+        ("read", Some(raw)) => ledger.read(raw).await.map(CommandOutput::Legacy),
         ("submit", Some(raw)) => submit(&ledger, raw).await,
         _ => Err(ServiceError::IntegrityFailure),
     };
     ledger.close().await;
     result.map(|result| (result, 0)).map_err(LocalError::from)
 }
-async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, ServiceError> {
+async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutput, ServiceError> {
     // This header is only routing. Each actual host entry revalidates its
     // closed request and global original identity before fresh authorization.
     let header: Value =
@@ -151,10 +156,10 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<Value, Servi
     drop(header);
 
     match kind {
-        "policy.publish" => ledger.publish(raw).await,
-        "prerequisite" => ledger.prerequisite(raw).await,
-        "agreement" => ledger.agreement(raw).await,
-        "financial" => ledger.financial(raw).await,
+        "policy.publish" => ledger.publish(raw).await.map(CommandOutput::Legacy),
+        "prerequisite" => ledger.prerequisite(raw).await.map(CommandOutput::Legacy),
+        "agreement" => ledger.agreement(raw).await.map(CommandOutput::Legacy),
+        "financial" => ledger.financial_owned_reply(raw).await.map(CommandOutput::Workflow),
         _ => Err(ServiceError::IntegrityFailure),
     }
 }
