@@ -391,3 +391,346 @@ pub(super) async fn observe(
         _apps: app_owner,
     })
 }
+
+/// Owning typed copies of the actual held projections for the unchanged core
+/// DATA ABI. This is neither projection completeness nor candidate eligibility.
+pub(super) struct OwnedWorkState {
+    pub(super) financial: ledgerlab_core::policy::workflow::transition_constructor::DraftStateData,
+    pub(super) capacities:
+        Vec<ledgerlab_core::policy::workflow::transition_constructor::CapacityHead>,
+    pub(super) parties:
+        Vec<ledgerlab_core::policy::workflow::transition_constructor::PartyAuthorizationHead>,
+    _storage: ExternalBufferLease,
+}
+fn copied(value: &str, s: &mut OriginalAuditSession) -> Result<String> {
+    s.semantic_work()
+        .scan_bytes(value.len())
+        .map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(value.len())
+        .map_err(core_error)?;
+    let mut output = String::new();
+    output
+        .try_reserve_exact(value.len())
+        .map_err(|_| ServiceError::Unavailable)?;
+    output.push_str(value);
+    Ok(output)
+}
+fn copied_ref(head: &HeadLocator, s: &mut OriginalAuditSession) -> Result<ExactRef> {
+    let kind = copied(text(head.kind.bytes(), s)?, s)?;
+    let id = copied(text(head.id.bytes(), s)?, s)?;
+    let digest = copied(text(head.digest.bytes(), s)?, s)?;
+    s.semantic_work()
+        .write_bytes(mem::size_of::<ExactRef>())
+        .map_err(core_error)?;
+    Ok(ExactRef { kind, id, digest })
+}
+fn copied_exact(reference: &ExactRef, s: &mut OriginalAuditSession) -> Result<ExactRef> {
+    let kind = copied(&reference.kind, s)?;
+    let id = copied(&reference.id, s)?;
+    let digest = copied(&reference.digest, s)?;
+    s.semantic_work()
+        .write_bytes(mem::size_of::<ExactRef>())
+        .map_err(core_error)?;
+    Ok(ExactRef { kind, id, digest })
+}
+fn output_ref_bytes(
+    bytes: &mut usize,
+    parts: &[&[u8]],
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    for part in parts {
+        s.semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        *bytes = add(*bytes, part.len(), s)?;
+    }
+    Ok(())
+}
+impl ObservedWorkHeads {
+    pub(super) fn typed_state(
+        &self,
+        keys: &WorkHeadLocators,
+        parties: &super::super::super::acceptance::CurrentPlatformConsents,
+        s: &mut OriginalAuditSession,
+    ) -> Result<OwnedWorkState> {
+        use ledgerlab_core::policy::workflow::transition_constructor::{
+            CapacityHead, DecisionHead, DraftStateData, FamilyHead, PartyAuthorizationHead,
+        };
+        let result = (|| {
+            let family_count = keys.family_keys().len();
+            let app_count = keys.app_decision_ids().len();
+            s.semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&family_count.into(), &self.families.len().into()],
+                )
+                .map_err(core_error)?;
+            s.semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&app_count.into(), &self.app_decisions.len().into()],
+                )
+                .map_err(core_error)?;
+            require(
+                family_count == self.families.len() && app_count == self.app_decisions.len(),
+                "INTEGRITY_FAILURE",
+            )?;
+            let decisions = add(add(1, family_count, s)?, app_count, s)?;
+            let party_count = parties.mappings().len();
+            let mut bytes = mem::size_of::<OwnedWorkState>()
+                + mem::size_of::<FamilyHead>()
+                + mem::size_of::<DecisionHead>()
+                + mem::size_of::<CapacityHead>()
+                + mem::size_of::<PartyAuthorizationHead>()
+                + 2 * mem::size_of::<ExactRef>();
+            for (count, stride) in [
+                (decisions, mem::size_of::<DecisionHead>()),
+                (family_count, mem::size_of::<FamilyHead>()),
+                (1, mem::size_of::<CapacityHead>()),
+                (1, mem::size_of::<ExactRef>()),
+                (party_count, mem::size_of::<PartyAuthorizationHead>()),
+            ] {
+                bytes = add(bytes, product(count, stride, s)?, s)?;
+            }
+            for head in [&self.root, &self.capacity, &self.chain]
+                .into_iter()
+                .chain(self.families.iter().map(|f| &f.decision))
+                .chain(self.app_decisions.iter())
+            {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                if let Some(head) = head {
+                    output_ref_bytes(
+                        &mut bytes,
+                        &[
+                            head.kind.bytes(),
+                            head.id.bytes(),
+                            head.digest.bytes(),
+                            head.revision.bytes(),
+                        ],
+                        s,
+                    )?;
+                }
+            }
+            if let Some(claim) = &self.claim {
+                output_ref_bytes(
+                    &mut bytes,
+                    &[claim.kind.bytes(), claim.id.bytes(), claim.digest.bytes()],
+                    s,
+                )?;
+            }
+            for family in &self.families {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                if let Some(family) = &family.family {
+                    output_ref_bytes(
+                        &mut bytes,
+                        &[
+                            family.target_kind.bytes(),
+                            family.target_id.bytes(),
+                            family.target_digest.bytes(),
+                            family.head.kind.bytes(),
+                            family.head.id.bytes(),
+                            family.head.digest.bytes(),
+                            family.head.revision.bytes(),
+                        ],
+                        s,
+                    )?;
+                }
+            }
+            // Stable key strings are copied into their typed output slots only
+            // for actual hits. Reserve their finite maximum before any copy.
+            bytes = add(bytes, product(keys.root_decision_id().len(), 2, s)?, s)?;
+            for family in keys.family_keys() {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                output_ref_bytes(
+                    &mut bytes,
+                    &[
+                        family.family_slot().as_bytes(),
+                        family.decision_id().as_bytes(),
+                    ],
+                    s,
+                )?;
+            }
+            for id in keys.app_decision_ids() {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                bytes = add(bytes, id.len(), s)?;
+            }
+            for mapping in parties.mappings() {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                let r = mapping.reference();
+                let id = check::text(mapping.body(), "authorization_id", s)?;
+                output_ref_bytes(
+                    &mut bytes,
+                    &[
+                        r.kind.as_bytes(),
+                        r.id.as_bytes(),
+                        r.digest.as_bytes(),
+                        mapping.current_head().revision.bytes(),
+                        id.as_bytes(),
+                    ],
+                    s,
+                )?;
+            }
+            let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+            // Prepay all reserved output/control writes before the first Vec
+            // or String producer, including a later refusal prefix.
+            s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+            let mut financial = DraftStateData::default();
+            financial
+                .decision_heads
+                .try_reserve_exact(decisions)
+                .map_err(|_| ServiceError::Unavailable)?;
+            financial
+                .family_heads
+                .try_reserve_exact(family_count)
+                .map_err(|_| ServiceError::Unavailable)?;
+            financial
+                .work_claims
+                .try_reserve_exact(1)
+                .map_err(|_| ServiceError::Unavailable)?;
+            let mut capacities = Vec::new();
+            capacities
+                .try_reserve_exact(1)
+                .map_err(|_| ServiceError::Unavailable)?;
+            let mut current_parties: Vec<PartyAuthorizationHead> = Vec::new();
+            current_parties
+                .try_reserve_exact(party_count)
+                .map_err(|_| ServiceError::Unavailable)?;
+            if let Some(claim) = &self.claim {
+                let reference = ExactRef {
+                    kind: copied(text(claim.kind.bytes(), s)?, s)?,
+                    id: copied(text(claim.id.bytes(), s)?, s)?,
+                    digest: copied(text(claim.digest.bytes(), s)?, s)?,
+                };
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<ExactRef>())
+                    .map_err(core_error)?;
+                financial.work_claims.push(reference);
+            }
+            let mut decision = |head: &Option<HeadLocator>,
+                                id: &str,
+                                s: &mut OriginalAuditSession|
+             -> Result<()> {
+                s.semantic_work()
+                    .visit(ValidationVisit::Constraint)
+                    .map_err(core_error)?;
+                if let Some(head) = head {
+                    let reference = copied_ref(head, s)?;
+                    let revision = copied(text(head.revision.bytes(), s)?, s)?;
+                    let decision_id = copied(id, s)?;
+                    s.semantic_work()
+                        .write_bytes(mem::size_of::<DecisionHead>())
+                        .map_err(core_error)?;
+                    financial.decision_heads.push(DecisionHead {
+                        decision_id,
+                        revision,
+                        reference,
+                    });
+                }
+                Ok(())
+            };
+            decision(&self.root, keys.root_decision_id(), s)?;
+            if let Some(head) = &self.capacity {
+                let reference = copied_ref(head, s)?;
+                let revision = copied(text(head.revision.bytes(), s)?, s)?;
+                let root_decision_id = copied(keys.root_decision_id(), s)?;
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<CapacityHead>())
+                    .map_err(core_error)?;
+                capacities.push(CapacityHead {
+                    root_decision_id,
+                    revision,
+                    reference,
+                });
+            }
+            if let Some(head) = &self.chain {
+                financial.chain_head = Some(copied_ref(head, s)?);
+            }
+            for (family, key) in self.families.iter().zip(keys.family_keys()) {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                decision(&family.decision, key.decision_id(), s)?;
+                if let Some(family) = &family.family {
+                    let target_ref = ExactRef {
+                        kind: copied(text(family.target_kind.bytes(), s)?, s)?,
+                        id: copied(text(family.target_id.bytes(), s)?, s)?,
+                        digest: copied(text(family.target_digest.bytes(), s)?, s)?,
+                    };
+                    let reference = copied_ref(&family.head, s)?;
+                    let revision = copied(text(family.head.revision.bytes(), s)?, s)?;
+                    let family_slot = copied(key.family_slot(), s)?;
+                    s.semantic_work()
+                        .write_bytes(mem::size_of::<FamilyHead>())
+                        .map_err(core_error)?;
+                    financial.family_heads.push(FamilyHead {
+                        target_ref,
+                        family_slot,
+                        revision,
+                        reference,
+                    });
+                }
+            }
+            for (head, id) in self.app_decisions.iter().zip(keys.app_decision_ids()) {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                decision(head, id, s)?;
+            }
+            for mapping in parties.mappings() {
+                s.semantic_work()
+                    .visit(ValidationVisit::Element)
+                    .map_err(core_error)?;
+                let reference = mapping.reference();
+                let mut duplicate = false;
+                for old in &current_parties {
+                    s.semantic_work()
+                        .visit(ValidationVisit::Element)
+                        .map_err(core_error)?;
+                    duplicate = work_capture::same_reference(&old.reference, reference, s)?;
+                    if duplicate {
+                        break;
+                    }
+                }
+                if duplicate {
+                    continue;
+                }
+                let reference = copied_exact(reference, s)?;
+                let authorization_id =
+                    copied(check::text(mapping.body(), "authorization_id", s)?, s)?;
+                let revision = copied(text(mapping.current_head().revision.bytes(), s)?, s)?;
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<PartyAuthorizationHead>())
+                    .map_err(core_error)?;
+                current_parties.push(PartyAuthorizationHead {
+                    authorization_id,
+                    revision,
+                    reference,
+                });
+            }
+            s.semantic_work()
+                .write_bytes(mem::size_of::<OwnedWorkState>())
+                .map_err(core_error)?;
+            Ok(OwnedWorkState {
+                financial,
+                capacities,
+                parties: current_parties,
+                _storage: storage,
+            })
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
+}

@@ -4,6 +4,7 @@ use super::super::request_wrapper as check;
 use super::*;
 mod work_capture;
 mod work_heads;
+mod work_seeds;
 use ledgerlab_core::validation_work::ValidationVisit;
 
 pub(in super::super) struct ObservedAppBinding {
@@ -12,11 +13,15 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) parties: Option<super::super::acceptance::CurrentPlatformConsents>,
     pub(super) activation: Option<prefix::CompletedInitialActivation>,
     pub(super) work_source_slot: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
+    work_source_index: Option<usize>,
     pub(super) work_source_birth: Option<prefix::SourceBirthInputs>,
     pub(super) work_root: Option<source::SourceRecord>,
+    pub(super) work_received_at: Option<Timestamp>,
+    _work_received_storage: Option<ExternalBufferLease>,
     pub(super) work_input_seeds: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
     pub(super) work_explicit_inputs: Option<prefix::ResolvedEconomicInputs>,
     work_heads: Option<work_heads::ObservedWorkHeads>,
+    pub(super) work_state: Option<work_heads::OwnedWorkState>,
     pub(super) work_head_locators:
         Option<ledgerlab_core::policy::workflow::transition_constructor::WorkHeadLocators>,
     pub(super) at: Timestamp,
@@ -91,6 +96,11 @@ pub(in super::super) async fn observe(
             session,
         )
         .await?;
+        let state = observed_heads.typed_state(
+            &heads,
+            observed.parties.as_ref().ok_or(ServiceError::Unavailable)?,
+            session,
+        )?;
         let parsed_heads = session
             .parse_representation(observed_heads.seeds.bytes(), RepresentationKind::Record)
             .map_err(core_error)?;
@@ -104,10 +114,14 @@ pub(in super::super) async fn observe(
             session,
         )?;
         observed.work_source_slot = Some(slot);
+        observed.work_source_index = Some(index);
         observed.work_input_seeds = Some(seeds);
         observed.work_explicit_inputs = Some(explicit);
         observed.work_head_locators = Some(heads);
         observed.work_heads = Some(observed_heads);
+        observed.work_state = Some(state);
+        observed.work_received_at = Some(received_at);
+        observed._work_received_storage = Some(_received_storage);
         Ok(observed)
     }
     .await;
@@ -426,12 +440,16 @@ async fn observe_binding(
             parties,
             activation,
             work_source_slot: None,
+            work_source_index: None,
             work_source_birth: None,
             work_root: None,
+            work_received_at: None,
+            _work_received_storage: None,
             work_input_seeds: None,
             work_explicit_inputs: None,
             work_head_locators: None,
             work_heads: None,
+            work_state: None,
             at,
             before,
             setup,

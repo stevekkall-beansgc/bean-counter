@@ -4,7 +4,7 @@
 use super::*;
 use inventory::ConfiguredRoot;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    DraftContextData, EconomicAuditStream, ExactRef, FinancialPrefixInput,
+    DraftContextData, EconomicAuditStream, EconomicRecordView, ExactRef, FinancialPrefixInput,
     ORIGIN_POINTER_MAX_BYTES, ProducedOriginPrefixes, RecomputedAuditDigest, SourcePrefixInput,
 };
 use std::{cmp::Ordering, mem};
@@ -334,7 +334,7 @@ impl Memberships {
     fn accounting(
         &self,
         inventory: &mut inventory::Inventory,
-        roots: &[&super::super::wire::SourceRecord],
+        roots: &[EconomicRecordView<'_>],
         s: &mut OriginalAuditSession,
     ) -> Result<[WitnessAccounting; 33]> {
         s.semantic_work()
@@ -358,7 +358,7 @@ impl Memberships {
                 s.semantic_work()
                     .visit(Visit::Element)
                     .map_err(core_error)?;
-                let reference = super::super::wire::reference(record.reference(), s)?;
+                let reference = super::super::wire::reference(record.reference, s)?;
                 let parsed = s
                     .parse_representation(reference.bytes(), RepresentationKind::Record)
                     .map_err(core_error)?;
@@ -368,7 +368,7 @@ impl Memberships {
                         .visit(Visit::Constraint)
                         .map_err(core_error)?;
                     require(root_body.is_none(), "INTEGRITY_FAILURE")?;
-                    root_body = Some(record.bytes());
+                    root_body = Some(record.canonical_body);
                 }
             }
             let root_body = root_body.ok_or(ServiceError::IntegrityFailure)?;
@@ -781,10 +781,7 @@ impl WitnessPrefixProduction<'_, '_, '_> {
     /// Bind actual owning root bodies and derive counts over this first pass's
     /// exact memberships. The borrowed result cannot outlive this same parent
     /// and inventory. No installation WB total or serialized count is accepted.
-    pub(super) fn derive_accounting(
-        &mut self,
-        roots: &[&super::super::wire::SourceRecord],
-    ) -> Result<()> {
+    pub(super) fn derive_accounting(&mut self, roots: &[EconomicRecordView<'_>]) -> Result<()> {
         let result = (|| {
             let _temporary = self
                 .session
@@ -1053,7 +1050,14 @@ impl FoldedInventory {
         let _temporary = s
             .reserve_external_payload(2 * mem::size_of::<[WitnessAccounting; 33]>())
             .map_err(core_error)?;
-        let counts = masks.accounting(&mut self._inventory, &[root], s)?;
+        let counts = masks.accounting(
+            &mut self._inventory,
+            &[EconomicRecordView {
+                reference: root.reference(),
+                canonical_body: root.bytes(),
+            }],
+            s,
+        )?;
         assert_eq!((counts[0].documents, counts[0].retained_bytes), expected);
         Ok(())
     }

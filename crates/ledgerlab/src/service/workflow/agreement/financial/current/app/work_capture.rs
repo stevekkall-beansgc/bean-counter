@@ -17,7 +17,11 @@ fn equal(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     s.semantic_work().scan_bytes(b.len()).map_err(core_error)?;
     Ok(a == b)
 }
-fn same_ref(a: &ExactRef, b: &ExactRef, s: &mut OriginalAuditSession) -> Result<bool> {
+pub(super) fn same_reference(
+    a: &ExactRef,
+    b: &ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
     Ok(equal(&a.kind, &b.kind, s)? && equal(&a.id, &b.id, s)? && equal(&a.digest, &b.digest, s)?)
 }
 fn add(a: usize, b: usize, s: &mut OriginalAuditSession) -> Result<usize> {
@@ -77,7 +81,7 @@ pub(super) fn select(
         s.semantic_work()
             .visit(ValidationVisit::Element)
             .map_err(core_error)?;
-        if same_ref(other.enrollment_ref(), source.enrollment_ref(), s)? {
+        if same_reference(other.enrollment_ref(), source.enrollment_ref(), s)? {
             for text in [
                 &other.original_grant_ref().kind,
                 &other.original_grant_ref().id,
@@ -100,7 +104,7 @@ pub(super) fn select(
         s.semantic_work()
             .visit(ValidationVisit::Element)
             .map_err(core_error)?;
-        if !same_ref(other.enrollment_ref(), source.enrollment_ref(), s)? {
+        if !same_reference(other.enrollment_ref(), source.enrollment_ref(), s)? {
             continue;
         }
         let r = other.original_grant_ref();
@@ -266,15 +270,15 @@ pub(super) fn source_index(
                 .get(previous)
                 .ok_or(ServiceError::IntegrityFailure)?;
             require(
-                same_ref(old.enrollment_ref(), source.enrollment_ref(), s)?,
+                same_reference(old.enrollment_ref(), source.enrollment_ref(), s)?,
                 "UNSUPPORTED_COMPOSITION",
             )?;
             require(
-                same_ref(old.state_ref(), source.state_ref(), s)?,
+                same_reference(old.state_ref(), source.state_ref(), s)?,
                 "STALE_REVISION",
             )?;
             require(
-                same_ref(
+                same_reference(
                     old.current_grant_ref()
                         .ok_or(ServiceError::IntegrityFailure)?,
                     source

@@ -77,9 +77,23 @@ fn literal(text: &str, session: &mut OriginalAuditSession) -> Result<AuditedByte
     out.finish(session.semantic_work()).map_err(core_error)
 }
 pub(super) fn reference(r: &ExactRef, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
-    let digest = literal(&r.digest, session)?;
-    let id = literal(&r.id, session)?;
-    let kind = literal(&r.kind, session)?;
+    reference_parts(&r.kind, &r.id, &r.digest, session)
+}
+pub(super) fn definition_reference(
+    r: &ledgerlab_core::policy::workflow::DefinitionRef,
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    reference_parts(r.kind(), r.id(), r.digest(), session)
+}
+fn reference_parts(
+    kind: &str,
+    id: &str,
+    digest: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let digest = literal(digest, session)?;
+    let id = literal(id, session)?;
+    let kind = literal(kind, session)?;
     object(
         &[
             ("digest", digest.bytes()),
