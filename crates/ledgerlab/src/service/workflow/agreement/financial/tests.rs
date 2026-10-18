@@ -522,6 +522,47 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 .checked_wrappers(tx, &mut session)
                 .await?;
             let root = &first.wrappers().operation()["authority_snapshot"]["authority_refs"][0];
+            // Independent retained SQL meter + exact manifest sets check the
+            // append-derived accounting, including reused documents once.
+            let expected_meter = tx
+                .workflow_test_meter()
+                .await
+                .map_err(crate::service::store_error)?;
+            let mut expected_documents = std::collections::BTreeSet::new();
+            for sequence in 1..=4 {
+                let saved = prefix::next(tx, &selected, sequence - 1, sequence, &mut session)
+                    .await?
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .checked_wrappers(tx, &mut session)
+                    .await?;
+                for member in saved.wrappers().manifest()["members"].as_array().unwrap() {
+                    if member["kind"] != "workflow-operation" {
+                        expected_documents.insert(records::bytes(member).unwrap());
+                    }
+                }
+            }
+            let retained_root = current::source::retained_record(
+                tx,
+                &selected,
+                root,
+                "workflow-authority",
+                "ledger-workflow-local-authority-snapshot/1",
+                5,
+                &mut session,
+            )
+            .await?;
+            let root_body = session
+                .copy_representation(
+                    retained_root.canonical_body(),
+                    ledgerlab_core::validation_work::RepresentationKind::Record,
+                )
+                .map_err(core_error)?;
+            let accounting_root = wire::source_record(
+                "workflow-authority",
+                "ledger-workflow-local-authority-snapshot/1",
+                root_body,
+                &mut session,
+            )?;
             let cut = prefix::inventory::ConfiguredRoot::from_value(root, &mut session)?;
             assert_eq!(
                 folded._inventory.seed_origin(root, &cut, &mut session)?,
@@ -567,6 +608,23 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 root,
                 &[&enrolled["receipt"]["result_refs"][0]],
                 &[0b1111],
+                &mut session,
+            )?;
+            folded.assert_packed_accounting(
+                &accounting_root,
+                &[0b1111],
+                (
+                    expected_documents.len() as u64,
+                    expected_meter.payload_bytes as u64,
+                ),
+                &mut session,
+            )?;
+            // A cut root outside an empty selected set is included exactly
+            // once; neither unrelated journal bytes nor its origin are added.
+            folded.assert_packed_accounting(
+                &accounting_root,
+                &[0],
+                (1, retained_root.canonical_body().len() as u64),
                 &mut session,
             )?;
             Ok(())

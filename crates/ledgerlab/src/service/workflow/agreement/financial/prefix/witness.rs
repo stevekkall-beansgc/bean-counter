@@ -8,6 +8,7 @@ use ledgerlab_core::policy::workflow::transition_constructor::{
     ORIGIN_POINTER_MAX_BYTES, ProducedOriginPrefixes, RecomputedAuditDigest, SourcePrefixInput,
 };
 use std::{cmp::Ordering, mem};
+mod headers;
 
 pub(in super::super) struct ObservationHeader<'a> {
     pub(in super::super) reference: &'a ExactRef,
@@ -50,6 +51,42 @@ fn nonzero(a: u64, s: &mut OriginalAuditSession) -> Result<bool> {
 }
 struct RootGroup {
     root: ConfiguredRoot,
+}
+/// Derived minimal-witness counters, not an assertion that custody, authority
+/// or the full resource envelope has completed.
+#[derive(Clone, Copy, Default)]
+pub(super) struct WitnessAccounting {
+    pub(super) documents: u64,
+    pub(super) retained_bytes: u64,
+}
+fn add_counter(a: u64, b: u64, s: &mut OriginalAuditSession) -> Result<u64> {
+    s.semantic_work()
+        .arithmetic(Op::Add, &[&a.into(), &b.into()])
+        .map_err(core_error)?;
+    a.checked_add(b).ok_or(ServiceError::IntegrityFailure)
+}
+impl WitnessAccounting {
+    fn include(&mut self, counts: (u64, u64), s: &mut OriginalAuditSession) -> Result<()> {
+        self.documents = add_counter(self.documents, counts.0, s)?;
+        self.retained_bytes = add_counter(self.retained_bytes, counts.1, s)?;
+        s.semantic_work()
+            .write_bytes(mem::size_of::<Self>())
+            .map_err(core_error)
+    }
+    fn compare_header(&self, body: &Value, s: &mut OriginalAuditSession) -> Result<()> {
+        for (name, expected) in [
+            ("document_count", self.documents),
+            ("audited_retained_bytes", self.retained_bytes),
+        ] {
+            let raw = request_wrapper::text(body, name, s)?;
+            let actual = super::super::acceptance::counter(raw, s)?;
+            s.semantic_work()
+                .arithmetic(Op::Compare, &[&actual.into(), &expected.into()])
+                .map_err(core_error)?;
+            require(actual == expected, "INTEGRITY_FAILURE")?;
+        }
+        Ok(())
+    }
 }
 struct Memberships {
     count: usize,
@@ -294,6 +331,105 @@ impl Memberships {
         }
         Ok(())
     }
+    fn accounting(
+        &self,
+        inventory: &mut inventory::Inventory,
+        roots: &[&super::super::wire::SourceRecord],
+        s: &mut OriginalAuditSession,
+    ) -> Result<[WitnessAccounting; 33]> {
+        s.semantic_work()
+            .write_bytes(mem::size_of::<[WitnessAccounting; 33]>())
+            .map_err(core_error)?;
+        let mut out = [WitnessAccounting::default(); 33];
+        for ((row, group), total) in self.packed.iter().zip(&self.witness_roots).zip(&mut out) {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            let root = &self
+                .groups
+                .get(*group)
+                .ok_or(ServiceError::IntegrityFailure)?
+                .root;
+            let mut root_body = None;
+            for record in roots {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                let reference = super::super::wire::reference(record.reference(), s)?;
+                let parsed = s
+                    .parse_representation(reference.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                let candidate = ConfiguredRoot::from_value(parsed.value(), s)?;
+                if root.same(&candidate, s)? {
+                    require(root_body.is_none(), "INTEGRITY_FAILURE")?;
+                    root_body = Some(record.bytes());
+                }
+            }
+            let root_body = root_body.ok_or(ServiceError::IntegrityFailure)?;
+            let root_position = inventory.root_position(root, s)?;
+            let mut root_selected = false;
+            if let Some(position) = root_position {
+                s.semantic_work()
+                    .arithmetic(
+                        Op::DivideRemainder,
+                        &[&position.ordinal.into(), &32u32.into()],
+                    )
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .visit(Visit::RefLookup)
+                    .map_err(core_error)?;
+                let mask = *row
+                    .get((position.ordinal / 32) as usize)
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                s.semantic_work()
+                    .visit(Visit::RefLookup)
+                    .map_err(core_error)?;
+                let bit = BLOCK_BITS[(position.ordinal % 32) as usize];
+                s.semantic_work()
+                    .arithmetic(Op::BitAnd, &[&mask.into(), &bit.into()])
+                    .map_err(core_error)?;
+                root_selected = nonzero(u64::from(mask & bit), s)?;
+            }
+            // The configured root is exported even when its origin is cut or
+            // when its fresh authenticated snapshot has no earlier origin.
+            if !root_selected {
+                total.include((1, root_body.len() as u64), s)?;
+            }
+            for (word, mask) in row.iter().enumerate() {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                if !nonzero(u64::from(*mask), s)? {
+                    continue;
+                }
+                let base = product(word, 32, s)?;
+                let end = add(base, 32, s)?;
+                let end = if compare(end, self.count, s)?.is_gt() {
+                    self.count
+                } else {
+                    end
+                };
+                if compare(*mask as usize, u32::MAX as usize, s)?.is_eq() {
+                    total.include(inventory.introduced_accounting(base, end, s)?, s)?;
+                } else {
+                    let selected = flags(*mask, s)?;
+                    for (ordinal, used) in (base..end).zip(selected) {
+                        s.semantic_work()
+                            .visit(Visit::Element)
+                            .map_err(core_error)?;
+                        if used {
+                            let end = add(ordinal, 1, s)?;
+                            total.include(inventory.introduced_accounting(ordinal, end, s)?, s)?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 fn merge_word(row: &mut [u32], word: usize, mask: u32, s: &mut OriginalAuditSession) -> Result<()> {
     s.semantic_work()
@@ -447,6 +583,7 @@ impl FoldedInventory {
             key,
             produced,
             memberships,
+            accounting: None,
             session: s,
             _control: control,
         })
@@ -627,10 +764,51 @@ pub(super) struct WitnessPrefixProduction<'p, 'k, 's> {
     key: &'k ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
     produced: ProducedOriginPrefixes,
     memberships: Memberships,
+    accounting: Option<[WitnessAccounting; 33]>,
     session: &'s mut OriginalAuditSession,
     _control: ExternalBufferLease,
 }
 impl WitnessPrefixProduction<'_, '_, '_> {
+    /// Bind actual owning root bodies and derive counts over this first pass's
+    /// exact memberships. The borrowed result cannot outlive this same parent
+    /// and inventory. No installation WB total or serialized count is accepted.
+    pub(super) fn derive_accounting(
+        &mut self,
+        roots: &[&super::super::wire::SourceRecord],
+    ) -> Result<()> {
+        let result = (|| {
+            let _temporary = self
+                .session
+                .reserve_external_payload(2 * mem::size_of::<[WitnessAccounting; 33]>())
+                .map_err(core_error)?;
+            let accounting =
+                self.memberships
+                    .accounting(&mut self.prefix._inventory, roots, self.session)?;
+            self.session
+                .semantic_work()
+                .scan_bytes(mem::size_of_val(&accounting))
+                .map_err(core_error)?;
+            self.session
+                .semantic_work()
+                .write_bytes(mem::size_of_val(&accounting))
+                .map_err(core_error)?;
+            self.accounting = Some(accounting);
+            Ok(())
+        })();
+        if result.is_err() {
+            self.session.invalidate();
+        }
+        result
+    }
+    pub(super) fn accounting_parts(
+        &mut self,
+    ) -> Result<(&[WitnessAccounting], &mut OriginalAuditSession)> {
+        let accounting = self
+            .accounting
+            .as_ref()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        Ok((&accounting[..self.memberships.packed.len()], self.session))
+    }
     /// Header emission borrows this SAME retained consumer, never new credit.
     pub(super) fn session(&mut self) -> &mut OriginalAuditSession {
         self.session
@@ -650,10 +828,12 @@ impl WitnessPrefixProduction<'_, '_, '_> {
             key,
             produced,
             memberships,
+            accounting,
             session: s,
             _control,
         } = self;
         let result = (|| {
+            let accounting = accounting.ok_or(ServiceError::IntegrityFailure)?;
             let _control = s
                 .reserve_external_payload(
                     mem::size_of::<[usize; 32]>() + mem::size_of::<[bool; 32]>(),
@@ -663,6 +843,13 @@ impl WitnessPrefixProduction<'_, '_, '_> {
                 compare(sources.len(), produced.sources().len(), s)?.is_eq(),
                 "INTEGRITY_FAILURE",
             )?;
+            s.semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            accounting
+                .get(produced.sources().len())
+                .ok_or(ServiceError::IntegrityFailure)?
+                .compare_header(financial.body, s)?;
             for (original, current) in [
                 (&key.logical_store_id, &context.key.logical_store_id),
                 (&key.scope[0], &context.key.scope[0]),
@@ -711,6 +898,13 @@ impl WitnessPrefixProduction<'_, '_, '_> {
                     }
                 }
                 let index = selected.ok_or(ServiceError::IntegrityFailure)?;
+                s.semantic_work()
+                    .visit(Visit::RefLookup)
+                    .map_err(core_error)?;
+                accounting
+                    .get(index)
+                    .ok_or(ServiceError::IntegrityFailure)?
+                    .compare_header(header.body, s)?;
                 s.semantic_work()
                     .write_bytes(mem::size_of::<usize>() + 1)
                     .map_err(core_error)?;
@@ -830,6 +1024,27 @@ fn flags(mask: u32, s: &mut OriginalAuditSession) -> Result<[bool; 32]> {
 
 #[cfg(test)]
 impl FoldedInventory {
+    pub(in super::super) fn assert_packed_accounting(
+        &mut self,
+        root: &super::super::wire::SourceRecord,
+        packed: &[u32],
+        expected: (u64, u64),
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let mut masks = Memberships::new(self.pointers.len(), 0, s)?;
+        let reference = super::super::wire::reference(root.reference(), s)?;
+        let parsed = s
+            .parse_representation(reference.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        masks.group(&serde_json::json!({"root_ref":parsed.value()}), 0, s)?;
+        masks.packed[0].copy_from_slice(packed);
+        let _temporary = s
+            .reserve_external_payload(2 * mem::size_of::<[WitnessAccounting; 33]>())
+            .map_err(core_error)?;
+        let counts = masks.accounting(&mut self._inventory, &[root], s)?;
+        assert_eq!((counts[0].documents, counts[0].retained_bytes), expected);
+        Ok(())
+    }
     pub(in super::super) fn assert_packed_reachable(
         &mut self,
         root: &Value,

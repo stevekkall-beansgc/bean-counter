@@ -8,6 +8,10 @@ pub(super) struct EdgeLocation {
     pub(super) ordinary: u32,
     pub(super) roots: u32,
     pub(super) digest: [u8; 32],
+    // Cumulative normative WB/body counts at this completed original cutoff.
+    // These are private append-derived DATA, not serialized budget assertions.
+    pub(super) documents: u64,
+    pub(super) charged_bytes: u64,
 }
 pub(super) struct EdgeLocations {
     rows: Vec<EdgeLocation>,

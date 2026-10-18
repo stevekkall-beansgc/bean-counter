@@ -1119,6 +1119,7 @@ pub(in super::super) struct Inventory {
     bodies: File,
     operations: u64,
     payload_bytes: u64,
+    documents: u64,
     body_bytes: u64,
     active_origin: Option<OriginLinks>,
     edge_locations: EdgeLocations,
@@ -1227,6 +1228,7 @@ impl Inventory {
             bodies,
             operations: 1,
             payload_bytes: payload,
+            documents: 0,
             body_bytes: 0,
             active_origin: None,
             edge_locations: EdgeLocations::new(),
@@ -1429,6 +1431,10 @@ impl Inventory {
         copied(4, s)?;
         entry.0[236..240].copy_from_slice(&(ordinal as u32).to_le_bytes());
         require(self.tree.insert(&entry, s)?.is_none(), "INTEGRITY_FAILURE")?;
+        // Count only a genuinely new exact immutable body. Repeated members,
+        // logical heads and auxiliary scratch rows do not increase this count.
+        // payload_bytes already uses the normative key/wrapper/body WB recipe.
+        self.documents = add(self.documents, 1, s)?;
         s.check_cancelled().map_err(core_error)
     }
     pub(in super::super) fn absent(
@@ -2013,6 +2019,8 @@ impl Inventory {
                 ordinary: ordinary_count,
                 roots: root_count,
                 digest,
+                documents: self.documents,
+                charged_bytes: self.payload_bytes,
             },
             s,
         )
@@ -2071,6 +2079,47 @@ impl Inventory {
             .ok_or(ServiceError::IntegrityFailure)?;
         self.observe_origin_entry(&entry, s)?;
         entry.origin_position(s).map(Some)
+    }
+    /// Contributions from an actual contiguous ordinal range of completed
+    /// originals. Earliest introductions partition exact document bodies;
+    /// keys/wrappers are charged once in their owning original. This is not the
+    /// whole witness total: a configured root outside the selected origins
+    /// must still be included once from its separately authenticated body.
+    pub(in super::super) fn introduced_accounting(
+        &self,
+        start: usize,
+        end: usize,
+        s: &mut OriginalAuditSession,
+    ) -> Result<(u64, u64)> {
+        require(
+            compare(start as u64, end as u64, s)?.is_lt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let last = subtract(end as u64, 1, s)? as usize;
+        let end = self.edge_locations.get(last, s)?;
+        let (documents, bytes) = if compare(start as u64, 0, s)?.is_eq() {
+            (0, 0)
+        } else {
+            let prior = subtract(start as u64, 1, s)? as usize;
+            let prior = self.edge_locations.get(prior, s)?;
+            (prior.documents, prior.charged_bytes)
+        };
+        Ok((
+            subtract(end.documents, documents, s)?,
+            subtract(end.charged_bytes, bytes, s)?,
+        ))
+    }
+    /// A root lookup is accounting DATA only. It must not create a required
+    /// edge merely because a header emitter reads its already-held root body.
+    pub(in super::super) fn root_position(
+        &mut self,
+        root: &ConfiguredRoot,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<OriginPosition>> {
+        self.tree
+            .find(&root.0, s)?
+            .map(|entry| entry.origin_position(s))
+            .transpose()
     }
     /// Exact append-location reuse from this inventory's actual required-edge
     /// producer. Counts and data bounds are retained in the private table; the

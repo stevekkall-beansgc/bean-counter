@@ -26,6 +26,13 @@ pub(super) fn field<'a>(
     name: &str,
     session: &mut OriginalAuditSession,
 ) -> Result<&'a Value> {
+    optional_field(value, name, session)?.ok_or(ServiceError::IntegrityFailure)
+}
+pub(super) fn optional_field<'a>(
+    value: &'a Value,
+    name: &str,
+    session: &mut OriginalAuditSession,
+) -> Result<Option<&'a Value>> {
     session
         .semantic_work()
         .visit(Visit::Constraint)
@@ -51,10 +58,10 @@ pub(super) fn field<'a>(
             .scan_bytes(name.len())
             .map_err(core_error)?;
         if candidate == name {
-            return Ok(field);
+            return Ok(Some(field));
         }
     }
-    Err(ServiceError::IntegrityFailure)
+    Ok(None)
 }
 pub(super) fn text<'a>(
     value: &'a Value,
