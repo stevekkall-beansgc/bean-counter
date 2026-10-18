@@ -855,6 +855,8 @@ pub(in super::super) struct InitialSource {
     enrollment: wire::SourceRecord,
     grant: wire::SourceRecord,
     state: wire::SourceRecord,
+    correspondence:
+        Box<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>,
     _customers: ExternalBufferLease,
 }
 impl InitialSource {
@@ -1055,7 +1057,7 @@ async fn initial_inner(
         }
     }
     require(found, "AUTHORITY_REQUIRED")?;
-    let [enrollment, grant, state] = birth_records(
+    let produced = produce_birth_records(
         &request,
         p,
         origin.key(),
@@ -1065,6 +1067,12 @@ async fn initial_inner(
         root.reference(),
         s,
     )?;
+    let correspondence = produced
+        .correspondence(s)
+        .map_err(core_error)?
+        .into_boxed(s)
+        .map_err(core_error)?;
+    let [enrollment, grant, state] = wrap_birth_records(produced, s)?;
     let recomputed = wire::RefSet::new(
         [enrollment.reference(), grant.reference(), state.reference()].into_iter(),
         3,
@@ -1104,6 +1112,7 @@ async fn initial_inner(
         enrollment,
         grant,
         state,
+        correspondence,
         _customers: storage,
     })
 }
@@ -1122,7 +1131,7 @@ pub(in super::super) async fn reconstruct_initial(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn birth_records(
+fn produce_birth_records(
     request: &SourceRequest,
     p: &Value,
     key: &OperationKey,
@@ -1131,7 +1140,7 @@ fn birth_records(
     at: &Timestamp,
     root: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
     s: &mut OriginalAuditSession,
-) -> Result<[wire::SourceRecord; 3]> {
+) -> Result<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceRecords> {
     use ledgerlab_core::policy::workflow::transition_constructor::{
         OperationKey as CoreKey, produce_initial_source_records,
     };
@@ -1175,15 +1184,32 @@ fn birth_records(
         source: copy(&key.source, s)?,
         operation_id: copy(&key.operation_id, s)?,
     };
-    let [enrollment, grant, state] =
-        produce_initial_source_records(&key, p, ceiling, "real_local", actor, at.as_str(), root, s)
-            .map_err(core_error)?
-            .into_parts();
+    produce_initial_source_records(&key, p, ceiling, "real_local", actor, at.as_str(), root, s)
+        .map_err(core_error)
+}
+fn wrap_birth_records(
+    produced: ledgerlab_core::policy::workflow::transition_constructor::InitialSourceRecords,
+    s: &mut OriginalAuditSession,
+) -> Result<[wire::SourceRecord; 3]> {
+    let [enrollment, grant, state] = produced.into_parts();
     Ok([
         wire::initial_source_record("ledger-workflow-source-enrollment/1", enrollment, s)?,
         wire::initial_source_record("ledger-workflow-source-grant/1", grant, s)?,
         wire::initial_source_record("ledger-workflow-source-state/1", state, s)?,
     ])
+}
+fn birth_records(
+    request: &SourceRequest,
+    p: &Value,
+    key: &OperationKey,
+    key_value: &Value,
+    actor: &str,
+    at: &Timestamp,
+    root: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+    s: &mut OriginalAuditSession,
+) -> Result<[wire::SourceRecord; 3]> {
+    let produced = produce_birth_records(request, p, key, key_value, actor, at, root, s)?;
+    wrap_birth_records(produced, s)
 }
 
 #[cfg(test)]
@@ -2041,13 +2067,20 @@ mod successor_tests {
 /// Consume the actual replay into the invocation-local chronological inventory.
 /// No SQL projection, asserted prior-state locator or later body can provide
 /// the permanent-key/head facts checked here.
+pub(super) enum FoldedSource {
+    Publication(RecompiledPublication),
+    InitialSource(
+        Box<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence>,
+    ),
+    Other,
+}
 pub(super) async fn fold(
     tx: &mut SqliteTx,
     origin: &LocatedWrappers,
     inventory: &mut inventory::Inventory,
     setup: &crate::service::billing::Setup,
     s: &mut OriginalAuditSession,
-) -> Result<Option<RecompiledPublication>> {
+) -> Result<FoldedSource> {
     if same(
         request_wrapper::text(origin.wrappers().receipt(), "result_kind", s)?,
         "semantic_alias",
@@ -2062,7 +2095,7 @@ pub(super) async fn fold(
         let program_owner = super::publication::fold(tx, origin, inventory, setup, s).await?;
         // Original ancestor selection retains the appropriate owning PUB in
         // its enclosing traversal, without a current compiler fallback.
-        return Ok(Some(program_owner));
+        return Ok(FoldedSource::Publication(program_owner));
     }
     let literal =
         request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
@@ -2076,7 +2109,7 @@ pub(super) async fn fold(
         if same(schema, party, s)? {
             let result = origin.reconstruct_party(tx, inventory, s).await?;
             result.fold_original(origin, inventory, setup, s)?;
-            return Ok(None);
+            return Ok(FoldedSource::Other);
         }
     }
     if same(schema, "ledger-workflow-customer-register/1", s)? {
@@ -2134,6 +2167,11 @@ pub(super) async fn fold(
         )?;
         inventory.set_head(&permanent, r.enrollment.reference(), s)?;
         inventory.set_head(&head, r.state.reference(), s)?;
+        // All original request/output, evidence/customer/root custody,
+        // permanent identity and as-of head checks above have succeeded.
+        // Enclosing required-edge/pointer completion must STILL finish before
+        // this pending construction correspondence enters the live table.
+        return Ok(FoldedSource::InitialSource(r.correspondence));
     } else if same(schema, "ledger-workflow-source-restrict/1", s)?
         || same(schema, "ledger-workflow-source-revoke/1", s)?
     {
@@ -2165,7 +2203,7 @@ pub(super) async fn fold(
     } else {
         return Err(ServiceError::Unavailable);
     }
-    Ok(None)
+    Ok(FoldedSource::Other)
 }
 pub(in super::super) fn custody(
     root: &Value,

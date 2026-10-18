@@ -25,7 +25,7 @@ mod cost_postings;
 mod source_authority;
 mod source_projection;
 mod source_records;
-pub use source_records::{produce_initial_source_records, InitialSourceRecord, InitialSourceRecords};
+pub use source_records::{produce_initial_source_records, InitialSourceRecord, InitialSourceRecords, InitialSourceCorrespondence};
 pub use source_projection::{NominatedSourceFrame,NominatedSourceGrant,validate_app_nominated_sources};
 mod financial_observation;
 pub use financial_observation::audit_stream::{EconomicAuditStream,SourcePrefixInput,FinancialPrefixInput,ProducedOriginPrefix,ProducedOriginPrefixes,OriginWitness,RecomputedAuditDigest,ValidatedOriginPointers,OriginPointerBlock,OriginPointerEntry,ORIGIN_POINTER_BLOCK,ORIGIN_POINTER_MAX_BYTES,OriginPointerBatch,PreparedOriginBatch,ORIGIN_POINTER_BATCH,ORIGIN_POINTER_BATCH_WORDS};

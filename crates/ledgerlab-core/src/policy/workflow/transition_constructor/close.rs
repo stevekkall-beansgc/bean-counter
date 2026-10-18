@@ -205,7 +205,7 @@ pub(super) fn execute<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextDa
     let mut r=inputs.resolve(m,&c.key,&c.source_observation_inputs)?;
     if let Some((owner,evidence))=intrinsic{r=r.with_intrinsic_evidence(m,&c.key,owner,evidence)?;}
     let slot=shape::text(m,&p,"family_slot")?;
-    let selected=family_context::select(m,&mut r,c,program,&p["target_ref"],slot,&EconomicStateData{financial:state,capacity_heads:&[],supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None})?;
+    let selected=family_context::select(m,&mut r,c,program,&p["target_ref"],slot,&EconomicStateData{financial:state,capacity_heads:&[],supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None,initial_source_correspondences:&[]})?;
     eq(m,&selected.family_head["revision"],&p["expected_revision"])?;
     lifecycle(m,&selected.family_head)?;
     let chosen_slot=if no_success{

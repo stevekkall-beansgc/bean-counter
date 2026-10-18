@@ -449,6 +449,25 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 &mut session,
             )
             .await?;
+            // This lookup can return only the live key associated AFTER the
+            // actual enrollment origin and its required-edge/pointer finish.
+            let enrollment_ref = &enrolled["receipt"]["result_refs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["kind"] == "workflow-source-enrollment")
+                .unwrap();
+            {
+                let correspondence = std::ptr::from_ref(
+                    folded.initial_source_correspondence(enrollment_ref, &mut session)?,
+                );
+                assert_eq!(
+                    correspondence,
+                    std::ptr::from_ref(
+                        folded.initial_source_correspondence(enrollment_ref, &mut session)?
+                    )
+                );
+            }
             // These pointers come from the actual four public committed
             // prerequisite recipes, after their original semantic/custody fold.
             // They are not a financial witness membership or audit digest.

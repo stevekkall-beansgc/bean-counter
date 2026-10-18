@@ -15,10 +15,55 @@ pub struct InitialSourceRecords {
     enrollment:InitialSourceRecord,grant:InitialSourceRecord,state:InitialSourceRecord,
     _ownership:ExternalBufferLease,
 }
+// Exact producer output correspondence, not historical authority or custody.
+// No Clone/Serde/public constructor; the host associates it with a completed
+// original separately. Full bodies and every consumer-specific check remain.
+const CORRESPONDENCE_BYTES:usize=3*71+72;
+pub struct InitialSourceCorrespondence {
+    bytes:[u8;CORRESPONDENCE_BYTES],boxed_once:bool,_ownership:ExternalBufferLease,
+}
+impl InitialSourceCorrespondence {
+    /// The original producer prepaid TWO complete carrier payloads: its inline
+    /// result plus this one heap move. There is no caller-selected allowance,
+    /// naked Box allocation, second pool or repeated reboxing credit.
+    pub fn into_boxed(mut self,s:&mut OriginalAuditSession)->Result<Box<Self>>{
+        let result=(||{
+            let a=s.arena().shared_handle();let m=s.meter_mut();
+            a.require_external_owner(&self._ownership,m)?;
+            m.visit("source.correspondence_single_box_handoff")?;
+            if self.boxed_once{return Err(shape::fail("source correspondence already boxed"));}
+            self.boxed_once=true;
+            m.scan_bytes(mem::size_of::<Self>())?;
+            m.write_bytes(mem::size_of::<Self>()+mem::size_of::<Box<Self>>())?;
+            Ok(Box::new(self))
+        })();if result.is_err(){s.invalidate();}result
+    }
+    pub(super) fn checked_bytes<'a>(&'a self,a:&AuditArena,m:&mut CoreMeter)->Result<&'a [u8;CORRESPONDENCE_BYTES]>{
+        a.require_external_owner(&self._ownership,m)?;Ok(&self.bytes)
+    }
+}
 impl InitialSourceRecords {
     pub fn enrollment(&self)->&InitialSourceRecord{&self.enrollment}
     pub fn grant(&self)->&InitialSourceRecord{&self.grant}
     pub fn state(&self)->&InitialSourceRecord{&self.state}
+    pub fn correspondence(&self,s:&mut OriginalAuditSession)->Result<InitialSourceCorrespondence>{
+        let result=(||{
+            let a=s.arena().shared_handle();let m=s.meter_mut();
+            a.require_external_owner(&self._ownership,m)?;
+            let owner=a.reserve_external_payload(2*mem::size_of::<InitialSourceCorrespondence>(),m)?;
+            // Initialize the fixed array, copy all three digest/ID bindings,
+            // then move it into the returned immutable carrier.
+            m.scan_bytes(CORRESPONDENCE_BYTES)?;m.write_bytes(3*CORRESPONDENCE_BYTES)?;
+            let mut bytes=[0;CORRESPONDENCE_BYTES];
+            // These exact lengths follow from the closed SHA256 producers and
+            // the fixed wsource_ prefix above, rather than supplied strings.
+            bytes[..71].copy_from_slice(self.enrollment.reference.digest.as_bytes());
+            bytes[71..142].copy_from_slice(self.grant.reference.digest.as_bytes());
+            bytes[142..213].copy_from_slice(self.state.reference.digest.as_bytes());
+            bytes[213..].copy_from_slice(self.state.reference.id.as_bytes());
+            Ok(InitialSourceCorrespondence{bytes,boxed_once:false,_ownership:owner})
+        })();if result.is_err(){s.invalidate();}result
+    }
     /// Every row carries its own Ref/control owner. Splitting the triple cannot
     /// detach those leases or require another canonical-body copy/hash.
     pub fn into_parts(self)->[InitialSourceRecord;3]{
@@ -123,11 +168,39 @@ mod tests {
         for(got,want)in [(actual.enrollment(),enrollment),(actual.grant(),grant),(actual.state(),state)]{
             assert_eq!(got.reference(),&want.reference);assert_eq!(got.canonical_body(),want.canonical_body);
         }
+        let facts=actual.correspondence(&mut s).unwrap().into_boxed(&mut s).unwrap();
+        let views:Vec<_>=records.iter().map(|r|super::super::data::EconomicRecordView{reference:&r.reference,canonical_body:&r.canonical_body}).collect();
+        // Exact producer correspondence cannot replace consuming customer,
+        // clock, store/scope or installation-mode checks. Each call is a new
+        // original owner in the SAME attempt; historical authority is absent.
+        for case in 0..5{
+            let mut context=c.clone();let mut customer=enrollment_value["ceiling"]["customer_scope"][0].clone();
+            if case==1{context.accepted_at="2026-10-12T00:00:00.000000Z".into();}
+            if case==2{customer=json!("different-customer");}
+            if case==3{context.installation_mode="real_local".into();}
+            if case==4{context.key.logical_store_id="different-store".into();}
+            let mut consumer=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut meter=consumer.meter_mut().original_economic_meter().unwrap();
+            let mut pool=super::super::records::Records::borrowed_app(&mut meter,&arena,&context.key,&views,&[]).unwrap();
+            pool.install_initial_source_outputs(&mut meter,&[&facts]).unwrap();
+            let e=pool.get(&mut meter,&context.key,&enrollment.reference,"workflow-source-enrollment","ledger-workflow-source-enrollment/1").unwrap();
+            let g=pool.get(&mut meter,&context.key,&grant.reference,"workflow-source-grant","ledger-workflow-source-grant/1").unwrap();
+            let st=pool.get(&mut meter,&context.key,&state.reference,"workflow-source-state","ledger-workflow-source-state/1").unwrap();
+            let invocation=super::super::representation::InvocationToken::new();
+            let result=super::super::inventory::source::birth(&mut meter,&mut pool,&context,&invocation,&e,&st,&g,&customer,&enrollment.reference,&state.reference,&grant.reference);
+            if case==0{result.unwrap();}else{assert!(result.is_err(),"consumer case {case} was bypassed");}
+        }
+        let other=AuditArena::new().unwrap();let mut foreign=OriginalAuditSession::for_resource_profile_v2(&other).unwrap();
+        assert!(facts.checked_bytes(&other,foreign.meter_mut()).is_err());
         let rows=actual.into_parts();
         assert!(arena.usage().unwrap().live_bytes>baseline.live_bytes);
         assert_eq!(rows[0].reference(),&enrollment.reference);
         assert_eq!(rows[2].canonical_body(),state.canonical_body);
-        drop(rows);assert_eq!(arena.usage().unwrap().live_bytes,baseline.live_bytes);
+        drop(rows);
+        let mut rebox=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let moved=*facts;
+        assert!(moved.into_boxed(&mut rebox).is_err());
+        assert_eq!(arena.usage().unwrap().live_bytes,baseline.live_bytes);
         let mut incomplete=enrollment_value["ceiling"].clone();incomplete.as_object_mut().unwrap().remove("source");
         assert!(produce_initial_source_records(&key,&payload,&incomplete,"isolated_synthetic","fixture-admin","2026-10-13T00:00:05.000000Z",&root,&mut s).is_err());
         assert!(s.meter_mut().visit("test.invalid_source_production_cannot_resume").is_err());

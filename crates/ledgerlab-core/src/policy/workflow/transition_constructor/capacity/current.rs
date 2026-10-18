@@ -90,7 +90,7 @@ mod tests {
      let capacity=body::record(&mut build,&key(),"workflow-correction-capacity",id,json!({"schema":"ledger-correction-capacity/1","root_ref":if wrong{&current.reference}else{&first.reference},"revision":"3","dependency_root":digest,"affected_decisions":"1","maximum_actions":"0","maximum_records":"0","maximum_bytes":"0","maximum_work":"0","reserved_dependency_refs":[],"retirement_refs":[]})).unwrap();
      let inputs=[EconomicRecordView{reference:&first.reference,canonical_body:&first.canonical_body},EconomicRecordView{reference:&current.reference,canonical_body:&current.canonical_body},EconomicRecordView{reference:&capacity.reference,canonical_body:&capacity.canonical_body}];
      let heads=[CapacityHead{root_decision_id:"decision".into(),revision:"3".into(),reference:capacity.reference.clone()}];
-     let financial=DraftStateData::default();let state=EconomicStateData{financial:&financial,capacity_heads:&heads,supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None};
+     let financial=DraftStateData::default();let state=EconomicStateData{financial:&financial,capacity_heads:&heads,supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None,initial_source_correspondences:&[]};
      let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
      let mut child=session.meter_mut().original_economic_meter().unwrap();let c=context();
      let mut records=Records::borrowed_app(&mut child,&arena,&c.key,&inputs,&[]).unwrap();

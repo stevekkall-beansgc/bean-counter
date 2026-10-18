@@ -144,6 +144,10 @@ pub struct EconomicStateData<'a> {
     pub current_party_authorizations:&'a [PartyAuthorizationHead],
     pub observation:Option<&'a EconomicObservationInput<'a>>,
     pub audit:Option<&'a super::financial_observation::audit_stream::RecomputedAuditDigest<'a>>,
+    /// Exact construction facts from the SAME original source record producer.
+    /// The chronological host must associate these with completed originals;
+    /// this field never supplies source authority or skips retained-body reads.
+    pub initial_source_correspondences:&'a [&'a super::source_records::InitialSourceCorrespondence],
 }
 #[derive(Clone, Debug, Default)]
 pub struct DraftStateData {

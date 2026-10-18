@@ -983,6 +983,20 @@ async fn before_inputs(
 }
 
 impl FoldedInventory {
+    /// Exact full enrollment Ref -> validated earliest introduction -> live
+    /// opaque output correspondence. No hash/sequence or scratch row alone
+    /// can manufacture this key; core still rebinds all selected output bytes.
+    pub(super) fn initial_source_correspondence(
+        &mut self,
+        enrollment: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<
+        &ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence,
+    > {
+        super::acceptance::validate_reference(enrollment, "workflow-source-enrollment", s)?;
+        let sequence = self._inventory.introduction_sequence(enrollment, s)?;
+        self.programs.initial_source(sequence, s)
+    }
     pub(super) fn require_record(
         &mut self,
         r: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
@@ -1300,6 +1314,7 @@ async fn fold_origin(
     prefix
         ._inventory
         .begin_origin_links(origin.wrappers().sequence(), s)?;
+    let mut initial_source = None;
     let publication = if origin.wrappers().class() == wrappers::WireClass::Agreement {
         let literal =
             request_wrapper::field(origin.wrappers().original_request().value(), "payload", s)?;
@@ -1328,17 +1343,28 @@ async fn fold_origin(
         reconstructed.fold_original(origin, prefix, s)?;
         None
     } else {
-        let publication = source::fold(tx, origin, &mut prefix._inventory, setup, s).await?;
-        if let Some(program) = &publication {
-            // source::fold has finished original semantic/member/custody checks
-            // and staged this exact PUB before a live key may be associated.
-            prefix
-                .programs
-                .register(origin.wrappers().sequence(), program.program(), s)?;
+        match source::fold(tx, origin, &mut prefix._inventory, setup, s).await? {
+            source::FoldedSource::Publication(program) => {
+                // source::fold has finished original semantic/member/custody
+                // checks and staged this exact PUB before live-key association.
+                prefix
+                    .programs
+                    .register(origin.wrappers().sequence(), program.program(), s)?;
+                Some(program)
+            }
+            source::FoldedSource::InitialSource(key) => {
+                initial_source = Some(key);
+                None
+            }
+            source::FoldedSource::Other => None,
         }
-        publication
     };
     finish_origin(origin, prefix, s)?;
+    if let Some(key) = initial_source {
+        prefix
+            .programs
+            .register_initial_source(origin.wrappers().sequence(), key, s)?;
+    }
     Ok(publication)
 }
 fn finish_origin(

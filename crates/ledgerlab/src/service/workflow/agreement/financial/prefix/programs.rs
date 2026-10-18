@@ -1,16 +1,22 @@
-//! Live compilation correspondence keys for this ONE chronological attempt.
+//! Live compilation/source-output correspondence for ONE chronological attempt.
 //! A numeric slot/sequence is only a locator. The enclosing fold registers it
-//! after actual original PUB completion and checks every immutable body again
-//! when loading an execution view. Keys never leave the held snapshot.
+//! after the actual original completion. A PUB key additionally binds its
+//! immutable sources/plan when loading an execution view; a source key binds
+//! only the actual initial output construction. Keys stay in the held snapshot.
 use super::*;
 use ledgerlab_core::policy::workflow::selected_program::{
     SelectedExecutionReloadKey, SelectedProgram,
 };
+use ledgerlab_core::policy::workflow::transition_constructor::InitialSourceCorrespondence;
 use std::mem;
 
 struct Entry {
     sequence: i64,
-    key: Box<SelectedExecutionReloadKey>,
+    key: CompletedKey,
+}
+enum CompletedKey {
+    Program(Box<SelectedExecutionReloadKey>),
+    InitialSource(Box<InitialSourceCorrespondence>),
 }
 pub(super) struct CompletedPrograms {
     entries: Vec<Entry>,
@@ -31,6 +37,39 @@ impl CompletedPrograms {
         program: &SelectedProgram,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
+        self.reserve_entry(sequence, s)?;
+        let key = program
+            .execution_reload_key_with_work(s)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(mem::size_of::<Entry>())
+            .map_err(core_error)?;
+        self.entries.push(Entry {
+            sequence,
+            key: CompletedKey::Program(key),
+        });
+        Ok(())
+    }
+    /// The enclosing chronological caller invokes this only after the actual
+    /// source origin AND its pointer registration have completed. The opaque
+    /// key itself proves only exact output construction correspondence.
+    pub(super) fn register_initial_source(
+        &mut self,
+        sequence: i64,
+        key: Box<InitialSourceCorrespondence>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        self.reserve_entry(sequence, s)?;
+        s.semantic_work()
+            .write_bytes(mem::size_of::<Entry>())
+            .map_err(core_error)?;
+        self.entries.push(Entry {
+            sequence,
+            key: CompletedKey::InitialSource(key),
+        });
+        Ok(())
+    }
+    fn reserve_entry(&mut self, sequence: i64, s: &mut OriginalAuditSession) -> Result<()> {
         let work = s.semantic_work();
         work.visit(Visit::Constraint).map_err(core_error)?;
         work.arithmetic(Op::Compare, &[&sequence.into(), &0i64.into()])
@@ -104,15 +143,6 @@ impl CompletedPrograms {
             drop(old);
             self._control = Some(owner);
         }
-        // The core pre-admits the actual Box, checks same-attempt owning compile
-        // provenance, and refuses a key minted from any reloaded execution view.
-        let key = program
-            .execution_reload_key_with_work(s)
-            .map_err(core_error)?;
-        s.semantic_work()
-            .write_bytes(mem::size_of::<Entry>())
-            .map_err(core_error)?;
-        self.entries.push(Entry { sequence, key });
         Ok(())
     }
     pub(super) fn key(
@@ -120,6 +150,30 @@ impl CompletedPrograms {
         sequence: i64,
         s: &mut OriginalAuditSession,
     ) -> Result<&SelectedExecutionReloadKey> {
+        let entry = self.entry(sequence, s)?;
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        match &entry.key {
+            CompletedKey::Program(key) => Ok(key),
+            CompletedKey::InitialSource(_) => Err(ServiceError::IntegrityFailure),
+        }
+    }
+    pub(super) fn initial_source(
+        &self,
+        sequence: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<&InitialSourceCorrespondence> {
+        let entry = self.entry(sequence, s)?;
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        match &entry.key {
+            CompletedKey::InitialSource(key) => Ok(key),
+            CompletedKey::Program(_) => Err(ServiceError::IntegrityFailure),
+        }
+    }
+    fn entry(&self, sequence: i64, s: &mut OriginalAuditSession) -> Result<&Entry> {
         let (mut low, mut high) = (0usize, self.entries.len());
         loop {
             s.semantic_work()
@@ -146,7 +200,7 @@ impl CompletedPrograms {
                 .arithmetic(Op::Compare, &[&entry.sequence.into(), &sequence.into()])
                 .map_err(core_error)?;
             match entry.sequence.cmp(&sequence) {
-                std::cmp::Ordering::Equal => return Ok(&entry.key),
+                std::cmp::Ordering::Equal => return Ok(entry),
                 std::cmp::Ordering::Greater => high = middle,
                 std::cmp::Ordering::Less => {
                     s.semantic_work()
