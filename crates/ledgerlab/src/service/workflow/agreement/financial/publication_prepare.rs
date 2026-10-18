@@ -248,13 +248,10 @@ pub(super) async fn compile_request(
         .map_err(core_error)?;
         // The actual compiled program inherits only its private support's
         // exact execution identity. Public descriptor data cannot select it.
-        request_wrapper::same_text(
-            program
-                .execution_registry()
-                .ok_or(ServiceError::Unavailable)?,
-            REGISTRY,
-            s,
-        )?;
+        let registry=program.execution_registry().ok_or(ServiceError::Unavailable)?;
+        if !acceptance::same_recipe_text(registry,wrappers::LOCAL_REGISTRY,s)? {
+            request_wrapper::same_text(registry,REGISTRY,s)?;
+        }
         request_wrapper::same_text(
             request_wrapper::text(payload, "expected_plan_digest", s)?,
             program.compiled_plan().reference().digest(),

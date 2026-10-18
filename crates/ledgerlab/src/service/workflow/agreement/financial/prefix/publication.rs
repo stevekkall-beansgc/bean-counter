@@ -9,7 +9,7 @@ use ledgerlab_core::{
         DefinitionRef,
         selected_program::{
             SelectedExecutionReloadKey, SelectedProgram, SelectedSourceInput,
-            rehydrate_selected_execution, restore_selected_program,
+            rehydrate_selected_execution, restore_selected_program, load_local_selected_execution,
         },
         transition_constructor::ExactRef,
     },
@@ -454,6 +454,9 @@ async fn recompile_inner(
         "INTEGRITY_FAILURE",
     )?;
     let op = origin.wrappers().operation();
+    let saved_evidence=request_wrapper::field(op,"request_evidence",session)?;
+    let saved_resolution=request_wrapper::field(saved_evidence,"descriptor_resolution",session)?;
+    let local=text_is(request_wrapper::text(saved_resolution,"registry_digest",session)?,wrappers::LOCAL_REGISTRY,session)?;
     let results = request_wrapper::field(op, "result_refs", session)?
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?;
@@ -749,7 +752,7 @@ async fn recompile_inner(
     // Inline raw source spelling can be longer than normalized source. Its
     // original enclosing request is already bounded256KiB; reserve that whole
     // payload in addition to the retained source budget before copying either.
-    if mode == "inline" && reload.is_none() {
+    if mode == "inline" && reload.is_none() && !local {
         input_bytes = arithmetic(input_bytes, 262144, Op::Add, session)?;
     }
     let (d, i, k) = parts(
@@ -770,7 +773,7 @@ async fn recompile_inner(
     documents
         .try_reserve_exact(raw_documents.len())
         .map_err(|_| ServiceError::Unavailable)?;
-    if mode == "inline" && reload.is_none() {
+    if mode == "inline" && reload.is_none() && !local {
         for source in raw_documents {
             session
                 .semantic_work()
@@ -837,7 +840,10 @@ async fn recompile_inner(
         documents,
         root_policy_ref: root,
     };
-    let program = if let Some(key) = reload {
+    let program = if local {
+        let expected=definition(plan_ref.ok_or(ServiceError::IntegrityFailure)?,session)?;
+        load_local_selected_execution(input,plan.stored.body.bytes(),&expected,session)
+    } else if let Some(key) = reload {
         rehydrate_selected_execution(input, plan.stored.body.bytes(), key, session)
     } else {
         restore_selected_program(
@@ -1807,7 +1813,8 @@ fn validate_descriptors(
                 "ledger-workflow-policy-publication/5"
             }
             "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2"
-            | "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276" => {
+            | "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276"
+            | "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a" => {
                 "ledger-workflow-policy-publication/6"
             }
             _ => return Err(reject("HISTORICAL_VERIFIER_UNAVAILABLE")),

@@ -54,7 +54,7 @@ impl SelectedProgram{
             let root=digest_bits(m,self.root_policy_ref().digest())?;
             let plan=digest_bits(m,self.compiled_plan().reference().digest())?;
             m.write_bytes(mem::size_of::<SelectedExecutionReloadKey>())?;
-            Ok(Box::new(SelectedExecutionReloadKey{root,plan,recipe:self.recipe,registry:self.execution_registry,compile_work:self.analysis.compile_work,_ownership:ownership}))
+            Ok(Box::new(SelectedExecutionReloadKey{root,plan,recipe:self.recipe,registry:self.execution_registry,compile_work:self.analysis.compile_work.ok_or_else(||fail("compiled program has no actual compiler measurement"))?,_ownership:ownership}))
         })();
         if result.is_err(){session.invalidate();}result
     }
@@ -74,13 +74,13 @@ fn same_reference(m:&mut CoreMeter,value:&Value,r:&DefinitionRef)->Result<bool>{
 /// fresh support selector, saved-output assertion or additional meter is used.
 /// The host separately supplies its actually completed PUB association.
 pub fn rehydrate_selected_execution(input:SelectedSourceInput,saved_plan:&[u8],key:&SelectedExecutionReloadKey,session:&mut OriginalAuditSession)->Result<SelectedProgram>{
-    let result=rehydrate_inner(input,saved_plan,key,session.meter_mut());
+    let result=(||{let m=session.meter_mut();let arena=m.representation_arena().ok_or_else(||fail("execution reload requires original attempt"))?;arena.require_external_owner(&key._ownership,m)?;rehydrate_inner(input,saved_plan,&ReloadBinding{root:key.root,plan:key.plan,recipe:key.recipe,registry:key.registry,compile_work:Some(key.compile_work)},m)})();
     if result.is_err(){session.invalidate();}result
 }
-fn rehydrate_inner(input:SelectedSourceInput,saved_plan:&[u8],key:&SelectedExecutionReloadKey,m:&mut CoreMeter)->Result<SelectedProgram>{
+struct ReloadBinding{root:[u8;32],plan:[u8;32],recipe:SelectedRecipe,registry:Option<&'static str>,compile_work:Option<u64>}
+fn rehydrate_inner(input:SelectedSourceInput,saved_plan:&[u8],key:&ReloadBinding,m:&mut CoreMeter)->Result<SelectedProgram>{
     use crate::policy::workflow::transition_constructor::shape;
     let arena=m.representation_arena().ok_or_else(||fail("execution reload requires original attempt"))?;
-    arena.require_external_owner(&key._ownership,m)?;
     let count=input.documents.len();
     if work::compare(m,count,1usize)?.is_lt()||work::compare(m,count,128usize)?.is_gt(){return Err(fail("execution reload source count"));}
     let raw_plan=m.parse_owned_representation(&arena,saved_plan,RepresentationKind::Record)?;
@@ -159,4 +159,21 @@ fn rehydrate_inner(input:SelectedSourceInput,saved_plan:&[u8],key:&SelectedExecu
         app_owned_cost_recipe:matches!(recipe,SelectedRecipe::AppOwnedCost1|SelectedRecipe::AppCostCausal1),
         app_cost_causal_recipe:matches!(recipe,SelectedRecipe::AppCostCausal1),execution_registry:key.registry,
         _policy_decode_ownership:Some(policy_owner),_source_projection_ownership:projection_ownership,_control_ownership:Some(ownership)})
+}
+
+/// Targeted local committed-artifact loader. The host supplies the actual
+/// selected PUB/source/plan association under its locked local transaction.
+/// This does not mint a chronological compile-correspondence key or run a
+/// second compiler. Exact source bodies, root, compiler and plan are rebound.
+pub fn load_local_selected_execution(input:SelectedSourceInput,saved_plan:&[u8],expected_plan:&DefinitionRef,session:&mut OriginalAuditSession)->Result<SelectedProgram>{
+ let result=(||{
+  let m=session.meter_mut();
+  if !same_literal(m,expected_plan.kind(),"workflow-compiled-plan")?{return Err(fail("local expected plan kind"));}
+  let binding=ReloadBinding{root:digest_bits(m,input.root_policy_ref.digest())?,plan:digest_bits(m,expected_plan.digest())?,recipe:SelectedRecipe::AppCostCausal1,registry:Some(super::super::local::REGISTRY),compile_work:None};
+  let program=rehydrate_inner(input,saved_plan,&binding,m)?;
+  if !same_literal(m,program.compiled_plan().reference().id(),expected_plan.id())?{return Err(fail("local expected plan full identity"));}
+  let descriptor=lookup(m,&program.sources,&program.policy.compiler_ref)?;
+  if !super::super::support::same_bytes(m,descriptor.canonical_bytes(),super::super::local::DESCRIPTOR)?{return Err(fail("local program compiler recipe identity"));}
+  Ok(program)
+ })();if result.is_err(){session.invalidate();}result
 }

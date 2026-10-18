@@ -95,7 +95,7 @@ pub struct StaticAnalysis {
     pub rules: usize,
     pub families: usize,
     pub maximum_path: usize,
-    pub compile_work: u64,
+    pub compile_work: Option<u64>,
 }
 #[derive(Clone,Copy)]
 enum ProgramProvenance{Compiled,Reloaded}
@@ -129,6 +129,7 @@ impl SelectedProgram {
     pub fn uses_app_cost_causal_recipe(&self)->bool {self.app_cost_causal_recipe}
     pub fn uses_supplier_scoped_consent_recipe(&self)->bool {self.supplier_scoped_consent_recipe}
     pub fn execution_registry(&self)->Option<&'static str>{self.execution_registry}
+    pub fn uses_local_execution_recipe(&self)->bool{self.execution_registry==Some("sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a")}
     pub(in crate::policy::workflow) fn require_attempt_owner(&self,m:&mut CoreMeter)->Result<()> {
         if let Some(owner)=&self._control_ownership{
             let arena=m.representation_arena().ok_or_else(||err("owning program requires original attempt"))?;
@@ -137,7 +138,7 @@ impl SelectedProgram {
     }
     /// Exact binary recipe selection; shared wire shapes do not select latest.
     pub(in crate::policy::workflow) fn uses_commitment_first_consent_recipe(&self)->bool {
-        self.execution_registry==Some("sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276")
+        self.uses_local_execution_recipe()||self.execution_registry==Some("sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276")
     }
     pub fn root_policy_ref(&self) -> &DefinitionRef {
         &self.root
@@ -1075,7 +1076,7 @@ fn compile_selected_recipe(
             .map(|f| f.selector.path.len())
             .max()
             .unwrap_or(0),
-        compile_work: m.usage().semantic_work,
+        compile_work: Some(m.usage().semantic_work),
     };
     let mut prepared_schemas = Vec::new();
     if control_ownership.is_some(){prepared_schemas.try_reserve_exact(source_count).map_err(|_|err("compiled prepared-schema slots"))?;}
@@ -1096,7 +1097,7 @@ fn compile_selected_recipe(
             schema,
         ));
     }
-    analysis.compile_work = m.usage().semantic_work;
+    analysis.compile_work = Some(m.usage().semantic_work);
     Ok(SelectedProgram {
         provenance:ProgramProvenance::Compiled,
         recipe,
@@ -1151,4 +1152,4 @@ mod owning_document_tests {
 
 #[path="execution_reload.rs"]
 mod execution_reload;
-pub use execution_reload::{SelectedExecutionReloadKey,rehydrate_selected_execution};
+pub use execution_reload::{load_local_selected_execution,SelectedExecutionReloadKey,rehydrate_selected_execution};
