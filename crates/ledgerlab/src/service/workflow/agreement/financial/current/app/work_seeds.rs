@@ -71,8 +71,8 @@ impl ObservedAppBinding {
         &self,
         key: &OperationKey,
         key_body: &Value,
-        source_verifier: &ledgerlab_core::policy::workflow::DefinitionRef,
-        financial_verifier: &ledgerlab_core::policy::workflow::DefinitionRef,
+        source_verifier: &ExactRef,
+        financial_verifier: &ExactRef,
         s: &mut OriginalAuditSession,
     ) -> Result<WorkObservationSeeds> {
         let result = (|| {
@@ -128,17 +128,17 @@ impl ObservedAppBinding {
             )?;
             let originals = original_refs(self, source, s)?;
             check::same_text(
-                source_verifier.kind(),
+                &source_verifier.kind,
                 "workflow-authority-audit-verifier",
                 s,
             )?;
             check::same_text(
-                financial_verifier.kind(),
+                &financial_verifier.kind,
                 "workflow-authority-audit-verifier",
                 s,
             )?;
-            let source_verifier = wire::definition_reference(source_verifier, s)?;
-            let financial_verifier = wire::definition_reference(financial_verifier, s)?;
+            let source_verifier = wire::reference(source_verifier, s)?;
+            let financial_verifier = wire::reference(financial_verifier, s)?;
             let observed_at = wire::string(self.at.as_str(), s)?;
             let revision_value = check::field(source.state_body(), "revision", s)?;
             let revision = s

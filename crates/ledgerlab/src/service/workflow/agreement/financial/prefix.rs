@@ -424,6 +424,85 @@ pub(super) struct LocatedAppAcceptance {
     through: i64,
 }
 impl LocatedAppAcceptance {
+    /// Reuse only the exact output-construction fact associated after the
+    /// actual enrollment origin completed. This does not replace source
+    /// context/current/evidence checks in the one independent economic child.
+    pub(super) fn construct_root_work(
+        &mut self,
+        context: &ledgerlab_core::policy::workflow::transition_constructor::DraftContextData,
+        raw_payload: &[u8],
+        inputs: &[ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<
+            '_,
+        >],
+        state: &ledgerlab_core::policy::workflow::transition_constructor::EconomicStateData<'_>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ledgerlab_core::policy::workflow::transition_constructor::EconomicCandidate> {
+        use ledgerlab_core::policy::workflow::transition_constructor::{
+            EconomicStateData, InitialSourceCorrespondence, construct_economic_candidate,
+        };
+        let result = (|| {
+            s.semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&context.authorities.len().into(), &1usize.into()],
+                )
+                .map_err(core_error)?;
+            // root_work_context currently captures the genuine root source.
+            // Independently sourced dependent/correction frames have their
+            // separate enclosing driver; do not substitute this root for them.
+            require(context.authorities.len() == 1, "INTEGRITY_FAILURE")?;
+            let _control = s
+                .reserve_external_payload(
+                    std::mem::size_of::<EconomicStateData<'_>>()
+                        + std::mem::size_of::<[&InitialSourceCorrespondence; 1]>(),
+                )
+                .map_err(core_error)?;
+            s.semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            let authority = context
+                .authorities
+                .first()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let enrollment = wire::reference(&authority.enrollment_ref, s)?;
+            let enrollment = s
+                .parse_representation(enrollment.bytes(), RepresentationKind::Record)
+                .map_err(core_error)?;
+            let correspondence = self
+                ._prefix
+                .initial_source_correspondence(enrollment.value(), s)?;
+            s.semantic_work()
+                .write_bytes(std::mem::size_of::<[&InitialSourceCorrespondence; 1]>())
+                .map_err(core_error)?;
+            let correspondence = [correspondence];
+            s.semantic_work()
+                .write_bytes(std::mem::size_of::<EconomicStateData<'_>>())
+                .map_err(core_error)?;
+            let state = EconomicStateData {
+                financial: state.financial,
+                capacity_heads: state.capacity_heads,
+                supplier: state.supplier,
+                app: state.app,
+                current_party_authorizations: state.current_party_authorizations,
+                observation: state.observation,
+                audit: state.audit,
+                initial_source_correspondences: &correspondence,
+            };
+            construct_economic_candidate(
+                self.publication.program(),
+                context,
+                raw_payload,
+                inputs,
+                &state,
+                s,
+            )
+            .map_err(core_error)
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
     /// Extend the SAME already-completed acceptance prefix to today's held
     /// cutoff. Each later original executes once on its own existing owner;
     /// the saved acceptance is not reconstructed a second time.

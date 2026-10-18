@@ -2,6 +2,7 @@
 //! Acquiring DATA does not establish activation, original custody or eligibility.
 use super::super::request_wrapper as check;
 use super::*;
+mod work_candidate;
 mod work_capture;
 mod work_context;
 mod work_heads;
