@@ -1252,7 +1252,8 @@ async fn fold_origin(
     let (offset, _length) = prefix
         ._inventory
         .remember_origin_pointer(origin.wrappers().sequence(), pointer.bytes(), s)?;
-    prefix.pointers.record_at(&parsed, offset, s).map_err(core_error)?;
+    let ordinal = prefix.pointers.record_at(&parsed, offset, s).map_err(core_error)?;
+    prefix._inventory.check_origin_ordinal(ordinal, s)?;
     drop(parsed);
     Ok(publication)
 }

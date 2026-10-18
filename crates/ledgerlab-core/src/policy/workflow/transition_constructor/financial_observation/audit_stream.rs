@@ -8,7 +8,7 @@ use serde_json::Value;
 use sha2::{Digest,Sha256};
 use std::mem;
 mod pointers;
-pub use pointers::{ValidatedOriginPointers,OriginPointerBlock,OriginPointerEntry,ORIGIN_POINTER_BLOCK};
+pub use pointers::{ValidatedOriginPointers,OriginPointerBlock,OriginPointerEntry,ORIGIN_POINTER_BLOCK,ORIGIN_POINTER_MAX_BYTES,OriginPointerBatch,PreparedOriginBatch,ORIGIN_POINTER_BATCH,ORIGIN_POINTER_BATCH_WORDS};
 
 pub enum OriginWitness { Financial,Source(usize) }
 struct Prefix<'a>{reference:&'a ExactRef,hash:Sha256,expected:String,expected_count:u64,through:u64,count:u64}
@@ -217,7 +217,16 @@ mod tests{
         let financial_document=super::super::super::body::document(&mut old,"workflow-financial-history-observation",financial.clone()).unwrap();
         let expected_combined=records::hash(&mut old,"economic-origin-audits",&json!([key("pending"),[source_document.reference],financial_document.reference,[first,second]])).unwrap();
         let context=DraftContextData{key:key("pending"),actor:"principal".into(),canonical_economic_namespace:"namespace".into(),installation_mode:"real_local".into(),received_at:"2026-10-17T00:00:00.000000Z".into(),accepted_at:"2026-10-17T00:00:00.000000Z".into(),authorities:vec![AuthorityContextData{source_slot:"test:slot".into(),enrollment_ref:enrollment,current_state_ref:state,current_grant_ref:grant.clone(),original_grant_refs:vec![grant],binding_ref:root.clone(),accepted_agreement_ref:root.clone(),activation_ref:root,authority_observation_ref:source_document.reference.clone()}],source_observation_inputs:vec![]};
-        for mode in 0..9{
+        let mut long_pointers=vec![first.clone(),second.clone()];
+        for seq in 3..=33{long_pointers.push(pointer(&format!("origin-{seq}"),&seq.to_string(),"8"));}
+        let mut long_financial=financial.clone();long_financial["snapshot_through_sequence"]=json!("33");long_financial["origin_count"]=json!("33");
+        long_financial["prefix_digest"]=json!(records::hash(&mut old,"financial-origin-prefix",&json!(["store",["org","scope"],financial["root_ref"],key("pending"),"33",[],[],[],financial["verifier_ref"],long_pointers])).unwrap());
+        let long_document=super::super::super::body::document(&mut old,"workflow-financial-history-observation",long_financial.clone()).unwrap();
+        let long_combined=records::hash(&mut old,"economic-origin-audits",&json!([key("pending"),[source_document.reference],long_document.reference,long_pointers])).unwrap();
+        for mode in 0..15{
+            let financial=if mode>=11{&long_financial}else{&financial};
+            let financial_document=if mode>=11{&long_document}else{&financial_document};
+            let expected_combined=if mode>=11{&long_combined}else{&expected_combined};
             let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
             let mut stream=EconomicAuditStream::new(&context,&financial_document.reference,&mut session).unwrap();
             let source_body=session.parse_representation(&encoded(&source),RepresentationKind::Record).unwrap();
@@ -230,13 +239,40 @@ mod tests{
                 let mut historical=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
                 let mut table=ValidatedOriginPointers::new(&mut historical).unwrap();
                 for (offset,value) in [(17u64,&first),(117,&second)]{let p=historical.parse_representation(&encoded(value),RepresentationKind::Record).unwrap();table.record_at(&p,offset,&mut historical).unwrap();}
+                if mode>=11{for value in long_pointers.iter().skip(2){let p=historical.parse_representation(&encoded(value),RepresentationKind::Record).unwrap();table.record_at(&p,217,&mut historical).unwrap();}}
                 let block=table.block(0,&mut session).unwrap();
-                assert_eq!(block.sequences(&mut session).unwrap()[..3],[Some(1),Some(2),None]);
-                let entries=block.entries(&mut session).unwrap();
+                assert_eq!(block.sequences(&mut session).unwrap()[..3],[Some(1),Some(2),if mode>=11{Some(3)}else{None}]);
+                let entries=block.located_entries(&mut session).unwrap();
                 assert_eq!(entries[0].sequence(),1);
+                assert_eq!((entries[0].scratch_offset(),entries[0].canonical_length()),(17,encoded(&first).len()));
+                let mut row=[0;ORIGIN_POINTER_MAX_BYTES];assert_eq!(entries[0].read_buffer(&mut row).len(),encoded(&first).len());
                 assert_eq!(entries[0].scratch_location(),Some((17,encoded(&first).len())));
                 assert_eq!(entries[1].scratch_location(),Some((117,encoded(&second).len())));
                 let a=encoded(&first);let b=encoded(&second);
+                if mode>=9{
+                    let batch=table.batch(0,&mut session).unwrap();
+                    assert_eq!(batch.entries(&mut session).unwrap()[1].sequence(),2);
+                    if mode>=11{
+                        let masks=if mode==12{[u32::MAX,2]}else{[u32::MAX,1]};
+                        let prepared=stream.prepare_origin_batch(&batch,&masks,&[&[1,0]],&mut session);
+                        if mode==12{assert!(prepared.is_err());assert!(session.check_cancelled().is_err());continue;}
+                        let mut prepared=prepared.unwrap();let mut raw:Vec<Vec<u8>>=long_pointers.iter().map(encoded).collect();
+                        assert_eq!(prepared.union_masks(),[u32::MAX,1]);
+                        if mode==13{raw[32]=encoded(&pointer("wrong","33","8"));}
+                        if mode==14{raw.swap(0,1);}
+                        let first_chunk=prepared.push_chunk(&raw[..32].iter().map(Vec::as_slice).collect::<Vec<_>>(),&mut session);
+                        if mode==14{assert!(first_chunk.is_err());assert!(session.check_cancelled().is_err());continue;}
+                        first_chunk.unwrap();
+                        let result=prepared.push_chunk(&[&raw[32]],&mut session);
+                        if mode==13{assert!(result.is_err());assert!(session.check_cancelled().is_err());continue;}
+                        result.unwrap();prepared.finish(&mut session).unwrap();let result=stream.finish(&mut session).unwrap();
+                        assert_eq!(result.bound_digest(&context,&financial_document.reference,&mut session).unwrap(),expected_combined);continue;
+                    }
+                    let mut prepared=stream.prepare_origin_batch(&batch,&[3],&[&[1]],&mut session).unwrap();
+                    if mode==10{assert!(prepared.finish(&mut session).is_err());assert!(session.check_cancelled().is_err());continue;}
+                    prepared.push_chunk(&[&a,&b],&mut session).unwrap();prepared.finish(&mut session).unwrap();
+                    let result=stream.finish(&mut session).unwrap();assert_eq!(result.bound_digest(&context,&financial_document.reference,&mut session).unwrap(),expected_combined);continue;
+                }
                 if mode==8{
                     stream.push_origin_block(&block,1,&[1],&[&a],&mut session).unwrap();
                     let second_block=table.block(1,&mut session).unwrap();
@@ -284,8 +320,24 @@ mod tests{
         let before=s.usage().semantic_work;
         ValidationWork::arithmetic(s.work(),ArithmeticOperation::PopulationCount,&[&u64::MAX.into()]).unwrap();
         ValidationWork::arithmetic(s.work(),ArithmeticOperation::BitOr,&[&u64::MAX.into(),&1u64.into()]).unwrap();
-        assert_eq!(s.usage().semantic_work-before,5);
+        ValidationWork::arithmetic(s.work(),ArithmeticOperation::BitAnd,&[&u64::MAX.into(),&1u64.into()]).unwrap();
+        assert_eq!(s.usage().semantic_work-before,8);
         let mut table=ValidatedOriginPointers::new(&mut s).unwrap();let p=s.parse_representation(&encoded(&pointer("gap","9","6")),RepresentationKind::Record).unwrap();
         table.record(&p,&mut s).unwrap();assert!(table.record(&p,&mut s).is_err());assert!(s.check_cancelled().is_err());
+        let arena=AuditArena::new().unwrap();let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut table=ValidatedOriginPointers::new(&mut s).unwrap();let p=s.parse_representation(&encoded(&pointer("unlocated","9","6")),RepresentationKind::Record).unwrap();
+        table.record(&p,&mut s).unwrap();let block=table.block(0,&mut s).unwrap();
+        assert!(block.entries(&mut s).unwrap()[0].scratch_location().is_none());
+        assert!(block.located_entries(&mut s).is_err());assert!(s.check_cancelled().is_err());
+        let arena=AuditArena::new().unwrap();let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut table=ValidatedOriginPointers::new(&mut s).unwrap();let mut maximum=pointer("max","9223372036854775807","6");
+        let id="\u{10ffff}".repeat(128);maximum["operation_key"]=json!({"logical_store_id":id,"scope":[id,id],"source":"\u{1}".repeat(256),"operation_id":id});
+        let bytes=encoded(&maximum);assert!(bytes.len()<=ORIGIN_POINTER_MAX_BYTES);
+        let p=s.parse_representation(&bytes,RepresentationKind::Record).unwrap();table.record_at(&p,19,&mut s).unwrap();
+        let block=table.block(0,&mut s).unwrap();let entry=&block.located_entries(&mut s).unwrap()[0];let mut row=[0;ORIGIN_POINTER_MAX_BYTES];
+        assert_eq!(entry.read_buffer(&mut row).len(),bytes.len());
+        let arena=AuditArena::new().unwrap();let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();let mut table=ValidatedOriginPointers::new(&mut s).unwrap();
+        maximum["operation_ref"]["id"]=json!(format!("wop_extra_{}","6".repeat(64)));
+        let p=s.parse_representation(&encoded(&maximum),RepresentationKind::Record).unwrap();assert!(table.record_at(&p,19,&mut s).is_err());assert!(s.check_cancelled().is_err());
     }
 }

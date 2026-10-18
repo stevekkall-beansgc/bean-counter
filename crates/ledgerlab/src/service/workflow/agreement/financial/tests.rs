@@ -486,10 +486,15 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
             {
                 let links = folded._inventory.origin_links(sequence, &mut session)?;
                 let n = u32::from_le_bytes(links.bytes()[..4].try_into().unwrap()) as usize;
-                let middle = 8 + 4 * n;
+                let middle = 8 + 8 * n;
                 let mut values: Vec<u32> = links.bytes()[8..middle]
-                    .chunks_exact(4)
-                    .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+                    .chunks_exact(8)
+                    .map(|b| {
+                        let sequence = u32::from_le_bytes(b[..4].try_into().unwrap());
+                        let ordinal = u32::from_le_bytes(b[4..8].try_into().unwrap());
+                        assert_eq!(sequence - 1, ordinal);
+                        sequence
+                    })
                     .collect();
                 values.extend(
                     links.bytes()[middle..]

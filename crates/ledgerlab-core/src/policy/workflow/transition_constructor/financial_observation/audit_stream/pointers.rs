@@ -3,25 +3,36 @@
 //! chronological recipe succeeds. No body, authority, membership or snapshot
 //! proof is manufactured by this table.
 use super::*;
+mod batch;
+pub use batch::{OriginPointerBatch,PreparedOriginBatch,ORIGIN_POINTER_BATCH,ORIGIN_POINTER_BATCH_WORDS};
 
 pub const ORIGIN_POINTER_BLOCK:usize=32;
+/// Conservative closed-pointer grammar bound:747 fixed bytes plus4608
+/// escaped key bytes, with exact operation/manifest/receipt family IDs.
+pub const ORIGIN_POINTER_MAX_BYTES:usize=5355;
 fn multiply(m:&mut CoreMeter,a:usize,b:usize)->Result<usize>{
     ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&a.into(),&b.into()])?;
     a.checked_mul(b).ok_or_else(||fail("pointer payload multiplication overflow"))
 }
 /// Borrowed immutable pointer DATA. A scratch location is only an acquisition
 /// hint from the actual append; the consumer must still rebind the raw digest.
-pub struct OriginPointerEntry {sequence:u64,digest:[u8;32],offset:u64,length:u32,located:bool}
+pub struct OriginPointerEntry {sequence:u64,digest:[u8;32],offset:u64,length:u16,located:bool}
 impl OriginPointerEntry {
     pub fn sequence(&self)->u64{self.sequence}
     pub fn scratch_location(&self)->Option<(u64,usize)>{if self.located{Some((self.offset,self.length as usize))}else{None}}
+    pub fn scratch_offset(&self)->u64{self.offset}
+    pub fn canonical_length(&self)->usize{self.length as usize}
+    /// The actual mint established this private length invariant. This only
+    /// borrows a physical I/O destination; it performs no new semantic length
+    /// validation or authority check. Normal Rust slice safety is retained.
+    pub fn read_buffer<'a>(&self,row:&'a mut [u8;ORIGIN_POINTER_MAX_BYTES])->&'a mut [u8]{&mut row[..usize::from(self.length)]}
 }
 type Intrinsic=OriginPointerEntry;
 pub struct ValidatedOriginPointers {
-    entries:Vec<Intrinsic>,cancellation:AuditCancellation,
+    entries:Vec<Intrinsic>,cancellation:AuditCancellation,all_locations:bool,
     ownership:ExternalBufferLease,_control:ExternalBufferLease,
 }
-pub struct OriginPointerBlock<'a>{entries:&'a [Intrinsic],cancellation:&'a AuditCancellation}
+pub struct OriginPointerBlock<'a>{entries:&'a [Intrinsic],cancellation:&'a AuditCancellation,all_locations:bool}
 impl ValidatedOriginPointers {
     pub fn len(&self)->usize{self.entries.len()}
     pub fn is_empty(&self)->bool{self.entries.is_empty()}
@@ -29,7 +40,7 @@ impl ValidatedOriginPointers {
         let result=(||{s.check_cancelled()?;
             let control=s.reserve_external_payload(mem::size_of::<Self>())?;
             let ownership=s.reserve_external_payload(0)?;
-            Ok(Self{entries:Vec::new(),cancellation:s.arena().cancellation_handle(),ownership,_control:control})
+            Ok(Self{entries:Vec::new(),cancellation:s.arena().cancellation_handle(),all_locations:true,ownership,_control:control})
         })();if result.is_err(){s.invalidate();}result
     }
     /// Validate once under the actual original's existing owner. The returned
@@ -52,6 +63,7 @@ impl ValidatedOriginPointers {
             // Profile B's existing workflow-origin bound, not a new history cap.
             if !w::compare(m,self.entries.len(),100000usize)?.is_lt(){return Err(fail("pointer table workflow-origin limit"));}
             let encoded=m.canonical_owned_representation(&arena,pointer.value(),RepresentationKind::Record)?;
+            if w::compare(m,encoded.bytes().len(),ORIGIN_POINTER_MAX_BYTES)?.is_gt(){return Err(fail("pointer canonical grammar bound"));}
             let digest=m.hash_owned_representation(&arena,encoded.bytes(),RepresentationKind::Record)?;
             if w::compare(m,self.entries.len(),self.entries.capacity())?.is_eq(){
                 let old=self.entries.capacity();
@@ -65,8 +77,10 @@ impl ValidatedOriginPointers {
                 self.ownership=lease;
             }
             let ordinal=self.entries.len();m.write_bytes(mem::size_of::<Intrinsic>())?;
-            // Record emission is bounded by4MiB, strictly below u32::MAX.
-            self.entries.push(Intrinsic{sequence,digest,offset:location.unwrap_or(0),length:encoded.bytes().len() as u32,located:location.is_some()});Ok(ordinal)
+            m.visit("audit.pointer_append_location_presence")?;
+            if location.is_none(){self.all_locations=false;}
+            // The SAME producer established<=5355, strictly below u16::MAX.
+            self.entries.push(Intrinsic{sequence,digest,offset:location.unwrap_or(0),length:encoded.bytes().len() as u16,located:location.is_some()});Ok(ordinal)
         })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
     }
     pub fn block<'a>(&'a self,first:usize,s:&mut OriginalAuditSession)->Result<OriginPointerBlock<'a>>{
@@ -77,11 +91,19 @@ impl ValidatedOriginPointers {
             if !w::compare(m,first,self.entries.len())?.is_lt(){return Err(fail("pointer block ordinal"));}
             let proposed=w::usize_add(m,first,ORIGIN_POINTER_BLOCK)?;
             let end=if w::compare(m,proposed,self.entries.len())?.is_gt(){self.entries.len()}else{proposed};
-            Ok(OriginPointerBlock{entries:&self.entries[first..end],cancellation:&self.cancellation})
+            Ok(OriginPointerBlock{entries:&self.entries[first..end],cancellation:&self.cancellation,all_locations:self.all_locations})
         })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
     }
 }
 impl OriginPointerBlock<'_>{
+    /// All location-presence checks were performed by the actual producer.
+    /// This single aggregate check replaces repeating Option tests at every
+    /// consumer entry. Offsets remain DATA and require exact raw digest rebind.
+    pub fn located_entries<'a>(&'a self,s:&mut OriginalAuditSession)->Result<&'a [OriginPointerEntry]>{
+        let result=(||{let entries=self.entries(s)?;s.meter_mut().visit("audit.pointer_locations_complete")?;
+            if !self.all_locations{return Err(fail("pointer table includes unlocated entries"));}Ok(entries)
+        })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
+    }
     /// A paid borrowed acquisition view; no second sequence/location vector is
     /// allocated. Getters only expose DATA, never the private digest or a token
     /// establishing that an origin actually completed.
@@ -90,7 +112,6 @@ impl OriginPointerBlock<'_>{
             s.check_cancelled()?;let arena=s.arena().shared_handle();let m=s.meter_mut();
             m.visit("audit.pointer_entries_attempt")?;
             if !self.cancellation.same_attempt(&arena.cancellation_handle()){return Err(fail("pointer entry attempt owner"));}
-            for _ in self.entries{ValidationWork::visit(m,w::ValidationVisit::RefLookup)?;m.scan_bytes(mem::size_of::<Intrinsic>())?;}
             Ok(self.entries)
         })();if result.is_err(){self.cancellation.cancel();s.invalidate();}result
     }
@@ -116,6 +137,8 @@ fn validate_pointer(m:&mut CoreMeter,v:&Value)->Result<u64>{
         let k=shape::text(m,reference,"kind")?;let id=shape::text(m,reference,"id")?;let digest=shape::text(m,reference,"digest")?;
         records::reference_parts(m,k,id,digest)?;
         if !shape::same_text(m,k,kind)?||!shape::same_text(m,id.get(..prefix.len()).unwrap_or(""),prefix)?{return Err(fail("audit pointer Ref family"));}
+        let exact=w::usize_add(m,prefix.len(),64)?;
+        if !w::compare(m,id.len(),exact)?.is_eq(){return Err(fail("audit pointer exact family identity"));}
     }Ok(sequence)
 }
 

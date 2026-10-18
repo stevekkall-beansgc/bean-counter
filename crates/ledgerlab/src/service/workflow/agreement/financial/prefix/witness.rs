@@ -4,7 +4,8 @@
 use super::*;
 use inventory::ConfiguredRoot;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    DraftContextData, EconomicAuditStream, ExactRef, RecomputedAuditDigest,
+    DraftContextData, EconomicAuditStream, ExactRef, ORIGIN_POINTER_MAX_BYTES,
+    RecomputedAuditDigest,
 };
 use std::{cmp::Ordering, mem};
 
@@ -81,35 +82,63 @@ struct RootGroup {
     witnesses: u64,
 }
 struct Memberships {
-    by_sequence: Vec<u64>,
+    by_ordinal: Vec<u64>,
+    packed: Vec<Vec<u32>>,
     groups: Vec<RootGroup>,
     _payload: ExternalBufferLease,
 }
 impl Memberships {
-    fn new(through: usize, source_count: usize, s: &mut OriginalAuditSession) -> Result<Self> {
-        let count = add(through, 1, s)?;
-        let groups = add(source_count, 1, s)?;
-        let bytes = add(
-            product(count, mem::size_of::<u64>(), s)?,
-            product(groups, mem::size_of::<RootGroup>(), s)?,
-            s,
-        )?;
-        let bytes = add(bytes, mem::size_of::<Self>(), s)?;
+    fn new(count: usize, source_count: usize, s: &mut OriginalAuditSession) -> Result<Self> {
+        let witnesses = add(source_count, 1, s)?;
+        let padded = add(count, 31, s)?;
+        s.semantic_work()
+            .arithmetic(Op::DivideRemainder, &[&padded.into(), &32usize.into()])
+            .map_err(core_error)?;
+        let words = padded / 32;
+        let mut bytes = product(count, mem::size_of::<u64>(), s)?;
+        for extra in [
+            product(witnesses, mem::size_of::<RootGroup>(), s)?,
+            product(witnesses, mem::size_of::<Vec<u32>>(), s)?,
+            product(product(witnesses, words, s)?, mem::size_of::<u32>(), s)?,
+            mem::size_of::<Self>(),
+        ] {
+            bytes = add(bytes, extra, s)?;
+        }
         let payload = s.reserve_external_payload(bytes).map_err(core_error)?;
-        let mut by_sequence = Vec::new();
-        by_sequence
+        let mut by_ordinal = Vec::new();
+        by_ordinal
             .try_reserve_exact(count)
             .map_err(|_| ServiceError::Unavailable)?;
         let zeroed = product(count, mem::size_of::<u64>(), s)?;
         s.semantic_work().write_bytes(zeroed).map_err(core_error)?;
-        by_sequence.resize(count, 0);
-        let mut roots = Vec::new();
-        roots
-            .try_reserve_exact(groups)
+        by_ordinal.resize(count, 0);
+        let mut packed = Vec::new();
+        packed
+            .try_reserve_exact(witnesses)
+            .map_err(|_| ServiceError::Unavailable)?;
+        for _ in 0..witnesses {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let mut row = Vec::new();
+            row.try_reserve_exact(words)
+                .map_err(|_| ServiceError::Unavailable)?;
+            let zeroed = product(words, mem::size_of::<u32>(), s)?;
+            s.semantic_work().write_bytes(zeroed).map_err(core_error)?;
+            row.resize(words, 0);
+            s.semantic_work()
+                .write_bytes(mem::size_of::<Vec<u32>>())
+                .map_err(core_error)?;
+            packed.push(row);
+        }
+        let mut groups = Vec::new();
+        groups
+            .try_reserve_exact(witnesses)
             .map_err(|_| ServiceError::Unavailable)?;
         Ok(Self {
-            by_sequence,
-            groups: roots,
+            by_ordinal,
+            packed,
+            groups,
             _payload: payload,
         })
     }
@@ -152,73 +181,143 @@ impl Memberships {
         reference: &Value,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        let origin = inventory.seed_origin(reference, &self.groups[group].root, s)?;
-        if let Some(sequence) = origin {
-            let mask = bit(witness, s)?;
-            mark(&mut self.by_sequence, sequence, mask, s)?;
+        if let Some(position) = inventory.seed_position(reference, &self.groups[group].root, s)? {
+            mark(
+                &mut self.by_ordinal,
+                &mut self.packed,
+                position.ordinal as usize,
+                bit(witness, s)?,
+                s,
+            )?;
         }
         Ok(())
     }
     fn close(
         &mut self,
         inventory: &mut inventory::Inventory,
+        pointers:&ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        // Required edges strictly decrease physical sequence. One descending
-        // pass therefore computes the fixed point, including arbitrary gaps.
-        // Equal configured roots share this traversal under THIS consumer;
-        // different roots retain independent memberships and cuts.
-        for sequence in (1..self.by_sequence.len()).rev() {
+        for first in (0..self.by_ordinal.len()).step_by(32).rev() {
             s.semantic_work().visit(Visit::Value).map_err(core_error)?;
-            let membership = self.by_sequence[sequence];
-            if !nonzero(membership, s)? {
-                continue;
-            }
-            for group in &self.groups {
-                s.semantic_work()
-                    .visit(Visit::Element)
-                    .map_err(core_error)?;
-                let selected = and(membership, group.witnesses, s)?;
-                if !nonzero(selected, s)? {
+            let block = pointers.block(first, s).map_err(core_error)?;
+            let entries = block.entries(s).map_err(core_error)?;
+            let end = add(first, entries.len(), s)?;
+            for (ordinal, entry) in (first..end).rev().zip(entries.iter().rev()) {
+                s.semantic_work().visit(Visit::Value).map_err(core_error)?;
+                let membership = self.by_ordinal[ordinal];
+                if !nonzero(membership, s)? {
                     continue;
                 }
-                let words = &mut self.by_sequence;
-                inventory.required_origins(
-                    sequence as i64,
-                    &group.root,
-                    &mut |prior, s| {
-                        require(
-                            compare(prior as usize, sequence, s)?.is_lt(),
-                            "INTEGRITY_FAILURE",
-                        )?;
-                        mark(words, prior, selected, s)
-                    },
-                    s,
-                )?;
+                for group in &self.groups {
+                    s.semantic_work()
+                        .visit(Visit::Element)
+                        .map_err(core_error)?;
+                    let selected = and(membership, group.witnesses, s)?;
+                    if !nonzero(selected, s)? {
+                        continue;
+                    }
+                    let words = &mut self.by_ordinal;
+                    let packed = &mut self.packed;
+                    inventory.required_positions(
+                        entry.sequence() as i64,
+                        &group.root,
+                        &mut |prior, s| {
+                            require(
+                                compare(prior.ordinal as usize, ordinal, s)?.is_lt(),
+                                "INTEGRITY_FAILURE",
+                            )?;
+                            s.semantic_work()
+                                .arithmetic(
+                                    Op::Compare,
+                                    &[&prior.sequence.into(), &entry.sequence().into()],
+                                )
+                                .map_err(core_error)?;
+                            require(
+                                u64::from(prior.sequence) < entry.sequence(),
+                                "INTEGRITY_FAILURE",
+                            )?;
+                            mark(words, packed, prior.ordinal as usize, selected, s)
+                        },
+                        s,
+                    )?;
+                }
             }
         }
         Ok(())
     }
 }
-fn mark(words: &mut [u64], sequence: i64, mask: u64, s: &mut OriginalAuditSession) -> Result<()> {
-    s.semantic_work()
-        .arithmetic(Op::Compare, &[&sequence.into(), &0i64.into()])
-        .map_err(core_error)?;
-    require(sequence > 0, "INTEGRITY_FAILURE")?;
+fn mark(
+    words: &mut [u64],
+    packed: &mut [Vec<u32>],
+    ordinal: usize,
+    mask: u64,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
     require(
-        compare(sequence as usize, words.len(), s)?.is_lt(),
+        compare(ordinal, words.len(), s)?.is_lt(),
         "INTEGRITY_FAILURE",
     )?;
     s.semantic_work()
         .visit(Visit::RefLookup)
         .map_err(core_error)?;
     let word = words
-        .get_mut(sequence as usize)
+        .get_mut(ordinal)
         .ok_or(ServiceError::IntegrityFailure)?;
-    *word = union(*word, mask, s)?;
+    let combined = union(*word, mask, s)?;
+    s.semantic_work()
+        .arithmetic(Op::Subtract, &[&combined.into(), &(*word).into()])
+        .map_err(core_error)?;
+    let mut delta = combined - *word;
     s.semantic_work()
         .write_bytes(mem::size_of::<u64>())
-        .map_err(core_error)
+        .map_err(core_error)?;
+    *word = combined;
+    // Update only newly reached witness memberships, directly in the eventual
+    // ordinal-packed mask rows. No H-way per-pointer transpose is performed.
+    s.semantic_work()
+        .arithmetic(Op::DivideRemainder, &[&ordinal.into(), &32usize.into()])
+        .map_err(core_error)?;
+    let (block, position) = (ordinal / 32, ordinal % 32);
+    s.semantic_work()
+        .visit(Visit::RefLookup)
+        .map_err(core_error)?;
+    let flag = BLOCK_BITS[position];
+    while nonzero(delta, s)? {
+        s.semantic_work()
+            .arithmetic(Op::LeadingZeros, &[&delta.into()])
+            .map_err(core_error)?;
+        s.semantic_work()
+            .arithmetic(
+                Op::Subtract,
+                &[&63u32.into(), &delta.leading_zeros().into()],
+            )
+            .map_err(core_error)?;
+        let witness = (63 - delta.leading_zeros()) as usize;
+        let selected = bit(witness, s)?;
+        s.semantic_work()
+            .arithmetic(Op::Subtract, &[&delta.into(), &selected.into()])
+            .map_err(core_error)?;
+        delta -= selected;
+        s.semantic_work()
+            .visit(Visit::RefLookup)
+            .map_err(core_error)?;
+        let row = packed
+            .get_mut(witness)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        s.semantic_work()
+            .visit(Visit::RefLookup)
+            .map_err(core_error)?;
+        let value = row.get_mut(block).ok_or(ServiceError::IntegrityFailure)?;
+        s.semantic_work()
+            .arithmetic(Op::BitOr, &[&(*value).into(), &flag.into()])
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(mem::size_of::<u32>())
+            .map_err(core_error)?;
+        *value |= flag;
+    }
+    Ok(())
 }
 fn rows<'a>(body: &'a Value, name: &str, s: &mut OriginalAuditSession) -> Result<&'a [Value]> {
     s.semantic_work()
@@ -268,17 +367,7 @@ impl FoldedInventory {
             .set_financial_header(financial.reference, financial.body, s)
             .map_err(core_error)?;
         let count = self.pointers.len();
-        let through = if compare(count, 0, s)?.is_gt() {
-            s.semantic_work()
-                .arithmetic(Op::Subtract, &[&count.into(), &1usize.into()])
-                .map_err(core_error)?;
-            let last = self.pointers.block(count - 1, s).map_err(core_error)?;
-            let sequence = last.sequences(s).map_err(core_error)?;
-            sequence[0].ok_or(ServiceError::IntegrityFailure)? as usize
-        } else {
-            0
-        };
-        let mut memberships = Memberships::new(through, sources.len(), s)?;
+        let mut memberships = Memberships::new(count, sources.len(), s)?;
         for (index, header) in sources.iter().enumerate() {
             s.semantic_work()
                 .visit(Visit::Element)
@@ -320,7 +409,7 @@ impl FoldedInventory {
                 )?;
             }
         }
-        memberships.close(&mut self._inventory, s)?;
+        memberships.close(&mut self._inventory, &self.pointers, s)?;
         self.stream_memberships(&memberships, sources.len(), &mut stream, s)?;
         stream.finish(s).map_err(core_error)
     }
@@ -331,109 +420,131 @@ impl FoldedInventory {
         stream: &mut EconomicAuditStream<'_>,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        // Closed intrinsic pointer grammar proves5355 bytes maximum per row;
-        // this is a fixed staging allocation, not a new record/column cap.
-        const ROW: usize = 5355;
+        // I/O remains32 fixed rows even while semantic mask preparation uses
+        // a larger immutable table batch. No per-pointer builder or owner.
+        const ROW: usize = ORIGIN_POINTER_MAX_BYTES;
         let control = mem::size_of::<[[u8; ROW]; 32]>()
             + mem::size_of::<[&[u8]; 32]>()
-            + mem::size_of::<[bool; 32]>()
-            + mem::size_of::<[u32; 33]>();
+            + mem::size_of::<[&[u32]; 32]>()
+            + mem::size_of::<[u32; 32]>()
+            + mem::size_of::<[bool; 32]>();
         let _control = s.reserve_external_payload(control).map_err(core_error)?;
         let mut buffer = [[0u8; ROW]; 32];
-        let witnesses = add(source_count, 1, s)?;
-        for first in (0..self.pointers.len()).step_by(32) {
+        for first in (0..self.pointers.len()).step_by(1024) {
             s.semantic_work().visit(Visit::Value).map_err(core_error)?;
-            let block = self.pointers.block(first, s).map_err(core_error)?;
-            let entries = block.entries(s).map_err(core_error)?;
-            let mut masks = [0u32; 33];
-            let mut selected = [false; 32];
-            for (position, entry) in entries.iter().enumerate() {
+            let batch = self.pointers.batch(first, s).map_err(core_error)?;
+            let entries = batch.located_entries(s).map_err(core_error)?;
+            s.semantic_work()
+                .arithmetic(Op::DivideRemainder, &[&first.into(), &32usize.into()])
+                .map_err(core_error)?;
+            let first_word = first / 32;
+            let padded = add(entries.len(), 31, s)?;
+            s.semantic_work()
+                .arithmetic(Op::DivideRemainder, &[&padded.into(), &32usize.into()])
+                .map_err(core_error)?;
+            let words = padded / 32;
+            let end = add(first_word, words, s)?;
+            let financial = &memberships.packed[source_count][first_word..end];
+            let mut source_rows: [&[u32]; 32] = [&[]; 32];
+            for (target, row) in source_rows
+                .iter_mut()
+                .zip(memberships.packed.iter())
+                .take(source_count)
+            {
                 s.semantic_work()
                     .visit(Visit::Element)
                     .map_err(core_error)?;
                 s.semantic_work()
-                    .visit(Visit::RefLookup)
+                    .write_bytes(mem::size_of::<&[u32]>())
                     .map_err(core_error)?;
-                let membership = *memberships
-                    .by_sequence
-                    .get(entry.sequence() as usize)
-                    .ok_or(ServiceError::IntegrityFailure)?;
-                let used = nonzero(membership, s)?;
-                s.semantic_work()
-                    .write_bytes(mem::size_of::<bool>())
-                    .map_err(core_error)?;
-                selected[position] = used;
-                if !used {
-                    continue;
-                }
-                // This scalar transpose is functional but UNQUALIFIED: its
-                // complete cost is accounted separately from the core stream.
-                for (index, mask) in masks.iter_mut().take(witnesses).enumerate() {
+                *target = &row[first_word..end];
+            }
+            let mut any = false;
+            for row in std::iter::once(financial).chain(source_rows[..source_count].iter().copied())
+            {
+                for mask in row {
                     s.semantic_work()
                         .visit(Visit::Element)
                         .map_err(core_error)?;
-                    if nonzero(and(membership, bit(index, s)?, s)?, s)? {
-                        s.semantic_work()
-                            .visit(Visit::RefLookup)
-                            .map_err(core_error)?;
-                        let flag = BLOCK_BITS[position];
-                        s.semantic_work()
-                            .arithmetic(Op::BitOr, &[&(*mask).into(), &flag.into()])
-                            .map_err(core_error)?;
-                        *mask |= flag;
+                    if nonzero(u64::from(*mask), s)? {
+                        any = true;
+                        break;
                     }
                 }
+                if any {
+                    break;
+                }
             }
-            let mut union_mask = masks[source_count];
-            for mask in &masks[..source_count] {
-                s.semantic_work()
-                    .visit(Visit::Element)
-                    .map_err(core_error)?;
-                s.semantic_work()
-                    .arithmetic(Op::BitOr, &[&union_mask.into(), &(*mask).into()])
-                    .map_err(core_error)?;
-                union_mask |= *mask;
-            }
-            s.semantic_work()
-                .arithmetic(Op::PopulationCount, &[&union_mask.into()])
-                .map_err(core_error)?;
-            let count = union_mask.count_ones() as usize;
-            if compare(count, 0, s)?.is_eq() {
+            if !any {
                 continue;
             }
-            let mut raw = [b"".as_slice(); 32];
-            let mut target = raw.iter_mut();
-            for ((row, entry), used) in buffer.iter_mut().zip(entries).zip(selected) {
-                s.semantic_work()
-                    .visit(Visit::Element)
-                    .map_err(core_error)?;
-                if !used {
-                    continue;
-                }
-                s.semantic_work()
-                    .visit(Visit::Constraint)
-                    .map_err(core_error)?;
-                let (offset, length) = entry
-                    .scratch_location()
-                    .ok_or(ServiceError::IntegrityFailure)?;
-                require(!compare(length, ROW, s)?.is_gt(), "INTEGRITY_FAILURE")?;
-                let output = &mut row[..length];
-                self._inventory.read_pointer_at(offset, output, s)?;
-                s.semantic_work()
-                    .write_bytes(mem::size_of::<&[u8]>())
-                    .map_err(core_error)?;
-                *target.next().ok_or(ServiceError::IntegrityFailure)? = output;
-            }
-            stream
-                .push_origin_block(
-                    &block,
-                    masks[source_count],
-                    &masks[..source_count],
-                    &raw[..count],
-                    s,
-                )
+            let mut prepared = stream
+                .prepare_origin_batch(&batch, financial, &source_rows[..source_count], s)
                 .map_err(core_error)?;
+            let mut union = [0u32; 32];
+            let copied = product(words, mem::size_of::<u32>(), s)?;
+            s.semantic_work().scan_bytes(copied).map_err(core_error)?;
+            s.semantic_work().write_bytes(copied).map_err(core_error)?;
+            union[..words].copy_from_slice(prepared.union_masks());
+            for (entries, mask) in entries.chunks(32).zip(&union[..words]) {
+                s.semantic_work().visit(Visit::Value).map_err(core_error)?;
+                let selected = flags(*mask, s)?;
+                s.semantic_work()
+                    .arithmetic(Op::PopulationCount, &[&(*mask).into()])
+                    .map_err(core_error)?;
+                let count = mask.count_ones() as usize;
+                let mut raw = [b"".as_slice(); 32];
+                let mut target = raw.iter_mut();
+                for ((row, entry), used) in buffer.iter_mut().zip(entries).zip(selected) {
+                    s.semantic_work()
+                        .visit(Visit::Element)
+                        .map_err(core_error)?;
+                    if !used {
+                        continue;
+                    }
+                    let output = entry.read_buffer(row);
+                    self._inventory
+                        .read_pointer_at(entry.scratch_offset(), output, s)?;
+                    s.semantic_work()
+                        .write_bytes(mem::size_of::<&[u8]>())
+                        .map_err(core_error)?;
+                    *target.next().ok_or(ServiceError::IntegrityFailure)? = output;
+                }
+                prepared.push_chunk(&raw[..count], s).map_err(core_error)?;
+            }
+            prepared.finish(s).map_err(core_error)?;
         }
         Ok(())
     }
+}
+const FLAGS: [[bool; 8]; 256] = {
+    let mut out = [[false; 8]; 256];
+    let mut byte = 0;
+    while byte < 256 {
+        let mut bit = 0;
+        while bit < 8 {
+            out[byte][bit] = (byte & (1 << bit)) != 0;
+            bit += 1;
+        }
+        byte += 1;
+    }
+    out
+};
+fn flags(mask: u32, s: &mut OriginalAuditSession) -> Result<[bool; 32]> {
+    s.semantic_work()
+        .scan_bytes(mem::size_of::<u32>())
+        .map_err(core_error)?;
+    let mut out = [false; 32];
+    s.semantic_work()
+        .write_bytes(mem::size_of_val(&out))
+        .map_err(core_error)?;
+    for (target, byte) in out.chunks_exact_mut(8).zip(mask.to_le_bytes()) {
+        s.semantic_work()
+            .visit(Visit::RefLookup)
+            .map_err(core_error)?;
+        s.semantic_work().scan_bytes(8).map_err(core_error)?;
+        s.semantic_work().write_bytes(8).map_err(core_error)?;
+        target.copy_from_slice(&FLAGS[usize::from(byte)]);
+    }
+    Ok(out)
 }

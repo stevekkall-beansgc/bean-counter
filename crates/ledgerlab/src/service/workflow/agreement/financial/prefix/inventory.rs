@@ -19,6 +19,13 @@ struct Entry([u8; ENTRY_BYTES]);
 /// Untrusted lookup key. This is representation only: an exact byte match can
 /// select DATA from the same attempt, never finish an originating certificate.
 struct Locator([u8; KEY_BYTES]);
+/// Numeric sequence and actual ordered-table position are distinct DATA.
+/// The latter is recorded at actual introduction, including sequence gaps.
+#[derive(Clone, Copy)]
+pub(super) struct OriginPosition {
+    pub(super) sequence: u32,
+    pub(super) ordinal: u32,
+}
 trait Key {
     fn key(&self) -> &[u8];
 }
@@ -33,6 +40,17 @@ impl Key for Locator {
     }
 }
 impl Entry {
+    fn origin_position(&self, s: &mut OriginalAuditSession) -> Result<OriginPosition> {
+        copied(8, s)?;
+        let mut sequence = [0; 4];
+        sequence.copy_from_slice(&self.0[228..232]);
+        let mut ordinal = [0; 4];
+        ordinal.copy_from_slice(&self.0[236..240]);
+        Ok(OriginPosition {
+            sequence: u32::from_le_bytes(sequence),
+            ordinal: u32::from_le_bytes(ordinal),
+        })
+    }
     fn compare(&self, other: &impl Key, session: &mut OriginalAuditSession) -> Result<Cmp> {
         session
             .semantic_work()
@@ -1104,9 +1122,15 @@ pub(in super::super) struct StateKey(Locator);
 pub(in super::super) struct ConfiguredRoot(Locator);
 impl ConfiguredRoot {
     pub(super) fn same(&self, other: &Self, s: &mut OriginalAuditSession) -> Result<bool> {
-        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-        s.semantic_work().scan_bytes(KEY_BYTES).map_err(core_error)?;
-        s.semantic_work().scan_bytes(KEY_BYTES).map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(KEY_BYTES)
+            .map_err(core_error)?;
         Ok(self.0.key() == other.0.key())
     }
     pub(in super::super) fn from_value(
@@ -1372,7 +1396,7 @@ impl Inventory {
             self.bodies.write_all(chunk).map_err(io)?;
         }
         self.body_bytes = next;
-        let entry = Entry::from_ref(
+        let mut entry = Entry::from_ref(
             &r.kind,
             &r.id,
             &r.digest,
@@ -1381,6 +1405,10 @@ impl Inventory {
             sequence as u32,
             s,
         )?;
+        let ordinal = subtract(self.operations, 1, s)?;
+        require(!compare(ordinal, 100000, s)?.is_ge(), "INTEGRITY_FAILURE")?;
+        copied(4, s)?;
+        entry.0[236..240].copy_from_slice(&(ordinal as u32).to_le_bytes());
         require(self.tree.insert(&entry, s)?.is_none(), "INTEGRITY_FAILURE")?;
         s.check_cancelled().map_err(core_error)
     }
@@ -1539,6 +1567,17 @@ impl Inventory {
 }
 
 impl Inventory {
+    pub(super) fn check_origin_ordinal(
+        &self,
+        ordinal: usize,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let expected = subtract(self.operations, 1, s)?;
+        require(
+            compare(ordinal as u64, expected, s)?.is_eq(),
+            "INTEGRITY_FAILURE",
+        )
+    }
     /// Store ONE actual completed-origin pointer under a private numeric
     /// locator in the existing paged tree/body spool. It is auxiliary DATA,
     /// never a canonical financial record or a serialized completion flag.
@@ -1621,8 +1660,12 @@ impl Inventory {
         // rebinds these exact raw bytes to the intrinsic canonical digest.
         s.check_cancelled().map_err(core_error)?;
         self.bodies.seek(SeekFrom::Start(offset)).map_err(io)?;
-        s.semantic_work().scan_bytes(output.len()).map_err(core_error)?;
-        s.semantic_work().write_bytes(output.len()).map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(output.len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(output.len())
+            .map_err(core_error)?;
         self.bodies.read_exact(output).map_err(io)?;
         s.check_cancelled().map_err(core_error)
     }
@@ -1758,10 +1801,11 @@ impl Inventory {
         };
         let ordinary_storage = s
             .reserve_external_payload(
-                4096 * std::mem::size_of::<u32>() + std::mem::size_of::<Vec<u32>>(),
+                4096 * std::mem::size_of::<OriginPosition>()
+                    + std::mem::size_of::<Vec<OriginPosition>>(),
             )
             .map_err(core_error)?;
-        let mut ordinary = Vec::<u32>::new();
+        let mut ordinary = Vec::<OriginPosition>::new();
         ordinary
             .try_reserve_exact(4096)
             .map_err(|_| ServiceError::Unavailable)?;
@@ -1785,10 +1829,7 @@ impl Inventory {
                 active.order.push(index);
                 continue;
             }
-            copied(4, s)?;
-            let mut bytes = [0u8; 4];
-            bytes.copy_from_slice(&entry.0[228..232]);
-            let prior = u32::from_le_bytes(bytes);
+            let prior = entry.origin_position(s)?;
             let (mut low, mut high) = (0usize, ordinary.len());
             let mut seen = false;
             while compare(low as u64, high as u64, s)?.is_lt() {
@@ -1797,8 +1838,13 @@ impl Inventory {
                     .arithmetic(Op::DivideRemainder, &[&width.into(), &2u64.into()])
                     .map_err(core_error)?;
                 let middle = add(low as u64, width / 2, s)? as usize;
-                match compare(ordinary[middle] as u64, prior as u64, s)? {
+                match compare(ordinary[middle].sequence as u64, prior.sequence as u64, s)? {
                     Cmp::Equal => {
+                        require(
+                            compare(ordinary[middle].ordinal as u64, prior.ordinal as u64, s)?
+                                .is_eq(),
+                            "INTEGRITY_FAILURE",
+                        )?;
                         seen = true;
                         break;
                     }
@@ -1808,18 +1854,18 @@ impl Inventory {
             }
             if !seen {
                 let moved =
-                    multiply(subtract(ordinary.len() as u64, low as u64, s)?, 4, s)? as usize;
+                    multiply(subtract(ordinary.len() as u64, low as u64, s)?, 8, s)? as usize;
                 copied(moved, s)?;
                 s.semantic_work()
                     .visit(Visit::SortMove)
                     .map_err(core_error)?;
-                s.semantic_work().write_bytes(4).map_err(core_error)?;
+                s.semantic_work().write_bytes(8).map_err(core_error)?;
                 add(ordinary.len() as u64, 1, s)?;
                 ordinary.insert(low, prior);
             }
         }
         let length = add(
-            add(8, multiply(ordinary.len() as u64, 4, s)?, s)?,
+            add(8, multiply(ordinary.len() as u64, 8, s)?, s)?,
             multiply(active.order.len() as u64, ENTRY_BYTES as u64, s)?,
             s,
         )? as usize;
@@ -1835,7 +1881,10 @@ impl Inventory {
                 .visit(Visit::Element)
                 .map_err(core_error)?;
             encoded
-                .append(&prior.to_le_bytes(), s.semantic_work())
+                .append(&prior.sequence.to_le_bytes(), s.semantic_work())
+                .map_err(core_error)?;
+            encoded
+                .append(&prior.ordinal.to_le_bytes(), s.semantic_work())
                 .map_err(core_error)?;
         }
         for index in &active.order {
@@ -1851,7 +1900,8 @@ impl Inventory {
         drop(ordinary_storage);
         let sequence_value = wire::counter_string(sequence as u64, s)?;
         let key = StateKey::new("origin-links", &[sequence_value.bytes()], s)?;
-        self.remember_auxiliary(&key, sequence, encoded.bytes(), s).map(|_| ())
+        self.remember_auxiliary(&key, sequence, encoded.bytes(), s)
+            .map(|_| ())
     }
     pub(in super::super) fn origin_links(
         &mut self,
@@ -1874,6 +1924,15 @@ impl Inventory {
         root: &ConfiguredRoot,
         s: &mut OriginalAuditSession,
     ) -> Result<Option<i64>> {
+        self.seed_position(reference, root, s)
+            .map(|p| p.map(|p| i64::from(p.sequence)))
+    }
+    pub(super) fn seed_position(
+        &mut self,
+        reference: &Value,
+        root: &ConfiguredRoot,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Option<OriginPosition>> {
         let key = Locator::from_ref(
             request_wrapper::text(reference, "kind", s)?,
             request_wrapper::text(reference, "id", s)?,
@@ -1892,13 +1951,32 @@ impl Inventory {
         if key.key() == root.0.key() {
             return Ok(None);
         }
-        self.introduction_sequence(reference, s).map(Some)
+        let entry = self
+            .tree
+            .find(&key, s)?
+            .ok_or(ServiceError::IntegrityFailure)?;
+        self.observe_origin_entry(&entry, s)?;
+        entry.origin_position(s).map(Some)
     }
     pub(in super::super) fn required_origins(
         &mut self,
         sequence: i64,
         configured_root: &ConfiguredRoot,
         emit: &mut dyn FnMut(i64, &mut OriginalAuditSession) -> Result<()>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        self.required_positions(
+            sequence,
+            configured_root,
+            &mut |p, s| emit(i64::from(p.sequence), s),
+            s,
+        )
+    }
+    pub(super) fn required_positions(
+        &mut self,
+        sequence: i64,
+        configured_root: &ConfiguredRoot,
+        emit: &mut dyn FnMut(OriginPosition, &mut OriginalAuditSession) -> Result<()>,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
         let raw = self.origin_links(sequence, s)?;
@@ -1916,18 +1994,26 @@ impl Inventory {
             !compare(ordinary, 4096, s)?.is_gt() && !compare(roots, 4096, s)?.is_gt(),
             "INTEGRITY_FAILURE",
         )?;
-        let middle = add(8, multiply(ordinary, 4, s)?, s)? as usize;
+        let middle = add(8, multiply(ordinary, 8, s)?, s)? as usize;
         let expected = add(middle as u64, multiply(roots, ENTRY_BYTES as u64, s)?, s)?;
         require(
             compare(expected, raw.bytes().len() as u64, s)?.is_eq(),
             "INTEGRITY_FAILURE",
         )?;
-        for bytes in raw.bytes()[8..middle].chunks_exact(4) {
+        for bytes in raw.bytes()[8..middle].chunks_exact(8) {
             s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
-            copied(4, s)?;
+            copied(8, s)?;
             let mut number = [0; 4];
-            number.copy_from_slice(bytes);
-            emit(i64::from(u32::from_le_bytes(number)), s)?;
+            number.copy_from_slice(&bytes[..4]);
+            let mut ordinal = [0; 4];
+            ordinal.copy_from_slice(&bytes[4..8]);
+            emit(
+                OriginPosition {
+                    sequence: u32::from_le_bytes(number),
+                    ordinal: u32::from_le_bytes(ordinal),
+                },
+                s,
+            )?;
         }
         for bytes in raw.bytes()[middle..].chunks_exact(ENTRY_BYTES) {
             s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
@@ -1937,10 +2023,7 @@ impl Inventory {
             if entry.compare(&configured_root.0, s)?.is_eq() {
                 continue;
             }
-            copied(4, s)?;
-            let mut number = [0; 4];
-            number.copy_from_slice(&entry.0[228..232]);
-            emit(i64::from(u32::from_le_bytes(number)), s)?;
+            emit(entry.origin_position(s)?, s)?;
         }
         Ok(())
     }
