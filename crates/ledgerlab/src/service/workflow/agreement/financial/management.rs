@@ -14,7 +14,7 @@ pub(in crate::service::workflow) use setup::effective as effective_setup;
 
 pub(super) struct ManagementObservation {
     held: crate::service::workflow::local::OwnedLocalManagement,
-    owner: Arc<AtomicBool>,
+    owner: crate::store::sqlite::WorkflowProofFailureHandle,
     key_body: ledgerlab_core::canonical::audit_arena::AuditedValue,
     fingerprint: AuditedBytes,
     _control: ExternalBufferLease,
@@ -73,7 +73,7 @@ impl ManagementObservation {
             .visit(Visit::Constraint)
             .map_err(core_error)?;
         let provided = tx.workflow_proof_failure_handle();
-        if !Arc::ptr_eq(&self.owner, &provided) {
+        if !self.owner.same_instance(&provided) {
             self.owner.store(true, Ordering::Release);
             provided.store(true, Ordering::Release);
             return Err(ServiceError::IntegrityFailure);

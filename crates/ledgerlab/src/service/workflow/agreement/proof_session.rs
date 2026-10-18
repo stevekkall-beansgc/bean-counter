@@ -13,7 +13,7 @@ struct Complete {
 }
 struct State {
     transaction: usize,
-    failure: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    failure: crate::store::sqlite::WorkflowProofFailureHandle,
     store: String,
     scope: [String; 2],
     invalid: bool,
@@ -35,7 +35,7 @@ tokio::task_local! { static SESSION: std::cell::RefCell<State>; }
 
 fn bound(state: &State, tx: &mut SqliteTx, key: &OperationKey) -> bool {
     !state.invalid
-        && state.transaction == std::sync::Arc::as_ptr(&tx.workflow_proof_failure_handle()) as usize
+        && state.transaction == tx.workflow_proof_failure_handle().identity()
         && state.store == key.logical_store_id
         && state.scope == key.scope
 }
@@ -77,7 +77,7 @@ pub(in crate::service::workflow) fn with_proofs<'a, T: Send + 'a>(
     }
     let failure = tx.workflow_proof_failure_handle();
     let state = State {
-        transaction: std::sync::Arc::as_ptr(&failure) as usize,
+        transaction: failure.identity(),
         failure: failure.clone(),
         store: key.logical_store_id.clone(),
         scope: key.scope.clone(),
@@ -110,7 +110,7 @@ pub(in crate::service::workflow) fn with_proofs<'a, T: Send + 'a>(
 }
 
 struct ScopeExit {
-    failure: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    failure: crate::store::sqlite::WorkflowProofFailureHandle,
     complete: bool,
 }
 impl ScopeExit {

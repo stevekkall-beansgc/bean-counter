@@ -40,7 +40,7 @@ use tokio::{
     task::JoinHandle,
     time::{timeout_at, Instant},
 };
-pub(crate) use tx::{SqliteTx, FinancialCommitError};
+pub(crate) use tx::{SqliteTx, FinancialCommitError, WorkflowProofFailureHandle};
 
 struct Inner {
     writer: SqlitePool,
@@ -337,12 +337,12 @@ impl SqliteStore {
     /// cannot consume. Both lanes still share the same fair physical writer gate.
     async fn begin_lane(&self, deadline: Instant, mandatory: bool) -> Result<SqliteTx, StoreError> {
         let mut work=ledgerlab_core::validation_work::NoopValidationWork;
-        self.begin_lane_work(deadline,mandatory,&mut work,&mut false).await.map_err(|error|match error {
+        self.begin_lane_work(deadline,mandatory,&mut work,&mut false,&mut None).await.map_err(|error|match error {
             workflow::financial::FinancialReadError::Store(error)=>error,
             workflow::financial::FinancialReadError::Resource(_)=>StoreError::Integrity("legacy begin resource callback"),
         })
     }
-    async fn begin_lane_work<W:ledgerlab_core::validation_work::ValidationWork+Send>(&self, deadline:Instant, mandatory:bool, work:&mut W,io_started:&mut bool)->Result<SqliteTx,workflow::financial::FinancialReadError> {
+    async fn begin_lane_work<W:ledgerlab_core::validation_work::ValidationWork+Send>(&self, deadline:Instant, mandatory:bool, work:&mut W,io_started:&mut bool,retained_control:&mut Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>)->Result<SqliteTx,workflow::financial::FinancialReadError> {
         work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         if self.inner.disabled.load(Ordering::Acquire) {
             return Err(StoreError::WritesDisabled.into());
@@ -452,7 +452,7 @@ impl SqliteStore {
             deadline,
             failed: false,
             financial_io: None,
-            workflow_proof_failed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            workflow_proof_failed: WorkflowProofFailureHandle::new(retained_control.take()),
             outcome_locks: Vec::new(),
             physical_lane,
             adjudication: None,

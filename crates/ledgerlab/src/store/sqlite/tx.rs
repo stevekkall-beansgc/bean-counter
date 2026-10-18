@@ -41,6 +41,25 @@ macro_rules! checked_read {
     }};
 }
 
+/// Private shared poison identity. Its owning lease follows every clone;
+/// the handle conveys no completed-origin or append authority.
+#[derive(Clone)]
+pub(crate) struct WorkflowProofFailureHandle(Arc<WorkflowProofFailureControl>);
+pub(super) struct WorkflowProofFailureControl {
+    failed:std::sync::atomic::AtomicBool,
+    _storage:Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+}
+impl WorkflowProofFailureHandle {
+    pub(super) fn new(storage:Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>)->Self {
+        Self(Arc::new(WorkflowProofFailureControl{failed:std::sync::atomic::AtomicBool::new(false),_storage:storage}))
+    }
+    pub(crate) fn same_instance(&self,other:&Self)->bool {Arc::ptr_eq(&self.0,&other.0)}
+    pub(crate) fn identity(&self)->usize {Arc::as_ptr(&self.0) as usize}
+}
+impl std::ops::Deref for WorkflowProofFailureHandle {
+    type Target=std::sync::atomic::AtomicBool;
+    fn deref(&self)->&Self::Target {&self.0.failed}
+}
 /// Drop queues SQLx's tracked rollback; before_acquire verifies tracked cleanup.
 /// A failed or cancelled write poisons this handle so a partial plan cannot commit.
 pub(crate) struct SqliteTx {
@@ -51,7 +70,7 @@ pub(crate) struct SqliteTx {
     pub(super) failed: bool,
     pub(super) financial_io: Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
     // Service proof scopes can poison this transaction on pure failure/cancel.
-    pub(super) workflow_proof_failed: Arc<std::sync::atomic::AtomicBool>,
+    pub(super) workflow_proof_failed: WorkflowProofFailureHandle,
     pub(super) outcome_locks: Vec<crate::store::outcomes::OutcomeLock>,
     pub(super) physical_lane: Option<OwnedRwLockWriteGuard<()>>,
     pub(super) adjudication: Option<super::adjudication::tx::Context>,
@@ -67,8 +86,8 @@ impl SqliteTx {
     pub(crate) fn workflow_deadline(&self) -> Instant {
         self.deadline
     }
-    pub(crate) fn workflow_proof_failure_handle(&self) -> Arc<std::sync::atomic::AtomicBool> {
-        Arc::clone(&self.workflow_proof_failed)
+    pub(crate) fn workflow_proof_failure_handle(&self) -> WorkflowProofFailureHandle {
+        self.workflow_proof_failed.clone()
     }
     pub(super) fn conn(&mut self) -> &mut SqliteConnection {
         self.transaction.as_mut().expect("live transaction")

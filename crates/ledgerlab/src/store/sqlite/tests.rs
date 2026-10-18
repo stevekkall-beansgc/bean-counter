@@ -871,6 +871,16 @@ async fn cancelled_resource_begin_retains_owner_until_cleanup_and_reopen() {
     let before=dump(&store).await;
     let arena=Arc::new(AuditArena::new().unwrap());
     let baseline=arena.usage().unwrap().live_bytes;
+    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let tx=store.begin_with_resource_session(deadline(),&mut session).await.unwrap();
+    let surviving_proof=tx.workflow_proof_failure_handle();
+    tx.rollback().await.unwrap();
+    // Returned transaction controls stay charged while any actual proof clone
+    // survives, even after native rollback has acknowledged completion.
+    assert!(arena.usage().unwrap().live_bytes>baseline);
+    drop(surviving_proof);
+    assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+    drop(session);
     let pause=store.test_pause_next_begin();
     let worker_store=store.clone();
     let worker_arena=Arc::clone(&arena);

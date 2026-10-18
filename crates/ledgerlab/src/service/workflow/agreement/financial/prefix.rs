@@ -282,7 +282,7 @@ fn origin_key(
 /// One actual chronological input, bound to the same held transaction/root.
 /// No index row is treated as proof and no completion marker is created here.
 struct InputAttempt {
-    failure: Arc<AtomicBool>,
+    failure: crate::store::sqlite::WorkflowProofFailureHandle,
     finished: bool,
 }
 impl InputAttempt {

@@ -7,6 +7,7 @@ use workflow::financial::FinancialReadError;
 struct BeginIoOwner {
     store:Arc<Inner>,
     lease:Option<ExternalBufferLease>,
+    retained_control:Option<ExternalBufferLease>,
     acknowledged:bool,
     cleanup:bool,
     io_started:bool,
@@ -16,7 +17,7 @@ impl Drop for BeginIoOwner {
         if !self.io_started {self.acknowledged=true;}
         if !self.acknowledged && !self.cleanup {
             if let Ok(runtime)=tokio::runtime::Handle::try_current() {
-                let drain=Self{store:Arc::clone(&self.store),lease:self.lease.take(),acknowledged:false,cleanup:true,io_started:true};
+                let drain=Self{store:Arc::clone(&self.store),lease:self.lease.take(),retained_control:self.retained_control.take(),acknowledged:false,cleanup:true,io_started:true};
                 // The whole Drop guard enters the future, including before its
                 // first poll. It cannot drop the lease on task cancellation.
                 let mut registered=self.store.commit_task.lock().expect("commit registry poisoned");
@@ -35,6 +36,7 @@ impl Drop for BeginIoOwner {
             // SAME terminal disposition as financial Drain: retain accounting
             // and the OS owner if cleanup acknowledgement is unavailable.
             std::mem::forget(self.lease.take());
+            std::mem::forget(self.retained_control.take());
             std::mem::forget(Arc::clone(&self.store));
         }
     }
@@ -52,15 +54,18 @@ impl BeginIoOwner {
 impl SqliteStore {
     pub(crate) async fn begin_with_resource_session(&self,deadline:Instant,s:&mut OriginalAuditSession)->Result<SqliteTx,FinancialReadError> {
         s.check_cancelled()?;
-        const CONTROLS:usize=2*std::mem::size_of::<BeginIoOwner>()+std::mem::size_of::<SqliteTx>()+2*std::mem::size_of::<usize>()+std::mem::size_of::<std::sync::atomic::AtomicBool>()+2*std::mem::size_of::<tokio::task::JoinHandle<()>>();
+        const CONTROLS:usize=2*std::mem::size_of::<BeginIoOwner>()+2*std::mem::size_of::<tokio::task::JoinHandle<()>>();
+        const RETAINED:usize=std::mem::size_of::<SqliteTx>()+std::mem::size_of::<super::tx::WorkflowProofFailureControl>()+2*std::mem::size_of::<usize>();
+        let retained_control=s.reserve_external_payload(RETAINED)?;
+        s.semantic_work().write_bytes(RETAINED)?;
         let lease=s.reserve_external_payload(262144+CONTROLS)?;
         s.semantic_work().write_bytes(CONTROLS)?;
         // Prepay the possible failed-acquisition cleanup lookup while the
         // original meter is still live. Cleanup must also run after S refusal.
         s.semantic_work().visit(ValidationVisit::RefLookup)?;
         s.semantic_work().visit(ValidationVisit::Constraint)?;
-        let mut owner=BeginIoOwner{store:Arc::clone(&self.inner),lease:Some(lease),acknowledged:false,cleanup:false,io_started:false};
-        let result=self.begin_lane_work(deadline,false,&mut workflow::capacity::SessionWork(s),&mut owner.io_started).await;
+        let mut owner=BeginIoOwner{store:Arc::clone(&self.inner),lease:Some(lease),retained_control:Some(retained_control),acknowledged:false,cleanup:false,io_started:false};
+        let result=self.begin_lane_work(deadline,false,&mut workflow::capacity::SessionWork(s),&mut owner.io_started,&mut owner.retained_control).await;
         match result {
             Ok(mut tx)=>{
                 // Retain the acquisition lease through CLEAR and, on refusal,

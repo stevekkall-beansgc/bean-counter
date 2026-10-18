@@ -601,7 +601,7 @@ async fn setup_identity(tx: &mut SqliteTx) -> Result<billing::Setup> {
 /// normalized fields are a prepared append capability.
 pub(super) struct OwnedLocalManagement {
     key: request::OperationKey,
-    owner: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    owner: crate::store::sqlite::WorkflowProofFailureHandle,
     changes: i64,
     setup: crate::service::billing::setup_owned::OwnedSetup,
     installation: crate::store::sqlite::workflow::financial::ManagementInstallation,
@@ -715,7 +715,7 @@ impl LocalOwnerAdmin {
         require(proof_session::present(tx,key)?,"INTEGRITY_FAILURE")?;
         s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
         let owner=tx.workflow_proof_failure_handle();
-        if !std::sync::Arc::ptr_eq(&held.owner,&owner) {
+        if !held.owner.same_instance(&owner) {
             held.owner.store(true,std::sync::atomic::Ordering::Release);
             owner.store(true,std::sync::atomic::Ordering::Release);
             return Err(ServiceError::IntegrityFailure);
