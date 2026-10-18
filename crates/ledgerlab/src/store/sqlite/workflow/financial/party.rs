@@ -168,7 +168,7 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
         self.financial_finish_io(session).await?;
-        if !resource_compare(session, version, 15)?.is_eq() {
+        if !resource_compare(session, version, 15)?.is_eq() && !resource_compare(session, version, 16)?.is_eq() {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
         for value in key.parts() {

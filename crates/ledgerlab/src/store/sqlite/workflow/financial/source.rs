@@ -87,6 +87,7 @@ impl SqliteTx {
         if !resource_compare(session, version, 13)?.is_eq()
             && !resource_compare(session, version, 14)?.is_eq()
             && !resource_compare(session, version, 15)?.is_eq()
+            && !resource_compare(session, version, 16)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -244,7 +245,7 @@ impl SqliteTx {
             }
             session.check_cancelled()?;
             let version:i64=sqlx::query_scalar("PRAGMA user_version").fetch_one(self.conn()).await?;
-            if !resource_compare(session,version,13)?.is_eq()&&!resource_compare(session,version,14)?.is_eq()&&!resource_compare(session,version,15)?.is_eq(){return Err(StoreError::BillingUpgradeRequired.into());}
+            if !resource_compare(session,version,13)?.is_eq()&&!resource_compare(session,version,14)?.is_eq()&&!resource_compare(session,version,15)?.is_eq()&&!resource_compare(session,version,16)?.is_eq(){return Err(StoreError::BillingUpgradeRequired.into());}
             let row=self.read_financial_head_projection(
                 "SELECT 1,octet_length(d.kind),octet_length(d.id),octet_length(d.digest) FROM workflow_customer_registrations c LEFT JOIN workflow_documents d ON d.id=c.document_id WHERE c.logical_store_id=? AND c.tenant=? AND c.environment=? AND c.customer=?",
                 "SELECT '1',d.kind,d.id,d.digest FROM workflow_customer_registrations c LEFT JOIN workflow_documents d ON d.id=c.document_id WHERE c.logical_store_id=? AND c.tenant=? AND c.environment=? AND c.customer=?",

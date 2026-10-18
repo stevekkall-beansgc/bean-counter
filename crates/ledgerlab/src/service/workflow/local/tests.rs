@@ -31,8 +31,15 @@ async fn trusted_local_entry_explicit_upgrade_reopen_and_wrong_store_read() {
     ledger.enable_profile_b().await.unwrap();
     ledger.enable_profile_b().await.unwrap();
     let mut tx = ledger.store.begin(deadline()).await.unwrap();
-    assert_eq!(tx.billing_schema_version().await.unwrap(), 15);
+    assert_eq!(tx.billing_schema_version().await.unwrap(), 16);
     assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 0);
+    let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+    let mut session=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let assertion=ledgerlab_core::policy::workflow::transition_constructor::PermanentClaimKey::Assertion {
+        logical_store_id:"owner-test-store".into(),scope:["example-company".into(),"local".into()],
+        verified_source:"urn:example:work".into(),attestation_id:"not-observed".into(),
+    };
+    assert!(tx.workflow_assertion_claim(&assertion,&mut session).await.unwrap().is_none());
     tx.rollback().await.unwrap();
     assert_eq!(
         ledger

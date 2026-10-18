@@ -61,6 +61,9 @@ pub(in crate::service::workflow) async fn enable_app_schemas(
             tx.workflow_enable_app_schema()
                 .await
                 .map_err(crate::service::store_error)?;
+            tx.workflow_enable_assertion_schema()
+                .await
+                .map_err(crate::service::store_error)?;
             session.check_cancelled().map_err(core_error)
         })
     })

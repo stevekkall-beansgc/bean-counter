@@ -16,7 +16,7 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if !resource_compare(session, version, 15)?.is_eq() {
+        if !resource_compare(session, version, 15)?.is_eq() && !resource_compare(session, version, 16)?.is_eq() {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
         let (store, expected_kind, sql, parts): (&str, &str, &'static str, [&str; 5]) = match claim
@@ -380,7 +380,7 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if !resource_compare(session, version, 15)?.is_eq() {
+        if !resource_compare(session, version, 15)?.is_eq() && !resource_compare(session, version, 16)?.is_eq() {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
         let values = [

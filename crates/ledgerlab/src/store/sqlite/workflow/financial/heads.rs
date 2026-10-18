@@ -216,10 +216,12 @@ impl SqliteTx {
         if !resource_compare(session, version, 13)?.is_eq()
             && !resource_compare(session, version, 14)?.is_eq()
             && !resource_compare(session, version, 15)?.is_eq()
+            && !resource_compare(session, version, 16)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
-        if matches!(key, HeadKey::AppCost(_)) && !resource_compare(session, version, 15)?.is_eq() {
+        if matches!(key, HeadKey::AppCost(_)) && !resource_compare(session, version, 15)?.is_eq()
+            && !resource_compare(session, version, 16)?.is_eq() {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
         let agreement_projection = match key {

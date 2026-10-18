@@ -739,7 +739,7 @@ impl SqliteTx {
                     before.ok_or(StoreError::Integrity("workflow mutation origin missing"))?;
                 if after != before {
                     match self.billing_schema_version().await? {
-                        12 | 13 | 14 | 15 => {
+                        12 | 13 | 14 | 15 | 16 => {
                             super::workflow::capacity::check(self.conn(), 0, 0).await?;
                         }
                         11 => {} // A verified opt-in attempt rolled back.
