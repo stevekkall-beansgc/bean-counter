@@ -99,7 +99,7 @@ fn authorization(
         session,
     )
 }
-pub(super) fn payload(
+pub(in super::super::super) fn payload(
     value: &Value,
     key: &OperationKey,
     session: &mut OriginalAuditSession,
