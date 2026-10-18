@@ -31,6 +31,26 @@ pub(super) struct InlineDocuments {
     _control: ExternalBufferLease,
 }
 impl InlineDocuments {
+    pub(super) fn record_views(
+        &self,
+    ) -> impl Iterator<
+        Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>,
+    > {
+        self.documents.iter().map(|d| match d {
+            Document::Inline { record, .. } => {
+                ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView {
+                    reference: record.reference(),
+                    canonical_body: record.bytes(),
+                }
+            }
+            Document::Retained(r) => {
+                ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView {
+                    reference: r.reference(),
+                    canonical_body: r.canonical_body(),
+                }
+            }
+        })
+    }
     pub(super) fn inline_records(&self) -> impl Iterator<Item = &wire::SourceRecord> {
         self.documents.iter().filter_map(|d| match d {
             Document::Inline { record, .. } => Some(record),

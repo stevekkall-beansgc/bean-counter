@@ -306,3 +306,169 @@ impl ResolvedMembers {
         Ok(out)
     }
 }
+
+/// Explicit /9 fixed point only. Per-operation implicit operands, held heads
+/// and absence checks must still join this DATA before making a real F header.
+/// History rows retain exact owner/field/target; they are not ordinary I edges.
+pub(in super::super) struct ResolvedEconomicInputs {
+    pub(in super::super) members: ResolvedMembers,
+    pub(in super::super) history_rows: Vec<AuditedBytes>,
+    _storage: ExternalBufferLease,
+}
+impl ResolvedEconomicInputs {
+    pub(in super::super) fn select(
+        prefix: &mut FoldedInventory,
+        key: &ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
+        seeds: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        use ledgerlab_core::policy::workflow::transition_constructor::{
+            EconomicRecordView, select_resolved_inputs9_edges,
+        };
+        let result = (|| {
+            let rows = seeds.as_array().ok_or(ServiceError::IntegrityFailure)?;
+            let mut members = ResolvedMembers::new(s)?;
+            for row in rows {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                members.add(row, s)?;
+            }
+            let bytes = arithmetic(LIMIT, mem::size_of::<AuditedBytes>(), Op::Multiply, s)?;
+            let bytes = arithmetic(bytes, mem::size_of::<ResolvedEconomicInputs>(), Op::Add, s)?;
+            let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+            let mut history_rows = Vec::new();
+            history_rows
+                .try_reserve_exact(LIMIT)
+                .map_err(|_| ServiceError::Unavailable)?;
+            let mut position = 0usize;
+            while compare(position, members.entries.len(), s)?.is_lt() {
+                let owner = wire::reference(&members.entries[position].reference, s)?;
+                let owner_value = s
+                    .parse_representation(owner.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                let body = prefix._inventory.body(owner_value.value(), s)?;
+                let edges = select_resolved_inputs9_edges(
+                    key,
+                    EconomicRecordView {
+                        reference: &members.entries[position].reference,
+                        canonical_body: body.bytes(),
+                    },
+                    s,
+                )
+                .map_err(core_error)?;
+                for reference in edges.direct_refs() {
+                    s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
+                    members.add_record_ref(reference, s)?;
+                }
+                for (field, target) in edges.history_edges() {
+                    s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
+                    require(
+                        compare(history_rows.len(), LIMIT, s)?.is_lt(),
+                        "REFERENCE_LIMIT",
+                    )?;
+                    let target = wire::reference(target, s)?;
+                    let target_value = s
+                        .parse_representation(target.bytes(), RepresentationKind::Record)
+                        .map_err(core_error)?;
+                    prefix._inventory.require_value(target_value.value(), s)?;
+                    let field = wire::string(field, s)?;
+                    let _fields = s
+                        .reserve_external_payload(2 * mem::size_of::<[(&str, &[u8]); 3]>())
+                        .map_err(core_error)?;
+                    let row = wire::object(
+                        &[
+                            ("field", field.bytes()),
+                            ("owner_ref", owner.bytes()),
+                            ("target_ref", target.bytes()),
+                        ],
+                        262144,
+                        s,
+                    )?;
+                    s.semantic_work()
+                        .write_bytes(mem::size_of::<AuditedBytes>())
+                        .map_err(core_error)?;
+                    history_rows.push(row);
+                }
+                position = arithmetic(position, 1, Op::Add, s)?;
+            }
+            // Reserve the eventual operation member in the unchanged M limit.
+            require(
+                compare(members.entries.len(), LIMIT, s)?.is_lt(),
+                "REFERENCE_LIMIT",
+            )?;
+            s.semantic_work()
+                .write_bytes(mem::size_of::<ResolvedEconomicInputs>())
+                .map_err(core_error)?;
+            Ok(Self {
+                members,
+                history_rows,
+                _storage: storage,
+            })
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
+}
+
+impl LocatedAppAcceptance {
+    pub(in super::super) fn work_explicit_inputs(
+        &mut self,
+        key: &OperationKey,
+        seeds: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ResolvedEconomicInputs> {
+        let result = (|| {
+            use ledgerlab_core::policy::workflow::transition_constructor::OperationKey as CoreKey;
+            // /9 is selected by this exact original code-owned registry, not
+            // by the newest descriptor or the incoming body's schema.
+            let registry = self
+                .publication
+                .program()
+                .execution_registry()
+                .ok_or(ServiceError::Unavailable)?;
+            if !super::super::acceptance::same_recipe_text(
+                registry,
+                super::super::acceptance::APP_COMMITMENT,
+                s,
+            )? {
+                return Err(ServiceError::Unavailable);
+            }
+            let mut size = mem::size_of::<CoreKey>();
+            for value in [
+                &key.logical_store_id,
+                &key.scope[0],
+                &key.scope[1],
+                &key.source,
+                &key.operation_id,
+            ] {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                size = arithmetic(size, value.len(), Op::Add, s)?;
+            }
+            let _owner = s.reserve_external_payload(size).map_err(core_error)?;
+            fn text(v: &str, s: &mut OriginalAuditSession) -> Result<String> {
+                s.semantic_work().scan_bytes(v.len()).map_err(core_error)?;
+                s.semantic_work().write_bytes(v.len()).map_err(core_error)?;
+                Ok(v.to_owned())
+            }
+            let key = CoreKey {
+                logical_store_id: text(&key.logical_store_id, s)?,
+                scope: [text(&key.scope[0], s)?, text(&key.scope[1], s)?],
+                source: text(&key.source, s)?,
+                operation_id: text(&key.operation_id, s)?,
+            };
+            s.semantic_work()
+                .write_bytes(mem::size_of::<CoreKey>())
+                .map_err(core_error)?;
+            ResolvedEconomicInputs::select(&mut self._prefix, &key, seeds, s)
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
+    }
+}

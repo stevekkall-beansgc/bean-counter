@@ -15,6 +15,16 @@ use std::{mem, ops::Deref};
 fn invalid(s: &str) -> Error {
     Error::new("INTEGRITY_FAILURE", s)
 }
+fn admit_body(m:&mut CoreMeter,parent_data:bool,selected_bytes:&mut usize,selected_refs:&mut usize,raw:&[u8])->Result<()> {
+    if !parent_data{return m.borrowed_body(raw);}
+    // Structural bounds on this actual parent DATA set, not economic work or
+    // resolved-byte credit. Independent child Records repeats its own work.
+    m.visit("resolve.parent_selected_body")?;
+    let bytes=w::usize_add(m,*selected_bytes,raw.len())?;
+    let refs=w::usize_add(m,*selected_refs,1)?;
+    if w::compare(m,bytes,8388608usize)?.is_gt()||w::compare(m,refs,4096usize)?.is_gt(){return Err(invalid("parent selected input closure"));}
+    *selected_bytes=bytes;*selected_refs=refs;Ok(())
+}
 // Canonical key/part serialization belongs to the named owning representation
 // operation under fixed RP01. Digest/domain/Ref association remains semantic.
 // The local artifact is destroyed after its actual hash pass; no Vec escapes.
@@ -232,6 +242,10 @@ pub(super) struct Records<'inv, 'raw> {
     _metadata: Option<ExternalBufferLease>,
     owner_key: Option<&'raw OperationKey>,
     app_records:bool,
+    // Coordinator DATA lookup, never an economic inventory/semantic proof.
+    parent_data:bool,
+    parent_selected_bytes:usize,
+    parent_selected_refs:usize,
 }
 pub(super) struct OwnedConsumed {
     pub references: Vec<ExactRef>,
@@ -285,6 +299,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             _metadata: None,
             owner_key: None,
             app_records:false,
+            parent_data:false,parent_selected_bytes:0,parent_selected_refs:0,
         })
     }
     /// Borrow exact caller-owned bytes for ONE complete financial invocation.
@@ -298,7 +313,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
         inputs: &'raw [EconomicRecordView<'raw>],
         pending: &'raw [RecordInput],
     ) -> Result<Self> {
-        Self::borrowed_mode(m,arena,key,inputs,pending,false)
+        Self::borrowed_mode(m,arena,key,inputs,pending,false,false)
     }
     /// Named optional-AP inventory. Only its existing immutable Invocation and
     /// CostLineOwner recipes need stable-ID/new-digest revision lookup. The app
@@ -306,18 +321,24 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     /// Exact app document vocabulary; no AP stable-ID locator widening and no
     /// change to the raw legacy draft's recognized record domains.
     pub(super) fn borrowed_app(m:&mut CoreMeter,arena:&AuditArena,key:&'raw OperationKey,inputs:&'raw [EconomicRecordView<'raw>],pending:&'raw [RecordInput])->Result<Self>{
-        let mut records=Self::borrowed_mode(m,arena,key,inputs,pending,false)?;
+        let mut records=Self::borrowed_mode(m,arena,key,inputs,pending,false,false)?;
+        records.app_records=true;Ok(records)
+    }
+    /// SAME paid body/index implementation for conservative parent DATA
+    /// preselection. It cannot consume or relax the child's one-table claim.
+    pub(super) fn borrowed_parent_app(m:&mut CoreMeter,arena:&AuditArena,key:&'raw OperationKey,inputs:&'raw [EconomicRecordView<'raw>])->Result<Self>{
+        let mut records=Self::borrowed_mode(m,arena,key,inputs,&[],false,true)?;
         records.app_records=true;Ok(records)
     }
     pub(super) fn borrowed_ap(
         m:&mut CoreMeter,arena:&AuditArena,key:&'raw OperationKey,
         inputs:&'raw [EconomicRecordView<'raw>],pending:&'raw [RecordInput],
-    )->Result<Self>{Self::borrowed_mode(m,arena,key,inputs,pending,true)}
+    )->Result<Self>{Self::borrowed_mode(m,arena,key,inputs,pending,true,false)}
     fn borrowed_mode(
         m:&mut CoreMeter,arena:&AuditArena,key:&'raw OperationKey,
-        inputs:&'raw [EconomicRecordView<'raw>],pending:&'raw [RecordInput],ap_revisions:bool,
+        inputs:&'raw [EconomicRecordView<'raw>],pending:&'raw [RecordInput],ap_revisions:bool,parent_data:bool,
     )->Result<Self>{
-        m.claim_borrowed_inventory()?;
+        if parent_data{m.require_original_data_selection()?;}else{m.claim_borrowed_inventory()?;}
         let n = w::usize_add(m, inputs.len(), pending.len())?;
         if w::compare(m, n, 4096usize)?.is_gt() {
             return Err(invalid("supplied borrowed count"));
@@ -361,6 +382,10 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             .ok_or_else(|| invalid("borrowed slot bound"))?;
         let bytes = w::usize_add(m, slots, strings)?;
         let bytes = w::usize_add(m, bytes, 6 * mem::size_of::<Vec<usize>>())?;
+        // Local construction and owning return controls coexist. Include the
+        // actual Records header (also its parent-DATA counters), not only Vec
+        // element capacity/string payload. Legacy raw construction is separate.
+        let bytes = w::usize_add(m,bytes,2*mem::size_of::<Self>())?;
         // Serial frame-hash scratch: borrowed scope's two<=128-byte strings
         // and64-byte kind + small Value/Vec headers<=480; domain format<=128;
         // hex+digest formatting overlap<=192. Fixed1024 covers their sum.
@@ -407,6 +432,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                 source_birth:None,source_grant:None,source_observation:None,
             });
         }
+        m.write_bytes(2*mem::size_of::<Self>())?;
         Ok(Self {
             operands,
             index,
@@ -417,6 +443,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
             _metadata: Some(metadata),
             owner_key: Some(key),
             app_records:false,
+            parent_data,parent_selected_bytes:0,parent_selected_refs:0,
         })
     }
     fn source_body_position(&self,m:&mut CoreMeter,reference:&ExactRef,value:&Value)->Result<Option<usize>>{
@@ -710,7 +737,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                     record.consume(m, owner, r)?;
                     if let Some(arena) = &self.arena {
                         if !operand.admitted {
-                            m.borrowed_body(&operand.raw)?;
+                            admit_body(m,self.parent_data,&mut self.parent_selected_bytes,&mut self.parent_selected_refs,&operand.raw)?;
                             operand.admitted = true;
                         }
                         if operand.body.is_none() {
@@ -737,7 +764,7 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
                     };
                     if let Some(arena) = &self.arena {
                         if !operand.admitted {
-                            m.borrowed_body(&operand.raw)?;
+                            admit_body(m,self.parent_data,&mut self.parent_selected_bytes,&mut self.parent_selected_refs,&operand.raw)?;
                             operand.admitted = true;
                         }
                         let kind = match maximum {

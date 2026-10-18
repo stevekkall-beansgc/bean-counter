@@ -1,5 +1,7 @@
 //! Pure selected draft/replay foundation. No output is a financial commit,
 //! authenticated host capability or future-correction capacity certificate.
+mod input_edges;
+pub use input_edges::{ResolvedInputEdges9,select_resolved_inputs9_edges};
 pub(in crate::policy::workflow) mod arithmetic;
 pub(in crate::policy::workflow) mod codec;
 pub(in crate::policy::workflow) mod meter;

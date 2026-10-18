@@ -109,8 +109,8 @@ pub fn select_work_source_frame<'a>(program:&'a SelectedProgram,capture:&'a Econ
             if shape::same_text(m,source.source_slot,slot)?{
                 // This is the actual submitting work source. A dependent's
                 // separately captured identity must never rewrite the root key.
-                if !shape::same_text(m,source.source,&capture.key.source)?||!shape::same_text(m,source.principal,capture.actor)?||!shape::same_text(m,source.canonical_economic_namespace,capture.canonical_economic_namespace)?{return Err(shape::fail("captured work submitting identity"));}
-                if !shape::same_text(m,k,&source.binding_ref.kind)?||!shape::same_text(m,id,&source.binding_ref.id)?||!shape::same_text(m,d,&source.binding_ref.digest)?{return Err(shape::fail("captured source binding locator"));}
+                if !shape::same_text(m,source.source,&capture.key.source)?||!shape::same_text(m,source.principal,capture.actor)?||!shape::same_text(m,source.canonical_economic_namespace,capture.canonical_economic_namespace)?{continue;}
+                if !shape::same_text(m,k,&source.binding_ref.kind)?||!shape::same_text(m,id,&source.binding_ref.id)?||!shape::same_text(m,d,&source.binding_ref.digest)?{continue;}
                 if frame.is_some(){return Err(shape::fail("ambiguous captured source slot"));}
                 frame=Some(source);
             }
@@ -135,7 +135,7 @@ pub fn select_work_input_seeds<'a>(program:&'a SelectedProgram,capture:&'a Econo
         let source=select_work_source_frame(program,capture,raw,s)?;
         let frame=source.captured_source();let arena=s.arena().shared_handle();
         let p=s.parse_representation(raw,RepresentationKind::OriginalRequest)?;
-        let m=s.meter_mut();let mut r=Records::borrowed_app(m,&arena,capture.key,inputs,&[])?;
+        let m=s.meter_mut();let mut r=Records::borrowed_parent_app(m,&arena,capture.key,inputs)?;
         let binding=r.get(m,capture.key,frame.binding_ref,"workflow-binding","ledger-workflow-binding/2")?;
         let accepted=r.get(m,capture.key,frame.accepted_agreement_ref,"workflow-accepted-agreement","ledger-workflow-accepted-agreement/1")?;
         let activation=r.get(m,capture.key,frame.activation_ref,"workflow-activation","ledger-workflow-activation-transition/1")?;
@@ -218,11 +218,12 @@ mod tests {
         let program=compile_selected_publication(SelectedSourceInput{documents:source["documents"].as_array().unwrap().iter().map(|v|canonical::CanonicalBytes::from_value(v).unwrap().into_vec()).collect(),root_policy_ref:serde_json::from_value(source["root_policy_ref"].clone()).unwrap()},&support,&mut session).unwrap();
         let a=&c.authorities[0];
         let frame=||SourceAuthorityCapture{source_slot:&a.source_slot,source:&c.key.source,principal:&c.actor,canonical_economic_namespace:&c.canonical_economic_namespace,enrollment_ref:&a.enrollment_ref,current_state_ref:&a.current_state_ref,current_grant_ref:&a.current_grant_ref,original_grant_refs:&a.original_grant_refs,binding_ref:&a.binding_ref,accepted_agreement_ref:&a.accepted_agreement_ref,activation_ref:&a.activation_ref};
-        let sources=[frame()];
+        let mut unrelated=frame();unrelated.principal="another captured principal";
+        let sources=[unrelated,frame()];
         let capture=EconomicCapture{key:&c.key,actor:&c.actor,canonical_economic_namespace:&c.canonical_economic_namespace,installation_mode:&c.installation_mode,received_at:&c.received_at,accepted_at:&c.accepted_at,sources:&sources};
         let locator=select_work_source_frame(&program,&capture,&raw,&mut session).unwrap();
         assert_eq!(locator.source_slot(),a.source_slot);
-        assert!(std::ptr::eq(locator.captured_source(),&sources[0]));
+        assert!(std::ptr::eq(locator.captured_source(),&sources[1]));
         let payload:Value=serde_json::from_slice(&raw).unwrap();
         let(_,activity)=work_activity(&program,&payload,session.meter_mut()).unwrap();
         assert_eq!(locator.source_slot(),activity["source_slot"].as_str().unwrap());

@@ -11,6 +11,9 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) parties: Option<super::super::acceptance::CurrentPlatformConsents>,
     pub(super) activation: Option<prefix::CompletedInitialActivation>,
     pub(super) work_source_slot: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
+    pub(super) work_source_birth: Option<prefix::SourceBirthInputs>,
+    pub(super) work_input_seeds: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
+    pub(super) work_explicit_inputs: Option<prefix::ResolvedEconomicInputs>,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     pub(super) setup: crate::service::billing::Setup,
@@ -55,19 +58,42 @@ pub(in super::super) async fn observe(
         session,
     )
     .await?;
-    let selected = work_capture::select(&observed, key, payload, &received_at, session);
-    match selected {
-        Ok(slot) => {
-            observed.work_source_slot = Some(slot);
-            Ok(observed)
-        }
-        Err(error) => {
-            session.invalidate();
-            tx.workflow_proof_failure_handle()
-                .store(true, std::sync::atomic::Ordering::Release);
-            Err(error)
-        }
+    let result = async {
+        let index = work_capture::source_index(&observed, key, session)?;
+        session
+            .semantic_work()
+            .visit(ValidationVisit::RefLookup)
+            .map_err(core_error)?;
+        let source = observed
+            .sources
+            .get(index)
+            .ok_or(ServiceError::IntegrityFailure)?;
+        let birth = observed
+            .original
+            .source_birth_inputs(tx, key, source.enrollment_ref(), observed.before, session)
+            .await?;
+        observed.work_source_birth = Some(birth);
+        let (slot, seeds) =
+            work_capture::select(&observed, key, payload, index, &received_at, session)?;
+        let parsed_seeds = session
+            .parse_representation(seeds.bytes(), RepresentationKind::Record)
+            .map_err(core_error)?;
+        let explicit =
+            observed
+                .original
+                .work_explicit_inputs(key, parsed_seeds.value(), session)?;
+        observed.work_source_slot = Some(slot);
+        observed.work_input_seeds = Some(seeds);
+        observed.work_explicit_inputs = Some(explicit);
+        Ok(observed)
     }
+    .await;
+    if result.is_err() {
+        session.invalidate();
+        tx.workflow_proof_failure_handle()
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    result
 }
 /// Activation supplies its literal accepted Binding and agreement identity.
 /// This reuses source identity/current-state acquisition only; the activation
@@ -377,6 +403,9 @@ async fn observe_binding(
             parties,
             activation,
             work_source_slot: None,
+            work_source_birth: None,
+            work_input_seeds: None,
+            work_explicit_inputs: None,
             at,
             before,
             setup,

@@ -4,7 +4,8 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::AuditedBytes,
     policy::workflow::transition_constructor::{
-        EconomicCapture, OperationKey as CoreKey, SourceAuthorityCapture, select_work_source_frame,
+        EconomicCapture, EconomicRecordView, OperationKey as CoreKey, SourceAuthorityCapture,
+        select_work_input_seeds,
     },
 };
 use std::mem;
@@ -41,9 +42,10 @@ pub(super) fn select(
     observed: &ObservedAppBinding,
     key: &OperationKey,
     payload: &Value,
+    source_index: usize,
     received_at: &Timestamp,
     s: &mut OriginalAuditSession,
-) -> Result<AuditedBytes> {
+) -> Result<(AuditedBytes, AuditedBytes)> {
     let _controls = s
         .reserve_external_payload(
             mem::size_of::<Vec<ExactRef>>()
@@ -58,56 +60,12 @@ pub(super) fn select(
         .ok_or(ServiceError::Unavailable)?;
     let binding = observed._parsed_binding.value();
     let actor = observed.setup.operator.as_str();
-    let mut representative: Option<usize> = None;
-    for (index, source) in observed.sources.iter().enumerate() {
-        s.semantic_work()
-            .visit(ValidationVisit::Element)
-            .map_err(core_error)?;
-        let Some(grant) = source.current_grant_body() else {
-            continue;
-        };
-        if !equal(check::text(grant, "source", s)?, &key.source, s)?
-            || !equal(check::text(grant, "principal_id", s)?, actor, s)?
-        {
-            continue;
-        }
-        if let Some(previous) = representative {
-            s.semantic_work()
-                .visit(ValidationVisit::RefLookup)
-                .map_err(core_error)?;
-            let old = observed
-                .sources
-                .get(previous)
-                .ok_or(ServiceError::IntegrityFailure)?;
-            require(
-                same_ref(old.enrollment_ref(), source.enrollment_ref(), s)?,
-                "UNSUPPORTED_COMPOSITION",
-            )?;
-            require(
-                same_ref(old.state_ref(), source.state_ref(), s)?,
-                "STALE_REVISION",
-            )?;
-            require(
-                same_ref(
-                    old.current_grant_ref()
-                        .ok_or(ServiceError::IntegrityFailure)?,
-                    source
-                        .current_grant_ref()
-                        .ok_or(ServiceError::IntegrityFailure)?,
-                    s,
-                )?,
-                "STALE_REVISION",
-            )?;
-        } else {
-            representative = Some(index)
-        }
-    }
     s.semantic_work()
         .visit(ValidationVisit::RefLookup)
         .map_err(core_error)?;
     let source = observed
         .sources
-        .get(representative.ok_or_else(|| reject("AUTHORITY_REQUIRED"))?)
+        .get(source_index)
         .ok_or(ServiceError::IntegrityFailure)?;
     let grant = source
         .current_grant_body()
@@ -252,12 +210,188 @@ pub(super) fn select(
     let raw = s
         .canonical_representation(payload, RepresentationKind::OriginalRequest)
         .map_err(core_error)?;
-    let located = select_work_source_frame(
+    let pool = input_pool(observed, s)?;
+    let located = select_work_input_seeds(
         observed.original.publication.program(),
         &capture,
         raw.bytes(),
+        &pool.rows,
         s,
     )
     .map_err(core_error)?;
-    wire::string(located.source_slot(), s)
+    let slot = wire::string(located.source().source_slot(), s)?;
+    let refs = wire::RefSet::new(
+        located.direct_refs().iter(),
+        located.direct_refs().len(),
+        true,
+        s,
+    )?
+    .encode(s)?;
+    Ok((slot, refs))
+}
+
+pub(super) fn source_index(
+    observed: &ObservedAppBinding,
+    key: &OperationKey,
+    s: &mut OriginalAuditSession,
+) -> Result<usize> {
+    let actor = observed.setup.operator.as_str();
+    let mut representative: Option<usize> = None;
+    for (index, source) in observed.sources.iter().enumerate() {
+        s.semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        let Some(grant) = source.current_grant_body() else {
+            continue;
+        };
+        if !equal(check::text(grant, "source", s)?, &key.source, s)?
+            || !equal(check::text(grant, "principal_id", s)?, actor, s)?
+        {
+            continue;
+        }
+        if let Some(previous) = representative {
+            s.semantic_work()
+                .visit(ValidationVisit::RefLookup)
+                .map_err(core_error)?;
+            let old = observed
+                .sources
+                .get(previous)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            require(
+                same_ref(old.enrollment_ref(), source.enrollment_ref(), s)?,
+                "UNSUPPORTED_COMPOSITION",
+            )?;
+            require(
+                same_ref(old.state_ref(), source.state_ref(), s)?,
+                "STALE_REVISION",
+            )?;
+            require(
+                same_ref(
+                    old.current_grant_ref()
+                        .ok_or(ServiceError::IntegrityFailure)?,
+                    source
+                        .current_grant_ref()
+                        .ok_or(ServiceError::IntegrityFailure)?,
+                    s,
+                )?,
+                "STALE_REVISION",
+            )?;
+        } else {
+            representative = Some(index)
+        }
+    }
+
+    representative.ok_or_else(|| reject("AUTHORITY_REQUIRED"))
+}
+struct InputPool<'a> {
+    rows: Vec<EconomicRecordView<'a>>,
+    _storage: ExternalBufferLease,
+    _controls: ExternalBufferLease,
+}
+fn input_pool<'a>(
+    o: &'a ObservedAppBinding,
+    s: &mut OriginalAuditSession,
+) -> Result<InputPool<'a>> {
+    let activation = o.activation.as_ref().ok_or(ServiceError::Unavailable)?;
+    let birth = o
+        .work_source_birth
+        .as_ref()
+        .ok_or(ServiceError::Unavailable)?;
+    let controls = s
+        .reserve_external_payload(
+            mem::size_of::<InputPool<'_>>()
+                + 2 * mem::size_of::<[EconomicRecordView<'_>; 4]>()
+                + mem::size_of::<EconomicRecordView<'_>>(),
+        )
+        .map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(mem::size_of::<[EconomicRecordView<'_>; 4]>())
+        .map_err(core_error)?;
+    let fixed = [
+        EconomicRecordView {
+            reference: activation.activation.reference(),
+            canonical_body: activation.activation.bytes(),
+        },
+        EconomicRecordView {
+            reference: activation.head.reference(),
+            canonical_body: activation.head.bytes(),
+        },
+        EconomicRecordView {
+            reference: birth.state.reference(),
+            canonical_body: birth.state.canonical_body(),
+        },
+        EconomicRecordView {
+            reference: birth.grant.reference(),
+            canonical_body: birth.grant.canonical_body(),
+        },
+    ];
+    let values = || {
+        o.original
+            .acceptance
+            .work_locator_records()
+            .chain(o.sources.iter().flat_map(|source| source.records()))
+            .chain(fixed)
+    };
+    s.semantic_work()
+        .scan_bytes(2 * mem::size_of_val(&fixed))
+        .map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(2 * mem::size_of_val(&fixed))
+        .map_err(core_error)?;
+    let mut count = 0usize;
+    for _ in values() {
+        s.semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        count = add(count, 1, s)?;
+    }
+    let owner = storage(count, mem::size_of::<EconomicRecordView<'_>>(), s)?;
+    let mut rows: Vec<EconomicRecordView<'a>> = Vec::new();
+    rows.try_reserve_exact(count)
+        .map_err(|_| ServiceError::Unavailable)?;
+    for value in values() {
+        s.semantic_work()
+            .visit(ValidationVisit::Element)
+            .map_err(core_error)?;
+        let mut duplicate = false;
+        for previous in &rows {
+            s.semantic_work()
+                .visit(ValidationVisit::RefLookup)
+                .map_err(core_error)?;
+            if equal(&previous.reference.kind, &value.reference.kind, s)?
+                && equal(&previous.reference.id, &value.reference.id, s)?
+            {
+                require(
+                    equal(&previous.reference.digest, &value.reference.digest, s)?,
+                    "INTEGRITY_FAILURE",
+                )?;
+                s.semantic_work()
+                    .visit(ValidationVisit::MemberCompare)
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .scan_bytes(previous.canonical_body.len())
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .scan_bytes(value.canonical_body.len())
+                    .map_err(core_error)?;
+                require(
+                    previous.canonical_body == value.canonical_body,
+                    "INTEGRITY_FAILURE",
+                )?;
+                duplicate = true;
+                break;
+            }
+        }
+        if !duplicate {
+            s.semantic_work()
+                .write_bytes(mem::size_of::<EconomicRecordView<'_>>())
+                .map_err(core_error)?;
+            rows.push(value);
+        }
+    }
+    Ok(InputPool {
+        rows,
+        _storage: owner,
+        _controls: controls,
+    })
 }

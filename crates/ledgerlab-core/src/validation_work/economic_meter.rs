@@ -432,6 +432,17 @@ impl Meter {
         self.borrowed_inventory_claimed = true;
         Ok(())
     }
+    /// Parent-paid DATA selection before the sole economic child. This grants
+    /// no borrowed-economic-inventory claim, new quota, phase credit or child
+    /// continuation. Every callback still uses this original's current ledger.
+    pub(crate) fn require_original_data_selection(&mut self)->Result<()> {
+        self.visit("resolve.parent_data_selection")?;
+        if !self.resource_v2||self.domain!=BudgetDomain::OriginalAudit||self.original_inner_started{
+            self.fail_original();
+            return Err(Error::new("AUDIT_INTEGRITY_OR_PROFILE_FAILURE","parent DATA selection lifecycle"));
+        }
+        Ok(())
+    }
     /// Only Records' unique immutable operand table calls this, once per body
     /// before consumption. The bytes are real borrowed bytes, not numeric work
     /// credits, caller authority or a cross-invocation cache. Exact frame/hash

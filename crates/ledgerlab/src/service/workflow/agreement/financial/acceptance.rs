@@ -29,7 +29,7 @@ use std::{cmp::Ordering as Cmp, mem};
 pub(super) fn same_recipe_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     assents::equal(a, b, s)
 }
-const APP_COMMITMENT: &str =
+pub(super) const APP_COMMITMENT: &str =
     "sha256:762b708044ffad44717074a9b3456b91ebbe62d7a12d76cfa80d6a37ecbfe276";
 const APP_CAUSAL: &str = "sha256:42368b84a652527c58389014fefa69140d6a40c2217e193694f162441699cdc2";
 

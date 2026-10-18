@@ -3,6 +3,8 @@
 //! Recipe semantics and their complete inputs must finish before inventory use.
 use super::*;
 mod current_activation;
+mod source_birth;
+pub(super) use source_birth::SourceBirthInputs;
 mod dependencies;
 pub(super) use current_activation::CompletedInitialActivation;
 pub(super) mod inventory;
@@ -10,7 +12,7 @@ mod members;
 mod programs;
 mod publication;
 mod witness;
-pub(super) use members::ResolvedMembers;
+pub(super) use members::{ResolvedEconomicInputs, ResolvedMembers};
 pub(super) use witness::ObservationHeader;
 pub(super) mod source;
 use crate::store::sqlite::workflow::financial::{FinancialReadError, OriginalFrame};

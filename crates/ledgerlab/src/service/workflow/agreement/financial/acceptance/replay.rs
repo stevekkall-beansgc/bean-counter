@@ -510,3 +510,23 @@ impl ReplayedAcceptance {
             .await
     }
 }
+
+impl ReplayedAcceptance {
+    /// Borrow exact original selected bodies as a locator pool. Membership
+    /// alone is not consumption; the core selector independently records use.
+    pub(in super::super) fn work_locator_records(
+        &self,
+    ) -> impl Iterator<
+        Item = ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView<'_>,
+    > {
+        [&self.original.binding, &self.head_records.accepted]
+            .into_iter()
+            .map(|record| {
+                ledgerlab_core::policy::workflow::transition_constructor::EconomicRecordView {
+                    reference: record.reference(),
+                    canonical_body: record.bytes(),
+                }
+            })
+            .chain(self.private_documents.record_views())
+    }
+}
