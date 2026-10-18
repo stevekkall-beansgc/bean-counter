@@ -2,6 +2,7 @@
 //! Acquiring DATA does not establish activation, original custody or eligibility.
 use super::super::request_wrapper as check;
 use super::*;
+mod work_capture;
 use ledgerlab_core::validation_work::ValidationVisit;
 
 pub(in super::super) struct ObservedAppBinding {
@@ -9,6 +10,7 @@ pub(in super::super) struct ObservedAppBinding {
     pub(super) sources: Vec<source::ObservedSource>,
     pub(super) parties: Option<super::super::acceptance::CurrentPlatformConsents>,
     pub(super) activation: Option<prefix::CompletedInitialActivation>,
+    pub(super) work_source_slot: Option<ledgerlab_core::canonical::audit_arena::AuditedBytes>,
     pub(super) at: Timestamp,
     pub(super) before: i64,
     pub(super) setup: crate::service::billing::Setup,
@@ -38,7 +40,11 @@ pub(in super::super) async fn observe(
 ) -> Result<ObservedAppBinding> {
     let binding = check::field(payload, "binding_ref", session)?;
     let customer = check::field(payload, "customer", session)?;
-    observe_binding(
+    let _received_storage = session
+        .reserve_external_payload(4 * 64 + 27)
+        .map_err(core_error)?;
+    let received_at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
+    let mut observed = observe_binding(
         ledger,
         tx,
         key,
@@ -48,7 +54,20 @@ pub(in super::super) async fn observe(
         None,
         session,
     )
-    .await
+    .await?;
+    let selected = work_capture::select(&observed, key, payload, &received_at, session);
+    match selected {
+        Ok(slot) => {
+            observed.work_source_slot = Some(slot);
+            Ok(observed)
+        }
+        Err(error) => {
+            session.invalidate();
+            tx.workflow_proof_failure_handle()
+                .store(true, std::sync::atomic::Ordering::Release);
+            Err(error)
+        }
+    }
 }
 /// Activation supplies its literal accepted Binding and agreement identity.
 /// This reuses source identity/current-state acquisition only; the activation
@@ -357,6 +376,7 @@ async fn observe_binding(
             sources,
             parties,
             activation,
+            work_source_slot: None,
             at,
             before,
             setup,

@@ -24,6 +24,8 @@ mod app_cost;
 mod cost_postings;
 mod source_authority;
 mod source_projection;
+mod input_selection;
+pub use input_selection::{EconomicCapture,SourceAuthorityCapture,WorkSourceLocator,WorkInputSeeds,select_work_source_frame,select_work_input_seeds};
 mod source_records;
 pub use source_records::{produce_initial_source_records, InitialSourceRecord, InitialSourceRecords, InitialSourceCorrespondence};
 pub use source_projection::{NominatedSourceFrame,NominatedSourceGrant,validate_app_nominated_sources};

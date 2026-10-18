@@ -14,6 +14,7 @@ pub(in super::super) struct ReplayedInitialActivation {
     _parties: acceptance::CurrentPlatformConsents,
     _source_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
+    _state_storage: ExternalBufferLease,
 }
 impl ReplayedInitialActivation {
     pub(in super::super) fn fold(
@@ -44,6 +45,9 @@ pub(in super::super) async fn reconstruct_initial(
     s: &mut OriginalAuditSession,
 ) -> Result<ReplayedInitialActivation> {
     let result = async {
+        let state_storage = s
+            .reserve_external_payload(std::mem::size_of::<ReplayedInitialActivation>())
+            .map_err(core_error)?;
         request_wrapper::same_text(
             request_wrapper::text(origin.wrappers().operation(), "kind", s)?,
             "agreement.activate",
@@ -310,6 +314,9 @@ pub(in super::super) async fn reconstruct_initial(
             s,
         )?;
         journal.compare_original(origin, s)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<ReplayedInitialActivation>())
+            .map_err(core_error)?;
         Ok(ReplayedInitialActivation {
             root,
             authority,
@@ -318,6 +325,7 @@ pub(in super::super) async fn reconstruct_initial(
             _parties: parties,
             _source_storage: source_storage,
             _time_storage: time_storage,
+            _state_storage: state_storage,
         })
     }
     .await;
