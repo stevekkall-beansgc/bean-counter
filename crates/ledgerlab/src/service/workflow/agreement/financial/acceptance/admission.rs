@@ -51,8 +51,11 @@ pub(super) fn authority(
     key: &OperationKey,
     actor: &str,
     at: &Timestamp,
+    operation: &'static str,
     s: &mut OriginalAuditSession,
 ) -> Result<wire::SourceRecord> {
+    require(acceptance_operation(operation, s)?, "INVALID_SHAPE")?;
+    let operation = wire::string(operation, s)?;
     let grant = source
         .current_grant_body()
         .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
@@ -103,7 +106,7 @@ pub(super) fn authority(
             ("customer", customer.bytes()),
             ("local_admin_ref", root.bytes()),
             ("observed_at", at.bytes()),
-            ("operation", br#""agreement.accept""#),
+            ("operation", operation.bytes()),
             ("purpose", br#""admit""#),
             ("schema", schema.bytes()),
             ("scope", scope.bytes()),
@@ -121,4 +124,9 @@ pub(super) fn authority(
         bytes,
         s,
     )
+}
+
+fn acceptance_operation(operation: &str, s: &mut OriginalAuditSession) -> Result<bool> {
+    Ok(same_recipe_text(operation, "agreement.accept", s)?
+        || same_recipe_text(operation, "agreement.activate", s)?)
 }

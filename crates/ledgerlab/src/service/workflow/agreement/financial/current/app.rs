@@ -15,11 +15,17 @@ pub(in super::super) struct ObservedAppBinding {
     _source_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
 }
+/// Newly emitted management DATA; neither row establishes admission.
+pub(in super::super) struct ActivationAdmissionRecords {
+    pub(in super::super) root: wire::SourceRecord,
+    pub(in super::super) authority: wire::SourceRecord,
+}
 pub(in super::super) struct ObservedAppActivation {
     pub(in super::super) binding: ObservedAppBinding,
     pub(in super::super) normalized_payload: ledgerlab_core::canonical::audit_arena::AuditedBytes,
     pub(in super::super) records: super::super::activation::ActivationRecords,
     pub(in super::super) admission_source: Option<usize>,
+    pub(in super::super) admission_records: Option<ActivationAdmissionRecords>,
     _held_head: Option<crate::store::sqlite::workflow::financial::HeadLocator>,
 }
 pub(in super::super) async fn observe(
@@ -91,6 +97,12 @@ pub(in super::super) async fn observe_activation(
             if super::super::acceptance::same_recipe_text(kind, "agreement.revoke", session)? {
                 None
             } else {
+                super::super::activation::binding_interval(
+                    payload.value(),
+                    binding,
+                    &observed.at,
+                    session,
+                )?;
                 Some(observed.original.current_activation_source(
                     &observed.sources,
                     binding,
@@ -100,6 +112,30 @@ pub(in super::super) async fn observe_activation(
                     session,
                 )?)
             };
+        let admission_records = if let Some(index) = admission_source {
+            session
+                .semantic_work()
+                .visit(ValidationVisit::RefLookup)
+                .map_err(core_error)?;
+            let source = observed
+                .sources
+                .get(index)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let key_body = check::field(incoming.value(), "key", session)?;
+            let scope = check::field(key_body, "scope", session)?;
+            let root = super::party::produce::root(&observed.setup, scope, &observed.at, session)?;
+            let authority = observed.original.activation_authority(
+                source,
+                &root,
+                key,
+                &observed.setup.operator,
+                &observed.at,
+                session,
+            )?;
+            Some(ActivationAdmissionRecords { root, authority })
+        } else {
+            None
+        };
         let customer = check::text(binding, "customer", session)?;
         let agreement = check::text(binding, "agreement_id", session)?;
         let head = tx
@@ -167,10 +203,10 @@ pub(in super::super) async fn observe_activation(
             prior.as_ref().map(|v| v.value()),
             session,
         )?;
-        Ok((head, records, admission_source))
+        Ok((head, records, admission_source, admission_records))
     }
     .await;
-    let (head, records, admission_source) = built.inspect_err(|_| {
+    let (head, records, admission_source, admission_records) = built.inspect_err(|_| {
         session.invalidate();
         tx.workflow_proof_failure_handle()
             .store(true, std::sync::atomic::Ordering::Release);
@@ -180,6 +216,7 @@ pub(in super::super) async fn observe_activation(
         normalized_payload,
         records,
         admission_source,
+        admission_records,
         _held_head: head,
     })
 }
@@ -323,4 +360,54 @@ async fn observe_binding(
             .store(true, std::sync::atomic::Ordering::Release);
     }
     result
+}
+
+impl ObservedAppActivation {
+    pub(in super::super) fn publication(&self) -> &prefix::RecompiledPublication {
+        &self.binding.original.publication
+    }
+    pub(in super::super) fn at(&self) -> &Timestamp {
+        &self.binding.at
+    }
+    pub(in super::super) fn before(&self) -> i64 {
+        self.binding.before
+    }
+    pub(in super::super) fn result_refs(&self) -> [&ExactRef; 3] {
+        [
+            self.records.intent.reference(),
+            self.records.head.reference(),
+            self.records.activation.reference(),
+        ]
+    }
+    pub(in super::super) fn authority(&self) -> Result<&wire::SourceRecord> {
+        self.admission_records
+            .as_ref()
+            .map(|v| &v.authority)
+            .ok_or(ServiceError::Unavailable)
+    }
+    pub(in super::super) fn resolve_members(
+        &mut self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<prefix::ResolvedMembers> {
+        let admission = self
+            .admission_records
+            .as_ref()
+            .ok_or(ServiceError::Unavailable)?;
+        let _control = s
+            .reserve_external_payload(2 * std::mem::size_of::<[&wire::SourceRecord; 5]>())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<[&wire::SourceRecord; 5]>())
+            .map_err(core_error)?;
+        self.binding.original.activation_members(
+            &[
+                &admission.root,
+                &admission.authority,
+                &self.records.intent,
+                &self.records.head,
+                &self.records.activation,
+            ],
+            s,
+        )
+    }
 }

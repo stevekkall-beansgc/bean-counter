@@ -173,6 +173,7 @@ pub(in super::super) async fn reconstruct(
             origin.key(),
             actor,
             &original.at,
+            "agreement.accept",
             s,
         )?;
         let asserted = encode(asserted, s)?;
@@ -445,5 +446,40 @@ impl ReplayedAcceptance {
             s,
         )?;
         admission::select(sources, actor, key, s)
+    }
+}
+
+impl ReplayedAcceptance {
+    /// Activation retains the exact original fullterms verification Refs.
+    /// Today's mapping/source checks are separate held observations; they do
+    /// not rewrite the original assent or verification's accepted timestamps.
+    pub(in super::super) fn activation_authority(
+        &self,
+        source: &current::source::ObservedSource,
+        root: &wire::SourceRecord,
+        key: &OperationKey,
+        actor: &str,
+        at: &Timestamp,
+        s: &mut OriginalAuditSession,
+    ) -> Result<wire::SourceRecord> {
+        admission::authority(
+            &self.original.input,
+            source,
+            &self.consents,
+            root,
+            key,
+            actor,
+            at,
+            "agreement.activate",
+            s,
+        )
+    }
+}
+
+impl ReplayedAcceptance {
+    pub(in super::super) fn accepted_reference(
+        &self,
+    ) -> &ledgerlab_core::policy::workflow::transition_constructor::ExactRef {
+        self.head_records.accepted.reference()
     }
 }

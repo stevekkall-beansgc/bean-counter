@@ -1455,3 +1455,35 @@ impl LocatedAppAcceptance {
         )
     }
 }
+
+impl LocatedAppAcceptance {
+    pub(super) fn activation_authority(
+        &self,
+        source: &current::source::ObservedSource,
+        root: &wire::SourceRecord,
+        key: &OperationKey,
+        actor: &str,
+        at: &Timestamp,
+        s: &mut OriginalAuditSession,
+    ) -> Result<wire::SourceRecord> {
+        self.acceptance
+            .activation_authority(source, root, key, actor, at, s)
+    }
+}
+
+impl LocatedAppAcceptance {
+    pub(super) fn activation_members(
+        &mut self,
+        generated: &[&wire::SourceRecord],
+        s: &mut OriginalAuditSession,
+    ) -> Result<ResolvedMembers> {
+        // The accepted agreement is an actual required origin operand even
+        // though its body points to the Binding rather than the reverse.
+        self._prefix.resolve_members(
+            generated,
+            std::iter::once(self.acceptance.accepted_reference())
+                .chain(self.publication.required_refs()),
+            s,
+        )
+    }
+}

@@ -1170,6 +1170,7 @@ pub(super) async fn prepare(
             incoming.key(),
             &setup.operator,
             &at,
+            "agreement.accept",
             session,
         )?;
         let binding_body = binding_value.value();

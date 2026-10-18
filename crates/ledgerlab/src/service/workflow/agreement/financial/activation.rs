@@ -234,6 +234,71 @@ fn normalize_inner(
     wire::object(&fields[..shape.fields.len()], 262144, s)
 }
 
+/// Check the actual accepted Binding interval before framing an admission.
+/// This is one schedule predicate; predecessor/target/pending completeness is
+/// still required by the enclosing private preparation.
+pub(super) fn binding_interval(
+    payload: &Value,
+    binding: &Value,
+    at: &Timestamp,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let result = (|| {
+        let _time = s
+            .reserve_external_payload(3 * (4 * 64 + 27))
+            .map_err(core_error)?;
+        let starts = Timestamp::parse_with_work(
+            request_wrapper::text(binding, "starts_at", s)?,
+            s.semantic_work(),
+        )
+        .map_err(core_error)?;
+        let ends = request_wrapper::optional_field(binding, "ends_at", s)?
+            .map(|v| {
+                s.semantic_work()
+                    .visit(Visit::Constraint)
+                    .map_err(core_error)?;
+                Timestamp::parse_with_work(
+                    v.as_str().ok_or(ServiceError::IntegrityFailure)?,
+                    s.semantic_work(),
+                )
+                .map_err(core_error)
+            })
+            .transpose()?;
+        let effective = request_wrapper::field(payload, "effective", s)?;
+        let at_commit = acceptance::same_recipe_text(
+            request_wrapper::text(effective, "kind", s)?,
+            "at_commit",
+            s,
+        )?;
+        let deferred = if at_commit {
+            None
+        } else {
+            Some(
+                Timestamp::parse_with_work(
+                    request_wrapper::text(effective, "at", s)?,
+                    s.semantic_work(),
+                )
+                .map_err(core_error)?,
+            )
+        };
+        let effective = deferred.as_ref().unwrap_or(at);
+        activation_verify::schedule::binding_interval_with_work(
+            effective,
+            &starts,
+            ends.as_ref(),
+            s.semantic_work(),
+        )
+        .map_err(|error| match error {
+            ServiceError::IntegrityFailure => reject("ACTIVATION_SCHEDULE_CONFLICT"),
+            other => other,
+        })
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

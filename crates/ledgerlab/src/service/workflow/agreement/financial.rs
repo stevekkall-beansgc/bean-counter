@@ -365,9 +365,29 @@ impl LocalWorkflowLedger {
                 }
                 if matches!(req.kind(), "agreement.activate" | "agreement.revoke") {
                     let payload = req.payload(&mut session)?;
-                    let _observed =
+                    let mut observed =
                         current::app::observe_activation(self, tx, &req, payload, &mut session)
                             .await?;
+                    if req.kind() == "agreement.activate" {
+                        let evidence = evidence::activation_material(
+                            &req,
+                            observed.normalized_payload.bytes(),
+                            observed.publication(),
+                            &mut session,
+                        )?;
+                        let members = observed.resolve_members(&mut session)?;
+                        let _journal = wire::frame_activation(
+                            &req,
+                            observed.normalized_payload.bytes(),
+                            observed.authority()?,
+                            observed.at(),
+                            observed.before(),
+                            observed.result_refs(),
+                            &evidence,
+                            members,
+                            &mut session,
+                        )?;
+                    }
                     // Exact captured head and generated records remain DATA.
                     // Whole historical schedule, original/current consent and
                     // activation rights must finish before private preparation.

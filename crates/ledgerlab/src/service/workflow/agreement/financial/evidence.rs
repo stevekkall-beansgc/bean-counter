@@ -566,53 +566,7 @@ pub(super) fn acceptance_material(
             s,
         )?;
         let context_bytes = encode(context, s)?;
-        let mut refs = [None; 128];
-        let mut count = 0usize;
-        s.semantic_work()
-            .write_bytes(std::mem::size_of_val(&refs))
-            .map_err(core_error)?;
-        for reference in publication.source_refs() {
-            s.semantic_work()
-                .visit(Visit::Element)
-                .map_err(core_error)?;
-            let is_schema = cmp(reference.kind.as_bytes(), b"workflow-fact-schema", s)?.is_eq();
-            let is_compiler = cmp(
-                reference.kind.as_bytes(),
-                b"workflow-compiler-descriptor",
-                s,
-            )?
-            .is_eq();
-            if is_schema || is_compiler {
-                s.semantic_work()
-                    .arithmetic(Op::Compare, &[&count.into(), &refs.len().into()])
-                    .map_err(core_error)?;
-                require(count < refs.len(), "REFERENCE_LIMIT")?;
-                s.semantic_work()
-                    .write_bytes(std::mem::size_of::<
-                        Option<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>,
-                    >())
-                    .map_err(core_error)?;
-                refs[count] = Some(reference);
-                s.semantic_work()
-                    .arithmetic(Op::Add, &[&count.into(), &1usize.into()])
-                    .map_err(core_error)?;
-                count = count.checked_add(1).ok_or(ServiceError::Unavailable)?;
-            }
-        }
-        let descriptors =
-            wire::RefSet::new(refs[..count].iter().filter_map(|r| *r), count, true, s)?
-                .encode(s)?;
-        let mut context_found = false;
-        for r in refs[..count].iter().filter_map(|r| *r) {
-            s.semantic_work()
-                .visit(Visit::Element)
-                .map_err(core_error)?;
-            let actual = wire::reference(r, s)?;
-            if cmp(actual.bytes(), context_bytes.bytes(), s)?.is_eq() {
-                context_found = true;
-            }
-        }
-        require(context_found, "INVALID_REFERENCE")?;
+        let descriptors = publication_descriptors(publication, Some(context_bytes.bytes()), s)?;
         // Bound from the existing closed terms fields: publication1, direct
         // catalog/instantiation2, assents16, grants32, roles16, context1,
         // slot terms16 and16 funding legs each with16 evidence Refs.
@@ -951,4 +905,137 @@ mod commitment_tests {
             assert_eq!(parsed.value().as_array().unwrap().len(), expected);
         }
     }
+}
+
+fn publication_descriptors(
+    publication: &prefix::RecompiledPublication,
+    context: Option<&[u8]>,
+    s: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let _control = s
+        .reserve_external_payload(
+            2 * std::mem::size_of::<
+                [Option<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>; 128],
+            >(),
+        )
+        .map_err(core_error)?;
+    let mut refs = [None; 128];
+    let mut count = 0usize;
+    let mut context_found = context.is_none();
+    s.semantic_work()
+        .write_bytes(std::mem::size_of_val(&refs))
+        .map_err(core_error)?;
+    for reference in publication.source_refs() {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let is_schema = cmp(reference.kind.as_bytes(), b"workflow-fact-schema", s)?.is_eq();
+        let is_compiler = cmp(
+            reference.kind.as_bytes(),
+            b"workflow-compiler-descriptor",
+            s,
+        )?
+        .is_eq();
+        if is_schema || is_compiler {
+            s.semantic_work()
+                .arithmetic(Op::Compare, &[&count.into(), &refs.len().into()])
+                .map_err(core_error)?;
+            require(count < refs.len(), "REFERENCE_LIMIT")?;
+            s.semantic_work()
+                .write_bytes(std::mem::size_of::<
+                    Option<&ledgerlab_core::policy::workflow::transition_constructor::ExactRef>,
+                >())
+                .map_err(core_error)?;
+            refs[count] = Some(reference);
+            s.semantic_work()
+                .arithmetic(Op::Add, &[&count.into(), &1usize.into()])
+                .map_err(core_error)?;
+            count = count.checked_add(1).ok_or(ServiceError::Unavailable)?;
+            if let Some(context) = context {
+                let actual = wire::reference(reference, s)?;
+                if cmp(actual.bytes(), context, s)?.is_eq() {
+                    context_found = true;
+                }
+            }
+        }
+    }
+    s.semantic_work()
+        .visit(Visit::Constraint)
+        .map_err(core_error)?;
+    require(context_found, "INVALID_REFERENCE")?;
+    wire::RefSet::new(refs[..count].iter().filter_map(|r| *r), count, true, s)?.encode(s)
+}
+
+/// SAME activation locator recipe over the original selected publication's
+/// exact compiler/fact descriptors; these anchors confer no schedule rights.
+pub(super) fn activation_material(
+    req: &ingress::IncomingRequest,
+    normalized_payload: &[u8],
+    publication: &prefix::RecompiledPublication,
+    s: &mut OriginalAuditSession,
+) -> Result<RequestEvidence> {
+    let result = (|| {
+        request_wrapper::same_text(req.kind(), "agreement.activate", s)?;
+        let parsed = s
+            .parse_representation(normalized_payload, Kind::Record)
+            .map_err(core_error)?;
+        let payload = parsed.value();
+        let descriptors = publication_descriptors(publication, None, s)?;
+        let _control = s
+            .reserve_external_payload(2 * std::mem::size_of::<Anchors<18>>())
+            .map_err(core_error)?;
+        let mut anchors = Anchors::<18>::new();
+        anchors.add_with_descriptors(
+            "accepted_binding",
+            "accepted_binding",
+            request_wrapper::field(payload, "accepted_binding_ref", s)?,
+            "workflow-binding",
+            descriptors.bytes(),
+            s,
+        )?;
+        if let Some(target) =
+            request_wrapper::optional_field(payload, "replaces_transition_ref", s)?
+        {
+            anchors.add(
+                "activation_target",
+                "activation_target",
+                target,
+                "workflow-activation",
+                s,
+            )?;
+        }
+        let rows = request_wrapper::field(payload, "evidence_refs", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?;
+        for reference in rows {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            anchors.add(
+                "private_document",
+                "agreement_input",
+                reference,
+                "workflow-evidence",
+                s,
+            )?;
+        }
+        let registry = publication
+            .program()
+            .execution_registry()
+            .ok_or(ServiceError::Unavailable)?;
+        request_evidence(
+            req,
+            normalized_payload,
+            payload,
+            &anchors,
+            registry,
+            descriptors.bytes(),
+            4194304,
+            s,
+        )
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
 }

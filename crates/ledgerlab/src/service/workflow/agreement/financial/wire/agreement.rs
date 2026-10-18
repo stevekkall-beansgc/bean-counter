@@ -34,7 +34,7 @@ impl AgreementJournalData {
     ) -> Result<FinancialJournal<'a>> {
         Ok(FinancialJournal {
             identity: incoming.identity(),
-            kind: "agreement.accept",
+            kind: incoming.kind(),
             operation_ref: &self.operation_ref.reference,
             operation_bytes: self.operation.bytes(),
             request_hash: super::super::request_wrapper::text(evidence.value(), "request_hash", s)?,
@@ -95,12 +95,63 @@ pub(in super::super) fn frame_acceptance(
     sequence: i64,
     result_refs: [&ExactRef; 3],
     evidence: &RequestEvidence,
+    members: ResolvedMembers,
+    s: &mut OriginalAuditSession,
+) -> Result<AgreementJournalData> {
+    super::super::request_wrapper::same_text(incoming.kind(), "agreement.accept", s)
+        .inspect_err(|_| s.invalidate())?;
+    frame_agreement(
+        incoming,
+        normalized_payload,
+        authority,
+        at,
+        sequence,
+        result_refs,
+        evidence,
+        members,
+        s,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub(in super::super) fn frame_activation(
+    incoming: &IncomingRequest,
+    normalized_payload: &[u8],
+    authority: &SourceRecord,
+    at: &Timestamp,
+    sequence: i64,
+    result_refs: [&ExactRef; 3],
+    evidence: &RequestEvidence,
+    members: ResolvedMembers,
+    s: &mut OriginalAuditSession,
+) -> Result<AgreementJournalData> {
+    super::super::request_wrapper::same_text(incoming.kind(), "agreement.activate", s)
+        .inspect_err(|_| s.invalidate())?;
+    frame_agreement(
+        incoming,
+        normalized_payload,
+        authority,
+        at,
+        sequence,
+        result_refs,
+        evidence,
+        members,
+        s,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+fn frame_agreement(
+    incoming: &IncomingRequest,
+    normalized_payload: &[u8],
+    authority: &SourceRecord,
+    at: &Timestamp,
+    sequence: i64,
+    result_refs: [&ExactRef; 3],
+    evidence: &RequestEvidence,
     mut members: ResolvedMembers,
     s: &mut OriginalAuditSession,
 ) -> Result<AgreementJournalData> {
     let result = (|| {
         use super::super::request_wrapper as check;
-        check::same_text(incoming.kind(), "agreement.accept", s)?;
         let normalized = check::field(evidence.value(), "normalized_request", s)?;
         let key = check::field(normalized, "key", s)?;
         check::key(key, incoming.key(), s)?;
@@ -148,6 +199,7 @@ pub(in super::super) fn frame_acceptance(
         let sequence = sequence_string(sequence, s)?;
         let at = literal(at.as_str(), s)?;
         let results = RefSet::new(result_refs.into_iter(), 3, true, s)?.encode(s)?;
+        let operation_kind = literal(incoming.kind(), s)?;
         let operation = object(
             &[
                 ("accepted_at", at.bytes()),
@@ -155,7 +207,7 @@ pub(in super::super) fn frame_acceptance(
                 ("commit_sequence", sequence.bytes()),
                 ("contract", b"\"workflow/1\""),
                 ("key", key_bytes.bytes()),
-                ("kind", b"\"agreement.accept\""),
+                ("kind", operation_kind.bytes()),
                 ("request_evidence", evidence.bytes()),
                 ("result_refs", results.bytes()),
                 ("schema", b"\"ledger-workflow-operation-record/1\""),

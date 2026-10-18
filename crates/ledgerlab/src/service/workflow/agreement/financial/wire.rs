@@ -1179,7 +1179,7 @@ fn receipt(
 mod administrative;
 mod agreement;
 pub(super) use administrative::{PartyJournalData, frame_party};
-pub(super) use agreement::{AgreementJournalData, frame_acceptance};
+pub(super) use agreement::{AgreementJournalData, frame_acceptance, frame_activation};
 
 #[cfg(test)]
 mod request_framing_tests {

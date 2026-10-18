@@ -123,10 +123,41 @@ fn valid_binding(t: &Transition) -> Result<()> {
                 .map_err(|_| ServiceError::IntegrityFailure)
         })
         .transpose()?;
-    if t.effective.micros() < starts.micros()
-        || ends.is_some_and(|end| t.effective.micros() >= end.micros())
-    {
+    binding_interval_with_work(
+        &t.effective,
+        &starts,
+        ends.as_ref(),
+        &mut ledgerlab_core::validation_work::NoopValidationWork,
+    )
+}
+/// SAME effective-boundary interval predicate for legacy schedule verification
+/// and owning activation production. Parsing/retained custody remain callers'.
+pub(in crate::service::workflow::agreement) fn binding_interval_with_work(
+    effective: &Timestamp,
+    starts: &Timestamp,
+    ends: Option<&Timestamp>,
+    work: &mut dyn ledgerlab_core::validation_work::ValidationWork,
+) -> Result<()> {
+    use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+    work.arithmetic(
+        Op::Compare,
+        &[&effective.micros().into(), &starts.micros().into()],
+    )
+    .map_err(core_error)?;
+    work.visit(Visit::Constraint).map_err(core_error)?;
+    if effective.micros() < starts.micros() {
         return Err(ServiceError::IntegrityFailure);
+    }
+    if let Some(end) = ends {
+        work.arithmetic(
+            Op::Compare,
+            &[&effective.micros().into(), &end.micros().into()],
+        )
+        .map_err(core_error)?;
+        work.visit(Visit::Constraint).map_err(core_error)?;
+        if effective.micros() >= end.micros() {
+            return Err(ServiceError::IntegrityFailure);
+        }
     }
     Ok(())
 }
