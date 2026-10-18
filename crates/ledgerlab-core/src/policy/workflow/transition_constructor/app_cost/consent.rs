@@ -6,10 +6,10 @@ use crate::{Result,domain::Timestamp,validation_work as w};
 use serde_json::Value;
 use super::super::super::selected_program::SelectedProgram;
 #[derive(Clone,Copy)]
-struct Recipe{assent:&'static str,evidence:&'static str}
+struct Recipe{assent:&'static str,evidence:&'static str,local_management_authority:bool}
 fn recipe(program:&SelectedProgram)->Recipe{
- if program.uses_commitment_first_consent_recipe(){Recipe{assent:"ledger-workflow-party-assent/2",evidence:"ledger-workflow-party-evidence/2"}}
- else{Recipe{assent:"ledger-workflow-party-assent/1",evidence:"ledger-workflow-party-evidence/1"}}
+ if program.uses_commitment_first_consent_recipe(){Recipe{assent:"ledger-workflow-party-assent/2",evidence:"ledger-workflow-party-evidence/2",local_management_authority:program.uses_local_execution_recipe()}}
+ else{Recipe{assent:"ledger-workflow-party-assent/1",evidence:"ledger-workflow-party-evidence/1",local_management_authority:false}}
 }
 fn eq(m:&mut CoreMeter,a:&Value,b:&Value)->Result<()>{shape::equal(m,a,b)}
 fn literal(m:&mut CoreMeter,v:&Value,k:&str,s:&str)->Result<()> {let a=shape::text(m,v,k)?;if !shape::same_text(m,a,s)?{return Err(shape::fail("app fullterms consent literal"));}Ok(())}
@@ -41,6 +41,31 @@ fn authorization(m:&mut CoreMeter,v:&Value,b:&Value,at:i64)->Result<()> {
  if w::compare(m,start,end)?.is_ge()||w::compare(m,at,start)?.is_lt()||!w::compare(m,at,end)?.is_lt()||w::compare(m,recorded,at)?.is_gt(){return Err(shape::fail("party authorization trusted interval"));}
  Ok(())
 }
+/// Local PartyEvidence retains the actual management authority. Its nested
+/// local_admin_ref, rather than the management Ref itself, is the snapshot.
+fn party_management_root(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,evidence:&Value)->Result<()> {
+ let(_,authority)=load(m,r,c,&evidence["authority_ref"],"workflow-authority","ledger-workflow-party-management-authority/1")?;
+ shape::closed(m,&authority,&["schema","operation","actor","scope","customer","agreement_id","local_admin_ref","evidence_refs","observed_at","installation_mode"],&[])?;
+ literal(m,&authority,"schema","ledger-workflow-party-management-authority/1")?;
+ literal(m,&authority,"operation","evidence.retain")?;
+ for (field,evidence_field) in [("actor","retained_by"),("scope","scope"),("observed_at","retained_at"),("installation_mode","installation_mode")]{eq(m,&authority[field],&evidence[evidence_field])?;}
+ for field in ["customer","agreement_id"]{eq(m,&authority[field],&evidence["subject"][field])?;}
+ inventory::binding::id(m,&authority["actor"],128)?;
+ let arena=m.representation_arena().ok_or_else(||shape::fail("owning party management authority"))?;
+ let metadata=shape::field(m,evidence,"metadata")?;
+ let purpose=shape::text(m,metadata,"purpose")?;
+ let expected=if shape::same_text(m,purpose,"party_consent")? {
+   arena.array_from_values(&[],m)?
+ }else if shape::same_text(m,purpose,"party_operator_attestation")? {
+   let target=shape::field(m,metadata,"target_evidence_ref")?;
+   shape::reference(m,target)?;
+   arena.array_from_values(&[target],m)?
+ }else{return Err(shape::fail("party management consent evidence purpose"));};
+ eq(m,&authority["evidence_refs"],expected.value())?;
+ let owner=InvocationToken::new();
+ inventory::evidence::root(m,r,c,&owner,&authority["local_admin_ref"],&authority,"observed_at",&authority["actor"],None)?;
+ Ok(())
+}
 fn party_material(recipe:Recipe,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,reference:&Value,subject:&Value,metadata:&Value,before:&Value,key:&str)->Result<()> {
  let(_,evidence)=load(m,r,c,reference,"workflow-evidence",recipe.evidence)?;
  shape::closed(m,&evidence,&["schema","subject","media_type","content_base64","content_sha256","metadata","scope","retained_by","retained_at","installation_mode","authority_ref"],&[])?;
@@ -53,8 +78,11 @@ fn party_material(recipe:Recipe,m:&mut CoreMeter,r:&mut Records,c:&DraftContextD
  eq(m,&evidence["scope"],&key_value.value()["scope"])?;
  let retained=time(m,&evidence,"retained_at")?;let limit=time(m,before,key)?;
  if w::compare(m,retained,limit)?.is_gt(){return Err(shape::fail("party evidence after original consent"));}
- let owner=InvocationToken::new();
- inventory::evidence::root(m,r,c,&owner,&evidence["authority_ref"],&evidence,"retained_at",&evidence["retained_by"],None)?;
+ if recipe.local_management_authority {party_management_root(m,r,c,&evidence)?;}
+ else {
+  let owner=InvocationToken::new();
+  inventory::evidence::root(m,r,c,&owner,&evidence["authority_ref"],&evidence,"retained_at",&evidence["retained_by"],None)?;
+ }
  Ok(())
 }
 fn party(recipe:Recipe,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,b:&Value,accepted:&Value,terms_ref:&ExactRef,assent:&Value)->Result<RecordBody>{
@@ -168,4 +196,45 @@ pub(in crate::policy::workflow::transition_constructor) fn current(program:&Sele
   for field in ["evidence_ref","operator_attestation_ref","authority_ref"]{let reference=shape::reference(m,&current[field])?;r.provenance(m,&c.key,&reference)?;}
  }
  Ok(())
+}
+
+#[cfg(test)]
+mod management_tests {
+ use super::*;
+ use serde_json::json;
+ use crate::canonical::{CanonicalBytes,audit_arena::AuditArena};
+ use crate::validation_work::OriginalAuditSession;
+ fn record(body:&Value)->RecordInput{
+  let digest=crate::policy::workflow::document_digest(body["schema"].as_str().unwrap(),body).unwrap();
+  RecordInput{reference:ExactRef{kind:"workflow-authority".into(),id:format!("wdoc_{}",&digest[7..]),digest},canonical_body:CanonicalBytes::from_value(body).unwrap().into_vec()}
+ }
+ fn check(case:u8)->Result<()> {
+  let(_,c,_,inputs)=super::super::super::first_work_tests::test_inputs();
+  let root=inputs.into_iter().find(|r|serde_json::from_slice::<Value>(&r.canonical_body).unwrap()["schema"]=="ledger-workflow-local-authority-snapshot/1").unwrap();
+  let root_body:Value=serde_json::from_slice(&root.canonical_body).unwrap();
+  let actor=root_body["basis"]["principal_id"].clone();let at=root_body["verified_at"].clone();
+  let target=json!({"kind":"workflow-evidence","id":format!("wdoc_{}","a".repeat(64)),"digest":format!("sha256:{}","a".repeat(64))});
+  let attestation=case==1||case==4;
+  let metadata=if attestation{json!({"purpose":"party_operator_attestation","target_evidence_ref":target})}else{json!({"purpose":"party_consent"})};
+  let mut authority=json!({"schema":"ledger-workflow-party-management-authority/1","operation":"evidence.retain","actor":actor,"scope":c.key.scope,"customer":"customer","agreement_id":"agreement","local_admin_ref":root.reference,"evidence_refs":if attestation{json!([target])}else{json!([])},"observed_at":at,"installation_mode":c.installation_mode});
+  match case{2=>authority["actor"]=json!("other-operator"),3=>authority["scope"]=json!(["other","scope"]),4=>authority["evidence_refs"]=json!([]),5=>authority["operation"]=json!("authority.change"),_=>{}}
+  let authority=record(&authority);
+  let evidence=json!({"authority_ref":if case==6{&root.reference}else{&authority.reference},"retained_by":actor,"retained_at":at,"scope":c.key.scope,"installation_mode":c.installation_mode,"subject":{"customer":"customer","agreement_id":"agreement"},"metadata":metadata});
+  let rows=[root,authority];let views:Vec<_>=rows.iter().map(|r|EconomicRecordView{reference:&r.reference,canonical_body:&r.canonical_body}).collect();
+  let arena=AuditArena::new()?;let mut s=OriginalAuditSession::for_resource_profile_v2(&arena)?;
+  let mut child=s.meter_mut().local_economic_meter()?;
+  let result={let mut r=Records::borrowed_app(&mut child,&arena,&c.key,&views,&[])?;
+   if case==7 {let owner=InvocationToken::new();inventory::evidence::root(&mut child,&mut r,&c,&owner,&json!(rows[0].reference),&evidence,"retained_at",&evidence["retained_by"],None).map(|_|())}
+   else{party_management_root(&mut child,&mut r,&c,&evidence)}
+  };
+  if result.is_ok(){s.meter_mut().finish_local_economic(child)?;}
+  result
+ }
+ #[test]
+ fn local_party_management_authority_joins_nested_snapshot_without_widening_it(){
+  assert!(check(0).is_ok());
+  assert!(check(1).is_ok());
+  for case in 2..=6{assert!(check(case).is_err(),"case{case}");}
+  assert!(check(7).is_ok());
+ }
 }
