@@ -380,7 +380,7 @@ impl FoldedInventory {
             *target = header.body;
         }
         let memberships = self.witness_memberships(&bodies[..sources.len()], financial.body, s)?;
-        self.stream_memberships(&memberships, sources.len(), &mut stream, s)?;
+        self.stream_memberships(&memberships, sources.len(), &mut stream, None, s)?;
         stream.finish(s).map_err(core_error)
     }
     fn witness_memberships(
@@ -437,63 +437,80 @@ impl FoldedInventory {
     /// Real first-pass prefix production uses the same original-completed
     /// inventory, exact root cuts, packed memberships and bounded raw reader.
     /// The actual current seed/header emitter still owns custody and framing.
-    pub(super) fn produce_witness_prefixes(
-        &mut self,
-        key: &ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
+    pub(super) fn produce_witness_prefixes<'p, 'k>(
+        &'p mut self,
+        key: &'k ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
         sources: &[SourcePrefixInput<'_>],
         financial: FinancialPrefixInput<'_>,
         s: &mut OriginalAuditSession,
-    ) -> Result<ProducedOriginPrefixes> {
-        let result = (|| {
-            require(!compare(sources.len(), 32, s)?.is_gt(), "INTEGRITY_FAILURE")?;
-            let _control = s
-                .reserve_external_payload(mem::size_of::<[&Value; 32]>())
-                .map_err(core_error)?;
-            let mut bodies = [financial.fields; 32];
-            let mut producer =
-                EconomicAuditStream::prefix_producer(key, sources.len(), s).map_err(core_error)?;
-            for (target, input) in bodies.iter_mut().zip(sources) {
-                s.semantic_work()
-                    .visit(Visit::Element)
-                    .map_err(core_error)?;
-                s.semantic_work()
-                    .write_bytes(mem::size_of::<&Value>())
-                    .map_err(core_error)?;
-                *target = input.fields;
-                producer
-                    .add_source_prefix(
-                        SourcePrefixInput {
-                            fields: input.fields,
-                            through: input.through,
-                        },
-                        s,
-                    )
-                    .map_err(core_error)?;
-            }
-            producer
-                .set_financial_prefix(
-                    FinancialPrefixInput {
-                        fields: financial.fields,
-                        through: financial.through,
-                    },
-                    s,
-                )
-                .map_err(core_error)?;
-            let memberships =
-                self.witness_memberships(&bodies[..sources.len()], financial.fields, s)?;
-            self.stream_memberships(&memberships, sources.len(), &mut producer, s)?;
-            producer.finish_prefixes(s).map_err(core_error)
-        })();
+    ) -> Result<WitnessPrefixProduction<'p, 'k>> {
+        let result = self.produce_witness_prefixes_inner(key, sources, financial, s);
         if result.is_err() {
             s.invalidate();
         }
         result
+    }
+    fn produce_witness_prefixes_inner<'p, 'k>(
+        &'p mut self,
+        key: &'k ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
+        sources: &[SourcePrefixInput<'_>],
+        financial: FinancialPrefixInput<'_>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<WitnessPrefixProduction<'p, 'k>> {
+        require(!compare(sources.len(), 32, s)?.is_gt(), "INTEGRITY_FAILURE")?;
+        let control = s
+            .reserve_external_payload(
+                mem::size_of::<[&Value; 32]>() + mem::size_of::<WitnessPrefixProduction<'p, 'k>>(),
+            )
+            .map_err(core_error)?;
+        let mut bodies = [financial.fields; 32];
+        let mut producer =
+            EconomicAuditStream::prefix_producer(key, sources.len(), s).map_err(core_error)?;
+        for (target, input) in bodies.iter_mut().zip(sources) {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .write_bytes(mem::size_of::<&Value>())
+                .map_err(core_error)?;
+            *target = input.fields;
+            producer
+                .add_source_prefix(
+                    SourcePrefixInput {
+                        fields: input.fields,
+                        through: input.through,
+                    },
+                    s,
+                )
+                .map_err(core_error)?;
+        }
+        producer
+            .set_financial_prefix(
+                FinancialPrefixInput {
+                    fields: financial.fields,
+                    through: financial.through,
+                },
+                s,
+            )
+            .map_err(core_error)?;
+        let memberships =
+            self.witness_memberships(&bodies[..sources.len()], financial.fields, s)?;
+        self.stream_memberships(&memberships, sources.len(), &mut producer, None, s)?;
+        let produced = producer.finish_prefixes(s).map_err(core_error)?;
+        Ok(WitnessPrefixProduction {
+            prefix: self,
+            key,
+            produced,
+            memberships,
+            _control: control,
+        })
     }
     fn stream_memberships(
         &mut self,
         memberships: &Memberships,
         source_count: usize,
         stream: &mut EconomicAuditStream<'_>,
+        source_order: Option<&[usize]>,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
         // I/O remains32 fixed rows even while semantic mask preparation uses
@@ -522,11 +539,23 @@ impl FoldedInventory {
             let end = add(first_word, words, s)?;
             let financial = &memberships.packed[source_count][first_word..end];
             let mut source_rows: [&[u32]; 32] = [&[]; 32];
-            for (target, row) in source_rows
-                .iter_mut()
-                .zip(memberships.packed.iter())
-                .take(source_count)
-            {
+            for (index, target) in source_rows.iter_mut().take(source_count).enumerate() {
+                let selected = match source_order {
+                    Some(order) => {
+                        s.semantic_work()
+                            .visit(Visit::RefLookup)
+                            .map_err(core_error)?;
+                        *order.get(index).ok_or(ServiceError::IntegrityFailure)?
+                    }
+                    None => index,
+                };
+                s.semantic_work()
+                    .visit(Visit::RefLookup)
+                    .map_err(core_error)?;
+                let row = memberships
+                    .packed
+                    .get(selected)
+                    .ok_or(ServiceError::IntegrityFailure)?;
                 s.semantic_work()
                     .visit(Visit::Element)
                     .map_err(core_error)?;
@@ -591,6 +620,112 @@ impl FoldedInventory {
             prepared.finish(s).map_err(core_error)?;
         }
         Ok(())
+    }
+}
+
+/// The first pass's actual membership owner stays with its exact immutable
+/// completed inventory while the host emits headers. No fresh graph walk,
+/// serialized flag, replacement snapshot or new original meter is introduced.
+pub(super) struct WitnessPrefixProduction<'p, 'k> {
+    prefix: &'p mut FoldedInventory,
+    key: &'k ledgerlab_core::policy::workflow::transition_constructor::OperationKey,
+    produced: ProducedOriginPrefixes,
+    memberships: Memberships,
+    _control: ExternalBufferLease,
+}
+impl WitnessPrefixProduction<'_, '_> {
+    pub(super) fn prefixes(&self) -> &ProducedOriginPrefixes {
+        &self.produced
+    }
+    pub(super) fn verify<'a>(
+        self,
+        context: &'a DraftContextData,
+        sources: &[ObservationHeader<'a>],
+        financial: ObservationHeader<'a>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<RecomputedAuditDigest<'a>> {
+        let result = (|| {
+            let _control = s
+                .reserve_external_payload(
+                    mem::size_of::<[usize; 32]>() + mem::size_of::<[bool; 32]>(),
+                )
+                .map_err(core_error)?;
+            require(
+                compare(sources.len(), self.produced.sources().len(), s)?.is_eq(),
+                "INTEGRITY_FAILURE",
+            )?;
+            for (original, current) in [
+                (&self.key.logical_store_id, &context.key.logical_store_id),
+                (&self.key.scope[0], &context.key.scope[0]),
+                (&self.key.scope[1], &context.key.scope[1]),
+                (&self.key.source, &context.key.source),
+                (&self.key.operation_id, &context.key.operation_id),
+            ] {
+                request_wrapper::same_text(original, current, s)?;
+            }
+            request_wrapper::same_text(
+                request_wrapper::text(financial.body, "prefix_digest", s)?,
+                self.produced.financial().prefix_digest(),
+                s,
+            )?;
+            // Headers are now in canonical Ref order. Match each to one actual
+            // first-pass output; identical commitments have identical masks
+            // absent a SHA collision. Core rehashes the actual seeds/pointers.
+            let mut used = [false; 32];
+            let mut order = [0usize; 32];
+            let mut stream =
+                EconomicAuditStream::new(context, financial.reference, s).map_err(core_error)?;
+            for (slot, header) in order.iter_mut().zip(sources) {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                let digest = request_wrapper::text(header.body, "prefix_digest", s)?;
+                let mut selected = None;
+                for (index, prefix) in self.produced.sources().iter().enumerate() {
+                    s.semantic_work()
+                        .visit(Visit::Element)
+                        .map_err(core_error)?;
+                    s.semantic_work()
+                        .visit(Visit::RefLookup)
+                        .map_err(core_error)?;
+                    if used[index] {
+                        continue;
+                    }
+                    if super::super::acceptance::same_recipe_text(
+                        digest,
+                        prefix.prefix_digest(),
+                        s,
+                    )? {
+                        selected = Some(index);
+                        break;
+                    }
+                }
+                let index = selected.ok_or(ServiceError::IntegrityFailure)?;
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<usize>() + 1)
+                    .map_err(core_error)?;
+                used[index] = true;
+                *slot = index;
+                stream
+                    .add_source_header(header.reference, header.body, s)
+                    .map_err(core_error)?;
+            }
+            stream
+                .set_financial_header(financial.reference, financial.body, s)
+                .map_err(core_error)?;
+            self.prefix.stream_memberships(
+                &self.memberships,
+                sources.len(),
+                &mut stream,
+                Some(&order[..sources.len()]),
+                s,
+            )?;
+            stream.finish(s).map_err(core_error)
+        })();
+        if result.is_err() {
+            s.invalidate();
+        }
+        result
     }
 }
 const FLAGS: [[bool; 8]; 256] = {
