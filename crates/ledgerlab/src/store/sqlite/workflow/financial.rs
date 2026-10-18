@@ -9,6 +9,8 @@ use ledgerlab_core::{
 use sqlx::Row;
 use tokio::time::timeout_at;
 mod chronology;
+mod management;
+pub(crate) use management::{ManagementInstallation, ManagementRow, ManagementTable};
 mod document;
 mod effects;
 mod heads;

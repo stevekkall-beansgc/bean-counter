@@ -3,11 +3,11 @@ use crate::store::sqlite::BillingSnapshot;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Change {
-    schema: String,
-    expected_revision: String,
-    permissions: Vec<String>,
-    reason: String,
+pub(super) struct Change {
+    pub(super) schema: String,
+    pub(super) expected_revision: String,
+    pub(super) permissions: Vec<String>,
+    pub(super) reason: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

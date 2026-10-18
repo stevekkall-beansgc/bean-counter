@@ -123,7 +123,18 @@ async fn financial_shell_global_original_lookup_precedes_frozen_fresh_gate() {
 
 #[tokio::test]
 async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles() {
-    let (_a, first, _path_a) = installation("frame-store").await;
+    let (_a, first, path_a) = installation("frame-store").await;
+    first.close().await;
+    // Produce a genuine scoped permissions control through the existing
+    // facade, so the new metadata caller exercises its retained association.
+    let billing = BillingLedger::open(&path_a).await.unwrap();
+    let base: Value = serde_json::from_slice(include_bytes!("../../../../../../../examples/billing/setup.json")).unwrap();
+    let customer = base["customer"].as_str().unwrap();
+    let source = base["source"].as_str().unwrap();
+    let change = json!({"schema":"ledger-billing-permissions/2","customer":customer,"source":source,"change_id":"management-held-snapshot","expected_revision":"1","permissions":["read"],"reason":"Exercise the actual retained local administration control"});
+    billing.permissions(customer,source,&records::bytes(&change).unwrap()).await.unwrap();
+    billing.close().await;
+    let first = LocalWorkflowLedger::open_local(&path_a).await.unwrap();
     let (_b, second, _path_b) = installation("frame-store").await;
     let key = key("frame-store", "frame-only");
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
@@ -137,6 +148,15 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     .unwrap();
     let setup = first.admin.fresh(&first.store, &mut a, &key).await.unwrap();
     let state = a.load_installation().await.unwrap();
+    // Exercise the actual bounded same-snapshot metadata pipeline, not only
+    // its leaf decoder. Installation mismatch must not materialize identity.
+    let selected = management::effective_setup(&mut a, &mut session).await.unwrap();
+    assert_eq!(serde_json::to_value(selected.setup()).unwrap(), serde_json::to_value(&setup).unwrap());
+    let selected_installation = a.workflow_management_installation(&setup.store_id, setup.scope.tenant(), setup.scope.environment(), &mut session).await.unwrap().unwrap();
+    assert_eq!(selected_installation.installation(), &state);
+    assert!(a.workflow_management_installation("different-store", setup.scope.tenant(), setup.scope.environment(), &mut session).await.unwrap().is_none());
+    drop(selected_installation);
+    drop(selected);
     let retained_setup = a.billing_meta().await.unwrap().setup;
     let legacy_setup = crate::service::billing::Setup::parse(&retained_setup).unwrap();
     let owned_setup = crate::service::billing::setup_owned::parse(&retained_setup, &mut session).unwrap();

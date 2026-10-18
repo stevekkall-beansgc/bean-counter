@@ -597,7 +597,63 @@ async fn setup_identity(tx: &mut SqliteTx) -> Result<billing::Setup> {
     )?;
     Ok(setup)
 }
+/// Private actual held-snapshot DATA. Neither this owning observation nor its
+/// normalized fields are a prepared append capability.
+pub(super) struct OwnedLocalManagement {
+    setup: crate::service::billing::setup_owned::OwnedSetup,
+    installation: crate::store::sqlite::workflow::financial::ManagementInstallation,
+    _control: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
+}
+impl OwnedLocalManagement {
+    pub(super) fn setup(&self)->&billing::Setup { self.setup.setup() }
+    pub(super) fn installation(&self)->&crate::store::records::Installation { self.installation.installation() }
+}
 impl LocalOwnerAdmin {
+    /// Same local ownership and current setup predicates, with actual bounded
+    /// metadata/typed outputs retained through their consuming preparation.
+    /// The enclosing path/fence/commit envelope remains separately required.
+    pub(super) async fn fresh_management(
+        &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
+        s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
+    )->Result<OwnedLocalManagement> {
+        use ledgerlab_core::validation_work::ValidationVisit as Visit;
+        fn checked(s:&mut ledgerlab_core::validation_work::OriginalAuditSession,condition:impl FnOnce()->bool)->Result<()> {
+            s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+            require(condition(),"AUTHORITY_REQUIRED")
+        }
+        fn same(a:&str,b:&str,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<bool> {
+            s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+            s.semantic_work().scan_bytes(a.len()).map_err(core_error)?;
+            s.semantic_work().scan_bytes(b.len()).map_err(core_error)?;
+            Ok(a==b)
+        }
+        let control=s.reserve_external_payload(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
+        s.semantic_work().write_bytes(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
+        checked(s,||self.instance.workflow_same_instance(store))?;
+        // Preserve the existing exact filesystem owner/path checks. Their
+        // canonicalization/temporary-output envelope is still an enclosing
+        // qualification obligation, not erased by the paid metadata below.
+        let (directory,database)=store.workflow_owner_paths().map_err(super::super::store_error)?;
+        local_io::private_existing(&directory,true).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
+        local_io::private_existing(&database,false).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
+        let setup=agreement::financial::effective_setup(tx,s).await?;
+        let body=setup.setup();
+        let installation=tx.workflow_management_installation(&body.store_id,body.scope.tenant(),body.scope.environment(),s).await
+            .map_err(agreement::financial::management_read_error)?.ok_or_else(||reject("AUTHORITY_REQUIRED"))?;
+        let mode=same(&installation.installation().mode,"real",s)?;checked(s,||mode)?;
+        for (a,b) in [(&self.logical_store_id,body.store_id.as_str()),(&self.scope[0],body.scope.tenant()),(&self.scope[1],body.scope.environment()),(&self.operator,body.operator.as_str()),(&key.logical_store_id,self.logical_store_id.as_str()),(&key.scope[0],self.scope[0].as_str()),(&key.scope[1],self.scope[1].as_str()),(&key.source,body.source.as_str())] {
+            let equal=same(a,b,s)?;checked(s,||equal)?;
+        }
+        let state=installation.installation();
+        let open=same(&state.admission,"open",s)?;
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        if !open {return Err(ServiceError::Unavailable);}
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        if !state.dispatch_hold {return Err(ServiceError::Unavailable);}
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        if state.dispatch_enabled {return Err(ServiceError::Unavailable);}
+        Ok(OwnedLocalManagement{setup,installation,_control:control})
+    }
     pub(super) async fn read(
         &self,
         store: &SqliteStore,

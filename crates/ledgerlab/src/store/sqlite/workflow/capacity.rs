@@ -54,7 +54,7 @@ pub(super) async fn check_with_session(
 }
 // The concrete borrow remains Send across SQL awaits. The dyn work view is
 // opened only for each synchronous callback, never held across an await.
-struct SessionWork<'a>(&'a mut OriginalAuditSession);
+pub(in crate::store::sqlite) struct SessionWork<'a>(pub(in crate::store::sqlite) &'a mut OriginalAuditSession);
 impl ValidationWork for SessionWork<'_> {
     fn visit(&mut self, kind: ValidationVisit) -> ledgerlab_core::Result<()> {
         self.0.semantic_work().visit(kind)

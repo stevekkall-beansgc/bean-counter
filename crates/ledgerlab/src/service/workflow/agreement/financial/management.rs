@@ -9,6 +9,8 @@ use ledgerlab_core::{
     },
 };
 use std::mem;
+mod setup;
+pub(in crate::service::workflow) use setup::effective as effective_setup;
 
 pub(super) struct ManagementObservation {
     owner: Arc<AtomicBool>,
@@ -224,11 +226,9 @@ async fn fingerprint(
     key_body: &Value,
     s: &mut OriginalAuditSession,
 ) -> Result<AuditedBytes> {
-    let setup = ledger.admin.fresh(&ledger.store, tx, key).await?;
-    let installation = tx
-        .load_installation()
-        .await
-        .map_err(crate::service::store_error)?;
+    let held = ledger.admin.fresh_management(&ledger.store, tx, key, s).await?;
+    let setup = held.setup();
+    let installation = held.installation();
     let controls = 12 * mem::size_of::<AuditedBytes>() + 12 * mem::size_of::<&[u8]>();
     let _control = s.reserve_external_payload(controls).map_err(core_error)?;
     s.semantic_work().write_bytes(controls).map_err(core_error)?;
@@ -236,7 +236,7 @@ async fn fingerprint(
         .canonical_representation(key_body, RepresentationKind::Record)
         .map_err(core_error)?;
     let revision = wire::counter_string(setup.grant_revision, s)?;
-    let setup = setup_bytes(&setup, s)?;
+    let setup = setup_bytes(setup, s)?;
     let store = wire::string(&installation.logical_store_id, s)?;
     let tenant = wire::string(&installation.scope.tenant, s)?;
     let environment = wire::string(&installation.scope.environment, s)?;

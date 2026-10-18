@@ -11,10 +11,13 @@ use ledgerlab_core::{
     },
 };
 use std::mem;
+mod permissions;
+pub(crate) use permissions::{OwnedPermissionChange, PermissionRecipe, parse_permission};
 
 pub(crate) struct OwnedSetup {
     setup: Setup,
     _storage: ExternalBufferLease,
+    _permissions_storage: Option<ExternalBufferLease>,
 }
 impl OwnedSetup {
     pub(crate) fn setup(&self) -> &Setup {
@@ -238,6 +241,7 @@ pub(crate) fn parse(raw: &[u8], s: &mut OriginalAuditSession) -> Result<OwnedSet
     Ok(OwnedSetup {
         setup,
         _storage: storage,
+        _permissions_storage: None,
     })
 }
 fn identifier(v: &str, maximum: usize, s: &mut OriginalAuditSession) -> Result<()> {
