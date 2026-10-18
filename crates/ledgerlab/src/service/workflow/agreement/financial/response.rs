@@ -47,7 +47,7 @@ impl WorkflowReply {
     // Preserve the released Rust Value endpoint. Its existing caller owns that
     // returned tree; all financial creation/copies and ACK overlap are paid
     // before this final move. CLI uses write_stdout and never takes this path.
-    pub(super) fn into_legacy_value(self) -> Value {
+    pub(in crate::service::workflow) fn into_legacy_value(self) -> Value {
         self.value
     }
     pub(super) fn party(

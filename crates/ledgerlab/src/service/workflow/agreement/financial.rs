@@ -206,7 +206,8 @@ pub(in crate::service::workflow) async fn local_management_status(
     let identity=s.canonical_representation(parsed.value(),RepresentationKind::Record).map_err(core_error)?;
     let acquired=prefix::target(tx,key,identity,&mut s).await?;
     let original=acquired.checked_wrappers(tx,&mut s).await?;
-    if !local_party::verify_original(tx,&original,&mut s).await? {return Ok(None);}
+    if !local_party::verify_original(tx,&original,&mut s).await?
+        &&local_publication::verify_original(tx,&original,&mut s).await?.is_none() {return Ok(None);}
     WorkflowReply::status(&original,&mut s).map(|r|Some(r.into_legacy_value()))
 }
 pub(in crate::service::workflow) async fn original_status(
@@ -295,6 +296,10 @@ async fn original_query_in(
         input.compare_party_intent(&original,session)?;
         return WorkflowReply::status(&original,session).map(WorkflowReply::into_legacy_value);
     }
+    if let Some(publication)=local_publication::verify_original(tx,&original,session).await? {
+        if let OriginalQuery::Retry(req)=&input {local_publication::compare_retry(tx,req,&original,&publication,session).await?;}
+        return WorkflowReply::status(&original,session).map(WorkflowReply::into_legacy_value);
+    }
     let _prefix = prefix::fold_original_prefix(ledger, tx, key, &original, session).await?;
     // The chronological recipe driver must finish the exact saved program,
     // original prestate, full wrapper/result closure and all capacity/funding
@@ -306,9 +311,13 @@ async fn original_query_in(
 }
 
 impl LocalWorkflowLedger {
+    pub async fn publish_local_owned(&self,raw:&[u8])->Result<WorkflowReply> {
+        self.publish_selected_with(raw,
+            ledgerlab_core::policy::workflow::selected_program::SelectedCompilerSupport::local_execution_with_session).await
+    }
     /// Private binary-selected local publication seam. The caller supplies
     /// only the genuine code-owned selector after the original identity check.
-    pub(in crate::service::workflow) async fn publish_selected_with<F>(&self,raw:&[u8],fresh_support:F)->Result<Value>
+    pub(in crate::service::workflow) async fn publish_selected_with<F>(&self,raw:&[u8],fresh_support:F)->Result<WorkflowReply>
     where F:FnOnce(&mut ledgerlab_core::validation_work::OriginalAuditSession)
         ->ledgerlab_core::Result<ledgerlab_core::policy::workflow::selected_program::SelectedCompilerSupport> + Send {
         use ledgerlab_core::validation_work::OriginalAuditSession;
@@ -324,7 +333,7 @@ impl LocalWorkflowLedger {
             }
             local_publication::prepare_append(self,tx,raw,fresh_support,&mut session).await.map(TransactionResult::Appended)
         })).await;
-        finish_transaction(tx,req.key(),attempted,session).await.map(WorkflowReply::into_legacy_value)
+        finish_transaction(tx,req.key(),attempted,session).await
     }
     /// Financial admission is disabled. This validates lexical ingress and
     /// authenticates local management/identity ordering, but creates no receipt,

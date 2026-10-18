@@ -99,6 +99,7 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutpu
         .and_then(|p| p.get("schema"))
         .and_then(Value::as_str);
     let kind = match header.get("kind").and_then(Value::as_str) {
+        Some("policy.publish") if payload_schema==Some("ledger-workflow-policy-publication/6") => "local-publication",
         Some("policy.publish") => "policy.publish",
         Some("evidence.retain")
             if matches!(
@@ -157,6 +158,7 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutpu
 
     match kind {
         "policy.publish" => ledger.publish(raw).await.map(CommandOutput::Legacy),
+        "local-publication" => ledger.publish_local_owned(raw).await.map(CommandOutput::Workflow),
         "prerequisite" => ledger.prerequisite(raw).await.map(CommandOutput::Legacy),
         "agreement" => ledger.agreement(raw).await.map(CommandOutput::Legacy),
         "financial" => ledger.financial_owned_reply(raw).await.map(CommandOutput::Workflow),

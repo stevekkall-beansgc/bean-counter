@@ -43,6 +43,9 @@ impl LocalWorkflowLedger {
     /// Publish through the journal using only the implemented builtin compiler
     /// and code-owned captured build inputs. Publishing obtains no assent.
     pub async fn publish(&self, raw: &[u8]) -> Result<Value> {
+        if request::PublicationRequest::parse(raw)?.payload_schema()=="ledger-workflow-policy-publication/6" {
+            return self.publish_local_owned(raw).await.map(agreement::WorkflowReply::into_legacy_value);
+        }
         self.publish_with(raw, || {
             ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
                 .map_err(|_| reject("UNSUPPORTED_SCHEMA_PROFILE"))
@@ -197,6 +200,9 @@ impl LocalWorkflowLedger {
                 .map_err(super::super::store_error)?
             {
                 Some(kind) if kind == "policy.publish" => {
+                    if let Some(original)=agreement::financial::local_management_status(tx,&key,raw_key).await? {
+                        return Ok(original);
+                    }
                     let original = tx
                         .workflow_lookup(&key.bytes()?)
                         .await
