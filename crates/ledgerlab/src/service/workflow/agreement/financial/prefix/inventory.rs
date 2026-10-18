@@ -14,6 +14,15 @@ use sha2::{Digest, Sha256};
 
 const ENTRY_BYTES: usize = 256;
 const KEY_BYTES: usize = 216;
+const ORDINAL_BITS: [u32; 32] = {
+    let mut out = [0; 32];
+    let mut i = 0;
+    while i < 32 {
+        out[i] = 1u32 << i;
+        i += 1;
+    }
+    out
+};
 
 /// The closed saved recipes generate ASCII digest-derived IDs. This key is
 /// their exact (digest,id,kind) JCS set order, with zero padding after strings.
@@ -1870,27 +1879,102 @@ impl Inventory {
                 ordinary.insert(low, prior);
             }
         }
+        // Same required immediate dependencies, represented as sparse ordinal
+        // words before storage. This is no transitive/future closure cache.
+        // Numeric sequence ordering and ordinal ordering are associated by the
+        // completed chronological introduction producer, including gaps.
+        let current = subtract(self.operations, 1, s)?;
+        for entry in &active.entries {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let prior = entry.origin_position(s)?;
+            require(
+                compare(prior.ordinal as u64, current, s)?.is_lt(),
+                "INTEGRITY_FAILURE",
+            )?;
+        }
+        let mut words = 0u32;
+        let mut last_word = None;
+        let mut last_ordinal = None;
+        for prior in &ordinary {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            if let Some(last) = last_ordinal {
+                require(
+                    compare(last, prior.ordinal as u64, s)?.is_lt(),
+                    "INTEGRITY_FAILURE",
+                )?;
+            }
+            last_ordinal = Some(prior.ordinal as u64);
+            s.semantic_work()
+                .arithmetic(Op::DivideRemainder, &[&prior.ordinal.into(), &32u32.into()])
+                .map_err(core_error)?;
+            let word = prior.ordinal / 32;
+            s.semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            if last_word.is_none() || !compare(last_word.unwrap() as u64, word as u64, s)?.is_eq() {
+                words = add(words as u64, 1, s)? as u32;
+                last_word = Some(word);
+            }
+        }
         let length = add(
-            add(8, multiply(ordinary.len() as u64, 8, s)?, s)?,
+            add(8, multiply(words as u64, 8, s)?, s)?,
             multiply(active.order.len() as u64, ENTRY_BYTES as u64, s)?,
             s,
         )? as usize;
         let (arena, work) = s.parts();
         let mut encoded = arena.byte_builder(length, work).map_err(core_error)?;
-        for count in [ordinary.len(), active.order.len()] {
+        for count in [words, active.order.len() as u32] {
             encoded
-                .append(&(count as u32).to_le_bytes(), s.semantic_work())
+                .append(&count.to_le_bytes(), s.semantic_work())
                 .map_err(core_error)?;
         }
+        let mut previous: Option<u32> = None;
+        let mut mask = 0u32;
         for prior in &ordinary {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
+            s.semantic_work()
+                .arithmetic(Op::DivideRemainder, &[&prior.ordinal.into(), &32u32.into()])
+                .map_err(core_error)?;
+            let (word, bit) = (prior.ordinal / 32, prior.ordinal % 32);
+            s.semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            if let Some(last) = previous {
+                if !compare(last as u64, word as u64, s)?.is_eq() {
+                    encoded
+                        .append(&last.to_le_bytes(), s.semantic_work())
+                        .map_err(core_error)?;
+                    encoded
+                        .append(&mask.to_le_bytes(), s.semantic_work())
+                        .map_err(core_error)?;
+                    mask = 0;
+                }
+            }
+            s.semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            let flag = ORDINAL_BITS[bit as usize];
+            s.semantic_work()
+                .arithmetic(Op::BitOr, &[&mask.into(), &flag.into()])
+                .map_err(core_error)?;
+            mask |= flag;
+            previous = Some(word);
+        }
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        if let Some(last) = previous {
             encoded
-                .append(&prior.sequence.to_le_bytes(), s.semantic_work())
+                .append(&last.to_le_bytes(), s.semantic_work())
                 .map_err(core_error)?;
             encoded
-                .append(&prior.ordinal.to_le_bytes(), s.semantic_work())
+                .append(&mask.to_le_bytes(), s.semantic_work())
                 .map_err(core_error)?;
         }
         for index in &active.order {
@@ -1902,7 +1986,7 @@ impl Inventory {
                 .map_err(core_error)?;
         }
         let encoded = encoded.finish(s.semantic_work()).map_err(core_error)?;
-        let ordinary_count = ordinary.len() as u32;
+        let ordinary_count = words;
         let root_count = active.order.len() as u32;
         drop(ordinary);
         drop(ordinary_storage);
@@ -1984,29 +2068,15 @@ impl Inventory {
         self.observe_origin_entry(&entry, s)?;
         entry.origin_position(s).map(Some)
     }
-    pub(in super::super) fn required_origins(
-        &mut self,
-        sequence: i64,
-        configured_root: &ConfiguredRoot,
-        emit: &mut dyn FnMut(i64, &mut OriginalAuditSession) -> Result<()>,
-        s: &mut OriginalAuditSession,
-    ) -> Result<()> {
-        self.required_positions(
-            sequence,
-            configured_root,
-            &mut |p, s| emit(i64::from(p.sequence), s),
-            s,
-        )
-    }
     /// Exact append-location reuse from this inventory's actual required-edge
     /// producer. Counts and data bounds are retained in the private table; the
     /// raw edge payload is rebound to its producer digest before return. This
     /// avoids rebuilding StateKeys, probing the tree or allocating a body owner.
-    pub(in super::super) fn required_positions_at(
+    pub(in super::super) fn required_word_masks_at(
         &mut self,
         ordinal: usize,
         configured_root: &ConfiguredRoot,
-        emit: &mut dyn FnMut(OriginPosition, &mut OriginalAuditSession) -> Result<()>,
+        emit: &mut dyn FnMut(usize, u32, &mut OriginalAuditSession) -> Result<()>,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
         let location = self.edge_locations.get(ordinal, s)?;
@@ -2032,10 +2102,8 @@ impl Inventory {
             let mut prior = [0; 4];
             prior.copy_from_slice(&raw[4..]);
             emit(
-                OriginPosition {
-                    sequence: u32::from_le_bytes(sequence),
-                    ordinal: u32::from_le_bytes(prior),
-                },
+                u32::from_le_bytes(sequence) as usize,
+                u32::from_le_bytes(prior),
                 s,
             )?;
             s.check_cancelled().map_err(core_error)?;
@@ -2055,7 +2123,18 @@ impl Inventory {
                 .map_err(core_error)?;
             hash.update(entry.0);
             if !entry.compare(&configured_root.0, s)?.is_eq() {
-                emit(entry.origin_position(s)?, s)?;
+                let position = entry.origin_position(s)?;
+                s.semantic_work()
+                    .arithmetic(
+                        Op::DivideRemainder,
+                        &[&position.ordinal.into(), &32u32.into()],
+                    )
+                    .map_err(core_error)?;
+                let (word, bit) = (position.ordinal / 32, position.ordinal % 32);
+                s.semantic_work()
+                    .visit(Visit::RefLookup)
+                    .map_err(core_error)?;
+                emit(word as usize, ORDINAL_BITS[bit as usize], s)?;
             }
             s.check_cancelled().map_err(core_error)?;
         }
@@ -2066,60 +2145,5 @@ impl Inventory {
             .map_err(core_error)?;
         s.semantic_work().scan_bytes(64).map_err(core_error)?;
         require(actual == location.digest, "INTEGRITY_FAILURE")
-    }
-    pub(super) fn required_positions(
-        &mut self,
-        sequence: i64,
-        configured_root: &ConfiguredRoot,
-        emit: &mut dyn FnMut(OriginPosition, &mut OriginalAuditSession) -> Result<()>,
-        s: &mut OriginalAuditSession,
-    ) -> Result<()> {
-        let raw = self.origin_links(sequence, s)?;
-        require(
-            !compare(raw.bytes().len() as u64, 8, s)?.is_lt(),
-            "INTEGRITY_FAILURE",
-        )?;
-        copied(8, s)?;
-        let mut first = [0; 4];
-        first.copy_from_slice(&raw.bytes()[..4]);
-        let ordinary = u32::from_le_bytes(first) as u64;
-        first.copy_from_slice(&raw.bytes()[4..8]);
-        let roots = u32::from_le_bytes(first) as u64;
-        require(
-            !compare(ordinary, 4096, s)?.is_gt() && !compare(roots, 4096, s)?.is_gt(),
-            "INTEGRITY_FAILURE",
-        )?;
-        let middle = add(8, multiply(ordinary, 8, s)?, s)? as usize;
-        let expected = add(middle as u64, multiply(roots, ENTRY_BYTES as u64, s)?, s)?;
-        require(
-            compare(expected, raw.bytes().len() as u64, s)?.is_eq(),
-            "INTEGRITY_FAILURE",
-        )?;
-        for bytes in raw.bytes()[8..middle].chunks_exact(8) {
-            s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
-            copied(8, s)?;
-            let mut number = [0; 4];
-            number.copy_from_slice(&bytes[..4]);
-            let mut ordinal = [0; 4];
-            ordinal.copy_from_slice(&bytes[4..8]);
-            emit(
-                OriginPosition {
-                    sequence: u32::from_le_bytes(number),
-                    ordinal: u32::from_le_bytes(ordinal),
-                },
-                s,
-            )?;
-        }
-        for bytes in raw.bytes()[middle..].chunks_exact(ENTRY_BYTES) {
-            s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
-            copied(ENTRY_BYTES, s)?;
-            let mut entry = Entry([0; ENTRY_BYTES]);
-            entry.0.copy_from_slice(bytes);
-            if entry.compare(&configured_root.0, s)?.is_eq() {
-                continue;
-            }
-            emit(entry.origin_position(s)?, s)?;
-        }
-        Ok(())
     }
 }

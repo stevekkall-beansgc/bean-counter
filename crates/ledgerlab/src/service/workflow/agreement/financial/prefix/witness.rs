@@ -15,15 +15,6 @@ pub(in super::super) struct ObservationHeader<'a> {
 }
 // These fixed bit constants contain no executed runtime shifts. Every dynamic
 // selection and actual word operation below is paid on the consuming parent.
-const BITS: [u64; 33] = {
-    let mut out = [0; 33];
-    let mut i = 0;
-    while i < 33 {
-        out[i] = 1u64 << i;
-        i += 1;
-    }
-    out
-};
 const BLOCK_BITS: [u32; 32] = {
     let mut out = [0; 32];
     let mut i = 0;
@@ -51,26 +42,6 @@ fn product(a: usize, b: usize, s: &mut OriginalAuditSession) -> Result<usize> {
         .map_err(core_error)?;
     a.checked_mul(b).ok_or(ServiceError::Unavailable)
 }
-fn bit(index: usize, s: &mut OriginalAuditSession) -> Result<u64> {
-    s.semantic_work()
-        .visit(Visit::RefLookup)
-        .map_err(core_error)?;
-    BITS.get(index)
-        .copied()
-        .ok_or(ServiceError::IntegrityFailure)
-}
-fn and(a: u64, b: u64, s: &mut OriginalAuditSession) -> Result<u64> {
-    s.semantic_work()
-        .arithmetic(Op::BitAnd, &[&a.into(), &b.into()])
-        .map_err(core_error)?;
-    Ok(a & b)
-}
-fn union(a: u64, b: u64, s: &mut OriginalAuditSession) -> Result<u64> {
-    s.semantic_work()
-        .arithmetic(Op::BitOr, &[&a.into(), &b.into()])
-        .map_err(core_error)?;
-    Ok(a | b)
-}
 fn nonzero(a: u64, s: &mut OriginalAuditSession) -> Result<bool> {
     s.semantic_work()
         .arithmetic(Op::Compare, &[&a.into(), &0u64.into()])
@@ -79,10 +50,10 @@ fn nonzero(a: u64, s: &mut OriginalAuditSession) -> Result<bool> {
 }
 struct RootGroup {
     root: ConfiguredRoot,
-    witnesses: u64,
 }
 struct Memberships {
-    by_ordinal: Vec<u64>,
+    count: usize,
+    witness_roots: Vec<usize>,
     packed: Vec<Vec<u32>>,
     groups: Vec<RootGroup>,
     _payload: ExternalBufferLease,
@@ -95,7 +66,7 @@ impl Memberships {
             .arithmetic(Op::DivideRemainder, &[&padded.into(), &32usize.into()])
             .map_err(core_error)?;
         let words = padded / 32;
-        let mut bytes = product(count, mem::size_of::<u64>(), s)?;
+        let mut bytes = product(witnesses, mem::size_of::<usize>(), s)?;
         for extra in [
             product(witnesses, mem::size_of::<RootGroup>(), s)?,
             product(witnesses, mem::size_of::<Vec<u32>>(), s)?,
@@ -105,13 +76,13 @@ impl Memberships {
             bytes = add(bytes, extra, s)?;
         }
         let payload = s.reserve_external_payload(bytes).map_err(core_error)?;
-        let mut by_ordinal = Vec::new();
-        by_ordinal
-            .try_reserve_exact(count)
+        let mut witness_roots = Vec::new();
+        witness_roots
+            .try_reserve_exact(witnesses)
             .map_err(|_| ServiceError::Unavailable)?;
-        let zeroed = product(count, mem::size_of::<u64>(), s)?;
+        let zeroed = product(witnesses, mem::size_of::<usize>(), s)?;
         s.semantic_work().write_bytes(zeroed).map_err(core_error)?;
-        by_ordinal.resize(count, 0);
+        witness_roots.resize(witnesses, 0);
         let mut packed = Vec::new();
         packed
             .try_reserve_exact(witnesses)
@@ -136,7 +107,8 @@ impl Memberships {
             .try_reserve_exact(witnesses)
             .map_err(|_| ServiceError::Unavailable)?;
         Ok(Self {
-            by_ordinal,
+            count,
+            witness_roots,
             packed,
             groups,
             _payload: payload,
@@ -149,13 +121,22 @@ impl Memberships {
         s: &mut OriginalAuditSession,
     ) -> Result<usize> {
         let root = ConfiguredRoot::from_value(request_wrapper::field(header, "root_ref", s)?, s)?;
-        let mask = bit(witness, s)?;
+
         for (i, group) in self.groups.iter_mut().enumerate() {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
             if group.root.same(&root, s)? {
-                group.witnesses = union(group.witnesses, mask, s)?;
+                s.semantic_work()
+                    .visit(Visit::RefLookup)
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .write_bytes(mem::size_of::<usize>())
+                    .map_err(core_error)?;
+                *self
+                    .witness_roots
+                    .get_mut(witness)
+                    .ok_or(ServiceError::IntegrityFailure)? = i;
                 return Ok(i);
             }
         }
@@ -167,10 +148,17 @@ impl Memberships {
         s.semantic_work()
             .write_bytes(mem::size_of::<RootGroup>())
             .map_err(core_error)?;
-        self.groups.push(RootGroup {
-            root,
-            witnesses: mask,
-        });
+        self.groups.push(RootGroup { root });
+        s.semantic_work()
+            .visit(Visit::RefLookup)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(mem::size_of::<usize>())
+            .map_err(core_error)?;
+        *self
+            .witness_roots
+            .get_mut(witness)
+            .ok_or(ServiceError::IntegrityFailure)? = index;
         Ok(index)
     }
     fn seed(
@@ -182,62 +170,108 @@ impl Memberships {
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
         if let Some(position) = inventory.seed_position(reference, &self.groups[group].root, s)? {
-            mark(
-                &mut self.by_ordinal,
-                &mut self.packed,
-                position.ordinal as usize,
-                bit(witness, s)?,
-                s,
+            require(
+                compare(position.ordinal as usize, self.count, s)?.is_lt(),
+                "INTEGRITY_FAILURE",
             )?;
+            s.semantic_work()
+                .arithmetic(
+                    Op::DivideRemainder,
+                    &[&(position.ordinal as usize).into(), &32usize.into()],
+                )
+                .map_err(core_error)?;
+            let word = position.ordinal as usize / 32;
+            let bit = position.ordinal as usize % 32;
+            s.semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            let flag = BLOCK_BITS[bit];
+            s.semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            let row = self
+                .packed
+                .get_mut(witness)
+                .ok_or(ServiceError::IntegrityFailure)?;
+            merge_word(row, word, flag, s)?;
         }
         Ok(())
     }
     fn close(
         &mut self,
         inventory: &mut inventory::Inventory,
-        pointers:&ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers,
+        _pointers: &ledgerlab_core::policy::workflow::transition_constructor::ValidatedOriginPointers,
         s: &mut OriginalAuditSession,
     ) -> Result<()> {
-        for first in (0..self.by_ordinal.len()).step_by(32).rev() {
-            s.semantic_work().visit(Visit::Value).map_err(core_error)?;
-            let block = pointers.block(first, s).map_err(core_error)?;
-            let entries = block.entries(s).map_err(core_error)?;
-            let end = add(first, entries.len(), s)?;
-            for (ordinal, entry) in (first..end).rev().zip(entries.iter().rev()) {
+        // The actual output masks ARE the reachability representation. An
+        // earlier dependency is ORed as one ordinal word; there is no per-new
+        // witness-bit transpose or secondary by-origin membership array.
+        for (row, group) in self.packed.iter_mut().zip(&self.witness_roots) {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .visit(Visit::RefLookup)
+                .map_err(core_error)?;
+            let root = &self
+                .groups
+                .get(*group)
+                .ok_or(ServiceError::IntegrityFailure)?
+                .root;
+            for word in (0..row.len()).rev() {
                 s.semantic_work().visit(Visit::Value).map_err(core_error)?;
-                let membership = self.by_ordinal[ordinal];
-                if !nonzero(membership, s)? {
+                let base = product(word, 32, s)?;
+                s.semantic_work()
+                    .visit(Visit::RefLookup)
+                    .map_err(core_error)?;
+                let mut pending = row[word];
+                if compare(pending as usize, u32::MAX as usize, s)?.is_eq() {
+                    // All32 origins already selected: no scalar bit discovery,
+                    // test, or membership write is performed for these rows.
+                    let end = add(base, 32, s)?;
+                    for ordinal in (base..end).rev() {
+                        s.semantic_work().visit(Visit::Value).map_err(core_error)?;
+                        inventory.required_word_masks_at(
+                            ordinal,
+                            root,
+                            &mut |prior_word, mask, s| merge_word(row, prior_word, mask, s),
+                            s,
+                        )?;
+                    }
                     continue;
                 }
-                for group in &self.groups {
+                while nonzero(u64::from(pending), s)? {
                     s.semantic_work()
-                        .visit(Visit::Element)
+                        .arithmetic(Op::LeadingZeros, &[&pending.into()])
                         .map_err(core_error)?;
-                    let selected = and(membership, group.witnesses, s)?;
-                    if !nonzero(selected, s)? {
-                        continue;
-                    }
-                    let words = &mut self.by_ordinal;
-                    let packed = &mut self.packed;
-                    inventory.required_positions_at(
+                    s.semantic_work()
+                        .arithmetic(
+                            Op::Subtract,
+                            &[&31u32.into(), &pending.leading_zeros().into()],
+                        )
+                        .map_err(core_error)?;
+                    let position = (31 - pending.leading_zeros()) as usize;
+                    s.semantic_work()
+                        .visit(Visit::RefLookup)
+                        .map_err(core_error)?;
+                    let flag = BLOCK_BITS[position];
+                    s.semantic_work()
+                        .arithmetic(Op::Subtract, &[&pending.into(), &flag.into()])
+                        .map_err(core_error)?;
+                    pending -= flag;
+                    let ordinal = add(base, position, s)?;
+                    inventory.required_word_masks_at(
                         ordinal,
-                        &group.root,
-                        &mut |prior, s| {
-                            require(
-                                compare(prior.ordinal as usize, ordinal, s)?.is_lt(),
-                                "INTEGRITY_FAILURE",
-                            )?;
-                            s.semantic_work()
-                                .arithmetic(
-                                    Op::Compare,
-                                    &[&prior.sequence.into(), &entry.sequence().into()],
-                                )
-                                .map_err(core_error)?;
-                            require(
-                                u64::from(prior.sequence) < entry.sequence(),
-                                "INTEGRITY_FAILURE",
-                            )?;
-                            mark(words, packed, prior.ordinal as usize, selected, s)
+                        root,
+                        &mut |prior_word, mask, s| {
+                            merge_word(row, prior_word, mask, s)?;
+                            if compare(prior_word, word, s)?.is_eq() {
+                                s.semantic_work()
+                                    .arithmetic(Op::BitOr, &[&pending.into(), &mask.into()])
+                                    .map_err(core_error)?;
+                                pending |= mask;
+                            }
+                            Ok(())
                         },
                         s,
                     )?;
@@ -247,76 +281,18 @@ impl Memberships {
         Ok(())
     }
 }
-fn mark(
-    words: &mut [u64],
-    packed: &mut [Vec<u32>],
-    ordinal: usize,
-    mask: u64,
-    s: &mut OriginalAuditSession,
-) -> Result<()> {
-    require(
-        compare(ordinal, words.len(), s)?.is_lt(),
-        "INTEGRITY_FAILURE",
-    )?;
+fn merge_word(row: &mut [u32], word: usize, mask: u32, s: &mut OriginalAuditSession) -> Result<()> {
     s.semantic_work()
         .visit(Visit::RefLookup)
         .map_err(core_error)?;
-    let word = words
-        .get_mut(ordinal)
-        .ok_or(ServiceError::IntegrityFailure)?;
-    let combined = union(*word, mask, s)?;
+    let target = row.get_mut(word).ok_or(ServiceError::IntegrityFailure)?;
     s.semantic_work()
-        .arithmetic(Op::Subtract, &[&combined.into(), &(*word).into()])
+        .arithmetic(Op::BitOr, &[&(*target).into(), &mask.into()])
         .map_err(core_error)?;
-    let mut delta = combined - *word;
     s.semantic_work()
-        .write_bytes(mem::size_of::<u64>())
+        .write_bytes(mem::size_of::<u32>())
         .map_err(core_error)?;
-    *word = combined;
-    // Update only newly reached witness memberships, directly in the eventual
-    // ordinal-packed mask rows. No H-way per-pointer transpose is performed.
-    s.semantic_work()
-        .arithmetic(Op::DivideRemainder, &[&ordinal.into(), &32usize.into()])
-        .map_err(core_error)?;
-    let (block, position) = (ordinal / 32, ordinal % 32);
-    s.semantic_work()
-        .visit(Visit::RefLookup)
-        .map_err(core_error)?;
-    let flag = BLOCK_BITS[position];
-    while nonzero(delta, s)? {
-        s.semantic_work()
-            .arithmetic(Op::LeadingZeros, &[&delta.into()])
-            .map_err(core_error)?;
-        s.semantic_work()
-            .arithmetic(
-                Op::Subtract,
-                &[&63u32.into(), &delta.leading_zeros().into()],
-            )
-            .map_err(core_error)?;
-        let witness = (63 - delta.leading_zeros()) as usize;
-        let selected = bit(witness, s)?;
-        s.semantic_work()
-            .arithmetic(Op::Subtract, &[&delta.into(), &selected.into()])
-            .map_err(core_error)?;
-        delta -= selected;
-        s.semantic_work()
-            .visit(Visit::RefLookup)
-            .map_err(core_error)?;
-        let row = packed
-            .get_mut(witness)
-            .ok_or(ServiceError::IntegrityFailure)?;
-        s.semantic_work()
-            .visit(Visit::RefLookup)
-            .map_err(core_error)?;
-        let value = row.get_mut(block).ok_or(ServiceError::IntegrityFailure)?;
-        s.semantic_work()
-            .arithmetic(Op::BitOr, &[&(*value).into(), &flag.into()])
-            .map_err(core_error)?;
-        s.semantic_work()
-            .write_bytes(mem::size_of::<u32>())
-            .map_err(core_error)?;
-        *value |= flag;
-    }
+    *target |= mask;
     Ok(())
 }
 fn rows<'a>(body: &'a Value, name: &str, s: &mut OriginalAuditSession) -> Result<&'a [Value]> {
@@ -777,4 +753,24 @@ fn flags(mask: u32, s: &mut OriginalAuditSession) -> Result<[bool; 32]> {
         target.copy_from_slice(&FLAGS[usize::from(byte)]);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+impl FoldedInventory {
+    pub(in super::super) fn assert_packed_reachable(
+        &mut self,
+        root: &Value,
+        seeds: &[&Value],
+        expected: &[u32],
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let mut masks = Memberships::new(self.pointers.len(), 0, s)?;
+        let group = masks.group(&serde_json::json!({"root_ref":root}), 0, s)?;
+        for reference in seeds {
+            masks.seed(&mut self._inventory, group, 0, reference, s)?;
+        }
+        masks.close(&mut self._inventory, &self.pointers, s)?;
+        assert_eq!(masks.packed[0], expected);
+        Ok(())
+    }
 }

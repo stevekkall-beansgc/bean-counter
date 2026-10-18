@@ -489,11 +489,12 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 let middle = 8 + 8 * n;
                 let mut values: Vec<u32> = links.bytes()[8..middle]
                     .chunks_exact(8)
-                    .map(|b| {
-                        let sequence = u32::from_le_bytes(b[..4].try_into().unwrap());
-                        let ordinal = u32::from_le_bytes(b[4..8].try_into().unwrap());
-                        assert_eq!(sequence - 1, ordinal);
-                        sequence
+                    .flat_map(|b| {
+                        let word = u32::from_le_bytes(b[..4].try_into().unwrap());
+                        let mask = u32::from_le_bytes(b[4..8].try_into().unwrap());
+                        (0..32)
+                            .filter(move |bit| mask & (1 << bit) != 0)
+                            .map(move |bit| word * 32 + bit + 1)
                     })
                     .collect();
                 values.extend(
@@ -534,51 +535,37 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
                 )?,
                 Some(2)
             );
-            let mut mixed = Vec::new();
-            folded._inventory.required_origins(
-                2,
-                &cut,
-                &mut |sequence, _| {
-                    mixed.push(sequence);
-                    Ok(())
-                },
-                &mut session,
-            )?;
-            // Origin1 owns both the configured root and the required registration
-            // evidence. Cutting the root must retain the other required edge.
-            assert!(mixed.contains(&1));
-            let mut roots_only = Vec::new();
-            folded._inventory.required_origins(
-                3,
-                &cut,
-                &mut |sequence, _| {
-                    roots_only.push(sequence);
-                    Ok(())
-                },
-                &mut session,
-            )?;
-            // This raw source evidence has no retained dependency except any
-            // reused exact root. It cannot inherit an unrelated origin pointer.
-            assert!(roots_only.is_empty());
-            // The direct append locator consumes exactly the same actual
-            // required edges and exact-root cut, without a second index lookup.
-            for (ordinal, expected) in [(1, &mixed), (2, &roots_only)] {
+            // These genuine committed prefixes use dense sequences1..4;
+            // the stored masks themselves are ordinal keyed, not sequence keyed.
+            for (ordinal, expected) in [(1, vec![1]), (2, vec![])] {
                 let mut direct = Vec::new();
-                folded._inventory.required_positions_at(
+                folded._inventory.required_word_masks_at(
                     ordinal,
                     &cut,
-                    &mut |position, _| {
-                        assert_eq!(
-                            u64::from(position.ordinal) + 1,
-                            u64::from(position.sequence)
-                        );
-                        direct.push(i64::from(position.sequence));
+                    &mut |word, mask, _| {
+                        for bit in 0..32 {
+                            if mask & (1 << bit) != 0 {
+                                direct.push((word * 32 + bit + 1) as i64);
+                            }
+                        }
                         Ok(())
                     },
                     &mut session,
                 )?;
-                assert_eq!(&direct, expected);
+                assert_eq!(direct, expected);
             }
+            folded.assert_packed_reachable(
+                root,
+                &[&registered["receipt"]["result_refs"][0]],
+                &[0b11],
+                &mut session,
+            )?;
+            folded.assert_packed_reachable(
+                root,
+                &[&enrolled["receipt"]["result_refs"][0]],
+                &[0b1111],
+                &mut session,
+            )?;
             Ok(())
         })
     })
