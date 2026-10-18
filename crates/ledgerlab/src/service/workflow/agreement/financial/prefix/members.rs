@@ -532,6 +532,7 @@ impl FoldedInventory {
             let bytes = arithmetic(count, mem::size_of::<AuditedBytes>(), Op::Multiply, s)?;
             let bytes = arithmetic(bytes, mem::size_of::<RetainedEconomicBodies>(), Op::Add, s)?;
             let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+            s.semantic_work().write_bytes(bytes).map_err(core_error)?;
             let mut bodies = Vec::new();
             bodies
                 .try_reserve_exact(count)
@@ -554,14 +555,8 @@ impl FoldedInventory {
                     !compare(total, 8388608, s)?.is_gt(),
                     "CORRECTION_CAPACITY_EXCEEDED",
                 )?;
-                s.semantic_work()
-                    .write_bytes(mem::size_of::<AuditedBytes>())
-                    .map_err(core_error)?;
                 bodies.push(body);
             }
-            s.semantic_work()
-                .write_bytes(mem::size_of::<RetainedEconomicBodies>())
-                .map_err(core_error)?;
             Ok(RetainedEconomicBodies {
                 bodies,
                 selected,
@@ -596,6 +591,7 @@ impl RetainedEconomicBodies {
         )?;
         let bytes = arithmetic(bytes, mem::size_of::<EconomicInputViews<'_>>(), Op::Add, s)?;
         let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+        s.semantic_work().write_bytes(bytes).map_err(core_error)?;
         let mut rows = Vec::new();
         rows.try_reserve_exact(count)
             .map_err(|_| ServiceError::Unavailable)?;
@@ -603,17 +599,11 @@ impl RetainedEconomicBodies {
             s.semantic_work()
                 .visit(Visit::Element)
                 .map_err(core_error)?;
-            s.semantic_work()
-                .write_bytes(mem::size_of::<EconomicRecordView<'_>>())
-                .map_err(core_error)?;
             rows.push(EconomicRecordView {
                 reference: &member.reference,
                 canonical_body: body.bytes(),
             });
         }
-        s.semantic_work()
-            .write_bytes(mem::size_of::<EconomicInputViews<'_>>())
-            .map_err(core_error)?;
         Ok(EconomicInputViews {
             rows,
             _storage: storage,

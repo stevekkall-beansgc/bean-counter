@@ -46,6 +46,7 @@ pub(super) fn original_refs(
         .checked_add(mem::size_of::<Vec<&ExactRef>>())
         .ok_or(ServiceError::Unavailable)?;
     let _storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
     let mut references = Vec::new();
     references
         .try_reserve_exact(count)
@@ -55,9 +56,6 @@ pub(super) fn original_refs(
             .visit(ValidationVisit::Element)
             .map_err(core_error)?;
         if same_ref(other.enrollment_ref(), source.enrollment_ref(), s)? {
-            s.semantic_work()
-                .write_bytes(mem::size_of::<&ExactRef>())
-                .map_err(core_error)?;
             references.push(other.original_grant_ref());
         }
     }
