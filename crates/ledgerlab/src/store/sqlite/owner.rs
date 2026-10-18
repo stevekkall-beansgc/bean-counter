@@ -77,10 +77,36 @@ impl Owner {
         })
     }
     pub fn verify_path(&self) -> Result<(), StoreError> {
+        self.verify_path_with_work(&mut ledgerlab_core::validation_work::NoopValidationWork).map_err(|error|match error {
+            super::workflow::financial::FinancialReadError::Store(error)=>error,
+            super::workflow::financial::FinancialReadError::Resource(_)=>StoreError::Integrity("noop path work failed"),
+        })
+    }
+    /// SAME current canonical-parent guard. Caller owns native path scratch
+    /// before entry; this method creates no origin/authority capability.
+    pub(super) fn verify_path_with_work(&self,work:&mut dyn ledgerlab_core::validation_work::ValidationWork)->Result<(),super::workflow::financial::FinancialReadError> {
+        use ledgerlab_core::validation_work::ValidationVisit as Visit;
+        let input=self.database.as_os_str().as_encoded_bytes();
+        work.scan_bytes(input.len())?;
+        work.visit(Visit::Constraint)?;
         reject_symlink(&self.database)?;
-        if self.database.canonicalize()?.parent() != Some(self.directory.as_path()) {
-            return Err(StoreError::InvalidStore("database outside owner directory"));
-        }
+        work.scan_bytes(input.len())?;
+        work.write_bytes(input.len())?;
+        let canonical=self.database.canonicalize().map_err(StoreError::Io)?;
+        work.visit(Visit::RefLookup)?;
+        let parent=canonical.parent();
+        work.visit(Visit::Constraint)?;
+        let equal=if let Some(parent)=parent {
+            // Path equality visits normalized component bytes; both actual
+            // operands are retained and each possible direction is charged.
+            for path in [parent,self.directory.as_path()] {
+                work.scan_bytes(path.as_os_str().as_encoded_bytes().len())?;
+                work.scan_bytes(path.as_os_str().as_encoded_bytes().len())?;
+            }
+            work.visit(Visit::MemberCompare)?;
+            parent==self.directory.as_path()
+        } else {false};
+        if !equal {return Err(StoreError::InvalidStore("database outside owner directory").into());}
         Ok(())
     }
 }

@@ -317,19 +317,27 @@ pub(crate) fn normalize_path(path: &Path) -> Result<PathBuf> {
     }
     Ok(prefix)
 }
-pub(crate) fn private_existing(path: &Path, directory: bool) -> Result<()> {
-    let m = fs::symlink_metadata(path)?;
-    if m.file_type().is_symlink() || (directory && !m.is_dir()) || (!directory && !m.is_file()) {
-        return Err(LocalError::Config("invalid local storage path"));
-    }
-    #[cfg(unix)]
-    {
+pub(crate) fn private_existing(path:&Path,directory:bool)->Result<()> {
+    private_existing_with_work(path,directory,&mut ledgerlab_core::validation_work::NoopValidationWork)
+}
+/// SAME filesystem/type/privacy predicates, with no new supplied state.
+pub(crate) fn private_existing_with_work(path:&Path,directory:bool,work:&mut dyn ledgerlab_core::validation_work::ValidationWork)->Result<()> {
+    use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+    work.scan_bytes(path.as_os_str().as_encoded_bytes().len()).map_err(crate::service::workflow::core_error)?;
+    let m=fs::symlink_metadata(path)?;
+    work.visit(Visit::Constraint).map_err(crate::service::workflow::core_error)?;
+    if m.file_type().is_symlink() {return Err(LocalError::Config("invalid local storage path"));}
+    work.visit(Visit::Constraint).map_err(crate::service::workflow::core_error)?;
+    let valid=if directory {m.is_dir()} else {m.is_file()};
+    work.visit(Visit::Constraint).map_err(crate::service::workflow::core_error)?;
+    if !valid {return Err(LocalError::Config("invalid local storage path"));}
+    #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
-        if m.permissions().mode() & 0o077 != 0 {
-            return Err(LocalError::Config(
-                "local storage must be private: directories 0700, database 0600",
-            ));
-        }
+        let mode=m.permissions().mode();
+        work.arithmetic(Op::BitAnd,&[&mode.into(),&0o077u32.into()]).map_err(crate::service::workflow::core_error)?;
+        let public=mode &0o077;
+        work.arithmetic(Op::Compare,&[&public.into(),&0u32.into()]).map_err(crate::service::workflow::core_error)?;
+        if public!=0 {return Err(LocalError::Config("local storage must be private: directories 0700, database 0600"));}
     }
     Ok(())
 }

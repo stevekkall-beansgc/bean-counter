@@ -90,6 +90,60 @@ impl ManagementInstallation {
         &self.installation
     }
 }
+/// Current fixed-host path producer. These borrowed paths never outlive the
+/// live store owner. No new path copy, locator authority or numeric quota.
+#[cfg(target_os = "macos")]
+pub(crate) struct ManagementPaths<'a> {
+    directory: &'a std::path::Path,
+    database: &'a std::path::Path,
+    _storage: ExternalBufferLease,
+}
+#[cfg(target_os = "macos")]
+impl ManagementPaths<'_> {
+    pub(crate) fn directory(&self) -> &std::path::Path {
+        self.directory
+    }
+    pub(crate) fn database(&self) -> &std::path::Path {
+        self.database
+    }
+}
+#[cfg(target_os = "macos")]
+impl super::super::super::SqliteStore {
+    pub(crate) fn workflow_management_paths(
+        &self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<ManagementPaths<'_>, FinancialReadError> {
+        // Darwin realpath's existing PATH_MAX is1024 (SDK sys/syslimits.h).
+        // Its three token/link arrays, attrs name, two statfs names, mount
+        // temporary, malloc result and Rust result fit the EXISTING256KiB
+        // native I/O workspace, including fixed metadata/control overlap.
+        // Add the actual input CString. This is not a new path limit or pool;
+        // complete source/backend accounting remains an enclosing obligation.
+        const NATIVE: usize = 262144 + std::mem::size_of::<ManagementPaths<'static>>();
+        let input = self
+            .inner
+            ._owner
+            .database
+            .as_os_str()
+            .as_encoded_bytes()
+            .len();
+        s.semantic_work()
+            .arithmetic(ArithmeticOperation::Add, &[&NATIVE.into(), &input.into()])?;
+        let bytes = NATIVE.checked_add(input).ok_or_else(invalid)?;
+        s.semantic_work()
+            .arithmetic(ArithmeticOperation::Add, &[&bytes.into(), &1usize.into()])?;
+        let bytes = bytes.checked_add(1).ok_or_else(invalid)?;
+        let storage = s.reserve_external_payload(bytes)?;
+        s.semantic_work().scan_bytes(bytes)?;
+        s.semantic_work().write_bytes(bytes)?;
+        self.inner._owner.verify_path_with_work(s.semantic_work())?;
+        Ok(ManagementPaths {
+            directory: &self.inner._owner.directory,
+            database: &self.inner._owner.database,
+            _storage: storage,
+        })
+    }
+}
 impl SqliteTx {
     /// Actual singleton identity is compared in the same held snapshot before
     /// materializing unconstrained legacy TEXT. A mismatch is DATA, not an

@@ -630,12 +630,24 @@ impl LocalOwnerAdmin {
         let control=s.reserve_external_payload(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
         s.semantic_work().write_bytes(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
         checked(s,||self.instance.workflow_same_instance(store))?;
-        // Preserve the existing exact filesystem owner/path checks. Their
-        // canonicalization/temporary-output envelope is still an enclosing
-        // qualification obligation, not erased by the paid metadata below.
-        let (directory,database)=store.workflow_owner_paths().map_err(super::super::store_error)?;
-        local_io::private_existing(&directory,true).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
-        local_io::private_existing(&database,false).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
+        #[cfg(target_os="macos")]
+        {
+            let paths=store.workflow_management_paths(s).map_err(agreement::financial::management_read_error)?;
+            for (path,directory) in [(paths.directory(),true),(paths.database(),false)] {
+                local_io::private_existing_with_work(path,directory,s.semantic_work()).map_err(|error|match error {
+                    local_io::LocalError::Service(error)=>error,
+                    _=>reject("AUTHORITY_REQUIRED"),
+                })?;
+            }
+        }
+        // Other native targets retain the existing behavior; this fixed-host
+        // ownership delta makes no resource qualification for those builds.
+        #[cfg(not(target_os="macos"))]
+        {
+            let (directory,database)=store.workflow_owner_paths().map_err(super::super::store_error)?;
+            local_io::private_existing(&directory,true).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
+            local_io::private_existing(&database,false).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
+        }
         let setup=agreement::financial::effective_setup(tx,s).await?;
         let body=setup.setup();
         let installation=tx.workflow_management_installation(&body.store_id,body.scope.tenant(),body.scope.environment(),s).await
