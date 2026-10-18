@@ -165,6 +165,68 @@ impl SqliteTx {
         }
         result
     }
+    /// Same exclusive next-workflow cutoff as workflow_sequence, with actual
+    /// scalar results and max+one arithmetic paid by the consuming parent.
+    pub(crate) async fn workflow_management_sequence(
+        &mut self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<i64, FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(StoreError::Integrity("poisoned management sequence").into());
+        }
+        self.failed = true;
+        let result = timeout_at(self.deadline, async {
+            self.financial_reserve_io(s, 262144)?;
+            s.semantic_work().write_bytes(mem::size_of::<i64>())?;
+            s.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+                .fetch_one(self.conn())
+                .await?;
+            let mut supported = false;
+            for allowed in [12i64, 13, 14, 15] {
+                if resource_compare(s, version, allowed)?.is_eq() {
+                    supported = true;
+                    break;
+                }
+            }
+            if !supported {
+                return Err(StoreError::BillingUpgradeRequired.into());
+            }
+            s.semantic_work().write_bytes(mem::size_of::<i64>())?;
+            s.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let last: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(max(commit_sequence),0) FROM workflow_operations",
+            )
+            .fetch_one(self.conn())
+            .await?;
+            let sequence = resource_add(s, last, 1)?;
+            if resource_compare(s, sequence, 100000)?.is_gt() {
+                return Err(StoreError::BillingHistoryLimit.into());
+            }
+            self.financial_finish_io(s).await?;
+            Ok(sequence)
+        })
+        .await
+        .map_err(|_| StoreError::Deadline)?;
+        if result.is_ok() {
+            s.check_cancelled()?;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(
+                    StoreError::Integrity("management sequence retains failed work").into(),
+                );
+            }
+            self.failed = false;
+        }
+        result
+    }
     /// Counts preserve the old global metadata caps before any per-row read.
     /// No all-history Vec/String/BLOB snapshot is constructed by this entry.
     pub(crate) async fn workflow_management_counts(

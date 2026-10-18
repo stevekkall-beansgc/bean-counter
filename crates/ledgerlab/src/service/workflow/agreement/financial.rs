@@ -291,7 +291,7 @@ impl LocalWorkflowLedger {
         let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
         let attempted = proof_session::with_proofs(&mut tx, key, |tx| {
             Box::pin(async {
-                self.admin.read(&self.store, tx, key).await?;
+                self.admin.read_management(&self.store, tx, key, &mut session).await?;
                 if tx
                     .workflow_original_identity_exists(req.identity(), &mut session)
                     .await

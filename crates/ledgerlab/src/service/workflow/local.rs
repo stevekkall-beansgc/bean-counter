@@ -612,7 +612,7 @@ impl LocalOwnerAdmin {
     /// Same local ownership and current setup predicates, with actual bounded
     /// metadata/typed outputs retained through their consuming preparation.
     /// The enclosing path/fence/commit envelope remains separately required.
-    pub(super) async fn fresh_management(
+    pub(super) async fn read_management(
         &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
         s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
     )->Result<OwnedLocalManagement> {
@@ -641,18 +641,35 @@ impl LocalOwnerAdmin {
         let installation=tx.workflow_management_installation(&body.store_id,body.scope.tenant(),body.scope.environment(),s).await
             .map_err(agreement::financial::management_read_error)?.ok_or_else(||reject("AUTHORITY_REQUIRED"))?;
         let mode=same(&installation.installation().mode,"real",s)?;checked(s,||mode)?;
-        for (a,b) in [(&self.logical_store_id,body.store_id.as_str()),(&self.scope[0],body.scope.tenant()),(&self.scope[1],body.scope.environment()),(&self.operator,body.operator.as_str()),(&key.logical_store_id,self.logical_store_id.as_str()),(&key.scope[0],self.scope[0].as_str()),(&key.scope[1],self.scope[1].as_str()),(&key.source,body.source.as_str())] {
+        for (a,b) in [(&self.logical_store_id,body.store_id.as_str()),(&self.scope[0],body.scope.tenant()),(&self.scope[1],body.scope.environment()),(&self.operator,body.operator.as_str()),(&key.logical_store_id,self.logical_store_id.as_str()),(&key.scope[0],self.scope[0].as_str()),(&key.scope[1],self.scope[1].as_str())] {
             let equal=same(a,b,s)?;checked(s,||equal)?;
         }
-        let state=installation.installation();
-        let open=same(&state.admission,"open",s)?;
+        Ok(OwnedLocalManagement{setup,installation,_control:control})
+    }
+    pub(super) async fn fresh_management(
+        &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
+        s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
+    )->Result<OwnedLocalManagement> {
+        use ledgerlab_core::validation_work::ValidationVisit as Visit;
+        let held=self.read_management(store,tx,key,s).await?;
+        let setup=held.setup();
+        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        s.semantic_work().scan_bytes(key.source.len()).map_err(core_error)?;
+        s.semantic_work().scan_bytes(setup.source.len()).map_err(core_error)?;
+        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
+        require(key.source==setup.source,"AUTHORITY_REQUIRED")?;
+        let state=held.installation();
+        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        s.semantic_work().scan_bytes(state.admission.len()).map_err(core_error)?;
+        s.semantic_work().scan_bytes(4).map_err(core_error)?;
+        let open=state.admission=="open";
         s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
         if !open {return Err(ServiceError::Unavailable);}
         s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
         if !state.dispatch_hold {return Err(ServiceError::Unavailable);}
         s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
         if state.dispatch_enabled {return Err(ServiceError::Unavailable);}
-        Ok(OwnedLocalManagement{setup,installation,_control:control})
+        Ok(held)
     }
     pub(super) async fn read(
         &self,

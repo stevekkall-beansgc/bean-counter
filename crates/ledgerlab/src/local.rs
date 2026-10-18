@@ -362,6 +362,27 @@ pub(crate) fn now() -> Result<Timestamp> {
         .map_err(|_| LocalError::Config("system clock precedes Unix epoch"))?;
     timestamp(elapsed.as_secs(), elapsed.subsec_micros())
 }
+/// Environmental clock capture using the existing paid Gregorian kernel.
+/// It accepts no supplied timestamp. Caller owns the fixed rendering overlap.
+pub(crate) enum LocalClockError { Unavailable, Resource(ledgerlab_core::Error) }
+impl From<ledgerlab_core::Error> for LocalClockError {
+    fn from(error:ledgerlab_core::Error)->Self {Self::Resource(error)}
+}
+pub(crate) fn now_with_work(work:&mut dyn ledgerlab_core::validation_work::ValidationWork)->std::result::Result<Timestamp,LocalClockError> {
+    use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+    let clock_error=||LocalClockError::Unavailable;
+    work.visit(Visit::Constraint)?;
+    let elapsed=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|clock_error())?;
+    let seconds=elapsed.as_secs();
+    work.arithmetic(Op::Multiply,&[&seconds.into(),&1_000_000u64.into()])?;
+    let whole=seconds.checked_mul(1_000_000).ok_or_else(clock_error)?;
+    let fraction=u64::from(elapsed.subsec_micros());
+    work.arithmetic(Op::Add,&[&whole.into(),&fraction.into()])?;
+    let micros=whole.checked_add(fraction).ok_or_else(clock_error)?;
+    work.arithmetic(Op::Compare,&[&micros.into(),&(i64::MAX as u64).into()])?;
+    let micros=i64::try_from(micros).map_err(|_|clock_error())?;
+    Ok(Timestamp::from_micros_with_work(micros,work)?)
+}
 fn timestamp(seconds: u64, micros: u32) -> Result<Timestamp> {
     // Gregorian calendar conversion in the environmental facade, never the core.
     let mut days = seconds / 86400;

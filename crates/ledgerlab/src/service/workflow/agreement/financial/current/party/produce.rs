@@ -17,6 +17,7 @@ pub(in super::super::super) struct PendingPartyOperation {
     // Fresh preparation retains the actual completed earlier recipe inventory.
     // This is not a serialized origin/resource completion capability.
     _prefix: Option<prefix::FoldedInventory>,
+    _clock_owner: Option<ExternalBufferLease>,
 }
 impl PendingPartyOperation {
     pub(in super::super::super) fn normalized_payload(&self) -> &[u8] {
@@ -794,17 +795,18 @@ async fn prepare_inner(
     session: &mut OriginalAuditSession,
 ) -> Result<PendingPartyOperation> {
     session.check_cancelled().map_err(core_error)?;
-    let setup = ledger.admin.fresh(&ledger.store, tx, req.key()).await?;
-    let installation = tx
-        .load_installation()
-        .await
-        .map_err(crate::service::store_error)?;
-    require(installation.mode == "real", "INSTALLATION_MODE_MISMATCH")?;
-    let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
-    let before = tx
-        .workflow_sequence()
-        .await
-        .map_err(crate::service::store_error)?;
+    let management=ledger.admin.fresh_management(&ledger.store,tx,req.key(),session).await?;
+    let setup=management.setup();
+    // The two fixed-width calendar renderings and their String growth overlap
+    // remain owned through the produced PendingPartyOperation timestamp.
+    const CLOCK_BYTES:usize=3*2*27+2*std::mem::size_of::<Timestamp>()+std::mem::size_of::<std::time::Duration>();
+    let clock_owner=session.reserve_external_payload(CLOCK_BYTES).map_err(core_error)?;
+    session.semantic_work().write_bytes(CLOCK_BYTES).map_err(core_error)?;
+    let at=crate::local::now_with_work(session.semantic_work()).map_err(|error|match error {
+        crate::local::LocalClockError::Unavailable=>ServiceError::Unavailable,
+        crate::local::LocalClockError::Resource(error)=>core_error(error),
+    })?;
+    let before=tx.workflow_management_sequence(session).await.map_err(prefix::read_error)?;
     let normalized_payload = super::normalize::payload(req.payload(session)?, req.key(), session)?;
     let payload = normalized_payload.value();
     let schema = check::text(payload, "schema", session)?;
@@ -910,6 +912,7 @@ async fn prepare_inner(
     let mut earlier = prefix::party_before(ledger, tx, req.key(), before, session).await?;
     pending.check_prestate(earlier.as_mut().map(|p| &mut p._inventory), &setup, session)?;
     pending._prefix = earlier;
+    pending._clock_owner=Some(clock_owner);
     Ok(pending)
 }
 
@@ -1050,6 +1053,7 @@ fn construct(
         at,
         before,
         _prefix: None,
+        _clock_owner: None,
     })
 }
 
