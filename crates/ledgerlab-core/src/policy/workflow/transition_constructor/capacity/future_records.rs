@@ -68,7 +68,8 @@ pub(in crate::policy::workflow::transition_constructor) fn derive(m:&mut CoreMet
     let close=6usize;
     // App finalize6+z and correct5+z_old+z_new are each<=7 monetary records;
     // add the source and common financial pairs. Retention's two source
-    // records+authority+assertion+verification are<=5, with no capacity change
+    // records+authority+assertion+verification+the shared financial pair are
+    // <=7 on the complete route, with no capacity change
     // merely because evidence has been retained but not yet associated.
-    Ok(FutureRecords{root_correction:root,family_submit:submit,family_correction:correction,family_close:close,app_finalize:11,app_correction:11,app_observation_retain:5,app_final_evidence_retain:5,maximum_attested_family_fields:maximum_proofs,maximum_source_frames:source_frames})
+    Ok(FutureRecords{root_correction:root,family_submit:submit,family_correction:correction,family_close:close,app_finalize:11,app_correction:11,app_observation_retain:7,app_final_evidence_retain:7,maximum_attested_family_fields:maximum_proofs,maximum_source_frames:source_frames})
 }

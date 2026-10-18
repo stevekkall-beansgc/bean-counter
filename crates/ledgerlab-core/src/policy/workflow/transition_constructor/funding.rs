@@ -45,7 +45,7 @@ pub(super) fn initial_construction_effect(m:&mut CoreMeter,p:&SelectedProgram,t:
     let mut found=None;
     for claim in &t.claim_introductions{m.visit("funding.initial_constructed_claim")?;if shape::same_text(m,&claim.kind,"workflow-work-claim")?{if found.is_some(){return Err(fail("multiple original-work funding claims"));}found=Some(claim);}}
     let claim=found.ok_or_else(||fail("original-work funding claim missing"))?;
-    let payload=t.economic.original_work.payload();
+    let payload=t.economic.original_work.payload()?;
     let expected=super::working_value::owning_reference(m,&arena,&original.original_binding_ref)?;shape::equal(m,&payload["binding_ref"],expected.value())?;
     let bound=derive_per_work_bound(m,p,payload,claim,&t.economic.terms)?;
     let effect=initial_work_effect(&arena,m,&original.original_binding_ref,&t.economic.terms,&bound)?;

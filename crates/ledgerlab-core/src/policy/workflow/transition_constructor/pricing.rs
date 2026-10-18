@@ -10,7 +10,6 @@ use crate::{Error, Result};
 use num_bigint::BigInt;
 use num_traits::One;
 use serde_json::Value;
-#[derive(Clone, Debug)]
 pub(super) struct PricedInstruction {
     pub ordinal: String,
     pub component_key: String,
@@ -20,6 +19,90 @@ pub(super) struct PricedInstruction {
     pub basis_components: Vec<String>,
     pub rational: Ratio,
     pub atoms: i128,
+    // Row payload survives pop/iteration independently of the vector owner.
+    pub(super) _ownership: Option<crate::canonical::audit_arena::ExternalBufferLease>,
+}
+/// The existing evaluator's actual result vector, with its allocation owner.
+/// This is private pricing DATA, not eligibility or a different evaluator.
+pub(super) struct PricedInstructions {
+    rows:Vec<PricedInstruction>,
+    _ownership:Option<crate::canonical::audit_arena::ExternalBufferLease>,
+}
+impl std::fmt::Debug for PricedInstruction {
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{
+        f.debug_struct("PricedInstruction").field("ordinal",&self.ordinal)
+            .field("component_key",&self.component_key).field("root_key",&self.root_key)
+            .field("role_slot",&self.role_slot).field("binding_slot",&self.binding_slot)
+            .field("basis_components",&self.basis_components).field("rational",&self.rational)
+            .field("atoms",&self.atoms).finish()
+    }
+}
+impl std::fmt::Debug for PricedInstructions {
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{self.rows.fmt(f)}
+}
+impl PricedInstructions {
+    pub(super) fn empty()->Self{Self{rows:Vec::new(),_ownership:None}}
+}
+impl std::ops::Deref for PricedInstructions {
+    type Target=Vec<PricedInstruction>;
+    fn deref(&self)->&Self::Target{&self.rows}
+}
+impl std::ops::DerefMut for PricedInstructions {
+    fn deref_mut(&mut self)->&mut Self::Target{&mut self.rows}
+}
+impl<'a> IntoIterator for &'a PricedInstructions {
+    type Item=&'a PricedInstruction;type IntoIter=std::slice::Iter<'a,PricedInstruction>;
+    fn into_iter(self)->Self::IntoIter{self.rows.iter()}
+}
+pub(super) struct PricedIntoIter {
+    rows:std::vec::IntoIter<PricedInstruction>,
+    _ownership:Option<crate::canonical::audit_arena::ExternalBufferLease>,
+}
+impl Iterator for PricedIntoIter {
+    type Item=PricedInstruction;
+    fn next(&mut self)->Option<Self::Item>{self.rows.next()}
+}
+impl IntoIterator for PricedInstructions {
+    type Item=PricedInstruction;type IntoIter=PricedIntoIter;
+    fn into_iter(self)->Self::IntoIter{PricedIntoIter{rows:self.rows.into_iter(),_ownership:self._ownership}}
+}
+fn copied(m:&mut CoreMeter,value:&str)->Result<String>{
+    if m.representation_arena().is_some(){m.scan_bytes(value.len())?;m.write_bytes(value.len())?;}
+    Ok(value.to_owned())
+}
+fn output_owner(m:&mut CoreMeter,n:usize)->Result<Option<crate::canonical::audit_arena::ExternalBufferLease>>{
+    use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+    let Some(arena)=m.representation_arena()else{return Ok(None)};
+    let per=std::mem::size_of::<PricedInstruction>();
+    ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&per.into()])?;
+    let size=n.checked_mul(per).ok_or_else(||fail("pricing output dimension"))?;
+    let size=w::usize_add(m,size,std::mem::size_of::<PricedInstructions>())?;
+    let lease=arena.reserve_external_payload(size,m)?;m.write_bytes(size)?;Ok(Some(lease))
+}
+fn row_owner(m:&mut CoreMeter,instruction:&Value,rule:&Value,component:&Value)->Result<Option<crate::canonical::audit_arena::ExternalBufferLease>>{
+    use crate::validation_work as w;
+    let Some(arena)=m.representation_arena()else{return Ok(None)};
+    let mut size=std::mem::size_of::<PricedInstruction>();
+    for(value,key)in[(instruction,"ordinal"),(rule,"component_key"),(component,"root_key"),(component,"role_slot"),(rule,"binding_slot")]{
+        m.visit("pricing.output_string_dimension")?;
+        let raw=value.get(key).and_then(Value::as_str).ok_or_else(||fail("pricing typed output field"))?;
+        size=w::usize_add(m,size,raw.len())?;
+    }
+    m.visit("pricing.output_basis_variant")?;
+    if rule["formula"]["kind"].as_str()==Some("discount"){
+        m.visit("pricing.output_basis_dimension")?;
+        let raw=rule["formula"]["basis"]["component_key"].as_str().ok_or_else(||fail("pricing typed basis"))?;
+        size=w::usize_add(m,size,raw.len())?;
+        size=w::usize_add(m,size,std::mem::size_of::<String>())?;
+    }
+    // Output scalar limbs only. Arithmetic-kernel temporaries/native scratch
+    // remain a separate containing proof; this lease never credits them.
+    // Pinned num-bigint0.5.1 mul3 allocates x.len()+y.len()+1 digits.
+    // Two512-bit operands therefore need <=17u64 digits (136 bytes),
+    // including the extra carry digit retained after normalization. The
+    // u32-digit build needs <=33*4 bytes and is covered by the same bound.
+    size=w::usize_add(m,size,2*(std::mem::size_of::<BigInt>()+136))?;
+    let lease=arena.reserve_external_payload(size,m)?;m.write_bytes(size)?;Ok(Some(lease))
 }
 fn fail(s: &str) -> Error {
     Error::new("INTEGRITY_FAILURE", s)
@@ -29,7 +112,7 @@ pub(super) fn work(
     activity: &str,
     normalized_facts: &Value,
     m: &mut CoreMeter,
-) -> Result<Vec<PricedInstruction>> {
+) -> Result<PricedInstructions> {
     let instructions = program.compiled_plan().canonical_value()["typed_instructions"]
         .as_array()
         .ok_or_else(|| fail("compiled instructions"))?;
@@ -48,14 +131,14 @@ pub(super) fn price_instructions(
     activity: &str,
     normalized_facts: &Value,
     m: &mut CoreMeter,
-) -> Result<Vec<PricedInstruction>> {
+) -> Result<PricedInstructions> {
     price_instructions_selected(instructions,components,activity,normalized_facts,m,None)
 }
 enum CostSelection<'a>{Deferred,Final{supplier_slot:&'a str,supplier_component:Option<&'a str>,eligible_atoms:&'a BigInt},AppDeferred,AppFinal{component_key:&'a str,eligible_atoms:&'a BigInt}}
 /// Only the authenticated cost executor supplies eligible supplier atoms. The
 /// original program supplies every formula; saved action amounts are never
 /// pricing operands.
-pub(super) fn final_cost(program:&SelectedProgram,activity:&str,supplier_slot:&str,supplier_component:&str,eligible_atoms:&BigInt,m:&mut CoreMeter)->Result<Vec<PricedInstruction>>{
+pub(super) fn final_cost(program:&SelectedProgram,activity:&str,supplier_slot:&str,supplier_component:&str,eligible_atoms:&BigInt,m:&mut CoreMeter)->Result<PricedInstructions>{
     if !program.uses_owner_local_cost_recipe(){return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","original supplier compiler recipe"));}
     let instructions=shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?;
     let components=shape::array(m,program.compiled_plan().canonical_value(),"component_slots")?;
@@ -66,7 +149,7 @@ pub(super) fn final_cost(program:&SelectedProgram,activity:&str,supplier_slot:&s
 /// Actual attributable amount and original WorkRecord facts enter the SAME
 /// original instruction evaluator. There is no supplier selection or payable.
 /// Evidence/source/lineage eligibility is established by the app executor.
-pub(super) fn app_final_cost(program:&SelectedProgram,activity:&str,component_key:&str,original_facts:&Value,eligible_atoms:&BigInt,m:&mut CoreMeter)->Result<Vec<PricedInstruction>>{
+pub(super) fn app_final_cost(program:&SelectedProgram,activity:&str,component_key:&str,original_facts:&Value,eligible_atoms:&BigInt,m:&mut CoreMeter)->Result<PricedInstructions>{
     if !program.uses_app_owned_cost_recipe(){return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","original app cost compiler recipe"));}
     let instructions=shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?;
     let components=shape::array(m,program.compiled_plan().canonical_value(),"component_slots")?;
@@ -74,7 +157,7 @@ pub(super) fn app_final_cost(program:&SelectedProgram,activity:&str,component_ke
     if meter::cmp(m,eligible_atoms,&0.into())?.is_lt()||meter::cmp(m,eligible_atoms,&maximum)?.is_gt(){return Err(fail("eligible attributable amount"));}
     price_instructions_selected(instructions,components,activity,original_facts,m,Some(CostSelection::AppFinal{component_key,eligible_atoms}))
 }
-fn price_instructions_selected(instructions:&[Value],components:&[Value],activity:&str,normalized_facts:&Value,m:&mut CoreMeter,selection:Option<CostSelection<'_>>)->Result<Vec<PricedInstruction>>{
+fn price_instructions_selected(instructions:&[Value],components:&[Value],activity:&str,normalized_facts:&Value,m:&mut CoreMeter,selection:Option<CostSelection<'_>>)->Result<PricedInstructions>{
     m.phase(Phase::Pricing);
     let scale = arithmetic::integer(m, "1000000000000000000", false)?;
     let atom_limit = arithmetic::integer(m, "999999999999999999999999999999", false)?;
@@ -82,7 +165,9 @@ fn price_instructions_selected(instructions:&[Value],components:&[Value],activit
         numerator: scale,
         denominator: BigInt::one(),
     };
+    let output_ownership=output_owner(m,instructions.len())?;
     let mut output: Vec<PricedInstruction> = Vec::new();
+    if output_ownership.is_some(){output.try_reserve_exact(instructions.len()).map_err(|_|fail("pricing output allocation"))?;}
     for instruction in instructions {
         if !shape::same(
             m,
@@ -131,6 +216,7 @@ fn price_instructions_selected(instructions:&[Value],components:&[Value],activit
         }
         let component = component.ok_or_else(|| fail("compiled component missing"))?;
         let formula = &rule["formula"];
+        let row_ownership=row_owner(m,instruction,rule,component)?;
         let mut basis_components = Vec::new();
         m.visit("pricing.formula_variant")?;
         let rational = match formula["kind"]
@@ -186,7 +272,8 @@ fn price_instructions_selected(instructions:&[Value],components:&[Value],activit
                     }
                 }
                 let prior = prior.ok_or_else(|| fail("same work named basis missing"))?;
-                basis_components.push(base.to_owned());
+                if row_ownership.is_some(){basis_components.try_reserve_exact(1).map_err(|_|fail("pricing basis allocation"))?;}
+                basis_components.push(copied(m,base)?);
                 let percentage = arithmetic::decimal(
                     m,
                     formula["amount"]["percent"]
@@ -229,29 +316,15 @@ fn price_instructions_selected(instructions:&[Value],components:&[Value],activit
             if meter::cmp(m,&BigInt::from(atoms),&ceiling)?.is_gt(){return Err(Error::new("EXPOSURE_CEILING_EXCEEDED","original cost formula ceiling"));}
         }
         output.push(PricedInstruction {
-            ordinal: instruction["ordinal"]
-                .as_str()
-                .ok_or_else(|| fail("ordinal"))?
-                .to_owned(),
-            component_key: key.to_owned(),
-            root_key: component["root_key"]
-                .as_str()
-                .ok_or_else(|| fail("root key"))?
-                .to_owned(),
-            role_slot: component["role_slot"]
-                .as_str()
-                .ok_or_else(|| fail("role slot"))?
-                .to_owned(),
-            binding_slot: rule["binding_slot"]
-                .as_str()
-                .ok_or_else(|| fail("binding slot"))?
-                .to_owned(),
-            basis_components,
-            rational,
-            atoms,
+            ordinal:copied(m,instruction["ordinal"].as_str().ok_or_else(||fail("ordinal"))?)?,
+            component_key:copied(m,key)?,
+            root_key:copied(m,component["root_key"].as_str().ok_or_else(||fail("root key"))?)?,
+            role_slot:copied(m,component["role_slot"].as_str().ok_or_else(||fail("role slot"))?)?,
+            binding_slot:copied(m,rule["binding_slot"].as_str().ok_or_else(||fail("binding slot"))?)?,
+            basis_components,rational,atoms,_ownership:row_ownership,
         });
     }
-    Ok(output)
+    Ok(PricedInstructions{rows:output,_ownership:output_ownership})
 }
 
 /// SAME original customer cost formula for every eligible cost-basis mode.
@@ -291,6 +364,17 @@ pub(super) struct PricedOutcome {
     pub rational: Ratio,
     pub atoms: i128,
     pub none: bool,
+    pub(super) _ownership:Option<crate::canonical::audit_arena::ExternalBufferLease>,
+}
+fn outcome_owner(m:&mut CoreMeter,instruction:&Value,family:&Value,key:&str)->Result<Option<crate::canonical::audit_arena::ExternalBufferLease>>{
+    use crate::validation_work as w;
+    let Some(arena)=m.representation_arena()else{return Ok(None)};
+    let ordinal=shape::text(m,instruction,"ordinal")?;
+    let component=shape::text(m,&family["selector"],"component_key")?;
+    let mut size=std::mem::size_of::<PricedOutcome>()+3*std::mem::size_of::<&str>()
+        +2*(std::mem::size_of::<BigInt>()+136);
+    for raw in [ordinal,component,key]{m.visit("pricing.family_output_dimension")?;size=w::usize_add(m,size,raw.len())?;}
+    let lease=arena.reserve_external_payload(size,m)?;m.write_bytes(size)?;Ok(Some(lease))
 }
 macro_rules! paid_call {
     ($f:path,$m:expr,$a:expr $(,)?) => {{
@@ -345,10 +429,14 @@ pub(super) fn explicit_none(
         selected = Some((instruction, family));
     }
     let (instruction, family) = selected.ok_or_else(|| fail("original family missing"))?;
+    let output_ownership=outcome_owner(m,instruction,family,family_key)?;
+    let ordinal=paid_call!(shape::text,m,instruction,"ordinal")?;
+    let ordinal=copied(m,ordinal)?;
+    let root=paid_call!(shape::text,m,&family["selector"],"component_key")?;
+    let root=copied(m,root)?;
+    let key=copied(m,family_key)?;
     Ok(PricedOutcome {
-        ordinal: paid_call!(shape::text, m, instruction, "ordinal")?.to_owned(),
-        root_key: paid_call!(shape::text, m, &family["selector"], "component_key")?.to_owned(),
-        family_key: family_key.to_owned(),
+        ordinal,root_key:root,family_key:key,_ownership:output_ownership,
         rational: Ratio {
             numerator: 0.into(),
             denominator: 1.into(),
@@ -396,6 +484,7 @@ pub(super) fn outcome(
         }
     }
     let (instruction, family) = selected.ok_or_else(|| fail("original family missing"))?;
+    let output_ownership=outcome_owner(m,instruction,family,family_key)?;
     let choice = paid_call!(
         shape::named,
         m,
@@ -471,10 +560,13 @@ pub(super) fn outcome(
             return Err(fail("discount exceeds frozen original net"));
         }
     }
+    let ordinal=paid_call!(shape::text,m,instruction,"ordinal")?;
+    let ordinal=copied(m,ordinal)?;
+    let root=paid_call!(shape::text,m,&family["selector"],"component_key")?;
+    let root=copied(m,root)?;
+    let key=copied(m,family_key)?;
     Ok(PricedOutcome {
-        ordinal: paid_call!(shape::text, m, instruction, "ordinal")?.to_owned(),
-        root_key: paid_call!(shape::text, m, &family["selector"], "component_key")?.to_owned(),
-        family_key: family_key.to_owned(),
+        ordinal,root_key:root,family_key:key,_ownership:output_ownership,
         rational,
         atoms,
         none,
@@ -532,6 +624,20 @@ mod outcome_tests {
         assert!(price.none);
         assert_eq!(price.atoms, 0);
         assert!(explicit_none(&program, "absent:family", &mut meter).is_err());
+        // Same selected family evaluator/none branch with independent row
+        // owners; no constructor, source-origin or capacity eligibility.
+        let arena=crate::canonical::audit_arena::AuditArena::new().unwrap();
+        let before=arena.usage().unwrap().live_bytes;
+        let mut original=crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut child=original.meter_mut().original_economic_meter().unwrap();
+        let own_none=explicit_none(&program,"fixture.measure:assessment",&mut child).unwrap();
+        let own_choice=outcome(&program,"fixture.measure:assessment","fixture.measure:success",&999000000000000000_i128.into(),&mut child).unwrap();
+        assert_eq!(own_none.ordinal,price.ordinal);assert_eq!(own_none.rational,price.rational);
+        assert_eq!(own_choice.ordinal,choice.ordinal);assert_eq!(own_choice.rational,choice.rational);assert_eq!(own_choice.atoms,choice.atoms);
+        assert!(own_none._ownership.is_some()&&own_choice._ownership.is_some());
+        drop(own_none);drop(own_choice);original.meter_mut().finish_original_economic(child).unwrap();
+        assert_eq!(arena.usage().unwrap().live_bytes,before);
+
     }
     #[test]
     fn original_family_none_zero_and_signed_alternatives_remain_distinct() {

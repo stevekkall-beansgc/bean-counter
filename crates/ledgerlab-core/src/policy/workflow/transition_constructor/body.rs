@@ -48,6 +48,11 @@ pub(super) fn document_borrowed(m: &mut CoreMeter, kind: &str, body: &Value) -> 
             &[schema_bytes.bytes(), bytes.bytes()],
             true,
         )?;
+        // Ref/control allocation remains in the enclosing emitter's admitted
+        // header. Pay these actual string payload copies before constructing
+        // them; the hash producer's digest bytes do not pay a second ID copy.
+        m.scan_bytes(kind.len())?;m.write_bytes(kind.len())?;
+        m.scan_bytes(digest.len()-7)?;m.write_bytes(5+digest.len()-7)?;
         let reference = ExactRef {
             kind: kind.to_owned(),
             id: format!("wdoc_{}", &digest[7..]),
@@ -85,14 +90,21 @@ pub(super) fn record_borrowed(
         m.new_body(bytes.bytes().len())?;
         // Caller control-graph pre-admission must cover these short frame
         // values/Ref strings; returned bytes and decoded bodies own their leases.
+        // These frame values execute before hashing and overlap the record
+        // bytes. Build their actual Value/string graphs in the same arena;
+        // caller Ref/control reservations are not ownership of json! scratch.
+        let kind_value = arena.string_value(kind, m)?;
+        let first = arena.string_value(&key.scope[0], m)?;
+        let second = arena.string_value(&key.scope[1], m)?;
+        let scope_value = arena.array_from_values(&[first.value(), second.value()], m)?;
         let kind_bytes = m.canonical_owned_representation(
             &arena,
-            &json!(kind),
+            kind_value.value(),
             crate::validation_work::RepresentationKind::SourceDefinition,
         )?;
         let scope = m.canonical_owned_representation(
             &arena,
-            &json!(key.scope),
+            scope_value.value(),
             crate::validation_work::RepresentationKind::SourceDefinition,
         )?;
         let digest = records::hash_parts(
@@ -101,6 +113,7 @@ pub(super) fn record_borrowed(
             &[kind_bytes.bytes(), scope.bytes(), bytes.bytes()],
             true,
         )?;
+        m.scan_bytes(kind.len())?;m.write_bytes(kind.len())?;
         return ConstructedEnvelope::from_owned(
             ExactRef {
                 kind: kind.to_owned(),

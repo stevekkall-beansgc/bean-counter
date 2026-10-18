@@ -22,6 +22,7 @@ pub struct RetainedAssertionData {
     pub(super) authority_ref:ExactRef,
     pub(super) assertion_ref:ExactRef,
     pub(super) assertion_index:usize,
+    pub(super) reused_assertion:Option<RetainedAssertionEnvelope>,
     pub(super) verification_ref:ExactRef,
     pub(super) consumed:OwnedConsumed,
     pub(super) claims:Vec<super::candidate::ClaimEffect>,
@@ -37,7 +38,7 @@ impl RetainedAssertionData {
     pub fn source(&self)->&str {self.assertion_body()["source"].as_str().expect("checked assertion source")}
     pub fn attestation_id(&self)->&str {self.assertion_body()["attestation_id"].as_str().expect("checked assertion identity")}
     fn assertion_body(&self)->&Value {
-        &self.introduced[self.assertion_index].inner.decoded.as_ref().expect("owning assertion body")
+        &self.reused_assertion.as_ref().unwrap_or_else(|| &self.introduced[self.assertion_index]).inner.decoded.as_ref().expect("owning assertion body")
     }
 }
 fn eq(m:&mut CoreMeter,a:&Value,b:&Value)->Result<()> {
@@ -93,7 +94,7 @@ pub fn retain_attestation(
     if result.is_err(){session.invalidate();}
     result
 }
-fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[EconomicRecordView<'_>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<RetainedAssertionData>{
+fn execute<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,raw:&[u8],inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<RetainedAssertionData>{
     m.begin_request(raw)?;
     entry::context(m,c)?;
     let mut parsed=m.parse_owned_representation(arena,raw,RepresentationKind::OriginalRequest)?;
@@ -105,7 +106,43 @@ fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[Econo
     if program.uses_app_owned_cost_recipe() && (shape::same_text(m,schema,"ledger-workflow-app-observe/1")? || shape::same_text(m,schema,"ledger-workflow-app-cost-attest/1")?) {
         return super::app_cost::retain(program,c,parsed,inputs,state,arena,m);
     }
-
+    produce(program,c,parsed,inputs,state,arena,m)?.into_data()
+}
+struct GenericRetention<'raw>{
+    normalized:AuditedBytes,introduced:Vec<RetainedAssertionEnvelope>,
+    authority_ref:ExactRef,assertion_ref:ExactRef,assertion_index:usize,verification_ref:ExactRef,
+    records:Records<'raw,'raw>,terms:authority::Terms,work:Option<super::record_body::RecordBody>,
+    claims:Vec<super::candidate::ClaimEffect>,reused_assertion:Option<RetainedAssertionEnvelope>,
+    ownership:crate::canonical::audit_arena::ExternalBufferLease,
+}
+impl GenericRetention<'_>{
+    fn into_data(self)->Result<RetainedAssertionData>{
+        let Self{normalized,introduced,authority_ref,assertion_ref,assertion_index,verification_ref,records,claims,reused_assertion,ownership,..}=self;
+        Ok(RetainedAssertionData{normalized,introduced,authority_ref,assertion_ref,assertion_index,reused_assertion,verification_ref,consumed:records.into_consumed_owned(),claims,_output_ownership:Some(ownership)})
+    }
+}
+/// SAME retention producer inside the complete factory's already-open child;
+/// the real unique Records owner moves with its outputs, as for app retention.
+pub(super) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,parsed:AuditedValue,inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<Construction<'raw,'raw>>{
+    let output=produce(program,c,parsed,inputs,state,arena,m)?;
+    let GenericRetention{normalized,mut introduced,records,terms,work,claims,reused_assertion,ownership,..}=output;
+    use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+    let per=std::mem::size_of::<ConstructedEnvelope>();
+    ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&introduced.len().into(),&per.into()])?;
+    let n=introduced.len().checked_mul(per).ok_or_else(||shape::fail("complete retention output transfer"))?;
+    let n=w::usize_add(m,n,std::mem::size_of::<Construction>())?;
+    let transfer=arena.reserve_external_payload(n,m)?;m.write_bytes(n)?;
+    let mut envelopes=Vec::new();envelopes.try_reserve_exact(introduced.len()).map_err(|_|shape::fail("complete retention envelope vector"))?;
+    for row in introduced.drain(..){m.visit("retention.move_same_owning_envelope")?;m.scan_bytes(per)?;envelopes.push(row.inner);}
+    let normalized_payload=super::emitted_record::EncodedBody::owned(arena,normalized,m)?;
+    let original_work=match work{Some(work)=>OriginalWorkPayload::Retained(work),None=>OriginalWorkPayload::Unattached};
+    Ok(Construction{economic:EconomicConstruction{terms,original_work},original_reservations:None,normalized_payload,new_envelopes:envelopes,reused_result:reused_assertion.map(|x|x.inner.reference),
+        evaluation_steps:Vec::new(),proposed_heads:ProposedHeads{decision:Vec::new(),family:Vec::new(),chain:None},claim_introductions:Vec::new(),link_introductions:Vec::new(),prospective_obligations:Vec::new(),records,history_edges:Vec::new(),app_effects:Some(AppEffects{claims,heads:Vec::new()}),app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[Some(ownership),Some(transfer),None,None,None]})
+}
+fn produce<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,mut parsed:AuditedValue,inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<GenericRetention<'raw>>{
+    let p=parsed.value();
+    shape::closed(m,p,&["schema","attestation"],&[])?;
+    let schema=shape::text(m,p,"schema")?;
     let close=shape::same_text(m,schema,"ledger-workflow-family-close-attest/1")?;
     if !close && !shape::same_text(m,schema,"ledger-workflow-fact-attest/1")?{return Err(shape::fail("assertion retention payload tuple"));}
     if close && !program.uses_family_close_recipe(){return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","family close original compiler recipe"));}
@@ -140,7 +177,7 @@ fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[Econo
     r.install_initial_source_outputs(m,state.initial_source_correspondences)?;
     let subject=shape::field(m,att,"subject")?;
     subject_owner(m,c,subject)?;
-    let (resolved,subject_bindings)=if close {
+    let (resolved,subject_bindings,work)=if close {
         shape::closed(m,subject,&["logical_store_id","scope","original_binding_ref","target_ref","family_slot","expected_family_revision"],&[])?;
         let slot=shape::text(m,subject,"family_slot")?;
         text_bound(m,slot,128,true)?;
@@ -155,10 +192,11 @@ fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[Econo
         let resolved=selected.authority(m,&mut r,c,program,source_slot,EconomicMode::EvidenceRetain)?;
         additional_operation(m,&mut r,c,"outcome.close")?;
         let binding=shape::reference(m,&selected.target["binding_ref"])?;
-        (resolved,body::ref_set(m,vec![binding,selected.target_ref])?)
+        (resolved,body::ref_set(m,vec![binding,selected.target_ref])?,Some(selected.work))
     } else {
         resolve_field(m,&mut r,c,program,att,state)?
     };
+    if program.uses_app_owned_cost_recipe(){super::app_cost::check_current_consent(program,m,&mut r,c,&resolved.binding,&resolved.accepted,state)?;}
     let nominations=shape::array(m,&resolved.binding,"source_slots")?;
     let nomination=shape::named(m,nominations,"name",&c.authorities[0].source_slot)?;
     let kinds=shape::array(m,nomination,"evidence_kinds")?;
@@ -167,8 +205,30 @@ fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[Econo
     // framing and completed retained origin are required; no authorization is
     // inferred from their record kind or caller placement.
     for reference in supporting {let reference=shape::reference(m,reference)?; r.provenance(m,&c.key,&reference)?;}
+    // Result/native-control ownership begins before the first emitted Ref or
+    // SHA String is constructed. Upstream subject/source selection ownership
+    // remains independently required by the containing eligibility proof.
+    use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+    let count=w::usize_add(m,resolved.introduced.len(),3)?;
+    ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&count.into(),&2usize.into()])?;
+    let slots=count.checked_mul(2).ok_or_else(||shape::fail("retention output overlap"))?;
+    let slots=w::usize_add(m,resolved.introduced.capacity(),slots)?;
+    ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&slots.into(),&std::mem::size_of::<RetainedAssertionEnvelope>().into()])?;
+    let bytes=slots.checked_mul(std::mem::size_of::<RetainedAssertionEnvelope>()).ok_or_else(||shape::fail("retention output controls"))?;
+    let refs=w::usize_add(m,count,6)?;
+    ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&refs.into(),&(std::mem::size_of::<ExactRef>()+64+128+71).into()])?;
+    let refs=refs.checked_mul(std::mem::size_of::<ExactRef>()+64+128+71).ok_or_else(||shape::fail("retention Ref outputs"))?;
+    let bytes=w::usize_add(m,bytes,refs)?;
+    let fixed=std::mem::size_of::<GenericRetention>()+std::mem::size_of::<super::candidate::ClaimEffect>()+std::mem::size_of::<Vec<super::candidate::ClaimEffect>>()
+        +8*std::mem::size_of::<String>()+128+71+64+71;
+    let bytes=w::usize_add(m,bytes,fixed)?;
+    let mut bytes=w::usize_add(m,bytes,c.key.logical_store_id.len())?;
+    bytes=w::usize_add(m,bytes,c.key.scope[0].len())?;bytes=w::usize_add(m,bytes,c.key.scope[1].len())?;
+    bytes=w::usize_add(m,bytes,c.key.source.len())?;bytes=w::usize_add(m,bytes,identifier.len())?;
+    let ownership=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
     let canonical_assertion=m.canonical_owned_representation(arena,att,RepresentationKind::Record)?;
     let assertion=body::document_borrowed(m,"workflow-fact-attestation",att)?;
+    let reuse=existing_assertion(m,&mut r,c,state,&assertion)?;
     m.hash_bytes(canonical_assertion.bytes().len())?;
     let raw_sha=canonical::hex_with_work(&Sha256::digest(canonical_assertion.bytes()),m)?;
     let current=r.get(m,&c.key,&c.authorities[0].current_grant_ref,"workflow-source-grant","ledger-workflow-source-grant/1")?;
@@ -183,11 +243,12 @@ fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[Econo
     let digest=arena.string_value(&assertion.reference.digest,m)?;
     // Subject Ref set has already been normalized and duplicate-checked from
     // immutable original operands. Build its JSON ownership before copying.
-    let mut subject_values=Vec::new();
     let slots=crate::validation_work::usize_add(m,std::mem::size_of::<AuditedValue>(),std::mem::size_of::<&Value>())?;
     crate::validation_work::ValidationWork::arithmetic(m,crate::validation_work::ArithmeticOperation::Multiply,&[&subject_bindings.len().into(),&slots.into()])?;
     let bytes=subject_bindings.len().checked_mul(slots).ok_or_else(||shape::fail("retention subject metadata"))?;
-    let _subject_metadata=arena.reserve_external_payload(bytes,m)?;
+    let bytes=crate::validation_work::usize_add(m,bytes,2*std::mem::size_of::<Vec<AuditedValue>>())?;
+    let _subject_metadata=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
+    let mut subject_values=Vec::new();
     subject_values.try_reserve_exact(subject_bindings.len()).map_err(|_|shape::fail("retention subject vector"))?;
     for reference in &subject_bindings{m.visit("retention.subject_binding")?;subject_values.push(owned_ref(m,arena,reference)?);}
     let mut subject_borrows=Vec::new();
@@ -211,17 +272,31 @@ fn execute(program:&SelectedProgram,c:&DraftContextData,raw:&[u8],inputs:&[Econo
     ],m)?;
     let verification=body::document_borrowed(m,"workflow-evidence-verification",verification.value())?;
     let normalized=m.canonical_owned_representation(arena,p,RepresentationKind::OriginalRequest)?;
-    let authority_ref=authority.reference.clone();let assertion_ref=assertion.reference.clone();let verification_ref=verification.reference.clone();
+    fn copied(m:&mut CoreMeter,r:&ExactRef)->Result<ExactRef>{
+        fn text(m:&mut CoreMeter,s:&str)->Result<String>{m.scan_bytes(s.len())?;m.write_bytes(s.len())?;Ok(s.to_owned())}
+        Ok(ExactRef{kind:text(m,&r.kind)?,id:text(m,&r.id)?,digest:text(m,&r.digest)?})
+    }
+    let authority_ref=copied(m,&authority.reference)?;let assertion_ref=copied(m,&assertion.reference)?;let verification_ref=copied(m,&verification.reference)?;
+    fn copied_text(m:&mut CoreMeter,s:&str)->Result<String>{m.scan_bytes(s.len())?;m.write_bytes(s.len())?;Ok(s.to_owned())}
+    let mut claims=Vec::new();claims.try_reserve_exact(1).map_err(|_|shape::fail("assertion identity effect vector"))?;
+    // The source was checked against the authenticated nomination above;
+    // the produced verifier independently uses this same authority source.
+    let verified_source=shape::text(m,&authority_value,"source")?;
+    claims.push(super::candidate::ClaimEffect::derived(super::candidate::PermanentClaimKey::Assertion{logical_store_id:copied_text(m,&c.key.logical_store_id)?,scope:[copied_text(m,&c.key.scope[0])?,copied_text(m,&c.key.scope[1])?],verified_source:copied_text(m,verified_source)?,attestation_id:copied_text(m,identifier)?},copied(m,&assertion.reference)?));
+    let terms=resolved.terms;
     let mut introduced=resolved.introduced;
+    introduced.try_reserve_exact(3).map_err(|_|shape::fail("retention result vector"))?;
     let assertion_index=crate::validation_work::usize_add(m,introduced.len(),1)?;
-    introduced.push(authority);introduced.push(assertion);introduced.push(verification);
-    Ok(RetainedAssertionData{normalized,introduced:introduced.into_iter().map(|inner|RetainedAssertionEnvelope{inner}).collect(),authority_ref,assertion_ref,assertion_index,verification_ref,consumed:r.into_consumed_owned(),claims:vec![],_output_ownership:None})
+    introduced.push(authority);
+    let reused_assertion=if reuse{Some(RetainedAssertionEnvelope{inner:assertion})}else{introduced.push(assertion);None};
+    introduced.push(verification);
+    Ok(GenericRetention{normalized,introduced:introduced.into_iter().map(|inner|RetainedAssertionEnvelope{inner}).collect(),authority_ref,assertion_ref,assertion_index,verification_ref,records:r,terms,work,claims,reused_assertion,ownership})
 }
-fn resolve_field(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&SelectedProgram,att:&Value,state:&EconomicStateData)->Result<(authority::ResolvedOperands,Vec<ExactRef>)>{
+fn resolve_field(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&SelectedProgram,att:&Value,state:&EconomicStateData)->Result<(authority::ResolvedOperands,Vec<ExactRef>,Option<super::record_body::RecordBody>)>{
     let subject=&att["subject"];
     let kind=shape::text(m,subject,"kind")?;
     let schema=field_schema(m,program,&att["subject_schema_ref"])?;
-    let (resolved,binding)=if shape::same_text(m,kind,"outcome")? {
+    let (resolved,binding,work)=if shape::same_text(m,kind,"outcome")? {
         shape::closed(m,subject,&["kind","logical_store_id","scope","target_ref","family_slot","business_outcome_token","activity","binding_ref"],&[])?;
         let token=shape::text(m,subject,"business_outcome_token")?;
         text_bound(m,token,128,true)?;
@@ -232,7 +307,7 @@ fn resolve_field(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&Se
         let source_slot=shape::text(m,selected.family,"source_slot")?;
         let resolved=selected.authority(m,r,c,program,source_slot,EconomicMode::EvidenceRetain)?;
         additional_operation(m,r,c,"outcome.submit")?;
-        (resolved,shape::reference(m,&selected.target["binding_ref"])?)
+        (resolved,shape::reference(m,&selected.target["binding_ref"])?,Some(selected.work))
     } else if shape::same_text(m,kind,"work")? {
         shape::closed(m,subject,&["kind","logical_store_id","scope","canonical_source_namespace","business_operation_id","customer","activity","product_ref","binding_ref"],&[])?;
         let business=shape::text(m,subject,"business_operation_id")?;
@@ -254,7 +329,7 @@ fn resolve_field(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&Se
         let times=super::representation::ParsedDraftTimes::parse(m,&owner,&c.received_at,&c.accepted_at)?;
         let resolved=authority::resolve_economic(m,r,c,&p,activity,product,&owner,&times,program,EconomicMode::EvidenceRetain,&[])?;
         additional_operation(m,r,c,"work.accept")?;
-        (resolved,shape::reference(m,&subject["binding_ref"])?)
+        (resolved,shape::reference(m,&subject["binding_ref"])?,None)
     }else{return Err(shape::fail("assertion closed subject kind"));};
     let claims=shape::array(m,att,"claims")?;
     if !meter::cmp(m,&claims.len().into(),&0usize.into())?.is_gt() || meter::cmp(m,&claims.len().into(),&64usize.into())?.is_gt(){return Err(shape::fail("assertion claim count"));}
@@ -270,7 +345,7 @@ fn resolve_field(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&Se
         eq(m,&field["provenance"]["evidence_kind"],&att["evidence_kind"])?;
         schema.normalize_attested_field_complete_with_work(name,&claim["value"],m)?;
     }
-    Ok((resolved,vec![binding]))
+    Ok((resolved,vec![binding],work))
 }
 fn product_claim_schema(m:&mut CoreMeter,program:&SelectedProgram,att:&Value)->Result<()> {
     let activity_name=shape::text(m,&att["subject"],"activity")?;
@@ -390,6 +465,24 @@ mod tests {
         // a financial constructor/qualification.
     }
     #[test]
+    fn retained_assertion_alias_consumes_exact_old_body_and_conflicts_on_change(){
+        // This exercises the actual alias/old-I boundary only; the host must
+        // independently prove completed origin and exact locked-key selection.
+        let c=DraftContextData{key:OperationKey{logical_store_id:"store".into(),scope:["scope".into(),"test".into()],source:"source".into(),operation_id:"operation".into()},actor:"actor".into(),canonical_economic_namespace:"namespace".into(),installation_mode:"real_local".into(),received_at:"2026-10-18T00:00:00.000000Z".into(),accepted_at:"2026-10-18T00:00:00.000000Z".into(),authorities:vec![],source_observation_inputs:vec![]};
+        let original=json!({"schema":"ledger-workflow-fact-attestation/1","source":"source","attestation_id":"assertion","claims":[{"field":"code","value":"ok"}]});
+        let mut build=CoreMeter::new(65536).unwrap();let old=body::document_borrowed(&mut build,"workflow-fact-attestation",&original).unwrap();
+        for case in 0..4 {
+            let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();let mut m=session.meter_mut().original_economic_meter().unwrap();
+            let views=[EconomicRecordView{reference:&old.reference,canonical_body:&old.canonical_body}];
+            let mut records=Records::borrowed_app(&mut m,&arena,&c.key,&views,&[]).unwrap();
+            let financial=DraftStateData::default();
+            let state=EconomicStateData{retained_assertion:if case==0{None}else{Some(&old.reference)},financial:&financial,capacity_heads:&[],supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None,initial_source_correspondences:&[]};
+            let mut value=original.clone();if case==2{value["claims"][0]["value"]=json!("changed");}if case==3{value["attestation_id"]=json!("other");}
+            let produced=body::document_borrowed(&mut m,"workflow-fact-attestation",&value).unwrap();
+            match case{0=>{assert!(!existing_assertion(&mut m,&mut records,&c,&state,&produced).unwrap());assert!(records.consumed().is_empty());},1=>{assert!(existing_assertion(&mut m,&mut records,&c,&state,&produced).unwrap());assert_eq!(records.consumed(),&[old.reference.clone()]);assert!(matches!(records.used_canonical(&mut m,&old.reference).unwrap(),super::super::records::UsedCanonical::Preexisting(_)));},2=>assert_eq!(existing_assertion(&mut m,&mut records,&c,&state,&produced).unwrap_err().code,"IDENTITY_CONFLICT"),_=>assert!(existing_assertion(&mut m,&mut records,&c,&state,&produced).is_err())}
+        }
+    }
+    #[test]
     fn close_subject_version_normalizes_without_synthesizing_facts(){
         let program=program();let arena=AuditArena::new().unwrap();let baseline=arena.usage().unwrap().live_bytes;
         let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();let mut child=session.meter_mut().original_economic_meter().unwrap();
@@ -403,4 +496,19 @@ mod tests {
             assert_eq!(arena.usage().unwrap().live_bytes,baseline);
         }
     }
+}
+
+/// Exact-key point-hit DATA is reconciled by the host against its completed
+/// prefix. The child independently reads and compares the old assertion; it
+/// never treats the held projection as body/origin or authority proof.
+pub(super) fn existing_assertion(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,state:&EconomicStateData,produced:&ConstructedEnvelope)->Result<bool>{
+    if !m.check("retention.permanent_assertion_hit",||state.retained_assertion.is_some())?{return Ok(false);}
+    let old=state.retained_assertion.expect("checked permanent assertion hit");
+    let body=r.provenance(m,&c.key,old)?;
+    let value=produced.decoded(m,4194304)?;
+    if !shape::same(m,&body["source"],&value["source"])? || !shape::same(m,&body["attestation_id"],&value["attestation_id"])?{return Err(shape::fail("held assertion exact permanent key"));}
+    let canonical=r.canonical(m,old)?;
+    if !shape::same_ref(m,old,&produced.reference)? || !shape::same_bytes(m,canonical,&produced.canonical_body)?{return Err(Error::new("IDENTITY_CONFLICT","permanent assertion identity has different canonical body"));}
+    if !matches!(r.used_canonical(m,old)?,super::records::UsedCanonical::Preexisting(_)){return Err(shape::fail("held assertion must be retained old I"));}
+    Ok(true)
 }

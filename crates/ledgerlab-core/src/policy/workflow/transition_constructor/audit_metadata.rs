@@ -126,6 +126,10 @@ fn check_exact(m:&mut CoreMeter,value:&Value,expected:&[u8])->Result<()>{
     if !shape::same_bytes(m,bytes.bytes(),expected)?{return Err(shape::fail("verifier differs from exact code-owned selected catalog"));}Ok(())
 }
 pub(super) fn check_source(m:&mut CoreMeter,value:&Value)->Result<()>{check_exact(m,value,SOURCE)}
+// Fixed selected binary template for the containing source derivation. This
+// is DATA, not a verifier/capability constructor or a caller-supplied bound.
+pub(super) fn source_template()->&'static [u8]{SOURCE}
+
 pub(super) fn check_financial(m:&mut CoreMeter,value:&Value)->Result<()>{check_exact(m,value,FINANCIAL)}
 
 #[cfg(test)] mod tests{

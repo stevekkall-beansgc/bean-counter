@@ -139,6 +139,9 @@ pub struct EconomicObservationInput<'a> {
 /// exact capacity heads under the same snapshot/locks as financial heads;
 /// neither a payload nor this view asserts completeness or currentness.
 pub struct EconomicStateData<'a> {
+    /// Actual locked permanent assertion-key hit for this retention request.
+    /// None is meaningful only after host exact-key absence reconciliation.
+    pub retained_assertion:Option<&'a ExactRef>,
     pub financial: &'a DraftStateData,
     pub capacity_heads: &'a [CapacityHead],
     pub supplier:Option<&'a SupplierStateData<'a>>,
@@ -193,16 +196,20 @@ pub struct DraftTransition {
 /// These private DATA facts carry no host origin/currentness capability; they
 /// stay attached to the SAME construction for funding/prospective derivation.
 pub(super) enum OriginalWorkPayload {
+    // Existing evidence retention can precede measured work. This private
+    // absence is never a synthetic work payload or a funding entitlement.
+    Unattached,
     New(super::working_value::WorkingValue),
     Retained(super::record_body::RecordBody),
 }
 impl OriginalWorkPayload {
-    pub(super) fn payload(&self) -> &serde_json::Value {
+    pub(super) fn payload(&self) -> crate::Result<&serde_json::Value> {
         match self {
-            Self::New(value) => value,
+            Self::Unattached=>Err(crate::Error::new("INTEGRITY_FAILURE","unattached evidence has no original work payload")),
+            Self::New(value) => Ok(value),
             // Every retained constructor path established the closed WorkRecord
             // and its original payload before creating this private variant.
-            Self::Retained(work) => &work["payload"],
+            Self::Retained(work) => Ok(&work["payload"]),
         }
     }
 }
@@ -225,11 +232,12 @@ pub(super) struct Construction<'inv, 'raw> {
     pub original_reservations: Option<super::capacity::original::OriginalReservations>,
     pub normalized_payload: super::emitted_record::EncodedBody,
     pub new_envelopes: Vec<super::emitted_record::ConstructedEnvelope>,
+    pub reused_result:Option<ExactRef>,
     pub evaluation_steps: Vec<serde_json::Value>,
     pub proposed_heads: ProposedHeads,
     pub claim_introductions: Vec<ExactRef>,
     pub link_introductions: Vec<ExactRef>,
-    pub prospective_obligations: Vec<serde_json::Value>,
+    pub prospective_obligations: Vec<super::working_value::WorkingValue>,
     pub records: super::records::Records<'inv, 'raw>,
     pub history_edges: Vec<(ExactRef, ExactRef)>,
     pub app_effects:Option<AppEffects>,
@@ -241,7 +249,7 @@ pub(super) struct Construction<'inv, 'raw> {
     pub funding_effects:Option<super::funding::OwnedFundingEffects>,
     // Retain each producer's control payload owner after its returned vectors,
     // typed Ref/string fields and body owners. These are memory only.
-    pub control_owners:[Option<crate::canonical::audit_arena::ExternalBufferLease>;4],
+    pub control_owners:[Option<crate::canonical::audit_arena::ExternalBufferLease>;5],
 }
 impl Construction<'_, '_> {
     pub(super) fn draft_projection(
@@ -259,7 +267,7 @@ impl Construction<'_, '_> {
             proposed_heads: self.proposed_heads,
             claim_introductions: self.claim_introductions,
             link_introductions: self.link_introductions,
-            prospective_obligations: self.prospective_obligations,
+            prospective_obligations: self.prospective_obligations.into_iter().map(super::working_value::WorkingValue::into_legacy).collect::<crate::Result<_>>()?,
             consumed_refs: super::body::ref_set(m, self.records.into_legacy_consumed()?)?,
             history_edges: self.history_edges,
             usage: m.snapshot_usage()?,

@@ -252,22 +252,32 @@ fn private_pricing_algorithm_keeps_distinct_binding_bases_separate() {
     ];
     // Algorithm-only defensive data; the selected source compiler rejects a
     // second retail binding. This does not mint an unchecked SelectedProgram.
+    let instructions=[
+        base("example:a", "1", "0"),base("example:b", "2", "1"),
+        discount("example:a", "2"),discount("example:b", "3"),
+    ];
+    let facts=json!({"example:quantity":"1"});
     let mut meter = CoreMeter::new(65536).unwrap();
-    let result = pricing::price_instructions(
-        &[
-            base("example:a", "1", "0"),
-            base("example:b", "2", "1"),
-            discount("example:a", "2"),
-            discount("example:b", "3"),
-        ],
-        &components,
-        "example:work",
-        &json!({"example:quantity":"1"}),
-        &mut meter,
-    )
-    .unwrap();
+    let result=pricing::price_instructions(&instructions,&components,"example:work",&facts,&mut meter).unwrap();
     assert_eq!(result[2].atoms, -200_000_000_000_000_000);
     assert_eq!(result[3].atoms, -400_000_000_000_000_000);
+    // Same evaluator under its actual owning ledger. Popping a row must keep
+    // its String/rational owner after the result-vector owner is released.
+    let arena=crate::canonical::audit_arena::AuditArena::new().unwrap();
+    let before=arena.usage().unwrap().live_bytes;
+    let mut original=crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut child=original.meter_mut().original_economic_meter().unwrap();
+    let mut owned=pricing::price_instructions(&instructions,&components,"example:work",&facts,&mut child).unwrap();
+    for(a,b)in owned.iter().zip(result.iter()){
+        assert_eq!(a.atoms,b.atoms);assert_eq!(a.rational,b.rational);
+        assert_eq!(a.basis_components,b.basis_components);
+        assert!(a._ownership.is_some());
+    }
+    let row=owned.pop().unwrap();drop(owned);
+    assert_eq!(row.atoms,-400_000_000_000_000_000);
+    assert!(arena.usage().unwrap().live_bytes>before);
+    drop(row);original.meter_mut().finish_original_economic(child).unwrap();
+    assert_eq!(arena.usage().unwrap().live_bytes,before);
 }
 
 #[test]

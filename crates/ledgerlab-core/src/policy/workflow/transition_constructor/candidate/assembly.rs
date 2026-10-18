@@ -40,7 +40,7 @@ fn program_inputs(m:&mut CoreMeter,c:&DraftContextData,program:&SelectedProgram,
 /// and no supplied receipt/result list participates in this dispatch.
 pub(in crate::policy::workflow::transition_constructor) fn operation(m:&mut CoreMeter,p:&serde_json::Value)->Result<&'static str>{
     let schema=shape::text(m,p,"schema")?;
-    for(s,kind)in[("ledger-workflow-work/1","work.accept"),("ledger-workflow-outcome/1","outcome.submit"),("ledger-workflow-outcome-correction/1","outcome.correct"),("ledger-workflow-outcome-close/2","outcome.close"),("ledger-workflow-quantity-correction/2","quantity.correct"),("ledger-workflow-work-reverse/2","work.reverse"),("ledger-workflow-cost-finalize/2","cost.finalize"),("ledger-workflow-cost-correct/2","cost.correct")]{
+    for(s,kind)in[("ledger-workflow-work/1","work.accept"),("ledger-workflow-outcome/1","outcome.submit"),("ledger-workflow-outcome-correction/1","outcome.correct"),("ledger-workflow-outcome-close/2","outcome.close"),("ledger-workflow-quantity-correction/2","quantity.correct"),("ledger-workflow-work-reverse/2","work.reverse"),("ledger-workflow-cost-finalize/2","cost.finalize"),("ledger-workflow-cost-correct/2","cost.correct"),("ledger-workflow-fact-attest/1","evidence.retain"),("ledger-workflow-family-close-attest/1","evidence.retain"),("ledger-workflow-app-observe/1","evidence.retain"),("ledger-workflow-app-cost-attest/1","evidence.retain")]{
         m.visit("candidate.executed_payload_recipe")?;if shape::same_text(m,schema,s)?{return Ok(kind);}
     }
     Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","candidate payload recipe is not implemented"))
@@ -50,8 +50,34 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning candidate assembly"))?;
     let payload=m.parse_owned_representation(&arena,&t.normalized_payload,crate::validation_work::RepresentationKind::OriginalRequest)?;
     let kind=operation(m,payload.value())?;
+    if m.check("capacity.retained_original_derivation_needed",||t.original_reservations.is_none())? && !shape::same_text(m,kind,"evidence.retain")?{
+        if let OriginalWorkPayload::Retained(work)=&t.economic.original_work{
+            // Independent same-child resolution, not a saved maximum or a
+            // parent inventory/cache transfer. The immutable Arc clone only
+            // permits disjoint borrowing while the one Records table is used.
+            if !m.check("capacity.retained_work_has_owning_body",||matches!(work,super::super::record_body::RecordBody::Owned(_)))?{return Err(shape::fail("retained capacity requires owning work body"));}
+            let _view=arena.reserve_external_payload(mem::size_of::<super::super::record_body::RecordBody>(),m)?;
+            m.write_bytes(mem::size_of::<super::super::record_body::RecordBody>())?;
+            let work=work.clone();
+            t.original_reservations=Some(capacity::original::derive_for_work(&arena,m,&mut t.records,c,program,&work,&t.economic.terms)?);
+        }
+    }
+    if m.check("capacity.retained_ancestor_head_needed",||t.current_capacity.is_none()&&matches!(&t.economic.original_work,OriginalWorkPayload::Retained(_)))? && !shape::same_text(m,kind,"evidence.retain")?{
+        let original=t.original_reservations.as_ref().ok_or_else(||shape::fail("retained ancestor original reservations missing"))?;
+        t.current_capacity=Some(capacity::current::retained_original_head(m,&mut t.records,c,&original.original_root_ref,&original.root_decision_id,state)?);
+    }
+    if let (Some(original),Some(current))=(&t.original_reservations,&t.current_capacity){
+        // This only closes original decision/action/edge equality on a graph
+        // with no retirements. Numerical record/byte/work, changed ancestor
+        // graphs and all resource proofs remain the final refusing boundary.
+        let _complete_original_structure=capacity::current::compare_original_structure(m,&mut t.records,c,original,current)?;
+    }
     let mut bytes=product(m,t.new_envelopes.len(),mem::size_of::<String>()+mem::size_of::<ExactRef>()+mem::size_of::<super::CandidateEnvelope>())?;
     bytes=w::usize_add(m,bytes,mem::size_of::<Self>())?;
+    if let Some(reference)=&t.reused_result{
+        let payload=ref_bytes(m,reference)?;bytes=w::usize_add(m,bytes,payload)?;
+        bytes=w::usize_add(m,bytes,mem::size_of::<ExactRef>())?;
+    }
     for row in &t.new_envelopes{
         m.visit("candidate.assembly_output_dimension")?;
         let value=row.decoded(m,4194304)?;let schema=shape::text(m,&value,"schema")?;
@@ -67,7 +93,8 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     bytes=w::usize_add(m,bytes,associations)?;
     let metadata=arena.reserve_external_payload(bytes,m)?;
     let mut schemas=Vec::new();schemas.try_reserve_exact(t.new_envelopes.len()).map_err(|_|shape::fail("candidate schema vector"))?;
-    let mut result_refs=Vec::new();result_refs.try_reserve_exact(t.new_envelopes.len()).map_err(|_|shape::fail("candidate result reference vector"))?;
+    let result_count=w::usize_add(m,t.new_envelopes.len(),usize::from(t.reused_result.is_some()))?;
+    let mut result_refs=Vec::new();result_refs.try_reserve_exact(result_count).map_err(|_|shape::fail("candidate result reference vector"))?;
     let mut authority=None;
     for(i,row)in t.new_envelopes.iter().enumerate(){
         m.visit("candidate.assembly_authoritative_result")?;let value=row.decoded(m,4194304)?;
@@ -77,6 +104,12 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
             if shape::same_text(m,actual,kind)?{if authority.is_some(){return Err(shape::fail("ambiguous root operation authority result"));}authority=Some(i);}
         }
         schemas.push(copy(m,schema)?);result_refs.push(copy_ref(m,&row.reference)?);
+    }
+    if let Some(reference)=&t.reused_result{
+        m.visit("candidate.reused_result_partition")?;
+        if !matches!(t.records.used_canonical(m,reference)?,super::super::records::UsedCanonical::Preexisting(_)){return Err(shape::fail("reused result must be consumed old I"));}
+        for row in &t.new_envelopes{m.visit("candidate.reused_result_not_new")?;if shape::same_ref(m,reference,&row.reference)?{return Err(shape::fail("reused result also introduced"));}}
+        result_refs.push(copy_ref(m,reference)?);
     }
     let authority_position=authority.ok_or_else(||shape::fail("actual root authority result missing"))?;
     let mut source_observations=Vec::new();source_observations.try_reserve_exact(c.authorities.len()).map_err(|_|shape::fail("candidate source association vector"))?;
@@ -119,6 +152,15 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
         let arena=m.representation_arena().ok_or_else(||shape::fail("candidate capacity owner"))?;
         let _union=original.structural_union(&arena,m)?;
         if original.future_records.is_none(){return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","future executor record derivation is incomplete"));}
+        // Actual checked composition, not stored maxima or observed runtime
+        // totals. Missing containing phases below still prevent any writer.
+        let (_accounted_source,_accounted_pricing)=capacity::accounted_root_callbacks(m,original)?;
+        let _monetary_new_body_bytes=capacity::accounted_root_new_bodies(m,original)?;
+        let (_changing_source_i_bytes,_source_observation_n_bytes)=capacity::accounted_root_source_bodies(m,original)?;
+        // Authority.app_cost_revision_refs independently reaches every older
+        // active cost revision. Prior-field cuts do not make that I constant.
+        // This history-sized subtotal is not yet the complete P/F/E union.
+        let _app_history=capacity::history::derive(m,original)?;
     }
     Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","complete all-ancestor dependency/capacity and original S/C/bytes/arena proof is not implemented"))
  }
@@ -131,7 +173,7 @@ pub(in crate::policy::workflow::transition_constructor) struct CandidateOwnershi
     introductions:super::introductions::OwnedIntroductions,
     funding:Option<super::super::funding::OwnedFundingEffects>,
     consumed:super::super::records::OwnedConsumed,
-    controls:[Option<ExternalBufferLease>;4],
+    controls:[Option<ExternalBufferLease>;5],
     metadata:ExternalBufferLease,
     reservations:super::reservations::OwnedReservations,
     head_transfer:ExternalBufferLease,

@@ -313,6 +313,31 @@ pub(super) fn evidence_membership(
     o: &authority::Terms,
     refs: &[ExactRef],
 ) -> Result<()> {
+    if let Some(arena)=m.representation_arena(){
+        // SAME applicable assent/original-grant/current-grant union. Existing
+        // typed grant references were authenticated by resolved operands;
+        // assent members are parsed from the actual original Binding body.
+        // No temporary JSON arrays or Ref-string copies are needed here.
+        let assents=shape::array(m,&o.binding,"assent_refs")?;
+        for reference in refs{
+            m.visit("causal.applicable_retained_evidence")?;
+            let mut found=false;
+            for value in assents{
+                m.visit("causal.owning_original_assent")?;
+                let candidate=super::super::working_value::parse_owned_reference(m,&arena,value)?;
+                if shape::same_ref(m,candidate.reference(),reference)?{found=true;break;}
+            }
+            if !found{
+                for candidate in &c.authorities[0].original_grant_refs{
+                    m.visit("causal.owning_original_grant")?;
+                    if shape::same_ref(m,candidate,reference)?{found=true;break;}
+                }
+            }
+            if !found{found=shape::same_ref(m,&c.authorities[0].current_grant_ref,reference)?;}
+            if !found{return Err(Error::new("AUTHORITY_REQUIRED","causal evidence not an applicable original assent/grant or current grant"));}
+        }
+        return Ok(());
+    }
     for reference in refs {
         m.visit("causal.applicable_retained_evidence")?;
         let mut found = false;
@@ -354,6 +379,49 @@ impl ClosedFamily {
         root: &RootPlan,
         authority: &ExactRef,
     ) -> Result<(ConstructedEnvelope, String)> {
+        if let Some(arena)=m.representation_arena(){
+            // The same terminal family recipe, with each tuple/Ref/body copy
+            // produced by the existing owning representation path. The root
+            // retains the returned row/head String controls separately.
+            let revision=counter(m,&self.family.prior,"revision")?;
+            let revision=meter::add(m,&revision,&1.into())?;
+            let revision=super::super::cost_postings::scalar(m,&arena,&revision)?;
+            let slot=shape::field(m,&self.family.prior,"family_slot")?;
+            let target_id=arena.string_value(&self.family.target_ref.id,m)?;
+            let tuple=arena.array_from_values(&[target_id.value(),slot,revision.value()],m)?;
+            let id=body::semantic_id(m,"wfamily_","workflow-family-state",tuple.value())?;
+            let target=super::super::working_value::owning_reference(m,&arena,&self.family.target_ref)?;
+            let prior=super::super::working_value::owning_reference(m,&arena,&self.family.prior_ref)?;
+            let root_ref=super::super::working_value::owning_reference(m,&arena,&root.current_ref)?;
+            let authority=super::super::working_value::owning_reference(m,&arena,authority)?;
+            let terms=super::super::working_value::owning_reference(m,&arena,&root.operands.slot_terms_ref)?;
+            let key=super::super::cost_postings::operation_key(m,&arena,c)?;
+            let at=arena.string_value(&c.accepted_at,m)?;
+            let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-workflow-family-state/2","state":"closed_by_root"}"#,crate::validation_work::RepresentationKind::SourceDefinition)?;
+            crate::validation_work::ValidationWork::arithmetic(m,crate::validation_work::ArithmeticOperation::Multiply,&[&self.family.evidence.len().into(),&std::mem::size_of::<&ExactRef>().into()])?;
+            let bytes=self.family.evidence.len().checked_mul(std::mem::size_of::<&ExactRef>()).ok_or_else(||shape::fail("closed family evidence metadata"))?;
+            let bytes=crate::validation_work::usize_add(m,bytes,std::mem::size_of::<Vec<&ExactRef>>())?;
+            let _workspace=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
+            let mut evidence=Vec::new();
+            evidence.try_reserve_exact(self.family.evidence.len()).map_err(|_|shape::fail("closed family evidence fields"))?;
+            for reference in &self.family.evidence{m.visit("causal.owning_closed_evidence")?;evidence.push(reference);}
+            let evidence=super::super::app_cost::reference_set(m,&arena,&evidence)?;
+            let closure=arena.object_from_fields(&[("root_decision_ref",root_ref.value()),("root_expected_revision",&root.current["revision"]),("authority_ref",authority.value()),("original_slot_terms_ref",terms.value()),("root_component_slot",&self.family.target["root_component_slot"])],m)?;
+            let value=arena.object_from_fields(&[("schema",&constants.value()["schema"]),("target_ref",target.value()),("family_slot",slot),("revision",revision.value()),("state",&constants.value()["state"]),("prior_ref",prior.value()),("closure_evidence_refs",evidence.value()),("operation_key",key.value()),("accepted_at",at.value()),("causal_closure",closure.value())],m)?;
+            let mut value=super::super::working_value::WorkingValue::Owned(value);
+            for name in ["window","anchor_work_ref","claim_ref"]{
+                m.visit("causal.preserve_original_footprint")?;
+                if let Some(previous)=self.family.prior.get(name){value=value.with_fields(m,&[(name,previous)])?;}
+            }
+            match (&self.decision,self.family.prior.get("decision_ref")){
+                (Some(decision),Some(_))=>{let decision=super::super::working_value::owning_reference(m,&arena,&decision.reference)?;value=value.with_fields(m,&[("decision_ref",decision.value())])?;}
+                (None,None)=>{}
+                _=>return Err(shape::fail("causal closed decision footprint")),
+            }
+            let revision=revision.value().as_str().ok_or_else(||shape::fail("closed family counter framing"))?;
+            m.scan_bytes(revision.len())?;m.write_bytes(revision.len())?;
+            return Ok((body::record_borrowed(m,&c.key,"workflow-family-state",id,&value)?,revision.to_owned()));
+        }
         let revision = counter(m, &self.family.prior, "revision")?;
         let revision = meter::add(m, &revision, &1.into())?.to_string();
         let slot = text(m, &self.family.prior, "family_slot")?;

@@ -15,6 +15,7 @@ pub(in crate::policy::workflow::transition_constructor) struct GrantBound {
     pub maximum_activity_selectors:usize,
     pub maximum_link_selectors:usize,
     pub maximum_decoded_guard_work:usize,
+    pub maximum_body_bytes:usize,
 }
 fn add(m:&mut CoreMeter,a:usize,b:usize)->Result<usize>{w::usize_add(m,a,b)}
 fn mul(m:&mut CoreMeter,a:usize,b:usize)->Result<usize>{
@@ -28,10 +29,10 @@ fn bounded(m:&mut CoreMeter,n:usize,min:usize,max:usize)->Result<()> {
 // each adjacent byte_order. The per-member semantic visit remains S. The
 // redundant all-prior structural duplicate pass is absent in this exact path.
 fn ordered(m:&mut CoreMeter,n:usize)->Result<usize>{mul(m,5,n)}
-struct Selectors {maximum:usize,names:usize,qualified:usize,original_search:usize}
+struct Selectors {maximum:usize,names:usize,qualified:usize,original_search:usize,name_bytes:usize}
 fn selectors(m:&mut CoreMeter,ceiling:&Value,key:&str,limit:usize)->Result<Selectors>{
     let original=shape::array(m,ceiling,key)?;bounded(m,original.len(),0,limit)?;
-    let mut total_names=0usize;let mut qualified=0usize;let mut search=0usize;
+    let mut total_names=0usize;let mut qualified=0usize;let mut search=0usize;let mut name_bytes=0usize;
     for selector in original {
         m.visit("capacity.source_original_selector")?;
         shape::closed(m,selector,&["names"],&[])?;
@@ -40,6 +41,7 @@ fn selectors(m:&mut CoreMeter,ceiling:&Value,key:&str,limit:usize)->Result<Selec
         let prefix=mul(m,11,names.len())?;let original=add(m,8,prefix)?;search=add(m,search,original)?;
         for name in names {
             m.visit("capacity.source_original_name")?;
+            let bytes=super::app_bytes::immutable_bytes(m,name)?;if w::compare(m,bytes,name_bytes)?.is_gt(){name_bytes=bytes;}
             let raw=name.as_str().ok_or_else(||shape::fail("original selector name"))?;
             m.scan_bytes(raw.len())?;
             let (namespace,local)=raw.split_once(':').ok_or_else(||shape::fail("original qualified selector name"))?;
@@ -60,7 +62,7 @@ fn selectors(m:&mut CoreMeter,ceiling:&Value,key:&str,limit:usize)->Result<Selec
         distinct=if w::compare(m,next,limit)?.is_gt(){limit}else{next};
     }
     let names=if w::compare(m,total_names,64usize)?.is_gt(){64}else{total_names};
-    Ok(Selectors{maximum:distinct,names,qualified,original_search:search})
+    Ok(Selectors{maximum:distinct,names,qualified,original_search:search,name_bytes})
 }
 fn selector_subset(m:&mut CoreMeter,s:&Selectors)->Result<usize>{
     let names_order=ordered(m,s.names)?;
@@ -163,7 +165,8 @@ pub(super) fn derive(m:&mut CoreMeter,ceiling:&Value)->Result<GrantBound>{
     let queries=mul(m,11,memberships)?;total=add(m,total,queries)?;
     for selected in [&activity,&product]{let n=coverage(m,selected)?;total=add(m,total,n)?;}
     let maximum_decoded_guard_work=decoded_grant(m,&lengths,[&product,&activity,&link])?;
-    Ok(GrantBound{semantic_work:total,timestamp_parse_work_through_original_end:timestamp_bound,maximum_product_selectors:product.maximum,maximum_activity_selectors:activity.maximum,maximum_link_selectors:link.maximum,maximum_decoded_guard_work})
+    let maximum_body_bytes=super::app_bytes::source_grant_body(m,ceiling,[(product.maximum,product.names,product.name_bytes),(activity.maximum,activity.names,activity.name_bytes),(link.maximum,link.names,link.name_bytes)])?;
+    Ok(GrantBound{maximum_body_bytes,semantic_work:total,timestamp_parse_work_through_original_end:timestamp_bound,maximum_product_selectors:product.maximum,maximum_activity_selectors:activity.maximum,maximum_link_selectors:link.maximum,maximum_decoded_guard_work})
 }
 
 pub(in crate::policy::workflow::transition_constructor) struct SourceFrameBound {
@@ -175,6 +178,7 @@ pub(in crate::policy::workflow::transition_constructor) struct SourceFrameBound 
     pub original_enrollment_decoded_guard_work:usize,
     pub maximum_grant_records_work:usize,
     pub complete_callback_work:Option<SourceCallbackBound>,
+    pub changing_bodies:Option<super::app_bytes::SourceBodyBounds>,
 }
 pub(in crate::policy::workflow::transition_constructor) struct OriginalSourceBounds {
     pub frames:Vec<SourceFrameBound>,
@@ -259,7 +263,7 @@ pub(super) fn original_frames(
             let ceiling=shape::field(m,&enrollment,"ceiling")?;let bound=derive(m,ceiling)?;
             let (enrollment_guard,_)=super::app_bytes::immutable_guard(m,&enrollment,0)?;
             let immutable_decoded_guard_work=add(m,original_guard,enrollment_guard)?;
-            frames.push(SourceFrameBound{enrollment_ref,grant:bound,original_grant_count:1,maximum_uncached_grant_predicate_work:0,immutable_decoded_guard_work,original_enrollment_decoded_guard_work:enrollment_guard,maximum_grant_records_work:0,complete_callback_work:None});
+            frames.push(SourceFrameBound{enrollment_ref,grant:bound,original_grant_count:1,maximum_uncached_grant_predicate_work:0,immutable_decoded_guard_work,original_enrollment_decoded_guard_work:enrollment_guard,maximum_grant_records_work:0,complete_callback_work:None,changing_bodies:None});
         }
     }
     for frame in &mut frames{
@@ -285,6 +289,8 @@ pub(super) fn original_frames(
         let guards=add(m,maximum_terms_grant_guards,frame.original_enrollment_decoded_guard_work)?;
         let guards=add(m,guards,frame.grant.maximum_decoded_guard_work)?;
         frame.maximum_grant_records_work=add(m,record_controls,guards)?;
+        let enrollment=r.get(m,&c.key,&frame.enrollment_ref,"workflow-source-enrollment","ledger-workflow-source-enrollment/1")?;
+        frame.changing_bodies=Some(super::app_bytes::source_bodies(m,&enrollment,&c.key.logical_store_id,frame.original_grant_count,frame.grant.maximum_body_bytes)?);
         frame.complete_callback_work=Some(frame::derive(m,r,c,program,terms,frame,maximum_terms_grants,maximum_terms_grant_guards,&references)?);
     }
     Ok(OriginalSourceBounds{frames,terms_grant_count:maximum_terms_grants,distinct_original_grants:references.len(),_ownership:ownership})
@@ -315,6 +321,7 @@ mod tests{
             let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();let mut m=session.meter_mut().original_economic_meter().unwrap();
             let mut guard=CoreMeter::new(65536).unwrap();super::super::super::codec::validate_selected_types(&mut guard,&grant).unwrap();
             assert!(guard.usage().semantic_work<=bound.maximum_decoded_guard_work as u64);
+            assert!(canonical::CanonicalBytes::from_value(&grant).unwrap().as_slice().len()<=bound.maximum_body_bytes);
             let result=authority::grant(&mut m,&InvocationToken::new(),&grant,&ceiling,&context,&json!("customer"),"test:a","test:product","test:worker",&at.into(),EconomicMode::Work);
             if mask==2{assert!(result.is_err());}else{result.unwrap();assert!(m.usage().semantic_work<=bound.semantic_work as u64);session.meter_mut().finish_original_economic(m).unwrap();}
         }

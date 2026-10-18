@@ -15,6 +15,89 @@ pub(in crate::policy::workflow::transition_constructor) struct CurrentCapacity {
 }
 fn copy(m:&mut CoreMeter,value:&str)->Result<String>{m.scan_bytes(value.len())?;m.write_bytes(value.len())?;Ok(value.to_owned())}
 fn copy_ref(m:&mut CoreMeter,value:&ExactRef)->Result<ExactRef>{Ok(ExactRef{kind:copy(m,&value.kind)?,id:copy(m,&value.id)?,digest:copy(m,&value.digest)?})}
+/// Compare the complete original structural reservation set before any
+/// retirement. Wire record/byte/work maxima are deliberately NOT credited by
+/// this check. A retired graph still needs its separate proved after-union.
+pub(in crate::policy::workflow::transition_constructor) fn compare_original_structure(
+ m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original:&super::original::OriginalReservations,current:&CurrentCapacity,
+)->Result<bool>{
+ if m.check("capacity.original_graph_has_retirements",||!current.retirements.is_empty())?{return Ok(false);}
+ let arena=m.representation_arena().ok_or_else(||shape::fail("owning original capacity comparison"))?;
+ let expected=w::usize_add(m,original.families.len(),original.delayed_costs.len())?;
+ let expected=w::usize_add(m,expected,original.app_costs.len())?;
+ if !w::compare(m,current.reserved.len(),expected)?.is_eq(){return Err(shape::fail("original capacity reservation set is incomplete"));}
+ let binding=owning_reference(m,&arena,&original.original_binding_ref)?;
+ let root=r.get(m,&c.key,&original.original_root_ref,"workflow-decision","ledger-workflow-decision-revision/1")?;
+ let ancestor=arena.string_value(&original.root_decision_id,m)?;
+ let _scratch=arena.reserve_external_payload(5*std::mem::size_of::<String>()+512,m)?;
+ for family in &original.families{
+   m.visit("capacity.compare_original_family_edge")?;
+   original_edge(m,r,c,current,ancestor.value(),&family.dependent_decision_id,"outcome_family",&family.target_ref,Some(&family.family_slot),binding.value(),&root["operation_key"],family.maximum_inverse_actions)?;
+ }
+ for cost in &original.delayed_costs{
+   m.visit("capacity.compare_original_supplier_edge")?;
+   original_edge(m,r,c,current,ancestor.value(),&cost.dependent_decision_id,"delayed_cost",&cost.target_ref,None,binding.value(),&root["operation_key"],cost.maximum_inverse_actions)?;
+ }
+ for cost in &original.app_costs{
+   m.visit("capacity.compare_original_app_edge")?;
+   original_edge(m,r,c,current,ancestor.value(),&cost.dependent_decision_id,"delayed_cost",&cost.target_ref,None,binding.value(),&root["operation_key"],cost.maximum_inverse_actions)?;
+ }
+ let union=original.structural_union(&arena,m)?;
+ compare_structural_fields(m,&current.body,union.decision_ids.len(),union.maximum_appended_actions)?;
+ Ok(true)
+}
+fn compare_structural_fields(m:&mut CoreMeter,capacity:&serde_json::Value,decisions:usize,actions:usize)->Result<()>{
+ let arena=m.representation_arena().ok_or_else(||shape::fail("owning structural capacity scalars"))?;
+ let affected=super::super::cost_postings::scalar(m,&arena,&decisions.into())?;
+ let maximum=super::super::cost_postings::scalar(m,&arena,&actions.into())?;
+ shape::equal(m,&capacity["affected_decisions"],affected.value())?;
+ shape::equal(m,&capacity["maximum_actions"],maximum.value())
+}
+fn original_edge(
+ m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,current:&CurrentCapacity,
+ ancestor:&serde_json::Value,dependent:&str,kind:&str,target:&ExactRef,family:Option<&str>,binding:&serde_json::Value,key:&serde_json::Value,actions:usize,
+)->Result<()>{
+ let arena=m.representation_arena().ok_or_else(||shape::fail("owning original dependency comparison"))?;
+ let dependent=arena.string_value(dependent,m)?;let tuple=arena.array_from_values(&[ancestor,dependent.value(),binding],m)?;
+ let id=body::semantic_id(m,"wdep_","workflow-dependency",tuple.value())?;
+ let mut selected=None;
+ for reference in &current.reserved{
+   m.visit("capacity.original_dependency_exact_set_member")?;
+   if shape::same_text(m,&reference.id,&id)?{
+     if selected.is_some(){return Err(shape::fail("duplicate original capacity dependency identity"));}selected=Some(reference);
+   }
+ }
+ let reference=selected.ok_or_else(||shape::fail("missing original dependency reservation"))?;
+ let value=r.get(m,&c.key,reference,"workflow-dependency","ledger-workflow-dependency/1")?;
+ let fields=&["schema","ancestor_decision_id","dependent_decision_id","kind","target_ref","original_terms_ref","maximum_actions","maximum_records","maximum_bytes","maximum_work","operation_key"];
+ shape::closed(m,&value,fields,if family.is_some(){&["family_slot"]}else{&[]})?;
+ for (field,want) in [("ancestor_decision_id",ancestor),("dependent_decision_id",dependent.value()),("original_terms_ref",binding),("operation_key",key)]{shape::equal(m,&value[field],want)?;}
+ let actual_kind=shape::text(m,&value,"kind")?;if !shape::same_text(m,actual_kind,kind)?{return Err(shape::fail("original dependency kind"));}
+ let target=owning_reference(m,&arena,target)?;shape::equal(m,&value["target_ref"],target.value())?;
+ if let Some(family)=family{let actual=shape::text(m,&value,"family_slot")?;if !shape::same_text(m,actual,family)?{return Err(shape::fail("original dependency family slot"));}}
+ let actions=super::super::cost_postings::scalar(m,&arena,&actions.into())?;shape::equal(m,&value["maximum_actions"],actions.value())?;
+ Ok(())
+}
+/// A retained family/app operation affects its original work ancestor even
+/// when the monetary producer itself is not a root correction. Resolve that
+/// ancestor's actual held decision/capacity before numerical production; a
+/// current unrelated cost/family head cannot stand in for the work root.
+pub(in crate::policy::workflow::transition_constructor) fn retained_original_head(
+ m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original_root:&ExactRef,root_id:&str,state:&EconomicStateData,
+)->Result<CurrentCapacity>{
+ let mut selected=None;
+ for head in &state.financial.decision_heads{
+   m.visit("capacity.retained_ancestor_decision_head")?;
+   if shape::same_text(m,&head.decision_id,root_id)?{
+     if selected.is_some(){return Err(shape::fail("ambiguous original ancestor decision head"));}selected=Some(head);
+   }
+ }
+ let head=selected.ok_or_else(||shape::fail("original work ancestor held decision head is missing"))?;
+ let value=r.get(m,&c.key,&head.reference,"workflow-decision","ledger-workflow-decision-revision/1")?;
+ let revision=shape::text(m,&value,"revision")?;
+ if !shape::same_text(m,revision,&head.revision)?{return Err(shape::fail("original ancestor head revision differs from body"));}
+ retained_root_head(m,r,c,original_root,&head.reference,state)
+}
 /// root_ref is ALWAYS the actual original revision1 root, independently of
 /// today's root/head/CAS and independently of the stable capacity counter.
 pub(in crate::policy::workflow::transition_constructor) fn retained_root_head(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,original_root:&ExactRef,current_root:&ExactRef,state:&EconomicStateData)->Result<CurrentCapacity>{
@@ -84,18 +167,25 @@ mod tests {
  #[test]
  fn original_root_ref_persists_while_capacity_counter_advances(){
    let mut build=CoreMeter::new(65536).unwrap();let first=envelope(&mut build,"1");let current=envelope(&mut build,"2");
-   for wrong in [false,true]{
+   for (wrong,wrong_actions) in [(false,false),(true,false),(false,true)]{
      let digest=super::super::super::records::hash(&mut build,"workflow-dependency-set",&json!([])).unwrap();
      let id=body::semantic_id(&mut build,"wcapacity_","workflow-correction-capacity",&json!(["decision","3"])).unwrap();
-     let capacity=body::record(&mut build,&key(),"workflow-correction-capacity",id,json!({"schema":"ledger-correction-capacity/1","root_ref":if wrong{&current.reference}else{&first.reference},"revision":"3","dependency_root":digest,"affected_decisions":"1","maximum_actions":"0","maximum_records":"0","maximum_bytes":"0","maximum_work":"0","reserved_dependency_refs":[],"retirement_refs":[]})).unwrap();
+     let capacity=body::record(&mut build,&key(),"workflow-correction-capacity",id,json!({"schema":"ledger-correction-capacity/1","root_ref":if wrong{&current.reference}else{&first.reference},"revision":"3","dependency_root":digest,"affected_decisions":"1","maximum_actions":if wrong_actions{"1"}else{"0"},"maximum_records":"0","maximum_bytes":"0","maximum_work":"0","reserved_dependency_refs":[],"retirement_refs":[]})).unwrap();
      let inputs=[EconomicRecordView{reference:&first.reference,canonical_body:&first.canonical_body},EconomicRecordView{reference:&current.reference,canonical_body:&current.canonical_body},EconomicRecordView{reference:&capacity.reference,canonical_body:&capacity.canonical_body}];
      let heads=[CapacityHead{root_decision_id:"decision".into(),revision:"3".into(),reference:capacity.reference.clone()}];
-     let financial=DraftStateData::default();let state=EconomicStateData{financial:&financial,capacity_heads:&heads,supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None,initial_source_correspondences:&[]};
+     let financial=DraftStateData{decision_heads:vec![DecisionHead{decision_id:"decision".into(),revision:"2".into(),reference:current.reference.clone()}],..DraftStateData::default()};let state=EconomicStateData{retained_assertion:None,financial:&financial,capacity_heads:&heads,supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None,initial_source_correspondences:&[]};
      let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
      let mut child=session.meter_mut().original_economic_meter().unwrap();let c=context();
      let mut records=Records::borrowed_app(&mut child,&arena,&c.key,&inputs,&[]).unwrap();
-     let result=retained_root_head(&mut child,&mut records,&c,&first.reference,&current.reference,&state);
-     if wrong{assert!(result.is_err());}else{let result=result.unwrap();assert_eq!(result.revision,BigInt::from(3));assert_eq!(result.body["root_ref"],json!(first.reference));session.meter_mut().finish_original_economic(child).unwrap();}
+     let result=retained_original_head(&mut child,&mut records,&c,&first.reference,"decision",&state);
+     if wrong{assert!(result.is_err());}else{
+       let result=result.unwrap();assert_eq!(result.revision,BigInt::from(3));assert_eq!(result.body["root_ref"],json!(first.reference));
+       // A valid hash, in-range scalar and held head do not prove the stored
+       // structural maxima. Compare the independently derived zero-edge union.
+       let union=super::super::topology::union(&arena,&mut child,"decision",0,&[]).unwrap();
+       let equality=compare_structural_fields(&mut child,&result.body,union.decision_ids.len(),union.maximum_appended_actions);
+       if wrong_actions{assert!(equality.is_err());session.invalidate();}else{equality.unwrap();session.meter_mut().finish_original_economic(child).unwrap();}
+     }
    }
  }
 }

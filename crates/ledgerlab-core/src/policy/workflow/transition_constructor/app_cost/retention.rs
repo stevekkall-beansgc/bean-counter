@@ -16,7 +16,8 @@ fn reference(m:&mut CoreMeter,r:&ExactRef)->Result<ExactRef>{Ok(ExactRef{kind:co
 fn mul(m:&mut CoreMeter,a:usize,b:usize)->Result<usize>{ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&a.into(),&b.into()])?;a.checked_mul(b).ok_or_else(||shape::fail("app retention metadata product"))}
 pub(in crate::policy::workflow::transition_constructor) fn refs(m:&mut CoreMeter,arena:&AuditArena,items:&[&ExactRef])->Result<AuditedValue>{
     let slot=w::usize_add(m,std::mem::size_of::<AuditedValue>(),std::mem::size_of::<&Value>())?;
-    let size=mul(m,items.len(),slot)?;let _metadata=arena.reserve_external_payload(size,m)?;
+    let size=mul(m,items.len(),slot)?;let size=w::usize_add(m,size,2*std::mem::size_of::<Vec<AuditedValue>>())?;
+    let _metadata=arena.reserve_external_payload(size,m)?;m.write_bytes(size)?;
     let mut values=Vec::new();values.try_reserve_exact(items.len()).map_err(|_|shape::fail("app reference set allocation"))?;
     for item in items{m.visit("app.retention_reference_member")?;values.push(owning_reference(m,arena,item)?);}
     let mut borrowed=Vec::new();borrowed.try_reserve_exact(items.len()).map_err(|_|shape::fail("app reference borrow allocation"))?;
@@ -44,7 +45,36 @@ fn pending(m:&mut CoreMeter,r:&Records,c:&DraftContextData,source:&SourceSelecti
     }
     Ok(())
 }
-pub(in crate::policy::workflow::transition_constructor) fn execute(program:&SelectedProgram,c:&DraftContextData,mut parsed:AuditedValue,inputs:&[EconomicRecordView<'_>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<RetainedAssertionData>{
+struct AppRetention<'raw>{
+ normalized:crate::canonical::audit_arena::AuditedBytes,introduced:Vec<RetainedAssertionEnvelope>,
+ authority_ref:ExactRef,assertion_ref:ExactRef,assertion_index:usize,verification_ref:ExactRef,
+ reused_assertion:Option<RetainedAssertionEnvelope>,records:Records<'raw,'raw>,claims:Vec<ClaimEffect>,terms:super::super::authority::Terms,work:super::super::record_body::RecordBody,
+ ownership:crate::canonical::audit_arena::ExternalBufferLease,original_ownership:crate::canonical::audit_arena::ExternalBufferLease,
+}
+pub(in crate::policy::workflow::transition_constructor) fn execute<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,parsed:AuditedValue,inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<RetainedAssertionData>{
+ let output=produce(program,c,parsed,inputs,state,arena,m)?;
+ let AppRetention{normalized,introduced,authority_ref,assertion_ref,assertion_index,verification_ref,reused_assertion,records,claims,ownership,..}=output;
+ Ok(RetainedAssertionData{normalized,introduced,authority_ref,assertion_ref,assertion_index,reused_assertion,verification_ref,consumed:records.into_consumed_owned(),claims,_output_ownership:Some(ownership)})
+}
+/// Same producer under the complete factory's ALREADY OPEN economic child.
+/// Owning records are moved, never recreated from consumed Ref metadata.
+pub(in crate::policy::workflow::transition_constructor) fn execute_complete<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,parsed:AuditedValue,inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<Construction<'raw,'raw>>{
+ let output=produce(program,c,parsed,inputs,state,arena,m)?;
+ let AppRetention{normalized,mut introduced,records,claims,terms,work,reused_assertion,ownership,original_ownership,..}=output;
+ let n=mul(m,introduced.len(),std::mem::size_of::<ConstructedEnvelope>())?;
+ let n=w::usize_add(m,n,std::mem::size_of::<Construction>()+std::mem::size_of::<AppEffects>())?;
+ let transfer=arena.reserve_external_payload(n,m)?;
+ m.write_bytes(n)?;
+ let mut envelopes=Vec::new();envelopes.try_reserve_exact(introduced.len()).map_err(|_|shape::fail("complete app retention output transfer"))?;
+ for row in introduced.drain(..){m.visit("app.retention_move_same_envelope")?;m.scan_bytes(std::mem::size_of::<ConstructedEnvelope>())?;envelopes.push(row.inner);}
+ let normalized_payload=super::super::emitted_record::EncodedBody::owned(arena,normalized,m)?;
+ Ok(Construction{economic:EconomicConstruction{terms,original_work:OriginalWorkPayload::Retained(work)},original_reservations:None,
+ normalized_payload,new_envelopes:envelopes,reused_result:reused_assertion.map(|x|x.inner.reference),evaluation_steps:Vec::new(),proposed_heads:ProposedHeads{decision:Vec::new(),family:Vec::new(),chain:None},
+ claim_introductions:Vec::new(),link_introductions:Vec::new(),prospective_obligations:Vec::new(),records,history_edges:Vec::new(),
+ app_effects:Some(AppEffects{claims,heads:Vec::new()}),app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,
+ financial_observation:None,funding_effects:None,control_owners:[Some(ownership),Some(original_ownership),Some(transfer),None,None]})
+}
+fn produce<'raw>(program:&SelectedProgram,c:&'raw DraftContextData,mut parsed:AuditedValue,inputs:&'raw [EconomicRecordView<'raw>],state:&EconomicStateData<'_>,arena:&AuditArena,m:&mut CoreMeter)->Result<AppRetention<'raw>>{
     if !program.uses_app_owned_cost_recipe(){return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","app retention original recipe"));}
     let schema=shape::text(m,parsed.value(),"schema")?;
     let observe=shape::same_text(m,schema,"ledger-workflow-app-observe/1")?;
@@ -56,16 +86,19 @@ pub(in crate::policy::workflow::transition_constructor) fn execute(program:&Sele
     // Output vectors, key copies and temporary exact references are admitted
     // BEFORE producers. JSON bodies/encoded bytes retain independent owners.
     let envelopes=mul(m,5,std::mem::size_of::<RetainedAssertionEnvelope>())?;
-    let header=w::usize_add(m,std::mem::size_of::<RetainedAssertionData>(),envelopes)?;
-    let claims=mul(m,3,std::mem::size_of::<ClaimEffect>())?;
+    let header=w::usize_add(m,std::mem::size_of::<RetainedAssertionData>()+std::mem::size_of::<AppRetention>(),envelopes)?;
+    let claims=mul(m,4,std::mem::size_of::<ClaimEffect>())?;
     let header=w::usize_add(m,header,claims)?;
-    let header=w::usize_add(m,header,12*(64+128+71))?;
-    let stores=mul(m,3,c.key.logical_store_id.len())?;
+    let header=w::usize_add(m,header,13*(64+128+71))?;
+    let stores=mul(m,4,c.key.logical_store_id.len())?;
     let mut bytes=w::usize_add(m,header,stores)?;
+    for value in [&c.key.scope[0],&c.key.scope[1],&c.key.source]{bytes=w::usize_add(m,bytes,value.len())?;}
+    let assertion_id=shape::text(m,att,"attestation_id")?;bytes=w::usize_add(m,bytes,assertion_id.len())?;
     let subject=&att["subject"];
     for value in [&subject["app_call"]["source_namespace"],&subject["app_call"]["call_id"],&subject["component_slot"]]{if let Some(value)=value.as_str(){bytes=w::usize_add(m,bytes,value.len())?;}}
     if let Some(provider)=att.get("provider_key"){for field in ["provider","account","request_id"]{if let Some(value)=provider[field].as_str(){bytes=w::usize_add(m,bytes,value.len())?;}}}
     let ownership=arena.reserve_external_payload(bytes,m)?;
+    m.write_bytes(header)?;
     let work_ref=shape::reference(m,&subject["original_work_ref"])?;
     let slot=shape::text(m,subject,"component_slot")?;
     let mut r=Records::borrowed_app(m,arena,&c.key,inputs,&c.source_observation_inputs)?;
@@ -105,6 +138,7 @@ pub(in crate::policy::workflow::transition_constructor) fn execute(program:&Sele
     let starts=Timestamp::parse_with_work(shape::text(m,&source.current,"starts_at")?,m)?.micros();let ends=Timestamp::parse_with_work(shape::text(m,&source.current,"ends_at")?,m)?.micros();
     if w::compare(m,issued,received)?.is_gt()||w::compare(m,received,accepted)?.is_gt()||w::compare(m,received,starts)?.is_lt()||!w::compare(m,received,ends)?.is_lt(){return Err(shape::fail("app retention trusted source time"));}
     let assertion=body::document_borrowed(m,"workflow-fact-attestation",att)?;
+    let reuse=super::super::retention::existing_assertion(m,&mut r,c,state,&assertion)?;
     let assertion_value=owning_reference(m,arena,&assertion.reference)?;
     let observation_refs=if observe{refs(m,arena,&[&assertion.reference])?}else{refs(m,arena,&[observation.as_ref().unwrap()])?};
     let final_refs=if observe{refs(m,arena,&[])?}else{refs(m,arena,&[&assertion.reference])?};
@@ -128,14 +162,17 @@ pub(in crate::policy::workflow::transition_constructor) fn execute(program:&Sele
     let digest=arena.string_value(&assertion.reference.digest,m)?;let trusted=arena.string_value(&c.received_at,m)?;
     let verification=arena.object_from_fields(&[("schema",&constants.value()["verification_schema"]),("attestation_ref",assertion_value.value()),("attestation_raw_sha256",raw_sha.value()),("attestation_digest",digest.value()),("verified_source",source_name.value()),("verification_primitive",&constants.value()["verification_primitive"]),("source_grant_ref",current_grant.value()),("source_grant_revision",&source.current["revision"]),("authenticated_principal_ref",enrollment.value()),("trusted_received_at",trusted.value()),("subject_binding_refs",subject_refs.value()),("verification_evidence_refs",&constants.value()["empty"])],m)?;
     let verification=body::document_borrowed(m,"workflow-evidence-verification",verification.value())?;
-    let mut claims=Vec::new();claims.try_reserve_exact(3).map_err(|_|shape::fail("app attribution claim allocation"))?;
+    let mut claims=Vec::new();claims.try_reserve_exact(4).map_err(|_|shape::fail("app attribution claim allocation"))?;
+    // Shared fact-attestation identity is independent of the additional app
+    // call/component/provider keys. It also applies to final evidence.
+    claims.push(ClaimEffect::derived(PermanentClaimKey::Assertion{logical_store_id:copy(m,&c.key.logical_store_id)?,scope:[copy(m,&c.key.scope[0])?,copy(m,&c.key.scope[1])?],verified_source:copy(m,&c.key.source)?,attestation_id:copy(m,assertion_id)?},reference(m,&assertion.reference)?));
     if observe{
         if let Some(app)=state.app{for prior in app.observation_refs{
             let old=r.get(m,&c.key,prior,"workflow-fact-attestation","ledger-workflow-app-observation/1")?;
             let same_call=shape::same(m,&old["subject"]["app_call"],&att["subject"]["app_call"])?;
             let same_component=shape::same(m,&old["subject"]["original_work_ref"],&att["subject"]["original_work_ref"])?&&shape::same(m,&old["subject"]["component_slot"],&att["subject"]["component_slot"])?;
             let same_provider=match(old.get("provider_key"),att.get("provider_key")){(Some(a),Some(b))=>shape::same(m,a,b)?,_=>false};
-            if same_call||same_component||same_provider{return Err(Error::new("IDENTITY_CONFLICT","app call/component/provider attribution already retained"));}
+            if (same_call||same_component||same_provider)&&!shape::same_ref(m,prior,&assertion.reference)?{return Err(Error::new("IDENTITY_CONFLICT","app call/component/provider attribution already retained"));}
         }}
         let call=&att["subject"]["app_call"];
         claims.push(ClaimEffect::derived(PermanentClaimKey::AppCall{logical_store_id:copy(m,&c.key.logical_store_id)?,source_namespace:call!(copy,m,shape::text(m,call,"source_namespace")?)?,call_id:call!(copy,m,shape::text(m,call,"call_id")?)?},reference(m,&assertion.reference)?));
@@ -145,7 +182,7 @@ pub(in crate::policy::workflow::transition_constructor) fn execute(program:&Sele
     let mut introduced=Vec::new();introduced.try_reserve_exact(5).map_err(|_|shape::fail("app retention output allocation"))?;
     pending(m,&r,c,&source,&mut introduced)?;
     let authority_ref=reference(m,&authority.reference)?;let assertion_ref=reference(m,&assertion.reference)?;let verification_ref=reference(m,&verification.reference)?;
-    introduced.push(RetainedAssertionEnvelope{inner:authority});let assertion_index=introduced.len();introduced.push(RetainedAssertionEnvelope{inner:assertion});introduced.push(RetainedAssertionEnvelope{inner:verification});
+    introduced.push(RetainedAssertionEnvelope{inner:authority});let assertion_index=introduced.len();let reused_assertion=if reuse{Some(RetainedAssertionEnvelope{inner:assertion})}else{introduced.push(RetainedAssertionEnvelope{inner:assertion});None};introduced.push(RetainedAssertionEnvelope{inner:verification});
     let normalized=m.canonical_owned_representation(arena,parsed.value(),RepresentationKind::OriginalRequest)?;
-    Ok(RetainedAssertionData{normalized,introduced,authority_ref,assertion_ref,assertion_index,verification_ref,consumed:r.into_consumed_owned(),claims,_output_ownership:Some(ownership)})
+    Ok(AppRetention{normalized,introduced,authority_ref,assertion_ref,assertion_index,verification_ref,reused_assertion,records:r,claims,terms:original.terms,work:original.work,ownership,original_ownership:original._ownership})
 }

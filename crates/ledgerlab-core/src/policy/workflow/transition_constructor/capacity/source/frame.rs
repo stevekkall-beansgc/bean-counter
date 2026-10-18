@@ -249,7 +249,20 @@ pub(super) fn derive(
         m.visit("capacity.source_frame_artifact_path")?;m.scan_bytes(path.len())?;
         artifact_paths=add(m,artifact_paths,path.len())?;
     }
-    let observation=sum(m,&[4261,8,g258,counters,original_order,390,1036,15,35,artifact_paths,409])?;
+    let mut observation=sum(m,&[4261,8,g258,counters,original_order,390,1036,15,35,artifact_paths,409])?;
+    // The new762 source branch keeps the common source/root/observation joins
+    // and replaces the old synthetic3/7 catalog traversal with exact selected
+    // bytes. Keep the old common+catalog sum as a conservative overcount,
+    // then add the ENTIRE new type guard/comparison. Likewise retain the old
+    // first-record guard below and add the entire new guard, rather than
+    // claiming the old424-node term describes this different metadata body.
+    let selected_catalog_guard=if super::super::super::audit_metadata::selected_catalog(m,program)?{
+        let raw=super::super::super::audit_metadata::source_template();
+        let value=m.parse_owned_representation(&arena,raw,crate::validation_work::RepresentationKind::SourceDefinition)?;
+        let guard=guard(m,value.value())?;
+        //4S byte equality;4S registry identity;1S memo catalog identity.
+        let selected=add(m,guard,9)?;observation=add(m,observation,selected)?;guard
+    }else{0};
 
     // All old grant bodies are inspected, not just this enrollment's G.
     // Every first body admission runs the actual selected decoded-type guard.
@@ -259,7 +272,7 @@ pub(super) fn derive(
         let cost=guard(m,value)?;guards=add(m,guards,cost)?;
     }
     let observation_refs=mul(m,39,g)?;let observation_guard=add(m,332,observation_refs)?;
-    guards=sum(m,&[guards,227,frame.grant.maximum_decoded_guard_work,observation_guard,424,154])?;
+    guards=sum(m,&[guards,227,frame.grant.maximum_decoded_guard_work,observation_guard,424,154,selected_catalog_guard])?;
     let loads=add(m,t,15)?;let loads=mul(m,478,loads)?;
     // No blanket constructor grammar credit: first typed use pays exact
     // match12 + marker check1 + ordinary grammar151 =164S. Already-checked

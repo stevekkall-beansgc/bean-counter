@@ -5,6 +5,39 @@
 use super::*;
 use super::super::super::{data::DraftContextData,record_body::RecordBody,records::Records,working_value::owning_reference,work_keys};
 
+/// Resolve the original work root for a retained family/app executor. The
+/// current request's cost/family decision is never substituted for that root.
+pub(in crate::policy::workflow::transition_constructor) fn derive_for_work(
+    arena:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,
+    program:&SelectedProgram,work:&Value,terms:&super::super::super::authority::Terms,
+)->Result<OriginalReservations>{
+    let scratch=2*(mem::size_of::<ExactRef>()+64+128+71)+2*(mem::size_of::<String>()+128);
+    let _metadata=arena.reserve_external_payload(scratch,m)?;m.write_bytes(scratch)?;
+    let payload=shape::field(m,work,"payload")?;
+    let policy=super::super::super::working_value::parse_owned_reference(m,arena,&payload["policy_ref"])?;
+    let expected=program.root_policy_ref();
+    for (actual,want) in [(policy.reference().kind.as_str(),expected.kind()),(policy.reference().id.as_str(),expected.id()),(policy.reference().digest.as_str(),expected.digest())]{
+        if !shape::same_text(m,actual,want)?{return Err(crate::Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","original root requires its own exact compiled program"));}
+    }
+    let claim_id=shape::text(m,work,"claim_id")?;
+    m.scan_bytes(64+128+71)?;
+    let (claim_ref,claim)=r.by_identity(m,&c.key,"workflow-work-claim",claim_id,"ledger-workflow-work-claim/1")?;
+    let work_ref=super::super::super::working_value::parse_owned_reference(m,arena,&claim["work_ref"])?;
+    let selected=r.get(m,&c.key,work_ref.reference(),"workflow-work","ledger-workflow-work-record/1")?;
+    shape::equal(m,&selected,work)?;
+    let decision_id=work_keys::decision(m,&claim_ref.id)?;
+    let decision_id_value=arena.string_value(&decision_id,m)?;let one=arena.string_value("1",m)?;
+    let seed=arena.array_from_values(&[decision_id_value.value(),one.value()],m)?;
+    let revision_id=super::super::super::body::semantic_id(m,"wdrev_","workflow-decision-revision",seed.value())?;
+    m.scan_bytes(64+128+71)?;
+    let (decision_ref,decision)=r.by_identity(m,&c.key,"workflow-decision",&revision_id,"ledger-workflow-decision-revision/1")?;
+    for (field,want) in [("decision_id",decision_id.as_str()),("revision","1"),("kind","work"),("transition","initial")]{
+        let actual=shape::text(m,&decision,field)?;
+        if !shape::same_text(m,actual,want)?{return Err(shape::fail("retained original work decision identity"));}
+    }
+    super::derive_retained(arena,m,r,c,program,&decision_ref,&decision,work_ref.reference(),work,&claim_ref,terms)
+}
+
 pub(in crate::policy::workflow::transition_constructor) fn derive_retained(
     arena:&AuditArena,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,
     program:&SelectedProgram,decision_ref:&ExactRef,decision:&Value,

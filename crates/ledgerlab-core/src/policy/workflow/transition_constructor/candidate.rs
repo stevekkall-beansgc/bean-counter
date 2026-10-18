@@ -94,6 +94,10 @@ impl HeadEffect {
     }
 }
 pub enum PermanentClaimKey {
+    /// Shared fact-attestation kind, including family no-success assertions.
+    /// ECONOMIC-BOUNDARY§6 fixes store/scope/source/id; schema/recipe changes
+    /// do not create another assertion namespace within that identity.
+    Assertion { logical_store_id:String,scope:[String;2],verified_source:String,attestation_id:String },
     Work {
         logical_store_id: String,
         scope: [String; 2],

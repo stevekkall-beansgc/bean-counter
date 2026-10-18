@@ -488,7 +488,7 @@ pub(super) fn evaluate(
             binding:&plan.selected.binding,original_work_claim:&plan.original_work_claim_ref,
             component_slot:&mapping["slot_id"],root_slot:&root_mapping["slot_id"],book:&component["book"],
             terms_ref:&terms_ref,terms:&terms,role_ref:&role_ref,decision_id:&plan.decision_id,
-            revision:&plan.next_revision,replacement:plan.current.is_some(),
+            revision:&plan.next_revision,replacement:plan.current.is_some(),basis_refs:None,
         },price)?;
         if let Some(action)=posting.action{active.push(action.reference.clone());actions.push(action);}
         steps.push(posting.step);

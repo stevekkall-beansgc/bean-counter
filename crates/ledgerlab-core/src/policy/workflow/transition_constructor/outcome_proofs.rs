@@ -191,6 +191,36 @@ pub(super) fn resolve(
         {
             return Err(shape::fail("attestation claim count"));
         }
+        let (selected,normalized_claims)=if let Some(arena)=m.representation_arena(){
+            use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+            use super::working_value::{WorkingValue,NormalizedInput};
+            let n=claims.len();let per=std::mem::size_of::<(&str,&Value)>();
+            ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&per.into()])?;
+            let bytes=n.checked_mul(per).ok_or_else(||shape::fail("attested claim borrow dimensions"))?;
+            let bytes=w::usize_add(m,bytes,std::mem::size_of::<Vec<(&str,&Value)>>())?;
+            let _claims=arena.reserve_external_payload(bytes,m)?;
+            m.write_bytes(bytes)?;
+            let mut fields=Vec::<(&str,&Value)>::new();
+            fields.try_reserve_exact(n).map_err(|_|shape::fail("attested claim borrow allocation"))?;
+            let mut selected=None;
+            for claim in claims {
+                m.visit("outcome.attested_claim")?;
+                shape::closed(m,claim,&["field","value"],&[])?;
+                let field=shape::text(m,claim,"field")?;
+                for (prior,_) in &fields {
+                    if shape::same_text(m,field,prior)?{return Err(shape::fail("duplicate attested field"));}
+                }
+                let value=shape::field(m,claim,"value")?;
+                fields.push((field,value));
+                if shape::same_text(m,field,name)?{selected=Some(value);}
+            }
+            // SAME facts and normalizer; the replacement map, copied claim
+            // payloads and typed normalization retain their actual owners.
+            let original=WorkingValue::copy(m,&p["facts"])?;
+            let combined=original.with_fields(m,&fields)?;
+            let normalized=NormalizedInput::normalize(m,schema,&combined)?;
+            (selected,normalized)
+        }else{
         let mut values = p["facts"]
             .as_object()
             .ok_or_else(|| shape::fail("normalized outcome facts"))?
@@ -217,6 +247,8 @@ pub(super) fn resolve(
         // Validate every declared claim under the original schema, even when
         // this operation consumes only one of its fields. No current schema.
         let normalized_claims = schema.normalize_value_with_work(&Value::Object(values), m)?;
+            (selected,super::working_value::NormalizedInput::Legacy(normalized_claims))
+        };
         for claim in claims {
             let field = shape::text(m, claim, "field")?;
             let normalized = shape::field(m, normalized_claims.canonical_value(), field)?;

@@ -11,6 +11,7 @@ mod evidence;
 
 mod retention;
 pub(super) use retention::execute as retain;
+pub(super) use retention::execute_complete as retain_complete;
 pub(super) use retention::refs as reference_set;
 
 mod records;
@@ -112,11 +113,11 @@ impl<'program,'raw> AppConstruction<'program,'raw> {
   // copied output/control payloads retain their own original producer leases.
   Ok(Construction{
     economic:EconomicConstruction{terms:plan.original.terms,original_work:OriginalWorkPayload::Retained(plan.original.work)},
-    original_reservations:None,normalized_payload,new_envelopes:output,evaluation_steps:Vec::new(),
+    original_reservations:None,normalized_payload,new_envelopes:output,reused_result:None,evaluation_steps:Vec::new(),
     proposed_heads:ProposedHeads{decision:decision_heads,family:Vec::new(),chain:None},
     claim_introductions:Vec::new(),link_introductions:Vec::new(),prospective_obligations:Vec::new(),
     records,history_edges:Vec::new(),app_effects:Some(AppEffects{claims:monetary.claims,heads:app_heads}),app_causal:None,current_capacity:Some(current_capacity),
-    candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[Some(output_owner),Some(monetary._ownership),Some(plan._ownership),Some(plan.original._ownership)],
+    candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[Some(output_owner),Some(monetary._ownership),Some(plan._ownership),Some(plan.original._ownership),None],
   })
  }
 }

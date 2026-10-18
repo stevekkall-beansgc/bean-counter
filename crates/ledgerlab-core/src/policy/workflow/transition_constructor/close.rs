@@ -205,7 +205,7 @@ pub(super) fn execute<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextDa
     let mut r=inputs.resolve(m,&c.key,&c.source_observation_inputs)?;
     if let Some((owner,evidence))=intrinsic{r=r.with_intrinsic_evidence(m,&c.key,owner,evidence)?;}
     let slot=shape::text(m,&p,"family_slot")?;
-    let selected=family_context::select(m,&mut r,c,program,&p["target_ref"],slot,&EconomicStateData{financial:state,capacity_heads:&[],supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None,initial_source_correspondences:&[]})?;
+    let selected=family_context::select(m,&mut r,c,program,&p["target_ref"],slot,&EconomicStateData{retained_assertion:None,financial:state,capacity_heads:&[],supplier:None,app:None,current_party_authorizations:&[],observation:None,audit:None,initial_source_correspondences:&[]})?;
     eq(m,&selected.family_head["revision"],&p["expected_revision"])?;
     lifecycle(m,&selected.family_head)?;
     let chosen_slot=if no_success{
@@ -241,7 +241,7 @@ pub(super) fn execute<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextDa
     m.scan_bytes(next_text.len())?;m.write_bytes(next_text.len())?;
     let proposed_heads=ProposedHeads{decision:vec![],family:vec![(selected.target_ref,slot.to_owned(),next_text.to_owned(),family.reference.clone())],chain:None};
     let mut introduced=resolved.introduced;introduced.push(authority);introduced.push(family);
-    Ok(Construction{economic:EconomicConstruction{terms:resolved.terms,original_work:OriginalWorkPayload::Retained(selected.work)},original_reservations:None,normalized_payload,new_envelopes:introduced,evaluation_steps:vec![],proposed_heads,claim_introductions:vec![],link_introductions:vec![],prospective_obligations:vec![],records:r,history_edges:vec![],app_effects:None,app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None]})
+    Ok(Construction{economic:EconomicConstruction{terms:resolved.terms,original_work:OriginalWorkPayload::Retained(selected.work)},original_reservations:None,normalized_payload,new_envelopes:introduced,reused_result:None,evaluation_steps:vec![],proposed_heads,claim_introductions:vec![],link_introductions:vec![],prospective_obligations:vec![],records:r,history_edges:vec![],app_effects:None,app_causal:None,current_capacity:None,candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None,None]})
 }
 pub(super) fn counter_value(m:&mut CoreMeter,arena:&crate::canonical::audit_arena::AuditArena,n:u64)->Result<crate::canonical::audit_arena::AuditedValue>{
     // unsigned_string: requested digit capacities8+16+32, plus the <=20-byte

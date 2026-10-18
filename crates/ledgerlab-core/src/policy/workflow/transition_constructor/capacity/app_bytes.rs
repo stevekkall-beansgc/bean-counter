@@ -38,6 +38,23 @@ mod tests {
             assert!(canonical::CanonicalBytes::from_value(&value).unwrap().as_slice().len()<=bound.bytes);
             assert_eq!(bound.depth,if count==0{2}else{3});
         }
+        let fields=json!([
+            {"name":"example:text","required":true,"type":{"kind":"string","min_bytes":"0","max_bytes":"8"},"provenance":{"kind":"caller"}},
+            {"name":"example:choice","required":true,"type":{"kind":"enum","values":["example:a","example:z"]},"provenance":{"kind":"caller"}},
+            {"name":"example:integer","required":true,"type":{"kind":"integer","min":"-999999999999999999999999999999","max":"999999999999999999999999999999"},"provenance":{"kind":"caller"}},
+            {"name":"example:decimal","required":true,"type":{"kind":"decimal","min":"-999999999999999999999999999999","max":"999999999999999999999999999999","max_scale":"18"},"provenance":{"kind":"caller"}},
+            {"name":"example:flag","required":false,"type":{"kind":"boolean"},"provenance":{"kind":"caller"}}
+        ]);
+        let schema=super::super::super::super::FactSchema::parse(&serde_json::to_vec(&json!({"schema":"ledger-workflow-fact-schema/1","schema_id":"example:range","version":"1","normalization":"ledger-facts-normalization/1","fields":fields})).unwrap()).unwrap();
+        let input=json!({"example:text":"\"".repeat(8),"example:choice":"example:z","example:integer":"-999999999999999999999999999999","example:decimal":"-999999999999.999999999999999999","example:flag":false});
+        let normalized=schema.normalize(&serde_json::to_vec(&input).unwrap()).unwrap();
+        let arena=AuditArena::new().unwrap();let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let bound=normalized_facts(session.meter_mut(),schema.canonical_value()).unwrap();
+        let actual=canonical::CanonicalBytes::from_value(normalized.canonical_value()).unwrap();
+        assert!(actual.as_slice().len()<=bound.bytes);
+        let mut guard=CoreMeter::new(65536).unwrap();codec::validate_selected_types(&mut guard,normalized.canonical_value()).unwrap();
+        assert!(guard.usage().semantic_work<=bound.guard as u64);
+        assert_eq!(bound.depth,1);
         let mut m=CoreMeter::new(65536).unwrap();
         let too_deep=Body{bytes:2,guard:5,depth:32};
         assert!(object(&mut m,&[("extra",too_deep)]).is_err());
@@ -85,6 +102,216 @@ pub(super) fn immutable_guard(m:&mut CoreMeter,v:&Value,depth:usize)->Result<(us
     Ok((guard,deepest))
 }
 fn exact(m:&mut CoreMeter,v:&Value)->Result<Body>{let arena=m.representation_arena().ok_or_else(||shape::fail("owning app byte bound"))?;let encoded=m.canonical_owned_representation(&arena,v,RepresentationKind::Record)?;let(guard,depth)=immutable_guard(m,v,0)?;Ok(Body{bytes:encoded.bytes().len(),guard,depth})}
+/// Full immutable encoded size, including escaping. Used by original-source
+/// dimension derivation, never as a cached semantic validation capability.
+pub(super) fn immutable_bytes(m:&mut CoreMeter,v:&Value)->Result<usize>{Ok(exact(m,v)?.bytes)}
+/// All future current grants are subsets of their original ceiling. Exact
+/// scalar/set bytes come from that original; selector regrouping uses every
+/// permitted nonempty subset, rather than only the originally written rows.
+pub(super) fn source_grant_body(m:&mut CoreMeter,ceiling:&Value,selectors:[(usize,usize,usize);3])->Result<usize>{
+    let principal=shape::field(m,ceiling,"principal_id")?;let principal=exact(m,principal)?;
+    let source=shape::field(m,ceiling,"source")?;let source=exact(m,source)?;
+    let namespace=shape::field(m,ceiling,"canonical_economic_namespace")?;let namespace=exact(m,namespace)?;
+    let customer=shape::field(m,ceiling,"customer_scope")?;let customer=exact(m,customer)?;
+    let operations=shape::field(m,ceiling,"operations")?;let operations=exact(m,operations)?;
+    let slots=shape::field(m,ceiling,"source_slots")?;let slots=exact(m,slots)?;
+    let permissions=shape::field(m,ceiling,"permissions")?;let permissions=exact(m,permissions)?;
+    let mut bodies=[Body::scalar(0);3];
+    for(i,(count,names,name_bytes))in selectors.into_iter().enumerate(){
+        m.visit("capacity.source_regrouped_selector_body")?;
+        let names=array(m,names,Body::scalar(name_bytes))?;
+        let selector=object(m,&[("names",names)])?;
+        bodies[i]=array(m,count,selector)?;
+    }
+    Ok(object(m,&[("schema",ascii("ledger-workflow-source-grant/1")),("grant_id",ID),("revision",VERSION),("original_ceiling_ref",REF),("principal_id",principal),("source",source),("canonical_economic_namespace",namespace),("customer_scope",customer),("operations",operations),("product_selectors",bodies[0]),("activity_selectors",bodies[1]),("link_selectors",bodies[2]),("source_slots",slots),("permissions",permissions),("starts_at",TIME),("ends_at",TIME)])?.bytes)
+}
+pub(in crate::policy::workflow::transition_constructor) struct SourceBodyBounds{
+    pub current_grant:usize,pub current_state:usize,pub observation:usize,
+    pub current_state_guard:usize,pub observation_guard:usize,
+}
+pub(super) fn source_bodies(m:&mut CoreMeter,enrollment:&Value,store:&str,original_grants:usize,current_grant:usize)->Result<SourceBodyBounds>{
+    let scope_value=shape::field(m,enrollment,"scope")?;let scope=exact(m,scope_value)?;
+    let arena=m.representation_arena().ok_or_else(||shape::fail("owning source body store"))?;
+    let store_value=arena.string_value(store,m)?;let store=exact(m,store_value.value())?;
+    let key=object(m,&[("logical_store_id",store),("scope",scope),("source",SOURCE),("operation_id",ID)])?;
+    // Both optional references are counted even though a revoked state omits
+    // current_grant_ref. Original/successor revisions never exceed i64::MAX.
+    let state=object(m,&[("schema",ascii("ledger-workflow-source-state/1")),("enrollment_ref",REF),("revision",VERSION),("status",ascii("revoked")),("current_grant_ref",REF),("prior_state_ref",REF),("operation_key",key),("actor",ID),("accepted_at",TIME)])?;
+    let grants=array(m,original_grants,REF)?;
+    // Observation counts are u64, unlike the source revision's i64 grammar.
+    let count=Body::scalar(22);
+    let observation=object(m,&[("schema",ascii("ledger-workflow-authority-prefix-observation/1")),("logical_store_id",store),("scope",scope),("installation_mode",ascii("isolated_synthetic")),("root_ref",REF),("enrollment_ref",REF),("current_state_ref",REF),("current_grant_ref",REF),("original_grant_refs",grants),("head_revision",VERSION),("verified_through_sequence",count),("verification_profile",ascii("ledger-authority-origin-audit/1")),("verifier_ref",REF),("prefix_digest",Body::scalar(73)),("origin_count",count),("document_count",count),("audited_retained_bytes",count),("observed_at",TIME)])?;
+    Ok(SourceBodyBounds{current_grant,current_state:state.bytes,observation:observation.bytes,current_state_guard:state.guard,observation_guard:observation.guard})
+}
+/// Normalized facts range over the SAME immutable schema, not the original
+/// operation's one observed value. Optional fields are all counted, and every
+/// declared enum alternative contributes to the scalar maximum. Scalar bounds
+/// are the existing fact normalizer's grammar; this is not a new fact ceiling.
+fn normalized_facts(m:&mut CoreMeter,schema:&Value)->Result<Body>{
+    let fields=shape::array(m,schema,"fields")?;
+    let commas=if w::compare(m,fields.len(),0usize)?.is_gt(){w::usize_sub(m,fields.len(),1)?}else{0};
+    let mut bytes=add(m,2,commas)?;let mut guard=4usize;let mut depth=0usize;
+    for field in fields{
+        m.visit("capacity.original_fact_output_range")?;
+        let name=shape::field(m,field,"name")?;let name=exact(m,name)?;
+        let kind=shape::text(m,&field["type"],"kind")?;
+        let scalar=if shape::same_text(m,kind,"boolean")?{Body::scalar(5)}
+        else if shape::same_text(m,kind,"string")?{
+            let max=shape::text(m,&field["type"],"max_bytes")?;
+            let max=super::super::super::facts::counter_with_work(max,m)?;
+            let max=usize::try_from(max).map_err(|_|shape::fail("fact output byte range"))?;
+            // Controls are refused by the SAME normalizer. Every remaining
+            // UTF8 input byte needs at most two JSON bytes (quote/backslash).
+            let escaped=mul(m,2,max)?;Body::scalar(add(m,escaped,2)?)
+        }else if shape::same_text(m,kind,"enum")?{
+            let mut maximum_bytes=0;
+            for value in shape::array(m,&field["type"],"values")?{
+                m.visit("capacity.original_enum_output_range")?;
+                let value=exact(m,value)?;maximum_bytes=largest(m,maximum_bytes,value.bytes)?;
+            }
+            Body::scalar(maximum_bytes)
+        }else if shape::same_text(m,kind,"integer")?{
+            // SignedScalar's normalized coefficient has at most30 digits.
+            Body::scalar(33)
+        }else if shape::same_text(m,kind,"decimal")?{
+            // At most30 coefficient digits, one decimal point, sign+quotes.
+            // A leading zero at scale18 is shorter than this coefficient case.
+            Body::scalar(34)
+        }else if shape::same_text(m,kind,"timestamp")?{TIME}
+        else{return Err(crate::Error::new("UNSUPPORTED_SCHEMA_PROFILE","prospective fact output kind is not derived"));};
+        let field_bytes=add(m,name.bytes,1)?;let field_bytes=add(m,field_bytes,scalar.bytes)?;
+        bytes=add(m,bytes,field_bytes)?;guard=add(m,guard,4)?;guard=add(m,guard,scalar.guard)?;
+        depth=largest(m,depth,1)?;
+    }
+    Ok(Body{bytes,guard,depth})
+}
+/// Family evaluations may assert future legal facts under their original
+/// trigger schema. This maximum is separately derived from the immutable
+/// compiled activity/schema relation, never from fixture facts/current policy.
+pub(in crate::policy::workflow::transition_constructor) fn family_facts(m:&mut CoreMeter,program:&super::super::super::selected_program::SelectedProgram,payload:&Value)->Result<FamilyFactBounds>{
+    let mut maximum_facts=Body{bytes:2,guard:4,depth:0};let mut family_count=0;
+    for instruction in shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?{
+        m.visit("capacity.original_family_fact_schema")?;
+        let opcode=shape::text(m,instruction,"opcode")?;
+        if !shape::same_text(m,opcode,"evaluate_family")?{continue;}
+        let family=&instruction["family"];
+        if !shape::same(m,&family["selector"]["target_activity"],&payload["activity"])?{continue;}
+        let activity=shape::text(m,family,"trigger_activity")?;
+        let activities=shape::array(m,program.compiled_plan().canonical_value(),"activity_table")?;
+        let selected=shape::named(m,activities,"activity",activity)?;
+        let reference=shape::field(m,selected,"fact_schema_ref")?;
+        let facts=facts_for_reference(m,program,reference)?;maximum_facts=maximum(m,maximum_facts,facts)?;
+        family_count=add(m,family_count,1)?;
+    }
+    Ok(FamilyFactBounds{maximum_body_bytes:maximum_facts.bytes,maximum_decoded_guard:maximum_facts.guard,maximum_depth:maximum_facts.depth,family_instructions:family_count})
+}
+fn facts_for_reference(m:&mut CoreMeter,program:&super::super::super::selected_program::SelectedProgram,reference:&Value)->Result<Body>{
+    let mut schema=None;
+    for document in program.source_documents(){
+        m.visit("capacity.original_fact_schema_document")?;
+        let r=document.reference();let kind=shape::text(m,reference,"kind")?;
+        if !shape::same_text(m,r.kind(),kind)?{continue;}
+        let id=shape::text(m,reference,"id")?;
+        if !shape::same_text(m,r.id(),id)?{continue;}
+        let digest=shape::text(m,reference,"digest")?;
+        if shape::same_text(m,r.digest(),digest)?{
+            m.visit("capacity.original_fact_schema_unique")?;
+            if schema.is_some(){return Err(shape::fail("duplicate original fact schema"));}
+            schema=Some(document.canonical_value());
+        }
+    }
+    normalized_facts(m,schema.ok_or_else(||shape::fail("original fact schema body missing"))?)
+}
+pub(in crate::policy::workflow::transition_constructor) struct FamilyFactBounds{
+    pub maximum_body_bytes:usize,pub maximum_decoded_guard:usize,pub maximum_depth:usize,pub family_instructions:usize,
+}
+
+/// Closed family changing bodies from the actual submit/correct/close/causal
+/// emitters. Complete old-input closures, source/F observations, operation and
+/// capacity outputs are separate terms; these cannot be a wire envelope.
+pub(in crate::policy::workflow::transition_constructor) struct FamilyBodyBounds{
+    pub facts:FamilyFactBounds,
+    pub claim:usize,pub link:usize,pub action:usize,pub evaluation:usize,pub decision:usize,
+    pub family_state:usize,pub chain:usize,pub authority:usize,
+    pub maximum_decoded_body_guard:usize,
+}
+pub(in crate::policy::workflow::transition_constructor) fn family_bodies(m:&mut CoreMeter,program:&super::super::super::selected_program::SelectedProgram,payload:&Value,terms:&super::super::authority::Terms,logical_store:&Value,maximum_original_actions:usize,maximum_attested_fields:usize)->Result<FamilyBodyBounds>{
+    let facts=family_facts(m,program,payload)?;
+    let facts_body=Body{bytes:facts.maximum_body_bytes,guard:facts.maximum_decoded_guard,depth:facts.maximum_depth};
+    let context=exact(m,&terms.binding["accepted_context"])?;
+    let scope=exact(m,&terms.slot_terms["scope"])?;let customer=exact(m,&terms.binding["customer"])?;
+    let agreement=exact(m,&terms.binding["agreement_id"])?;let store=exact(m,logical_store)?;
+    let key=object(m,&[("logical_store_id",store),("scope",scope),("source",SOURCE),("operation_id",ID)])?;
+    let empty=Body{bytes:2,guard:4,depth:0};
+    let basis=array(m,maximum_original_actions,REF)?;let two=array(m,2,REF)?;let one=array(m,1,REF)?;
+    let evidence=array(m,16,REF)?;let verified=array(m,maximum_attested_fields,REF)?;
+    let proof=object(m,&[("field",NAME),("attestation_ref",REF)])?;let proofs=array(m,maximum_attested_fields,proof)?;
+    let grant_count=shape::array(m,&terms.slot_terms,"source_grant_refs")?.len();
+    let original_grants=array(m,grant_count,REF)?;
+    let payload=object(m,&[("schema",const{ascii("ledger-workflow-outcome/1")}),("target_ref",REF),("family_slot",ID),("business_outcome_token",ID),("activity",NAME),("product_ref",REF),("policy_ref",REF),("fact_schema_ref",REF),("binding_ref",REF),("facts",facts_body),("fact_proofs",proofs),("evidence_refs",evidence),("occurred_at",TIME)])?;
+    let claim=object(m,&[("schema",const{ascii("ledger-workflow-outcome-claim/1")}),("scope",scope),("agreement_id",agreement),("family_slot",ID),("target_ref",REF),("source_namespace",SOURCE),("business_outcome_token",ID),("original_payload",payload),("received_at",TIME),("accepted_at",TIME)])?;
+    let link=object(m,&[("schema",const{ascii("ledger-workflow-link/1")}),("scope",scope),("child",REF),("product_ref",REF),("binding_ref",REF),("slot",NAME),("predecessor",REF),("classification",const{ascii("monetary")}),("authority_ref",REF),("operation_key",key)])?;
+    // Include inverse-only optional inverse_of; replacement and original
+    // alternatives are shorter. Family basis is the original root action set.
+    let action=object(m,&[("schema",const{ascii("ledger-workflow-action/1")}),("effect_id",ID),("decision_id",ID),("revision",VERSION),("posting_role",const{ascii("replacement")}),("book",const{ascii("retail")}),("component_slot",ID),("root_component_slot",ID),("role_ref",REF),("slot_terms_ref",REF),("funding_leg",NAME),("amount",AMOUNT),("inverse_of",REF),("basis_refs",basis),("operation_key",key)])?;
+    let step=object(m,&[("instruction",VERSION),("component_slot",ID),("family_slot",ID),("predicate",const{ascii("true")}),("basis_refs",basis),("rational_numerator",RATIONAL_NUMERATOR),("rational_denominator",RATIONAL_DENOMINATOR),("rounded",AMOUNT),("disposition",const{ascii("inverse")}),("action_ref",REF)])?;
+    let steps=array(m,2,step)?;
+    let evaluation=object(m,&[("schema",const{ascii("ledger-workflow-evaluation-proof/1")}),("subject_ref",REF),("policy_ref",REF),("compiled_plan_ref",REF),("compiler_ref",REF),("binding_ref",REF),("fact_schema_ref",REF),("facts",facts_body),("context",context),("steps",steps)])?;
+    // Every family producer starts dependency_refs empty and preserves that
+    // original set. No work/stage consumer is silently added to this bound.
+    let decision=object(m,&[("schema",const{ascii("ledger-workflow-decision-revision/1")}),("decision_id",ID),("revision",VERSION),("subject_ref",REF),("kind",const{ascii("outcome")}),("transition",const{ascii("outcome_correct")}),("status",const{ascii("reversed")}),("original_terms_ref",REF),("authority_ref",REF),("evaluation_ref",REF),("actions_appended",two),("active_action_refs",one),("dependency_refs",empty),("operation_key",key),("accepted_at",TIME),("prior_ref",REF)])?;
+    let window=object(m,&[("anchor_ref",REF),("anchor_time",TIME),("activation_deadline",TIME),("starts_at",TIME),("occurs_before",TIME),("received_by",TIME),("accepted_by",TIME),("correction_until",TIME)])?;
+    let closure=object(m,&[("root_decision_ref",REF),("root_expected_revision",VERSION),("authority_ref",REF),("original_slot_terms_ref",REF),("root_component_slot",ID)])?;
+    let family=object(m,&[("schema",const{ascii("ledger-workflow-family-state/2")}),("target_ref",REF),("family_slot",ID),("revision",VERSION),("state",const{ascii("closed_no_success")}),("window",window),("anchor_work_ref",REF),("closure_evidence_refs",evidence),("operation_key",key),("accepted_at",TIME),("prior_ref",REF),("claim_ref",REF),("decision_ref",REF),("causal_closure",closure)])?;
+    let chain=object(m,&[("schema",const{ascii("ledger-workflow-chain-state/1")}),("logical_store_id",store),("scope",scope),("customer",customer),("chain",ID),("binding_ref",REF),("accepted_agreement_ref",REF),("activation_ref",REF),("revision",VERSION),("admitted_events",VERSION),("links_root",Body::scalar(73)),("operation_key",key),("accepted_at",TIME),("prior_ref",REF)])?;
+    let rights=array(m,2,const{ascii("correct")})?;
+    let authority=object(m,&[("schema",const{ascii("ledger-workflow-economic-authority/7")}),("operation",const{ascii("quantity.correct")}),("actor",ID),("source",SOURCE),("scope",scope),("customer",customer),("canonical_economic_namespace",SOURCE),("installation_mode",const{ascii("isolated_synthetic")}),("enrollment_ref",REF),("current_state_ref",REF),("current_grant_ref",REF),("original_binding_ref",REF),("original_accepted_agreement_ref",REF),("original_grant_refs",original_grants),("source_slot",NAME),("rights",rights),("evidence_refs",evidence),("verified_fact_refs",verified),("observed_at",TIME),("authority_observation_ref",REF),("causal_closure_checks",empty),("app_observation_refs",empty),("app_final_evidence_refs",empty),("app_cost_revision_refs",empty),("app_cost_closure_checks",empty),("app_pending_cost_closure_checks",empty)])?;
+    let mut guard=0;
+    for body in [claim,link,action,evaluation,decision,family,chain,authority]{guard=largest(m,guard,body.guard)?;}
+    Ok(FamilyBodyBounds{facts,claim:claim.bytes,link:link.bytes,action:action.bytes,evaluation:evaluation.bytes,decision:decision.bytes,family_state:family.bytes,chain:chain.bytes,authority:authority.bytes,maximum_decoded_body_guard:guard})
+}
+
+/// Root correction/reverse changing records. This covers the root's own
+/// authority/action/evaluation/decision/chain bodies, independently of dependent
+/// records. Observations, immediate closures, operation, dependency/capacity
+/// bodies and the containing semantic/representation/ownership proof remain.
+pub(in crate::policy::workflow::transition_constructor) struct RootBodyBounds{
+    pub action:usize,pub evaluation:usize,pub decision:usize,pub authority:usize,pub chain:usize,
+    pub maximum_decoded_body_guard:usize,
+}
+pub(in crate::policy::workflow::transition_constructor) fn root_bodies(m:&mut CoreMeter,program:&super::super::super::selected_program::SelectedProgram,payload:&Value,terms:&super::super::authority::Terms,logical_store:&Value,maximum_original_actions:usize,families:usize,apps:usize,app_bodies:Option<&AppBodyBounds>)->Result<RootBodyBounds>{
+    let facts=facts_for_reference(m,program,&payload["fact_schema_ref"])?;
+    let context=exact(m,&terms.binding["accepted_context"])?;
+    let scope=exact(m,&terms.slot_terms["scope"])?;let customer=exact(m,&terms.binding["customer"])?;
+    let store=exact(m,logical_store)?;
+    let key=object(m,&[("logical_store_id",store),("scope",scope),("source",SOURCE),("operation_id",ID)])?;
+    let empty=Body{bytes:2,guard:4,depth:0};let evidence=array(m,16,REF)?;
+    let root_active=array(m,maximum_original_actions,REF)?;
+    let appended_count=mul(m,2,maximum_original_actions)?;let appended=array(m,appended_count,REF)?;
+    let dependencies=add(m,families,apps)?;let dependencies=array(m,dependencies,REF)?;
+    let action=object(m,&[("schema",const{ascii("ledger-workflow-action/1")}),("effect_id",ID),("decision_id",ID),("revision",VERSION),("posting_role",const{ascii("replacement")}),("book",const{ascii("retail")}),("component_slot",ID),("root_component_slot",ID),("role_ref",REF),("slot_terms_ref",REF),("funding_leg",NAME),("amount",AMOUNT),("inverse_of",REF),("basis_refs",root_active),("operation_key",key)])?;
+    let step=object(m,&[("instruction",VERSION),("component_slot",ID),("predicate",const{ascii("true")}),("basis_refs",root_active),("rational_numerator",RATIONAL_NUMERATOR),("rational_denominator",RATIONAL_DENOMINATOR),("rounded",AMOUNT),("disposition",const{ascii("inverse")}),("action_ref",REF)])?;
+    let steps=array(m,appended_count,step)?;
+    let evaluation=object(m,&[("schema",const{ascii("ledger-workflow-evaluation-proof/1")}),("subject_ref",REF),("policy_ref",REF),("compiled_plan_ref",REF),("compiler_ref",REF),("binding_ref",REF),("fact_schema_ref",REF),("facts",facts),("context",context),("steps",steps)])?;
+    let decision=object(m,&[("schema",const{ascii("ledger-workflow-decision-revision/1")}),("decision_id",ID),("revision",VERSION),("subject_ref",REF),("kind",const{ascii("work")}),("transition",const{ascii("quantity_correct")}),("status",const{ascii("reversed")}),("original_terms_ref",REF),("authority_ref",REF),("evaluation_ref",REF),("actions_appended",appended),("active_action_refs",root_active),("dependency_refs",dependencies),("operation_key",key),("accepted_at",TIME),("prior_ref",REF)])?;
+    let family_check=object(m,&[("family_state_ref",REF),("expected_revision",VERSION),("original_slot_terms_ref",REF),("root_component_slot",ID),("family_slot",ID),("dependent_authority_ref",REF),("authority_evidence_refs",evidence)])?;
+    let family_checks=array(m,families,family_check)?;
+    let (app_checks,pending_checks)=if w::compare(m,apps,0usize)?.is_gt(){
+        let app=app_bodies.ok_or_else(||shape::fail("root app changing-body bound missing"))?;
+        let finalized=Body{bytes:app.finalized_parent_check,guard:app.decoded.finalized_parent_check,depth:3};
+        let pending=Body{bytes:app.pending_parent_check,guard:app.decoded.pending_parent_check,depth:3};
+        // Disjoint branches share apps, but summing both arrays is a safe
+        // structural overcount without using today's finalized/pending state.
+        (array(m,apps,finalized)?,array(m,apps,pending)?)
+    }else{(empty,empty)};
+    let grants=shape::array(m,&terms.slot_terms,"source_grant_refs")?.len();let grants=array(m,grants,REF)?;
+    let rights=array(m,2,const{ascii("correct")})?;
+    let authority=object(m,&[("schema",const{ascii("ledger-workflow-economic-authority/7")}),("operation",const{ascii("quantity.correct")}),("actor",ID),("source",SOURCE),("scope",scope),("customer",customer),("canonical_economic_namespace",SOURCE),("installation_mode",const{ascii("isolated_synthetic")}),("enrollment_ref",REF),("current_state_ref",REF),("current_grant_ref",REF),("original_binding_ref",REF),("original_accepted_agreement_ref",REF),("original_grant_refs",grants),("source_slot",NAME),("rights",rights),("evidence_refs",evidence),("verified_fact_refs",empty),("observed_at",TIME),("authority_observation_ref",REF),("causal_closure_checks",family_checks),("app_observation_refs",empty),("app_final_evidence_refs",empty),("app_cost_revision_refs",empty),("app_cost_closure_checks",app_checks),("app_pending_cost_closure_checks",pending_checks)])?;
+    let chain=object(m,&[("schema",const{ascii("ledger-workflow-chain-state/1")}),("logical_store_id",store),("scope",scope),("customer",customer),("chain",ID),("binding_ref",REF),("accepted_agreement_ref",REF),("activation_ref",REF),("revision",VERSION),("admitted_events",VERSION),("links_root",Body::scalar(73)),("operation_key",key),("accepted_at",TIME),("prior_ref",REF)])?;
+    let mut guard=0;for body in [action,evaluation,decision,authority,chain]{guard=largest(m,guard,body.guard)?;}
+    Ok(RootBodyBounds{action:action.bytes,evaluation:evaluation.bytes,decision:decision.bytes,authority:authority.bytes,chain:chain.bytes,maximum_decoded_body_guard:guard})
+}
+
 pub(in crate::policy::workflow::transition_constructor) struct AppBodyBounds {
     pub action:usize,pub evaluation:usize,pub claim:usize,pub consumption:usize,pub revision:usize,pub decision:usize,
     pub standalone_authority:usize,pub finalized_authority:usize,pub pending_authority:usize,

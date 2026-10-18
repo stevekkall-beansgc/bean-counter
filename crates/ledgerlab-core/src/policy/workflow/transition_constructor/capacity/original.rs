@@ -7,7 +7,7 @@ use crate::{Result,canonical::audit_arena::{AuditArena,ExternalBufferLease},vali
 use serde_json::Value;
 use std::mem;
 mod retained;
-pub(in crate::policy::workflow::transition_constructor) use retained::derive_retained;
+pub(in crate::policy::workflow::transition_constructor) use retained::{derive_retained,derive_for_work};
 
 pub(in crate::policy::workflow::transition_constructor) struct FamilyReservation {
     pub target_ref:ExactRef,
@@ -25,6 +25,8 @@ pub(in crate::policy::workflow::transition_constructor) struct OriginalReservati
     pub app_costs:Vec<AppCostReservation>,
     pub future_records:Option<super::future_records::FutureRecords>,
     pub app_body_bytes:Option<super::app_bytes::AppBodyBounds>,
+    pub family_body_bytes:Option<super::app_bytes::FamilyBodyBounds>,
+    pub root_body_bytes:Option<super::app_bytes::RootBodyBounds>,
     pub source_bounds:super::source::OriginalSourceBounds,
     pub pricing_kernels:Option<super::pricing::PricingKernels>,
     _metadata:ExternalBufferLease,
@@ -116,6 +118,13 @@ fn derive_data(
     let bytes=add(m,bytes,app_bytes)?;
     let bytes=add(m,bytes,mem::size_of::<OriginalReservations>()+128+2*(64+128+71))?;
     let metadata=arena.reserve_external_payload(bytes,m)?;
+    // All three Vec controls/rows and the returned struct are written only
+    // after this debit, including allocation-failure prefixes. String copies
+    // below keep their own actual scan/write callbacks.
+    m.write_bytes(bytes)?;
+    // One semantic-ID call at a time overlaps its fixed domain prefix,
+    // hexadecimal digest and returned ID before the latter moves into a row.
+    let _id_scratch=arena.reserve_external_payload(5*mem::size_of::<String>()+512,m)?;
     let mut families=Vec::new();
     families.try_reserve_exact(family_count).map_err(|_|shape::fail("original dependency vector allocation"))?;
     let first=shape::text(m,&original_decision,"revision")?;
@@ -128,8 +137,10 @@ fn derive_data(
     delayed_costs.try_reserve_exact(delayed_count).map_err(|_|shape::fail("delayed reservation allocation"))?;
     let mut app_costs=Vec::new();app_costs.try_reserve_exact(app_count).map_err(|_|shape::fail("app reservation allocation"))?;
     super::super::outcome::original_claim_association(m,&original_claim,&original_work)?;
-    if !shape::same(m,&original_claim["work_ref"],&serde_json::json!(work_ref))?
-        || !shape::same(m,&original_decision["subject_ref"],&serde_json::json!(work_ref))?{
+    let work_value=super::super::working_value::owning_reference(m,arena,work_ref)?;
+    let decision_value=super::super::working_value::owning_reference(m,arena,decision_ref)?;
+    if !shape::same(m,&original_claim["work_ref"],work_value.value())?
+        || !shape::same(m,&original_decision["subject_ref"],work_value.value())?{
         return Err(shape::fail("original delayed reservation work/claim/decision"));
     }
     for instruction in instructions{
@@ -163,7 +174,10 @@ fn derive_data(
             }
         }
         shape::equal(m,&original_claim["scope"],&original_work["key"]["scope"])?;
-        let dependent=super::super::body::semantic_id(m,"wdecision_","workflow-decision",&serde_json::json!([original_claim["scope"],claim_ref.id,slot,"cost"]))?;
+        let claim_id=arena.string_value(&claim_ref.id,m)?;let slot_value=arena.string_value(slot,m)?;
+        let discriminator=arena.string_value("cost",m)?;
+        let tuple=arena.array_from_values(&[&original_claim["scope"],claim_id.value(),slot_value.value(),discriminator.value()],m)?;
+        let dependent=super::super::body::semantic_id(m,"wdecision_","workflow-decision",tuple.value())?;
         delayed_costs.push(DelayedCostReservation{target_ref:copy_ref(m,&work_ref)?,component_slot:copy(m,slot)?,supplier_binding_slot:copy(m,bindingslot)?,dependent_decision_id:dependent,maximum_inverse_actions});
     }
     for instruction in instructions{
@@ -192,7 +206,7 @@ fn derive_data(
     if !w::compare(m,app_costs.len(),app_count)?.is_eq(){return Err(shape::fail("app reservation omission"));}
     for (target_ref,value) in targets {
         m.visit("capacity.emitted_target")?;
-        if !shape::same(m,&value["original_decision_ref"],&serde_json::json!(decision_ref))?
+        if !shape::same(m,&value["original_decision_ref"],decision_value.value())?
             || !shape::same(m,&value["binding_ref"],&payload["binding_ref"])? {
             return Err(shape::fail("emitted original reservation association"));
         }
@@ -249,9 +263,15 @@ fn derive_data(
     if w::compare(m,maximum_root_actions,128usize)?.is_gt(){return Err(shape::fail("original root action capacity"));}
     let future_records=if delayed_costs.is_empty(){Some(super::future_records::derive(m,program,payload,maximum_root_actions,families.len(),app_costs.len())?)}else{None};
     let app_body_bytes=if app_costs.is_empty(){None}else{Some(super::app_bytes::derive(m,&original_work["key"]["logical_store_id"],payload,terms)?)};
+    let family_body_bytes=if families.is_empty(){None}else if let Some(records)=&future_records{
+        let bounds=super::app_bytes::family_bodies(m,program,payload,terms,&original_work["key"]["logical_store_id"],roots,records.maximum_attested_family_fields)?;
+        if !w::compare(m,bounds.facts.family_instructions,family_count)?.is_eq(){return Err(shape::fail("family changing-body declaration coverage"));}
+        Some(bounds)
+    }else{None};
+    let root_body_bytes=if delayed_costs.is_empty(){Some(super::app_bytes::root_bodies(m,program,payload,terms,&original_work["key"]["logical_store_id"],roots,families.len(),app_costs.len(),app_body_bytes.as_ref())?)}else{None};
     let source_bounds=super::source::original_frames(m,r,c,terms,program)?;
     let pricing_kernels=if delayed_costs.is_empty(){Some(super::pricing::derive(m,program.compiled_plan().canonical_value(),&payload["activity"])?)}else{None};
-    let reservations=OriginalReservations{root_decision_id,original_root_ref:copy_ref(m,&decision_ref)?,original_binding_ref,maximum_root_actions,families,delayed_costs,app_costs,future_records,app_body_bytes,source_bounds,pricing_kernels,_metadata:metadata};
+    let reservations=OriginalReservations{root_decision_id,original_root_ref:copy_ref(m,&decision_ref)?,original_binding_ref,maximum_root_actions,families,delayed_costs,app_costs,future_records,app_body_bytes,family_body_bytes,root_body_bytes,source_bounds,pricing_kernels,_metadata:metadata};
     let checked=reservations.structural_union(arena,m)?;
     drop(checked);
     Ok(reservations)
@@ -265,6 +285,7 @@ impl OriginalReservations {
         let bytes=mul(m,count,mem::size_of::<super::topology::Reservation>())?;
         let bytes=add(m,bytes,mem::size_of::<Vec<super::topology::Reservation>>())?;
         let _edges=arena.reserve_external_payload(bytes,m)?;
+        m.write_bytes(bytes)?;
         let mut edges=Vec::new();edges.try_reserve_exact(count).map_err(|_|shape::fail("original capacity edge allocation"))?;
         for family in &self.families {m.visit("capacity.original_edge")?;edges.push(super::topology::Reservation{ancestor_decision_id:&self.root_decision_id,dependent_decision_id:&family.dependent_decision_id,maximum_inverse_actions:family.maximum_inverse_actions});}
         for cost in &self.delayed_costs {m.visit("capacity.original_delayed_edge")?;edges.push(super::topology::Reservation{ancestor_decision_id:&self.root_decision_id,dependent_decision_id:&cost.dependent_decision_id,maximum_inverse_actions:cost.maximum_inverse_actions});}

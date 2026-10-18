@@ -290,7 +290,18 @@ pub(super) fn execute<'inv, 'raw>(
     if !call!(meter::cmp, m, &state.decision_heads.len().into(), &1.into())?.is_eq() {
         return Err(unsupported("extra outcome decision selection"));
     }
-    let mut basis = vec![];
+    let mut basis_owner=None;
+    let mut basis=Vec::new();
+    if let Some(arena)=m.representation_arena(){
+        use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+        let count=shape::array(m,&root_decision,"active_action_refs")?.len();
+        let per=std::mem::size_of::<ExactRef>()+64+128+71+std::mem::size_of::<&ExactRef>();
+        ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&count.into(),&per.into()])?;
+        let bytes=count.checked_mul(per).ok_or_else(||shape::fail("original family basis dimensions"))?;
+        let bytes=w::usize_add(m,bytes,std::mem::size_of::<Vec<ExactRef>>()+std::mem::size_of::<Vec<&ExactRef>>())?;
+        basis_owner=Some(arena.reserve_external_payload(bytes,m)?);m.write_bytes(bytes)?;
+        basis.try_reserve_exact(count).map_err(|_|shape::fail("original family basis allocation"))?;
+    }
     let mut net = BigInt::from(0);
     for item in shape::array(m, &root_decision, "active_action_refs")? {
         let (reference, action) = call!(
@@ -315,30 +326,34 @@ pub(super) fn execute<'inv, 'raw>(
         net = meter::add(m, &net, &atoms)?;
         basis.push(reference);
     }
-    let basis = body::ref_set(m, basis)?;
-    call!(
-        equal,
-        m,
-        &json!(basis),
-        call!(shape::field, m, &target, "original_action_refs")?
-    )?;
-    call!(
-        equal,
-        m,
-        call!(shape::field, m, &target, "original_net")?,
-        &json!({"currency":"USD","scale":18,"atoms":net.to_string()})
-    )?;
+    let basis=if basis_owner.is_some(){basis}else{body::ref_set(m,basis)?};
+    let basis_value=if let Some(arena)=m.representation_arena(){
+        let mut refs=Vec::new();refs.try_reserve_exact(basis.len()).map_err(|_|shape::fail("original family basis views"))?;
+        for reference in &basis{m.visit("outcome.original_basis_view")?;refs.push(reference);}
+        super::working_value::WorkingValue::Owned(super::app_cost::reference_set(m,&arena,&refs)?)
+    }else{super::working_value::WorkingValue::Legacy(json!(basis))};
+    call!(equal,m,&basis_value,call!(shape::field,m,&target,"original_action_refs")?)?;
+    if let Some(arena)=m.representation_arena(){
+        let amount=targets::owned_amount(m,&arena,&net)?;
+        call!(equal,m,call!(shape::field,m,&target,"original_net")?,amount.value())?;
+    }else{
+        call!(equal,m,call!(shape::field,m,&target,"original_net")?,&json!({"currency":"USD","scale":18,"atoms":net.to_string()}))?;
+    }
     let raw_slot = shape::text(m, &p, "family_slot")?;
-    m.write_bytes(raw_slot.len())?;
-    let family_slot_owned = raw_slot.to_owned();
-    let family_slot = family_slot_owned.as_str();
+    let legacy_slot=if m.representation_arena().is_some(){None}else{
+        m.write_bytes(raw_slot.len())?;Some(raw_slot.to_owned())
+    };
     let target_family = call!(
         shape::named,
         m,
         call!(shape::array, m, &target, "families")?,
         "family_slot",
-        family_slot
+        legacy_slot.as_deref().unwrap_or(raw_slot)
     )?;
+    // The payload is normalized later; borrow the exact immutable target row
+    // selected above rather than retain a reference into a replaced payload.
+    let family_slot_owned=match legacy_slot{Some(slot)=>std::borrow::Cow::Owned(slot),None=>std::borrow::Cow::Borrowed(shape::text(m,target_family,"family_slot")?)};
+    let family_slot=family_slot_owned.as_ref();
     shape::closed(
         m,
         target_family,
@@ -690,6 +705,52 @@ authority::economic(
         &operands.slot_terms,
         &root_and_outcome,
     )?;
+    // Seven fixed emitted rows plus the optional family action. Reference
+    // copies for claim/link, heads and introduction effects overlap those rows.
+    // JSON body graphs keep their own arena owners; native arithmetic scratch
+    // and whole-executor/stack bounds remain separate containing obligations.
+    let mut posting_owner=None;
+    if let Some(arena)=m.representation_arena(){
+        let bytes=8*std::mem::size_of::<super::emitted_record::ConstructedEnvelope>()
+            +15*(std::mem::size_of::<ExactRef>()+64+128+71)
+            +12*(std::mem::size_of::<String>()+128)
+            +8*std::mem::size_of::<Vec<Value>>()
+            +20*std::mem::size_of::<(&str,&Value)>();
+        posting_owner=Some(arena.reserve_external_payload(bytes,m)?);m.write_bytes(bytes)?;
+    }
+    let (claim,link)=if let Some(arena)=m.representation_arena(){
+        let constants=m.parse_owned_representation(&arena,
+            br#"{"claim":"ledger-workflow-outcome-claim/1","link":"ledger-workflow-link/1","classification":"monetary"}"#,
+            crate::validation_work::RepresentationKind::SourceDefinition)?;
+        let key=super::cost_postings::operation_key(m,&arena,c)?;
+        let family_slot=arena.string_value(family_slot,m)?;
+        let target_id=arena.string_value(&target_ref.id,m)?;
+        let tuple=arena.array_from_values(&[&key.value()["scope"],&target["agreement_id"],family_slot.value(),target_id.value()],m)?;
+        let id=body::semantic_id(m,"woclaim_","workflow-outcome-claim",tuple.value())?;
+        let target_value=super::working_value::owning_reference(m,&arena,&target_ref)?;
+        let namespace=arena.string_value(&c.canonical_economic_namespace,m)?;
+        let received=arena.string_value(&c.received_at,m)?;let accepted=arena.string_value(&c.accepted_at,m)?;
+        let value=arena.object_from_fields(&[
+            ("schema",&constants.value()["claim"]),("scope",&key.value()["scope"]),("agreement_id",&target["agreement_id"]),
+            ("family_slot",family_slot.value()),("target_ref",target_value.value()),("source_namespace",namespace.value()),
+            ("business_outcome_token",&p["business_outcome_token"]),("original_payload",&p),
+            ("received_at",received.value()),("accepted_at",accepted.value()),
+        ],m)?;
+        let claim=body::record_borrowed(m,&c.key,"workflow-outcome-claim",id,value.value())?;
+        let child=super::working_value::owning_reference(m,&arena,&claim.reference)?;
+        let work=super::working_value::owning_reference(m,&arena,&work_ref)?;
+        let authority=super::working_value::owning_reference(m,&arena,&operands.authority.reference)?;
+        let tuple=arena.array_from_values(&[&key.value()["scope"],child.value(),&p["product_ref"],&family["target_link_slot"],work.value()],m)?;
+        let id=body::semantic_id(m,"wlink_","workflow-link",tuple.value())?;
+        let value=arena.object_from_fields(&[
+            ("schema",&constants.value()["link"]),("scope",&key.value()["scope"]),("child",child.value()),
+            ("product_ref",&p["product_ref"]),("binding_ref",&p["binding_ref"]),("slot",&family["target_link_slot"]),
+            ("predecessor",work.value()),("classification",&constants.value()["classification"]),
+            ("authority_ref",authority.value()),("operation_key",key.value()),
+        ],m)?;
+        let link=body::record_borrowed(m,&c.key,"workflow-link",id,value.value())?;
+        (claim,link)
+    }else{
     let claim_id = body::semantic_id(
         m,
         "woclaim_",
@@ -727,6 +788,11 @@ authority::economic(
         link_id,
         json!({"schema":"ledger-workflow-link/1","scope":c.key.scope,"child":claim.reference,"product_ref":p["product_ref"],"binding_ref":p["binding_ref"],"slot":family["target_link_slot"],"predecessor":work_ref,"classification":"monetary","authority_ref":operands.authority.reference,"operation_key":c.key}),
     )?;
+        (claim,link)
+    };
+    let effect_id=if m.representation_arena().is_some(){
+        original_family_effect(m,&c.key.scope,&target["agreement_id"],root_slot,&claim_ref,&target_family["family_slot"],&link.reference)?
+    }else{
     let effect_id = original_family_effect(
         m,
         &c.key.scope,
@@ -735,7 +801,19 @@ authority::economic(
         &claim_ref,
         &json!(family_slot),
         &link.reference,
-    )?;
+    )?;        effect_id
+    };
+    let (step,actions)=if let Some(arena)=m.representation_arena(){
+        let root=arena.string_value(root_slot,m)?;let family=arena.string_value(family_slot,m)?;
+        let posting=super::cost_postings::family_posting(m,c,super::cost_postings::FamilyPosting{
+            effect_id:&effect_id,decision_id:&expected_decision,revision:&1.into(),
+            root_slot:root.value(),family_slot:family.value(),basis_refs:&basis_value,
+            role_ref:&operands.role_ref,terms_ref:&operands.slot_terms_ref,terms:&operands.slot_terms,replacement:false,
+        },&price)?;
+        let mut actions=Vec::new();actions.try_reserve_exact(1).map_err(|_|shape::fail("family action output"))?;
+        if let Some(action)=posting.action{actions.push(action);}
+        (super::working_value::WorkingValue::Owned(posting.step),actions)
+    }else{
     let nonzero = !call!(meter::cmp, m, &price.atoms.into(), &0.into())?.is_eq();
     let amount = json!({"currency":"USD","scale":18,"atoms":price.atoms.to_string()});
     let mut step = json!({"instruction":price.ordinal,"component_slot":root_slot,"family_slot":family_slot,"predicate":"true","basis_refs":basis,"rational_numerator":price.rational.numerator.to_string(),"rational_denominator":price.rational.denominator.to_string(),"rounded":amount,"disposition":if price.none{"none"}else if nonzero{"posted"}else{"zero"}});
@@ -757,6 +835,45 @@ authority::economic(
         step["action_ref"] = json!(action.reference);
         actions.push(action);
     }
+        (super::working_value::WorkingValue::Legacy(step),actions)
+    };
+    let (evaluation,decision)=if let Some(arena)=m.representation_arena(){
+        let constants=m.parse_owned_representation(&arena,
+            br#"{"evaluation":"ledger-workflow-evaluation-proof/1","decision":"ledger-workflow-decision-revision/1","revision":"1","kind":"outcome","transition":"initial","status":"active"}"#,
+            crate::validation_work::RepresentationKind::SourceDefinition)?;
+        let subject=super::working_value::owning_reference(m,&arena,&claim.reference)?;
+        let definition=program.compiled_plan().reference();
+        let kind=arena.string_value(definition.kind(),m)?;let id=arena.string_value(definition.id(),m)?;let digest=arena.string_value(definition.digest(),m)?;
+        let compiled=arena.object_from_fields(&[("kind",kind.value()),("id",id.value()),("digest",digest.value())],m)?;
+        let steps=arena.array_from_values(&[&step],m)?;
+        let value=arena.object_from_fields(&[
+            ("schema",&constants.value()["evaluation"]),("subject_ref",subject.value()),("policy_ref",&p["policy_ref"]),
+            ("compiled_plan_ref",compiled.value()),("compiler_ref",&program.compiled_plan().canonical_value()["compiler_ref"]),
+            ("binding_ref",&p["binding_ref"]),("fact_schema_ref",&p["fact_schema_ref"]),("facts",&p["facts"]),
+            ("context",&operands.binding["accepted_context"]),("steps",steps.value()),
+        ],m)?;
+        let evaluation=body::document_borrowed(m,"workflow-evaluation",value.value())?;
+        m.visit("outcome.owning_action_ref_presence")?;
+        let action_refs=if let Some(action)=actions.first(){super::app_cost::reference_set(m,&arena,&[&action.reference])?}
+            else{super::app_cost::reference_set(m,&arena,&[])?};
+        let decision_id=arena.string_value(&expected_decision,m)?;
+        let tuple=arena.array_from_values(&[decision_id.value(),&constants.value()["revision"]],m)?;
+        let id=body::semantic_id(m,"wdrev_","workflow-decision-revision",tuple.value())?;
+        let authority=super::working_value::owning_reference(m,&arena,&operands.authority.reference)?;
+        let eval=super::working_value::owning_reference(m,&arena,&evaluation.reference)?;
+        let key=super::cost_postings::operation_key(m,&arena,c)?;
+        let accepted=arena.string_value(&c.accepted_at,m)?;
+        let empty=arena.array_from_values(&[],m)?;
+        let value=arena.object_from_fields(&[
+            ("schema",&constants.value()["decision"]),("decision_id",decision_id.value()),("revision",&constants.value()["revision"]),
+            ("subject_ref",subject.value()),("kind",&constants.value()["kind"]),("transition",&constants.value()["transition"]),
+            ("status",&constants.value()["status"]),("original_terms_ref",&p["binding_ref"]),("authority_ref",authority.value()),
+            ("evaluation_ref",eval.value()),("actions_appended",action_refs.value()),("active_action_refs",action_refs.value()),
+            ("dependency_refs",empty.value()),("operation_key",key.value()),("accepted_at",accepted.value()),
+        ],m)?;
+        let decision=body::record_borrowed(m,&c.key,"workflow-decision",id,value.value())?;
+        (evaluation,decision)
+    }else{
     let evaluation = body::document(
         m,
         "workflow-evaluation",
@@ -776,7 +893,31 @@ authority::economic(
         decision_ref,
         json!({"schema":"ledger-workflow-decision-revision/1","decision_id":expected_decision,"revision":"1","subject_ref":claim.reference,"kind":"outcome","transition":"initial","status":"active","original_terms_ref":p["binding_ref"],"authority_ref":operands.authority.reference,"evaluation_ref":evaluation.reference,"actions_appended":action_refs,"active_action_refs":action_refs,"dependency_refs":[],"operation_key":c.key,"accepted_at":c.accepted_at}),
     )?;
+        (evaluation,decision)
+    };
     let revision = meter::add(m, &old_revision, &1.into())?;
+    let family_state=if let Some(arena)=m.representation_arena(){
+        let constants=m.parse_owned_representation(&arena,br#"{"schema":"ledger-workflow-family-state/1","state":"claimed"}"#,
+            crate::validation_work::RepresentationKind::SourceDefinition)?;
+        let target=super::working_value::owning_reference(m,&arena,&target_ref)?;
+        let target_id=arena.string_value(&target_ref.id,m)?;
+        let family=arena.string_value(family_slot,m)?;let revision=super::cost_postings::scalar(m,&arena,&revision)?;
+        let tuple=arena.array_from_values(&[target_id.value(),family.value(),revision.value()],m)?;
+        let id=body::semantic_id(m,"wfamily_","workflow-family-state",tuple.value())?;
+        let work=super::working_value::owning_reference(m,&arena,&work_ref)?;
+        let prior=super::working_value::owning_reference(m,&arena,&head.reference)?;
+        let claimed=super::working_value::owning_reference(m,&arena,&claim.reference)?;
+        let decision=super::working_value::owning_reference(m,&arena,&decision.reference)?;
+        let key=super::cost_postings::operation_key(m,&arena,c)?;
+        let accepted=arena.string_value(&c.accepted_at,m)?;let empty=arena.array_from_values(&[],m)?;
+        let value=arena.object_from_fields(&[
+            ("schema",&constants.value()["schema"]),("target_ref",target.value()),("family_slot",family.value()),
+            ("revision",revision.value()),("state",&constants.value()["state"]),("window",&original_window),
+            ("anchor_work_ref",work.value()),("closure_evidence_refs",empty.value()),("operation_key",key.value()),
+            ("accepted_at",accepted.value()),("prior_ref",prior.value()),("claim_ref",claimed.value()),("decision_ref",decision.value()),
+        ],m)?;
+        body::record_borrowed(m,&c.key,"workflow-family-state",id,value.value())?
+    }else{
     let family_id = body::semantic_id(
         m,
         "wfamily_",
@@ -790,6 +931,8 @@ authority::economic(
         family_id,
         json!({"schema":"ledger-workflow-family-state/1","target_ref":target_ref,"family_slot":family_slot,"revision":revision.to_string(),"state":"claimed","window":original_window,"anchor_work_ref":work_ref,"closure_evidence_refs":[],"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":head.reference,"claim_ref":claim.reference,"decision_ref":decision.reference}),
     )?;
+        family_state
+    };
     let old_chain_ref = state
         .chain_head
         .as_ref()
@@ -801,7 +944,9 @@ authority::economic(
         "workflow-chain-state",
         "ledger-workflow-chain-state/1",
     )?;
-    let chain_payload = json!({"customer":work_payload["customer"],"chain":work_payload["chain"],"binding_ref":p["binding_ref"]});
+    let chain_payload=if let Some(arena)=m.representation_arena(){
+        super::working_value::WorkingValue::Owned(arena.object_from_fields(&[("customer",&work_payload["customer"]),("chain",&work_payload["chain"]),("binding_ref",&p["binding_ref"])],m)?)
+    }else{super::working_value::WorkingValue::Legacy(json!({"customer":work_payload["customer"],"chain":work_payload["chain"],"binding_ref":p["binding_ref"]}))};
     let (old_revision, admitted) = if state.links.is_empty() {
         entry::chain_head(m, c, &chain_payload, old_chain_ref, &old_chain)?
     } else {
@@ -820,6 +965,29 @@ authority::economic(
     if call!(meter::cmp, m, &admitted, &1000.into())?.is_gt() {
         return Err(Error::new("CAPACITY_EXCEEDED", "chain event ceiling"));
     }
+    let chain=if let Some(arena)=m.representation_arena(){
+        let links=super::app_cost::reference_set(m,&arena,&[&link.reference])?;
+        let root=records::hash(m,"workflow-link-set",links.value())?;
+        let root=arena.string_value(&root,m)?;
+        let key=super::cost_postings::operation_key(m,&arena,c)?;
+        let revision=super::cost_postings::scalar(m,&arena,&chain_revision)?;
+        let admitted=super::cost_postings::scalar(m,&arena,&admitted)?;
+        let tuple=arena.array_from_values(&[&key.value()["logical_store_id"],&key.value()["scope"],&work_payload["customer"],&work_payload["chain"],revision.value()],m)?;
+        let id=body::semantic_id(m,"wchain_","workflow-chain-state",tuple.value())?;
+        let agreement=super::working_value::owning_reference(m,&arena,&c.authorities[0].accepted_agreement_ref)?;
+        let activation=super::working_value::owning_reference(m,&arena,&c.authorities[0].activation_ref)?;
+        let prior=super::working_value::owning_reference(m,&arena,old_chain_ref)?;
+        let schema=arena.string_value("ledger-workflow-chain-state/1",m)?;
+        let accepted=arena.string_value(&c.accepted_at,m)?;
+        let value=arena.object_from_fields(&[
+            ("schema",schema.value()),("logical_store_id",&key.value()["logical_store_id"]),("scope",&key.value()["scope"]),
+            ("customer",&work_payload["customer"]),("chain",&work_payload["chain"]),("binding_ref",&p["binding_ref"]),
+            ("accepted_agreement_ref",agreement.value()),("activation_ref",activation.value()),
+            ("revision",revision.value()),("admitted_events",admitted.value()),("links_root",root.value()),
+            ("operation_key",key.value()),("accepted_at",accepted.value()),("prior_ref",prior.value()),
+        ],m)?;
+        body::record_borrowed(m,&c.key,"workflow-chain-state",id,value.value())?
+    }else{
     let links = body::ref_set(m, vec![link.reference.clone()])?;
     let links_root = records::hash(m, "workflow-link-set", &json!(links))?;
     let chain_id = body::semantic_id(
@@ -841,6 +1009,36 @@ authority::economic(
         chain_id,
         json!({"schema":"ledger-workflow-chain-state/1","logical_store_id":c.key.logical_store_id,"scope":c.key.scope,"customer":work_payload["customer"],"chain":work_payload["chain"],"binding_ref":p["binding_ref"],"accepted_agreement_ref":c.authorities[0].accepted_agreement_ref,"activation_ref":c.authorities[0].activation_ref,"revision":chain_revision.to_string(),"admitted_events":admitted.to_string(),"links_root":links_root,"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":old_chain_ref}),
     )?;
+        chain
+    };
+    let mut result_owner=None;
+    let heads=if let Some(arena)=m.representation_arena(){
+        use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+        let n=w::usize_add(m,8,operands.introduced.len())?;let n=w::usize_add(m,n,proofs.introduced.len())?;
+        let per=std::mem::size_of::<super::emitted_record::ConstructedEnvelope>();
+        ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&per.into()])?;
+        let bytes=n.checked_mul(per).ok_or_else(||shape::fail("outcome result metadata dimensions"))?;
+        let fixed=std::mem::size_of::<Vec<super::emitted_record::ConstructedEnvelope>>()
+            +std::mem::size_of::<ProposedHeads>()+std::mem::size_of::<(String,String,ExactRef)>()
+            +std::mem::size_of::<(ExactRef,String,String,ExactRef)>()
+            +3*(std::mem::size_of::<ExactRef>()+64+128+71)
+            +3*(std::mem::size_of::<String>()+128);
+        let bytes=w::usize_add(m,bytes,fixed)?;
+        result_owner=Some(arena.reserve_external_payload(bytes,m)?);m.write_bytes(bytes)?;
+        let copy=|m:&mut CoreMeter,r:&ExactRef|->Result<ExactRef>{
+            for raw in [&r.kind,&r.id,&r.digest]{m.scan_bytes(raw.len())?;m.write_bytes(raw.len())?;}
+            Ok(r.clone())
+        };
+        let revision=super::cost_postings::scalar(m,&arena,&revision)?;
+        let revision=revision.value().as_str().ok_or_else(||shape::fail("outcome head revision encoding"))?;
+        m.scan_bytes(family_slot.len())?;m.write_bytes(family_slot.len())?;
+        m.scan_bytes(revision.len())?;m.write_bytes(revision.len())?;m.scan_bytes(1)?;m.write_bytes(1)?;
+        ProposedHeads{
+            decision:vec![(expected_decision,"1".to_owned(),copy(m,&decision.reference)?)],
+            family:vec![(target_ref,family_slot.to_owned(),revision.to_owned(),copy(m,&family_state.reference)?)],
+            chain:Some(copy(m,&chain.reference)?),
+        }
+    }else{
     let heads = ProposedHeads {
         decision: vec![(expected_decision, "1".into(), decision.reference.clone())],
         family: vec![(
@@ -851,8 +1049,16 @@ authority::economic(
         )],
         chain: Some(chain.reference.clone()),
     };
+        heads
+    };
     let normalized_payload = p.bytes(m)?;
-    let mut envelopes = vec![claim.clone()];
+    let mut envelopes=if result_owner.is_some(){
+        let n=crate::validation_work::usize_add(m,8,operands.introduced.len())?;
+        let n=crate::validation_work::usize_add(m,n,proofs.introduced.len())?;
+        let mut rows=Vec::new();rows.try_reserve_exact(n).map_err(|_|shape::fail("outcome result allocation"))?;
+        for row in [&claim,&link]{for raw in [&row.reference.kind,&row.reference.id,&row.reference.digest]{m.scan_bytes(raw.len())?;m.write_bytes(raw.len())?;}}
+        rows.push(claim.clone());rows
+    }else{vec![claim.clone()]};
     envelopes.extend(operands.introduced);
     envelopes.extend(proofs.introduced);
     envelopes.push(operands.authority);
@@ -869,8 +1075,8 @@ authority::economic(
             original_work: OriginalWorkPayload::Retained(work),
         },
         normalized_payload,
-        new_envelopes: envelopes,
-        evaluation_steps: vec![step],
+        new_envelopes: envelopes,reused_result:None,
+        evaluation_steps: match step {super::working_value::WorkingValue::Legacy(value)=>vec![value],super::working_value::WorkingValue::Owned(_)=>vec![]},
         proposed_heads: heads,
         claim_introductions: vec![claim.reference],
         link_introductions: vec![link.reference],
@@ -878,7 +1084,7 @@ authority::economic(
         records: r,
         history_edges: vec![],
         app_effects:None,app_causal:None,current_capacity:None,
-        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None],
+        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[posting_owner,result_owner,basis_owner,None,None],
     })
 }
 
@@ -946,8 +1152,24 @@ pub(super) fn verify_original_actions(
         call!(shape::field, m, work, "claim_id")?,
         &json!(claim_ref.id)
     )?;
-    let old_key: OperationKey = serde_json::from_value(shape::field(m, work, "key")?.clone())
-        .map_err(|_| shape::fail("original work key"))?;
+    let key_value=shape::field(m,work,"key")?;
+    let old_key=super::working_value::WorkingKey::parse(m,key_value)?;
+    let _identity_owner=if let Some(arena)=m.representation_arena(){
+        let bytes=8*std::mem::size_of::<String>()+8*128+4*std::mem::size_of::<(&str,&Value)>();
+        let owner=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;Some(owner)
+    }else{None};
+    let (stable,revision)=if let Some(arena)=m.representation_arena(){
+        if !shape::same_text(m,&old_key.logical_store_id,&c.key.logical_store_id)?{return Err(shape::fail("original work store"));}
+        for (original,current) in old_key.scope.iter().zip(c.key.scope.iter()){
+            m.visit("outcome.original_work_scope")?;
+            if !shape::same_text(m,original,current)?{return Err(shape::fail("original work scope"));}
+        }
+        let stable=super::work_keys::decision(m,&claim_ref.id)?;
+        let id=arena.string_value(&stable,m)?;let first=arena.string_value("1",m)?;
+        let tuple=arena.array_from_values(&[id.value(),first.value()],m)?;
+        let revision=body::semantic_id(m,"wdrev_","workflow-decision-revision",tuple.value())?;
+        (stable,revision)
+    }else{
     call!(
         equal,
         m,
@@ -967,6 +1189,8 @@ pub(super) fn verify_original_actions(
         "workflow-decision-revision",
         &json!([stable, "1"]),
     )?;
+        (stable,revision)
+    };
     if !shape::same_text(m, &revision, &decision_ref.id)? {
         return Err(shape::fail("original work decision identity"));
     }
@@ -992,6 +1216,14 @@ pub(super) fn verify_original_actions(
         ],
         &[],
     )?;
+    if let Some(arena)=m.representation_arena(){
+        let constants=m.parse_owned_representation(&arena,br#"{"revision":"1","kind":"work","transition":"initial","status":"active"}"#,
+            crate::validation_work::RepresentationKind::SourceDefinition)?;
+        let stable=arena.string_value(&stable,m)?;
+        for(key,want)in[("decision_id",stable.value()),("revision",&constants.value()["revision"]),("kind",&constants.value()["kind"]),("transition",&constants.value()["transition"]),("status",&constants.value()["status"]),("operation_key",key_value),("original_terms_ref",&p["binding_ref"]),("accepted_at",&work["accepted_at"])]{
+            call!(equal,m,call!(shape::field,m,decision,key)?,want)?;
+        }
+    }else{
     for (key, want) in [
         ("decision_id", json!(stable)),
         ("revision", json!("1")),
@@ -1003,6 +1235,7 @@ pub(super) fn verify_original_actions(
         ("accepted_at", work["accepted_at"].clone()),
     ] {
         call!(equal, m, call!(shape::field, m, decision, key)?, &want)?;
+    }
     }
     call!(
         equal,
@@ -1016,6 +1249,7 @@ pub(super) fn verify_original_actions(
         call!(shape::field, m, decision, "subject_ref")?,
         &json!(work_ref)
     )?;
+    let event_id=if m.representation_arena().is_some(){super::work_keys::event(m,&old_key,p)?}else{
     let event_id = body::semantic_id(
         m,
         "wevent_",
@@ -1027,6 +1261,8 @@ pub(super) fn verify_original_actions(
             p["external_event_id"]
         ]),
     )?;
+        event_id
+    };
     if !shape::same_text(m, &event_id, &work_ref.id)? {
         return Err(shape::fail("original work event identity"));
     }
@@ -1120,7 +1356,7 @@ pub(super) fn verify_original_actions(
         }
     }
     let schema = schema.ok_or_else(|| shape::fail("original work fact schema"))?;
-    let facts = schema.normalize_value_with_work(&p["facts"], m)?;
+    let facts = super::working_value::NormalizedInput::normalize(m, schema, &p["facts"])?;
     equal(m, facts.canonical_value(), &p["facts"])?;
     if !call!(
         meter::cmp,
@@ -1133,6 +1369,9 @@ pub(super) fn verify_original_actions(
         return Err(unsupported("original attested work facts"));
     }
     let prices = pricing::work(program, activity, facts.canonical_value(), m)?;
+    if m.representation_arena().is_some(){
+        return verify_original_owned_postings(m,r,c,&old_key,operands,claim_ref,&stable,&prices,decision);
+    }
     let mut expected_actions = vec![];
     let original_actions = shape::array(m, decision, "active_action_refs")?;
     for price in prices {
@@ -1293,6 +1532,82 @@ pub(super) fn verify_original_actions(
 
 /// Named proof transport is normalized only after every field is consumed and
 /// duplicates rejected. Order is the canonical field-name order, not Ref order.
+/// Reconstruct with the SAME original action producer used by initial work.
+/// Current authority/origin checks above remain mandatory; this compares exact
+/// original captured-key bytes and never substitutes the correcting source.
+fn verify_original_owned_postings(
+    m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,key:&OperationKey,
+    terms:&authority::Terms,claim:&ExactRef,decision_id:&str,prices:&pricing::PricedInstructions,decision:&Value,
+)->Result<()>{
+    use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
+    let arena=m.representation_arena().ok_or_else(||shape::fail("owning original posting verification"))?;
+    let n=prices.len();let per=std::mem::size_of::<(&str,ExactRef)>()+64+128+71
+        +std::mem::size_of::<&ExactRef>();
+    ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&per.into()])?;
+    let size=n.checked_mul(per).ok_or_else(||shape::fail("original posting comparison metadata"))?;
+    let fixed=2*std::mem::size_of::<Vec<(&str,ExactRef)>>()
+        +3*(std::mem::size_of::<ExactRef>()+64+128+71)
+        +8*(std::mem::size_of::<String>()+128)
+        +20*std::mem::size_of::<(&str,&Value)>();
+    let size=w::usize_add(m,size,fixed)?;let _owner=arena.reserve_external_payload(size,m)?;m.write_bytes(size)?;
+    let mut expected=Vec::<(&str,ExactRef)>::new();expected.try_reserve_exact(n).map_err(|_|shape::fail("original posting comparison allocation"))?;
+    let original=shape::array(m,decision,"active_action_refs")?;
+    for price in prices{
+        m.visit("outcome.reconstruct_original_posting")?;
+        let mapping=call!(shape::named,m,call!(shape::array,m,&terms.instantiation,"component_map")?,"template_key",&price.component_key)?;
+        let slot=shape::text(m,mapping,"slot_id")?;
+        let root_mapping=call!(shape::named,m,call!(shape::array,m,&terms.instantiation,"component_map")?,"template_key",&price.root_key)?;
+        let root=shape::text(m,root_mapping,"slot_id")?;
+        if meter::cmp(m,&price.atoms.into(),&0.into())?.is_eq(){continue;}
+        let count=price.basis_components.len();let item=std::mem::size_of::<&ExactRef>();
+        ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&count.into(),&item.into()])?;
+        let bytes=count.checked_mul(item).ok_or_else(||shape::fail("original named basis dimensions"))?;
+        let bytes=w::usize_add(m,bytes,std::mem::size_of::<Vec<&ExactRef>>())?;
+        let _basis_owner=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
+        let mut refs=Vec::new();refs.try_reserve_exact(count).map_err(|_|shape::fail("original named basis allocation"))?;
+        for component in &price.basis_components{
+            m.visit("outcome.reconstruct_original_named_basis")?;
+            let mut found=None;
+            for(prior,reference)in &expected{
+                if shape::same_text(m,prior,component)?{found=Some(reference);break;}
+            }
+            refs.push(found.ok_or_else(||shape::fail("original named pricing basis"))?);
+        }
+        let basis=super::app_cost::reference_set(m,&arena,&refs)?;
+        let slot=arena.string_value(slot,m)?;let root=arena.string_value(root,m)?;let book=arena.string_value("retail",m)?;
+        let posting=super::cost_postings::original_cost_posting_key(m,key,super::cost_postings::OriginalCostPosting{
+            binding:&terms.binding,original_work_claim:claim,component_slot:slot.value(),root_slot:root.value(),book:book.value(),
+            terms_ref:&terms.slot_terms_ref,terms:&terms.slot_terms,role_ref:&terms.role_ref,decision_id,revision:&1.into(),replacement:false,basis_refs:Some(basis.value()),
+        },price)?;
+        m.visit("outcome.reconstructed_original_action_presence")?;
+        let expected_action=posting.action.ok_or_else(||shape::fail("nonzero original price lacks action"))?;
+        let mut selected=None;
+        for item in original{
+            let reference=shape::reference(m,item)?;
+            if shape::same_text(m,&reference.id,&expected_action.reference.id)?{
+                m.visit("outcome.reconstructed_original_action_unique")?;
+                if selected.is_some(){return Err(shape::fail("duplicate original effect"));}
+                selected=Some(reference);
+            }
+        }
+        let actual=selected.ok_or_else(||shape::fail("original priced effect missing"))?;
+        r.get(m,&c.key,&actual,"workflow-action","ledger-workflow-action/1")?;
+        let bytes=r.canonical(m,&actual)?;
+        if !shape::same_ref(m,&actual,&expected_action.reference)?||!shape::same_bytes(m,bytes,&expected_action.canonical_body)?{
+            return Err(shape::fail("original action differs from exact original producer"));
+        }
+        expected.push((&price.component_key,expected_action.reference));
+    }
+    let count=expected.len();let per=std::mem::size_of::<&ExactRef>();
+    ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&count.into(),&per.into()])?;
+    let bytes=count.checked_mul(per).ok_or_else(||shape::fail("original action set views"))?;
+    m.write_bytes(bytes)?;
+    let mut refs=Vec::new();refs.try_reserve_exact(count).map_err(|_|shape::fail("original action set allocation"))?;
+    for(_,reference)in &expected{m.visit("outcome.reconstructed_original_set")?;refs.push(reference);}
+    let set=super::app_cost::reference_set(m,&arena,&refs)?;
+    equal(m,set.value(),&decision["active_action_refs"])
+}
+
 pub(super) fn normalize_proofs(m: &mut CoreMeter, p: &mut Value) -> Result<()> {
     let mut ordered: Vec<(Vec<u8>, Value)> = vec![];
     for item in shape::array(m, p, "fact_proofs")? {
@@ -1623,6 +1938,18 @@ pub(super) fn original_family_effect(
     family_slot: &Value,
     link: &ExactRef,
 ) -> Result<String> {
+    if let Some(arena)=m.representation_arena(){
+        let first=arena.string_value(&scope[0],m)?;let second=arena.string_value(&scope[1],m)?;
+        let scope=arena.array_from_values(&[first.value(),second.value()],m)?;
+        let root=arena.string_value(root_slot,m)?;
+        let claim=arena.string_value(&work_claim.id,m)?;
+        let link=arena.string_value(&link.id,m)?;
+        let links=arena.array_from_values(&[link.value()],m)?;
+        let family=arena.array_from_values(&[family_slot,links.value(),root.value()],m)?;
+        let original=arena.string_value("original",m)?;
+        let tuple=arena.array_from_values(&[scope.value(),agreement,root.value(),claim.value(),family.value(),original.value()],m)?;
+        body::semantic_id(m,"weffect_","workflow-effect",tuple.value())
+    }else{
     body::semantic_id(
         m,
         "weffect_",
@@ -1636,4 +1963,5 @@ pub(super) fn original_family_effect(
             "original"
         ]),
     )
+    }
 }

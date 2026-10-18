@@ -15,6 +15,9 @@ impl Serialize for WorkingValue {
     fn serialize<S:Serializer>(&self,s:S)->std::result::Result<S::Ok,S::Error>{self.deref().serialize(s)}
 }
 impl WorkingValue {
+    pub(super) fn into_legacy(self)->Result<Value>{
+        match self{Self::Legacy(value)=>Ok(value),Self::Owned(_)=>Err(shape::fail("owning value cannot escape through legacy draft"))}
+    }
     pub(super) fn into_owned(self)->Result<AuditedValue>{
         match self{Self::Owned(value)=>Ok(value),Self::Legacy(_)=>Err(shape::fail("legacy value cannot become an owning artifact"))}
     }
@@ -53,7 +56,11 @@ impl WorkingValue {
                 let item=mem::size_of::<(&str,&Value)>();
                 ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&item.into()])?;
                 let size=n.checked_mul(item).ok_or_else(||shape::fail("working composition metadata"))?;
+                let size=w::usize_add(m,size,mem::size_of::<Vec<(&str,&Value)>>())?;
                 let _metadata=arena.reserve_external_payload(size,m)?;
+                // Prepay control/element writes before allocation and before
+                // any field validation can refuse partway through the fill.
+                m.write_bytes(size)?;
                 let mut fields=Vec::new();fields.try_reserve_exact(n).map_err(|_|shape::fail("working composition allocation"))?;
                 for (key,field) in object {
                     m.visit("working.original_field")?;
@@ -128,6 +135,13 @@ pub(super) fn owning_reference(m:&mut CoreMeter,arena:&crate::canonical::audit_a
     arena.object_from_fields(&[("kind",kind.value()),("id",id.value()),("digest",digest.value())],m)
 }
 
+/// Definition references use the same closed three-string representation.
+/// This emitter owns copies only; it confers no completed publication fact.
+pub(super) fn owning_definition(m:&mut CoreMeter,arena:&crate::canonical::audit_arena::AuditArena,r:&super::super::DefinitionRef)->Result<AuditedValue>{
+    let kind=arena.string_value(r.kind(),m)?;let id=arena.string_value(r.id(),m)?;let digest=arena.string_value(r.digest(),m)?;
+    arena.object_from_fields(&[("kind",kind.value()),("id",id.value()),("digest",digest.value())],m)
+}
+
 /// A typed Ref copy whose three String payloads are admitted before copying.
 /// Borrowing this object does not prove origin or grant current authority.
 pub(super) struct OwnedExactRef {
@@ -146,4 +160,36 @@ pub(super) fn parse_owned_reference(m:&mut CoreMeter,arena:&crate::canonical::au
     let ownership=arena.reserve_external_payload(n,m)?;
     for s in [kind,id,digest]{m.scan_bytes(s.len())?;m.write_bytes(s.len())?;}
     Ok(OwnedExactRef{reference:super::data::ExactRef{kind:kind.to_owned(),id:id.to_owned(),digest:digest.to_owned()},_ownership:ownership})
+}
+
+/// Typed original OperationKey parsing with retained string/control ownership.
+/// Exact captured bytes and historical authority remain the caller's joins.
+pub(super) struct WorkingKey {
+    key:super::data::OperationKey,
+    _owner:Option<crate::canonical::audit_arena::ExternalBufferLease>,
+}
+impl Deref for WorkingKey {type Target=super::data::OperationKey;fn deref(&self)->&Self::Target{&self.key}}
+impl Serialize for WorkingKey {fn serialize<S:Serializer>(&self,s:S)->std::result::Result<S::Ok,S::Error>{self.key.serialize(s)}}
+impl WorkingKey {
+    pub(super) fn parse(m:&mut CoreMeter,value:&Value)->Result<Self>{
+        let Some(arena)=m.representation_arena()else{
+            let key=serde_json::from_value(value.clone()).map_err(|_|shape::fail("original work key"))?;
+            return Ok(Self{key,_owner:None});
+        };
+        shape::closed(m,value,&["logical_store_id","scope","source","operation_id"],&[])?;
+        let store=shape::text(m,value,"logical_store_id")?;
+        let source=shape::text(m,value,"source")?;
+        let id=shape::text(m,value,"operation_id")?;
+        let scope=shape::array(m,value,"scope")?;
+        if !w::compare(m,scope.len(),2usize)?.is_eq(){return Err(shape::fail("original work key scope"));}
+        m.visit("working.original_scope_element")?;
+        let first=scope[0].as_str().ok_or_else(||shape::fail("original work key scope"))?;
+        m.visit("working.original_scope_element")?;
+        let second=scope[1].as_str().ok_or_else(||shape::fail("original work key scope"))?;
+        let mut bytes=mem::size_of::<Self>();
+        for raw in [store,first,second,source,id]{bytes=w::usize_add(m,bytes,raw.len())?;}
+        let owner=arena.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
+        for raw in [store,first,second,source,id]{m.scan_bytes(raw.len())?;}
+        Ok(Self{key:super::data::OperationKey{logical_store_id:store.to_owned(),scope:[first.to_owned(),second.to_owned()],source:source.to_owned(),operation_id:id.to_owned()},_owner:Some(owner)})
+    }
 }

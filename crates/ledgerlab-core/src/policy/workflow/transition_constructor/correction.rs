@@ -1089,7 +1089,7 @@ pub(super) fn execute<'inv, 'raw>(
             original_work: OriginalWorkPayload::Retained(work),
         },
         normalized_payload,
-        new_envelopes: envelopes,
+        new_envelopes: envelopes,reused_result:None,
         evaluation_steps: steps,
         proposed_heads: heads,
         claim_introductions: vec![],
@@ -1098,7 +1098,7 @@ pub(super) fn execute<'inv, 'raw>(
         records: r,
         history_edges: vec![],
         app_effects:None,app_causal:None,current_capacity:None,
-        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None],
+        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None,None],
     })
 }
 fn inverse_value(m: &mut CoreMeter, v: &ConstructedEnvelope) -> Result<Value> {
@@ -1265,7 +1265,7 @@ pub(super) fn verify_current(
         pricing::explicit_none(program, key, m)?
     } else {
         let schema = call!(select_schema, m, program, &p["fact_schema_ref"])?;
-        let normalized = schema.normalize_value_with_work(facts, m)?;
+        let normalized = super::working_value::NormalizedInput::normalize(m, schema, facts)?;
         call!(equal, m, normalized.canonical_value(), facts)?;
         let code = call!(
             shape::text,
