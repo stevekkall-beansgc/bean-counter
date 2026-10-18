@@ -158,12 +158,33 @@ pub(super) fn with_capture<T>(
         .try_reserve_exact(slots.len())
         .map_err(|_| ServiceError::Unavailable)?;
     let selected_slot=observed.work_source_slot.as_ref().map(|v|s.parse_representation(v.bytes(),RepresentationKind::Record).map_err(core_error)).transpose()?;
-    let selecting_work=check::text(payload,"schema",s)?=="ledger-workflow-work/1"&&selected_slot.is_none();
+    let payload_schema=check::text(payload,"schema",s)?;
+    let selecting_work=payload_schema=="ledger-workflow-work/1"&&selected_slot.is_none();
+    let mut fact_slot=None;
+    if payload_schema=="ledger-workflow-fact-attest/1" {
+        let att=check::field(payload,"attestation",s)?;
+        let schema_ref=check::field(att,"subject_schema_ref",s)?;
+        for document in observed.original.publication.program().source_documents(){
+            let reference=document.reference();
+            if reference.kind()!=check::text(schema_ref,"kind",s)?||reference.id()!=check::text(schema_ref,"id",s)?||reference.digest()!=check::text(schema_ref,"digest",s)?{continue;}
+            let fields=check::field(document.canonical_value(),"fields",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
+            for claim in check::field(att,"claims",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?{
+                let name=check::text(claim,"field",s)?;
+                let field=fields.iter().find(|field|field.get("name").and_then(Value::as_str)==Some(name)).ok_or(ServiceError::IntegrityFailure)?;
+                let provenance=check::field(field,"provenance",s)?;
+                check::same_text(check::text(provenance,"kind",s)?,"attested",s)?;
+                let slot=check::text(provenance,"source_slot",s)?;
+                if let Some(old)=fact_slot{check::same_text(old,slot,s)?;}else{fact_slot=Some(slot);}
+            }
+        }
+        require(fact_slot.is_some(),"INVALID_REFERENCE")?;
+    }
     for slot in slots {
         s.semantic_work()
             .visit(ValidationVisit::Element)
             .map_err(core_error)?;
         let name = check::text(slot, "name", s)?;
+        if let Some(fact_slot)=fact_slot {if !equal(name,fact_slot,s)?{continue;}}
         if let Some(selected)=selected_slot.as_ref(){if name!=selected.value().as_str().ok_or(ServiceError::IntegrityFailure)?{continue;}}
         let nominees = check::field(slot, "sources", s)?
             .as_array()
