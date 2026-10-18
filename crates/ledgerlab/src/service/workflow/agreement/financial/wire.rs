@@ -259,70 +259,8 @@ impl<'a> RefSet<'a> {
         )?;
         Ok(out)
     }
-    fn swap(
-        &mut self,
-        left: usize,
-        right: usize,
-        session: &mut OriginalAuditSession,
-    ) -> Result<()> {
-        session
-            .semantic_work()
-            .visit(Visit::SortMove)
-            .map_err(core_error)?;
-        session
-            .semantic_work()
-            .write_bytes(2 * std::mem::size_of::<&ExactRef>())
-            .map_err(core_error)?;
-        self.refs.swap(left, right);
-        Ok(())
-    }
-    fn sift(
-        &mut self,
-        mut root: usize,
-        end: usize,
-        session: &mut OriginalAuditSession,
-    ) -> Result<()> {
-        loop {
-            let left = arithmetic(
-                arithmetic(root, 2, Op::Multiply, session)?,
-                1,
-                Op::Add,
-                session,
-            )?;
-            if !compare(left, end, session)?.is_lt() {
-                return Ok(());
-            }
-            let right = arithmetic(left, 1, Op::Add, session)?;
-            let child = if compare(right, end, session)?.is_lt()
-                && ref_compare(self.refs[left], self.refs[right], session)?.is_lt()
-            {
-                right
-            } else {
-                left
-            };
-            if !ref_compare(self.refs[root], self.refs[child], session)?.is_lt() {
-                return Ok(());
-            }
-            self.swap(root, child, session)?;
-            root = child;
-        }
-    }
     fn sort(&mut self, session: &mut OriginalAuditSession) -> Result<()> {
-        session
-            .semantic_work()
-            .arithmetic(
-                Op::DivideRemainder,
-                &[&self.refs.len().into(), &2usize.into()],
-            )
-            .map_err(core_error)?;
-        for root in (0..self.refs.len() / 2).rev() {
-            self.sift(root, self.refs.len(), session)?;
-        }
-        for end in (1..self.refs.len()).rev() {
-            self.swap(0, end, session)?;
-            self.sift(0, end, session)?;
-        }
-        Ok(())
+        sort_values(&mut self.refs, session, &mut |a, b, s| ref_compare(a, b, s))
     }
     pub(super) fn encode(&self, session: &mut OriginalAuditSession) -> Result<AuditedBytes> {
         let mut maximum = 2;
@@ -350,6 +288,120 @@ impl<'a> RefSet<'a> {
         out.finish(session.semantic_work()).map_err(core_error)
     }
 }
+fn swap_values<T>(
+    values: &mut [T],
+    left: usize,
+    right: usize,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    s.semantic_work()
+        .visit(Visit::SortMove)
+        .map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(2 * std::mem::size_of::<T>())
+        .map_err(core_error)?;
+    values.swap(left, right);
+    Ok(())
+}
+fn sift_values<T>(
+    values: &mut [T],
+    mut root: usize,
+    end: usize,
+    s: &mut OriginalAuditSession,
+    order: &mut impl FnMut(&T, &T, &mut OriginalAuditSession) -> Result<Cmp>,
+) -> Result<()> {
+    loop {
+        let left = arithmetic(arithmetic(root, 2, Op::Multiply, s)?, 1, Op::Add, s)?;
+        if !compare(left, end, s)?.is_lt() {
+            return Ok(());
+        }
+        let right = arithmetic(left, 1, Op::Add, s)?;
+        let child = if compare(right, end, s)?.is_lt()
+            && order(&values[left], &values[right], s)?.is_lt()
+        {
+            right
+        } else {
+            left
+        };
+        if !order(&values[root], &values[child], s)?.is_lt() {
+            return Ok(());
+        }
+        swap_values(values, root, child, s)?;
+        root = child;
+    }
+}
+fn sort_values<T>(
+    values: &mut [T],
+    s: &mut OriginalAuditSession,
+    order: &mut impl FnMut(&T, &T, &mut OriginalAuditSession) -> Result<Cmp>,
+) -> Result<()> {
+    s.semantic_work()
+        .arithmetic(Op::DivideRemainder, &[&values.len().into(), &2usize.into()])
+        .map_err(core_error)?;
+    for root in (0..values.len() / 2).rev() {
+        sift_values(values, root, values.len(), s, order)?;
+    }
+    for end in (1..values.len()).rev() {
+        swap_values(values, 0, end, s)?;
+        sift_values(values, 0, end, s, order)?;
+    }
+    Ok(())
+}
+fn encoded_order(a: &AuditedBytes, b: &AuditedBytes, s: &mut OriginalAuditSession) -> Result<Cmp> {
+    s.semantic_work()
+        .visit(Visit::MemberCompare)
+        .map_err(core_error)?;
+    s.semantic_work()
+        .scan_bytes(a.bytes().len())
+        .map_err(core_error)?;
+    s.semantic_work()
+        .scan_bytes(b.bytes().len())
+        .map_err(core_error)?;
+    Ok(a.bytes().cmp(b.bytes()))
+}
+/// Sort already owning canonical rows through the SAME wrapper heap kernel,
+/// then emit their strict canonical set. This is not raw-document normalization.
+pub(super) fn encoded_set(
+    rows: &mut [AuditedBytes],
+    s: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let result = (|| {
+        sort_values(rows, s, &mut encoded_order)?;
+        for pair in rows.windows(2) {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            require(encoded_order(&pair[0], &pair[1], s)?.is_lt(), "DUPLICATE")?;
+        }
+        let mut maximum = 2usize;
+        for row in rows.iter() {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            maximum = arithmetic(maximum, row.bytes().len(), Op::Add, s)?;
+            maximum = arithmetic(maximum, 1, Op::Add, s)?;
+        }
+        require(!compare(maximum, 4194304, s)?.is_gt(), "RECORD_TOO_LARGE")?;
+        let mut out = buffer(maximum, s)?;
+        append(&mut out, b"[", s)?;
+        for (index, row) in rows.iter().enumerate() {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            if index != 0 {
+                append(&mut out, b",", s)?;
+            }
+            append(&mut out, row.bytes(), s)?;
+        }
+        append(&mut out, b"]", s)?;
+        out.finish(s.semantic_work()).map_err(core_error)
+    })();
+    if result.is_err() {
+        s.invalidate();
+    }
+    result
+}
+
 pub(super) fn object(
     fields: &[(&'static str, &[u8])],
     maximum: usize,
@@ -1184,6 +1236,41 @@ pub(super) use agreement::{AgreementJournalData, frame_acceptance, frame_activat
 #[cfg(test)]
 mod request_framing_tests {
     use super::*;
+    #[test]
+    fn shared_heap_orders_owned_rows_and_existing_reference_sets() {
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let baseline = arena.usage().unwrap().live_bytes;
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut rows = [
+            string("z", &mut s).unwrap(),
+            string("a", &mut s).unwrap(),
+            string("m", &mut s).unwrap(),
+        ];
+        let set = encoded_set(&mut rows, &mut s).unwrap();
+        assert_eq!(set.bytes(), br#"["a","m","z"]"#);
+        let refs: [ExactRef; 3] = std::array::from_fn(|i| ExactRef {
+            kind: "workflow-authority".into(),
+            id: format!("wdoc_{}", char::from(b'a' + i as u8).to_string().repeat(64)),
+            digest: format!(
+                "sha256:{}",
+                char::from(b'a' + i as u8).to_string().repeat(64)
+            ),
+        });
+        let actual = RefSet::new([&refs[2], &refs[0], &refs[1]].into_iter(), 3, true, &mut s)
+            .unwrap()
+            .encode(&mut s)
+            .unwrap();
+        let expected = ledgerlab_core::canonical::CanonicalBytes::from_value(&refs).unwrap();
+        assert_eq!(actual.bytes(), expected.as_slice());
+        drop(actual);
+        drop(set);
+        drop(rows);
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+        let mut duplicate = [string("a", &mut s).unwrap(), string("a", &mut s).unwrap()];
+        assert!(encoded_set(&mut duplicate, &mut s).is_err());
+        drop(duplicate);
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+    }
     #[test]
     fn request_base64_quoting_keeps_raw_domain_cap_and_owner() {
         let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();

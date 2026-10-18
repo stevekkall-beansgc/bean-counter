@@ -312,7 +312,7 @@ impl ResolvedMembers {
 /// History rows retain exact owner/field/target; they are not ordinary I edges.
 pub(in super::super) struct ResolvedEconomicInputs {
     pub(in super::super) members: ResolvedMembers,
-    pub(in super::super) history_rows: Vec<AuditedBytes>,
+    pub(in super::super) history_rows: AuditedBytes,
     _storage: ExternalBufferLease,
 }
 impl ResolvedEconomicInputs {
@@ -392,6 +392,7 @@ impl ResolvedEconomicInputs {
                 }
                 position = arithmetic(position, 1, Op::Add, s)?;
             }
+            let history_rows = wire::encoded_set(&mut history_rows, s)?;
             // Reserve the eventual operation member in the unchanged M limit.
             require(
                 compare(members.entries.len(), LIMIT, s)?.is_lt(),
