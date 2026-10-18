@@ -949,7 +949,7 @@ pub(super) async fn publication_before(
     parent: &mut OriginalAuditSession,
 ) -> Result<(FoldedInventory, RecompiledPublication)> {
     let (inventory, publication) =
-        before_inputs(ledger, tx, key, Some(wanted), before, parent).await?;
+        before_inputs(ledger, tx, key, Some(wanted), before, None, parent).await?;
     Ok((
         inventory.ok_or(ServiceError::IntegrityFailure)?,
         publication.ok_or_else(|| reject("INVALID_REFERENCE"))?,
@@ -965,7 +965,7 @@ pub(super) async fn party_before(
     before: i64,
     parent: &mut OriginalAuditSession,
 ) -> Result<Option<FoldedInventory>> {
-    let (inventory, _) = before_inputs(ledger, tx, key, None, before, parent).await?;
+    let (inventory, _) = before_inputs(ledger, tx, key, None, before, None, parent).await?;
     Ok(inventory)
 }
 /// The existing workflow sequence domain is 1..=100000. Under the held writer,
@@ -977,7 +977,17 @@ pub(super) async fn authenticate_migration_prefix(
     key: &OperationKey,
     parent: &mut OriginalAuditSession,
 ) -> Result<Option<FoldedInventory>> {
-    let (inventory, _) = before_inputs(ledger, tx, key, None, 100001, parent).await?;
+    let (inventory, _) = before_inputs(ledger, tx, key, None, 100001, None, parent).await?;
+    Ok(inventory)
+}
+/// The actual fresh party caller already owns this normalized current setup.
+/// Historical recipes still execute independently under their own origin owner.
+pub(super) async fn party_before_observed(
+    ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,key:&OperationKey,before:i64,
+    management:&crate::service::workflow::local::OwnedLocalManagement,parent:&mut OriginalAuditSession,
+)->Result<Option<FoldedInventory>> {
+    ledger.admin.recheck_management_fresh(management,&ledger.store,tx,key,parent).await?;
+    let (inventory,_)=before_inputs(ledger,tx,key,None,before,Some(management),parent).await?;
     Ok(inventory)
 }
 async fn before_inputs(
@@ -986,6 +996,7 @@ async fn before_inputs(
     key: &OperationKey,
     wanted: Option<&Value>,
     before: i64,
+    management:Option<&crate::service::workflow::local::OwnedLocalManagement>,
     parent: &mut OriginalAuditSession,
 ) -> Result<(Option<FoldedInventory>, Option<RecompiledPublication>)> {
     let mut attempt = InputAttempt {
@@ -997,7 +1008,11 @@ async fn before_inputs(
         if let Some(wanted) = wanted {
             super::acceptance::validate_reference(wanted, "workflow-publication", parent)?;
         }
-        let setup = ledger.admin.read(&ledger.store, tx, key).await?;
+        let owned_setup=if management.is_none() {Some(ledger.admin.read(&ledger.store,tx,key).await?)} else {None};
+        let setup=match management {
+            Some(management)=>management.setup(),
+            None=>owned_setup.as_ref().ok_or(ServiceError::IntegrityFailure)?,
+        };
         parent
             .semantic_work()
             .arithmetic(Op::Subtract, &[&before.into(), &1i64.into()])

@@ -63,18 +63,7 @@ pub(in crate::service::workflow) async fn effective(
         (ManagementTable::Agreements, counts[1]),
         (ManagementTable::Controls, counts[2]),
     ] {
-        let mut after = None;
-        for _ in 0..count {
-            s.semantic_work()
-                .visit(Visit::Element)
-                .map_err(core_error)?;
-            let row = tx
-                .workflow_management_row(table, after, s)
-                .await
-                .map_err(prefix::read_error)?
-                .ok_or(ServiceError::IntegrityFailure)?;
-            after = Some(row.row_id);
-        }
+        tx.workflow_management_physical_rows(table,count,s).await.map_err(prefix::read_error)?;
     }
     let legacy = setup_owned::parse(raw.bytes(), s)?;
     let customer = &legacy.setup().customer;

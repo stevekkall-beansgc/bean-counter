@@ -928,7 +928,7 @@ async fn prepare_inner(
         prior,
         session,
     )?;
-    let mut earlier = prefix::party_before(ledger, tx, req.key(), before, session).await?;
+    let mut earlier = prefix::party_before_observed(ledger, tx, req.key(), before, management, session).await?;
     pending.check_prestate(earlier.as_mut().map(|p| &mut p._inventory), &setup, session)?;
     pending._prefix = earlier;
     pending._clock_owner=Some(clock_owner);
