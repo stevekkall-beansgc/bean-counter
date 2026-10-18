@@ -63,7 +63,9 @@ pub(in crate::service::workflow) async fn effective(
         (ManagementTable::Agreements, counts[1]),
         (ManagementTable::Controls, counts[2]),
     ] {
-        tx.workflow_management_physical_rows(table,count,s).await.map_err(prefix::read_error)?;
+        tx.workflow_management_physical_rows(table, count, s)
+            .await
+            .map_err(prefix::read_error)?;
     }
     let legacy = setup_owned::parse(raw.bytes(), s)?;
     let customer = &legacy.setup().customer;
@@ -76,10 +78,11 @@ pub(in crate::service::workflow) async fn effective(
     let first = first.bodies[0]
         .take()
         .ok_or(ServiceError::IntegrityFailure)?;
-    let initial = setup_owned::parse(first.bytes(), s)?;
-    // Own separate current fields, preserving the old effective clone. This
-    // extra normalizer pass is paid here and included in the caller envelope.
     let mut current = setup_owned::parse(first.bytes(), s)?;
+    // Only the original rights are consulted by the change validator. Retain
+    // those exact normalized values separately and move this SAME initial
+    // Setup into current state; no second body/DTO/policy/time normalization.
+    let initial = current.initial_permissions(s)?;
     let mut after = None;
     for _ in 0..counts[3] {
         s.semantic_work()

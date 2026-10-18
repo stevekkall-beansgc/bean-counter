@@ -12,7 +12,7 @@ use ledgerlab_core::{
 };
 use std::mem;
 mod permissions;
-pub(crate) use permissions::{OwnedPermissionChange, PermissionRecipe, parse_permission};
+pub(crate) use permissions::{InitialPermissions,OwnedPermissionChange, PermissionRecipe, parse_permission};
 
 pub(crate) struct OwnedSetup {
     setup: Setup,

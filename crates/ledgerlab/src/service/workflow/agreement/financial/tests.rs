@@ -133,6 +133,10 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     let source = base["source"].as_str().unwrap();
     let change = json!({"schema":"ledger-billing-permissions/2","customer":customer,"source":source,"change_id":"management-held-snapshot","expected_revision":"1","permissions":["read"],"reason":"Exercise the actual retained local administration control"});
     billing.permissions(customer,source,&records::bytes(&change).unwrap()).await.unwrap();
+    // A later legitimate change may restore rights from the ORIGINAL ceiling,
+    // even though the immediately preceding current set contains only read.
+    let restored=json!({"schema":"ledger-billing-permissions/2","customer":customer,"source":source,"change_id":"management-original-ceiling-restore","expected_revision":"2","permissions":["read","submit","correct"],"reason":"Preserve the independent original ceiling while moving current state"});
+    billing.permissions(customer,source,&records::bytes(&restored).unwrap()).await.unwrap();
     billing.close().await;
     let first = LocalWorkflowLedger::open_local(&path_a).await.unwrap();
     let (_b, second, _path_b) = installation("frame-store").await;

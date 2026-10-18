@@ -8,6 +8,52 @@ pub(crate) enum PermissionRecipe<'a> {
     Legacy,
     Scoped { customer: &'a str, source: &'a str },
 }
+/// Immutable original rights only. The actual initial Setup is normalized
+/// once, then moved into current state; later changes cannot rewrite this
+/// separately owned original ceiling.
+pub(crate) struct InitialPermissions {
+    values: Vec<String>,
+    _storage: ExternalBufferLease,
+}
+impl OwnedSetup {
+    pub(crate) fn initial_permissions(
+        &self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<InitialPermissions> {
+        let values = &self.setup.permissions;
+        let count = compare(values.len(), 3usize, s)?;
+        ensure(s, "BILLING_PERMISSIONS", || !count.is_gt())?;
+        let slots = arithmetic(values.len(), mem::size_of::<String>(), Op::Multiply, s)?;
+        let mut payload = arithmetic(slots, mem::size_of::<InitialPermissions>(), Op::Add, s)?;
+        for value in values {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            payload = arithmetic(payload, value.len(), Op::Add, s)?;
+            s.semantic_work()
+                .scan_bytes(value.len())
+                .map_err(core_error)?;
+        }
+        let storage = s.reserve_external_payload(payload).map_err(core_error)?;
+        s.semantic_work().write_bytes(payload).map_err(core_error)?;
+        let mut copied = Vec::new();
+        copied
+            .try_reserve_exact(values.len())
+            .map_err(|_| crate::ServiceError::Unavailable)?;
+        let capacity = compare(copied.capacity(), values.len(), s)?;
+        ensure(s, "BILLING_PERMISSIONS", || !capacity.is_gt())?;
+        for value in values {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            copied.push(value.to_owned());
+        }
+        Ok(InitialPermissions {
+            values: copied,
+            _storage: storage,
+        })
+    }
+}
 pub(crate) struct OwnedPermissionChange {
     permissions: Vec<String>,
     change_id: Option<String>,
@@ -88,7 +134,7 @@ fn revision(raw: &str, scoped: bool, s: &mut OriginalAuditSession) -> Result<u64
 fn rights(
     permissions: &[String],
     reason: &str,
-    initial: &Setup,
+    initial: &InitialPermissions,
     scoped: bool,
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
@@ -102,7 +148,7 @@ fn rights(
     })?;
     for (index, permission) in permissions.iter().enumerate() {
         let mut allowed = false;
-        for original in &initial.permissions {
+        for original in &initial.values {
             if equal(permission, original, s)? {
                 allowed = true;
                 break;
@@ -156,7 +202,7 @@ fn decode_work(v: &Value, scoped: bool, s: &mut OriginalAuditSession) -> Result<
 pub(crate) fn parse_permission(
     raw: &[u8],
     recipe: PermissionRecipe<'_>,
-    initial: &OwnedSetup,
+    initial: &InitialPermissions,
     current: &OwnedSetup,
     s: &mut OriginalAuditSession,
 ) -> Result<OwnedPermissionChange> {
@@ -222,7 +268,7 @@ pub(crate) fn parse_permission(
         let expected = revision(&expected, false, s)?;
         let same = compare(expected, prior, s)?.is_eq();
         checked(false, "STALE_REVISION", s, || schema && same)?;
-        rights(&permissions, &reason, &initial.setup, false, s)?;
+        rights(&permissions, &reason, initial, false, s)?;
     }
     let canonical = s
         .canonical_representation(parsed.value(), RepresentationKind::Authority)
@@ -255,7 +301,7 @@ pub(crate) fn parse_permission(
         checked(true, "BILLING_PERMISSIONS", s, || {
             schema && c && r && same && !length.is_gt()
         })?;
-        rights(&permissions, &reason, &initial.setup, true, s)?;
+        rights(&permissions, &reason, initial, true, s)?;
     }
     Ok(OwnedPermissionChange {
         permissions,
