@@ -17,6 +17,7 @@ pub(in super::super) struct AgreementJournalData {
     members: ResolvedMembers,
 }
 impl AgreementJournalData {
+    pub(in super::super) fn receipt_bytes(&self)->&[u8]{self.receipt.bytes()}
     pub(in super::super) fn members(&self) -> &ResolvedMembers {
         &self.members
     }

@@ -518,6 +518,12 @@ async fn observe_all_at(
 }
 
 impl Coverage {
+    pub(super) fn selected_refs(&self)->impl Iterator<Item=&ExactRef> {
+        self.observations.iter().flat_map(|o|o.customer().records().into_iter().map(|r|r.reference())
+            .chain(std::iter::once(o.platform().mapping().reference()))
+            .chain(o.platform().mapping().evidence_refs())
+            .chain(o.platform().evidence_refs()))
+    }
     pub(super) fn generated_records(&self) -> impl Iterator<Item = &wire::SourceRecord> {
         self.observations
             .iter()

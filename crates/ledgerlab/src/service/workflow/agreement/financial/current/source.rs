@@ -55,6 +55,10 @@ impl ObservedSource {
     pub(in super::super) fn current_grant_body(&self) -> Option<&Value> {
         self.grant.as_ref().map(SourceRecord::body)
     }
+    pub(in super::super) fn record_refs(&self)->impl Iterator<Item=&ExactRef> {
+        [&self.original.reference,&self.enrollment.reference,&self.state.reference].into_iter()
+            .chain(self.grant.iter().map(|r|&r.reference))
+    }
     pub(in super::super) fn records(&self) -> impl Iterator<Item = EconomicRecordView<'_>> {
         [&self.original, &self.enrollment, &self.state]
             .into_iter()

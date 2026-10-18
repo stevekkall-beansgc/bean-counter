@@ -64,6 +64,23 @@ fn cmp(reference: &ExactRef, v: [&str; 3], s: &mut OriginalAuditSession) -> Resu
     Ok(Ordering::Equal)
 }
 impl ResolvedMembers {
+    /// Exact semantic operands already read and checked by the local executor.
+    /// No recursive history expansion or serialized completeness assertion.
+    pub(in super::super) async fn local_selected<'a>(
+        tx:&mut SqliteTx,key:&OperationKey,before:i64,
+        generated:impl Iterator<Item=&'a super::super::wire::SourceRecord>,
+        selected:impl Iterator<Item=&'a ExactRef>,s:&mut OriginalAuditSession,
+    )->Result<Self> {
+        let mut out=Self::new(s)?;
+        for record in generated {out.add_record_ref(record.reference(),s)?;}
+        for reference in selected {
+            super::verify_selected_association(tx,key,reference,before,s).await?;
+            out.add_record_ref(reference,s)?;
+        }
+        require(compare(out.entries.len(),LIMIT,s)?.is_lt(),"REFERENCE_LIMIT")?;
+        Ok(out)
+    }
+
     /// Selected local party operands only. Local committed membership supplies
     /// scope/retention selection; every loaded Ref and canonical document hash
     /// is checked by the SAME party record reader. This is not chronological

@@ -68,6 +68,15 @@ impl WorkflowReply {
             .map_err(core_error)?;
         Self::from_parts(receipt.bytes(), evidence.bytes(), Some("identity"), false, s)
     }
+    pub(super) fn agreement(journal:&wire::AgreementJournalData,evidence:&evidence::RequestEvidence,
+        s:&mut OriginalAuditSession)->Result<Self> {
+        Self::from_parts(journal.receipt_bytes(),evidence.bytes(),None,false,s)
+    }
+    pub(super) fn publication(receipt:&Value,evidence:&Value,s:&mut OriginalAuditSession)->Result<Self> {
+        let receipt=s.canonical_representation(receipt,K::ReceiptFrame).map_err(core_error)?;
+        let evidence=s.canonical_representation(evidence,K::OperationFrame).map_err(core_error)?;
+        Self::from_parts(receipt.bytes(),evidence.bytes(),None,false,s)
+    }
     pub(super) fn status(original:&prefix::LocatedWrappers,s:&mut OriginalAuditSession)->Result<Self> {
         let receipt=s.canonical_representation(original.wrappers().receipt(),K::ReceiptFrame).map_err(core_error)?;
         let evidence=request_wrapper::field(original.wrappers().operation(),"request_evidence",s)?;

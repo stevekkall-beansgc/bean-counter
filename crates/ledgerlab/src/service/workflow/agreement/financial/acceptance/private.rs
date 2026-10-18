@@ -57,6 +57,9 @@ impl InlineDocuments {
             Document::Retained(_) => None,
         })
     }
+    pub(super) fn retained_refs(&self)->impl Iterator<Item=&ledgerlab_core::policy::workflow::transition_constructor::ExactRef> {
+        self.documents.iter().filter_map(|d|match d {Document::Retained(r)=>Some(r.reference()),_=>None})
+    }
     /// Inline bodies are newly produced at this acceptance. Retained bodies
     /// must instead belong to the actual completed earlier prefix.
     pub(super) fn match_retained(

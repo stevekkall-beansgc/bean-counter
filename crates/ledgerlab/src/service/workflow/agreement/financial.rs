@@ -17,6 +17,8 @@ mod evidence;
 mod ingress;
 mod management;
 mod local_party;
+mod local_publication;
+mod local_acceptance;
 pub(in crate::service::workflow) use management::effective_setup;
 use management::ManagementObservation;
 mod prefix;
@@ -304,6 +306,26 @@ async fn original_query_in(
 }
 
 impl LocalWorkflowLedger {
+    /// Private binary-selected local publication seam. The caller supplies
+    /// only the genuine code-owned selector after the original identity check.
+    pub(in crate::service::workflow) async fn publish_selected_with<F>(&self,raw:&[u8],fresh_support:F)->Result<Value>
+    where F:FnOnce(&mut ledgerlab_core::validation_work::OriginalAuditSession)
+        ->ledgerlab_core::Result<ledgerlab_core::policy::workflow::selected_program::SelectedCompilerSupport> + Send {
+        use ledgerlab_core::validation_work::OriginalAuditSession;
+        let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+        let req=ingress::IncomingRequest::parse_publication(raw,&mut session)?;
+        let mut tx=self.store.begin_with_resource_session(deadline(),&mut session).await.map_err(prefix::read_error)?;
+        let _cancellation=AttemptCancellation::new(&arena,tx.workflow_deadline());
+        let attempted=proof_session::with_proofs(&mut tx,req.key(),|tx|Box::pin(async {
+            self.admin.read_management(&self.store,tx,req.key(),&mut session).await?;
+            if tx.workflow_original_identity_exists(req.identity(),&mut session).await.map_err(prefix::read_error)? {
+                return original_retry(self,tx,&req,&mut session).await.map(TransactionResult::Original);
+            }
+            local_publication::prepare_append(self,tx,raw,fresh_support,&mut session).await.map(TransactionResult::Appended)
+        })).await;
+        finish_transaction(tx,req.key(),attempted,session).await.map(WorkflowReply::into_legacy_value)
+    }
     /// Financial admission is disabled. This validates lexical ingress and
     /// authenticates local management/identity ordering, but creates no receipt,
     /// financial record, claim, reservation, alias, projection or meter delta.
@@ -350,6 +372,10 @@ impl LocalWorkflowLedger {
                     ManagementObservation::capture_owned(self, tx, key, key_body, held_management, &mut session).await?;
                 management.recheck(self, tx, key, &mut session).await?;
                 if req.kind() == "agreement.accept" {
+                    if request_wrapper::text(req.payload(&mut session)?,"schema",&mut session)?=="ledger-workflow-agreement-accept/9" {
+                        let reply=local_acceptance::prepare_append(self,tx,&req,&management,&mut session).await?;
+                        return Ok(TransactionResult::Appended(reply));
+                    }
                     // AppAccept8 reaches the actual saved publication and SAME
                     // terms/binding assembly. Its DATA owners do not bypass
                     // complete chronology, consent/private graph or preparation.

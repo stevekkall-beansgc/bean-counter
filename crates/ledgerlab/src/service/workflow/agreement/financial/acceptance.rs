@@ -64,7 +64,8 @@ impl AppAcceptanceInput {
             .program()
             .execution_registry()
             .ok_or(ServiceError::Unavailable)?;
-        let commitment = assents::equal(registry, APP_COMMITMENT, session)?;
+        let commitment = assents::equal(registry, APP_COMMITMENT, session)?
+            ||assents::equal(registry,wrappers::LOCAL_REGISTRY,session)?;
         if !commitment {
             request_wrapper::same_text(registry, APP_CAUSAL, session)?;
         }
@@ -954,7 +955,8 @@ pub(super) struct PendingAppAcceptance {
     pub(super) private_documents: private::InlineDocuments,
     pub(super) head_records: emit::AcceptanceHeadRecords,
     pub(super) normalized: request::NormalizedAcceptance,
-    _prefix: prefix::FoldedInventory,
+    _prefix: Option<prefix::FoldedInventory>,
+    local_members:Option<prefix::ResolvedMembers>,
     _sources_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
 }
@@ -975,8 +977,9 @@ impl PendingAppAcceptance {
         &mut self,
         s: &mut OriginalAuditSession,
     ) -> Result<prefix::ResolvedMembers> {
+        if let Some(members)=self.local_members.take(){return Ok(members);}
         resolve_records(
-            &mut self._prefix,
+            self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?,
             &self.local_root,
             &self.authority,
             &self.binding,
@@ -1014,6 +1017,14 @@ pub(super) async fn prepare(
     incoming: &ingress::IncomingRequest,
     session: &mut OriginalAuditSession,
 ) -> Result<PendingAppAcceptance> {
+    prepare_selected(ledger,tx,incoming,false,session).await
+}
+pub(super) async fn prepare_local(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
+    incoming:&ingress::IncomingRequest,session:&mut OriginalAuditSession)->Result<PendingAppAcceptance> {
+    prepare_selected(ledger,tx,incoming,true,session).await
+}
+async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
+    incoming:&ingress::IncomingRequest,local:bool,session:&mut OriginalAuditSession)->Result<PendingAppAcceptance> {
     let result = async {
         session.check_cancelled().map_err(core_error)?;
         let setup = ledger
@@ -1034,15 +1045,16 @@ pub(super) async fn prepare(
             .map_err(core_error)?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
         let payload = incoming.payload(session)?;
-        let (mut prefix, publication) = prefix::publication_before(
-            ledger,
-            tx,
-            incoming.key(),
-            request_wrapper::field(payload, "publication_ref", session)?,
-            before,
-            session,
-        )
-        .await?;
+        let (mut prefix,publication)=if local {
+            let publication=prefix::publication_for(tx,incoming.key(),
+                request_wrapper::field(payload,"publication_ref",session)?,before,session).await?;
+            require(publication.program().uses_local_execution_recipe(),"UNSUPPORTED_SCHEMA_PROFILE")?;
+            (None,publication)
+        }else {
+            let (prefix,publication)=prefix::publication_before(ledger,tx,incoming.key(),
+                request_wrapper::field(payload,"publication_ref",session)?,before,session).await?;
+            (Some(prefix),publication)
+        };
         let input = AppAcceptanceInput::normalize(incoming, &publication, session)?;
         let binding = input.binding(&publication, &setup.operator, &at, session)?;
         // SAME local snapshot construction used by actual party management.
@@ -1067,7 +1079,7 @@ pub(super) async fn prepare(
             session,
         )
         .await?;
-        private_documents.match_retained(&mut prefix, session)?;
+        if let Some(prefix)=prefix.as_mut(){private_documents.match_retained(prefix,session)?;}
         private::associate_graph(&private_documents, &input, session)?;
         let binding_value = session
             .parse_representation(binding.bytes(), Kind::SourceDefinition)
@@ -1117,7 +1129,7 @@ pub(super) async fn prepare(
             let observed =
                 current::source::observe_value(tx, incoming.key(), reference, before, session)
                     .await?;
-            prefix.match_source(&observed, session)?;
+            if let Some(prefix)=prefix.as_mut(){prefix.match_source(&observed,session)?;}
             // Keep actual revocation DATA too. The exact consuming authority
             // intersection decides which active current grant is mandatory.
             session
@@ -1161,7 +1173,7 @@ pub(super) async fn prepare(
             session,
         )
         .await?;
-        consents.match_prefix(&mut prefix, session)?;
+        if let Some(prefix)=prefix.as_mut(){consents.match_prefix(prefix,session)?;}
         let authority = admission::authority(
             &input,
             source,
@@ -1176,7 +1188,8 @@ pub(super) async fn prepare(
         let binding_body = binding_value.value();
         let customer = request_wrapper::field(binding_body, "customer", session)?;
         let agreement = request_wrapper::field(binding_body, "agreement_id", session)?;
-        let prior = prefix.acceptance_head(customer, agreement, session)?;
+        let prior=if let Some(prefix)=prefix.as_mut(){prefix.acceptance_head(customer,agreement,session)?}
+            else {local_prior(tx,incoming,customer,agreement,before,session).await?};
         let head_records = emit::build(
             &input,
             &binding,
@@ -1200,6 +1213,14 @@ pub(super) async fn prepare(
             &consents,
             session,
         )?;
+        let local_members=if local {
+            Some(prefix::ResolvedMembers::local_selected(tx,incoming.key(),before,
+                [&local_root,&authority,&binding,&terms_record,&head_records.accepted,&head_records.head,&normalized.intent]
+                    .into_iter().chain(private_documents.inline_records()).chain(consents.generated_records()),
+                publication.required_refs().chain(private_documents.retained_refs())
+                    .chain(sources.iter().flat_map(current::source::ObservedSource::record_refs))
+                    .chain(consents.selected_refs()).chain(head_records.prior_ref()),session).await?)
+        }else{None};
         Ok(PendingAppAcceptance {
             input,
             binding,
@@ -1217,6 +1238,7 @@ pub(super) async fn prepare(
             head_records,
             normalized,
             _prefix: prefix,
+            local_members,
             _sources_storage: sources_storage,
             _time_storage: time_storage,
         })
@@ -1307,4 +1329,24 @@ fn resolve_records(
         records.push(record);
     }
     prefix.resolve_members(&records, publication.required_refs(), s)
+}
+
+async fn local_prior(tx:&mut SqliteTx,incoming:&ingress::IncomingRequest,customer:&Value,agreement:&Value,
+    before:i64,s:&mut OriginalAuditSession)->Result<Option<AuditedBytes>> {
+    let customer=customer.as_str().ok_or(ServiceError::IntegrityFailure)?;
+    let agreement=agreement.as_str().ok_or(ServiceError::IntegrityFailure)?;
+    let head=tx.workflow_financial_head(&incoming.key().logical_store_id,&incoming.key().scope,
+        crate::store::sqlite::workflow::financial::HeadKey::AgreementAcceptance{customer,agreement},s)
+        .await.map_err(prefix::read_error)?;
+    let Some(head)=head else{return Ok(None)};
+    let kind=wire::string(std::str::from_utf8(head.kind.bytes()).map_err(|_|ServiceError::IntegrityFailure)?,s)?;
+    let id=wire::string(std::str::from_utf8(head.id.bytes()).map_err(|_|ServiceError::IntegrityFailure)?,s)?;
+    let digest=wire::string(std::str::from_utf8(head.digest.bytes()).map_err(|_|ServiceError::IntegrityFailure)?,s)?;
+    let encoded=wire::object(&[("digest",digest.bytes()),("id",id.bytes()),("kind",kind.bytes())],1024,s)?;
+    let parsed=s.parse_representation(encoded.bytes(),Kind::Record).map_err(core_error)?;
+    let reference=current::source::from_value(parsed.value(),"workflow-head-transition",s)?;
+    prefix::verify_selected_association(tx,incoming.key(),&reference.0,before,s).await?;
+    let body=tx.workflow_financial_document(&reference.0,&incoming.key().logical_store_id,&incoming.key().scope,before,s)
+        .await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    Ok(Some(body.body))
 }

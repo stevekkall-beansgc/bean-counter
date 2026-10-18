@@ -310,6 +310,14 @@ pub(super) async fn compile_request(
 }
 
 impl SelectedPublicationData {
+    pub(super) async fn verify_local_retained(
+        &self,tx:&mut SqliteTx,key:&OperationKey,before:i64,s:&mut OriginalAuditSession,
+    )->Result<()> {
+        for record in &self.retained {
+            prefix::verify_selected_association(tx,key,record.reference(),before,s).await?;
+        }
+        Ok(())
+    }
     pub(super) fn match_retained(
         &self,
         prefix: &mut prefix::FoldedInventory,
