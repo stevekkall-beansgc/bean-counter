@@ -83,6 +83,16 @@ impl Count {
         ensure(n <= Self::MAX, "COUNTER_EXHAUSTED", "R3 counter range")?;
         Ok(Self(n))
     }
+    /// Same fixed counter constructor with executing resource callbacks.
+    pub fn new_with_work(n:u128,work:&mut dyn crate::validation_work::ValidationWork)->Result<Self> {
+        work.arithmetic(crate::validation_work::ArithmeticOperation::Compare,&[&n.into(),&Self::MAX.into()])?;
+        work.visit(crate::validation_work::ValidationVisit::Constraint)?;
+        Self::new(n)
+    }
+    pub fn checked_add_with_work(self,rhs:Self,work:&mut dyn crate::validation_work::ValidationWork)->Result<Self> {
+        work.arithmetic(crate::validation_work::ArithmeticOperation::Add,&[&self.0.into(),&rhs.0.into()])?;
+        Self::new_with_work(self.0.checked_add(rhs.0).ok_or_else(||Error::new("COUNTER_EXHAUSTED","addition"))?,work)
+    }
     pub fn parse(v: &str) -> Result<Self> {
         ensure(
             !v.is_empty()

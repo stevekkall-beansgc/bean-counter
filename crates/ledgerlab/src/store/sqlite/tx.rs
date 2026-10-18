@@ -689,7 +689,20 @@ impl SqliteTx {
                 self.failed = true;
                 let result = timeout_at(
                     self.deadline,
-                    super::adjudication::charge_legacy(self.conn(), before),
+                    async {
+                        if let Some(session)=resource.as_mut() {
+                            let paid=async {
+                                self.financial_reserve_io(session,super::adjudication::LEGACY_COMMIT_IO_BYTES)?;
+                                super::adjudication::charge_legacy_with_session(self.conn(),before,session).await?;
+                                self.financial_finish_io(session).await
+                            }.await;
+                            return paid.map_err(|error|match error {
+                                super::workflow::financial::FinancialReadError::Store(error)=>error,
+                                super::workflow::financial::FinancialReadError::Resource(error)=>{*resource_error=Some(error);StoreError::ReadBudgetExhausted},
+                            });
+                        }
+                        super::adjudication::charge_legacy(self.conn(),before).await
+                    },
                 )
                 .await
                 .map_err(|_| StoreError::Deadline)

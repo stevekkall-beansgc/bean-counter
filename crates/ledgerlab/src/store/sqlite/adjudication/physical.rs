@@ -116,6 +116,51 @@ pub(in crate::store::sqlite) async fn charge_legacy(
     Ok(())
 }
 
+/// SAME storage-allowance transition, owned and paid by the actual host commit.
+/// This is physical accounting, never a monetary or financial support proof.
+pub(in crate::store::sqlite) const LEGACY_COMMIT_IO_BYTES:usize=262144+2*(16+32)+2*(2*std::mem::size_of::<Vec<u8>>()+2*std::mem::size_of::<usize>())+4*std::mem::size_of::<sqlx::sqlite::SqliteArgumentValue>()+std::mem::size_of::<sqlx::sqlite::SqliteQueryResult>();
+pub(in crate::store::sqlite) async fn charge_legacy_with_session(
+    c:&mut SqliteConnection,before:u32,s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
+)->Result<(),crate::store::sqlite::workflow::financial::FinancialReadError> {
+    use crate::store::sqlite::workflow::{capacity::SessionWork,financial::FinancialReadError};
+    use ledgerlab_core::validation_work::{ArithmeticOperation as Op,ValidationVisit as Visit};
+    fn count_error(error:ledgerlab_core::Error)->FinancialReadError {
+        if error.code=="COUNTER_EXHAUSTED" {FinancialReadError::Store(core(error))} else {FinancialReadError::Resource(error)}
+    }
+    let after=physical_usage_with_work(c,&mut SessionWork(s)).await?;
+    s.semantic_work().arithmetic(Op::Subtract,&[&after.into(),&before.into()])?;
+    let delta=after.saturating_sub(before);
+    s.semantic_work().arithmetic(Op::Compare,&[&delta.into(),&0u32.into()])?;
+    if delta==0 {return Ok(());}
+    s.semantic_work().visit(Visit::RefLookup)?;
+    s.semantic_work().write_bytes(2*std::mem::size_of::<i64>())?;
+    let (limit,length):(i64,i64)=sqlx::query_as("SELECT legacy_allowance,length(legacy_used) FROM r3_storage_profile WHERE singleton=1").fetch_one(&mut *c).await?;
+    s.semantic_work().arithmetic(Op::Compare,&[&length.into(),&16i64.into()])?;
+    if length!=16 {return Err(invalid().into());}
+    s.semantic_work().visit(Visit::RefLookup)?;
+    s.semantic_work().scan_bytes(16)?;
+    s.semantic_work().write_bytes(16+std::mem::size_of::<Vec<u8>>())?;
+    let used:Vec<u8>=sqlx::query_scalar("SELECT legacy_used FROM r3_storage_profile WHERE singleton=1").fetch_one(&mut *c).await?;
+    s.semantic_work().visit(Visit::Constraint)?;
+    let raw:[u8;16]=used.try_into().map_err(|_|invalid())?;
+    let used=Count::new_with_work(u128::from_be_bytes(raw),s.semantic_work()).map_err(count_error)?;
+    let delta=Count::new_with_work(delta.into(),s.semantic_work()).map_err(count_error)?;
+    let next=used.checked_add_with_work(delta,s.semantic_work()).map_err(count_error)?;
+    let allowed=limit as u128;
+    s.semantic_work().arithmetic(Op::Compare,&[&next.value().into(),&allowed.into()])?;
+    if next.value()>allowed {return Err(StoreError::Overloaded.into());}
+    // Two fixed-width stack encodings, SQLx-owned argument copies and
+    // SQLite TRANSIENT copies; all controls/row results are prepaid too.
+    s.semantic_work().scan_bytes(3*2*16)?;
+    s.semantic_work().write_bytes(3*2*16+2*(2*std::mem::size_of::<Vec<u8>>()+2*std::mem::size_of::<usize>())+4*std::mem::size_of::<sqlx::sqlite::SqliteArgumentValue>()+std::mem::size_of::<sqlx::sqlite::SqliteQueryResult>())?;
+    s.semantic_work().visit(Visit::RefLookup)?;
+    let result=sqlx::query("UPDATE r3_storage_profile SET legacy_used=? WHERE singleton=1 AND legacy_used=?")
+        .bind(next.value().to_be_bytes().as_slice()).bind(used.value().to_be_bytes().as_slice()).execute(c).await?;
+    s.semantic_work().arithmetic(Op::Compare,&[&result.rows_affected().into(),&1u64.into()])?;
+    if result.rows_affected()!=1 {return Err(invalid().into());}
+    Ok(())
+}
+
 fn add(a: u128, b: u128) -> Result<u128, StoreError> {
     a.checked_add(b).ok_or(StoreError::Overloaded)
 }
