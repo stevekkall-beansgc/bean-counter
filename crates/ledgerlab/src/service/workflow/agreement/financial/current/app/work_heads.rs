@@ -568,7 +568,8 @@ impl ObservedWorkHeads {
                     .visit(ValidationVisit::Element)
                     .map_err(core_error)?;
                 let r = mapping.reference();
-                let id = check::text(mapping.body(), "authorization_id", s)?;
+                let authorization = check::field(mapping.body(), "authorization", s)?;
+                let id = check::text(authorization, "authorization_id", s)?;
                 output_ref_bytes(
                     &mut bytes,
                     &[
@@ -706,8 +707,8 @@ impl ObservedWorkHeads {
                     continue;
                 }
                 let reference = copied_exact(reference, s)?;
-                let authorization_id =
-                    copied(check::text(mapping.body(), "authorization_id", s)?, s)?;
+                let authorization = check::field(mapping.body(), "authorization", s)?;
+                let authorization_id = copied(check::text(authorization, "authorization_id", s)?, s)?;
                 let revision = copied(text(mapping.current_head().revision.bytes(), s)?, s)?;
                 s.semantic_work()
                     .write_bytes(mem::size_of::<PartyAuthorizationHead>())
