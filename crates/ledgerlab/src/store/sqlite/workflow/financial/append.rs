@@ -151,8 +151,8 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned financial transaction").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.financial_append_inner(prepared, session),
         )
         .await
@@ -580,8 +580,9 @@ impl SqliteTx {
     ) -> Result<super::super::capacity::WorkflowMeter, FinancialReadError> {
         let payload = io::binding_payload(&[], &[], 0, 0, session)?;
         self.financial_reserve_io(session, payload)?;
+        let limits=self.workflow_operator;
         let meter =
-            super::super::capacity::check_with_session(self.conn(), operations, bytes, session)
+            super::super::capacity::check_with_session(self.conn(), operations, bytes, session,limits)
                 .await?;
         self.financial_finish_io(session).await?;
         Ok(meter)

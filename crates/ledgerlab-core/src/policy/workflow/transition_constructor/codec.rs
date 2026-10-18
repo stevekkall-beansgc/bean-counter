@@ -122,8 +122,8 @@ pub(in crate::policy::workflow) fn encode_new(
     v: &Value,
     maximum: usize,
 ) -> Result<Vec<u8>> {
-    let remaining = m.remaining_new_body()?;
-    let bound = maximum.min(remaining);
+    let remaining = if m.resource_limits().is_some(){None}else{m.remaining_new_body()?};
+    let bound = remaining.map_or(maximum, |remaining| maximum.min(remaining));
     let bytes = m
         .scoped("CanonicalBytes::emit.new_body", |m| {
             canonical::CanonicalBytes::from_value_with_work_bounded(v, m, bound)

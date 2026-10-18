@@ -46,7 +46,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned app acceptance transaction").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, self.app_acceptance_append_inner(p, s))
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.app_acceptance_append_inner(p, s))
             .await
             .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {
@@ -231,7 +231,7 @@ impl SqliteTx{
  pub(crate) async fn workflow_app_activation_append(&mut self,p:&AppActivationAppend<'_>,s:&mut OriginalAuditSession)->Result<(),FinancialReadError>{
   if self.failed||self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire){return Err(invalid());}
   self.failed=true;
-  let result=timeout_at(self.deadline,self.app_activation_inner(p,s)).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+  let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),self.app_activation_inner(p,s)).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
   if result.is_ok(){s.check_cancelled()?;if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire)||self.financial_io.is_some(){return Err(invalid());}self.failed=false;}
   result
  }

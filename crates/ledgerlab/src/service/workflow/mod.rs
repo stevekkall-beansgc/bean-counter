@@ -1,5 +1,6 @@
 //! Local generic publication coordinator. Publications create no economic debt.
 mod local;
+pub(crate) mod resources;
 mod provenance;
 mod publication;
 mod records;
@@ -8,6 +9,7 @@ mod agreement;
 use crate::ServiceError;
 pub use local::LocalWorkflowLedger;
 pub use agreement::WorkflowReply;
+pub(crate) use agreement::financial::AttemptCancellation;
 use serde_json::Value;
 type Result<T> = std::result::Result<T, ServiceError>;
 fn reject(code: &str) -> ServiceError {
@@ -25,6 +27,7 @@ fn require(ok: bool, code: &str) -> Result<()> {
 // code families; registry-contract.json is the frozen exact closed vocabulary.
 // Core implementation diagnostics do not extend that vocabulary.
 pub(crate) fn core_error(error: ledgerlab_core::Error) -> ServiceError {
+    if let Some(diagnostic)=resources::diagnostic(&error){return diagnostic;}
     match error.code {
         // Exact public meaning already named by the reviewed registry.
         "AUTHORITY_REQUIRED"

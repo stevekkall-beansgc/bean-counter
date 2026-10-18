@@ -28,7 +28,7 @@ impl SqliteTx {
         self.failed = true;
         let payload = io::binding_payload(&[identity], &[], 0, 0, session)?;
         self.financial_reserve_io(session, payload)?;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             session.semantic_work().visit(ValidationVisit::RefLookup)?;
             sqlx::query_scalar(
@@ -70,7 +70,8 @@ impl SqliteTx {
     ) -> Result<Option<OriginalLocator>, FinancialReadError> {
         let prior = self.failed;
         self.failed = true;
-        for (left, right, permitted) in [(after, 0, false), (through, 100000, true)] {
+        let through_max=if session.resource_limits().is_some(){i64::MAX}else{100000};
+        for (left, right, permitted) in [(after, 0, false), (through, through_max, true)] {
             let comparison = resource_compare(session, left, right)?;
             if if permitted {
                 comparison.is_gt()
@@ -88,7 +89,7 @@ impl SqliteTx {
         // Only fixed integer arguments enter this probe; the same transaction
         // retains this lease until statement finalization has acknowledged.
         self.financial_reserve_io(session, 3 * 262144)?;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             session.semantic_work().visit(ValidationVisit::RefLookup)?;
             let next: Option<i64> = sqlx::query_scalar(
@@ -175,7 +176,7 @@ impl SqliteTx {
             return Err(invalid());
         }
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             session.check_cancelled()?;
             for (v,max) in [(reference.kind.as_str(),48usize),(reference.id.as_str(),104),(reference.digest.as_str(),71),(store,128),(&scope[0],128),(&scope[1],128)] {
                 session.semantic_work().visit(ValidationVisit::Constraint)?;
@@ -195,7 +196,7 @@ impl SqliteTx {
             self.financial_finish_io(session).await?;
             session.check_cancelled()?;
             Ok(sequence)
-        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
         if result.is_ok() {
             session.check_cancelled()?;
             if self

@@ -1,0 +1,40 @@
+{
+  "schema": "ledger-workflow-operator-limits/1",
+  "profile": "workflow-local-operator-limits/1",
+  "document_bytes": 262144,
+  "source_documents": 128,
+  "source_closure_bytes": 1048576,
+  "fact_slots": 1088,
+  "ast_nodes": 256,
+  "predicate_depth": 8,
+  "predicate_cells": 4096,
+  "rules": 64,
+  "graph_hops": 16,
+  "actions": 128,
+  "explanations": 256,
+  "max_atoms": "999999999999999999999999999999",
+  "resource_settings_schema": "ledger-local-resource-settings/1",
+  "operational_fields": [
+    "semantic_work",
+    "compile_work",
+    "resolved_records",
+    "resolved_bytes",
+    "new_body_bytes",
+    "arena_bytes",
+    "retained_operations",
+    "retained_bytes",
+    "attempt_timeout_ms"
+  ],
+  "null_means": "no_operator_imposed_quota_checked_platform_limits_remain",
+  "retained_representation_limits": {
+    "original_request_bytes": 262144,
+    "evidence_content_bytes": 4096,
+    "source_definition_bytes": 262144,
+    "source_closure_bytes": 1048576,
+    "authority_bytes": 65536,
+    "record_bytes": 4194304,
+    "operation_frame_bytes": 8388608,
+    "manifest_frame_bytes": 4194304,
+    "receipt_frame_bytes": 1048576
+  }
+}

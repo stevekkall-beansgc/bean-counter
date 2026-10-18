@@ -61,7 +61,12 @@ pub(super) fn actual_members(m:&mut super::CoreMeter,t:&super::data::Constructio
     // and the full future envelope are checked independently; no zero-byte O
     // or observed-size substitute is written into a CorrectionCapacity record.
     let with_operation=w::usize_add(m,count,1)?;
-    if w::compare(m,with_operation,4096usize)?.is_gt()||w::compare(m,bytes,8388608usize)?.is_gt(){
+    if m.resource_limits().is_some(){
+        // The record quota includes the operation allowance. Old/input bytes
+        // and newly constructed N bytes have separate configured quotas,
+        // already checked by Records and new_body; do not cap their sum again.
+        m.check_resolved_dimensions(with_operation,0)?;
+    }else if w::compare(m,with_operation,4096usize)?.is_gt()||w::compare(m,bytes,8388608usize)?.is_gt(){
         return Err(crate::Error::new("CORRECTION_CAPACITY_EXCEEDED","actual immediate member union"));
     }
     Ok(ActualMembers{without_operation_records:count,without_operation_body_bytes:bytes})

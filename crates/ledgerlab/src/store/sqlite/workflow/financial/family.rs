@@ -39,8 +39,8 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned family identity read").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.family_identity_inner(store, scope, target_id, slot, s),
         )
         .await

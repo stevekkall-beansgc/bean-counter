@@ -181,17 +181,24 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
     let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
     assert_eq!(
-        capacity::check_with_session(tx.conn(), 0, 0, &mut session).await.unwrap(),
+        capacity::check_with_session(tx.conn(), 0, 0, &mut session,None).await.unwrap(),
         capacity::WorkflowMeter { operations: 1, payload_bytes: 30258 },
     );
     assert!(matches!(
-        capacity::check_with_session(tx.conn(), 100000, 0, &mut session).await,
+        capacity::check_with_session(tx.conn(), 100000, 0, &mut session,None).await,
         Err(financial::FinancialReadError::Store(crate::store::errors::StoreError::BillingHistoryLimit)),
     ));
     assert_eq!(
-        capacity::check_with_session(tx.conn(), 0, 0, &mut session).await.unwrap(),
+        capacity::check_with_session(tx.conn(), 0, 0, &mut session,None).await.unwrap(),
         capacity::WorkflowMeter { operations: 1, payload_bytes: 30258 },
     );
+    // Lowered quotas do not prohibit the existing receipt or zero-growth
+    // integrity check; prospective growth names the selected exhausted setting.
+    let low=Some(OperatorStorage{operations:Some(1),bytes:Some(1),deadline:None});
+    assert!(capacity::check_with_session(tx.conn(),0,0,&mut session,low).await.is_ok());
+    assert!(matches!(capacity::check_with_session(tx.conn(),1,0,&mut session,low).await,
+      Err(financial::FinancialReadError::Store(crate::store::errors::StoreError::ResourceQuota{setting:"retained_operations",limit:1,observed:2}))));
+    assert!(capacity::check_with_session(tx.conn(),100000,300000000,&mut session,Some(OperatorStorage{operations:None,bytes:None,deadline:None})).await.is_ok());
     assert!(store.inner.workflow_guard_enabled.load(std::sync::atomic::Ordering::Acquire));
     tx.commit_with_resource_session(session).await.unwrap();
     // Simulate a response lost after real durable commit. Lookup returns the

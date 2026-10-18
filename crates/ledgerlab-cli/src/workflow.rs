@@ -3,7 +3,7 @@
 use super::*;
 use ledgerlab::{LocalWorkflowLedger, ServiceError};
 
-const HELP: &str = "Bean Counter generic local workflow\n\nUsage: ledger workflow [--directory DIR] COMMAND\n\n  enable             Explicitly opt this installation into Profile B\n  submit FILE|-      Submit an original workflow request or its exact retry\n  status KEYFILE|-   Reconcile an original identity without a new request\n  read FILE|-        Read an exact retained document or descriptor request\n\nRequests are strict JSON, at most 256 KiB. The host selects supported policy,\nauthority and financial recipes; unsupported profiles refuse without a write.\nExisting billing installation and private local-owner access are required.\nNo payment collection, tax invoice or remote authentication.\n--directory DIR may appear anywhere after workflow; default: .\nHelp does not open an installation or read an input file.\n";
+const HELP: &str = "Bean Counter generic local workflow\n\nUsage: ledger workflow [--directory DIR] COMMAND\n\n  enable             Explicitly opt this installation into Profile B\n  submit FILE|-      Submit an original workflow request or its exact retry\n  status KEYFILE|-   Reconcile an original identity without a new request\n  read FILE|-        Read an exact retained document or descriptor request\n  resources show     Show effective operator resource settings\n  resources set FILE Atomically set trusted installation resource settings\n\nRequests are strict JSON, at most 256 KiB. The host selects supported policy,\nauthority and financial recipes; unsupported profiles refuse without a write.\nExisting billing installation and private local-owner access are required.\nNo payment collection, tax invoice or remote authentication.\n--directory DIR may appear anywhere after workflow; default: .\nHelp does not open an installation or read an input file.\n";
 
 fn arguments(raw: &[String]) -> Result<(PathBuf, Vec<&str>), &'static str> {
     let mut directory = PathBuf::from(".");
@@ -32,7 +32,7 @@ fn arguments(raw: &[String]) -> Result<(PathBuf, Vec<&str>), &'static str> {
 pub fn help(raw: &[String]) -> Result<String, &'static str> {
     let (_, words) = arguments(raw)?;
     match words.first().copied().unwrap_or("") {
-        "" | "enable" | "submit" | "status" | "read" => Ok(HELP.into()),
+        "" | "enable" | "submit" | "status" | "read" | "resources" => Ok(HELP.into()),
         _ => Err("unknown workflow command; use ledger workflow --help"),
     }
 }
@@ -53,6 +53,12 @@ pub async fn run(args: &Args) -> Result<(CommandOutput, u8), LocalError> {
         Ok(parsed) => parsed,
         Err(message) => return Ok(legacy(error("USAGE", message, 2))),
     };
+    if words.first()==Some(&"resources") {
+        let update=match words.as_slice(){["resources","show"]=>None,["resources","set",file]=>Some(local::read_file(Path::new(file),local::CONFIG_LIMIT)?),_=>return Ok(legacy(error("USAGE","use workflow resources show|set FILE",2)))};
+        let ledger=LocalWorkflowLedger::open_local(&directory).await?;
+        let result=match update{Some(raw)=>ledger.set_resource_settings(&raw).await,None=>ledger.resource_settings().await};
+        ledger.close().await;return result.map(|v|(CommandOutput::Legacy(v),0)).map_err(LocalError::from);
+    }
     let (command, input) = match words.as_slice() {
         ["enable"] => ("enable", None),
         [command @ ("submit" | "status" | "read"), path]

@@ -85,6 +85,7 @@ pub enum PreviewResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceError {
     Retryable,
+    ResourceLimit { setting: &'static str, limit:u64, observed:u64 },
     #[doc(hidden)]
     ReadBudgetExhausted,
     OutcomeUnknown {

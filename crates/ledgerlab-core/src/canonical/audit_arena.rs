@@ -54,16 +54,19 @@ pub struct ArenaUsage {
     pub total_reserved_bytes: usize,
 }
 struct Ledger {
+    limit: Option<usize>,
+    configured: bool,
     live: usize,
     peak: usize,
     total: usize,
     poisoned: bool,
 }
-/// Fixed resource quota only. No caller maximum, serialization, reset, trusted
-/// origin state or financial commit conversion exists.
+/// Shared attempt accounting, with either frozen legacy quota or one immutable
+/// operator resource snapshot. No reset, custody or financial authority exists.
 pub struct AuditArena {
     ledger: Arc<Mutex<Ledger>>,
     cancelled: Arc<AtomicBool>,
+    resource_limits: Option<crate::validation_work::ResourceLimits>,
 }
 /// Operational cancellation only. Handles may set the attempt's terminal flag;
 /// no clear/reset, quota access, or proof completion operation is available.
@@ -81,13 +84,22 @@ impl AuditCancellation {
     }
 }
 impl AuditArena {
-    pub fn new() -> Result<Self> {
-        if FIXED > LIMIT {
-            return Err(failure("arena fixed reservation"));
+    pub fn new() -> Result<Self> { Self::create(None) }
+    pub fn with_resource_limits(limits: crate::validation_work::ResourceLimits) -> Result<Self> {
+        limits.validate()?; Self::create(Some(limits))
+    }
+    pub fn resource_limits(&self) -> Option<&crate::validation_work::ResourceLimits> { self.resource_limits.as_ref() }
+    fn create(resource_limits: Option<crate::validation_work::ResourceLimits>) -> Result<Self> {
+        let limit = resource_limits.map_or(Some(LIMIT), |l| l.arena_bytes);
+        if limit.is_some_and(|n| FIXED > n) {
+            return Err(if resource_limits.is_some(){crate::validation_work::resource_limits::refusal("arena_bytes",limit.expect("finite exceeded limit") as u64,FIXED as u64)}else{failure("arena fixed reservation")});
         }
         Ok(Self {
+            resource_limits,
             cancelled: Arc::new(AtomicBool::new(false)),
             ledger: Arc::new(Mutex::new(Ledger {
+                limit,
+                configured: resource_limits.is_some(),
                 live: FIXED,
                 peak: FIXED,
                 total: FIXED,
@@ -99,6 +111,7 @@ impl AuditArena {
         Self {
             ledger: Arc::clone(&self.ledger),
             cancelled: Arc::clone(&self.cancelled),
+            resource_limits: self.resource_limits,
         }
     }
     pub fn cancellation_handle(&self) -> AuditCancellation {
@@ -130,20 +143,22 @@ impl AuditArena {
             return Err(failure("poisoned audit arena"));
         }
         let next = add(work, s.live, bytes)?;
-        if greater(work, next, LIMIT)? {
-            return Err(failure("original audit arena exhausted before allocation"));
+        let exhausted=match self.resource_limits.map_or(Some(LIMIT), |l| l.arena_bytes) { Some(limit)=>greater(work,next,limit)?, None=>false };
+        if exhausted {
+            return Err(if self.resource_limits.is_some(){crate::validation_work::resource_limits::refusal("arena_bytes",s.limit.expect("finite exceeded limit") as u64,next as u64)}else{failure("original audit arena exhausted before allocation")});
         }
         let total = add(work, s.total, bytes)?;
         // Each eventual destructor performs one balance comparison and one
-        // subtraction on <=64MiB operands. Prepay the exact one-limb schedule
-        // BEFORE ownership acquisition; Drop itself cannot fail or call work.
+        // subtraction. Legacy operands are <=64MiB; configured operands are
+        // native usize (the same one-limb schedule on supported platforms).
+        // Prepay BEFORE ownership acquisition; Drop cannot fail or call work.
         work.arithmetic(
             w::ArithmeticOperation::Compare,
-            &[&LIMIT.into(), &bytes.into()],
+            &[&self.resource_limits.map_or(LIMIT, |_| usize::MAX).into(), &bytes.into()],
         )?;
         work.arithmetic(
             w::ArithmeticOperation::Subtract,
-            &[&LIMIT.into(), &bytes.into()],
+            &[&self.resource_limits.map_or(LIMIT, |_| usize::MAX).into(), &bytes.into()],
         )?;
         let peak = maximum(work, s.peak, next)?;
         s.live = next;
@@ -433,8 +448,9 @@ impl Lease {
             return Err(failure("poisoned audit arena"));
         }
         let live = add(work, s.live, bytes)?;
-        if greater(work, live, LIMIT)? {
-            return Err(failure("original audit arena exhausted before allocation"));
+        let exhausted=match s.limit {Some(limit)=>greater(work,live,limit)?, None=>false};
+        if exhausted {
+            return Err(if s.configured{crate::validation_work::resource_limits::refusal("arena_bytes",s.limit.expect("finite exceeded limit") as u64,live as u64)}else{failure("original audit arena exhausted before allocation")});
         }
         let owned = add(work, self.bytes, bytes)?;
         let total = add(work, s.total, bytes)?;

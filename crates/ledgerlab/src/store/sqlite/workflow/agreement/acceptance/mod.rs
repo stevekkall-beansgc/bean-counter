@@ -198,7 +198,7 @@ impl SqliteTx {
     ) -> Result<Option<String>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT customer FROM workflow_agreement_owners WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(agreement).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;sqlx::query_scalar("SELECT customer FROM workflow_agreement_owners WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(agreement).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -214,7 +214,7 @@ impl SqliteTx {
     ) -> Result<Option<AgreementHead>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT h.revision,d.kind AS head_kind,d.id AS head_id,d.digest AS head_digest FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).bind(agreement).bind(kind.as_str()).fetch_optional(self.conn()).await?;row.map(|r|Ok::<_,StoreError>(AgreementHead{revision:r.try_get("revision")?,transition:row_ref(&r,"head")?})).transpose()}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;let row=sqlx::query("SELECT h.revision,d.kind AS head_kind,d.id AS head_id,d.digest AS head_digest FROM workflow_agreement_heads h LEFT JOIN workflow_documents d ON d.id=h.transition_id WHERE h.logical_store_id=? AND h.tenant=? AND h.environment=? AND h.customer=? AND h.agreement_id=? AND h.head_kind=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).bind(agreement).bind(kind.as_str()).fetch_optional(self.conn()).await?;row.map(|r|Ok::<_,StoreError>(AgreementHead{revision:r.try_get("revision")?,transition:row_ref(&r,"head")?})).transpose()}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -228,7 +228,7 @@ impl SqliteTx {
     ) -> Result<Option<RecordRef>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT d.kind AS accepted_kind,d.id AS accepted_id,d.digest AS accepted_digest FROM workflow_agreement_acceptances a JOIN workflow_documents b ON b.id=a.binding_id JOIN workflow_documents d ON d.id=a.accepted_id WHERE a.logical_store_id=? AND a.tenant=? AND a.environment=? AND b.kind=? AND b.id=? AND b.digest=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(&binding.kind).bind(&binding.id).bind(&binding.digest).fetch_optional(self.conn()).await?;row.map(|r|row_ref(&r,"accepted")).transpose()}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;let row=sqlx::query("SELECT d.kind AS accepted_kind,d.id AS accepted_id,d.digest AS accepted_digest FROM workflow_agreement_acceptances a JOIN workflow_documents b ON b.id=a.binding_id JOIN workflow_documents d ON d.id=a.accepted_id WHERE a.logical_store_id=? AND a.tenant=? AND a.environment=? AND b.kind=? AND b.id=? AND b.digest=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(&binding.kind).bind(&binding.id).bind(&binding.digest).fetch_optional(self.conn()).await?;row.map(|r|row_ref(&r,"accepted")).transpose()}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -246,7 +246,7 @@ impl SqliteTx {
     ) -> Result<Vec<Vec<u8>>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE json_extract(operation_bytes,'$.kind') IN ('agreement.activate','agreement.revoke') AND json_extract(operation_bytes,'$.key.logical_store_id')=? AND json_extract(operation_bytes,'$.key.scope[0]')=? AND json_extract(operation_bytes,'$.key.scope[1]')=? AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.agreement_id')=? UNION SELECT CAST(json_extract(canonical_bytes,'$.operation_key') AS BLOB) FROM workflow_documents WHERE json_extract(canonical_bytes,'$.schema')='ledger-workflow-head-transition/1' AND json_extract(canonical_bytes,'$.head_kind')='agreement_activation' AND json_extract(canonical_bytes,'$.operation_key.logical_store_id')=? AND json_extract(canonical_bytes,'$.operation_key.scope[0]')=? AND json_extract(canonical_bytes,'$.operation_key.scope[1]')=? AND json_extract(canonical_bytes,'$.customer')=? AND json_extract(canonical_bytes,'$.agreement_id')=?")
                 .bind(store).bind(&scope[0]).bind(&scope[1]).bind(agreement)
@@ -267,7 +267,7 @@ impl SqliteTx {
     ) -> Result<Vec<ActivationCandidate>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             let rows=sqlx::query("SELECT a.revision,a.action,a.effective_at_us,a.accepted_at_us,a.commit_sequence,a.target_id AS expected_target_id,h.kind AS head_kind,h.id AS head_id,h.digest AS head_digest,d.kind AS activation_kind,d.id AS activation_id,d.digest AS activation_digest,b.kind AS binding_kind,b.id AS binding_id,b.digest AS binding_digest,i.kind AS intent_kind,i.id AS intent_id,i.digest AS intent_digest,t.kind AS target_kind,t.id AS target_id,t.digest AS target_digest FROM workflow_agreement_activations a LEFT JOIN workflow_documents h ON h.id=a.transition_id LEFT JOIN workflow_documents d ON d.id=a.activation_id LEFT JOIN workflow_documents b ON b.id=a.binding_id LEFT JOIN workflow_documents i ON i.id=a.intent_id LEFT JOIN workflow_documents t ON t.id=a.target_id WHERE a.logical_store_id=? AND a.tenant=? AND a.environment=? AND a.customer=? AND a.agreement_id=? ORDER BY a.revision").bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).bind(agreement).fetch_all(self.conn()).await?;
             rows.into_iter().map(|r|Ok(ActivationCandidate{head:AgreementHead{revision:r.try_get("revision")?,transition:row_ref(&r,"head")?},activation:row_ref(&r,"activation")?,binding:row_ref(&r,"binding")?,intent:row_ref(&r,"intent")?,action:ActivationAction::parse(r.try_get("action")?)?,effective_at_us:r.try_get("effective_at_us")?,accepted_at_us:r.try_get("accepted_at_us")?,sequence:r.try_get("commit_sequence")?,target:if r.try_get::<Option<String>,_>("expected_target_id")?.is_some(){Some(row_ref(&r,"target")?)}else{None}})).collect::<Result<Vec<_>,StoreError>>()

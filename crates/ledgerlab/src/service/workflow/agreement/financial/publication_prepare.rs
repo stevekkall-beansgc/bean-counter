@@ -166,7 +166,7 @@ pub(super) async fn compile_request(
                     .map_err(core_error)?
             } else {
                 let kind = request_wrapper::text(candidate, "kind", s)?;
-                let compiler_schema = if acceptance::same_recipe_text(
+                let compiler_schema = if acceptance::same_recipe_text(request_wrapper::text(support.canonical_value(),"schema",s)?,"ledger-workflow-compiler-descriptor/8",s)? {"ledger-workflow-compiler-descriptor/8"} else if acceptance::same_recipe_text(
                     request_wrapper::text(support.canonical_value(), "schema", s)?,
                     "ledger-workflow-compiler-descriptor/7", s,
                 )? { "ledger-workflow-compiler-descriptor/7" } else { "ledger-workflow-compiler-descriptor/6" };

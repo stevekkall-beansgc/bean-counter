@@ -45,9 +45,8 @@ use std::sync::{
 pub(super) async fn local_selected_origin(
  tx:&mut SqliteTx,key:&OperationKey,reference:&RecordRef,sequence:i64,
 )->Result<bool>{
- let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
- let _cancel=AttemptCancellation::new(&arena,tx.workflow_deadline());
- let mut s=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+ let mut s=take_read_session(tx)?;
+ let result=async {
  let prior=sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
  let old=prefix::next(tx,key,prior,sequence,&mut s).await?.ok_or(ServiceError::IntegrityFailure)?;
  // Inspect only the actual retained registry; all local wrapper/domain/receipt
@@ -60,16 +59,21 @@ pub(super) async fn local_selected_origin(
  let value=serde_json::to_value(reference).map_err(|_|ServiceError::IntegrityFailure)?;
  old.require_member(&value,&mut s)?;
  s.check_cancelled().map_err(core_error)?;Ok(true)
+ }.await;
+ retain_read_session(tx,s);
+ result
 }
 
 pub(super) async fn local_publication_origin(tx:&mut SqliteTx,key:&OperationKey,sequence:i64)->Result<bool>{
- let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
- let _cancel=AttemptCancellation::new(&arena,tx.workflow_deadline());
- let mut s=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+ let mut s=take_read_session(tx)?;
+ let result=async {
  let previous=sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
  let old=prefix::next(tx,key,previous,sequence,&mut s).await?.ok_or(ServiceError::IntegrityFailure)?
     .checked_wrappers(tx,&mut s).await?;
  Ok(local_publication::verify_original(tx,&old,&mut s).await?.is_some())
+ }.await;
+ retain_read_session(tx,s);
+ result
 }
 
 /// Explicit local enable coordinator only. The mechanical migrations establish
@@ -83,7 +87,7 @@ pub(in crate::service::workflow) async fn enable_app_schemas(
     proof_session::with_proofs(tx, key, |tx| {
         Box::pin(async move {
             let arena =
-                ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+                tx.workflow_arena().map_err(core_error)?;
             let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
             let mut session =
                 ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(
@@ -112,7 +116,10 @@ pub(in crate::service::workflow) async fn enable_app_schemas(
 
 impl LocalWorkflowLedger {
  pub async fn local_activation_owned(&self,raw:&[u8])->Result<Option<WorkflowReply>>{
-  if local_activation::selected(self,raw).await?{self.financial_owned_reply(raw).await.map(Some)}else{Ok(None)}
+  let snapshot=self.resource_snapshot()?;let arena=snapshot.arena()?;
+  let mut session=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+  let _cancellation=AttemptCancellation::new(&arena,snapshot.deadline()?);
+  if local_activation::selected(self,raw,&mut session).await?{if snapshot.settings.is_some(){self.financial_owned_reply_in(raw,snapshot,session).await.map(Some)}else{self.financial_owned_reply(raw).await.map(Some)}}else{Ok(None)}
  }
 }
 
@@ -135,28 +142,28 @@ pub(in crate::service::workflow) fn is_kind(kind: &str) -> bool {
 
 /// The actual request lifetime and held-writer deadline feed the same terminal
 /// core cancellation flag. This creates no proof state or additional budget.
-struct AttemptCancellation {
+pub(crate) struct AttemptCancellation {
     flag: ledgerlab_core::canonical::audit_arena::AuditCancellation,
-    timer: tokio::task::JoinHandle<()>,
+    timer: Option<tokio::task::JoinHandle<()>>,
 }
 impl AttemptCancellation {
-    fn new(
+    pub(crate) fn new(
         arena: &ledgerlab_core::canonical::audit_arena::AuditArena,
-        deadline: tokio::time::Instant,
+        deadline: Option<tokio::time::Instant>,
     ) -> Self {
         let flag = arena.cancellation_handle();
         let timed = flag.clone();
-        let timer = tokio::spawn(async move {
+        let timer = deadline.map(|deadline|tokio::spawn(async move {
             tokio::time::sleep_until(deadline).await;
             timed.cancel();
-        });
+        }));
         Self { flag, timer }
     }
 }
 impl Drop for AttemptCancellation {
     fn drop(&mut self) {
         self.flag.cancel();
-        self.timer.abort();
+        if let Some(timer)=&self.timer{timer.abort();}
     }
 }
 
@@ -195,6 +202,7 @@ async fn finish_transaction(
     key: &OperationKey,
     attempted: Result<TransactionResult>,
     mut session: ledgerlab_core::validation_work::OriginalAuditSession,
+    resources:Option<&crate::service::workflow::resources::Snapshot>,
 ) -> Result<WorkflowReply> {
     match attempted {
         Err(error) => {
@@ -211,6 +219,7 @@ async fn finish_transaction(
             response
         }
         Ok(TransactionResult::Appended(response)) => {
+            if let Some(snapshot)=resources {if let Err(e)=snapshot.recheck(){tx.rollback().await.map_err(crate::service::store_error)?;return Err(e);}}
             tx.commit_with_resource_session(session).await.map_err(|error| match error {
                 crate::store::sqlite::FinancialCommitError::Resource(error)=>core_error(error),
                 crate::store::sqlite::FinancialCommitError::Commit(error)=>match error {
@@ -241,9 +250,8 @@ pub(in crate::service::workflow) async fn local_management_status(
     tx:&mut SqliteTx,key:&OperationKey,raw_key:&[u8],
 )->Result<Option<Value>> {
     use ledgerlab_core::validation_work::{OriginalAuditSession,RepresentationKind};
-    let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
-    let _cancellation=AttemptCancellation::new(&arena,tx.workflow_deadline());
-    let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+ let mut s=take_read_session(tx)?;
+ let result=async {
     let parsed=s.parse_representation(raw_key,RepresentationKind::Record).map_err(core_error)?;
     request_wrapper::key(parsed.value(),key,&mut s)?;
     let identity=s.canonical_representation(parsed.value(),RepresentationKind::Record).map_err(core_error)?;
@@ -252,6 +260,9 @@ pub(in crate::service::workflow) async fn local_management_status(
     if !local_party::verify_original(tx,&original,&mut s).await?
         &&local_publication::verify_original(tx,&original,&mut s).await?.is_none() {return Ok(None);}
     WorkflowReply::status(&original,&mut s).map(|r|Some(r.into_legacy_value()))
+ }.await;
+ retain_read_session(tx,s);
+ result
 }
 pub(in crate::service::workflow) async fn original_status(
     ledger: &LocalWorkflowLedger,
@@ -287,10 +298,10 @@ async fn original_query(
     input: OriginalQuery<'_>,
 ) -> Result<Value> {
     use ledgerlab_core::validation_work::OriginalAuditSession;
-    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
-    let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
-    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
-    original_query_in(ledger, tx, key, input, &mut session).await
+    let snapshot=ledger.resource_snapshot()?;snapshot.bind(tx).await?;
+    let mut session=take_read_session(tx)?;
+    let result=original_query_in(ledger, tx, key, input, &mut session).await;
+    retain_read_session(tx,session);result
 }
 async fn original_query_in(
     ledger: &LocalWorkflowLedger,
@@ -369,11 +380,13 @@ impl LocalWorkflowLedger {
     where F:FnOnce(&mut ledgerlab_core::validation_work::OriginalAuditSession)
         ->ledgerlab_core::Result<ledgerlab_core::policy::workflow::selected_program::SelectedCompilerSupport> + Send {
         use ledgerlab_core::validation_work::OriginalAuditSession;
-        let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+        let resource_snapshot=self.resource_snapshot()?;
+        let arena=resource_snapshot.arena()?;
         let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
         let req=ingress::IncomingRequest::parse_publication(raw,&mut session)?;
-        let mut tx=self.store.begin_with_resource_session(deadline(),&mut session).await.map_err(prefix::read_error)?;
+        let mut tx=resource_snapshot.begin(&self.store,&mut session).await?;
         let _cancellation=AttemptCancellation::new(&arena,tx.workflow_deadline());
+        tx.workflow_main_session=true;
         let attempted=proof_session::with_proofs(&mut tx,req.key(),|tx|Box::pin(async {
             self.admin.read_management(&self.store,tx,req.key(),&mut session).await?;
             if tx.workflow_original_identity_exists(req.identity(),&mut session).await.map_err(prefix::read_error)? {
@@ -381,7 +394,7 @@ impl LocalWorkflowLedger {
             }
             local_publication::prepare_append(self,tx,raw,fresh_support,&mut session).await.map(TransactionResult::Appended)
         })).await;
-        finish_transaction(tx,req.key(),attempted,session).await
+        finish_transaction(tx,req.key(),attempted,session,Some(&resource_snapshot)).await
     }
     /// Financial admission is disabled. This validates lexical ingress and
     /// authenticates local management/identity ordering, but creates no receipt,
@@ -392,19 +405,19 @@ impl LocalWorkflowLedger {
     /// New-profile owning endpoint. Exact same request/prepare/commit route;
     /// the CLI retains its rendered output rather than decoding another tree.
     pub async fn financial_owned_reply(&self, raw: &[u8]) -> Result<WorkflowReply> {
-        let arena =
-            ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+        let resource_snapshot=self.resource_snapshot()?;
+        let arena=resource_snapshot.arena()?;
         let mut session =
             ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
                 .map_err(core_error)?;
+        self.financial_owned_reply_in(raw,resource_snapshot,session).await
+    }
+    async fn financial_owned_reply_in(&self,raw:&[u8],resource_snapshot:crate::service::workflow::resources::Snapshot,mut session:ledgerlab_core::validation_work::OriginalAuditSession)->Result<WorkflowReply>{
         let req = ingress::IncomingRequest::parse(raw, &mut session)?;
         let key = req.key();
-        let mut tx = self
-            .store
-            .begin_with_resource_session(deadline(),&mut session)
-            .await
-            .map_err(prefix::read_error)?;
-        let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
+        let mut tx=resource_snapshot.begin(&self.store,&mut session).await?;
+        let _cancellation = AttemptCancellation::new(session.arena(), tx.workflow_deadline());
+        tx.workflow_main_session=true;
         let attempted = proof_session::with_proofs(&mut tx, key, |tx| {
             Box::pin(async {
                 let held_management=self.admin.read_management(&self.store, tx, key, &mut session).await?;
@@ -532,9 +545,25 @@ impl LocalWorkflowLedger {
         // Fresh admission remains unavailable: no current path can construct
         // the Appended disposition. Failure always rolls back. The original
         // path retains its incoming intent and also rolls back read-only work.
-        finish_transaction(tx, key, attempted, session).await
+        finish_transaction(tx, key, attempted, session,Some(&resource_snapshot)).await
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+fn take_read_session(tx:&mut SqliteTx)->Result<ledgerlab_core::validation_work::OriginalAuditSession>{
+ if tx.workflow_snapshot.as_ref().is_some_and(|v|v.settings.is_some()) {require(!tx.workflow_main_session&&!tx.workflow_read_active,"INTEGRITY_FAILURE")?;}
+ tx.workflow_read_active=true;
+ if let Some(s)=tx.workflow_read_session.take(){return Ok(s);}
+ // Only legacy/R1 origin adapters enter here; the new financial graph passes
+ // its existing mutable session explicitly and never invokes these adapters.
+ let arena=tx.workflow_arena().map_err(core_error)?;
+ let s=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+ tx.workflow_read_cancellation=Some(AttemptCancellation::new(&arena,tx.workflow_deadline()));Ok(s)
+}
+
+fn retain_read_session(tx:&mut SqliteTx,s:ledgerlab_core::validation_work::OriginalAuditSession){
+ tx.workflow_read_active=false;
+ if tx.workflow_snapshot.as_ref().is_some_and(|v|v.settings.is_some()){tx.workflow_read_session=Some(s);}else{tx.workflow_read_cancellation.take();}
+}

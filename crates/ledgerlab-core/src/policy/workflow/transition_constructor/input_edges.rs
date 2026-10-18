@@ -254,7 +254,8 @@ pub fn select_local_input_edges(key:&OperationKey,input:EconomicRecordView<'_>,s
    }
   };
   walk(&mut |_,m|{count=w::usize_add(m,count,1)?;Ok(())},m)?;
-  if w::compare(m,count,4096usize)?.is_gt(){return Err(shape::fail("local selected Ref count"));}
+  if m.resource_limits().is_some(){m.check_resolved_dimensions(count,0)?;}
+  else if w::compare(m,count,4096usize)?.is_gt(){return Err(shape::fail("local selected Ref count"));}
   let bytes=product(m,count,mem::size_of::<OwnedExactRef>())?;let bytes=w::usize_add(m,bytes,mem::size_of::<LocalInputEdges>())?;
   let owner=a.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;let mut direct=Vec::new();direct.try_reserve_exact(count).map_err(|_|shape::fail("local selected role allocation"))?;
   walk(&mut |v,m|{direct.push(parse_owned_reference(m,&a,v)?);Ok(())},m)?;

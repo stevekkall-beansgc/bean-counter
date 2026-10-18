@@ -393,6 +393,7 @@ fn expected_kind(schema: &str, session: &mut OriginalAuditSession) -> Result<&'s
             "ledger-workflow-compiler-descriptor/7",
             "workflow-compiler-descriptor",
         ),
+        ("ledger-workflow-compiler-descriptor/8","workflow-compiler-descriptor"),
     ] {
         if text_is(schema, candidate, session)? {
             return Ok(kind);

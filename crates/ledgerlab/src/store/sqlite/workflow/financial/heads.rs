@@ -158,8 +158,8 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned financial head observation").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.financial_head_inner(store, scope, key, session),
         )
         .await

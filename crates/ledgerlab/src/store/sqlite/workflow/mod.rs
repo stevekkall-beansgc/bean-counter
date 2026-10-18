@@ -83,7 +83,7 @@ impl SqliteTx {
     ) -> Result<Option<i64>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async { self.workflow_schema().await?; sqlx::query_scalar("SELECT MIN(commit_sequence) FROM workflow_operations WHERE publication_id=? AND logical_store_id=? AND tenant=? AND environment=?").bind(id).bind(store).bind(tenant).bind(environment).fetch_one(self.conn()).await.map_err(StoreError::from) }).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async { self.workflow_schema().await?; sqlx::query_scalar("SELECT MIN(commit_sequence) FROM workflow_operations WHERE publication_id=? AND logical_store_id=? AND tenant=? AND environment=?").bind(id).bind(store).bind(tenant).bind(environment).fetch_one(self.conn()).await.map_err(StoreError::from) }).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -98,7 +98,7 @@ impl SqliteTx {
     ) -> Result<Option<RecordRef>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             let rows:Vec<(String,String)>=sqlx::query_as("SELECT m.id,m.digest FROM workflow_manifest_members m WHERE m.kind='workflow-build-manifest' AND m.identity_key=(SELECT identity_key FROM workflow_operations WHERE publication_id=? AND logical_store_id=? AND tenant=? AND environment=? ORDER BY commit_sequence LIMIT 1)").bind(id).bind(store).bind(tenant).bind(environment).fetch_all(self.conn()).await?;
             if rows.len()>1{return Err(StoreError::Integrity("ambiguous retained build manifest"));}
@@ -115,9 +115,9 @@ impl SqliteTx {
     ) -> Result<capacity::WorkflowMeter, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, capacity::check(self.conn(), 0, 0))
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), capacity::check(self.conn(), 0, 0))
             .await
-            .map_err(|_| StoreError::Deadline)?;
+            .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -139,7 +139,7 @@ impl SqliteTx {
     ) -> Result<Option<Document>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             let row:Option<(String,String,String,Vec<u8>)>=sqlx::query_as("SELECT d.kind,d.digest,d.schema_name,d.canonical_bytes FROM workflow_documents d WHERE d.id=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=?)").bind(id).bind(store).bind(tenant).bind(environment).fetch_optional(self.conn()).await?;
             Ok(row.map(|(kind,digest,schema,bytes)|Document{reference:RecordRef{kind,id:id.into(),digest},schema,bytes}))
@@ -153,7 +153,7 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if version != 12 && version != 13 && version != 14 && version != 15 && version != 16 {
+        if version != 12 && version != 13 && version != 14 && version != 15 && version != 16 && version != 17 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -167,7 +167,7 @@ impl SqliteTx {
     ) -> Result<Option<String>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             let row: Option<(String, Vec<u8>)> = sqlx::query_as(
                 "SELECT operation_kind,operation_bytes FROM workflow_operations WHERE identity_key=?",
@@ -184,7 +184,7 @@ impl SqliteTx {
                 return Err(StoreError::Integrity("original kind/key column mismatch"));
             }
             Ok(Some(kind))
-        }).await.map_err(|_| StoreError::Deadline)?;
+        }).await.map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() { self.failed = prior; }
         result
     }
@@ -194,7 +194,7 @@ impl SqliteTx {
     ) -> Result<Option<StoredOperation>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             let row = sqlx::query("SELECT * FROM workflow_operations WHERE identity_key=?")
                 .bind(identity).fetch_optional(self.conn()).await?;
@@ -235,7 +235,7 @@ impl SqliteTx {
     ) -> Result<Option<Document>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             let row:Option<(String,Vec<u8>)> = sqlx::query_as("SELECT d.schema_name,d.canonical_bytes FROM workflow_documents d WHERE d.kind=? AND d.id=? AND d.digest=? AND EXISTS(SELECT 1 FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE m.kind=d.kind AND m.id=d.id AND m.digest=d.digest AND o.logical_store_id=? AND o.tenant=? AND o.environment=? AND (? IS NULL OR o.source=?))")
                 .bind(&reference.kind).bind(&reference.id).bind(&reference.digest).bind(store).bind(tenant).bind(environment).bind(source).bind(source).fetch_optional(self.conn()).await?;
@@ -253,7 +253,7 @@ impl SqliteTx {
     ) -> Result<Option<(String, String, String)>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             sqlx::query_as("SELECT publication_id,plan_id,root_policy_id FROM workflow_publications WHERE publication_key=?")
                 .bind(key).fetch_optional(self.conn()).await.map_err(StoreError::from)
@@ -267,20 +267,20 @@ impl SqliteTx {
     pub(crate) async fn workflow_sequence(&mut self) -> Result<i64, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             let sequence: i64 = sqlx::query_scalar(
                 "SELECT COALESCE(max(commit_sequence),0)+1 FROM workflow_operations",
             )
             .fetch_one(self.conn())
             .await?;
-            if sequence > 100000 {
+            if self.workflow_operator.is_none() && sequence > 100000 {
                 return Err(StoreError::BillingHistoryLimit);
             }
             Ok(sequence)
         })
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -295,9 +295,9 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned workflow transaction"));
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, self.workflow_append_inner(p))
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.workflow_append_inner(p))
             .await
-            .map_err(|_| StoreError::Deadline)?;
+            .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = false;
         }
@@ -372,7 +372,8 @@ impl SqliteTx {
                 }
             }
         }
-        let meter = capacity::check(self.conn(), 1, additional).await?;
+        let limits=self.workflow_operator;
+        let meter = capacity::check_with_limits(self.conn(), 1, additional,limits).await?;
         if o.sequence != meter.operations + 1 {
             return Err(StoreError::Integrity("workflow sequence gap"));
         }
@@ -462,3 +463,7 @@ impl SqliteTx {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[derive(Clone,Copy)]
+pub(crate) struct OperatorStorage {pub operations:Option<i64>,pub bytes:Option<i64>,pub deadline:Option<tokio::time::Instant>}
+pub(crate) async fn until<D:Into<Option<tokio::time::Instant>>,F:std::future::Future>(deadline:D,future:F)->Result<F::Output,tokio::time::error::Elapsed>{match deadline.into(){Some(d)=>tokio::time::timeout_at(d,future).await,None=>Ok(future.await)}}

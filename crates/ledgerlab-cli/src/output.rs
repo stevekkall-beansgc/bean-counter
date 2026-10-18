@@ -146,6 +146,7 @@ pub fn local_error(e: LocalError) -> (Value, u8) {
                 3,
             )
         }
+        LocalError::Service(ServiceError::ResourceLimit{setting,limit,observed}) => super::error("PROGRAM_BUDGET_EXCEEDED",&format!("operator resource limit: {setting} limit={limit} observed={observed}"),3),
         LocalError::Service(ServiceError::Rejection(code)) => {
             let exit = rejection(&code);
             super::error(&code, "request rejected", exit)

@@ -18,9 +18,10 @@ type PublicationPreparation = (Option<Value>, Option<Vec<Vec<u8>>>);
 /// Private fields and no Deserialize, request/config flag or snapshot constructor.
 pub(super) struct LocalOwnerAdmin {
     instance: SqliteStore,
-    logical_store_id: String,
-    scope: [String; 2],
-    operator: String,
+    pub(super) configuration:std::path::PathBuf,
+    pub(super) logical_store_id: String,
+    pub(super) scope: [String; 2],
+    pub(super) operator: String,
 }
 #[cfg(test)]
 #[derive(Clone)]
@@ -61,7 +62,7 @@ impl LocalWorkflowLedger {
             .map_err(|_| reject("AUTHORITY_REQUIRED"))?;
         require(
             config.as_object().is_some_and(|o| {
-                o.len() == 3
+                o.len() == 3 + usize::from(o.contains_key("resources"))
                     && o.contains_key("schema")
                     && o.contains_key("store_id")
                     && o.contains_key("scope")
@@ -88,6 +89,7 @@ impl LocalWorkflowLedger {
             tx.rollback().await.map_err(super::super::store_error)?;
             Ok(LocalOwnerAdmin {
                 instance: store.clone(),
+                configuration:path.join("billing.json"),
                 logical_store_id: setup.store_id,
                 scope: [
                     setup.scope.tenant().into(),
@@ -98,7 +100,7 @@ impl LocalWorkflowLedger {
         }
         .await;
         match result {
-            Ok(admin) => Ok(Self {
+            Ok(admin) => { super::resources::Snapshot::capture(&admin.configuration,&admin.logical_store_id,&admin.scope)?; Ok(Self {
                 store,
                 admin,
                 #[cfg(test)]
@@ -107,7 +109,7 @@ impl LocalWorkflowLedger {
                 preparation_gate: std::sync::Mutex::new(None),
                 #[cfg(test)]
                 preferred_root: std::sync::Mutex::new(None),
-            }),
+            }) },
             Err(e) => {
                 store.close().await;
                 Err(e)
@@ -591,7 +593,7 @@ async fn retry(
 pub(super) fn deadline() -> Instant {
     Instant::now() + Duration::from_secs(20)
 }
-async fn setup_identity(tx: &mut SqliteTx) -> Result<billing::Setup> {
+pub(super) async fn setup_identity(tx: &mut SqliteTx) -> Result<billing::Setup> {
     let snapshot = tx.billing_meta().await.map_err(super::super::store_error)?;
     let setup = billing::permissions::effective(&snapshot)?;
     let installation = tx
@@ -630,6 +632,7 @@ impl LocalOwnerAdmin {
         &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
         s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
     )->Result<OwnedLocalManagement> {
+        super::resources::Snapshot::capture(&self.configuration,&self.logical_store_id,&self.scope)?.bind(tx).await?;
         use ledgerlab_core::validation_work::ValidationVisit as Visit;
         fn checked(s:&mut ledgerlab_core::validation_work::OriginalAuditSession,condition:impl FnOnce()->bool)->Result<()> {
             s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
@@ -750,6 +753,7 @@ impl LocalOwnerAdmin {
         tx: &mut SqliteTx,
         key: &request::OperationKey,
     ) -> Result<billing::Setup> {
+        super::resources::Snapshot::capture(&self.configuration,&self.logical_store_id,&self.scope)?.bind(tx).await?;
         require(
             self.instance.workflow_same_instance(store),
             "AUTHORITY_REQUIRED",

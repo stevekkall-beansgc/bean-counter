@@ -7,9 +7,9 @@ use serde_json::{Value,json};
 use std::{fs,path::PathBuf};
 fn main()->Result<(),Box<dyn std::error::Error>> {
     let args:Vec<_>=std::env::args_os().skip(1).collect();
-    if args.len()!=3 {return Err("usage: prepare_local_publication INPUT_DIRECTORY KEY_JSON OUTPUT_JSON".into());}
+    if args.len()!=3 && !(args.len()==4 && args[3]=="--operator-resources") {return Err("usage: prepare_local_publication INPUT_DIRECTORY KEY_JSON OUTPUT_JSON".into());}
     let input=PathBuf::from(&args[0]);let key:Value=canonical::parse(&fs::read(&args[1])?)?;
-    let arena=AuditArena::new()?;let mut session=OriginalAuditSession::for_resource_profile_v2(&arena)?;
+    let arena=if args.len()==4{AuditArena::with_resource_limits(ledgerlab_core::validation_work::ResourceLimits::unlimited())?}else{AuditArena::new()?};let mut session=OriginalAuditSession::for_resource_profile_v2(&arena)?;
     let support=SelectedCompilerSupport::local_execution_with_session(&mut session)?;
     let mut documents=Vec::new();
     for name in ["context-facts.json","work-facts.json","outcome-facts.json","product.json","slot-template.json","policy.json"] {

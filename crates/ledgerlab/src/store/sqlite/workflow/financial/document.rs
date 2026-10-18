@@ -45,7 +45,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned selected association read").into());
         }
         self.failed=true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             let bindings=[reference.kind.as_bytes(),reference.id.as_bytes(),reference.digest.as_bytes(),store.as_bytes(),scope[0].as_bytes(),scope[1].as_bytes()];
             let payload=io::binding_payload(&bindings,&[],0,0,session)?;
             self.financial_reserve_io(session,payload)?;
@@ -58,7 +58,7 @@ impl SqliteTx {
                 if !resource_compare(session,sequence,0)?.is_gt() || !resource_compare(session,sequence,before)?.is_lt() {return Err(invalid());}
             }
             Ok(sequence)
-        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
         if result.is_ok() {
             session.check_cancelled()?;
             if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {return Err(invalid());}
@@ -85,8 +85,8 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned financial document observation").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.financial_document_inner(reference, store, scope, before, session),
         )
         .await

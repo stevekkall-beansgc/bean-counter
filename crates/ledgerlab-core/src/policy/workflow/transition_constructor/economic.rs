@@ -136,6 +136,9 @@ pub fn construct_local_financial_candidate(program:&SelectedProgram,capture:&sup
  let result=(||{
   session.check_cancelled()?;program.require_attempt_owner(session.meter_mut())?;
   if !program.uses_local_execution_recipe(){return Err(unfinished("local factory requires exact local code-owned program recipe"));}
+  // Operator settings do not widen saved6/7 execution claims. Loading those
+  // exact programs for original receipt/intent DATA is a separate operation.
+  if session.resource_limits().is_some()&&!program.uses_local_operator_resource_recipe(){return Err(unfinished("operator resources require exact local compiler8"));}
   if state.observation.is_some()||state.audit.is_some(){return Err(shape::fail("local capture cannot substitute experimental witness metadata"));}
   if capture.sources.is_empty()||capture.sources.len()>32{return Err(shape::fail("local captured source count"));}
   // Concrete ownership for the bounded captured DATA copies. This does not

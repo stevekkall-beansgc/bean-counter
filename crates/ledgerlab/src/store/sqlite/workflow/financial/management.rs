@@ -165,7 +165,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management installation").into());
         }
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             let bindings=[store.as_bytes(),tenant.as_bytes(),environment.as_bytes()];
             let payload=io::binding_payload(&bindings,&[],0,0,s)?;
             self.financial_reserve_io(s,payload)?;
@@ -235,7 +235,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management sequence").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.financial_reserve_io(s, 262144)?;
             s.semantic_work().write_bytes(mem::size_of::<i64>())?;
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
@@ -243,7 +243,7 @@ impl SqliteTx {
                 .fetch_one(self.conn())
                 .await?;
             let mut supported = false;
-            for allowed in [12i64, 13, 14, 15, 16] {
+            for allowed in [12i64, 13, 14, 15, 16, 17] {
                 if resource_compare(s, version, allowed)?.is_eq() {
                     supported = true;
                     break;
@@ -260,14 +260,14 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
             let sequence = resource_add(s, last, 1)?;
-            if resource_compare(s, sequence, 100000)?.is_gt() {
+            if self.workflow_operator.is_none() && resource_compare(s, sequence, 100000)?.is_gt() {
                 return Err(StoreError::BillingHistoryLimit.into());
             }
             self.financial_finish_io(s).await?;
             Ok(sequence)
         })
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
             if self
@@ -292,7 +292,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management baseline").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.financial_reserve_io(s, 262144)?;
             s.semantic_work().write_bytes(mem::size_of::<i64>())?;
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
@@ -300,7 +300,7 @@ impl SqliteTx {
                 .fetch_one(self.conn()).await?;
             self.financial_finish_io(s).await?;
             Ok(changes)
-        }).await.map_err(|_| StoreError::Deadline)?;
+        }).await.map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
             if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {
@@ -331,14 +331,14 @@ impl SqliteTx {
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
             let version = self.billing_schema_version().await?;
             let mut supported = false;
-            for allowed in [12i64, 13, 14, 15, 16] {
+            for allowed in [12i64, 13, 14, 15, 16, 17] {
                 if resource_compare(s, version, allowed)?.is_eq() {
                     supported = true;
                     break;
                 }
             }
             if supported {
-                super::super::capacity::check_with_session(self.conn(), 0, 0, s).await?;
+                {let limits=self.workflow_operator;super::super::capacity::check_with_session(self.conn(), 0, 0, s,limits).await?;}
             } else if !resource_compare(s, version, 11)?.is_eq() {
                 return Err(StoreError::InvalidStore("unsupported guarded workflow schema").into());
             }
@@ -360,7 +360,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management counts").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             let payload = io::binding_payload(&[], &[], 0, 0, s)?;
             self.financial_reserve_io(s, payload)?;
             s.semantic_work().write_bytes(mem::size_of::<[i64;5]>())?;
@@ -373,7 +373,7 @@ impl SqliteTx {
                 if resource_compare(s, count, maximum)?.is_gt() { return Err(StoreError::InvalidStore("billing customer/control history bound").into()); }
             }
             Ok([row.0,row.1,row.2,row.3,row.4])
-        }).await.map_err(|_| StoreError::Deadline)?;
+        }).await.map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
             if self
@@ -399,7 +399,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management setup").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             let payload = io::binding_payload(&[], &[], 0, 0, s)?;
             self.financial_reserve_io(s, payload)?;
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
@@ -433,7 +433,7 @@ impl SqliteTx {
             Ok(result)
         })
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
             if self
@@ -457,7 +457,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management physical read").into());
         }
         self.failed=true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             let (_,_,bounds,rows)=queries(table,false);
             let mut materialized=2*65536i64;
             for maximum in text_maxima(table) {
@@ -539,8 +539,8 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned management row").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.management_row_inner(
                 table,
                 Selection {
@@ -555,7 +555,7 @@ impl SqliteTx {
             ),
         )
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
             if self
@@ -645,12 +645,12 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned selected management row").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.management_row_inner(table, selection, s),
         )
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
             if self

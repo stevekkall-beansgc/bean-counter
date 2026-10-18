@@ -142,7 +142,7 @@ impl SqliteTx {
     ) -> Result<Vec<Vec<u8>>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE json_extract(operation_bytes,'$.kind')='authority.change' AND json_extract(operation_bytes,'$.key.logical_store_id')=? AND json_extract(operation_bytes,'$.key.scope[0]')=? AND json_extract(operation_bytes,'$.key.scope[1]')=? AND ((json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action')='source.enroll' AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_id')=?) OR (json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.action') IN ('source.restrict','source.revoke') AND json_extract(operation_bytes,'$.request_evidence.normalized_request.payload.enrollment_ref.id')=?)) UNION SELECT CAST(json_extract(canonical_bytes,'$.operation_key') AS BLOB) FROM workflow_documents WHERE json_extract(canonical_bytes,'$.schema')='ledger-workflow-source-state/1' AND json_extract(canonical_bytes,'$.operation_key.logical_store_id')=? AND json_extract(canonical_bytes,'$.operation_key.scope[0]')=? AND json_extract(canonical_bytes,'$.operation_key.scope[1]')=? AND json_extract(canonical_bytes,'$.enrollment_ref.kind')=? AND json_extract(canonical_bytes,'$.enrollment_ref.id')=? AND json_extract(canonical_bytes,'$.enrollment_ref.digest')=?")
                 .bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment_id).bind(&enrollment.id)
@@ -164,12 +164,12 @@ impl SqliteTx {
     ) -> Result<Option<(Vec<u8>, String, i64)>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             sqlx::query_as("SELECT o.identity_key,o.operation_kind,o.commit_sequence FROM workflow_manifest_members m JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE o.logical_store_id=? AND o.tenant=? AND o.environment=? AND m.kind=? AND m.id=? AND m.digest=? ORDER BY o.commit_sequence LIMIT 1")
                 .bind(store).bind(&scope[0]).bind(&scope[1]).bind(&reference.kind).bind(&reference.id).bind(&reference.digest)
                 .fetch_optional(self.conn()).await.map_err(StoreError::from)
-        }).await.map_err(|_| StoreError::Deadline)?;
+        }).await.map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -182,7 +182,7 @@ impl SqliteTx {
     ) -> Result<Option<Document>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             let row=sqlx::query("SELECT d.kind,d.id,d.digest,d.schema_name,d.canonical_bytes FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE d.kind='workflow-authority' AND d.schema_name='ledger-workflow-local-authority-snapshot/1' AND o.logical_store_id=? AND o.tenant=? AND o.environment=? ORDER BY o.commit_sequence DESC LIMIT 1").bind(store).bind(&scope[0]).bind(&scope[1]).fetch_optional(self.conn()).await?;
             row.map(|r|Ok::<_,sqlx::Error>(Document{reference:RecordRef{kind:r.try_get("kind")?,id:r.try_get("id")?,digest:r.try_get("digest")?},schema:r.try_get("schema_name")?,bytes:r.try_get("canonical_bytes")?})).transpose().map_err(StoreError::from)
@@ -203,7 +203,7 @@ impl SqliteTx {
     ) -> Result<Vec<Document>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             let rows = sqlx::query("WITH candidates AS (SELECT d.kind,d.id,d.digest,d.schema_name,d.canonical_bytes,o.commit_sequence FROM workflow_documents d JOIN workflow_manifest_members m ON m.kind=d.kind AND m.id=d.id AND m.digest=d.digest JOIN workflow_operations o ON o.identity_key=m.identity_key WHERE d.kind='workflow-authority' AND d.schema_name='ledger-workflow-local-authority-snapshot/1' AND o.logical_store_id=? AND o.tenant=? AND o.environment=?) SELECT DISTINCT kind,id,digest,schema_name,canonical_bytes FROM candidates WHERE commit_sequence=(SELECT MAX(commit_sequence) FROM candidates)")
                 .bind(store).bind(&scope[0]).bind(&scope[1]).fetch_all(self.conn()).await?;
@@ -211,7 +211,7 @@ impl SqliteTx {
                 reference: RecordRef { kind: r.try_get("kind")?, id: r.try_get("id")?, digest: r.try_get("digest")? },
                 schema: r.try_get("schema_name")?, bytes: r.try_get("canonical_bytes")?,
             })).collect::<Result<Vec<_>, sqlx::Error>>().map_err(StoreError::from)
-        }).await.map_err(|_| StoreError::Deadline)?;
+        }).await.map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -223,7 +223,7 @@ impl SqliteTx {
     ) -> Result<Option<JournalOperation>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             let row = sqlx::query("SELECT * FROM workflow_operations WHERE identity_key=?")
                 .bind(identity)
@@ -291,7 +291,7 @@ impl SqliteTx {
             }))
         })
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -306,7 +306,7 @@ impl SqliteTx {
     ) -> Result<Option<JournalOperation>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             if r.kind!="workflow-operation" {return Err(StoreError::Integrity("not an operation reference"));}
             let identity:Option<Vec<u8>>=sqlx::query_scalar("SELECT identity_key FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_record_id=? AND operation_digest=?")
@@ -327,7 +327,7 @@ impl SqliteTx {
     ) -> Result<Option<Vec<u8>>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT original_identity_key FROM workflow_agreement_semantics WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_kind=? AND semantic_key=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(kind).bind(key).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;sqlx::query_scalar("SELECT original_identity_key FROM workflow_agreement_semantics WHERE logical_store_id=? AND tenant=? AND environment=? AND operation_kind=? AND semantic_key=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(kind).bind(key).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -341,7 +341,7 @@ impl SqliteTx {
     ) -> Result<Option<String>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_customer_registrations WHERE logical_store_id=? AND tenant=? AND environment=? AND customer=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_customer_registrations WHERE logical_store_id=? AND tenant=? AND environment=? AND customer=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(customer).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -355,7 +355,7 @@ impl SqliteTx {
     ) -> Result<Option<String>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_source_enrollments WHERE logical_store_id=? AND tenant=? AND environment=? AND enrollment_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_source_enrollments WHERE logical_store_id=? AND tenant=? AND environment=? AND enrollment_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -369,7 +369,7 @@ impl SqliteTx {
     ) -> Result<Option<SourceHead>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT revision,state_id,grant_id,status FROM workflow_source_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND enrollment_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment).fetch_optional(self.conn()).await?;row.map(|r|Ok::<_,sqlx::Error>(SourceHead{revision:r.try_get("revision")?,state:r.try_get("state_id")?,grant:r.try_get("grant_id")?,status:r.try_get("status")?})).transpose().map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;let row=sqlx::query("SELECT revision,state_id,grant_id,status FROM workflow_source_heads WHERE logical_store_id=? AND tenant=? AND environment=? AND enrollment_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(enrollment).fetch_optional(self.conn()).await?;row.map(|r|Ok::<_,sqlx::Error>(SourceHead{revision:r.try_get("revision")?,state:r.try_get("state_id")?,grant:r.try_get("grant_id")?,status:r.try_get("status")?})).transpose().map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -383,7 +383,7 @@ impl SqliteTx {
     ) -> Result<Option<String>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT canonical_economic_namespace FROM workflow_source_namespaces WHERE logical_store_id=? AND tenant=? AND environment=? AND source=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(source).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;sqlx::query_scalar("SELECT canonical_economic_namespace FROM workflow_source_namespaces WHERE logical_store_id=? AND tenant=? AND environment=? AND source=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(source).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -399,9 +399,9 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned agreement transaction"));
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, self.workflow_agreement_append_inner(p))
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.workflow_agreement_append_inner(p))
             .await
-            .map_err(|_| StoreError::Deadline)?;
+            .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = false;
         }

@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local-operator-resources-metadata.schema.json",
+  "$defs": {
+    "OperatorWorstCase": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "const": "1088"
+        },
+        "nodes": {
+          "const": "256"
+        },
+        "hops": {
+          "const": "16"
+        },
+        "actions": {
+          "const": "128"
+        },
+        "explanations": {
+          "const": "256"
+        }
+      },
+      "required": [
+        "fields",
+        "nodes",
+        "hops",
+        "actions",
+        "explanations"
+      ],
+      "additionalProperties": false
+    },
+    "OperatorPlan8": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-compiled-plan/8"
+        },
+        "compiler_ref": {
+          "$ref": "../local-execution-01/local-execution.schema.json#/$defs/DocRef"
+        },
+        "compiler_semantics": {
+          "const": "ledger-policy-compiler/app-cost-causal-1"
+        },
+        "evaluator": {
+          "const": "ledger-workflow-evaluator/1"
+        },
+        "grammar": {
+          "const": "ledger-policy-grammar/1"
+        },
+        "limits_profile": {
+          "const": "workflow-local-operator-limits/1"
+        },
+        "source_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/DocRef"
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "activity_table": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/PlanActivity"
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "fact_slots": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/PlanFactSlot"
+          },
+          "minItems": 0,
+          "maxItems": 1088
+        },
+        "link_paths": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Selector"
+          },
+          "minItems": 0,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "component_slots": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/TemplateComponent"
+          },
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "rule_order": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "policy_ref": {
+                "$ref": "../local-execution-01/local-execution.schema.json#/$defs/DocRef"
+              },
+              "rule_id": {
+                "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Name"
+              }
+            },
+            "required": [
+              "policy_ref",
+              "rule_id"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "typed_instructions": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/AppTypedInstruction"
+          },
+          "minItems": 0,
+          "maxItems": 256
+        },
+        "dependency_edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "producer": {
+                "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Counter"
+              },
+              "consumer": {
+                "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Counter"
+              }
+            },
+            "required": [
+              "producer",
+              "consumer"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 4096,
+          "uniqueItems": true
+        },
+        "worst_case": {
+          "$ref": "#/$defs/OperatorWorstCase"
+        },
+        "explanation_map": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ordinal": {
+                "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Counter"
+              },
+              "policy_ref": {
+                "$ref": "../local-execution-01/local-execution.schema.json#/$defs/DocRef"
+              },
+              "rule_or_family": {
+                "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Name"
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Name"
+                },
+                "minItems": 0,
+                "maxItems": 64,
+                "uniqueItems": true
+              },
+              "primitive": {
+                "enum": [
+                  "fixed",
+                  "unit",
+                  "percent",
+                  "discount",
+                  "final_cost",
+                  "supplier_final_cost",
+                  "observe_cost",
+                  "closure_cap",
+                  "closure_share",
+                  "family",
+                  "stage",
+                  "app_final_cost"
+                ]
+              }
+            },
+            "required": [
+              "ordinal",
+              "policy_ref",
+              "rule_or_family",
+              "fields",
+              "primitive"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 256
+        }
+      },
+      "required": [
+        "schema",
+        "compiler_ref",
+        "compiler_semantics",
+        "evaluator",
+        "grammar",
+        "limits_profile",
+        "source_refs",
+        "activity_table",
+        "fact_slots",
+        "link_paths",
+        "component_slots",
+        "rule_order",
+        "typed_instructions",
+        "dependency_edges",
+        "worst_case",
+        "explanation_map"
+      ],
+      "additionalProperties": false
+    },
+    "OperatorCompiler8": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "ledger-workflow-compiler-descriptor/8"
+        },
+        "compiler_semantics": {
+          "const": "ledger-policy-compiler/app-cost-causal-1"
+        },
+        "evaluator": {
+          "const": "ledger-workflow-evaluator/1"
+        },
+        "grammar": {
+          "const": "ledger-policy-grammar/1"
+        },
+        "facts_normalization": {
+          "const": "ledger-facts-normalization/1"
+        },
+        "operation_normalization": {
+          "const": "ledger-operation-normalization/2"
+        },
+        "limits_profile": {
+          "const": "workflow-local-operator-limits/1"
+        },
+        "limits_digest": {
+          "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Digest"
+        },
+        "primitive_versions": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Id"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "fact_types": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Id"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "predicate_ops": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Id"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "formula_kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Id"
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "mode_matrix_digest": {
+          "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Digest"
+        },
+        "plan_schema": {
+          "const": "ledger-workflow-compiled-plan/8"
+        },
+        "contract_manifest_digest": {
+          "$ref": "../local-execution-01/local-execution.schema.json#/$defs/Digest"
+        }
+      },
+      "required": [
+        "schema",
+        "compiler_semantics",
+        "evaluator",
+        "grammar",
+        "facts_normalization",
+        "operation_normalization",
+        "limits_profile",
+        "limits_digest",
+        "primitive_versions",
+        "fact_types",
+        "predicate_ops",
+        "formula_kinds",
+        "mode_matrix_digest",
+        "plan_schema",
+        "contract_manifest_digest"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/LocalPlan7"
+    },
+    {
+      "$ref": "#/$defs/LocalCompiler7"
+    }
+  ]
+}

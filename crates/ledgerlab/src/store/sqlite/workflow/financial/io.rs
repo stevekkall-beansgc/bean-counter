@@ -54,7 +54,7 @@ impl Drain {
             pause.release.notified().await;
         }
         let deadline = Instant::now() + Duration::from_secs(5);
-        let result = timeout_at(
+        let result = crate::store::sqlite::workflow::until(
             deadline,
             self.rollback.as_mut().expect("owned rollback").as_mut(),
         )
@@ -169,7 +169,7 @@ impl SqliteTx {
         // Reset can return a prior step error before clearing bindings. The
         // explicit queued ClearCache command finalizes BOTH persistent and
         // temporary handles before its ACK, regardless of reset outcome.
-        timeout_at(self.deadline, self.conn().clear_cached_statements())
+        crate::store::sqlite::workflow::until(self.workflow_deadline(), self.conn().clear_cached_statements())
             .await
             .map_err(|_| FinancialReadError::Store(StoreError::Deadline))??;
         self.financial_io.take();
@@ -274,7 +274,7 @@ mod tests {
         let pause = Arc::new(DrainPause::default());
         tx.financial_drain_pause = Some(Arc::clone(&pause));
         drop(tx);
-        timeout_at(
+        crate::store::sqlite::workflow::until(
             Instant::now() + Duration::from_secs(2),
             pause.reached.notified(),
         )
@@ -310,7 +310,7 @@ mod tests {
         let pause = Arc::new(DrainPause::default());
         tx.financial_drain_pause = Some(Arc::clone(&pause));
         drop(tx);
-        timeout_at(
+        crate::store::sqlite::workflow::until(
             Instant::now() + Duration::from_secs(2),
             pause.reached.notified(),
         )

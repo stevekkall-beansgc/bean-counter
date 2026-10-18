@@ -21,11 +21,11 @@ macro_rules! checked_read {
         let failed = $this.failed;
         $this.failed = true;
         let result = timeout_at(
-            $this.deadline.min(Instant::now() + Duration::from_secs(2)),
+            $this.workflow_deadline().map(|d|d.min(Instant::now()+Duration::from_secs(2))).unwrap_or_else(||Instant::now()+Duration::from_secs(2)),
             $read,
         )
         .await
-        .map_err(|_| StoreError::Deadline)?;
+        .map_err(|_| $this.workflow_timeout_error())?;
         match result {
             Ok(value) => {
                 $this.failed = failed;
@@ -67,6 +67,12 @@ pub(crate) struct SqliteTx {
     pub(super) store: Arc<Inner>,
     pub(super) slot: Option<OwnedSemaphorePermit>,
     pub(super) deadline: Instant,
+    pub(super) workflow_operator:Option<super::workflow::OperatorStorage>,
+    pub(crate) workflow_snapshot:Option<crate::service::workflow::resources::Snapshot>,
+    pub(crate) workflow_read_session:Option<ledgerlab_core::validation_work::OriginalAuditSession>,
+    pub(crate) workflow_read_cancellation:Option<crate::service::workflow::AttemptCancellation>,
+    pub(crate) workflow_read_active:bool,
+    pub(crate) workflow_main_session:bool,
     pub(super) failed: bool,
     pub(super) financial_io: Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
     // Service proof scopes can poison this transaction on pure failure/cancel.
@@ -83,9 +89,15 @@ pub(crate) struct SqliteTx {
     pub(super) outcome_fault: Option<std::sync::Arc<super::outcomes::Fault>>,
 }
 impl SqliteTx {
-    pub(crate) fn workflow_deadline(&self) -> Instant {
-        self.deadline
+    pub(crate) fn workflow_deadline(&self) -> Option<Instant> {
+        self.workflow_operator.map(|s|s.deadline).unwrap_or(Some(self.deadline))
     }
+    pub(crate) fn workflow_arena(&self)->ledgerlab_core::Result<ledgerlab_core::canonical::audit_arena::AuditArena>{
+        if let Some(snapshot)=&self.workflow_snapshot{snapshot.core_arena()}else{ledgerlab_core::canonical::audit_arena::AuditArena::new()}
+    }
+    pub(crate) fn workflow_bind_resources(&mut self,operations:Option<i64>,bytes:Option<i64>,deadline:Option<Instant>){self.workflow_operator=Some(super::workflow::OperatorStorage{operations,bytes,deadline});}
+    pub(super) fn workflow_timeout_error(&self)->StoreError {self.workflow_snapshot.as_ref().and_then(|s|s.timeout_error()).unwrap_or(StoreError::Deadline)}
+    pub(super) fn workflow_in_time(&self)->bool{self.workflow_deadline().is_none_or(|d|Instant::now()<d)}
     pub(crate) fn workflow_proof_failure_handle(&self) -> WorkflowProofFailureHandle {
         self.workflow_proof_failed.clone()
     }
@@ -576,10 +588,10 @@ impl AcceptanceTx for SqliteTx {
             ));
         }
         self.failed = true;
-        let deadline = self.deadline;
-        let result = timeout_at(deadline, write::operation(self.conn(), op))
+        let deadline = self.workflow_deadline();
+        let result = super::workflow::until(deadline, write::operation(self.conn(), op))
             .await
-            .map_err(|_| StoreError::Deadline)?;
+            .map_err(|_| self.workflow_timeout_error())?;
         match result {
             Ok(()) => {
                 self.failed = false;
@@ -684,11 +696,12 @@ impl SqliteTx {
         }
         self.failed |=
             self.workflow_proof_failed.load(Ordering::Acquire) || self.financial_io.is_some();
-        if !self.failed && Instant::now() < self.deadline && self.adjudication.is_none() {
+        if let Some(snapshot)=&self.workflow_snapshot {self.failed|=snapshot.recheck().is_err();}
+        if !self.failed && self.workflow_in_time() && self.adjudication.is_none() {
             if let Some(before) = self.physical_start_pages {
                 self.failed = true;
-                let result = timeout_at(
-                    self.deadline,
+                let result = super::workflow::until(
+                    self.workflow_deadline(),
                     async {
                         if let Some(session)=resource.as_mut() {
                             let paid=async {
@@ -705,7 +718,7 @@ impl SqliteTx {
                     },
                 )
                 .await
-                .map_err(|_| StoreError::Deadline)
+                .map_err(|_| self.workflow_timeout_error())
                 .and_then(|r| r);
                 if let Err(error) = result {
                     return match self.rollback().await {
@@ -717,12 +730,12 @@ impl SqliteTx {
             }
         }
         if !self.failed
-            && Instant::now() < self.deadline
+            && self.workflow_in_time()
             && self.store.workflow_guard_enabled.load(Ordering::Acquire)
         {
             self.failed = true;
             let before = self.start_changes;
-            let result = timeout_at(self.deadline, async {
+            let result = super::workflow::until(self.workflow_deadline(), async {
                 if let Some(session)=resource.as_mut() {
                     return self.workflow_management_commit_guard(before,session).await.map_err(|error|match error {
                         super::workflow::financial::FinancialReadError::Store(error)=>error,
@@ -739,7 +752,7 @@ impl SqliteTx {
                     before.ok_or(StoreError::Integrity("workflow mutation origin missing"))?;
                 if after != before {
                     match self.billing_schema_version().await? {
-                        12 | 13 | 14 | 15 | 16 => {
+                        12 | 13 | 14 | 15 | 16 | 17 => {
                             super::workflow::capacity::check(self.conn(), 0, 0).await?;
                         }
                         11 => {} // A verified opt-in attempt rolled back.
@@ -753,7 +766,7 @@ impl SqliteTx {
                 Ok::<_, StoreError>(())
             })
             .await
-            .map_err(|_| StoreError::Deadline)
+            .map_err(|_| self.workflow_timeout_error())
             .and_then(|r| r);
             if let Err(error) = result {
                 return match self.rollback().await {
@@ -763,7 +776,7 @@ impl SqliteTx {
             }
             self.failed = false;
         }
-        if self.failed || Instant::now() >= self.deadline {
+        if self.failed || !self.workflow_in_time() {
             return match self.rollback().await {
                 Ok(()) => Err(CommitError::RolledBack(StoreError::Integrity(
                     "failed, cancelled or expired transaction",

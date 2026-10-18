@@ -1,0 +1,74 @@
+{
+  "sources": [
+    {
+      "path": "local-runtime-cap-removal-01/metadata.schema.json",
+      "bytes": 9385,
+      "sha256": "d75592aed9c1921e8cf71d33aa55522d50a7cc2fd209dbb550eeed5cd9e17012"
+    },
+    {
+      "path": "local-runtime-cap-removal-01/limits.json",
+      "bytes": 546,
+      "sha256": "e2ed35766d7419e2d686511304b05706dd1d8f4d21d483e44cf475d60d3d1982"
+    },
+    {
+      "path": "local-runtime-cap-removal-01/profile.json",
+      "bytes": 1354,
+      "sha256": "9ec300cf4f775a55bb5b8726316ece299f56967fd71d9fa097d95541145deb5d"
+    },
+    {
+      "path": "local-execution-01/registry.json",
+      "bytes": 13748,
+      "sha256": "6c41e255b6145bfeb5fdf0e7ffe6781fe5ea0d6860f38c67d731ab60f86adc67"
+    },
+    {
+      "path": "local-execution-01/dispatch.json",
+      "bytes": 13375,
+      "sha256": "3dc5a92435847d236a25f68f82fc40b9a88256b02062ca1322534a20e4a8ffab"
+    },
+    {
+      "path": "local-execution-01/local-execution.schema.json",
+      "bytes": 604940,
+      "sha256": "c414deb98c096a3a71772a6b5bb554fe4cbd033a952122a672433dcb233880a0"
+    }
+  ],
+  "definitions": {
+    "OperatorWorstCase": {
+      "base": "LocalWorstCase",
+      "remove_properties_and_required": [
+        "compile_work",
+        "loaded_refs",
+        "bytes"
+      ]
+    },
+    "OperatorPlan8": {
+      "base": "LocalPlan7",
+      "replace": {
+        "schema": "ledger-workflow-compiled-plan/8",
+        "limits_profile": "workflow-local-operator-limits/1",
+        "worst_case_ref": "#/$defs/OperatorWorstCase"
+      }
+    },
+    "OperatorCompiler8": {
+      "base": "LocalCompiler7",
+      "replace": {
+        "schema": "ledger-workflow-compiler-descriptor/8",
+        "plan_schema": "ledger-workflow-compiled-plan/8",
+        "limits_profile": "workflow-local-operator-limits/1"
+      }
+    }
+  },
+  "limits_removed_operational_values": {
+    "attempt_work": 1048576,
+    "compile_visits": 1048576,
+    "loaded_refs": 4096,
+    "resolved_bytes": 8388608,
+    "canonical_decision_bytes": 4194304
+  },
+  "old_files_changed": false,
+  "unchanged": [
+    "financial schemas and rules",
+    "operation registry and dispatch",
+    "existing identity domains",
+    "all old metadata files"
+  ]
+}

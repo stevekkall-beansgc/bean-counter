@@ -147,7 +147,7 @@ impl<'a> RefSet<'a> {
         count: usize,
         session: &mut OriginalAuditSession,
     ) -> Result<Self> {
-        require(!compare(count, 4096, session)?.is_gt(), "REFERENCE_LIMIT")?;
+        reference_count(count,session)?;
         let payload = arithmetic(
             count,
             std::mem::size_of::<&ExactRef>(),
@@ -267,10 +267,7 @@ impl<'a> RefSet<'a> {
             }
         }
         out.refs.truncate(retained);
-        require(
-            !compare(retained, 4096, session)?.is_gt(),
-            "INTEGRITY_FAILURE",
-        )?;
+        reference_count(retained,session)?;
         Ok(out)
     }
     fn sort(&mut self, session: &mut OriginalAuditSession) -> Result<()> {
@@ -1125,10 +1122,10 @@ fn sequence_string(sequence: i64, session: &mut OriginalAuditSession) -> Result<
         .semantic_work()
         .arithmetic(Op::Compare, &[&sequence.into(), &100000i64.into()])
         .map_err(core_error)?;
-    require(sequence <= 100000, "INTEGRITY_FAILURE")?;
-    let mut digits = [0u8; 6];
+    require(session.resource_limits().is_some() || sequence <= 100000, "INTEGRITY_FAILURE")?;
+    let mut digits = [0u8; 20];
     let mut value = sequence as u64;
-    let mut start = 6;
+    let mut start = digits.len();
     loop {
         session
             .semantic_work()
@@ -1469,4 +1466,10 @@ pub(super) fn agreement_record(
         schema,
         storage: SourceRecordStorage::Wire { body, reference },
     })
+}
+
+fn reference_count(count:usize,session:&mut OriginalAuditSession)->Result<()> {
+ let limit=session.resource_limits().map(|r|r.resolved_records).unwrap_or(Some(4096));
+ if let Some(limit)=limit {if compare(count,limit,session)?.is_gt(){return Err(if session.resource_limits().is_some(){ServiceError::ResourceLimit{setting:"resolved_records",limit:limit as u64,observed:count as u64}}else{reject("REFERENCE_LIMIT")});}}
+ Ok(())
 }

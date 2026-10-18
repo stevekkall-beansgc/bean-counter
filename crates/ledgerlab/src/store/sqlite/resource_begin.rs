@@ -103,3 +103,12 @@ impl SqliteStore {
         }
     }
 }
+
+impl SqliteStore {
+ pub(crate) async fn begin_with_operator_session(&self,deadline:Option<Instant>,s:&mut OriginalAuditSession)->Result<SqliteTx,FinancialReadError>{
+  // Only native acquisition/CLEAR use this fallback, never the request itself.
+  let acquisition=deadline.unwrap_or_else(||Instant::now()+Duration::from_secs(2));
+  let mut tx=self.begin_with_resource_session(acquisition,s).await?;
+  tx.workflow_bind_resources(None,None,deadline);Ok(tx)
+ }
+}

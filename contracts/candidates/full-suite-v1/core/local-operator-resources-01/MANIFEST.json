@@ -1,0 +1,40 @@
+{
+  "scope": "operator resource configuration and truthful metadata only",
+  "files": [
+    {
+      "path": "SPEC.md",
+      "bytes": 11582,
+      "sha256": "dc8a74b42fa6ad9391140c3c8474529f0b944799c737895ad2c284aff0da3375"
+    },
+    {
+      "path": "delta.json",
+      "bytes": 2192,
+      "sha256": "75ef319694440e7e31d6954c8556116676b8f0bc6b84a8ff7de815c413d0a39e"
+    },
+    {
+      "path": "example.json",
+      "bytes": 290,
+      "sha256": "233a664d897ad203b6a9daee32ef8f6d1bb1b6c1460cd006417c6aeb04cbf0ed"
+    },
+    {
+      "path": "limits.json",
+      "bytes": 1146,
+      "sha256": "f5935b1ba2f84be99c61f91769a38b28be5d9bac1ce796da7e07e615381ac420"
+    },
+    {
+      "path": "metadata.schema.json",
+      "bytes": 9172,
+      "sha256": "794dfeae3622396efcb0ae56c2cd3fcd869235779990477f66837052672c1258"
+    },
+    {
+      "path": "profile.json",
+      "bytes": 1561,
+      "sha256": "7b4b0c099d6cbe42098c82638cbb1352f4c900483966fb82a5b8363941d9159c"
+    },
+    {
+      "path": "settings.schema.json",
+      "bytes": 2371,
+      "sha256": "8d504ae86e29eaf11875529ef878fcae985ff6473ae8b379630f4a88fe6f1164"
+    }
+  ]
+}

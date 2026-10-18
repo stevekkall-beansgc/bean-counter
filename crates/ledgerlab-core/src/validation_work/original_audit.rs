@@ -9,7 +9,7 @@ pub use representation::{RepresentationKind, ResourceVectorUsage};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OriginalAuditUsage {
     pub semantic_work: u64,
-    pub remaining_work: u64,
+    pub remaining_work: Option<u64>,
     pub framing_scanned_bytes: u64,
     pub framing_hashed_bytes: u64,
     pub framing_written_bytes: u64,
@@ -23,7 +23,7 @@ pub struct OriginalAuditSession {
 impl OriginalAuditSession {
     pub fn new(attempt_arena: &AuditArena) -> Result<Self> {
         let _active_arena = attempt_arena.usage()?;
-        let mut meter = Meter::original_audit()?;
+        let mut meter = Meter::original_audit_with_limits(attempt_arena.resource_limits().copied())?;
         meter.set_attempt_cancellation(attempt_arena.cancellation_handle());
         Ok(Self {
             arena: attempt_arena.shared_handle(),
@@ -54,6 +54,7 @@ impl OriginalAuditSession {
     pub fn work(&mut self) -> &mut dyn ValidationWork {
         &mut self.meter
     }
+    pub fn resource_limits(&self) -> Option<&super::ResourceLimits> { self.arena.resource_limits() }
     pub fn arena(&self) -> &AuditArena {
         &self.arena
     }
@@ -63,10 +64,10 @@ impl OriginalAuditSession {
         self.meter.fail_original();
     }
     pub fn usage(&self) -> OriginalAuditUsage {
-        let remaining = self.meter.original_remaining_work();
+        let remaining = self.meter.original_remaining_budget();
         let u = self.meter.usage();
         OriginalAuditUsage {
-            semantic_work: 1_048_576 - remaining,
+            semantic_work: self.meter.original_total_work(),
             remaining_work: remaining,
             framing_scanned_bytes: u.scanned_bytes,
             framing_hashed_bytes: u.hashed_bytes,
@@ -93,7 +94,7 @@ mod tests {
         let _completed_child = session.meter_mut().finish_original_economic(child).unwrap();
         session.work().visit(ValidationVisit::Constraint).unwrap();
         assert_eq!(session.usage().semantic_work, 3);
-        assert_eq!(session.usage().remaining_work, 1_048_573);
+        assert_eq!(session.usage().remaining_work, Some(1_048_573));
         assert!(session.meter_mut().original_economic_meter().is_err());
         let (owned, work) = session.parts();
         let bytes = owned.copy_bytes(b"same owner", work).unwrap();

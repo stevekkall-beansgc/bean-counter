@@ -140,7 +140,7 @@ impl SqliteTx {
                 .checked_add(8388608 + 2 * 262144)
                 .ok_or_else(invalid)?,
         )?;
-        let result=timeout_at(self.deadline, async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             self.workflow_schema().await?;
             session.work().visit(ValidationVisit::RefLookup)?;
             // No BLOB or potentially unbounded text is selected by this probe.
@@ -211,7 +211,7 @@ impl SqliteTx {
             let manifest=self.financial_blob(identity,store,scope,1,mb,session).await?;
             let receipt=self.financial_blob(identity,store,scope,2,rb,session).await?;
             Ok(Some(OriginalFrame {kind,operation,manifest,receipt,operation_id,operation_digest,manifest_id,manifest_digest,receipt_id,receipt_digest,request_hash,sequence,accepted_at_us,member_count,publication_id,plan_id}))
-        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
         self.financial_finish_io(session).await?;
         if result.is_ok() {
             self.failed = prior;
@@ -281,14 +281,14 @@ impl SqliteTx {
     ) -> Result<bool, FinancialReadError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline, async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             session.work().visit(ValidationVisit::RefLookup)?;
             let count:i64=sqlx::query_scalar("SELECT count(*) FROM workflow_manifest_members WHERE identity_key=? AND kind=? AND id=? AND digest=?")
                 .bind(identity).bind(kind).bind(id).bind(digest).fetch_one(self.conn()).await?;
             if resource_compare(session,count,0)?.is_eq() {Ok(false)}
             else if resource_compare(session,count,1)?.is_eq() {Ok(true)}
             else {Err(invalid())}
-        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
         if result.is_ok() {
             self.failed = prior;
         }

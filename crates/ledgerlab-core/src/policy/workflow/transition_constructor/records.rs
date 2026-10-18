@@ -22,7 +22,8 @@ fn admit_body(m:&mut CoreMeter,parent_data:bool,selected_bytes:&mut usize,select
     m.visit("resolve.parent_selected_body")?;
     let bytes=w::usize_add(m,*selected_bytes,raw.len())?;
     let refs=w::usize_add(m,*selected_refs,1)?;
-    if w::compare(m,bytes,8388608usize)?.is_gt()||w::compare(m,refs,4096usize)?.is_gt(){return Err(invalid("parent selected input closure"));}
+    if m.resource_limits().is_some(){m.check_resolved_dimensions(refs,bytes)?;}
+    else if w::compare(m,bytes,8388608usize)?.is_gt()||w::compare(m,refs,4096usize)?.is_gt(){return Err(invalid("parent selected input closure"));}
     *selected_bytes=bytes;*selected_refs=refs;Ok(())
 }
 // Canonical key/part serialization belongs to the named owning representation
@@ -352,7 +353,8 @@ impl<'inv, 'raw> Records<'inv, 'raw> {
     )->Result<Self>{
         if parent_data{m.require_original_data_selection()?;}else{m.claim_borrowed_inventory()?;}
         let n = w::usize_add(m, inputs.len(), pending.len())?;
-        if w::compare(m, n, 4096usize)?.is_gt() {
+        if m.resource_limits().is_some() { m.check_resolved_dimensions(n,0)?; }
+        else if w::compare(m, n, 4096usize)?.is_gt() {
             return Err(invalid("supplied borrowed count"));
         }
         let values = inputs

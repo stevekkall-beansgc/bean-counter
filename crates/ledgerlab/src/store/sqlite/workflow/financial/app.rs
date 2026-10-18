@@ -352,7 +352,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned app observation").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, self.app_claim_inner(key, session))
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.app_claim_inner(key, session))
             .await
             .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {

@@ -156,8 +156,7 @@ impl BillingLedger {
         let raw = local::read_file(&path.join("billing.json"), local::CONFIG_LIMIT)?;
         let config = ledgerlab_core::canonical::parse(&raw)
             .map_err(|_| LocalError::Config("invalid billing.json"))?;
-        if config.as_object().is_none_or(|o| o.len() != 3)
-            || config["schema"] != "ledger-billing-installation/1"
+        if !crate::service::workflow::resources::installation_shape(&config)
         {
             return Err(LocalError::Config("invalid billing installation"));
         }
@@ -220,8 +219,7 @@ impl BillingLedger {
         let raw_config = local::read_file(&path.join("billing.json"), local::CONFIG_LIMIT)?;
         let config = ledgerlab_core::canonical::parse(&raw_config)
             .map_err(|_| LocalError::Config("invalid billing.json"))?;
-        if config.as_object().is_none_or(|object| object.len() != 3)
-            || config["schema"] != "ledger-billing-installation/1"
+        if !crate::service::workflow::resources::installation_shape(&config)
         {
             return Err(LocalError::Config("invalid billing installation"));
         }

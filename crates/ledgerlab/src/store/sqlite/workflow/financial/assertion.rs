@@ -51,7 +51,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned assertion lookup").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, async {
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
             let values = parts(key, s)?;
             let bound = values.map(str::as_bytes);
             self.read_financial_claim_projection(LENGTHS, VALUES, &values, &bound, s)

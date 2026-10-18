@@ -1,0 +1,12 @@
+{
+  "schema": "ledger-local-resource-settings/1",
+  "semantic_work": null,
+  "compile_work": null,
+  "resolved_records": null,
+  "resolved_bytes": null,
+  "new_body_bytes": null,
+  "arena_bytes": null,
+  "retained_operations": null,
+  "retained_bytes": null,
+  "attempt_timeout_ms": null
+}

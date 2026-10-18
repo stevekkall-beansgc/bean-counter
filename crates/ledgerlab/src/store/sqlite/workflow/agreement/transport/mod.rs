@@ -29,7 +29,7 @@ impl SqliteTx {
     ) -> Result<Option<Vec<u8>>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             self.workflow_schema().await?;
             let rows:Vec<(Vec<u8>,Vec<u8>)>=sqlx::query_as("SELECT o.identity_key,o.operation_bytes FROM workflow_operations o JOIN workflow_manifest_members m ON m.identity_key=o.identity_key WHERE o.operation_kind='evidence.retain' AND o.logical_store_id=? AND o.tenant=? AND o.environment=? AND m.kind=? AND m.id=? AND m.digest=? ORDER BY o.commit_sequence").bind(store).bind(&scope[0]).bind(&scope[1]).bind(&reference.kind).bind(&reference.id).bind(&reference.digest).fetch_all(self.conn()).await?;
             for (identity,bytes) in rows {
@@ -53,7 +53,7 @@ impl SqliteTx {
     ) -> Result<Option<Upload>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;let row=sqlx::query("SELECT document_schema,canonical_document_sha256,document_bytes FROM workflow_definition_uploads WHERE logical_store_id=? AND tenant=? AND environment=? AND source=? AND upload_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(source).bind(id).fetch_optional(self.conn()).await?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;let row=sqlx::query("SELECT document_schema,canonical_document_sha256,document_bytes FROM workflow_definition_uploads WHERE logical_store_id=? AND tenant=? AND environment=? AND source=? AND upload_id=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(source).bind(id).fetch_optional(self.conn()).await?;
         row.map(|r|Ok::<_,sqlx::Error>(Upload{upload_id:id.into(),document_schema:r.try_get("document_schema")?,digest:r.try_get("canonical_document_sha256")?,bytes:r.try_get("document_bytes")?})).transpose().map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
@@ -70,7 +70,7 @@ impl SqliteTx {
     ) -> Result<Option<String>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_definition_upload_parts WHERE logical_store_id=? AND tenant=? AND environment=? AND source=? AND upload_id=? AND part=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(source).bind(id).bind(part).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_definition_upload_parts WHERE logical_store_id=? AND tenant=? AND environment=? AND source=? AND upload_id=? AND part=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(source).bind(id).bind(part).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -86,7 +86,7 @@ impl SqliteTx {
     ) -> Result<Option<String>, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result=timeout_at(self.deadline,async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_definition_registry WHERE logical_store_id=? AND tenant=? AND environment=? AND kind=? AND semantic_id=? AND version=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(kind).bind(name).bind(version).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {self.workflow_schema().await?;sqlx::query_scalar("SELECT document_id FROM workflow_definition_registry WHERE logical_store_id=? AND tenant=? AND environment=? AND kind=? AND semantic_id=? AND version=?").bind(store).bind(&scope[0]).bind(&scope[1]).bind(kind).bind(name).bind(version).fetch_optional(self.conn()).await.map_err(StoreError::from)}).await.map_err(|_|StoreError::Deadline)?;
         if result.is_ok() {
             self.failed = prior;
         }

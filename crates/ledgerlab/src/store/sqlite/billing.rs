@@ -228,7 +228,7 @@ impl SqliteTx {
     }
     async fn require_m3_billing_schema(&mut self) -> Result<(), StoreError> {
         let version = self.billing_schema_version().await?;
-        if version != 10 && version != 11 && version != 12 && version != 13 && version != 14 && version != 15 && version != 16 {
+        if version != 10 && version != 11 && version != 12 && version != 13 && version != 14 && version != 15 && version != 16 && version != 17 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -236,7 +236,7 @@ impl SqliteTx {
 
     async fn require_m5_billing_schema(&mut self) -> Result<(), StoreError> {
         let version = self.billing_schema_version().await?;
-        if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 && version != 16 {
+        if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 && version != 16 && version != 17 {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -250,7 +250,7 @@ impl SqliteTx {
             .fetch_one(self.conn())
             .await?;
         match version {
-            11 | 12 | 13 | 14 | 15 | 16 => {
+            11 | 12 | 13 | 14 | 15 | 16 | 17 => {
                 super::m5::append_boundary(self.conn()).await?;
                 Ok(())
             }
@@ -349,7 +349,7 @@ impl SqliteTx {
             s.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
             let version=self.billing_schema_version().await?;
             let mut supported=false;
-            for allowed in [11,12,13,14,15,16] { if billing_resource_compare(version,allowed,s.semantic_work())?.is_eq() {supported=true;break;} }
+            for allowed in [11,12,13,14,15,16,17] { if billing_resource_compare(version,allowed,s.semantic_work())?.is_eq() {supported=true;break;} }
             if !supported {return Err(StoreError::BillingUpgradeRequired.into());}
             let bounds=self.billing_bounds_work(&mut SessionWork(s)).await?;
             self.cross_stream_time_max_work(bounds.5,&mut SessionWork(s)).await?;
@@ -1113,7 +1113,7 @@ impl SqliteTx {
             let ordinal = entry_count + 1;
             let schema: i64 = sqlx::query_scalar("PRAGMA user_version")
                 .fetch_one(self.conn()).await?;
-            let assignment = if schema == 11 || schema == 12 || schema == 13 || schema == 14 || schema == 15 || schema == 16 {
+            let assignment = if schema == 11 || schema == 12 || schema == 13 || schema == 14 || schema == 15 || schema == 16 || schema == 17 {
                 super::m5::assignment_for_m3(self.conn(), plan).await?
             } else {
                 None

@@ -314,7 +314,7 @@ pub(super) fn enter(
             // The installed Profile B operation bound counts both publication
             // and agreement identities; duplicates do not consume this set.
             if state.active.contains(identity)
-                || state.active.len() + state.complete.len() >= 100_000
+                || tx.workflow_snapshot.as_ref().and_then(|s|s.settings.as_ref()).map(|r|r.resolved_records).unwrap_or(Some(100_000)).is_some_and(|maximum|state.active.len().checked_add(state.complete.len()).is_none_or(|n|n>=maximum))
             {
                 state.invalidate();
                 return Err(ServiceError::IntegrityFailure);

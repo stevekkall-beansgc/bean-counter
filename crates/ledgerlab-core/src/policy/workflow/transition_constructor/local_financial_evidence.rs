@@ -901,12 +901,12 @@ fn selected_anchor(
         | ("workflow-acceptance-terms", "ledger-workflow-acceptance-terms/2")
         | ("workflow-agreement-intent", "ledger-workflow-agreement-intent/1")
         | ("workflow-roles", "ledger-workflow-role-assignment/1")
-        | ("workflow-compiled-plan", "ledger-workflow-compiled-plan/6"|"ledger-workflow-compiled-plan/7")
+        | ("workflow-compiled-plan", "ledger-workflow-compiled-plan/6"|"ledger-workflow-compiled-plan/7"|"ledger-workflow-compiled-plan/8")
         | ("workflow-build-manifest", "ledger-workflow-build-manifest/1")
         | ("workflow-slot-template", "ledger-workflow-slot-template/1") => {
             ("evidence", "evidence_input", 0, true)
         }
-        ("workflow-compiler-descriptor", "ledger-workflow-compiler-descriptor/6"|"ledger-workflow-compiler-descriptor/7") => {
+        ("workflow-compiler-descriptor", "ledger-workflow-compiler-descriptor/6"|"ledger-workflow-compiler-descriptor/7"|"ledger-workflow-compiler-descriptor/8") => {
             ("evidence", "evidence_input", 3, true)
         }
         _ => {

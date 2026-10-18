@@ -5,6 +5,7 @@ mod project;
 mod tests;
 use crate::{store::errors::StoreError, ServiceError};
 pub(crate) fn store_error(e: StoreError) -> ServiceError {
+    if let StoreError::ResourceQuota{setting,limit,observed}=e{return ServiceError::ResourceLimit{setting,limit,observed};}
     #[cfg(test)]
     if e.retryable_after_rollback() {
         eprintln!("ACCEPT-DIAG retryable store class={e:?}");

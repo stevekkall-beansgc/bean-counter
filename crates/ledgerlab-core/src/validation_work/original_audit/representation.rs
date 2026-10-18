@@ -60,6 +60,8 @@ pub struct ResourceVectorUsage {
 /// This is a deterministic accounting trace, not custody or a receipt hash.
 pub(in crate::validation_work) struct ResourceLedger {
     semantic: u64,
+    semantic_limit: Option<u64>,
+    configured: bool,
     representation: u64,
     semantic_callbacks: u64,
     representation_callbacks: u64,
@@ -82,9 +84,12 @@ fn product(a: u64, b: u64) -> Result<u64> {
         .ok_or_else(|| failure("resource envelope overflow"))
 }
 impl ResourceLedger {
-    pub(in crate::validation_work) fn new() -> Self {
+    pub(in crate::validation_work) fn new() -> Self { let mut ledger=Self::with_semantic_limit(Some(1048576));ledger.configured=false;ledger }
+    pub(in crate::validation_work) fn with_semantic_limit(semantic_limit: Option<u64>) -> Self {
         Self {
             semantic: 0,
+            semantic_limit,
+            configured: true,
             representation: 0,
             semantic_callbacks: 0,
             representation_callbacks: 0,
@@ -111,8 +116,8 @@ impl ResourceLedger {
             },
             cost,
         )?;
-        if !representation && next > 1048576 {
-            return Err(failure("composed original semantic work"));
+        if !representation && self.semantic_limit.is_some_and(|limit| next > limit) {
+            return Err(if self.configured{crate::validation_work::resource_limits::refusal("semantic_work",self.semantic_limit.expect("finite exceeded limit"),next)}else{failure("composed original semantic work")});
         }
         let callbacks = sum(
             if representation {
@@ -475,13 +480,12 @@ impl Meter {
         value: &Value,
         kind: RepresentationKind,
     ) -> Result<AuditedBytes> {
-        let remaining = self.remaining_new_body()?;
+        // Operator N-byte quota is checked on the actual canonical size by
+        // new_body before the body escapes. Live allocations independently
+        // remain on the same arena. Old recipes keep their narrowed emitter.
+        let remaining = if self.resource_limits().is_some(){None}else{self.remaining_new_body()?};
         let kind_max = kind.maximum();
-        let bound = if w::compare(self, remaining, kind_max)?.is_lt() {
-            remaining
-        } else {
-            kind_max
-        };
+        let bound = match remaining { Some(remaining) if w::compare(self, remaining, kind_max)?.is_lt()=>remaining, _=>kind_max };
         let envelope = OperationEnvelope::canonical(kind_max)?;
         run(arena, self, envelope, |arena, work| {
             arena.canonical_representation_bytes(value, work, bound)

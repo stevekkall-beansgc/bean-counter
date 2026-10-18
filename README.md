@@ -75,3 +75,24 @@ The current published package is **v0.9.7 Open Beta**, with billing contract v0.
 The [Phase 3 status](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/PRODUCT-PHASE-3-STATUS.md), [Phase 4 foundation](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/PRODUCT-PHASE-4-FOUNDATION.md), [phase gates](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/docs/phase-gates.md), [validation record](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/docs/PHASE-0-VALIDATION.md) and [roadmap](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/ROADMAP.md) preserve historical scope and verdicts. Historical local evidence links are not bundled public acceptance evidence.
 
 One coordinated release train: `ledgerlab-core` → `ledgerlab` → `ledgerlab-cli` (the `ledger` command); `ledgerlab-testkit` stays unpublished. [Release support](https://github.com/stevekkall-beansgc/bean-counter/blob/4014764fee92239fb32558e60fb1379a3bd00071/release/README.md). Project owner: Legume Labs.
+
+### Local operator resource settings
+
+An existing private workflow installation can show or update its operational
+budgets independently of policy and accepted financial terms:
+
+```sh
+ledger workflow --directory /path/to/private-installation resources show
+ledger workflow --directory /path/to/private-installation resources set contracts/candidates/full-suite-v1/core/local-operator-resources-01/example.json
+```
+
+The example explicitly sets all nine budgets to `null`, including the automatic
+attempt timeout, so storage availability and actual allocation/I/O failures govern
+those resources. Finite settings must be positive safe JSON integers. The optional
+`resources` object is stored in private `billing.json`; omitting it preserves legacy
+defaults. Updates take effect on the next attempt and never reprice old receipts.
+Lowering retained-history quotas blocks new growth without deleting data or
+preventing original receipt reads. Settings show/reset remain available even when
+a budget is too low for a financial request. Existing byte/record-format rules,
+financial limits (32 affected decisions and 128 actions), cancellation and native
+contention/cleanup protections remain in force. No payment is collected.

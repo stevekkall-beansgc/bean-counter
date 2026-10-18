@@ -38,8 +38,8 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned source head observation").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.financial_source_head_inner(store, scope, enrollment, session),
         )
         .await
@@ -236,7 +236,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned customer locator").into());
         }
         self.failed = true;
-        let result=timeout_at(self.deadline,async{
+        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async{
             for text in [store,&scope[0],&scope[1],customer]{
                 session.semantic_work().visit(ValidationVisit::Constraint)?;
                 if !resource_compare(session,text.len() as i64,0)?.is_gt()||resource_compare(session,text.len() as i64,128)?.is_gt(){return Err(invalid());}
@@ -251,7 +251,7 @@ impl SqliteTx {
                 "SELECT '1',d.kind,d.id,d.digest FROM workflow_customer_registrations c LEFT JOIN workflow_documents d ON d.id=c.document_id WHERE c.logical_store_id=? AND c.tenant=? AND c.environment=? AND c.customer=?",
                 [store,scope[0].as_str(),scope[1].as_str(),customer],session).await?;
             Ok(row.map(|r|CustomerLocator{kind:r.kind,id:r.id,digest:r.digest}))
-        }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
+        }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
         if result.is_ok() {
             session.semantic_work().visit(ValidationVisit::Constraint)?;
             session.check_cancelled()?;

@@ -58,7 +58,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned party append").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, self.party_append_inner(p, session))
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.party_append_inner(p, session))
             .await
             .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {
@@ -137,7 +137,7 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned party head observation").into());
         }
         self.failed = true;
-        let result = timeout_at(self.deadline, self.party_head_inner(key, session))
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.party_head_inner(key, session))
             .await
             .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {
@@ -205,8 +205,8 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned party transition").into());
         }
         self.failed = true;
-        let result = timeout_at(
-            self.deadline,
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
             self.party_advance_inner(identity, effect, session),
         )
         .await

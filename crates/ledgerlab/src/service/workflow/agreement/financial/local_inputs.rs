@@ -6,12 +6,22 @@ struct Row{reference:ExactRef,body:Option<AuditedBytes>,_reference:ExternalBuffe
 pub(super) struct LocalInputs{rows:Vec<Row>,_control:ExternalBufferLease,total:usize}
 impl LocalInputs{
  pub(super) fn new(s:&mut OriginalAuditSession)->Result<Self>{
-  let control=s.reserve_external_payload(4096*std::mem::size_of::<Row>()).map_err(core_error)?;
-  Ok(Self{rows:Vec::with_capacity(4096),_control:control,total:0})
+  let cap=32usize;
+  let control=s.reserve_external_payload(cap*std::mem::size_of::<Row>()).map_err(core_error)?;
+  Ok(Self{rows:Vec::with_capacity(cap),_control:control,total:0})
  }
  pub(super) fn add(&mut self,r:&ExactRef,s:&mut OriginalAuditSession)->Result<()> {
   for old in &self.rows{if old.reference.kind==r.kind&&old.reference.id==r.id{require(old.reference.digest==r.digest,"INTEGRITY_FAILURE")?;return Ok(());}}
-  require(self.rows.len()<4096,"REFERENCE_LIMIT")?;
+  let count=self.rows.len().checked_add(1).ok_or(ServiceError::Unavailable)?;
+  let maximum=s.resource_limits().map(|v|v.resolved_records).unwrap_or(Some(4096));
+  if let Some(maximum)=maximum{if count>maximum{return Err(ServiceError::ResourceLimit{setting:"resolved_records",limit:maximum as u64,observed:count as u64});}}
+  if self.rows.len()==self.rows.capacity(){
+   let next=self.rows.capacity().checked_mul(2).ok_or(ServiceError::Unavailable)?;
+   let bytes=next.checked_mul(std::mem::size_of::<Row>()).ok_or(ServiceError::Unavailable)?;
+   let owner=s.reserve_external_payload(bytes).map_err(core_error)?;
+   s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+   let mut rows=Vec::new();rows.try_reserve_exact(next).map_err(|_|ServiceError::Unavailable)?;rows.append(&mut self.rows);self.rows=rows;self._control=owner;
+  }
   let v=serde_json::to_value(r).map_err(|_|ServiceError::IntegrityFailure)?;let(reference,owner)=current::source::from_value_local(&v,s)?;
   self.rows.push(Row{reference,body:None,_reference:owner});Ok(())
  }
@@ -31,7 +41,7 @@ impl LocalInputs{
    let r=&self.rows[i].reference;
    prefix::verify_selected_association(tx,key,r,before,s).await?;
    let stored=tx.workflow_financial_document(r,&key.logical_store_id,&key.scope,before,s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
-   self.total=self.total.checked_add(stored.body.bytes().len()).ok_or(ServiceError::Unavailable)?;require(self.total<=8388608,"REFERENCE_LIMIT")?;
+   self.total=self.total.checked_add(stored.body.bytes().len()).ok_or(ServiceError::Unavailable)?;let maximum=s.resource_limits().map(|v|v.resolved_bytes).unwrap_or(Some(8388608));if let Some(maximum)=maximum{if self.total>maximum{return Err(ServiceError::ResourceLimit{setting:"resolved_bytes",limit:maximum as u64,observed:self.total as u64});}}
    let body=s.copy_representation(stored.body.bytes(),RepresentationKind::Record).map_err(core_error)?;
    // SAME canonical/schema/domain/fullRef kernel before selecting only this
    // recipe's concrete semantic roles. No generic historical Ref closure.
