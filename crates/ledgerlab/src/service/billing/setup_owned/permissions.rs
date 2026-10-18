@@ -132,7 +132,7 @@ fn revision(raw: &str, scoped: bool, s: &mut OriginalAuditSession) -> Result<u64
     Ok(n)
 }
 fn rights(
-    permissions: &[String],
+    permissions: &[Value],
     reason: &str,
     initial: &InitialPermissions,
     scoped: bool,
@@ -147,6 +147,7 @@ fn rights(
         !reason.trim().is_empty() && !length.is_gt() && !count.is_gt()
     })?;
     for (index, permission) in permissions.iter().enumerate() {
+        let permission = permission.as_str().expect("closed permission string");
         let mut allowed = false;
         for original in &initial.values {
             if equal(permission, original, s)? {
@@ -156,7 +157,11 @@ fn rights(
         }
         checked(scoped, "BILLING_PERMISSIONS", s, || allowed)?;
         for old in &permissions[..index] {
-            let same = equal(permission, old, s)?;
+            let same = equal(
+                permission,
+                old.as_str().expect("closed permission string"),
+                s,
+            )?;
             checked(scoped, "BILLING_PERMISSIONS", s, || !same)?;
         }
     }
@@ -164,31 +169,38 @@ fn rights(
 }
 fn decode_work(v: &Value, scoped: bool, s: &mut OriginalAuditSession) -> Result<()> {
     checked(scoped, "BILLING_PERMISSIONS", s, || v.is_object())?;
-    let expected: &[&str] = if scoped {
+    // The pinned serde_json Map is a BTreeMap ordered by Rust text. Compare
+    // the complete closed key set once in that same order, rather than probing
+    // every allowed name for every input member. The parsed owning map is
+    // immutable throughout; no serialization or additional trusted flag.
+    let expected: &[(&str, bool)] = if scoped {
         &[
-            "schema",
-            "customer",
-            "source",
-            "change_id",
-            "expected_revision",
-            "permissions",
-            "reason",
+            ("change_id", false),
+            ("customer", false),
+            ("expected_revision", false),
+            ("permissions", true),
+            ("reason", false),
+            ("schema", false),
+            ("source", false),
         ]
     } else {
-        &["schema", "expected_revision", "permissions", "reason"]
+        &[
+            ("expected_revision", false),
+            ("permissions", true),
+            ("reason", false),
+            ("schema", false),
+        ]
     };
     let count = compare(v.as_object().unwrap().len(), expected.len(), s)?;
     checked(scoped, "BILLING_PERMISSIONS", s, || count.is_eq())?;
-    for (key, value) in v.as_object().unwrap() {
-        let mut known = false;
-        for field in expected {
-            if equal(key, field, s)? {
-                known = true;
-                break;
-            }
-        }
+    for ((key, value), (field, array)) in v.as_object().unwrap().iter().zip(expected) {
+        s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+        let known = equal(key, field, s)?;
         checked(scoped, "BILLING_PERMISSIONS", s, || known)?;
-        if equal(key, "permissions", s)? {
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        if *array {
             checked(scoped, "BILLING_PERMISSIONS", s, || value.is_array())?;
             for value in value.as_array().unwrap() {
                 checked(scoped, "BILLING_PERMISSIONS", s, || value.is_string())?;
@@ -210,65 +222,42 @@ pub(crate) fn parse_permission(
     let parsed = s
         .parse_representation(raw, RepresentationKind::Authority)
         .map_err(core_error)?;
-    let (arena, work) = s.parts();
-    let copy = arena
-        .value_copy_payload_bound(parsed.value(), work)
-        .map_err(core_error)?;
-    let mut payload = arithmetic(
-        copy,
-        mem::size_of::<super::super::permissions::Change>()
-            + mem::size_of::<super::super::permissions::ChangeV2>()
-            + mem::size_of::<OwnedPermissionChange>(),
-        Op::Add,
-        s,
-    )?;
-    let message = arithmetic(raw.len(), 6, Op::Multiply, s)?;
-    const EXPECTED: &str = stringify!(schema customer source change_id expected_revision permissions reason String array object);
-    let expected = arithmetic(EXPECTED.len(), 2, Op::Multiply, s)?;
-    let overhead = arithmetic(expected, 256, Op::Add, s)?;
-    let message = arithmetic(message, overhead, Op::Add, s)?;
-    let errors = arithmetic(message, 3, Op::Multiply, s)?;
-    payload = arithmetic(payload, errors, Op::Add, s)?;
-    let storage = s.reserve_external_payload(payload).map_err(core_error)?;
-    s.semantic_work().scan_bytes(payload).map_err(core_error)?;
-    s.semantic_work().write_bytes(payload).map_err(core_error)?;
+    // The exact closed dictionary above is the complete derived Change/ChangeV2
+    // grammar (all fields required, strings except the string array). Borrow
+    // its already-owning values during validation, retaining only the fields
+    // actually needed by current state. No second DTO/whole-body clone or
+    // malformed serde-error allocation is executed on this path.
     decode_work(parsed.value(), scoped, s)?;
-    let (permissions, change_id, reason, expected, schema, body_customer, body_source) =
-        match &recipe {
-            PermissionRecipe::Legacy => {
-                let row = super::super::permissions::Change::deserialize(parsed.value())
-                    .map_err(|_| invalid(false, "BILLING_PERMISSIONS", s))?;
-                (
-                    row.permissions,
-                    None,
-                    row.reason,
-                    row.expected_revision,
-                    row.schema,
-                    None,
-                    None,
-                )
-            }
-            PermissionRecipe::Scoped { .. } => {
-                let row = super::super::permissions::ChangeV2::deserialize(parsed.value())
-                    .map_err(|_| invalid(true, "BILLING_PERMISSIONS", s))?;
-                (
-                    row.permissions,
-                    Some(row.change_id),
-                    row.reason,
-                    row.expected_revision,
-                    row.schema,
-                    Some(row.customer),
-                    Some(row.source),
-                )
-            }
-        };
+    fn text<'a>(v: &'a Value, key: &str, s: &mut OriginalAuditSession) -> Result<&'a str> {
+        s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+        Ok(v.get(key)
+            .and_then(Value::as_str)
+            .expect("closed permission dictionary"))
+    }
+    let value = parsed.value();
+    let schema = text(value, "schema", s)?;
+    let expected = text(value, "expected_revision", s)?;
+    let reason = text(value, "reason", s)?;
+    s.semantic_work().visit(Visit::Field).map_err(core_error)?;
+    let permissions = value
+        .get("permissions")
+        .and_then(Value::as_array)
+        .expect("closed permission array");
+    let (change_id, body_customer, body_source) = match recipe {
+        PermissionRecipe::Legacy => (None, None, None),
+        PermissionRecipe::Scoped { .. } => (
+            Some(text(value, "change_id", s)?),
+            Some(text(value, "customer", s)?),
+            Some(text(value, "source", s)?),
+        ),
+    };
     let prior = current.setup.grant_revision;
     if !scoped {
-        let schema = equal(&schema, "ledger-billing-permissions/1", s)?;
-        let expected = revision(&expected, false, s)?;
+        let schema = equal(schema, "ledger-billing-permissions/1", s)?;
+        let expected = revision(expected, false, s)?;
         let same = compare(expected, prior, s)?.is_eq();
         checked(false, "STALE_REVISION", s, || schema && same)?;
-        rights(&permissions, &reason, initial, false, s)?;
+        rights(permissions, reason, initial, false, s)?;
     }
     let canonical = s
         .canonical_representation(parsed.value(), RepresentationKind::Authority)
@@ -292,19 +281,57 @@ pub(crate) fn parse_permission(
         .checked_add(1)
         .ok_or(crate::ServiceError::IntegrityFailure)?;
     if let PermissionRecipe::Scoped { customer, source } = recipe {
-        let schema = equal(&schema, "ledger-billing-permissions/2", s)?;
-        let c = equal(body_customer.as_deref().unwrap(), customer, s)?;
-        let r = equal(body_source.as_deref().unwrap(), source, s)?;
-        let expected = revision(&expected, true, s)?;
+        let schema = equal(schema, "ledger-billing-permissions/2", s)?;
+        let c = equal(body_customer.unwrap(), customer, s)?;
+        let r = equal(body_source.unwrap(), source, s)?;
+        let expected = revision(expected, true, s)?;
         let same = compare(expected, prior, s)?.is_eq();
-        let length = compare(change_id.as_deref().unwrap().len(), 128usize, s)?;
+        let length = compare(change_id.unwrap().len(), 128usize, s)?;
         checked(true, "BILLING_PERMISSIONS", s, || {
             schema && c && r && same && !length.is_gt()
         })?;
-        rights(&permissions, &reason, initial, true, s)?;
+        rights(permissions, reason, initial, true, s)?;
     }
+    let slots = arithmetic(permissions.len(), mem::size_of::<String>(), Op::Multiply, s)?;
+    let mut payload = arithmetic(slots, mem::size_of::<OwnedPermissionChange>(), Op::Add, s)?;
+    for permission in permissions {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        let permission = permission.as_str().expect("closed permission string");
+        payload = arithmetic(payload, permission.len(), Op::Add, s)?;
+        s.semantic_work()
+            .scan_bytes(permission.len())
+            .map_err(core_error)?;
+    }
+    if let Some(change_id) = change_id {
+        payload = arithmetic(payload, change_id.len(), Op::Add, s)?;
+        s.semantic_work()
+            .scan_bytes(change_id.len())
+            .map_err(core_error)?;
+    }
+    let storage = s.reserve_external_payload(payload).map_err(core_error)?;
+    s.semantic_work().write_bytes(payload).map_err(core_error)?;
+    let mut retained = Vec::new();
+    retained
+        .try_reserve_exact(permissions.len())
+        .map_err(|_| crate::ServiceError::Unavailable)?;
+    let capacity = compare(retained.capacity(), permissions.len(), s)?;
+    checked(scoped, "BILLING_PERMISSIONS", s, || !capacity.is_gt())?;
+    for permission in permissions {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        retained.push(
+            permission
+                .as_str()
+                .expect("closed permission string")
+                .to_owned(),
+        );
+    }
+    let change_id = change_id.map(str::to_owned);
     Ok(OwnedPermissionChange {
-        permissions,
+        permissions: retained,
         change_id,
         prior_revision: prior,
         revision: next,

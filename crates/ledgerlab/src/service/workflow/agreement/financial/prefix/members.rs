@@ -72,7 +72,11 @@ impl ResolvedMembers {
             s,
         )?;
         let payload = arithmetic(LIMIT, stride, Op::Multiply, s)?;
+        let payload = arithmetic(payload, mem::size_of::<Self>(), Op::Add, s)?;
         let storage = s.reserve_external_payload(payload).map_err(core_error)?;
+        // Both Vec controls and their reserved output metadata precede any
+        // allocation, including a later allocation or traversal refusal.
+        s.semantic_work().write_bytes(payload).map_err(core_error)?;
         let mut entries = Vec::new();
         entries
             .try_reserve_exact(LIMIT)
@@ -151,7 +155,9 @@ impl ResolvedMembers {
     pub(in super::super) fn encode(&self, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
         let count = self.order.len();
         let payload = arithmetic(count, mem::size_of::<&ExactRef>(), Op::Multiply, s)?;
+        let payload = arithmetic(payload, mem::size_of::<Vec<&ExactRef>>(), Op::Add, s)?;
         let _storage = s.reserve_external_payload(payload).map_err(core_error)?;
+        s.semantic_work().write_bytes(payload).map_err(core_error)?;
         let mut refs = Vec::new();
         refs.try_reserve_exact(count)
             .map_err(|_| ServiceError::Unavailable)?;
