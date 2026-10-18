@@ -8,6 +8,10 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
 };
 
+mod edge_locations;
+use edge_locations::{EdgeLocation, EdgeLocations};
+use sha2::{Digest, Sha256};
+
 const ENTRY_BYTES: usize = 256;
 const KEY_BYTES: usize = 216;
 
@@ -22,9 +26,9 @@ struct Locator([u8; KEY_BYTES]);
 /// Numeric sequence and actual ordered-table position are distinct DATA.
 /// The latter is recorded at actual introduction, including sequence gaps.
 #[derive(Clone, Copy)]
-pub(super) struct OriginPosition {
-    pub(super) sequence: u32,
-    pub(super) ordinal: u32,
+pub(in super::super) struct OriginPosition {
+    pub(in super::super) sequence: u32,
+    pub(in super::super) ordinal: u32,
 }
 trait Key {
     fn key(&self) -> &[u8];
@@ -1104,6 +1108,7 @@ pub(in super::super) struct Inventory {
     payload_bytes: u64,
     body_bytes: u64,
     active_origin: Option<OriginLinks>,
+    edge_locations: EdgeLocations,
 }
 /// Only one original is active. Retain exact required Ref-edge provenance
 /// before projecting to origin numbers: each witness has its own exact root
@@ -1211,6 +1216,7 @@ impl Inventory {
             payload_bytes: payload,
             body_bytes: 0,
             active_origin: None,
+            edge_locations: EdgeLocations::new(),
         })
     }
     fn extend(&mut self, operations: u64, bytes: u64, s: &mut OriginalAuditSession) -> Result<()> {
@@ -1896,12 +1902,32 @@ impl Inventory {
                 .map_err(core_error)?;
         }
         let encoded = encoded.finish(s.semantic_work()).map_err(core_error)?;
+        let ordinary_count = ordinary.len() as u32;
+        let root_count = active.order.len() as u32;
         drop(ordinary);
         drop(ordinary_storage);
         let sequence_value = wire::counter_string(sequence as u64, s)?;
         let key = StateKey::new("origin-links", &[sequence_value.bytes()], s)?;
-        self.remember_auxiliary(&key, sequence, encoded.bytes(), s)
-            .map(|_| ())
+        let (offset, _) = self.remember_auxiliary(&key, sequence, encoded.bytes(), s)?;
+        let data_offset = add(offset, 8, s)?;
+        let _hash_control = s
+            .reserve_external_payload(std::mem::size_of::<Sha256>() + 32)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .hash_bytes(encoded.bytes()[8..].len())
+            .map_err(core_error)?;
+        let digest = Sha256::digest(&encoded.bytes()[8..]).into();
+        let expected = subtract(self.operations, 1, s)?;
+        self.edge_locations.append(
+            expected,
+            EdgeLocation {
+                offset: data_offset,
+                ordinary: ordinary_count,
+                roots: root_count,
+                digest,
+            },
+            s,
+        )
     }
     pub(in super::super) fn origin_links(
         &mut self,
@@ -1971,6 +1997,75 @@ impl Inventory {
             &mut |p, s| emit(i64::from(p.sequence), s),
             s,
         )
+    }
+    /// Exact append-location reuse from this inventory's actual required-edge
+    /// producer. Counts and data bounds are retained in the private table; the
+    /// raw edge payload is rebound to its producer digest before return. This
+    /// avoids rebuilding StateKeys, probing the tree or allocating a body owner.
+    pub(in super::super) fn required_positions_at(
+        &mut self,
+        ordinal: usize,
+        configured_root: &ConfiguredRoot,
+        emit: &mut dyn FnMut(OriginPosition, &mut OriginalAuditSession) -> Result<()>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
+        let location = self.edge_locations.get(ordinal, s)?;
+        let _control = s
+            .reserve_external_payload(std::mem::size_of::<Sha256>() + ENTRY_BYTES + 8 + 64)
+            .map_err(core_error)?;
+        let mut hash = Sha256::new();
+        s.check_cancelled().map_err(core_error)?;
+        self.bodies
+            .seek(SeekFrom::Start(location.offset))
+            .map_err(io)?;
+        for _ in 0..location.ordinary {
+            s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
+            let mut raw = [0; 8];
+            s.semantic_work().write_bytes(8).map_err(core_error)?;
+            self.bodies.read_exact(&mut raw).map_err(io)?;
+            s.semantic_work().scan_bytes(8).map_err(core_error)?;
+            s.semantic_work().hash_bytes(8).map_err(core_error)?;
+            hash.update(raw);
+            copied(8, s)?;
+            let mut sequence = [0; 4];
+            sequence.copy_from_slice(&raw[..4]);
+            let mut prior = [0; 4];
+            prior.copy_from_slice(&raw[4..]);
+            emit(
+                OriginPosition {
+                    sequence: u32::from_le_bytes(sequence),
+                    ordinal: u32::from_le_bytes(prior),
+                },
+                s,
+            )?;
+            s.check_cancelled().map_err(core_error)?;
+        }
+        for _ in 0..location.roots {
+            s.semantic_work().visit(Visit::Edge).map_err(core_error)?;
+            let mut entry = Entry([0; ENTRY_BYTES]);
+            s.semantic_work()
+                .write_bytes(ENTRY_BYTES)
+                .map_err(core_error)?;
+            self.bodies.read_exact(&mut entry.0).map_err(io)?;
+            s.semantic_work()
+                .scan_bytes(ENTRY_BYTES)
+                .map_err(core_error)?;
+            s.semantic_work()
+                .hash_bytes(ENTRY_BYTES)
+                .map_err(core_error)?;
+            hash.update(entry.0);
+            if !entry.compare(&configured_root.0, s)?.is_eq() {
+                emit(entry.origin_position(s)?, s)?;
+            }
+            s.check_cancelled().map_err(core_error)?;
+        }
+        s.semantic_work().write_bytes(32).map_err(core_error)?;
+        let actual: [u8; 32] = hash.finalize().into();
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work().scan_bytes(64).map_err(core_error)?;
+        require(actual == location.digest, "INTEGRITY_FAILURE")
     }
     pub(super) fn required_positions(
         &mut self,

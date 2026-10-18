@@ -219,8 +219,8 @@ impl Memberships {
                     }
                     let words = &mut self.by_ordinal;
                     let packed = &mut self.packed;
-                    inventory.required_positions(
-                        entry.sequence() as i64,
+                    inventory.required_positions_at(
+                        ordinal,
                         &group.root,
                         &mut |prior, s| {
                             require(

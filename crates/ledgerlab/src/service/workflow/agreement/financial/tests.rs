@@ -560,6 +560,25 @@ async fn chronological_fold_replays_real_administrative_source_chain_under_write
             // This raw source evidence has no retained dependency except any
             // reused exact root. It cannot inherit an unrelated origin pointer.
             assert!(roots_only.is_empty());
+            // The direct append locator consumes exactly the same actual
+            // required edges and exact-root cut, without a second index lookup.
+            for (ordinal, expected) in [(1, &mixed), (2, &roots_only)] {
+                let mut direct = Vec::new();
+                folded._inventory.required_positions_at(
+                    ordinal,
+                    &cut,
+                    &mut |position, _| {
+                        assert_eq!(
+                            u64::from(position.ordinal) + 1,
+                            u64::from(position.sequence)
+                        );
+                        direct.push(i64::from(position.sequence));
+                        Ok(())
+                    },
+                    &mut session,
+                )?;
+                assert_eq!(&direct, expected);
+            }
             Ok(())
         })
     })
