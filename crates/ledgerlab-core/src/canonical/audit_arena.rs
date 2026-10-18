@@ -389,6 +389,12 @@ impl AuditArena {
         for value in values {array.push((*value).clone());}
         Ok(AuditedValue{value:Value::Array(array),reservation})
     }
+    /// Derive the SAME requested payload as clone_value for a typed owner
+    /// which must retain its own Value field. This reserves nothing and grants
+    /// no authority: the caller must admit the output before executing the copy.
+    pub fn value_copy_payload_bound(&self, value: &Value, work: &mut dyn ValidationWork) -> Result<usize> {
+        value_copy_payload_bound(value, work)
+    }
     pub fn clone_value(
         &self,
         value: &Value,

@@ -55,6 +55,40 @@ impl Scope {
         text(environment, 128)?;
         Ok(Self([tenant.into(), environment.into()]))
     }
+    /// Same Scope language with callbacks before validation and string copies.
+    /// The caller owns the two retained string payloads in its output lease.
+    pub fn new_with_work(
+        tenant: &str,
+        environment: &str,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<Self> {
+        use crate::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+        for value in [tenant, environment] {
+            work.visit(Visit::Constraint)?;
+            work.arithmetic(Op::Compare, &[&value.len().into(), &128usize.into()])?;
+            if value.is_empty() || value.len() > 128 {
+                return Err(Error::new(
+                    "IDENTIFIER",
+                    "invalid UTF-8 byte length or control character",
+                ));
+            }
+            work.scan_bytes(value.len())?;
+            for ch in value.chars() {
+                work.visit(Visit::Constraint)?;
+                if ch.is_control() {
+                    return Err(Error::new(
+                        "IDENTIFIER",
+                        "invalid UTF-8 byte length or control character",
+                    ));
+                }
+            }
+        }
+        for value in [tenant, environment] {
+            work.scan_bytes(value.len())?;
+            work.write_bytes(value.len())?;
+        }
+        Ok(Self([tenant.into(), environment.into()]))
+    }
     pub fn tenant(&self) -> &str {
         &self.0[0]
     }

@@ -24,6 +24,69 @@ pub fn parse_atoms(text: &str) -> Result<i128> {
     canonical_integer(text)?;
     checked_atoms(text.parse().map_err(|_| overflow())?)
 }
+/// Canonical signed atom syntax and bounded arithmetic, paid before execution.
+pub fn parse_atoms_with_work(
+    text: &str,
+    work: &mut dyn crate::validation_work::ValidationWork,
+) -> Result<i128> {
+    use crate::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+    work.scan_bytes(text.len())?;
+    let digits = text.strip_prefix('-').unwrap_or(text);
+    work.visit(Visit::Constraint)?;
+    if digits.is_empty() {
+        return Err(Error::new(
+            "INPUT_PRECISION",
+            "canonical integer string required",
+        ));
+    }
+    work.scan_bytes(digits.len())?;
+    for byte in digits.bytes() {
+        work.visit(Visit::ScalarDigit)?;
+        work.visit(Visit::Constraint)?;
+        if !byte.is_ascii_digit() {
+            return Err(Error::new(
+                "INPUT_PRECISION",
+                "canonical integer string required",
+            ));
+        }
+    }
+    work.arithmetic(Op::Compare, &[&digits.len().into(), &1usize.into()])?;
+    work.scan_bytes(digits.len())?;
+    work.scan_bytes(text.len())?;
+    work.visit(Visit::Constraint)?;
+    if (digits.len() > 1 && digits.starts_with('0')) || text == "-0" {
+        return Err(Error::new(
+            "INPUT_PRECISION",
+            "canonical integer string required",
+        ));
+    }
+    let mut value = 0i128;
+    work.scan_bytes(digits.len())?;
+    for byte in digits.bytes() {
+        work.visit(Visit::ScalarDigit)?;
+        work.arithmetic(Op::Subtract, &[&byte.into(), &b'0'.into()])?;
+        let digit = i128::from(byte - b'0');
+        work.arithmetic(Op::Multiply, &[&value.into(), &10i128.into()])?;
+        value = value.checked_mul(10).ok_or_else(overflow)?;
+        work.arithmetic(Op::Add, &[&value.into(), &digit.into()])?;
+        value = value.checked_add(digit).ok_or_else(overflow)?;
+    }
+    work.scan_bytes(text.len())?;
+    work.visit(Visit::Constraint)?;
+    if text.starts_with('-') {
+        work.arithmetic(Op::Negate, &[&value.into()])?;
+        value = value.checked_neg().ok_or_else(overflow)?;
+    }
+    work.arithmetic(Op::Compare, &[&value.into(), &(-MAX_ATOMS).into()])?;
+    if value < -MAX_ATOMS {
+        return Err(overflow());
+    }
+    work.arithmetic(Op::Compare, &[&value.into(), &MAX_ATOMS.into()])?;
+    if value > MAX_ATOMS {
+        return Err(overflow());
+    }
+    Ok(value)
+}
 fn canonical_integer(s: &str) -> Result<()> {
     let digits = s.strip_prefix('-').unwrap_or(s);
     if digits.is_empty()
@@ -79,6 +142,170 @@ impl Decimal {
                 fraction.len() as u8
             },
         })
+    }
+    /// Same accepted decimal language as parse, with paid byte/digit work.
+    /// Caller must retain the temporary coefficient buffer (at most64 bytes)
+    /// and fixed Decimal controls in its existing producer reservation.
+    pub fn parse_with_work(
+        s: &str,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<Self> {
+        use crate::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+        work.visit(Visit::Constraint)?;
+        work.arithmetic(Op::Compare, &[&s.len().into(), &64usize.into()])?;
+        if s.is_empty() || s.len() > 64 {
+            return Err(Error::new("INPUT_PRECISION", "decimal length"));
+        }
+        work.scan_bytes(s.len())?;
+        let (whole, fraction) = s.split_once('.').unwrap_or((s, ""));
+        work.visit(Visit::Constraint)?;
+        if whole.is_empty() {
+            return Err(Error::new(
+                "INPUT_PRECISION",
+                "nonnegative decimal required",
+            ));
+        }
+        for part in [whole, fraction] {
+            work.scan_bytes(part.len())?;
+            for byte in part.bytes() {
+                work.visit(Visit::ScalarDigit)?;
+                work.visit(Visit::Constraint)?;
+                if !byte.is_ascii_digit() {
+                    return Err(Error::new(
+                        "INPUT_PRECISION",
+                        "nonnegative decimal required",
+                    ));
+                }
+            }
+        }
+        work.arithmetic(Op::Compare, &[&fraction.len().into(), &18usize.into()])?;
+        if fraction.len() > 18 {
+            return Err(Error::new(
+                "INPUT_PRECISION",
+                "nonnegative decimal required",
+            ));
+        }
+        work.scan_bytes(s.len())?;
+        work.visit(Visit::Constraint)?;
+        if s.contains('.') && fraction.is_empty() {
+            return Err(Error::new(
+                "INPUT_PRECISION",
+                "nonnegative decimal required",
+            ));
+        }
+        let mut end = fraction.len();
+        loop {
+            work.arithmetic(Op::Compare, &[&end.into(), &0usize.into()])?;
+            if end == 0 {
+                break;
+            }
+            work.arithmetic(Op::Subtract, &[&end.into(), &1usize.into()])?;
+            let prior = end - 1;
+            work.scan_bytes(1)?;
+            work.visit(Visit::Constraint)?;
+            if fraction.as_bytes()[prior] != b'0' {
+                break;
+            }
+            end = prior;
+        }
+        let fraction = &fraction[..end];
+        work.arithmetic(Op::Add, &[&whole.len().into(), &fraction.len().into()])?;
+        let length = whole
+            .len()
+            .checked_add(fraction.len())
+            .ok_or_else(overflow)?;
+        work.write_bytes(std::mem::size_of::<String>())?;
+        for part in [whole, fraction] {
+            work.scan_bytes(part.len())?;
+            work.write_bytes(part.len())?;
+        }
+        let mut buffer = String::with_capacity(length);
+        buffer.push_str(whole);
+        buffer.push_str(fraction);
+        let mut start = 0usize;
+        loop {
+            work.arithmetic(Op::Compare, &[&start.into(), &buffer.len().into()])?;
+            if start == buffer.len() {
+                break;
+            }
+            work.scan_bytes(1)?;
+            work.visit(Visit::Constraint)?;
+            if buffer.as_bytes()[start] != b'0' {
+                break;
+            }
+            work.arithmetic(Op::Add, &[&start.into(), &1usize.into()])?;
+            start += 1;
+        }
+        let digits = &buffer[start..];
+        work.arithmetic(Op::Compare, &[&digits.len().into(), &30usize.into()])?;
+        if digits.len() > 30 {
+            return Err(Error::new("INPUT_PRECISION", "decimal coefficient"));
+        }
+        let mut coefficient = 0u128;
+        work.scan_bytes(digits.len())?;
+        for byte in digits.bytes() {
+            work.visit(Visit::ScalarDigit)?;
+            work.arithmetic(Op::Subtract, &[&byte.into(), &b'0'.into()])?;
+            let digit = byte - b'0';
+            work.arithmetic(Op::Multiply, &[&coefficient.into(), &10u128.into()])?;
+            coefficient = coefficient.checked_mul(10).ok_or_else(overflow)?;
+            work.arithmetic(Op::Add, &[&coefficient.into(), &digit.into()])?;
+            coefficient = coefficient
+                .checked_add(u128::from(digit))
+                .ok_or_else(overflow)?;
+        }
+        work.visit(Visit::Constraint)?;
+        Ok(Self {
+            coefficient,
+            scale: if digits.is_empty() {
+                0
+            } else {
+                fraction.len() as u8
+            },
+        })
+    }
+    pub fn is_zero_with_work(
+        &self,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<bool> {
+        work.arithmetic(
+            crate::validation_work::ArithmeticOperation::Compare,
+            &[&self.coefficient.into(), &0u128.into()],
+        )?;
+        Ok(self.coefficient == 0)
+    }
+    /// Equivalent exact book-scale conversion without allocating a rational.
+    pub fn atoms_exact_with_work(
+        &self,
+        scale: u8,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<i128> {
+        use crate::validation_work::ArithmeticOperation as Op;
+        work.arithmetic(Op::Compare, &[&scale.into(), &18u8.into()])?;
+        if scale > 18 {
+            return Err(Error::new("INPUT_PRECISION", "book scale"));
+        }
+        work.arithmetic(Op::Compare, &[&scale.into(), &self.scale.into()])?;
+        if scale < self.scale {
+            // parse strips all fractional trailing zeroes. A nonzero value
+            // therefore cannot be represented at a lower normalized scale.
+            return Err(Error::new(
+                "INPUT_PRECISION",
+                "fixed amount not representable at book scale",
+            ));
+        }
+        work.arithmetic(Op::Subtract, &[&scale.into(), &self.scale.into()])?;
+        let count = scale - self.scale;
+        let mut atoms = self.coefficient;
+        for _ in 0..count {
+            work.arithmetic(Op::Multiply, &[&atoms.into(), &10u128.into()])?;
+            atoms = atoms.checked_mul(10).ok_or_else(overflow)?;
+        }
+        work.arithmetic(Op::Compare, &[&atoms.into(), &(MAX_ATOMS as u128).into()])?;
+        if atoms > MAX_ATOMS as u128 {
+            return Err(overflow());
+        }
+        Ok(atoms as i128)
     }
     pub fn is_zero(&self) -> bool {
         self.coefficient == 0
@@ -323,6 +550,44 @@ impl Money {
             currency: currency.into(),
             scale,
             atoms: checked_atoms(atoms)?,
+        })
+    }
+    pub fn new_with_work(
+        currency: &str,
+        scale: u8,
+        atoms: i128,
+        work: &mut dyn crate::validation_work::ValidationWork,
+    ) -> Result<Self> {
+        use crate::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
+        work.arithmetic(Op::Compare, &[&currency.len().into(), &3usize.into()])?;
+        if currency.len() != 3 {
+            return Err(Error::new("CURRENCY_MISMATCH", "currency or scale"));
+        }
+        work.scan_bytes(currency.len())?;
+        for byte in currency.bytes() {
+            work.visit(Visit::Constraint)?;
+            if !byte.is_ascii_uppercase() {
+                return Err(Error::new("CURRENCY_MISMATCH", "currency or scale"));
+            }
+        }
+        work.arithmetic(Op::Compare, &[&scale.into(), &18u8.into()])?;
+        if scale > 18 {
+            return Err(Error::new("CURRENCY_MISMATCH", "currency or scale"));
+        }
+        work.arithmetic(Op::Compare, &[&atoms.into(), &(-MAX_ATOMS).into()])?;
+        if atoms < -MAX_ATOMS {
+            return Err(overflow());
+        }
+        work.arithmetic(Op::Compare, &[&atoms.into(), &MAX_ATOMS.into()])?;
+        if atoms > MAX_ATOMS {
+            return Err(overflow());
+        }
+        work.scan_bytes(currency.len())?;
+        work.write_bytes(currency.len())?;
+        Ok(Self {
+            currency: currency.into(),
+            scale,
+            atoms,
         })
     }
     pub fn atoms(&self) -> i128 {

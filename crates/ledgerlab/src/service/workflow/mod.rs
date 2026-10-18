@@ -23,7 +23,7 @@ fn require(ok: bool, code: &str) -> Result<()> {
 // Publication boundary §Descriptor/evidence/reads/errors defines the public
 // code families; registry-contract.json is the frozen exact closed vocabulary.
 // Core implementation diagnostics do not extend that vocabulary.
-fn core_error(error: ledgerlab_core::Error) -> ServiceError {
+pub(in crate::service) fn core_error(error: ledgerlab_core::Error) -> ServiceError {
     match error.code {
         // Exact public meaning already named by the reviewed registry.
         "AUTHORITY_REQUIRED"

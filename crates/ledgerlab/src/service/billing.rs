@@ -17,15 +17,16 @@ pub(crate) mod control;
 mod history;
 pub(crate) mod permissions;
 mod setup_policy;
+pub(crate) mod setup_owned;
 
 /// Trusted local control input. Event input never supplies these values.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Setup {
+pub(crate) struct Setup<S = Scope, T = Timestamp> {
     #[serde(skip)]
     pub grant_revision: u64,
     pub schema: String,
-    pub scope: Scope,
+    pub scope: S,
     pub store_id: String,
     pub operator: String,
     pub source: String,
@@ -40,7 +41,7 @@ pub(crate) struct Setup {
     pub unit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maximum_quantity: Option<String>,
-    pub accepted_at: Timestamp,
+    pub accepted_at: T,
     pub acceptor: String,
     /// Retained asserted commercial assent, supplied by the operator, not a URL
     /// fetched by Ledger Lab or a claim that the program obtained consent.

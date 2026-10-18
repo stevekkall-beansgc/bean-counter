@@ -137,6 +137,43 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     .unwrap();
     let setup = first.admin.fresh(&first.store, &mut a, &key).await.unwrap();
     let state = a.load_installation().await.unwrap();
+    let retained_setup = a.billing_meta().await.unwrap().setup;
+    let legacy_setup = crate::service::billing::Setup::parse(&retained_setup).unwrap();
+    let owned_setup = crate::service::billing::setup_owned::parse(&retained_setup, &mut session).unwrap();
+    assert_eq!(serde_json::to_value(owned_setup.setup()).unwrap(), serde_json::to_value(legacy_setup).unwrap());
+    drop(owned_setup);
+    // Compare malformed/unsupported prefixes against the preserved legacy
+    // decoder, using the actual installation's setup as the source operand.
+    let initial: Value = serde_json::from_slice(&retained_setup).unwrap();
+    let mut cases = Vec::new();
+    for (name, value) in [("unknown", json!(true)), ("scope", json!(["x"])), ("accepted_at", json!("invalid")), ("permissions", json!(["read","read"])), ("price", json!("0")), ("source", json!("bad\nsource")), ("schema", json!("ledger-local-billing/3"))] {
+        let mut input = initial.clone(); input[name] = value; cases.push(input);
+    }
+    let mut input = initial.clone(); input["outcome_policy"]["families"][0]["ordinary"]["accepted_by"] = json!("invalid"); cases.push(input);
+    let mut input = initial.clone(); input["outcome_policy"]["limits"][0]["premium"]["atoms"] = json!("-0"); cases.push(input);
+    let mut input = initial.clone(); input["outcome_policy"]["families"][0]["replacement_codes"] = json!(["absent"]); cases.push(input);
+    let mut unit_setup = initial.clone();
+    unit_setup["schema"] = json!("ledger-local-billing/2");
+    unit_setup["unit"] = json!("call"); unit_setup["maximum_quantity"] = json!("20.000"); unit_setup["price"] = json!("1.2300");
+    unit_setup["outcome_policy"]["limits"][0]["premium"]["scale"] = json!(18);
+    for code in unit_setup["outcome_policy"]["families"][0]["codes"].as_array_mut().unwrap() { code["amount"]["money"]["scale"] = json!(18); }
+    let valid_unit_raw = records::bytes(&unit_setup).unwrap();
+    let legacy_unit = crate::service::billing::Setup::parse(&valid_unit_raw).unwrap();
+    let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+    let mut unit_attempt = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let owned_unit = crate::service::billing::setup_owned::parse(&valid_unit_raw, &mut unit_attempt).unwrap();
+    assert_eq!(serde_json::to_value(owned_unit.setup()).unwrap(), serde_json::to_value(legacy_unit).unwrap());
+    for (field, value) in [("maximum_quantity", "0"), ("maximum_quantity", "1.5"), ("maximum_quantity", "0.10"), ("maximum_quantity", "1000000000000000000000000000000"), ("price", "1.0000000000000000000"), ("price", "100000000000000000000000000000")] {
+        let mut input = unit_setup.clone(); input[field] = json!(value); cases.push(input);
+    }
+    for input in cases {
+        let raw = records::bytes(&input).unwrap();
+        let legacy = crate::service::billing::Setup::parse(&raw).unwrap_err();
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut attempt = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let owned = crate::service::billing::setup_owned::parse(&raw, &mut attempt).err().unwrap();
+        assert_eq!(owned, legacy);
+    }
     let legacy = records::bytes(&json!([
         key,
         setup.grant_revision.to_string(),
