@@ -117,6 +117,11 @@ impl AppAcceptanceInput {
         at: &Timestamp,
         s: &mut OriginalAuditSession,
     ) -> Result<ObservedAcceptanceConsent> {
+        let mapping_ref=wire::reference(platform.mapping().reference(),s)?;
+        let authorities=self.authority_refs().as_array().ok_or(ServiceError::IntegrityFailure)?;
+        let mut nominated=false;
+        for r in authorities {let r=encode(r,s)?;if r.bytes()==mapping_ref.bytes(){nominated=true;}}
+        require(nominated,"AUTHORITY_REQUIRED")?;
         let party_raw = s
             .copy_representation(platform.assent_bytes(), Kind::SourceDefinition)
             .map_err(core_error)?;

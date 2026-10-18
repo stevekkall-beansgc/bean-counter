@@ -42,7 +42,7 @@ fn authorization(m:&mut CoreMeter,v:&Value,b:&Value,at:i64)->Result<()> {
  Ok(())
 }
 fn party_material(recipe:Recipe,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,reference:&Value,subject:&Value,metadata:&Value,before:&Value,key:&str)->Result<()> {
- let(_,evidence)=load(m,r,c,reference,"workflow-party-evidence",recipe.evidence)?;
+ let(_,evidence)=load(m,r,c,reference,"workflow-evidence",recipe.evidence)?;
  shape::closed(m,&evidence,&["schema","subject","media_type","content_base64","content_sha256","metadata","scope","retained_by","retained_at","installation_mode","authority_ref"],&[])?;
  eq(m,&evidence["subject"],subject)?;eq(m,&evidence["metadata"],metadata)?;
  literal(m,&evidence,"installation_mode",&c.installation_mode)?;
@@ -71,7 +71,7 @@ fn party(recipe:Recipe,m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,b:&Va
  literal(m,&consent["basis"],"kind","acceptance_terms")?;
  let terms=owning_reference(m,&arena,terms_ref)?;
  eq(m,&consent["basis"]["terms_ref"],terms.value())?;eq(m,&consent["basis"]["terms_digest"],&accepted["terms_digest"])?;
- let(auth_ref,auth)=load(m,r,c,&consent["authorization_ref"],"workflow-party-authorization","ledger-workflow-party-authorization/1")?;
+ let(auth_ref,auth)=load(m,r,c,&consent["authorization_ref"],"workflow-authority","ledger-workflow-party-authorization/1")?;
  let at=time(m,consent,"accepted_at")?;let binding_at=time(m,b,"accepted_at")?;
  if w::compare(m,at,binding_at)?.is_gt(){return Err(shape::fail("platform assent after original agreement"));}
  authorization(m,&auth,b,at)?;
@@ -101,8 +101,9 @@ pub(super) fn original(program:&SelectedProgram,m:&mut CoreMeter,r:&mut Records,
  let mut customer_count=0usize;let mut platform_count=0usize;
  for value in assents{
   let reference=shape::reference(m,value)?;
-  if shape::same_text(m,&reference.kind,"workflow-assent")?{
-   let assent=r.get(m,&c.key,&reference,"workflow-assent","ledger-workflow-assent/1")?;
+  let assent=r.get_schemas(m,&c.key,&reference,"workflow-assent",&["ledger-workflow-assent/1",recipe.assent])?;
+  let schema=shape::text(m,&assent,"schema")?;
+  if shape::same_text(m,schema,"ledger-workflow-assent/1")?{
    for field in ["customer","agreement_id"]{eq(m,&assent[field],&b[field])?;}
    eq(m,&assent["terms_digest"],&accepted["terms_digest"])?;
    for(field,purpose)in[("evidence_ref","assent"),("operator_attestation_ref","operator_attestation")]{
@@ -110,8 +111,7 @@ pub(super) fn original(program:&SelectedProgram,m:&mut CoreMeter,r:&mut Records,
     inventory::evidence::assent(m,r,c,&owner,&assent,&evidence,purpose,registered,b)?;
    }
    customer_count=w::usize_add(m,customer_count,1)?;
-  }else if shape::same_text(m,&reference.kind,"workflow-party-assent")?{
-   let assent=r.get(m,&c.key,&reference,"workflow-party-assent",recipe.assent)?;
+  }else{
    let auth=party(recipe,m,r,c,b,accepted,terms_ref,&assent)?;
    let consent=&assent["consent"];
    let payer=arena.string_value("payer",m)?;let bearer=arena.string_value("bearer",m)?;
@@ -124,7 +124,7 @@ pub(super) fn original(program:&SelectedProgram,m:&mut CoreMeter,r:&mut Records,
    }
    if !used{return Err(shape::fail("unrelated platform fullterms assent"));}
    let _=auth;platform_count=w::usize_add(m,platform_count,1)?;
-  }else{return Err(shape::fail("unsupported app assent family"));}
+  }
  }
  if !w::compare(m,customer_count,1usize)?.is_eq()||!w::compare(m,platform_count,1usize)?.is_eq(){return Err(shape::fail("first app capability requires exact customer/platform assent"));}
  Ok(())
@@ -139,10 +139,11 @@ pub(in crate::policy::workflow::transition_constructor) fn current(program:&Sele
  let now=Timestamp::parse_with_work(&c.accepted_at,m)?.micros();
  for value in shape::array(m,b,"assent_refs")?{
   let reference=shape::reference(m,value)?;
-  if !shape::same_text(m,&reference.kind,"workflow-party-assent")?{continue;}
-  let assent=r.get(m,&c.key,&reference,"workflow-party-assent",recipe.assent)?;
+  let assent=r.get_schemas(m,&c.key,&reference,"workflow-assent",&["ledger-workflow-assent/1",recipe.assent])?;
+  let schema=shape::text(m,&assent,"schema")?;
+  if shape::same_text(m,schema,"ledger-workflow-assent/1")?{continue;}
   let consent=&assent["consent"];
-  let(_,original)=load(m,r,c,&consent["authorization_ref"],"workflow-party-authorization","ledger-workflow-party-authorization/1")?;
+  let(_,original)=load(m,r,c,&consent["authorization_ref"],"workflow-authority","ledger-workflow-party-authorization/1")?;
   let original_id=shape::text(m,&original["authorization"],"authorization_id")?;
   let mut found=None;
   for head in state.current_party_authorizations{
@@ -152,7 +153,7 @@ pub(in crate::policy::workflow::transition_constructor) fn current(program:&Sele
    }
   }
   let head=found.ok_or_else(||shape::fail("current app party authorization missing"))?;
-  let current=r.get(m,&c.key,&head.reference,"workflow-party-authorization","ledger-workflow-party-authorization/1")?;
+  let current=r.get(m,&c.key,&head.reference,"workflow-authority","ledger-workflow-party-authorization/1")?;
   authorization(m,&current,b,now)?;
   literal(m,&current,"revision",&head.revision)?;
   literal(m,&current["authorization"],"authorization_id",original_id)?;

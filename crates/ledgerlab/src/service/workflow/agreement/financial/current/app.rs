@@ -415,6 +415,11 @@ async fn observe_binding(
             .try_reserve_exact(refs.len())
             .map_err(|_| ServiceError::Unavailable)?;
         for reference in refs {
+            if check::text(reference,"kind",session)?=="workflow-authority"{
+                let mapping=source::retained_record(tx,key,reference,"workflow-authority","ledger-workflow-party-authorization/1",before,session).await?;
+                prefix::verify_selected_association(tx,key,mapping.reference(),before,session).await?;
+                continue;
+            }
             session
                 .semantic_work()
                 .visit(ValidationVisit::Element)

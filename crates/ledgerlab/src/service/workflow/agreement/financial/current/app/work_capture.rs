@@ -157,11 +157,14 @@ pub(super) fn with_capture<T>(
     frames
         .try_reserve_exact(slots.len())
         .map_err(|_| ServiceError::Unavailable)?;
+    let selected_slot=observed.work_source_slot.as_ref().map(|v|s.parse_representation(v.bytes(),RepresentationKind::Record).map_err(core_error)).transpose()?;
+    let selecting_work=check::text(payload,"schema",s)?=="ledger-workflow-work/1"&&selected_slot.is_none();
     for slot in slots {
         s.semantic_work()
             .visit(ValidationVisit::Element)
             .map_err(core_error)?;
         let name = check::text(slot, "name", s)?;
+        if let Some(selected)=selected_slot.as_ref(){if name!=selected.value().as_str().ok_or(ServiceError::IntegrityFailure)?{continue;}}
         let nominees = check::field(slot, "sources", s)?
             .as_array()
             .ok_or(ServiceError::IntegrityFailure)?;
@@ -184,6 +187,7 @@ pub(super) fn with_capture<T>(
         s.semantic_work()
             .write_bytes(mem::size_of::<SourceAuthorityCapture<'_>>())
             .map_err(core_error)?;
+        if !selecting_work&&!frames.is_empty(){continue;}
         frames.push(SourceAuthorityCapture {
             source_slot: name,
             source: &key.source,

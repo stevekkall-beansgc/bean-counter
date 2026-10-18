@@ -108,10 +108,21 @@ impl SqliteTx {
             let PermanentClaimKey::Outcome{scope,agreement_id,family_slot,target_id,source_namespace,business_outcome_token}=key else{return Err(invalid());};
             let values=[store,&scope[0],&scope[1],agreement_id,family_slot,target_id,source_namespace,business_outcome_token];
             for v in values{heads::locator_text(v,256,s)?;}
-            let bound=values.map(str::as_bytes);
-            self.read_financial_claim_projection(
-                "SELECT octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND family_slot=? AND target_id=? AND source_namespace=? AND business_outcome_token=?",
-                "SELECT record_kind,record_id,record_digest FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND family_slot=? AND target_id=? AND source_namespace=? AND business_outcome_token=?",&values,&bound,s).await
+            let target=[store,scope[0].as_str(),scope[1].as_str(),agreement_id.as_str(),family_slot.as_str(),target_id.as_str()];
+            let target_bound=target.map(str::as_bytes);
+            let selected=self.read_financial_claim_projection(
+                "SELECT octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND family_slot=? AND target_id=?",
+                "SELECT record_kind,record_id,record_digest FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND agreement_id=? AND family_slot=? AND target_id=?",&target,&target_bound,s).await?;
+            let token=[store,scope[0].as_str(),scope[1].as_str(),source_namespace.as_str(),family_slot.as_str(),business_outcome_token.as_str()];
+            let token_bound=token.map(str::as_bytes);
+            let other=self.read_financial_claim_projection(
+                "SELECT octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND source_namespace=? AND family_slot=? AND business_outcome_token=?",
+                "SELECT record_kind,record_id,record_digest FROM workflow_financial_outcome_claims WHERE logical_store_id=? AND tenant=? AND environment=? AND source_namespace=? AND family_slot=? AND business_outcome_token=?",&token,&token_bound,s).await?;
+            if let (Some(a),Some(b))=(&selected,&other){
+                s.semantic_work().visit(ValidationVisit::MemberCompare)?;
+                if a.kind.bytes()!=b.kind.bytes()||a.id.bytes()!=b.id.bytes()||a.digest.bytes()!=b.digest.bytes(){return Err(StoreError::DeliveryConflict.into());}
+            }
+            Ok(selected.or(other))
         }).await.map_err(|_|FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok(){s.check_cancelled()?;if self.financial_io.is_some()||self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire){return Err(invalid());}self.failed=false;}
         result

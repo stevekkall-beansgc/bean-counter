@@ -109,7 +109,7 @@ impl AppAcceptanceInput {
         )?;
         let authorities = reference_set(
             request_wrapper::field(payload, "authority_refs", session)?,
-            "workflow-source-grant",
+            "binding-authority",
             1,
             32,
             session,
@@ -123,7 +123,7 @@ impl AppAcceptanceInput {
         )?;
         let inner_authorities = reference_set(
             request_wrapper::field(binding, "authority_refs", session)?,
-            "workflow-source-grant",
+            "binding-authority",
             1,
             32,
             session,
@@ -613,7 +613,11 @@ pub(super) fn reference_set(
         s.semantic_work()
             .visit(Visit::Element)
             .map_err(core_error)?;
-        validate_reference(row, kind, s)?;
+        if kind=="binding-authority" {
+            let actual=request_wrapper::text(row,"kind",s)?;
+            require(matches!(actual,"workflow-source-grant"|"workflow-authority"),"INVALID_REFERENCE")?;
+            validate_reference(row,actual,s)?;
+        }else{validate_reference(row, kind, s)?;}
         s.semantic_work()
             .write_bytes(mem::size_of::<&Value>())
             .map_err(core_error)?;
@@ -1127,6 +1131,11 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
         // terms. Today's head/body acquisition is shared with work.accept;
         // original custody and exact operation-right intersection remain gates.
         for reference in refs {
+            if request_wrapper::text(reference,"kind",session)?=="workflow-authority" {
+                let mapping=current::source::retained_record(tx,incoming.key(),reference,"workflow-authority","ledger-workflow-party-authorization/1",before,session).await?;
+                super::prefix::verify_selected_association(tx,incoming.key(),mapping.reference(),before,session).await?;
+                continue;
+            }
             session
                 .semantic_work()
                 .visit(Visit::Element)

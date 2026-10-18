@@ -20,6 +20,7 @@ fn head_ref(row:&HeadLocator,s:&mut OriginalAuditSession)->Result<ExactRef>{
  let v=serde_json::json!({"kind":decoded(row.kind.bytes())?,"id":decoded(row.id.bytes())?,"digest":decoded(row.digest.bytes())?});source::from_value_local(&v,s).map(|v|v.0)
 }
 pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,key:&OperationKey,payload:&Value,s:&mut OriginalAuditSession)->Result<ObservedAppBinding>{
+ let received=crate::local::now().map_err(|_|ServiceError::Unavailable)?;
  let before=tx.workflow_sequence().await.map_err(crate::service::store_error)?;
  let mut pool=super::super::super::local_inputs::LocalInputs::new(s)?;
  pool.payload_refs(payload,s)?;pool.complete(tx,key,before,s).await?;
@@ -27,12 +28,14 @@ pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut
  let raw=s.canonical_representation(payload,RepresentationKind::OriginalRequest).map_err(core_error)?;
  let subject=core::locate_local_subject_binding(&ck,raw.bytes(),&pool.views(),s).map_err(core_error)?;
  let binding=serde_json::to_value(subject.original_binding_ref()).map_err(|_|ServiceError::IntegrityFailure)?;
- let mut o=observe_binding(ledger,tx,key,"work.accept",&binding,None,None,s).await?;
+ let kind=core_operation_kind(payload,s)?;
+ let mut o=observe_binding(ledger,tx,key,kind,&binding,None,None,s).await?;
+ let original_binding=s.parse_representation(o.original.acceptance.binding.bytes(),RepresentationKind::Record).map_err(core_error)?;
+ o.activation=Some(o.original.original_initial_activation(tx,key,original_binding.value(),&o.at,o.before,s).await?);
  require(o.original.publication.program().uses_local_execution_recipe(),"UNSUPPORTED_SCHEMA_PROFILE")?;
  let index=work_capture::source_index(&o,key,s)?;
  let birth=o.original.source_birth_inputs(tx,key,o.sources[index].enrollment_ref(),o.before,s).await?;o.work_source_birth=Some(birth);
  let root=work_capture::retained_root(&mut o,tx,key,index,s).await?;o.work_root=Some(root);
- let received=crate::local::now().map_err(|_|ServiceError::Unavailable)?;
  let locators=work_capture::with_capture(&o,key,payload,index,&received,s,|capture,_,raw,s|{
   core::select_local_operation_locators(o.original.publication.program(),capture,raw,&pool.views(),s).map_err(core_error)
  })?;
@@ -41,6 +44,7 @@ pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut
   let state=held.typed_state(heads,o.parties.as_ref().ok_or(ServiceError::IntegrityFailure)?,s)?;
   let seeds=s.parse_representation(held.seeds.bytes(),RepresentationKind::Record).map_err(core_error)?;pool.payload_refs(seeds.value(),s)?;state
  }else{work_heads::unattached_state(o.parties.as_ref().ok_or(ServiceError::IntegrityFailure)?,s)?};
+ state.financial.work_claims.clear();
  for identity in locators.record_identities(){
   if let Some(row)=tx.workflow_local_record_identity(&key.logical_store_id,&key.scope,identity.kind(),identity.id(),identity.schema(),s).await.map_err(prefix::read_error)?{pool.add(&claim_ref(&row,s)?,s)?;}
  }
@@ -79,7 +83,36 @@ pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut
  if let Some(r)=o.work_root.as_ref(){pool.add(r.reference(),s)?;}
  if let Some(b)=o.work_source_birth.as_ref(){pool.add(b.state.reference(),s)?;pool.add(b.grant.reference(),s)?;}
  if let Some(a)=o.activation.as_ref(){pool.add(a.head.reference(),s)?;pool.add(a.activation.reference(),s)?;}
+
+ // Named attestation proofs select their real retained verification from the
+ // assertion's committed receipt, never a caller verification boolean.
+ if let Some(proofs)=payload.get("fact_proofs").and_then(Value::as_array){
+  for proof in proofs{
+   let att=check::field(proof,"attestation_ref",s)?;let(att_ref,_)=source::from_value_local(att,s)?;
+   let seq=tx.workflow_selected_association_sequence(&att_ref,&key.logical_store_id,&key.scope,o.before,s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+   let origin=prefix::next(tx,key,seq-1,seq,s).await?.ok_or(ServiceError::IntegrityFailure)?.checked_wrappers(tx,s).await?;
+   let mut selected=None;
+   for r in check::field(origin.wrappers().receipt(),"result_refs",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?{
+    if check::text(r,"kind",s)?!="workflow-evidence-verification"{continue;}
+    let(reference,_)=source::from_value_local(r,s)?;
+    let record=tx.workflow_financial_document(&reference,&key.logical_store_id,&key.scope,o.before,s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+    require(record.schema.bytes()==b"ledger-workflow-evidence-verification/1","INTEGRITY_FAILURE")?;
+    let parsed=s.parse_representation(record.body.bytes(),RepresentationKind::Record).map_err(core_error)?;
+    let expected=wire::reference(&att_ref,s)?;let a=check::field(parsed.value(),"attestation_ref",s)?;let a=s.canonical_representation(a,RepresentationKind::Record).map_err(core_error)?;
+    if a.bytes()==expected.bytes(){require(selected.replace(reference).is_none(),"INTEGRITY_FAILURE")?;}
+   }
+   let reference=selected.ok_or(ServiceError::IntegrityFailure)?;pool.add(&reference,s)?;if !state.financial.evidence_verifications.contains(&reference){state.financial.evidence_verifications.push(reference);}
+  }
+ }
  pool.complete(tx,key,o.before,s).await?;
  o.work_state=Some(state);o.local_input_bodies=Some(pool);o.work_source_index=Some(index);o.work_received_at=Some(received);o.local_extra=Some(extra);
  Ok(o)
+}
+
+fn core_operation_kind(payload:&Value,s:&mut OriginalAuditSession)->Result<&'static str>{
+ Ok(match check::text(payload,"schema",s)?{
+ "ledger-workflow-fact-attest/1"|"ledger-workflow-family-close-attest/1"|"ledger-workflow-app-observe/1"|"ledger-workflow-app-cost-attest/1"=>"evidence.retain",
+ "ledger-workflow-cost-finalize/2"=>"cost.finalize","ledger-workflow-cost-correct/2"=>"cost.correct",
+ "ledger-workflow-outcome/1"=>"outcome.submit","ledger-workflow-outcome-correction/1"=>"outcome.correct","ledger-workflow-outcome-close/2"=>"outcome.close",
+ "ledger-workflow-quantity-correction/2"=>"quantity.correct","ledger-workflow-work-reverse/2"=>"work.reverse",_=>return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),})
 }

@@ -112,7 +112,7 @@ pub(super) fn body(v:&Value,owner_kind:&str,old:bool,m:&mut CoreMeter,emit:&mut 
     let schema=shape::text(m,v,"schema")?;
     for (candidate,kind) in [
         ("ledger-workflow-source-state/1","workflow-source-state"),
-        ("ledger-workflow-party-evidence/2","workflow-party-evidence"),
+        ("ledger-workflow-party-evidence/2","workflow-evidence"),
         ("ledger-authority-audit-verifier/2","workflow-authority-audit-verifier"),
         ("ledger-workflow-financial-history-observation/3","workflow-financial-history-observation"),
         ("ledger-workflow-binding/1","workflow-binding"),("ledger-workflow-binding/2","workflow-binding"),

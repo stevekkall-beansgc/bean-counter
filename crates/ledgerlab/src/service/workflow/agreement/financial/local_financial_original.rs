@@ -19,12 +19,14 @@ pub(super) async fn verify(tx:&mut SqliteTx,original:&prefix::LocatedWrappers,in
  let payload=request_wrapper::field(normalized,"payload",s)?;
  let normalized=s.canonical_representation(payload,RepresentationKind::OriginalRequest).map_err(core_error)?;
  let ck=CoreKey{logical_store_id:key.logical_store_id.clone(),scope:key.scope.clone(),source:key.source.clone(),operation_id:key.operation_id.clone()};
- let subject=locate_local_subject_binding(&ck,normalized.bytes(),&pool.views(),s).map_err(core_error)?;
- let binding=s.parse_representation(pool.body(subject.original_binding_ref())?,RepresentationKind::Record).map_err(core_error)?;
+ let subject=if request_wrapper::text(payload,"schema",s)?=="ledger-workflow-work/1"{None}else{Some(locate_local_subject_binding(&ck,normalized.bytes(),&pool.views(),s).map_err(core_error)?)};
+ let work_binding;
+ let binding_ref=if let Some(subject)=subject.as_ref(){subject.original_binding_ref()}else{work_binding=current::source::from_value_local(request_wrapper::field(payload,"binding_ref",s)?,s)?; &work_binding.0};
+ let binding=s.parse_representation(pool.body(binding_ref)?,RepresentationKind::Record).map_err(core_error)?;
  let authority=request_wrapper::field(w.operation(),"authority_snapshot",s)?;
  let accepted=request_wrapper::field(authority,"original_accepted_agreement_ref",s)?;
  let accepted=current::source::retained_record(tx,key,accepted,"workflow-accepted-agreement","ledger-workflow-accepted-agreement/1",before,s).await?;
- let expected=wire::reference(subject.original_binding_ref(),s)?;
+ let expected=wire::reference(binding_ref,s)?;
  let actual_binding=request_wrapper::field(accepted.body(),"binding_ref",s)?;
  let actual=s.canonical_representation(actual_binding,RepresentationKind::Record).map_err(core_error)?;
  require(expected.bytes()==actual.bytes(),"INTEGRITY_FAILURE")?;

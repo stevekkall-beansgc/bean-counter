@@ -748,10 +748,11 @@ fn selected_anchor(
             "ledger-workflow-local-authority-snapshot/1"
             | "ledger-workflow-agreement-authority/2"
             | "ledger-workflow-agreement-authority/5"
-            | "ledger-workflow-party-management-authority/1",
+            | "ledger-workflow-party-management-authority/1"
+            | "ledger-workflow-party-authorization/1",
         )
         | ("workflow-economic-authority", "ledger-workflow-economic-authority/8"|"ledger-workflow-app-causal-authority/2"|"ledger-workflow-app-pending-causal-authority/2")
-        | ("workflow-party-authorization", "ledger-workflow-party-authorization/1") => {
+ => {
             ("authority", "direct", 0, false)
         }
         ("workflow-source-enrollment", "ledger-workflow-source-enrollment/1") => {
@@ -830,9 +831,7 @@ fn selected_anchor(
         }
         (
             "workflow-assent",
-            "ledger-workflow-assent/1"
-            | "ledger-workflow-party-assent/1"
-            | "ledger-workflow-party-assent/2",
+            "ledger-workflow-assent/1" | "ledger-workflow-party-assent/1" | "ledger-workflow-party-assent/2",
         ) => ("assent", "agreement_input", 0, false),
         ("workflow-activation", "ledger-workflow-activation-transition/1") => {
             ("activation_target", "activation_target", 0, false)
@@ -891,9 +890,7 @@ fn selected_anchor(
         | ("workflow-verified-fact", "ledger-workflow-verified-fact/1")
         | (
             "workflow-evidence",
-            "ledger-workflow-retained-evidence/1"
-            | "ledger-workflow-party-evidence/1"
-            | "ledger-workflow-party-evidence/2",
+            "ledger-workflow-retained-evidence/1" | "ledger-workflow-party-evidence/1" | "ledger-workflow-party-evidence/2",
         )
         | (
             "workflow-verification",
