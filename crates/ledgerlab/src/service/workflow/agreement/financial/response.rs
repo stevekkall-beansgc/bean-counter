@@ -64,7 +64,7 @@ impl WorkflowReply {
             .canonical_representation(receipt, K::ReceiptFrame)
             .map_err(core_error)?;
         let evidence = s
-            .canonical_representation(evidence, K::SourceClosure)
+            .canonical_representation(evidence, K::OperationFrame)
             .map_err(core_error)?;
         Self::from_parts(receipt.bytes(), evidence.bytes(), Some("identity"), s)
     }
