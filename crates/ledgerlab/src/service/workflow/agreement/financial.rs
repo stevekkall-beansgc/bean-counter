@@ -26,6 +26,41 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+/// Explicit local enable coordinator only. The mechanical migrations establish
+/// empty projection storage, never financial eligibility or supplier rights.
+/// Keep the completed original owners alive through all three schema steps.
+pub(in crate::service::workflow) async fn enable_app_schemas(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+) -> Result<()> {
+    proof_session::with_proofs(tx, key, |tx| {
+        Box::pin(async move {
+            let arena =
+                ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+            let _cancellation = AttemptCancellation::new(&arena, tx.workflow_deadline());
+            let mut session =
+                ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(
+                    &arena,
+                )
+                .map_err(core_error)?;
+            let _prefix =
+                prefix::authenticate_migration_prefix(ledger, tx, key, &mut session).await?;
+            tx.workflow_enable_financial_schema()
+                .await
+                .map_err(crate::service::store_error)?;
+            tx.workflow_enable_supplier_schema()
+                .await
+                .map_err(crate::service::store_error)?;
+            tx.workflow_enable_app_schema()
+                .await
+                .map_err(crate::service::store_error)?;
+            session.check_cancelled().map_err(core_error)
+        })
+    })
+    .await
+}
+
 pub(in crate::service::workflow) fn is_kind(kind: &str) -> bool {
     matches!(
         kind,

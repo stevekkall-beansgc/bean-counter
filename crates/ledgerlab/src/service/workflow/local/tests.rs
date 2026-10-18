@@ -30,6 +30,10 @@ async fn trusted_local_entry_explicit_upgrade_reopen_and_wrong_store_read() {
     let ledger = LocalWorkflowLedger::open_local(&path).await.unwrap();
     ledger.enable_profile_b().await.unwrap();
     ledger.enable_profile_b().await.unwrap();
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    assert_eq!(tx.billing_schema_version().await.unwrap(), 15);
+    assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 0);
+    tx.rollback().await.unwrap();
     assert_eq!(
         ledger
             .status(&key("owner-test-store").bytes().unwrap())

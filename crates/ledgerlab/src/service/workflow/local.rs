@@ -217,8 +217,8 @@ impl LocalWorkflowLedger {
         tx.rollback().await.map_err(super::super::store_error)?;
         result
     }
-    /// Explicit trusted-local opt-in. Whole legacy history is validated under
-    /// the same ordered transaction before the mechanical additive migration.
+    /// Explicit trusted-local opt-in. Whole legacy and workflow histories are
+    /// validated under the same ordered transaction before their schema steps.
     pub async fn enable_profile_b(&self) -> Result<()> {
         let mut tx = self
             .store
@@ -240,7 +240,8 @@ impl LocalWorkflowLedger {
             billing::validate_snapshot(&snapshot)?;
             tx.workflow_enable_profile_b()
                 .await
-                .map_err(super::super::store_error)
+                .map_err(super::super::store_error)?;
+            agreement::financial::enable_app_schemas(self, &mut tx, &key).await
         }
         .await;
         if let Err(e) = prepared {

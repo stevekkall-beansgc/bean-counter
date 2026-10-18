@@ -889,6 +889,18 @@ pub(super) async fn party_before(
     let (inventory, _) = before_inputs(ledger, tx, key, None, before, parent).await?;
     Ok(inventory)
 }
+/// The existing workflow sequence domain is 1..=100000. Under the held writer,
+/// this exclusive bound visits every actual operation, including a full store;
+/// it does not allocate a prospective sequence or introduce an origin.
+pub(super) async fn authenticate_migration_prefix(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    key: &OperationKey,
+    parent: &mut OriginalAuditSession,
+) -> Result<Option<FoldedInventory>> {
+    let (inventory, _) = before_inputs(ledger, tx, key, None, 100001, parent).await?;
+    Ok(inventory)
+}
 async fn before_inputs(
     ledger: &LocalWorkflowLedger,
     tx: &mut SqliteTx,
