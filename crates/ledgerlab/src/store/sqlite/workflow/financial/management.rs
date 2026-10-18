@@ -227,6 +227,42 @@ impl SqliteTx {
         }
         result
     }
+    /// Actual final guard, called from the SAME consuming commit owner. This
+    /// replaces the legacy Noop pass there; an earlier append check never
+    /// suppresses these executed retained-meter equations.
+    pub(crate) async fn workflow_management_commit_guard(
+        &mut self,
+        before: Option<i64>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
+        self.financial_reserve_io(s, 262144)?;
+        s.semantic_work().write_bytes(mem::size_of::<i64>())?;
+        s.semantic_work().visit(ValidationVisit::RefLookup)?;
+        let after: i64 = sqlx::query_scalar("SELECT total_changes()")
+            .fetch_one(self.conn())
+            .await?;
+        s.semantic_work().visit(ValidationVisit::Constraint)?;
+        let before = before.ok_or(StoreError::Integrity("workflow mutation origin missing"))?;
+        if !resource_compare(s, after, before)?.is_eq() {
+            s.semantic_work().write_bytes(mem::size_of::<i64>())?;
+            s.semantic_work().visit(ValidationVisit::RefLookup)?;
+            let version = self.billing_schema_version().await?;
+            let mut supported = false;
+            for allowed in [12i64, 13, 14, 15] {
+                if resource_compare(s, version, allowed)?.is_eq() {
+                    supported = true;
+                    break;
+                }
+            }
+            if supported {
+                super::super::capacity::check_with_session(self.conn(), 0, 0, s).await?;
+            } else if !resource_compare(s, version, 11)?.is_eq() {
+                return Err(StoreError::InvalidStore("unsupported guarded workflow schema").into());
+            }
+        }
+        self.financial_finish_io(s).await?;
+        Ok(())
+    }
     /// Counts preserve the old global metadata caps before any per-row read.
     /// No all-history Vec/String/BLOB snapshot is constructed by this entry.
     pub(crate) async fn workflow_management_counts(

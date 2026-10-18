@@ -40,7 +40,7 @@ use tokio::{
     task::JoinHandle,
     time::{timeout_at, Instant},
 };
-pub(crate) use tx::SqliteTx;
+pub(crate) use tx::{SqliteTx, FinancialCommitError};
 
 struct Inner {
     writer: SqlitePool,

@@ -145,7 +145,20 @@ pub(crate) fn deadline() -> Instant {
 #[tokio::test]
 async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
     let (dir, store) = create().await;
+    // This old mechanical fixture installs schema12 without migration/open.
+    // Enable the existing conservative commit guard explicitly so this check
+    // exercises its actual equations; this grants no origin/admission proof.
+    store.inner.workflow_guard_enabled.store(true,std::sync::atomic::Ordering::Release);
     let p = fixture();
+    // Resource failure is surfaced only after an acknowledged rollback; a
+    // staged mechanical journal cannot become durable on that branch.
+    let mut failed=store.begin(deadline()).await.unwrap();
+    failed.workflow_append(&p).await.unwrap();
+    let failed_arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+    let mut failed_session=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&failed_arena).unwrap();
+    failed_session.invalidate();
+    assert!(matches!(failed.commit_with_resource_session(failed_session).await,
+        Err(crate::store::sqlite::FinancialCommitError::Resource(_))));
     let mut tx = store.begin(deadline()).await.unwrap();
     assert!(
         tx.workflow_lookup(&p.operation.identity)
@@ -179,7 +192,8 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
         capacity::check_with_session(tx.conn(), 0, 0, &mut session).await.unwrap(),
         capacity::WorkflowMeter { operations: 1, payload_bytes: 30258 },
     );
-    tx.commit().await.unwrap();
+    assert!(store.inner.workflow_guard_enabled.load(std::sync::atomic::Ordering::Acquire));
+    tx.commit_with_resource_session(session).await.unwrap();
     // Simulate a response lost after real durable commit. Lookup returns the
     // original retained bytes without any compiler or current policy selection.
     let mut tx = store.begin(deadline()).await.unwrap();

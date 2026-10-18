@@ -613,7 +613,56 @@ impl AcceptanceTx for SqliteTx {
             }
         }
     }
-    async fn commit(mut self) -> Result<(), CommitError> {
+    async fn commit(self) -> Result<(), CommitError> {
+        self.commit_internal(None,&mut None).await
+    }
+}
+#[derive(Debug)]
+pub(crate) enum FinancialCommitError {
+    Commit(CommitError),
+    Resource(ledgerlab_core::Error),
+}
+/// Existing commit worker ownership plus the SAME original session. An aborted
+/// worker with live resource I/O terminally retains its writer/physical lane and
+/// OS owner, using the same fail-closed disposition as financial Drain.
+struct CommitResourceOwner {
+    resource:Option<ledgerlab_core::validation_work::OriginalAuditSession>,
+    lease:Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    slot:Option<OwnedSemaphorePermit>,
+    physical_lane:Option<OwnedRwLockWriteGuard<()>>,
+    store:Arc<Inner>,
+    completed:bool,
+}
+impl Drop for CommitResourceOwner {
+    fn drop(&mut self) {
+        if !self.completed && self.resource.is_some() {
+            self.store.disabled.store(true,Ordering::Release);
+            self.store.financial_drain_failed.store(true,Ordering::Release);
+            std::mem::forget(self.resource.take());
+            std::mem::forget(self.lease.take());
+            std::mem::forget(self.slot.take());
+            std::mem::forget(self.physical_lane.take());
+            std::mem::forget(Arc::clone(&self.store));
+        }
+    }
+}
+impl SqliteTx {
+    /// Resource ownership only; does not qualify a journal or permit append.
+    pub(crate) async fn commit_with_resource_session(self,session:ledgerlab_core::validation_work::OriginalAuditSession)->Result<(),FinancialCommitError> {
+        let mut resource_error=None;
+        let result=self.commit_internal(Some(session),&mut resource_error).await;
+        match (result,resource_error) {
+            (Err(CommitError::RolledBack(_)),Some(error))=>Err(FinancialCommitError::Resource(error)),
+            (result,_)=>result.map_err(FinancialCommitError::Commit),
+        }
+    }
+    async fn commit_internal(mut self,mut resource:Option<ledgerlab_core::validation_work::OriginalAuditSession>,resource_error:&mut Option<ledgerlab_core::Error>) -> Result<(), CommitError> {
+        if let Some(session)=resource.as_mut() {
+            if let Err(error)=session.check_cancelled() {
+                *resource_error=Some(error);
+                self.failed=true;
+            }
+        }
         self.failed |=
             self.workflow_proof_failed.load(Ordering::Acquire) || self.financial_io.is_some();
         if !self.failed && Instant::now() < self.deadline && self.adjudication.is_none() {
@@ -642,6 +691,15 @@ impl AcceptanceTx for SqliteTx {
             self.failed = true;
             let before = self.start_changes;
             let result = timeout_at(self.deadline, async {
+                if let Some(session)=resource.as_mut() {
+                    return self.workflow_management_commit_guard(before,session).await.map_err(|error|match error {
+                        super::workflow::financial::FinancialReadError::Store(error)=>error,
+                        super::workflow::financial::FinancialReadError::Resource(error)=>{
+                            *resource_error=Some(error);
+                            StoreError::ReadBudgetExhausted
+                        },
+                    });
+                }
                 let after: i64 = sqlx::query_scalar("SELECT total_changes()")
                     .fetch_one(self.conn())
                     .await?;
@@ -681,6 +739,24 @@ impl AcceptanceTx for SqliteTx {
                 Err(_) => Err(CommitError::OutcomeUnknown),
             };
         }
+        if let Some(session)=resource.as_mut() {
+            const CONTROLS:usize=std::mem::size_of::<CommitResourceOwner>()+2*std::mem::size_of::<ledgerlab_core::validation_work::OriginalAuditSession>();
+            let reserve=self.financial_reserve_io(session,262144+CONTROLS)
+                .and_then(|()|session.semantic_work().write_bytes(CONTROLS).map_err(super::workflow::financial::FinancialReadError::Resource))
+                .map_err(|error|match error {
+                super::workflow::financial::FinancialReadError::Store(error)=>error,
+                super::workflow::financial::FinancialReadError::Resource(error)=>{
+                    *resource_error=Some(error);StoreError::ReadBudgetExhausted
+                },
+            });
+            if let Err(error)=reserve {
+                return match self.rollback().await {
+                    Ok(())=>Err(CommitError::RolledBack(error)),
+                    Err(_)=>Err(CommitError::OutcomeUnknown),
+                };
+            }
+        }
+        let resource_lease=self.financial_io.take();
         let mut tx = self.transaction.take().expect("live transaction");
         let store = Arc::clone(&self.store);
         let fence_start_changes = self.fence_start_changes;
@@ -689,9 +765,14 @@ impl AcceptanceTx for SqliteTx {
         let (send, receive) = oneshot::channel();
         // No await between spawn and registration: caller cancellation cannot orphan
         // the task. The task retains the writer permit and ownership until cleanup.
+        // Construct the Drop guard BEFORE spawn. A task aborted before its
+        // first poll must retain the complete writer/resource ownership too.
+        let owner=CommitResourceOwner {
+            resource,lease:resource_lease,slot,physical_lane,
+            store:Arc::clone(&store),completed:false,
+        };
         let handle = tokio::spawn(async move {
-            let _slot = slot;
-            let _physical_lane = physical_lane;
+            let mut owner=owner;
             let drain_deadline = Instant::now() + Duration::from_secs(5);
             let publication = async {
                 let new = if let (Some(fence), Some(before)) =
@@ -739,14 +820,18 @@ impl AcceptanceTx for SqliteTx {
                 Ok::<(), StoreError>(())
             };
             let result = match timeout_at(drain_deadline, publication).await {
-                Ok(Ok(())) => Ok(()),
+                Ok(Ok(())) => {owner.completed=true;Ok(())},
                 _ => {
                     store.disabled.store(true, Ordering::Release);
-                    // Close the writer pool: an uncertain connection is never reused.
-                    let _ = timeout_at(drain_deadline, store.writer.close()).await;
+                    // An expired/aborted close is not a worker ACK. The owner
+                    // retains all live resources terminally on that path.
+                    if timeout_at(drain_deadline, store.writer.close()).await.is_ok() {
+                        owner.completed=true;
+                    }
                     Err(CommitError::OutcomeUnknown)
                 }
             };
+            // Caller cancellation never takes the worker's original resource.
             let _ = send.send(result);
         });
         *self

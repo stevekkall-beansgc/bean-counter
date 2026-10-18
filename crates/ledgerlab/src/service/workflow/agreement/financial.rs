@@ -142,6 +142,7 @@ async fn finish_transaction(
     tx: SqliteTx,
     key: &OperationKey,
     attempted: Result<TransactionResult>,
+    session: ledgerlab_core::validation_work::OriginalAuditSession,
 ) -> Result<Value> {
     match attempted {
         Err(error) => {
@@ -155,7 +156,9 @@ async fn finish_transaction(
             Ok(response)
         }
         Ok(TransactionResult::Appended(mut response)) => {
-            tx.commit().await.map_err(|error| match error {
+            tx.commit_with_resource_session(session).await.map_err(|error| match error {
+                crate::store::sqlite::FinancialCommitError::Resource(error)=>core_error(error),
+                crate::store::sqlite::FinancialCommitError::Commit(error)=>match error {
                 crate::store::errors::CommitError::RolledBack(error) => {
                     crate::service::store_error(error)
                 }
@@ -163,6 +166,7 @@ async fn finish_transaction(
                     scope: key.scope.clone(),
                     source: key.source.clone(),
                     external_id: key.operation_id.clone(),
+                },
                 },
             })?;
             #[cfg(test)]
@@ -428,7 +432,7 @@ impl LocalWorkflowLedger {
         // Fresh admission remains unavailable: no current path can construct
         // the Appended disposition. Failure always rolls back. The original
         // path retains its incoming intent and also rolls back read-only work.
-        finish_transaction(tx, key, attempted).await
+        finish_transaction(tx, key, attempted, session).await
     }
 }
 
