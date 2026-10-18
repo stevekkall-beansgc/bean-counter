@@ -227,7 +227,7 @@ impl Memberships {
                 s.semantic_work()
                     .visit(Visit::RefLookup)
                     .map_err(core_error)?;
-                let mut pending = row[word];
+                let pending = row[word];
                 if compare(pending as usize, u32::MAX as usize, s)?.is_eq() {
                     // All32 origins already selected: no scalar bit discovery,
                     // test, or membership write is performed for these rows.
@@ -243,38 +243,49 @@ impl Memberships {
                     }
                     continue;
                 }
-                while nonzero(u64::from(pending), s)? {
-                    s.semantic_work()
-                        .arithmetic(Op::LeadingZeros, &[&pending.into()])
-                        .map_err(core_error)?;
-                    s.semantic_work()
-                        .arithmetic(
-                            Op::Subtract,
-                            &[&31u32.into(), &pending.leading_zeros().into()],
-                        )
-                        .map_err(core_error)?;
-                    let position = (31 - pending.leading_zeros()) as usize;
-                    s.semantic_work()
-                        .visit(Visit::RefLookup)
-                        .map_err(core_error)?;
-                    let flag = BLOCK_BITS[position];
-                    s.semantic_work()
-                        .arithmetic(Op::Subtract, &[&pending.into(), &flag.into()])
-                        .map_err(core_error)?;
-                    pending -= flag;
-                    let ordinal = add(base, position, s)?;
+                if !nonzero(u64::from(pending), s)? {
+                    continue;
+                }
+                let proposed = add(base, 32, s)?;
+                let end = if compare(proposed, self.count, s)?.is_gt() {
+                    self.count
+                } else {
+                    proposed
+                };
+                s.semantic_work()
+                    .arithmetic(Op::Subtract, &[&end.into(), &base.into()])
+                    .map_err(core_error)?;
+                let length = end - base;
+                // One checked split retains the actual current-word cell.
+                // Every selector reads it afresh: newly reached earlier bits
+                // are observed without a second frontier or pending-bit OR.
+                let (earlier, current_and_later) = row.split_at_mut(word);
+                let (current, _) = current_and_later
+                    .split_first_mut()
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                for (ordinal, selected) in
+                    (base..end).rev().zip(WORD_SELECTORS[..length].iter().rev())
+                {
+                    s.semantic_work().visit(Visit::Value).map_err(core_error)?;
+                    if !selected(*current, s)? {
+                        continue;
+                    }
                     inventory.required_word_masks_at(
                         ordinal,
                         root,
                         &mut |prior_word, mask, s| {
-                            merge_word(row, prior_word, mask, s)?;
                             if compare(prior_word, word, s)?.is_eq() {
                                 s.semantic_work()
-                                    .arithmetic(Op::BitOr, &[&pending.into(), &mask.into()])
+                                    .arithmetic(Op::BitOr, &[&(*current).into(), &mask.into()])
                                     .map_err(core_error)?;
-                                pending |= mask;
+                                s.semantic_work()
+                                    .write_bytes(mem::size_of::<u32>())
+                                    .map_err(core_error)?;
+                                *current |= mask;
+                                Ok(())
+                            } else {
+                                merge_word(earlier, prior_word, mask, s)
                             }
-                            Ok(())
                         },
                         s,
                     )?;
@@ -743,6 +754,61 @@ const FLAGS: [[bool; 8]; 256] = {
     }
     out
 };
+fn word_flag<const BYTE: usize, const BIT: usize>(
+    mask: u32,
+    s: &mut OriginalAuditSession,
+) -> Result<bool> {
+    s.semantic_work()
+        .scan_bytes(mem::size_of::<u32>())
+        .map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(mem::size_of::<u32>())
+        .map_err(core_error)?;
+    let bytes = mask.to_le_bytes();
+    s.semantic_work()
+        .visit(Visit::RefLookup)
+        .map_err(core_error)?;
+    s.semantic_work()
+        .scan_bytes(mem::size_of::<bool>())
+        .map_err(core_error)?;
+    Ok(FLAGS[usize::from(bytes[BYTE])][BIT])
+}
+// Constant byte/bit offsets, not runtime arithmetic or a semantic transpose.
+// Each function is an existing FLAGS lookup against the live packed word.
+const WORD_SELECTORS: [fn(u32, &mut OriginalAuditSession) -> Result<bool>; 32] = [
+    word_flag::<0, 0>,
+    word_flag::<0, 1>,
+    word_flag::<0, 2>,
+    word_flag::<0, 3>,
+    word_flag::<0, 4>,
+    word_flag::<0, 5>,
+    word_flag::<0, 6>,
+    word_flag::<0, 7>,
+    word_flag::<1, 0>,
+    word_flag::<1, 1>,
+    word_flag::<1, 2>,
+    word_flag::<1, 3>,
+    word_flag::<1, 4>,
+    word_flag::<1, 5>,
+    word_flag::<1, 6>,
+    word_flag::<1, 7>,
+    word_flag::<2, 0>,
+    word_flag::<2, 1>,
+    word_flag::<2, 2>,
+    word_flag::<2, 3>,
+    word_flag::<2, 4>,
+    word_flag::<2, 5>,
+    word_flag::<2, 6>,
+    word_flag::<2, 7>,
+    word_flag::<3, 0>,
+    word_flag::<3, 1>,
+    word_flag::<3, 2>,
+    word_flag::<3, 3>,
+    word_flag::<3, 4>,
+    word_flag::<3, 5>,
+    word_flag::<3, 6>,
+    word_flag::<3, 7>,
+];
 fn flags(mask: u32, s: &mut OriginalAuditSession) -> Result<[bool; 32]> {
     s.semantic_work()
         .scan_bytes(mem::size_of::<u32>())
