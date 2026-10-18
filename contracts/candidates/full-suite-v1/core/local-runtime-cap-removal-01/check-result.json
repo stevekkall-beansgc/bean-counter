@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "scope": "exact three-definition clone delta, six unchanged source pins, unchanged operation registry identity",
+  "production_execution": false,
+  "universal_fit": false,
+  "metadata_jcs_sha256": {
+    "metadata.schema.json": "3404bacbd27558345c7eb7a0423b783de1e5b861f45f76d2475f3379cd8ad975",
+    "limits.json": "3b931084eacb6306bd46521f51bb99f828b1a268d43241992824f824d5bc9191",
+    "profile.json": "57bf1d2eb4a945c7681099044f34bb50bd60f6b552c68f0d64f8d9324d4ee56a"
+  },
+  "schema_validation": "Draft202012 check_schema passed; new LocalWorstCase positive + extra runtime_work refusal; old WorstCase missing runtime_work refusal + original65536 acceptance"
+}

@@ -1,0 +1,69 @@
+{
+  "scope": "metadata and exact code-owned runtime flavor only; financial operation registry/tuples unchanged",
+  "definitions": {
+    "LocalWorstCase": {
+      "base": "WorstCase",
+      "remove_properties": [
+        "runtime_work"
+      ],
+      "remove_required": [
+        "runtime_work"
+      ]
+    },
+    "LocalPlan7": {
+      "base": "AppPlan6",
+      "replace": {
+        "properties.schema.const": "ledger-workflow-compiled-plan/7",
+        "properties.limits_profile.const": "workflow-local-limits/1",
+        "properties.worst_case.$ref": "#/$defs/LocalWorstCase"
+      }
+    },
+    "LocalCompiler7": {
+      "base": "AppCompiler6",
+      "replace": {
+        "properties.schema.const": "ledger-workflow-compiler-descriptor/7",
+        "properties.limits_profile.const": "workflow-local-limits/1",
+        "properties.plan_schema.const": "ledger-workflow-compiled-plan/7"
+      }
+    }
+  },
+  "reference_relocation": "Every other #/$defs/X refers exactly to ../local-execution-01/local-execution.schema.json#/$defs/X; no copied old definition changes.",
+  "limits": {
+    "base": "runtime-support/limits.json",
+    "replace": {
+      "schema": "ledger-workflow-builtin-limits/2",
+      "profile": "workflow-local-limits/1"
+    },
+    "remove": [
+      "runtime_visits"
+    ],
+    "add": {
+      "attempt_work": 1048576
+    }
+  },
+  "profile": {
+    "base": "local-execution-01/profile.json",
+    "replace": {
+      "schema": "ledger-local-execution-capability/2",
+      "execution_profile": "ledger-local-execution/2",
+      "compiler_descriptor_schema": "ledger-workflow-compiler-descriptor/7",
+      "plan_schema": "ledger-workflow-compiled-plan/7",
+      "limits_profile": "workflow-local-limits/1"
+    },
+    "add": {
+      "runtime_child": "remaining_attempt_budget_no_independent_semantic_cap",
+      "attempt_semantic_work": 1048576,
+      "operation_registry_digest": "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a"
+    }
+  },
+  "unchanged": [
+    "local-execution-01/registry.json",
+    "local-execution-01/dispatch.json",
+    "all old schemas/definitions/records",
+    "Policy4/Terms7/AcceptanceTerms2/Binding2",
+    "Authority8/Operation10/Manifest10/Descriptor8/Receipt2",
+    "all prices/rights/claims/dependencies/timing/CAS",
+    "financial 32 decisions/128 actions",
+    "all other numeric guards"
+  ]
+}

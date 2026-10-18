@@ -166,6 +166,10 @@ pub(super) async fn compile_request(
                     .map_err(core_error)?
             } else {
                 let kind = request_wrapper::text(candidate, "kind", s)?;
+                let compiler_schema = if acceptance::same_recipe_text(
+                    request_wrapper::text(support.canonical_value(), "schema", s)?,
+                    "ledger-workflow-compiler-descriptor/7", s,
+                )? { "ledger-workflow-compiler-descriptor/7" } else { "ledger-workflow-compiler-descriptor/6" };
                 let mut schema = None;
                 for (k, v) in [
                     ("workflow-product", "ledger-workflow-product/1"),
@@ -174,7 +178,7 @@ pub(super) async fn compile_request(
                     ("workflow-policy", "ledger-workflow-policy/4"),
                     (
                         "workflow-compiler-descriptor",
-                        "ledger-workflow-compiler-descriptor/6",
+                        compiler_schema,
                     ),
                 ] {
                     if acceptance::same_recipe_text(kind, k, s)? {

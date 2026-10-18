@@ -95,11 +95,14 @@ def main():
     limits=json.loads((catalogs/'limits.json').read_bytes());mode=json.loads((catalogs/'mode-matrix.json').read_bytes());contract=json.loads((catalogs/'contract-profile.json').read_bytes())
     descriptor={'schema':'ledger-workflow-compiler-descriptor/1','compiler_semantics':'ledger-policy-compiler/1','evaluator':'ledger-workflow-evaluator/1','grammar':'ledger-policy-grammar/1','facts_normalization':'ledger-facts-normalization/1','operation_normalization':'ledger-operation-normalization/2','limits_profile':'workflow-limits/1','primitive_versions':mode['primitives'],'fact_types':mode['fact_types'],'predicate_ops':mode['predicate_ops'],'formula_kinds':mode['formula_kinds'],'plan_schema':'ledger-workflow-compiled-plan/1','limits_digest':'sha256:'+digest(canonical(limits).encode()),'mode_matrix_digest':'sha256:'+digest(canonical(mode).encode()),'contract_manifest_digest':'sha256:'+digest(canonical(contract).encode())}
     if args.local_execution:
-        descriptor=json.loads((catalogs/'local-compiler6-data.json').read_bytes())
-        if descriptor['schema']!='ledger-workflow-compiler-descriptor/6':
+        descriptor=json.loads((catalogs/'local-compiler7-data.json').read_bytes())
+        if descriptor['schema']!='ledger-workflow-compiler-descriptor/7':
             raise ValueError('local compiler descriptor schema')
-        local_profile=json.loads((root/'contracts/candidates/full-suite-v1/core/local-execution-01/profile.json').read_bytes())
-        local_manifest=json.loads((catalogs/'local-contract-profile.json').read_bytes())
+        local_profile=json.loads((root/'contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/profile.json').read_bytes())
+        local_manifest=json.loads((catalogs/'local-contract-profile2.json').read_bytes())
+        local_limits=json.loads((root/'contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/limits.json').read_bytes())
+        if descriptor['limits_digest']!='sha256:'+digest(canonical(local_limits).encode()):
+            raise ValueError('local compiler limits identity')
         if descriptor['mode_matrix_digest']!='sha256:'+digest(canonical(local_profile).encode()) or descriptor['contract_manifest_digest']!='sha256:'+digest(canonical(local_manifest).encode()):
             raise ValueError('local compiler descriptor artifact identity')
     d='sha256:'+digest(b'bean-counter/workflow-document/1\0'+canonical([descriptor['schema'],descriptor]).encode());support={'kind':'workflow-compiler-descriptor','id':'wdoc_'+d[7:],'digest':d}

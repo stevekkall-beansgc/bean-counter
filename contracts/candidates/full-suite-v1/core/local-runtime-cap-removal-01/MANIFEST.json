@@ -1,0 +1,42 @@
+{
+  "status": "review candidate; no runtime qualification",
+  "files": [
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/SPEC.md",
+      "bytes": 4207,
+      "sha256": "4c30e190a1cc3c24c068a3e809d290849188754d8c267dcf93b58561293001a0"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/check-result.json",
+      "bytes": 686,
+      "sha256": "8304e519cb94dacad691b569638b6c1c8836fbf60b81f77b3c781f3a91e11d08"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/delta.json",
+      "bytes": 2359,
+      "sha256": "5b9348572c490ad5615b5c2dfd914fe9754c25a768814647852d8f15c8bb696c"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/limits.json",
+      "bytes": 546,
+      "sha256": "e2ed35766d7419e2d686511304b05706dd1d8f4d21d483e44cf475d60d3d1982"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/metadata.schema.json",
+      "bytes": 9385,
+      "sha256": "d75592aed9c1921e8cf71d33aa55522d50a7cc2fd209dbb550eeed5cd9e17012"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/profile.json",
+      "bytes": 1354,
+      "sha256": "9ec300cf4f775a55bb5b8726316ece299f56967fd71d9fa097d95541145deb5d"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-runtime-cap-removal-01/source-pins.json",
+      "bytes": 1329,
+      "sha256": "8bf50bbcaf7ab4142c97143d9a0e17fd10e4768196a7dd846d029fdd2cbca4f1"
+    }
+  ],
+  "old_base": "dd46b0d25bf5e1b945767ef520ec106cd0b196bd",
+  "operation_registry_unchanged": "sha256:d0a21becb08150a781770cfef80b5521eeb93c3b45aa9ebdab23c800ef44ee4a"
+}

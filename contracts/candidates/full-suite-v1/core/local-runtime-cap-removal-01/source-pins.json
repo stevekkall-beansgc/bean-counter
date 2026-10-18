@@ -1,0 +1,35 @@
+{
+  "base_commit": "dd46b0d25bf5e1b945767ef520ec106cd0b196bd",
+  "files": [
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-execution-01/SPEC.md",
+      "bytes": 18001,
+      "sha256": "380be04780bba9b672b86f57f48a834de7ab9994e064ca6fee70f64ab94841a1"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-execution-01/profile.json",
+      "bytes": 1131,
+      "sha256": "54c04cbf3d8594657bf3a9b8b7fea002b9f5dcd5a9e3fdaf2237deb062d46b7a"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-execution-01/registry.json",
+      "bytes": 13748,
+      "sha256": "6c41e255b6145bfeb5fdf0e7ffe6781fe5ea0d6860f38c67d731ab60f86adc67"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-execution-01/dispatch.json",
+      "bytes": 13375,
+      "sha256": "3dc5a92435847d236a25f68f82fc40b9a88256b02062ca1322534a20e4a8ffab"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/local-execution-01/local-execution.schema.json",
+      "bytes": 604940,
+      "sha256": "c414deb98c096a3a71772a6b5bb554fe4cbd033a952122a672433dcb233880a0"
+    },
+    {
+      "path": "contracts/candidates/full-suite-v1/core/runtime-support/limits.json",
+      "bytes": 540,
+      "sha256": "655a3f02f725b31278770d934f4854cfdcdaaec186b6fb14e908e92fd321a31b"
+    }
+  ]
+}
