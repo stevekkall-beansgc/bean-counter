@@ -1016,6 +1016,9 @@ async fn document_origin_in_scope(
         .await
         .map_err(crate::service::store_error)?
         .ok_or(ServiceError::IntegrityFailure)?;
+    if financial::local_selected_origin(tx,key,reference,sequence).await? {
+        return Ok(());
+    }
     if kind == "policy.publish" {
         let origin = tx
             .workflow_lookup(&identity)

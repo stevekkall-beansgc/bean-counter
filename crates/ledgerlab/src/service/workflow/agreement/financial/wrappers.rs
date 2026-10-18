@@ -1584,6 +1584,7 @@ pub(super) async fn validate_frame(
         "ledger-workflow-economic-operation/7",
         "ledger-workflow-economic-operation/8",
         "ledger-workflow-economic-operation/9",
+        "ledger-workflow-economic-operation/10",
     ] {
         if equal_text(operation_schema, schema, session)? {
             economic = true;
@@ -1613,7 +1614,12 @@ pub(super) async fn validate_frame(
             _ => return Err(reject("UNSUPPORTED_SCHEMA_PROFILE")),
         }
     };
-    if class == WireClass::Financial {
+    let local_wire=equal_text(operation_schema,"ledger-workflow-economic-operation/10",session)?;
+    if class == WireClass::Financial && local_wire {
+        request::closed(op,&["schema","key","kind","contract","request_evidence","authority_snapshot",
+            "received_at","accepted_at","commit_sequence","result_refs","closure_profile"],session)?;
+        request::closed(man,&["schema","key","members","closure_profile"],session)?;
+    } else if class == WireClass::Financial {
         request::closed(
             op,
             &[
@@ -1732,7 +1738,7 @@ pub(super) async fn validate_frame(
             selected.authority,
             session,
         )?;
-        for name in [
+        if !local_wire {for name in [
             "source_observation_refs",
             "financial_observation_ref",
             "combined_audit_digest",
@@ -1742,7 +1748,7 @@ pub(super) async fn validate_frame(
                 request::field(man, name, session)?,
                 session,
             )?;
-        }
+        }}
     } else {
         // These are the already-existing administrative WIRE shapes, not a
         // registry-support grant. Each dedicated semantic handler must still

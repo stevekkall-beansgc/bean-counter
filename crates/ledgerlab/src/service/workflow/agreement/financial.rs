@@ -35,6 +35,29 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+/// Released R1 dependencies may select a root retained by the adopted local
+/// recipe. Verify its actual scoped committed frame and membership using that
+/// recipe, instead of interpreting it as a released R1 publication certificate.
+pub(super) async fn local_selected_origin(
+ tx:&mut SqliteTx,key:&OperationKey,reference:&RecordRef,sequence:i64,
+)->Result<bool>{
+ let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().map_err(core_error)?;
+ let _cancel=AttemptCancellation::new(&arena,tx.workflow_deadline());
+ let mut s=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).map_err(core_error)?;
+ let prior=sequence.checked_sub(1).ok_or(ServiceError::IntegrityFailure)?;
+ let old=prefix::next(tx,key,prior,sequence,&mut s).await?.ok_or(ServiceError::IntegrityFailure)?;
+ // Inspect only the actual retained registry; all local wrapper/domain/receipt
+ // checks execute before this association is accepted.
+ let old=old.checked_wrappers(tx,&mut s).await?;
+ let op=old.wrappers().operation();
+ let ev=request_wrapper::field(op,"request_evidence",&mut s)?;
+ let resolution=request_wrapper::field(ev,"descriptor_resolution",&mut s)?;
+ if request_wrapper::text(resolution,"registry_digest",&mut s)?!=wrappers::LOCAL_REGISTRY{return Ok(false);}
+ let value=serde_json::to_value(reference).map_err(|_|ServiceError::IntegrityFailure)?;
+ old.require_member(&value,&mut s)?;
+ s.check_cancelled().map_err(core_error)?;Ok(true)
+}
+
 /// Explicit local enable coordinator only. The mechanical migrations establish
 /// empty projection storage, never financial eligibility or supplier rights.
 /// Keep the completed original owners alive through all three schema steps.

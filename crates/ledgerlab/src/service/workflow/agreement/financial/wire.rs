@@ -919,7 +919,12 @@ fn frame_inner<'a>(
     )?;
     require(!results.refs.is_empty(), "INTEGRITY_FAILURE")?;
     let results_bytes = results.encode(session)?;
-    let audit=metadata.experimental_audit().ok_or_else(||reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+    let audit_fields=if metadata.is_local_execution() {
+        request::same_text(request::text(resolution,"registry_digest",session)?,wrappers::LOCAL_REGISTRY,session)?;
+        request::same_text(recipe.operation,"ledger-workflow-economic-operation/10",session)?;
+        None
+    }else {
+        let audit=metadata.experimental_audit().ok_or_else(||reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
     let observations = RefSet::new(
         audit.source_observation_refs(),
         audit.source_observation_refs().len(),
@@ -933,6 +938,8 @@ fn frame_inner<'a>(
     let observations_bytes = observations.encode(session)?;
     let financial = reference(audit.financial_observation_ref(), session)?;
     let combined = literal(audit.combined_audit_digest(), session)?;
+        Some((observations_bytes,financial,combined))
+    };
     let kind_value = literal(kind, session)?;
     let received = literal(received_at.as_str(), session)?;
     let at = literal(accepted_at.as_str(), session)?;
@@ -940,7 +947,7 @@ fn frame_inner<'a>(
     let sequence = sequence_string(sequence, session)?;
     let closure = literal(recipe.closure, session)?;
     let operation_schema = literal(recipe.operation, session)?;
-    let operation = object(
+    let operation = if let Some((observations_bytes,financial,combined))=&audit_fields {object(
         &[
             ("accepted_at", at.bytes()),
             ("authority_snapshot", authority.canonical_body()),
@@ -959,7 +966,13 @@ fn frame_inner<'a>(
         ],
         8388608,
         session,
-    )?;
+    )?}else {object(&[
+        ("accepted_at",at.bytes()),("authority_snapshot",authority.canonical_body()),
+        ("closure_profile",closure.bytes()),("commit_sequence",sequence.bytes()),
+        ("contract",b"\"workflow/1\""),("key",key_bytes.bytes()),("kind",kind_value.bytes()),
+        ("received_at",received.bytes()),("request_evidence",evidence_bytes.bytes()),
+        ("result_refs",results_bytes.bytes()),("schema",operation_schema.bytes()),
+    ],8388608,session)?};
     let id_hash = hash(
         b"bean-counter/workflow-operation/1\0",
         &[key_bytes.bytes()],
@@ -1004,7 +1017,7 @@ fn frame_inner<'a>(
     let member_bytes = full.encode(session)?;
     drop(full);
     let manifest_schema = literal(recipe.manifest, session)?;
-    let manifest = object(
+    let manifest = if let Some((observations_bytes,financial,combined))=&audit_fields {object(
         &[
             ("closure_profile", closure.bytes()),
             ("combined_audit_digest", combined.bytes()),
@@ -1016,7 +1029,8 @@ fn frame_inner<'a>(
         ],
         4194304,
         session,
-    )?;
+    )?}else {object(&[("closure_profile",closure.bytes()),("key",key_bytes.bytes()),
+        ("members",member_bytes.bytes()),("schema",manifest_schema.bytes())],4194304,session)?};
     let manifest_hash = hash(
         b"bean-counter/workflow-manifest/1\0",
         &[manifest.bytes()],
