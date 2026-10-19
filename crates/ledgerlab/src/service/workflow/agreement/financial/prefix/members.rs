@@ -564,8 +564,12 @@ impl LocatedAppAcceptance {
             let value = s
                 .parse_representation(bytes, RepresentationKind::Record)
                 .map_err(core_error)?;
-            super::super::acceptance::validate_reference(value.value(), kind, s)?;
-            if let Some(prefix)=self._prefix.as_mut(){prefix._inventory.require_value(value.value(),s)}else{Ok(())}
+            if let Some(prefix)=self._prefix.as_mut(){
+                super::super::acceptance::validate_reference(value.value(), kind, s)?;
+                prefix._inventory.require_value(value.value(),s)
+            }else{
+                validate_local_held_reference(value.value(),kind,s)
+            }
         })();
         if result.is_err() {
             s.invalidate();
@@ -682,5 +686,31 @@ impl RetainedEconomicBodies {
             rows,
             _storage: storage,
         })
+    }
+}
+
+/// Locator grammar only. The local input pool subsequently verifies the exact
+/// committed body/Ref association, and execution validates current head/CAS.
+fn validate_local_held_reference(value:&Value,kind:&str,s:&mut OriginalAuditSession)->Result<()> {
+    let (reference,_owner)=super::super::current::source::from_value_local(value,s)?;
+    super::super::request_wrapper::same_text(&reference.kind,kind,s)
+}
+
+#[cfg(test)]
+mod local_held_reference_tests {
+    use super::*;
+    use ledgerlab_core::canonical::audit_arena::AuditArena;
+    #[test]
+    fn local_held_financial_claim_uses_financial_grammar_and_exact_kind() {
+        let value=serde_json::json!({"kind":"workflow-work-claim","id":"wclaim_56ad39ce26a5343c30297a4088720e1895d2aebf786549611f4cbd6f9a5bb471","digest":"sha256:943fd87d11f196ca1425c715945a8155e88df03c3a9574b49727a980ed9efe83"});
+        let arena=AuditArena::new().unwrap();
+        let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        validate_local_held_reference(&value,"workflow-work-claim",&mut s).unwrap();
+        assert!(validate_local_held_reference(&value,"workflow-decision",&mut s).is_err());
+        let mut old=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(super::super::super::acceptance::validate_reference(&value,"workflow-work-claim",&mut old).is_err());
+        let mut malformed=value.clone();malformed["id"]=serde_json::json!("wclaim_bad");
+        let mut fresh=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(validate_local_held_reference(&malformed,"workflow-work-claim",&mut fresh).is_err());
     }
 }
