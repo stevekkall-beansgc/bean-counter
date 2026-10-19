@@ -515,8 +515,34 @@ pub(super) fn construct_local(observed:&ObservedAppBinding,key:&OperationKey,pay
   let extra=observed.local_extra.as_ref();
   let app=extra.map(|e|ledgerlab_core::policy::workflow::transition_constructor::AppStateData{cost_heads:&e.costs,observation_refs:&e.observations,cost_claim_refs:&e.claims,evidence_consumption_refs:&e.consumed});
   let state=EconomicStateData{retained_assertion:extra.and_then(|e|e.assertion.as_ref()),financial:&state.financial,capacity_heads:&state.capacities,supplier:None,app:app.as_ref(),current_party_authorizations:&state.parties,observation:None,audit:None,initial_source_correspondences:&[]};
-  let candidate=construct_local_financial_candidate(observed.original.publication.program(),capture,raw,&inputs,&state,s).map_err(core_error)?;
+  let candidate=construct_local_financial_candidate(observed.original.publication.program(),capture,raw,&inputs,&state,s).map_err(local_construction_error)?;
   let evidence=produce_local_financial_request_evidence(observed.original.publication.program(),raw_request,&candidate,&inputs,&state,s).map_err(core_error)?;
   Ok((candidate,evidence))
  })
+}
+
+// This factory selects the local recipe, whose registry includes this refusal.
+// Preserve the released shared mapper for every other diagnostic and recipe.
+fn local_construction_error(error: ledgerlab_core::Error) -> ServiceError {
+    match error.code {
+        "CORRECTION_WINDOW_CLOSED" => ServiceError::Rejection(error.code.into()),
+        _ => core_error(error),
+    }
+}
+
+#[cfg(test)]
+mod local_error_tests {
+    use super::*;
+
+    #[test]
+    fn local_outcome_window_error_uses_its_declared_vocabulary() {
+        let error = |code| ledgerlab_core::Error { code, detail: "mapping fixture".into() };
+        assert_eq!(
+            local_construction_error(error("CORRECTION_WINDOW_CLOSED")),
+            ServiceError::Rejection("CORRECTION_WINDOW_CLOSED".into())
+        );
+        assert_eq!(core_error(error("CORRECTION_WINDOW_CLOSED")), ServiceError::Unavailable);
+        assert_eq!(local_construction_error(error("FUTURE_INTERNAL_FAILURE")), ServiceError::Unavailable);
+        assert_eq!(local_construction_error(error("STALE_REVISION")), core_error(error("STALE_REVISION")));
+    }
 }
