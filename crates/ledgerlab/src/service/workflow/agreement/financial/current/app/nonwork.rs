@@ -72,10 +72,11 @@ pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut
    }
   }
  }
- // Outcome correction consumes the original immutable claim's fixed link.
+ // Outcome correction and causal root reversal consume the original
+ // immutable claim's fixed link for each actually selected family.
  // The exact held projection is only a locator; pool.complete below verifies
  // its committed body, and the child repeats every semantic association.
- if let Some((child,slot))=locators.original_outcome_link(){
+ for (child,slot) in locators.original_outcome_links(){
   if let Some(row)=tx.workflow_local_outcome_link(&key.logical_store_id,&key.scope,child,slot,s).await.map_err(prefix::read_error)?{
    let r=claim_ref(&row,s)?;pool.add(&r,s)?;
    s.semantic_work().write_bytes(std::mem::size_of::<ExactRef>()).map_err(core_error)?;

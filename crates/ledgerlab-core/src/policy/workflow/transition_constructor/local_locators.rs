@@ -39,7 +39,7 @@ pub struct LocalOperationLocators {
     work: Option<WorkHeadLocators>,
     records: Vec<LocalRecordIdentity>,
     claims: Vec<PermanentClaimKey>,
-    outcome_link: Option<(ExactRef,String)>,
+    outcome_links: Vec<(ExactRef,String)>,
     required_slots: Vec<String>,
     _copies: Vec<ExternalBufferLease>,
     _ownership: ExternalBufferLease,
@@ -80,7 +80,12 @@ impl LocalOperationLocators {
     /// Exact immutable original child and selected link slot for a held point
     /// read. The returned DATA establishes neither a link nor its currentness.
     pub fn original_outcome_link(&self)->Option<(&ExactRef,&str)>{
-        self.outcome_link.as_ref().map(|(child,slot)|(child,slot.as_str()))
+        self.original_outcome_links().next()
+    }
+    /// Exact original assesses-link point-read DATA, including each actually
+    /// requested claimed family on root reversal. No link presence is asserted.
+    pub fn original_outcome_links(&self)->impl Iterator<Item=(&ExactRef,&str)> {
+        self.outcome_links.iter().map(|(child,slot)|(child,slot.as_str()))
     }
 }
 fn cp(
@@ -414,26 +419,14 @@ pub fn select_local_operation_locators(
             &mut copies,
             &mut claims,
         )?;
-        let outcome_link=if shape::same_text(m,schema,"ledger-workflow-outcome-correction/1")?{
-            let (claim_ref,claim)=load_ref(m,&a,&mut r,capture.key,&v["original_claim_ref"],"workflow-outcome-claim","ledger-workflow-outcome-claim/1")?;
-            let target=subject.target_ref().ok_or_else(||shape::fail("outcome correction locator target"))?;
-            let expected=super::working_value::owning_reference(m,&a,target)?;
-            shape::equal(m,&claim["target_ref"],expected.value())?;
-            let binding=super::working_value::owning_reference(m,&a,subject.original_binding_ref())?;
-            shape::equal(m,&claim["original_payload"]["binding_ref"],binding.value())?;
-            let bound=r.get(m,capture.key,subject.original_binding_ref(),"workflow-binding","ledger-workflow-binding/2")?;
-            let(_,inst)=load_ref(m,&a,&mut r,capture.key,&bound["slot_instantiation_ref"],"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
-            let slot=original_outcome_link_slot(program,m,&claim,&inst)?;
-            let value=super::working_value::owning_reference(m,&a,claim_ref.reference())?;
-            Some((rf(m,&a,&mut copies,value.value())?,cp(m,&a,&mut copies,slot)?))
-        }else{None};
+        let outcome_links=outcome_links(program,m,&a,&mut r,capture.key,v,&subject,&mut copies)?;
         let required_slots = authority_slots(program,m,&a,&mut r,capture.key,v,&subject,&mut copies)?;
         Ok(LocalOperationLocators {
             subject,
             work,
             records,
             claims,
-            outcome_link,
+            outcome_links,
             required_slots,
             _copies: copies,
             _ownership: ownership,
@@ -537,6 +530,68 @@ fn authority_slots(program:&SelectedProgram,m:&mut CoreMeter,a:&AuditArena,r:&mu
         push_authority_slot(m,a,owners,&mut out,source_slot)?;
     }
     Ok(out)
+}
+
+
+fn outcome_links(program:&SelectedProgram,m:&mut CoreMeter,a:&AuditArena,r:&mut Records,key:&OperationKey,
+    request:&Value,subject:&LocalSubjectBinding,owners:&mut Vec<ExternalBufferLease>)->Result<Vec<(ExactRef,String)>> {
+    let schema=txt(m,request,"schema")?;
+    let correct=shape::same_text(m,schema,"ledger-workflow-outcome-correction/1")?;
+    let reverse=shape::same_text(m,schema,"ledger-workflow-work-reverse/2")?;
+    if !correct && !reverse{return Ok(Vec::new());}
+    let count=if reverse{shape::array(m,request,"family_closures")?.len()}else{1};
+    // Retain exact Ref/string outputs and the old/new owner-vector allocation
+    // overlap before producing any controls or copied locator payloads.
+    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&count.into(),&4usize.into()])?;
+    let extra=count.checked_mul(4).ok_or_else(||shape::fail("outcome link copy count"))?;
+    let extra=w::usize_add(m,extra,1)?;
+    let capacity=w::usize_add(m,owners.capacity(),extra)?;
+    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&count.into(),&mem::size_of::<(ExactRef,String)>().into()])?;
+    let rows=count.checked_mul(mem::size_of::<(ExactRef,String)>()).ok_or_else(||shape::fail("outcome link rows"))?;
+    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&capacity.into(),&mem::size_of::<ExternalBufferLease>().into()])?;
+    let controls=capacity.checked_mul(mem::size_of::<ExternalBufferLease>()).ok_or_else(||shape::fail("outcome link controls"))?;
+    let bytes=w::usize_add(m,rows,controls)?;
+    let ownership=a.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
+    owners.try_reserve_exact(capacity-owners.len()).map_err(|_|shape::fail("outcome link owners allocation"))?;
+    owners.push(ownership);
+    let mut out=Vec::new();out.try_reserve_exact(count).map_err(|_|shape::fail("outcome link allocation"))?;
+    let bound=r.get(m,key,subject.original_binding_ref(),"workflow-binding","ledger-workflow-binding/2")?;
+    let(_,inst)=load_ref(m,a,r,key,&bound["slot_instantiation_ref"],"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
+    if correct {
+        let(claim_ref,claim)=load_ref(m,a,r,key,&request["original_claim_ref"],"workflow-outcome-claim","ledger-workflow-outcome-claim/1")?;
+        let target=subject.target_ref().ok_or_else(||shape::fail("outcome correction locator target"))?;
+        let expected=super::working_value::owning_reference(m,a,target)?;
+        shape::equal(m,&claim["target_ref"],expected.value())?;
+        push_outcome_link(program,m,a,owners,&mut out,claim_ref.reference(),&claim,&inst,subject)?;
+    } else {
+        let work_ref=subject.original_work_ref().ok_or_else(||shape::fail("outcome link original work"))?;
+        let work=r.get(m,key,work_ref,"workflow-work","ledger-workflow-work-record/1")?;
+        let expected_work=super::working_value::owning_reference(m,a,work_ref)?;
+        for closure in shape::array(m,request,"family_closures")? {
+            m.visit("local.reverse_original_outcome_link")?;
+            let(_,state)=load_ref(m,a,r,key,&closure["family_state_ref"],"workflow-family-state","ledger-workflow-family-state/1")?;
+            shape::equal(m,&closure["expected_revision"],&state["revision"])?;
+            let status=txt(m,&state,"state")?;
+            if !shape::same_text(m,status,"claimed")?{continue;}
+            let(_,target)=load_ref(m,a,r,key,&state["target_ref"],"workflow-target","ledger-workflow-component-target/1")?;
+            shape::equal(m,&target["work_ref"],expected_work.value())?;
+            let slot=txt(m,&state,"family_slot")?;
+            let _family=locator_family(program,m,&target,&work,&inst,slot)?;
+            let(claim_ref,claim)=load_ref(m,a,r,key,&state["claim_ref"],"workflow-outcome-claim","ledger-workflow-outcome-claim/1")?;
+            shape::equal(m,&claim["target_ref"],&state["target_ref"])?;
+            shape::equal(m,&claim["family_slot"],&state["family_slot"])?;
+            push_outcome_link(program,m,a,owners,&mut out,claim_ref.reference(),&claim,&inst,subject)?;
+        }
+    }
+    Ok(out)
+}
+fn push_outcome_link(program:&SelectedProgram,m:&mut CoreMeter,a:&AuditArena,owners:&mut Vec<ExternalBufferLease>,out:&mut Vec<(ExactRef,String)>,claim_ref:&ExactRef,claim:&Value,inst:&Value,subject:&LocalSubjectBinding)->Result<()> {
+    let binding=super::working_value::owning_reference(m,a,subject.original_binding_ref())?;
+    shape::equal(m,&claim["original_payload"]["binding_ref"],binding.value())?;
+    let slot=original_outcome_link_slot(program,m,claim,inst)?;
+    for(child,previous)in out.iter(){m.visit("local.original_outcome_link_dedup")?;if shape::same_ref(m,child,claim_ref)?&&shape::same_text(m,previous,slot)?{return Ok(());}}
+    let value=super::working_value::owning_reference(m,a,claim_ref)?;
+    out.push((rf(m,a,owners,value.value())?,cp(m,a,owners,slot)?));Ok(())
 }
 
 fn original_outcome_link_slot<'a>(program:&'a SelectedProgram,m:&mut CoreMeter,claim:&Value,inst:&Value)->Result<&'a str>{
@@ -978,6 +1033,21 @@ mod correction_lookup_tests{
         assert_eq!(authority_slots(&program,m,&a,&mut r,&key,&close,&subject,&mut owners).unwrap(),["support:assessor"]);
         let mut wrong=reverse.clone();wrong["family_closures"][0]["expected_revision"]=json!("2");
         assert!(authority_slots(&program,m,&a,&mut r,&key,&wrong,&subject,&mut owners).is_err());
+        let claim=super::super::body::record(&mut producer,&key,"workflow-outcome-claim",format!("woclaim_{}","9".repeat(64)),json!({"schema":"ledger-workflow-outcome-claim/1","target_ref":target.reference,"family_slot":"actual:family","business_outcome_token":"original-token","original_payload":{"target_ref":target.reference,"family_slot":"actual:family","business_outcome_token":"original-token","activity":"support:assess","binding_ref":bound.reference,"policy_ref":program.root_policy_ref()}})).unwrap();
+        let claimed=super::super::body::record(&mut producer,&key,"workflow-family-state",format!("wfamily_{}","a".repeat(64)),json!({"schema":"ledger-workflow-family-state/1","target_ref":target.reference,"family_slot":"actual:family","revision":"3","state":"claimed","claim_ref":claim.reference})).unwrap();
+        let rows=[&terms,&inst,&bound,&work,&target,&claimed,&claim];
+        let views=rows.iter().map(|x|EconomicRecordView{reference:&x.reference,canonical_body:&x.canonical_body}).collect::<Vec<_>>();
+        let mut r=Records::borrowed_parent_app(m,&a,&key,&views).unwrap();
+        let mut reverse=reverse.clone();reverse["family_closures"][0]["family_state_ref"]=json!(claimed.reference);
+        let links=outcome_links(&program,m,&a,&mut r,&key,&reverse,&subject,&mut owners).unwrap();
+        assert_eq!(links.len(),1);assert_eq!(links[0].0,claim.reference);assert_eq!(links[0].1,"support:assesses");
+        // The exact same immutable original link is selected for standalone
+        // outcome correction and for causal reversal of that claimed family.
+        let correction=json!({"schema":"ledger-workflow-outcome-correction/1","original_claim_ref":claim.reference});
+        assert_eq!(outcome_links(&program,m,&a,&mut r,&key,&correction,&subject,&mut owners).unwrap(),links);
+        reverse["family_closures"][0]["expected_revision"]=json!("2");
+        assert!(outcome_links(&program,m,&a,&mut r,&key,&reverse,&subject,&mut owners).is_err());
+
 
     }
 }
