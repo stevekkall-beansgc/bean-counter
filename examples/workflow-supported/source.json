@@ -101,14 +101,14 @@
       "evaluator": "ledger-workflow-evaluator/1",
       "fact_schemas": [
         {
-          "digest": "sha256:a210d68c8f1f55e3e5af43d7c2fe53c9ca89dca39b714685b78509e69a5550ba",
-          "id": "wdoc_a210d68c8f1f55e3e5af43d7c2fe53c9ca89dca39b714685b78509e69a5550ba",
-          "kind": "workflow-fact-schema"
-        },
-        {
           "kind": "workflow-fact-schema",
           "id": "wdoc_838db079958f66e581732186e538b641e785232ad47b9bc81d3826dfc7acfab4",
           "digest": "sha256:838db079958f66e581732186e538b641e785232ad47b9bc81d3826dfc7acfab4"
+        },
+        {
+          "digest": "sha256:a210d68c8f1f55e3e5af43d7c2fe53c9ca89dca39b714685b78509e69a5550ba",
+          "id": "wdoc_a210d68c8f1f55e3e5af43d7c2fe53c9ca89dca39b714685b78509e69a5550ba",
+          "kind": "workflow-fact-schema"
         }
       ],
       "grammar": "ledger-policy-grammar/1",
@@ -310,8 +310,8 @@
       "policy_id": "support:policy",
       "product_ref": {
         "kind": "workflow-product",
-        "id": "wdoc_88c080ebfd2f19acf3ec0195a6e197cbd34fc1e333cc7eaf6d5800c5cd646c97",
-        "digest": "sha256:88c080ebfd2f19acf3ec0195a6e197cbd34fc1e333cc7eaf6d5800c5cd646c97"
+        "id": "wdoc_a497273676a96c64734086785956b7edb5d9fcbd1cd5eebac7560cd41fcb31f3",
+        "digest": "sha256:a497273676a96c64734086785956b7edb5d9fcbd1cd5eebac7560cd41fcb31f3"
       },
       "rounding": "nearest_ties_away",
       "rules": [
