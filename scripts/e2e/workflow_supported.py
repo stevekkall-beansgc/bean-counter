@@ -177,7 +177,8 @@ class Journey:
                       "finality_attestation": "No work is submitted under this legacy bootstrap agreement."})
         if not self.installation.exists():
             self.command("initialize", [self.binary, "billing", "init", self.installation, "--setup", self.write("setup.json", setup), "--json"])
-        self.workflow("enable", "enable")
+        if not any(c["name"] == "enable" and c["exit"] == 0 for c in self.meta["commands"]):
+            self.workflow("enable", "enable")
         resources = {"schema": "ledger-local-resource-settings/1", **{k: None for k in [
             "semantic_work", "compile_work", "resolved_records", "resolved_bytes", "new_body_bytes", "arena_bytes",
             "retained_operations", "retained_bytes", "attempt_timeout_ms"]}}
