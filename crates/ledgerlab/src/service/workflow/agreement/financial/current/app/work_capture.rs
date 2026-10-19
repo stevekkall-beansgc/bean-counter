@@ -564,6 +564,9 @@ const LOCAL_CONSTRUCTION_ERRORS: &[&str] = &[
     "WAITING_FINAL_COST",
 ];
 fn local_construction_error(error: ledgerlab_core::Error) -> ServiceError {
+    if error.code == "EXPOSURE_CEILING_EXCEEDED" {
+        return ServiceError::Rejection("EXPOSURE_EXCEEDED".into());
+    }
     if LOCAL_CONSTRUCTION_ERRORS.contains(&error.code) {
         ServiceError::Rejection(error.code.into())
     } else {
@@ -586,6 +589,9 @@ mod local_error_tests {
             assert_eq!(local_construction_error(ledgerlab_core::Error { code, detail: "fixture".into() }), ServiceError::Rejection((*code).into()));
             assert_eq!(core_error(ledgerlab_core::Error { code, detail: "fixture".into() }), ServiceError::Unavailable);
         }
+        let ceiling = || ledgerlab_core::Error {code:"EXPOSURE_CEILING_EXCEEDED",detail:"actual app final amount above original maximum".into()};
+        assert_eq!(local_construction_error(ceiling()), ServiceError::Rejection("EXPOSURE_EXCEEDED".into()));
+        assert_eq!(core_error(ceiling()), ServiceError::Unavailable);
         let resource = ledgerlab_core::Error {code:"PROGRAM_BUDGET_EXCEEDED",detail:"resource limit: semantic_work limit=1 observed=2".into()};
         assert_eq!(local_construction_error(resource), ServiceError::ResourceLimit {setting:"semantic_work",limit:1,observed:2});
     }

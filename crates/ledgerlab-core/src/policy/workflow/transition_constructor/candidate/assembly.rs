@@ -45,6 +45,46 @@ pub(in crate::policy::workflow::transition_constructor) fn operation(m:&mut Core
     }
     Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE","candidate payload recipe is not implemented"))
 }
+
+/// Root reversal emits independent dependent authorities for the SAME operation.
+/// Its own newly constructed Work decision names the authoritative root Ref;
+/// emitted order and operation-name equality alone cannot select that identity.
+fn local_reversal_authority(m:&mut CoreMeter,c:&DraftContextData,payload:&serde_json::Value,
+    outputs:&[super::super::emitted_record::ConstructedEnvelope])->Result<usize>{
+    let arena=m.representation_arena().ok_or_else(||shape::fail("owning root authority association"))?;
+    let key=super::super::cost_postings::operation_key(m,&arena,c)?;
+    let work=super::super::working_value::parse_owned_reference(m,&arena,&payload["work_ref"])?;
+    let work=owning_reference(m,&arena,work.reference())?;
+    let mut selected=None;
+    for output in outputs{
+        m.visit("candidate.root_reversal_authority_association")?;
+        if !shape::same_text(m,&output.reference.kind,"workflow-decision")?{continue;}
+        let value=output.decoded(m,4194304)?;
+        let schema=shape::text(m,&value,"schema")?;
+        if !shape::same_text(m,schema,"ledger-workflow-decision-revision/1")?{continue;}
+        let kind=shape::text(m,&value,"kind")?;
+        if !shape::same_text(m,kind,"work")?{continue;}
+        if !shape::same(m,&value["subject_ref"],work.value())?{continue;}
+        let transition=shape::text(m,&value,"transition")?;
+        if !shape::same_text(m,transition,"work_reverse")?{return Err(shape::fail("root reversal decision transition"));}
+        shape::equal(m,&value["operation_key"],key.value())?;
+        if selected.is_some(){return Err(shape::fail("ambiguous root reversal decision authority association"));}
+        selected=Some(super::super::working_value::parse_owned_reference(m,&arena,&value["authority_ref"])?);
+    }
+    let selected=selected.ok_or_else(||shape::fail("root reversal decision authority association missing"))?;
+    let mut position=None;
+    for(i,output)in outputs.iter().enumerate(){
+        m.visit("candidate.root_reversal_authority_result")?;
+        if !shape::same_ref(m,&output.reference,selected.reference())?{continue;}
+        if !shape::same_text(m,&output.reference.kind,"workflow-economic-authority")?{return Err(shape::fail("root reversal authority kind"));}
+        let value=output.decoded(m,4194304)?;
+        let schema=shape::text(m,&value,"schema")?;let operation=shape::text(m,&value,"operation")?;
+        if !shape::same_text(m,schema,"ledger-workflow-economic-authority/8")?||!shape::same_text(m,operation,"work.reverse")?{return Err(shape::fail("root reversal authority recipe"));}
+        if position.is_some(){return Err(shape::fail("ambiguous root operation authority result"));}
+        position=Some(i);
+    }
+    position.ok_or_else(||shape::fail("actual root authority result missing"))
+}
 impl<'inv,'raw> Assembly<'inv,'raw>{
  pub(in crate::policy::workflow::transition_constructor) fn derive(m:&mut CoreMeter,c:&DraftContextData,program:&SelectedProgram,state:&EconomicStateData,mut t:Construction<'inv,'raw>)->Result<Self>{
     let arena=m.representation_arena().ok_or_else(||shape::fail("owning candidate assembly"))?;
@@ -100,13 +140,17 @@ impl<'inv,'raw> Assembly<'inv,'raw>{
     let mut schemas=Vec::new();schemas.try_reserve_exact(t.new_envelopes.len()).map_err(|_|shape::fail("candidate schema vector"))?;
     let result_count=w::usize_add(m,t.new_envelopes.len(),usize::from(t.reused_result.is_some()))?;
     let mut result_refs=Vec::new();result_refs.try_reserve_exact(result_count).map_err(|_|shape::fail("candidate result reference vector"))?;
+    let root_authority=if local&&shape::same_text(m,kind,"work.reverse")?{Some(local_reversal_authority(m,c,payload.value(),&t.new_envelopes)?)}else{None};
     let mut authority=None;
     for(i,row)in t.new_envelopes.iter().enumerate(){
         m.visit("candidate.assembly_authoritative_result")?;let value=row.decoded(m,4194304)?;
         let schema=shape::text(m,&value,"schema")?;
         if shape::same_text(m,&row.reference.kind,"workflow-economic-authority")?&&shape::same_text(m,schema,if local{"ledger-workflow-economic-authority/8"}else{"ledger-workflow-economic-authority/7"})?{
             let actual=shape::text(m,&value,"operation")?;
-            if shape::same_text(m,actual,kind)?{if authority.is_some(){return Err(shape::fail("ambiguous root operation authority result"));}authority=Some(i);}
+            if shape::same_text(m,actual,kind)?{
+                let root=match &root_authority{Some(expected)=>w::compare(m,i,*expected)?.is_eq(),None=>true};
+                if root{if authority.is_some(){return Err(shape::fail("ambiguous root operation authority result"));}authority=Some(i);}
+            }
         }
         schemas.push(copy(m,schema)?);result_refs.push(copy_ref(m,&row.reference)?);
     }
@@ -227,3 +271,7 @@ impl Assembly<'_, '_>{
     Ok(super::EconomicCandidate{key,normalized_payload:construction.normalized_payload,introduced,consumed_refs,heads:head_effects,claims,links,dependencies,funding:funding_effects,account_enrollments:Vec::new(),result,_ownership:CandidateOwnership{heads,introductions,funding,consumed,controls:construction.control_owners,metadata:_metadata,reservations,head_transfer,_financial_reservations:construction.financial_reservations.take()}})
  }
 }
+
+#[cfg(test)]
+#[path="assembly_authority_tests.rs"]
+mod assembly_authority_tests;
