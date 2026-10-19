@@ -2059,10 +2059,11 @@ mod local_head_view_tests {
         let app_decision=decision(&mut producer,&key,&app_id,&claim.reference,&binding.reference,&app_action.reference,true,"7");
         let premium_id=format!("wdecision_{}","8".repeat(64));
         let premium_action=action(&mut producer,&key,&premium_id,"9","250000000000000000");
-        let premium_decision=decision(&mut producer,&key,&premium_id,&target.reference,&binding.reference,&premium_action.reference,false,"a");
+        let outcome_claim=body::record(&mut producer,&key,"workflow-outcome-claim",format!("woclaim_{}","b".repeat(64)),json!({"schema":"ledger-workflow-outcome-claim/1","target_ref":target.reference})).unwrap();
+        let premium_decision=decision(&mut producer,&key,&premium_id,&outcome_claim.reference,&binding.reference,&premium_action.reference,false,"a");
         let old=[work,claim,target,root_action,app_action,root_decision,app_decision];
         let views=old.iter().map(|v|EconomicRecordView{reference:&v.reference,canonical_body:&v.canonical_body}).collect::<Vec<_>>();
-        let outputs=vec![premium_action,premium_decision];
+        let outputs=vec![premium_action,premium_decision,outcome_claim];
         let mut state=DraftStateData{chain_head:None,decision_heads:vec![DecisionHead{decision_id:root_id.clone(),revision:"1".into(),reference:old[5].reference.clone()},DecisionHead{decision_id:app_id,revision:"1".into(),reference:old[6].reference.clone()}],family_heads:vec![],work_claims:vec![],outcome_claims:vec![],links:vec![],evidence_verifications:vec![]};
         let proposed=ProposedHeads{decision:vec![(premium_id,"1".into(),outputs[1].reference.clone())],family:vec![],chain:None};
         let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();

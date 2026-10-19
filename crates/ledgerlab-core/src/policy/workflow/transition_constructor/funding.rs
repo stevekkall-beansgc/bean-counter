@@ -70,6 +70,13 @@ fn active_work_total(m:&mut CoreMeter,r:&mut super::records::Records,c:&super::d
     else if shape::same_text(m,&subject.kind,"workflow-target")?{
         let target=selected_body(m,r,c,output,subject,"workflow-target",&["ledger-workflow-component-target/1"])?;
         let original=parse_owned_reference(m,&arena,&target["work_ref"])?;shape::same_ref(m,original.reference(),work)?
+    }else if shape::same_text(m,&subject.kind,"workflow-outcome-claim")?{
+        // Outcome decisions name their immutable claim, whose target retains
+        // the original work association; the claim itself is not a Target.
+        let claim=selected_body(m,r,c,output,subject,"workflow-outcome-claim",&["ledger-workflow-outcome-claim/1"])?;
+        let target_ref=parse_owned_reference(m,&arena,&claim["target_ref"])?;
+        let target=selected_body(m,r,c,output,target_ref.reference(),"workflow-target",&["ledger-workflow-component-target/1"])?;
+        let original=parse_owned_reference(m,&arena,&target["work_ref"])?;shape::same_ref(m,original.reference(),work)?
     }else if shape::same_text(m,&subject.kind,"workflow-cost")?{
         let claim=selected_body(m,r,c,output,subject,"workflow-cost",&["ledger-workflow-app-cost-claim/1"])?;
         let original=parse_owned_reference(m,&arena,&claim["subject"]["original_work_ref"])?;shape::same_ref(m,original.reference(),work)?
