@@ -49,11 +49,9 @@ fn six_independent_alias_request_operation_manifest_receipt_bytes_and_refs() {
                 records::bytes(&op["receipt"]).unwrap()
             );
             assert_eq!(json!(actual.receipt_ref), op["receipt_ref"]);
-            assert!(
-                actual.members.contains(
-                    &serde_json::from_value(op["original_operation_ref"].clone()).unwrap()
-                )
-            );
+            assert!(actual
+                .members
+                .contains(&serde_json::from_value(op["original_operation_ref"].clone()).unwrap()));
             count += 1;
         }
     }

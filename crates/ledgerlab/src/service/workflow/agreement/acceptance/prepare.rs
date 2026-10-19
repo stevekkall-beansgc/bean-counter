@@ -2,7 +2,7 @@
 //! No public append or successful facade is exposed by this preparer. Commit
 //! still requires the original-recipe verifier after the atomic append.
 use super::super::*;
-use super::{AcceptInput, PublicationInputs, authority, construct};
+use super::{authority, construct, AcceptInput, PublicationInputs};
 use crate::service::workflow::local::LocalWorkflowLedger;
 use crate::store::sqlite::workflow::agreement::acceptance::HeadKind;
 

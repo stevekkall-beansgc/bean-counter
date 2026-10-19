@@ -30,7 +30,10 @@ macro_rules! queries {
         concat!("WITH r AS (", $projection, ") SELECT rid,t0,t1,t2,t3,n0,n1,n2,n3,b0,b1 FROM r WHERE (?1 IS NULL OR rid>?2) ORDER BY rid LIMIT 1")
     )};
 }
-fn queries(table: ManagementTable, scoped: bool) -> (&'static str, &'static str, &'static str, &'static str) {
+fn queries(
+    table: ManagementTable,
+    scoped: bool,
+) -> (&'static str, &'static str, &'static str, &'static str) {
     match table {
         ManagementTable::Customers => queries!(
             "SELECT rowid rid,customer t0,tenant t1,environment t2,'' t3,0 n0,0 n1,0 n2,0 n3,NULL b0,NULL b1 FROM billing_customers"
@@ -286,9 +289,14 @@ impl SqliteTx {
     /// Connection-local mutation baseline for one live held management owner.
     /// Never refreshed by a reuse check; BEGIN IMMEDIATE excludes other writers.
     pub(crate) async fn workflow_management_changes(
-        &mut self, s: &mut OriginalAuditSession,
+        &mut self,
+        s: &mut OriginalAuditSession,
     ) -> Result<i64, FinancialReadError> {
-        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
             return Err(StoreError::Integrity("poisoned management baseline").into());
         }
         self.failed = true;
@@ -297,14 +305,23 @@ impl SqliteTx {
             s.semantic_work().write_bytes(mem::size_of::<i64>())?;
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
             let changes = sqlx::query_scalar("SELECT total_changes()")
-                .fetch_one(self.conn()).await?;
+                .fetch_one(self.conn())
+                .await?;
             self.financial_finish_io(s).await?;
             Ok(changes)
-        }).await.map_err(|_| self.workflow_timeout_error())?;
+        })
+        .await
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             s.check_cancelled()?;
-            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {
-                return Err(StoreError::Integrity("management baseline retains failed work").into());
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(
+                    StoreError::Integrity("management baseline retains failed work").into(),
+                );
             }
             self.failed = false;
         }
@@ -338,7 +355,11 @@ impl SqliteTx {
                 }
             }
             if supported {
-                {let limits=self.workflow_operator;super::super::capacity::check_with_session(self.conn(), 0, 0, s,limits).await?;}
+                {
+                    let limits = self.workflow_operator;
+                    super::super::capacity::check_with_session(self.conn(), 0, 0, s, limits)
+                        .await?;
+                }
             } else if !resource_compare(s, version, 11)?.is_eq() {
                 return Err(StoreError::InvalidStore("unsupported guarded workflow schema").into());
             }
@@ -451,35 +472,54 @@ impl SqliteTx {
     /// constructing unused owned String/BLOB/row graphs. The entire phase owns
     /// one native workspace; at most one LIMIT-1 row is borrowed at a time.
     pub(crate) async fn workflow_management_physical_rows(
-        &mut self,table:ManagementTable,count:i64,s:&mut OriginalAuditSession,
-    )->Result<(),FinancialReadError> {
-        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) {
+        &mut self,
+        table: ManagementTable,
+        count: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
             return Err(StoreError::Integrity("poisoned management physical read").into());
         }
-        self.failed=true;
-        let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
-            let (_,_,bounds,rows)=queries(table,false);
-            let mut materialized=2*65536i64;
+        self.failed = true;
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
+            let (_, _, bounds, rows) = queries(table, false);
+            let mut materialized = 2 * 65536i64;
             for maximum in text_maxima(table) {
-                s.semantic_work().arithmetic(ArithmeticOperation::Multiply,&[&maximum.into(),&8i64.into()])?;
-                materialized=resource_add(s,materialized,maximum*8)?;
+                s.semantic_work().arithmetic(
+                    ArithmeticOperation::Multiply,
+                    &[&maximum.into(), &8i64.into()],
+                )?;
+                materialized = resource_add(s, materialized, maximum * 8)?;
             }
-            let payload=io::binding_payload(&[],&[],0,materialized as usize,s)?;
-            self.financial_reserve_io(s,payload)?;
-            s.semantic_work().write_bytes(std::mem::size_of::<[i64;6]>())?;
+            let payload = io::binding_payload(&[], &[], 0, materialized as usize, s)?;
+            self.financial_reserve_io(s, payload)?;
+            s.semantic_work()
+                .write_bytes(std::mem::size_of::<[i64; 6]>())?;
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
-            let maxima:(i64,i64,i64,i64,i64,i64)=sqlx::query_as(bounds).fetch_one(self.conn()).await?;
-            for (length,maximum) in [maxima.0,maxima.1,maxima.2,maxima.3].into_iter().zip(text_maxima(table)) {
-                if resource_compare(s,length,0)?.is_lt() || resource_compare(s,length,maximum)?.is_gt() {
+            let maxima: (i64, i64, i64, i64, i64, i64) =
+                sqlx::query_as(bounds).fetch_one(self.conn()).await?;
+            for (length, maximum) in [maxima.0, maxima.1, maxima.2, maxima.3]
+                .into_iter()
+                .zip(text_maxima(table))
+            {
+                if resource_compare(s, length, 0)?.is_lt()
+                    || resource_compare(s, length, maximum)?.is_gt()
+                {
                     return Err(StoreError::Integrity("management text bounds").into());
                 }
             }
-            for length in [maxima.4,maxima.5] {
-                if resource_compare(s,length,0)?.is_lt() || resource_compare(s,length,65536)?.is_gt() {
+            for length in [maxima.4, maxima.5] {
+                if resource_compare(s, length, 0)?.is_lt()
+                    || resource_compare(s, length, 65536)?.is_gt()
+                {
                     return Err(StoreError::Integrity("management body bounds").into());
                 }
             }
-            let mut after=None;
+            let mut after = None;
             for _ in 0..count {
                 s.semantic_work().visit(ValidationVisit::Element)?;
                 // Includes SQLx/SQLite integer/null bindings and possible UTF16
@@ -488,37 +528,62 @@ impl SqliteTx {
                 s.semantic_work().scan_bytes(materialized as usize)?;
                 s.semantic_work().write_bytes(materialized as usize)?;
                 s.semantic_work().visit(ValidationVisit::RefLookup)?;
-                let row=sqlx::query(rows).bind(after).bind(after).fetch_optional(self.conn()).await?;
+                let row = sqlx::query(rows)
+                    .bind(after)
+                    .bind(after)
+                    .fetch_optional(self.conn())
+                    .await?;
                 s.semantic_work().visit(ValidationVisit::Constraint)?;
-                let row=row.ok_or(StoreError::Integrity("management row disappeared"))?;
+                let row = row.ok_or(StoreError::Integrity("management row disappeared"))?;
                 s.semantic_work().visit(ValidationVisit::Field)?;
-                let row_id:i64=row.try_get(0)?;
-                for index in [5usize,6,7,8] {
+                let row_id: i64 = row.try_get(0)?;
+                for index in [5usize, 6, 7, 8] {
                     s.semantic_work().visit(ValidationVisit::Field)?;
-                    let _:i64=row.try_get(index)?;
+                    let _: i64 = row.try_get(index)?;
                 }
-                for index in [1usize,2,3,4] {
+                for index in [1usize, 2, 3, 4] {
                     s.semantic_work().visit(ValidationVisit::Field)?;
-                    let _:&str=row.try_get(index)?;
+                    let _: &str = row.try_get(index)?;
                 }
-                for (index,required) in [(9usize,!matches!(table,ManagementTable::Customers|ManagementTable::Agreements)),(10usize,matches!(table,ManagementTable::Controls))] {
+                for (index, required) in [
+                    (
+                        9usize,
+                        !matches!(
+                            table,
+                            ManagementTable::Customers | ManagementTable::Agreements
+                        ),
+                    ),
+                    (10usize, matches!(table, ManagementTable::Controls)),
+                ] {
                     s.semantic_work().visit(ValidationVisit::Field)?;
-                    let body:Option<&[u8]>=row.try_get(index)?;
+                    let body: Option<&[u8]> = row.try_get(index)?;
                     s.semantic_work().visit(ValidationVisit::Constraint)?;
-                    if required && body.is_none() {return Err(StoreError::Integrity("management required body is null").into());}
+                    if required && body.is_none() {
+                        return Err(
+                            StoreError::Integrity("management required body is null").into()
+                        );
+                    }
                 }
-                after=Some(row_id);
+                after = Some(row_id);
                 drop(row);
             }
             self.financial_finish_io(s).await?;
             Ok(())
-        }).await.map_err(|_|StoreError::Deadline)?;
+        })
+        .await
+        .map_err(|_| StoreError::Deadline)?;
         if result.is_ok() {
             s.check_cancelled()?;
-            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {
-                return Err(StoreError::Integrity("management physical read retains failed work").into());
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(
+                    StoreError::Integrity("management physical read retains failed work").into(),
+                );
             }
-            self.failed=false;
+            self.failed = false;
         }
         result
     }
@@ -810,29 +875,54 @@ impl SqliteTx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::ports::{AcceptanceStore,AcceptanceTx};
+    use crate::store::ports::{AcceptanceStore, AcceptanceTx};
     #[tokio::test]
     async fn physical_management_decode_preserves_invalid_utf8_refusal_and_rollback() {
-        let directory=tempfile::tempdir().unwrap();
-        let path=directory.path().canonicalize().unwrap().join("billing");
-        crate::billing::BillingLedger::init(&path,include_bytes!("../../../../../../../examples/billing/setup.json")).await.unwrap();
-        let store=crate::store::sqlite::SqliteStore::open(&path.join(".ledger")).await.unwrap();
-        let deadline=||tokio::time::Instant::now()+std::time::Duration::from_secs(10);
-        let mut legacy=store.begin(deadline()).await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().canonicalize().unwrap().join("billing");
+        crate::billing::BillingLedger::init(
+            &path,
+            include_bytes!("../../../../../../../examples/billing/setup.json"),
+        )
+        .await
+        .unwrap();
+        let store = crate::store::sqlite::SqliteStore::open(&path.join(".ledger"))
+            .await
+            .unwrap();
+        let deadline = || tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut legacy = store.begin(deadline()).await.unwrap();
         sqlx::query("INSERT INTO billing_customers(customer,tenant,environment) VALUES('invalid-utf8-customer',CAST(X'80' AS TEXT),'local')").execute(legacy.conn()).await.unwrap();
-        assert!(matches!(legacy.billing_meta().await,Err(StoreError::Database(_))));
+        assert!(matches!(
+            legacy.billing_meta().await,
+            Err(StoreError::Database(_))
+        ));
         legacy.rollback().await.unwrap();
-        let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-        let baseline=arena.usage().unwrap().live_bytes;
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut current=store.begin(deadline()).await.unwrap();
-        let counts=current.workflow_management_counts(&mut session).await.unwrap();
-        current.workflow_management_physical_rows(ManagementTable::Customers,counts[0],&mut session).await.unwrap();
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let baseline = arena.usage().unwrap().live_bytes;
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut current = store.begin(deadline()).await.unwrap();
+        let counts = current
+            .workflow_management_counts(&mut session)
+            .await
+            .unwrap();
+        current
+            .workflow_management_physical_rows(ManagementTable::Customers, counts[0], &mut session)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO billing_customers(customer,tenant,environment) VALUES('invalid-utf8-customer',CAST(X'80' AS TEXT),'local')").execute(current.conn()).await.unwrap();
-        assert!(matches!(current.workflow_management_physical_rows(ManagementTable::Customers,counts[0]+1,&mut session).await,Err(FinancialReadError::Store(StoreError::Database(_)))));
+        assert!(matches!(
+            current
+                .workflow_management_physical_rows(
+                    ManagementTable::Customers,
+                    counts[0] + 1,
+                    &mut session
+                )
+                .await,
+            Err(FinancialReadError::Store(StoreError::Database(_)))
+        ));
         current.rollback().await.unwrap();
-        assert_eq!(arena.usage().unwrap().live_bytes,baseline);
-        let mut reopened=store.begin(deadline()).await.unwrap();
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+        let mut reopened = store.begin(deadline()).await.unwrap();
         reopened.billing_meta().await.unwrap();
         reopened.rollback().await.unwrap();
         store.close().await;

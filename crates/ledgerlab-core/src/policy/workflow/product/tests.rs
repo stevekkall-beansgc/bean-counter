@@ -251,30 +251,26 @@ fn product_bounds_closed_shapes_and_unicode_label_bytes() {
     wrong["activities"][0]["funding_leg"] = Value::Null;
     assert!(parse(&wrong).is_err());
     value = source();
-    value["activities"] = json!(
-        (0..16)
-            .map(|i| {
-                let mut activity = source()["activities"][0].clone();
-                activity["name"] = json!(format!("fixture.report:a{i}"));
-                activity
-            })
-            .collect::<Vec<_>>()
-    );
+    value["activities"] = json!((0..16)
+        .map(|i| {
+            let mut activity = source()["activities"][0].clone();
+            activity["name"] = json!(format!("fixture.report:a{i}"));
+            activity
+        })
+        .collect::<Vec<_>>());
     parse(&value).unwrap();
     let mut overflow = source()["activities"][0].clone();
     overflow["name"] = json!("fixture.report:overflow");
     value["activities"].as_array_mut().unwrap().push(overflow);
     error(parse(&value), "PRODUCT_LIMIT");
     value = source();
-    value["units"] = json!(
-        (0..16)
-            .map(|i| if i == 0 {
-                source()["units"][0].clone()
-            } else {
-                unit(&format!("fixture.report:u{i}"), "fixture.report:count")
-            })
-            .collect::<Vec<_>>()
-    );
+    value["units"] = json!((0..16)
+        .map(|i| if i == 0 {
+            source()["units"][0].clone()
+        } else {
+            unit(&format!("fixture.report:u{i}"), "fixture.report:count")
+        })
+        .collect::<Vec<_>>());
     parse(&value).unwrap();
     value["units"]
         .as_array_mut()
@@ -282,11 +278,9 @@ fn product_bounds_closed_shapes_and_unicode_label_bytes() {
         .push(unit("fixture.report:overflow", "fixture.report:count"));
     error(parse(&value), "PRODUCT_LIMIT");
     value = source();
-    value["links"] = json!(
-        (0..32)
-            .map(|i| link(&format!("fixture.report:l{i}")))
-            .collect::<Vec<_>>()
-    );
+    value["links"] = json!((0..32)
+        .map(|i| link(&format!("fixture.report:l{i}")))
+        .collect::<Vec<_>>());
     parse(&value).unwrap();
     value["links"]
         .as_array_mut()
@@ -507,12 +501,10 @@ fn executing_key_and_selector_helpers_do_not_hide_membership() {
     value["links"] = json!([link("fixture.report:previous")]);
     let product = parse(&value).unwrap();
     let mut key_work = CountingWork::new(2);
-    assert!(
-        product
-            .activity_with_work("fixture.report:completed", &mut key_work)
-            .unwrap()
-            .is_some()
-    );
+    assert!(product
+        .activity_with_work("fixture.report:completed", &mut key_work)
+        .unwrap()
+        .is_some());
     assert_eq!(key_work.visits, [Visit::RefLookup, Visit::MemberCompare]);
     let mut short_key = CountingWork::new(1);
     error(

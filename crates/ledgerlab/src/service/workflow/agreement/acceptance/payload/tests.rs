@@ -158,34 +158,26 @@ fn tentative_documents_cannot_substitute_customer_grants_or_accepted_state() {
     ] {
         let mut body = base.clone();
         body["documents"].as_array_mut().unwrap().push(extra);
-        assert!(
-            prepare(&body)
-                .normalize_private_documents(&template(), &product(), &[])
-                .is_err()
-        );
+        assert!(prepare(&body)
+            .normalize_private_documents(&template(), &product(), &[])
+            .is_err());
     }
     let mut body = base.clone();
     body["documents"] = payload("B")["documents"].clone();
-    assert!(
-        prepare(&body)
-            .normalize_private_documents(&template(), &product(), &[])
-            .is_err()
-    );
+    assert!(prepare(&body)
+        .normalize_private_documents(&template(), &product(), &[])
+        .is_err());
     let mut body = base.clone();
     body["documents"].as_array_mut().unwrap().pop();
-    assert!(
-        prepare(&body)
-            .normalize_private_documents(&template(), &product(), &[])
-            .is_err()
-    );
+    assert!(prepare(&body)
+        .normalize_private_documents(&template(), &product(), &[])
+        .is_err());
     let mut body = base;
     let duplicate = body["documents"][1].clone();
     body["documents"].as_array_mut().unwrap().push(duplicate);
-    assert!(
-        prepare(&body)
-            .normalize_private_documents(&template(), &product(), &[])
-            .is_err()
-    );
+    assert!(prepare(&body)
+        .normalize_private_documents(&template(), &product(), &[])
+        .is_err());
 }
 #[test]
 fn raw_lexical_and_exact_redundant_copy_constraints_survive_outer_normalization() {
@@ -198,46 +190,38 @@ fn raw_lexical_and_exact_redundant_copy_constraints_survive_outer_normalization(
     ] {
         let mut body = base.clone();
         body[field] = payload("B")[field].clone();
-        assert!(
-            AcceptInput::parse(
-                &records::bytes(&body).unwrap(),
-                &["fixture".into(), "sandbox".into()],
-                &context()
-            )
-            .is_err()
-        );
+        assert!(AcceptInput::parse(
+            &records::bytes(&body).unwrap(),
+            &["fixture".into(), "sandbox".into()],
+            &context()
+        )
+        .is_err());
     }
     let mut body = base.clone();
     body["binding_inputs"]["accepted_by"] = json!("caller");
-    assert!(
-        AcceptInput::parse(
-            &records::bytes(&body).unwrap(),
-            &["fixture".into(), "sandbox".into()],
-            &context()
-        )
-        .is_err()
-    );
+    assert!(AcceptInput::parse(
+        &records::bytes(&body).unwrap(),
+        &["fixture".into(), "sandbox".into()],
+        &context()
+    )
+    .is_err());
     let raw = String::from_utf8(records::bytes(&base).unwrap())
         .unwrap()
         .replacen("{", "{\"agr\\u0065ement_id\":\"duplicate\",", 1);
-    assert!(
-        AcceptInput::parse(
-            raw.as_bytes(),
-            &["fixture".into(), "sandbox".into()],
-            &context()
-        )
-        .is_err()
-    );
+    assert!(AcceptInput::parse(
+        raw.as_bytes(),
+        &["fixture".into(), "sandbox".into()],
+        &context()
+    )
+    .is_err());
     body = base;
     body["documents"][0]["operator_attestation_ref"] = Value::Null;
-    assert!(
-        AcceptInput::parse(
-            &records::bytes(&body).unwrap(),
-            &["fixture".into(), "sandbox".into()],
-            &context()
-        )
-        .is_err()
-    );
+    assert!(AcceptInput::parse(
+        &records::bytes(&body).unwrap(),
+        &["fixture".into(), "sandbox".into()],
+        &context()
+    )
+    .is_err());
 }
 
 #[test]
@@ -263,11 +247,9 @@ fn normalization_rejects_equivalent_duplicate_documents_and_preserves_lexical_fo
         .as_array_mut()
         .unwrap()
         .push(duplicate);
-    assert!(
-        prepare(&equivalent)
-            .normalize_private_documents(&template(), &product(), &[])
-            .is_err()
-    );
+    assert!(prepare(&equivalent)
+        .normalize_private_documents(&template(), &product(), &[])
+        .is_err());
     let mut raw = records::bytes(&original).unwrap();
     raw.resize(262144, b' ');
     AcceptInput::parse(&raw, &["fixture".into(), "sandbox".into()], &context()).unwrap();
@@ -336,11 +318,9 @@ fn exposure_terms_require_new_exact_acceptance_digest_and_assent() {
     ] {
         let mut old_recipe = body.clone();
         old_recipe["schema"] = json!(schema);
-        assert!(
-            prepare(&old_recipe)
-                .normalize_private_documents(&template(), &product(), &[])
-                .is_err()
-        );
+        assert!(prepare(&old_recipe)
+            .normalize_private_documents(&template(), &product(), &[])
+            .is_err());
     }
     let mut old_assent = body;
     let saved_assent = original["documents"]
@@ -357,9 +337,7 @@ fn exposure_terms_require_new_exact_acceptance_digest_and_assent() {
         .unwrap() = saved_assent.clone();
     old_assent["assent_refs"] = original["assent_refs"].clone();
     old_assent["binding_inputs"]["assent_refs"] = original["binding_inputs"]["assent_refs"].clone();
-    assert!(
-        prepare(&old_assent)
-            .normalize_private_documents(&template(), &product(), &[])
-            .is_err()
-    );
+    assert!(prepare(&old_assent)
+        .normalize_private_documents(&template(), &product(), &[])
+        .is_err());
 }

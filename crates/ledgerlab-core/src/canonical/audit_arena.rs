@@ -3,16 +3,16 @@
 //! Every parsed/copied artifact owns its lease; dropping a callback beside an
 //! escaping naked Value is deliberately not an available public API.
 use crate::{
-    Error, Result,
     canonical::{self, ParseAllocation, ParseAllocationWork},
     validation_work::{self as w, ValidationVisit, ValidationWork},
+    Error, Result,
 };
 use serde_json::Value;
 use std::{
     mem,
     sync::{
-        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     },
 };
 const LIMIT: usize = 64 * 1024 * 1024;
@@ -78,21 +78,36 @@ impl AuditCancellation {
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::SeqCst);
     }
-    pub(crate) fn same_attempt(&self,other:&Self)->bool {Arc::ptr_eq(&self.cancelled,&other.cancelled)}
+    pub(crate) fn same_attempt(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.cancelled, &other.cancelled)
+    }
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
     }
 }
 impl AuditArena {
-    pub fn new() -> Result<Self> { Self::create(None) }
-    pub fn with_resource_limits(limits: crate::validation_work::ResourceLimits) -> Result<Self> {
-        limits.validate()?; Self::create(Some(limits))
+    pub fn new() -> Result<Self> {
+        Self::create(None)
     }
-    pub fn resource_limits(&self) -> Option<&crate::validation_work::ResourceLimits> { self.resource_limits.as_ref() }
+    pub fn with_resource_limits(limits: crate::validation_work::ResourceLimits) -> Result<Self> {
+        limits.validate()?;
+        Self::create(Some(limits))
+    }
+    pub fn resource_limits(&self) -> Option<&crate::validation_work::ResourceLimits> {
+        self.resource_limits.as_ref()
+    }
     fn create(resource_limits: Option<crate::validation_work::ResourceLimits>) -> Result<Self> {
         let limit = resource_limits.map_or(Some(LIMIT), |l| l.arena_bytes);
         if limit.is_some_and(|n| FIXED > n) {
-            return Err(if resource_limits.is_some(){crate::validation_work::resource_limits::refusal("arena_bytes",limit.expect("finite exceeded limit") as u64,FIXED as u64)}else{failure("arena fixed reservation")});
+            return Err(if resource_limits.is_some() {
+                crate::validation_work::resource_limits::refusal(
+                    "arena_bytes",
+                    limit.expect("finite exceeded limit") as u64,
+                    FIXED as u64,
+                )
+            } else {
+                failure("arena fixed reservation")
+            });
         }
         Ok(Self {
             resource_limits,
@@ -143,9 +158,20 @@ impl AuditArena {
             return Err(failure("poisoned audit arena"));
         }
         let next = add(work, s.live, bytes)?;
-        let exhausted=match self.resource_limits.map_or(Some(LIMIT), |l| l.arena_bytes) { Some(limit)=>greater(work,next,limit)?, None=>false };
+        let exhausted = match self.resource_limits.map_or(Some(LIMIT), |l| l.arena_bytes) {
+            Some(limit) => greater(work, next, limit)?,
+            None => false,
+        };
         if exhausted {
-            return Err(if self.resource_limits.is_some(){crate::validation_work::resource_limits::refusal("arena_bytes",s.limit.expect("finite exceeded limit") as u64,next as u64)}else{failure("original audit arena exhausted before allocation")});
+            return Err(if self.resource_limits.is_some() {
+                crate::validation_work::resource_limits::refusal(
+                    "arena_bytes",
+                    s.limit.expect("finite exceeded limit") as u64,
+                    next as u64,
+                )
+            } else {
+                failure("original audit arena exhausted before allocation")
+            });
         }
         let total = add(work, s.total, bytes)?;
         // Each eventual destructor performs one balance comparison and one
@@ -154,11 +180,17 @@ impl AuditArena {
         // Prepay BEFORE ownership acquisition; Drop cannot fail or call work.
         work.arithmetic(
             w::ArithmeticOperation::Compare,
-            &[&self.resource_limits.map_or(LIMIT, |_| usize::MAX).into(), &bytes.into()],
+            &[
+                &self.resource_limits.map_or(LIMIT, |_| usize::MAX).into(),
+                &bytes.into(),
+            ],
         )?;
         work.arithmetic(
             w::ArithmeticOperation::Subtract,
-            &[&self.resource_limits.map_or(LIMIT, |_| usize::MAX).into(), &bytes.into()],
+            &[
+                &self.resource_limits.map_or(LIMIT, |_| usize::MAX).into(),
+                &bytes.into(),
+            ],
         )?;
         let peak = maximum(work, s.peak, next)?;
         s.live = next;
@@ -241,9 +273,15 @@ impl AuditArena {
     /// Memory-owner association only. Immutable compiler views borrowed by an
     /// origin must remain charged to this SAME whole attempt; a lease from an
     /// earlier/different attempt cannot stand in for its resident payload.
-    pub(crate) fn require_external_owner(&self,lease:&ExternalBufferLease,work:&mut dyn ValidationWork)->Result<()> {
+    pub(crate) fn require_external_owner(
+        &self,
+        lease: &ExternalBufferLease,
+        work: &mut dyn ValidationWork,
+    ) -> Result<()> {
         work.visit(ValidationVisit::Constraint)?;
-        if !Arc::ptr_eq(&self.ledger,&lease.reservation.ledger){return Err(failure("external payload belongs to another audit attempt"));}
+        if !Arc::ptr_eq(&self.ledger, &lease.reservation.ledger) {
+            return Err(failure("external payload belongs to another audit attempt"));
+        }
         Ok(())
     }
     /// Encode a borrowed tree with the SAME paid bounded emitter. The output,
@@ -354,26 +392,39 @@ impl AuditArena {
     }
     /// No Clone implementation on the owner. Explicit copies execute a paid
     /// structural footprint walk and reserve overlap BEFORE Value::clone.
-    pub(crate) fn string_value(&self,text:&str,work:&mut dyn ValidationWork)->Result<AuditedValue>{
+    pub(crate) fn string_value(
+        &self,
+        text: &str,
+        work: &mut dyn ValidationWork,
+    ) -> Result<AuditedValue> {
         work.visit(ValidationVisit::Value)?;
         work.scan_bytes(text.len())?;
         work.write_bytes(text.len())?;
-        let reservation=self.reserve(text.len(),work)?;
-        Ok(AuditedValue{value:Value::String(text.to_owned()),reservation})
+        let reservation = self.reserve(text.len(), work)?;
+        Ok(AuditedValue {
+            value: Value::String(text.to_owned()),
+            reservation,
+        })
     }
     /// Compose a private owning control object from existing borrowed values.
     /// Copies/nodes are prepaid in S, not classified as a codec operation.
     /// No borrowed Value or caller trust flag escapes through this method.
-    pub(crate) fn object_from_fields(&self, fields:&[(&str,&Value)], work:&mut dyn ValidationWork)->Result<AuditedValue>{
-        let entry=map_entry_bound(work,mem::size_of::<Value>(),mem::size_of::<String>())?;
-        let mut bytes=mul(work,fields.len(),entry)?;
-        for (i,(key,value)) in fields.iter().enumerate(){
+    pub(crate) fn object_from_fields(
+        &self,
+        fields: &[(&str, &Value)],
+        work: &mut dyn ValidationWork,
+    ) -> Result<AuditedValue> {
+        let entry = map_entry_bound(work, mem::size_of::<Value>(), mem::size_of::<String>())?;
+        let mut bytes = mul(work, fields.len(), entry)?;
+        for (i, (key, value)) in fields.iter().enumerate() {
             work.visit(ValidationVisit::Field)?;
-            for (prior,_) in &fields[..i] {
+            for (prior, _) in &fields[..i] {
                 work.visit(ValidationVisit::MemberCompare)?;
-                let n=add(work,key.len(),prior.len())?;
+                let n = add(work, key.len(), prior.len())?;
                 work.scan_bytes(n)?;
-                if key==prior{return Err(failure("duplicate owning object field"));}
+                if key == prior {
+                    return Err(failure("duplicate owning object field"));
+                }
                 // The actual BTree insertion below may compare this pair again.
                 // Prepay that separate possible search pass, not just our
                 // executed duplicate comparison above.
@@ -382,32 +433,52 @@ impl AuditArena {
             }
             work.scan_bytes(key.len())?;
             work.write_bytes(key.len())?;
-            bytes=add(work,bytes,key.len())?;
-            let child=clone_footprint(value,work,1)?;
-            bytes=add(work,bytes,child)?;
+            bytes = add(work, bytes, key.len())?;
+            let child = clone_footprint(value, work, 1)?;
+            bytes = add(work, bytes, child)?;
         }
-        let reservation=self.reserve(bytes,work)?;
-        let mut object=serde_json::Map::new();
-        for (key,value) in fields {object.insert((*key).to_owned(),(*value).clone());}
-        Ok(AuditedValue{value:Value::Object(object),reservation})
+        let reservation = self.reserve(bytes, work)?;
+        let mut object = serde_json::Map::new();
+        for (key, value) in fields {
+            object.insert((*key).to_owned(), (*value).clone());
+        }
+        Ok(AuditedValue {
+            value: Value::Object(object),
+            reservation,
+        })
     }
-    pub(crate) fn array_from_values(&self,values:&[&Value],work:&mut dyn ValidationWork)->Result<AuditedValue>{
-        let mut bytes=mul(work,values.len(),mem::size_of::<Value>())?;
+    pub(crate) fn array_from_values(
+        &self,
+        values: &[&Value],
+        work: &mut dyn ValidationWork,
+    ) -> Result<AuditedValue> {
+        let mut bytes = mul(work, values.len(), mem::size_of::<Value>())?;
         for value in values {
             work.visit(ValidationVisit::Element)?;
-            let child=clone_footprint(value,work,1)?;
-            bytes=add(work,bytes,child)?;
+            let child = clone_footprint(value, work, 1)?;
+            bytes = add(work, bytes, child)?;
         }
-        let reservation=self.reserve(bytes,work)?;
-        let mut array=Vec::new();
-        array.try_reserve_exact(values.len()).map_err(|_|failure("owning array allocation"))?;
-        for value in values {array.push((*value).clone());}
-        Ok(AuditedValue{value:Value::Array(array),reservation})
+        let reservation = self.reserve(bytes, work)?;
+        let mut array = Vec::new();
+        array
+            .try_reserve_exact(values.len())
+            .map_err(|_| failure("owning array allocation"))?;
+        for value in values {
+            array.push((*value).clone());
+        }
+        Ok(AuditedValue {
+            value: Value::Array(array),
+            reservation,
+        })
     }
     /// Derive the SAME requested payload as clone_value for a typed owner
     /// which must retain its own Value field. This reserves nothing and grants
     /// no authority: the caller must admit the output before executing the copy.
-    pub fn value_copy_payload_bound(&self, value: &Value, work: &mut dyn ValidationWork) -> Result<usize> {
+    pub fn value_copy_payload_bound(
+        &self,
+        value: &Value,
+        work: &mut dyn ValidationWork,
+    ) -> Result<usize> {
         value_copy_payload_bound(value, work)
     }
     pub fn clone_value(
@@ -448,9 +519,20 @@ impl Lease {
             return Err(failure("poisoned audit arena"));
         }
         let live = add(work, s.live, bytes)?;
-        let exhausted=match s.limit {Some(limit)=>greater(work,live,limit)?, None=>false};
+        let exhausted = match s.limit {
+            Some(limit) => greater(work, live, limit)?,
+            None => false,
+        };
         if exhausted {
-            return Err(if s.configured{crate::validation_work::resource_limits::refusal("arena_bytes",s.limit.expect("finite exceeded limit") as u64,live as u64)}else{failure("original audit arena exhausted before allocation")});
+            return Err(if s.configured {
+                crate::validation_work::resource_limits::refusal(
+                    "arena_bytes",
+                    s.limit.expect("finite exceeded limit") as u64,
+                    live as u64,
+                )
+            } else {
+                failure("original audit arena exhausted before allocation")
+            });
         }
         let owned = add(work, self.bytes, bytes)?;
         let total = add(work, s.total, bytes)?;
@@ -508,7 +590,9 @@ impl AuditedValue {
     pub fn value(&self) -> &Value {
         &self.value
     }
-    pub(crate) fn belongs_to(&self,arena:&AuditArena)->bool {Arc::ptr_eq(&self.reservation.ledger,&arena.ledger)}
+    pub(crate) fn belongs_to(&self, arena: &AuditArena) -> bool {
+        Arc::ptr_eq(&self.reservation.ledger, &arena.ledger)
+    }
     pub fn reserved_bytes(&self) -> usize {
         self.reservation.bytes
     }
@@ -569,32 +653,63 @@ impl AuditedValue {
     }
     /// Fixed interpreter mutation: one existing object field in one existing
     /// array element. No new node/key and no mutable/extracting Value escape.
-    pub(crate) fn replace_existing_array_field_owned(&mut self,array_key:&str,index:usize,field_key:&str,replacement:AuditedValue,work:&mut dyn ValidationWork)->Result<()> {
+    pub(crate) fn replace_existing_array_field_owned(
+        &mut self,
+        array_key: &str,
+        index: usize,
+        field_key: &str,
+        replacement: AuditedValue,
+        work: &mut dyn ValidationWork,
+    ) -> Result<()> {
         work.visit(ValidationVisit::Constraint)?;
-        if !Arc::ptr_eq(&self.reservation.ledger,&replacement.reservation.ledger){return Err(failure("different array replacement attempts"));}
-        let combined=add(work,self.reservation.bytes,replacement.reservation.bytes)?;
-        let object=self.value.as_object_mut().ok_or_else(||failure("owned path object"))?;
-        let mut selected=None;
-        for (key,value) in object {
-            work.visit(ValidationVisit::MemberCompare)?;
-            let n=add(work,key.len(),array_key.len())?;work.scan_bytes(n)?;
-            if key==array_key{selected=Some(value);break;}
+        if !Arc::ptr_eq(&self.reservation.ledger, &replacement.reservation.ledger) {
+            return Err(failure("different array replacement attempts"));
         }
-        let array=selected.and_then(Value::as_array_mut).ok_or_else(||failure("owned path array"))?;
-        if !w::compare(work,index,array.len())?.is_lt(){return Err(failure("owned path index"));}
+        let combined = add(work, self.reservation.bytes, replacement.reservation.bytes)?;
+        let object = self
+            .value
+            .as_object_mut()
+            .ok_or_else(|| failure("owned path object"))?;
+        let mut selected = None;
+        for (key, value) in object {
+            work.visit(ValidationVisit::MemberCompare)?;
+            let n = add(work, key.len(), array_key.len())?;
+            work.scan_bytes(n)?;
+            if key == array_key {
+                selected = Some(value);
+                break;
+            }
+        }
+        let array = selected
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| failure("owned path array"))?;
+        if !w::compare(work, index, array.len())?.is_lt() {
+            return Err(failure("owned path index"));
+        }
         work.visit(ValidationVisit::Element)?;
-        let object=array[index].as_object_mut().ok_or_else(||failure("owned path member object"))?;
-        let mut destination=None;
-        for (key,value) in object {
+        let object = array[index]
+            .as_object_mut()
+            .ok_or_else(|| failure("owned path member object"))?;
+        let mut destination = None;
+        for (key, value) in object {
             work.visit(ValidationVisit::MemberCompare)?;
-            let n=add(work,key.len(),field_key.len())?;work.scan_bytes(n)?;
-            if key==field_key{destination=Some(value);break;}
+            let n = add(work, key.len(), field_key.len())?;
+            work.scan_bytes(n)?;
+            if key == field_key {
+                destination = Some(value);
+                break;
+            }
         }
-        let destination=destination.ok_or_else(||failure("owned path absent field"))?;
+        let destination = destination.ok_or_else(|| failure("owned path absent field"))?;
         work.write_bytes(mem::size_of::<Value>())?;
-        let AuditedValue{value,reservation:mut donor}=replacement;
-        *destination=value;
-        self.reservation.bytes=combined;donor.bytes=0;Ok(())
+        let AuditedValue {
+            value,
+            reservation: mut donor,
+        } = replacement;
+        *destination = value;
+        self.reservation.bytes = combined;
+        donor.bytes = 0;
+        Ok(())
     }
     /// Move an already owning value into an EXISTING object member. The two
     /// leases must belong to this same attempt; retained bytes are transferred,
@@ -853,7 +968,10 @@ impl ParseAllocationWork for ParseScope<'_> {
 /// Paid requested-payload bound for a separate semantic Value copy. This is
 /// neither an allocation reservation nor a representation-domain entry: the
 /// caller must admit and retain the actual typed/output owner before copying.
-pub(crate) fn value_copy_payload_bound(value: &Value, work: &mut dyn ValidationWork) -> Result<usize> {
+pub(crate) fn value_copy_payload_bound(
+    value: &Value,
+    work: &mut dyn ValidationWork,
+) -> Result<usize> {
     clone_footprint(value, work, 0)
 }
 
@@ -1116,11 +1234,9 @@ mod tests {
             br#"{"a":"\uD800"}"#.as_slice(),
             br#"{"a":[1,2,}"#.as_slice(),
         ] {
-            assert!(
-                arena
-                    .parse_bounded(raw, 4096, &mut NoopValidationWork)
-                    .is_err()
-            );
+            assert!(arena
+                .parse_bounded(raw, 4096, &mut NoopValidationWork)
+                .is_err());
             assert_eq!(arena.usage().unwrap().live_bytes, before);
         }
     }
@@ -1216,11 +1332,9 @@ mod tests {
             .reserve(LIMIT - baseline - 1, &mut NoopValidationWork)
             .unwrap();
         let mut untouched = CountingWork::new(usize::MAX);
-        assert!(
-            arena
-                .canonical_bytes(source.value(), &mut untouched, 4096)
-                .is_err()
-        );
+        assert!(arena
+            .canonical_bytes(source.value(), &mut untouched, 4096)
+            .is_err());
         assert_eq!(untouched.written, 0);
         drop(occupied);
         assert_eq!(arena.usage().unwrap().live_bytes, baseline);
@@ -1260,11 +1374,9 @@ mod tests {
         let n = work.used;
         drop(value);
         for cap in [0, 1, 3, n - 1] {
-            assert!(
-                arena
-                    .parse_bounded(raw, 4096, &mut CountingWork::new(cap))
-                    .is_err()
-            );
+            assert!(arena
+                .parse_bounded(raw, 4096, &mut CountingWork::new(cap))
+                .is_err());
             assert_eq!(arena.usage().unwrap().live_bytes, baseline);
         }
         let value = arena
@@ -1289,16 +1401,12 @@ mod tests {
             panic!("synthetic lock poison");
         }));
         assert!(arena.usage().is_err());
-        assert!(
-            arena
-                .copy_bytes(b"closed", &mut NoopValidationWork)
-                .is_err()
-        );
+        assert!(arena
+            .copy_bytes(b"closed", &mut NoopValidationWork)
+            .is_err());
         drop(value);
-        assert!(
-            arena
-                .parse_bounded(br#"[]"#, 4096, &mut NoopValidationWork)
-                .is_err()
-        );
+        assert!(arena
+            .parse_bounded(br#"[]"#, 4096, &mut NoopValidationWork)
+            .is_err());
     }
 }

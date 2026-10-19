@@ -3,18 +3,18 @@
 //! evidence. Saved decision/actions are comparison and inverse operands only.
 use super::super::super::selected_program::SelectedProgram;
 use super::super::{
-    CoreMeter, arithmetic, body, data::*, meter, record_body::RecordBody, records::Records, shape,
-    working_value::WorkingValue,
+    arithmetic, body, data::*, meter, record_body::RecordBody, records::Records, shape,
+    working_value::WorkingValue, CoreMeter,
 };
 use super::operands::{self, FinalEvidence, InvocationSelection};
 use crate::{
-    Error, Result,
     canonical::audit_arena::ExternalBufferLease,
     domain::Timestamp,
     validation_work::{self as w},
+    Error, Result,
 };
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub(super) struct CurrentCost {
     pub claim_ref: ExactRef,

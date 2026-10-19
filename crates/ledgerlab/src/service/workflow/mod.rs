@@ -1,15 +1,15 @@
 //! Local generic publication coordinator. Publications create no economic debt.
+mod agreement;
 mod local;
-pub(crate) mod resources;
 mod provenance;
 mod publication;
 mod records;
 mod request;
-mod agreement;
+pub(crate) mod resources;
 use crate::ServiceError;
-pub use local::LocalWorkflowLedger;
-pub use agreement::WorkflowReply;
 pub(crate) use agreement::financial::AttemptCancellation;
+pub use agreement::WorkflowReply;
+pub use local::LocalWorkflowLedger;
 use serde_json::Value;
 type Result<T> = std::result::Result<T, ServiceError>;
 fn reject(code: &str) -> ServiceError {
@@ -27,7 +27,9 @@ fn require(ok: bool, code: &str) -> Result<()> {
 // code families; registry-contract.json is the frozen exact closed vocabulary.
 // Core implementation diagnostics do not extend that vocabulary.
 pub(crate) fn core_error(error: ledgerlab_core::Error) -> ServiceError {
-    if let Some(diagnostic)=resources::diagnostic(&error){return diagnostic;}
+    if let Some(diagnostic) = resources::diagnostic(&error) {
+        return diagnostic;
+    }
     match error.code {
         // Exact public meaning already named by the reviewed registry.
         "AUTHORITY_REQUIRED"
@@ -82,12 +84,10 @@ mod error_tests {
             ("FACT_RANGE", "INVALID_SCALAR"),
             ("PLAN_DIGEST_MISMATCH", "PLAN_DIGEST_MISMATCH"),
         ] {
-            assert!(
-                registry["errors"]
-                    .as_array()
-                    .unwrap()
-                    .contains(&Value::String(public.into()))
-            );
+            assert!(registry["errors"]
+                .as_array()
+                .unwrap()
+                .contains(&Value::String(public.into())));
             assert_eq!(
                 core_error(ledgerlab_core::Error {
                     code: core,

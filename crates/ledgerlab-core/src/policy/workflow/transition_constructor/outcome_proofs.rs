@@ -2,13 +2,14 @@
 //! nominated-source authentication and retained custody are host obligations.
 use super::emitted_record::{ConstructedEnvelope, EncodedBody};
 use super::record_body::RecordBody;
-use super::{CoreMeter, body, codec, data::*, meter, records::Records, shape};
+use super::{body, codec, data::*, meter, records::Records, shape, CoreMeter};
 use crate::{
-    Error, Result, canonical,
+    canonical,
     domain::Timestamp,
     policy::workflow::{FactSchema, NormalizedFacts},
+    Error, Result,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 macro_rules! call {
     ($f:path,$m:expr,$a:expr $(,)?) => {{
@@ -191,63 +192,79 @@ pub(super) fn resolve(
         {
             return Err(shape::fail("attestation claim count"));
         }
-        let (selected,normalized_claims)=if let Some(arena)=m.representation_arena(){
-            use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
-            use super::working_value::{WorkingValue,NormalizedInput};
-            let n=claims.len();let per=std::mem::size_of::<(&str,&Value)>();
-            ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&per.into()])?;
-            let bytes=n.checked_mul(per).ok_or_else(||shape::fail("attested claim borrow dimensions"))?;
-            let bytes=w::usize_add(m,bytes,std::mem::size_of::<Vec<(&str,&Value)>>())?;
-            let _claims=arena.reserve_external_payload(bytes,m)?;
+        let (selected, normalized_claims) = if let Some(arena) = m.representation_arena() {
+            use super::working_value::{NormalizedInput, WorkingValue};
+            use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
+            let n = claims.len();
+            let per = std::mem::size_of::<(&str, &Value)>();
+            ValidationWork::arithmetic(
+                m,
+                ArithmeticOperation::Multiply,
+                &[&n.into(), &per.into()],
+            )?;
+            let bytes = n
+                .checked_mul(per)
+                .ok_or_else(|| shape::fail("attested claim borrow dimensions"))?;
+            let bytes = w::usize_add(m, bytes, std::mem::size_of::<Vec<(&str, &Value)>>())?;
+            let _claims = arena.reserve_external_payload(bytes, m)?;
             m.write_bytes(bytes)?;
-            let mut fields=Vec::<(&str,&Value)>::new();
-            fields.try_reserve_exact(n).map_err(|_|shape::fail("attested claim borrow allocation"))?;
-            let mut selected=None;
+            let mut fields = Vec::<(&str, &Value)>::new();
+            fields
+                .try_reserve_exact(n)
+                .map_err(|_| shape::fail("attested claim borrow allocation"))?;
+            let mut selected = None;
             for claim in claims {
                 m.visit("outcome.attested_claim")?;
-                shape::closed(m,claim,&["field","value"],&[])?;
-                let field=shape::text(m,claim,"field")?;
-                for (prior,_) in &fields {
-                    if shape::same_text(m,field,prior)?{return Err(shape::fail("duplicate attested field"));}
+                shape::closed(m, claim, &["field", "value"], &[])?;
+                let field = shape::text(m, claim, "field")?;
+                for (prior, _) in &fields {
+                    if shape::same_text(m, field, prior)? {
+                        return Err(shape::fail("duplicate attested field"));
+                    }
                 }
-                let value=shape::field(m,claim,"value")?;
-                fields.push((field,value));
-                if shape::same_text(m,field,name)?{selected=Some(value);}
+                let value = shape::field(m, claim, "value")?;
+                fields.push((field, value));
+                if shape::same_text(m, field, name)? {
+                    selected = Some(value);
+                }
             }
             // SAME facts and normalizer; the replacement map, copied claim
             // payloads and typed normalization retain their actual owners.
-            let original=WorkingValue::copy(m,&p["facts"])?;
-            let combined=original.with_fields(m,&fields)?;
-            let normalized=NormalizedInput::normalize(m,schema,&combined)?;
-            (selected,normalized)
-        }else{
-        let mut values = p["facts"]
-            .as_object()
-            .ok_or_else(|| shape::fail("normalized outcome facts"))?
-            .clone();
-        let mut seen = Vec::<String>::new();
-        let mut selected = None;
-        for claim in claims {
-            m.visit("outcome.attested_claim")?;
-            shape::closed(m, claim, &["field", "value"], &[])?;
-            let field = shape::text(m, claim, "field")?;
-            for prior in &seen {
-                if shape::same_text(m, field, prior)? {
-                    return Err(shape::fail("duplicate attested field"));
+            let original = WorkingValue::copy(m, &p["facts"])?;
+            let combined = original.with_fields(m, &fields)?;
+            let normalized = NormalizedInput::normalize(m, schema, &combined)?;
+            (selected, normalized)
+        } else {
+            let mut values = p["facts"]
+                .as_object()
+                .ok_or_else(|| shape::fail("normalized outcome facts"))?
+                .clone();
+            let mut seen = Vec::<String>::new();
+            let mut selected = None;
+            for claim in claims {
+                m.visit("outcome.attested_claim")?;
+                shape::closed(m, claim, &["field", "value"], &[])?;
+                let field = shape::text(m, claim, "field")?;
+                for prior in &seen {
+                    if shape::same_text(m, field, prior)? {
+                        return Err(shape::fail("duplicate attested field"));
+                    }
+                }
+                m.write_bytes(field.len())?;
+                seen.push(field.to_owned());
+                let value = shape::field(m, claim, "value")?;
+                values.insert(field.to_owned(), value.clone());
+                if shape::same_text(m, field, name)? {
+                    selected = Some(value);
                 }
             }
-            m.write_bytes(field.len())?;
-            seen.push(field.to_owned());
-            let value = shape::field(m, claim, "value")?;
-            values.insert(field.to_owned(), value.clone());
-            if shape::same_text(m, field, name)? {
-                selected = Some(value);
-            }
-        }
-        // Validate every declared claim under the original schema, even when
-        // this operation consumes only one of its fields. No current schema.
-        let normalized_claims = schema.normalize_value_with_work(&Value::Object(values), m)?;
-            (selected,super::working_value::NormalizedInput::Legacy(normalized_claims))
+            // Validate every declared claim under the original schema, even when
+            // this operation consumes only one of its fields. No current schema.
+            let normalized_claims = schema.normalize_value_with_work(&Value::Object(values), m)?;
+            (
+                selected,
+                super::working_value::NormalizedInput::Legacy(normalized_claims),
+            )
         };
         for claim in claims {
             let field = shape::text(m, claim, "field")?;

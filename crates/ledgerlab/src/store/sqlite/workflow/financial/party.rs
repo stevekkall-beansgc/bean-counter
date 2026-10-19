@@ -58,9 +58,12 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned party append").into());
         }
         self.failed = true;
-        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.party_append_inner(p, session))
-            .await
-            .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
+            self.party_append_inner(p, session),
+        )
+        .await
+        .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {
             session.semantic_work().visit(ValidationVisit::Constraint)?;
             session.check_cancelled()?;
@@ -137,9 +140,12 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned party head observation").into());
         }
         self.failed = true;
-        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.party_head_inner(key, session))
-            .await
-            .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
+            self.party_head_inner(key, session),
+        )
+        .await
+        .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {
             session.semantic_work().visit(ValidationVisit::Constraint)?;
             session.check_cancelled()?;
@@ -160,15 +166,20 @@ impl SqliteTx {
         session: &mut OriginalAuditSession,
     ) -> Result<Option<HeadLocator>, FinancialReadError> {
         session.check_cancelled()?;
-        let io=io::binding_payload(&[],&[],0,0,session)?;
-        self.financial_reserve_io(session,io)?;
-        session.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
+        let io = io::binding_payload(&[], &[], 0, 0, session)?;
+        self.financial_reserve_io(session, io)?;
+        session
+            .semantic_work()
+            .write_bytes(std::mem::size_of::<i64>())?;
         session.semantic_work().visit(ValidationVisit::RefLookup)?;
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
         self.financial_finish_io(session).await?;
-        if !resource_compare(session, version, 15)?.is_eq() && !resource_compare(session, version, 16)?.is_eq() && !resource_compare(session, version, 17)?.is_eq() {
+        if !resource_compare(session, version, 15)?.is_eq()
+            && !resource_compare(session, version, 16)?.is_eq()
+            && !resource_compare(session, version, 17)?.is_eq()
+        {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
         for value in key.parts() {

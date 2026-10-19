@@ -13,8 +13,8 @@ mod management;
 pub(crate) use management::{ManagementInstallation, ManagementRow, ManagementTable};
 mod document;
 mod effects;
-mod heads;
 mod family;
+mod heads;
 mod work;
 pub(crate) use family::FamilyIdentityHead;
 mod source;
@@ -30,7 +30,7 @@ pub(crate) use document::RetainedDocument;
 pub(crate) use heads::{HeadKey, HeadLocator};
 mod agreement;
 mod append;
-pub(crate) use agreement::{AppAcceptanceAppend,AppActivationAppend};
+pub(crate) use agreement::{AppAcceptanceAppend, AppActivationAppend};
 pub(crate) mod io;
 pub(crate) use append::{FinancialAppend, FinancialDocument, FinancialJournal};
 

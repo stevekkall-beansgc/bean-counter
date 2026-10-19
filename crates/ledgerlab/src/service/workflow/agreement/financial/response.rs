@@ -66,23 +66,54 @@ impl WorkflowReply {
         let evidence = s
             .canonical_representation(evidence, K::OperationFrame)
             .map_err(core_error)?;
-        Self::from_parts(receipt.bytes(), evidence.bytes(), Some("identity"), false, s)
+        Self::from_parts(
+            receipt.bytes(),
+            evidence.bytes(),
+            Some("identity"),
+            false,
+            s,
+        )
     }
-    pub(super) fn financial(journal:&wire::JournalData<'_>,evidence:&ledgerlab_core::policy::workflow::transition_constructor::LocalFinancialRequestEvidence,s:&mut OriginalAuditSession)->Result<Self>{Self::from_parts(journal.receipt_bytes(),evidence.bytes(),None,false,s)}
-    pub(super) fn agreement(journal:&wire::AgreementJournalData,evidence:&evidence::RequestEvidence,
-        s:&mut OriginalAuditSession)->Result<Self> {
-        Self::from_parts(journal.receipt_bytes(),evidence.bytes(),None,false,s)
+    pub(super) fn financial(
+        journal: &wire::JournalData<'_>,
+        evidence:&ledgerlab_core::policy::workflow::transition_constructor::LocalFinancialRequestEvidence,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        Self::from_parts(journal.receipt_bytes(), evidence.bytes(), None, false, s)
     }
-    pub(super) fn publication(receipt:&Value,evidence:&Value,s:&mut OriginalAuditSession)->Result<Self> {
-        let receipt=s.canonical_representation(receipt,K::ReceiptFrame).map_err(core_error)?;
-        let evidence=s.canonical_representation(evidence,K::OperationFrame).map_err(core_error)?;
-        Self::from_parts(receipt.bytes(),evidence.bytes(),None,false,s)
+    pub(super) fn agreement(
+        journal: &wire::AgreementJournalData,
+        evidence: &evidence::RequestEvidence,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        Self::from_parts(journal.receipt_bytes(), evidence.bytes(), None, false, s)
     }
-    pub(super) fn status(original:&prefix::LocatedWrappers,s:&mut OriginalAuditSession)->Result<Self> {
-        let receipt=s.canonical_representation(original.wrappers().receipt(),K::ReceiptFrame).map_err(core_error)?;
-        let evidence=request_wrapper::field(original.wrappers().operation(),"request_evidence",s)?;
-        let evidence=s.canonical_representation(evidence,K::OperationFrame).map_err(core_error)?;
-        Self::from_parts(receipt.bytes(),evidence.bytes(),None,true,s)
+    pub(super) fn publication(
+        receipt: &Value,
+        evidence: &Value,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let receipt = s
+            .canonical_representation(receipt, K::ReceiptFrame)
+            .map_err(core_error)?;
+        let evidence = s
+            .canonical_representation(evidence, K::OperationFrame)
+            .map_err(core_error)?;
+        Self::from_parts(receipt.bytes(), evidence.bytes(), None, false, s)
+    }
+    pub(super) fn status(
+        original: &prefix::LocatedWrappers,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let receipt = s
+            .canonical_representation(original.wrappers().receipt(), K::ReceiptFrame)
+            .map_err(core_error)?;
+        let evidence =
+            request_wrapper::field(original.wrappers().operation(), "request_evidence", s)?;
+        let evidence = s
+            .canonical_representation(evidence, K::OperationFrame)
+            .map_err(core_error)?;
+        Self::from_parts(receipt.bytes(), evidence.bytes(), None, true, s)
     }
     fn from_parts(
         receipt: &[u8],
@@ -96,8 +127,16 @@ impl WorkflowReply {
         s.semantic_work().write_bytes(FIELDS).map_err(core_error)?;
         s.semantic_work().visit(V::Constraint).map_err(core_error)?;
         let body = if status {
-            wire::object(&[("receipt",receipt),("request_evidence",evidence),
-                ("schema",b"\"ledger-operation-status/1\""),("status",b"\"committed\"")],4194304,s)?
+            wire::object(
+                &[
+                    ("receipt", receipt),
+                    ("request_evidence", evidence),
+                    ("schema", b"\"ledger-operation-status/1\""),
+                    ("status", b"\"committed\""),
+                ],
+                4194304,
+                s,
+            )?
         } else if duplicate.is_some() {
             wire::object(
                 &[
@@ -403,7 +442,8 @@ mod tests {
                 expected["duplicate_kind"] = json!("identity");
             }
             let reply =
-                WorkflowReply::from_parts(&raw_receipt, &raw_evidence, duplicate, false, &mut s).unwrap();
+                WorkflowReply::from_parts(&raw_receipt, &raw_evidence, duplicate, false, &mut s)
+                    .unwrap();
             assert_eq!(reply.json_bytes(), serde_json::to_vec(&expected).unwrap());
             assert_eq!(
                 reply.pretty_bytes(),

@@ -83,8 +83,9 @@ def copy_committed_contracts(repo, commit, stage):
 
 
 def main():
-    if len(sys.argv) != 4:
-        raise SystemExit("usage: package-native.py REPO ARTIFACT_DIRECTORY TARGET")
+    if len(sys.argv) not in (4, 5) or (len(sys.argv) == 5 and sys.argv[4] != "--workflow-candidate"):
+        raise SystemExit("usage: package-native.py REPO ARTIFACT_DIRECTORY TARGET [--workflow-candidate]")
+    workflow_candidate = len(sys.argv) == 5
     repo, artifacts, target = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(), sys.argv[3]
     native_targets = {("Darwin", "arm64"): "aarch64-apple-darwin",
                       ("Linux", "x86_64"): "x86_64-unknown-linux-gnu"}
@@ -141,6 +142,18 @@ def main():
                          "m4-qualification.md", "m5-decision-register.md", "m5-architecture.md",
                          "m5-contract-traceability.md", "m5-execution-plan.md"):
             shutil.copyfile(repo / "docs" / filename, docs / filename)
+        if workflow_candidate:
+            shutil.copyfile(repo / "docs/local-workflow-supported-recipe.md", docs / "local-workflow-supported-recipe.md")
+            with (stage / "README.md").open("a", encoding="utf-8") as readme:
+                readme.write("\n## Unreleased supported-workflow candidate\n\nThis optional candidate material is not a release or full-registry capability claim. Read [the supported scope](docs/local-workflow-supported-recipe.md) and [the synthetic walkthrough](examples/workflow-supported/README.md). The two input-only helpers are in `helpers/`.\n")
+            helpers = stage / "helpers"
+            helpers.mkdir(mode=0o700)
+            for helper in ("prepare_local_publication", "prepare_local_terms"):
+                source = target_dir.parent / "examples" / helper
+                if not source.is_file():
+                    raise SystemExit(f"workflow candidate helper not built: {source}")
+                shutil.copyfile(source, helpers / helper)
+                (helpers / helper).chmod(0o600)
         copy_committed_contracts(repo, commit, stage)
         (stage / "release").mkdir(mode=0o700)
         shutil.copyfile(repo / "release" / "local-sqlite.md", stage / "release" / "local-sqlite.md")
@@ -155,7 +168,7 @@ def main():
             encoding="utf-8")
         examples = stage / "examples"
         examples.mkdir(mode=0o700)
-        for section in ("billing", "finance", "integration"):
+        for section in ("billing", "finance", "integration") + (("workflow-supported",) if workflow_candidate else ()):
             copy_committed_examples(repo, commit, section, examples / section)
         scripts = stage / "scripts"
         scripts.mkdir(mode=0o700)
@@ -168,6 +181,12 @@ def main():
                 raise SystemExit(f"required standalone package tool is missing: {source}")
             shutil.copyfile(source, scripts / filename)
             (scripts / filename).chmod(0o600)
+        if workflow_candidate:
+            e2e = scripts / "e2e"
+            e2e.mkdir(mode=0o700)
+            for filename in ("workflow_supported.py", "workflow_supported_negatives.py"):
+                shutil.copyfile(repo / "scripts/e2e" / filename, e2e / filename)
+                (e2e / filename).chmod(0o600)
         subprocess.run([sys.executable, str(stage / "scripts/check-package-docs.py"), str(stage)], check=True)
         try:
             if platform.system() == "Linux":

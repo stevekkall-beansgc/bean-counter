@@ -6,12 +6,12 @@ use crate::store::sqlite::workflow::financial::RetainedDocument;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedValue, ExternalBufferLease},
     policy::workflow::{
-        DefinitionRef,
         selected_program::{
+            load_local_selected_execution, rehydrate_selected_execution, restore_selected_program,
             SelectedExecutionReloadKey, SelectedProgram, SelectedSourceInput,
-            rehydrate_selected_execution, restore_selected_program, load_local_selected_execution,
         },
         transition_constructor::ExactRef,
+        DefinitionRef,
     },
 };
 use sha2::{Digest, Sha256};
@@ -393,7 +393,10 @@ fn expected_kind(schema: &str, session: &mut OriginalAuditSession) -> Result<&'s
             "ledger-workflow-compiler-descriptor/7",
             "workflow-compiler-descriptor",
         ),
-        ("ledger-workflow-compiler-descriptor/8","workflow-compiler-descriptor"),
+        (
+            "ledger-workflow-compiler-descriptor/8",
+            "workflow-compiler-descriptor",
+        ),
     ] {
         if text_is(schema, candidate, session)? {
             return Ok(kind);
@@ -459,9 +462,14 @@ async fn recompile_inner(
         "INTEGRITY_FAILURE",
     )?;
     let op = origin.wrappers().operation();
-    let saved_evidence=request_wrapper::field(op,"request_evidence",session)?;
-    let saved_resolution=request_wrapper::field(saved_evidence,"descriptor_resolution",session)?;
-    let local=text_is(request_wrapper::text(saved_resolution,"registry_digest",session)?,wrappers::LOCAL_REGISTRY,session)?;
+    let saved_evidence = request_wrapper::field(op, "request_evidence", session)?;
+    let saved_resolution =
+        request_wrapper::field(saved_evidence, "descriptor_resolution", session)?;
+    let local = text_is(
+        request_wrapper::text(saved_resolution, "registry_digest", session)?,
+        wrappers::LOCAL_REGISTRY,
+        session,
+    )?;
     let results = request_wrapper::field(op, "result_refs", session)?
         .as_array()
         .ok_or(ServiceError::IntegrityFailure)?;
@@ -846,8 +854,8 @@ async fn recompile_inner(
         root_policy_ref: root,
     };
     let program = if local {
-        let expected=definition(plan_ref.ok_or(ServiceError::IntegrityFailure)?,session)?;
-        load_local_selected_execution(input,plan.stored.body.bytes(),&expected,session)
+        let expected = definition(plan_ref.ok_or(ServiceError::IntegrityFailure)?, session)?;
+        load_local_selected_execution(input, plan.stored.body.bytes(), &expected, session)
     } else if let Some(key) = reload {
         rehydrate_selected_execution(input, plan.stored.body.bytes(), key, session)
     } else {

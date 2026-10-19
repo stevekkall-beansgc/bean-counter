@@ -4,16 +4,17 @@
 //! cannot coexist with replacement postings after a root correction.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    CoreMeter, arithmetic,
+    arithmetic,
     authority::Terms,
     data::ExactRef,
     inventory::entry,
     meter, pricing, shape, targets,
     working_value::{NormalizedInput, WorkingValue},
+    CoreMeter,
 };
 use crate::{Error, Result};
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 pub(super) struct RootExposureBound {
     pub root_key: String,
     pub original_positive: BigInt,
@@ -33,103 +34,362 @@ pub(super) struct WorkExposureBound {
     _metadata: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
 pub(super) struct OwnedFundingEffects {
-    pub effects:Vec<super::candidate::CustomerLocalFundingEffect>,
-    _vector:crate::canonical::audit_arena::ExternalBufferLease,
+    pub effects: Vec<super::candidate::CustomerLocalFundingEffect>,
+    _vector: crate::canonical::audit_arena::ExternalBufferLease,
 }
 /// Execute the initial-work funding obligation inside the SAME construction,
 /// before it can become a complete candidate. Original pricing is reused;
 /// evidence/roles/ceilings come from the actual resolved accepted terms.
-pub(super) fn initial_construction_effect(m:&mut CoreMeter,p:&SelectedProgram,t:&super::data::Construction)->Result<Option<OwnedFundingEffects>>{
-    let Some(original)=t.financial_reservations.as_ref().or_else(||t.original_reservations.as_ref().map(|x|&x.financial)) else{return Ok(None)};
-    let arena=m.representation_arena().ok_or_else(||fail("owning original-work funding"))?;
-    let mut found=None;
-    for claim in &t.claim_introductions{m.visit("funding.initial_constructed_claim")?;if shape::same_text(m,&claim.kind,"workflow-work-claim")?{if found.is_some(){return Err(fail("multiple original-work funding claims"));}found=Some(claim);}}
-    let claim=found.ok_or_else(||fail("original-work funding claim missing"))?;
-    let payload=t.economic.original_work.payload()?;
-    let expected=super::working_value::owning_reference(m,&arena,&original.original_binding_ref)?;shape::equal(m,&payload["binding_ref"],expected.value())?;
-    let bound=derive_per_work_bound(m,p,payload,claim,&t.economic.terms)?;
-    let effect=initial_work_effect(&arena,m,&original.original_binding_ref,&t.economic.terms,&bound)?;
-    let vector=arena.reserve_external_payload(std::mem::size_of::<super::candidate::CustomerLocalFundingEffect>()+std::mem::size_of::<OwnedFundingEffects>(),m)?;
-    let mut effects=Vec::new();effects.try_reserve_exact(1).map_err(|_|fail("initial-work funding effect vector"))?;effects.push(effect);
-    Ok(Some(OwnedFundingEffects{effects,_vector:vector}))
+pub(super) fn initial_construction_effect(
+    m: &mut CoreMeter,
+    p: &SelectedProgram,
+    t: &super::data::Construction,
+) -> Result<Option<OwnedFundingEffects>> {
+    let Some(original) = t
+        .financial_reservations
+        .as_ref()
+        .or_else(|| t.original_reservations.as_ref().map(|x| &x.financial))
+    else {
+        return Ok(None);
+    };
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| fail("owning original-work funding"))?;
+    let mut found = None;
+    for claim in &t.claim_introductions {
+        m.visit("funding.initial_constructed_claim")?;
+        if shape::same_text(m, &claim.kind, "workflow-work-claim")? {
+            if found.is_some() {
+                return Err(fail("multiple original-work funding claims"));
+            }
+            found = Some(claim);
+        }
+    }
+    let claim = found.ok_or_else(|| fail("original-work funding claim missing"))?;
+    let payload = t.economic.original_work.payload()?;
+    let expected =
+        super::working_value::owning_reference(m, &arena, &original.original_binding_ref)?;
+    shape::equal(m, &payload["binding_ref"], expected.value())?;
+    let bound = derive_per_work_bound(m, p, payload, claim, &t.economic.terms)?;
+    let effect = initial_work_effect(
+        &arena,
+        m,
+        &original.original_binding_ref,
+        &t.economic.terms,
+        &bound,
+    )?;
+    let vector = arena.reserve_external_payload(
+        std::mem::size_of::<super::candidate::CustomerLocalFundingEffect>()
+            + std::mem::size_of::<OwnedFundingEffects>(),
+        m,
+    )?;
+    let mut effects = Vec::new();
+    effects
+        .try_reserve_exact(1)
+        .map_err(|_| fail("initial-work funding effect vector"))?;
+    effects.push(effect);
+    Ok(Some(OwnedFundingEffects {
+        effects,
+        _vector: vector,
+    }))
 }
-fn selected_body(m:&mut CoreMeter,r:&mut super::records::Records,c:&super::data::DraftContextData,output:&[super::emitted_record::ConstructedEnvelope],reference:&ExactRef,kind:&str,schemas:&[&str])->Result<super::record_body::RecordBody>{
-    let mut found=None;for row in output{m.visit("funding.actual_result_locator")?;if shape::same_ref(m,&row.reference,reference)?{if found.is_some(){return Err(fail("duplicate funding result Ref"));}found=Some(row);}}
-    if let Some(row)=found{
-        if !shape::same_text(m,&reference.kind,kind)?{return Err(fail("funding result kind"));}
-        let value=row.decoded(m,4194304)?;let schema=shape::text(m,&value,"schema")?;let mut selected=false;for expected in schemas{if shape::same_text(m,schema,expected)?{selected=true;}}
-        if !selected{return Err(fail("funding result schema"));}Ok(value)
-    }else{r.get_schemas(m,&c.key,reference,kind,schemas)}
+fn selected_body(
+    m: &mut CoreMeter,
+    r: &mut super::records::Records,
+    c: &super::data::DraftContextData,
+    output: &[super::emitted_record::ConstructedEnvelope],
+    reference: &ExactRef,
+    kind: &str,
+    schemas: &[&str],
+) -> Result<super::record_body::RecordBody> {
+    let mut found = None;
+    for row in output {
+        m.visit("funding.actual_result_locator")?;
+        if shape::same_ref(m, &row.reference, reference)? {
+            if found.is_some() {
+                return Err(fail("duplicate funding result Ref"));
+            }
+            found = Some(row);
+        }
+    }
+    if let Some(row) = found {
+        if !shape::same_text(m, &reference.kind, kind)? {
+            return Err(fail("funding result kind"));
+        }
+        let value = row.decoded(m, 4194304)?;
+        let schema = shape::text(m, &value, "schema")?;
+        let mut selected = false;
+        for expected in schemas {
+            if shape::same_text(m, schema, expected)? {
+                selected = true;
+            }
+        }
+        if !selected {
+            return Err(fail("funding result schema"));
+        }
+        Ok(value)
+    } else {
+        r.get_schemas(m, &c.key, reference, kind, schemas)
+    }
 }
-fn active_work_total(m:&mut CoreMeter,r:&mut super::records::Records,c:&super::data::DraftContextData,output:&[super::emitted_record::ConstructedEnvelope],decision:&ExactRef,work:&ExactRef,binding:&ExactRef)->Result<BigInt>{
+fn active_work_total(
+    m: &mut CoreMeter,
+    r: &mut super::records::Records,
+    c: &super::data::DraftContextData,
+    output: &[super::emitted_record::ConstructedEnvelope],
+    decision: &ExactRef,
+    work: &ExactRef,
+    binding: &ExactRef,
+) -> Result<BigInt> {
     use super::working_value::parse_owned_reference;
-    let arena=m.representation_arena().ok_or_else(||fail("owning funding current actions"))?;
-    let value=selected_body(m,r,c,output,decision,"workflow-decision",&["ledger-workflow-decision-revision/1","ledger-workflow-decision-revision/3"])?;
-    let subject=parse_owned_reference(m,&arena,&value["subject_ref"])?;let subject=subject.reference();
-    let related=if shape::same_text(m,&subject.kind,"workflow-work")?{shape::same_ref(m,subject,work)?}
-    else if shape::same_text(m,&subject.kind,"workflow-target")?{
-        let target=selected_body(m,r,c,output,subject,"workflow-target",&["ledger-workflow-component-target/1"])?;
-        let original=parse_owned_reference(m,&arena,&target["work_ref"])?;shape::same_ref(m,original.reference(),work)?
-    }else if shape::same_text(m,&subject.kind,"workflow-outcome-claim")?{
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| fail("owning funding current actions"))?;
+    let value = selected_body(
+        m,
+        r,
+        c,
+        output,
+        decision,
+        "workflow-decision",
+        &[
+            "ledger-workflow-decision-revision/1",
+            "ledger-workflow-decision-revision/3",
+        ],
+    )?;
+    let subject = parse_owned_reference(m, &arena, &value["subject_ref"])?;
+    let subject = subject.reference();
+    let related = if shape::same_text(m, &subject.kind, "workflow-work")? {
+        shape::same_ref(m, subject, work)?
+    } else if shape::same_text(m, &subject.kind, "workflow-target")? {
+        let target = selected_body(
+            m,
+            r,
+            c,
+            output,
+            subject,
+            "workflow-target",
+            &["ledger-workflow-component-target/1"],
+        )?;
+        let original = parse_owned_reference(m, &arena, &target["work_ref"])?;
+        shape::same_ref(m, original.reference(), work)?
+    } else if shape::same_text(m, &subject.kind, "workflow-outcome-claim")? {
         // Outcome decisions name their immutable claim, whose target retains
         // the original work association; the claim itself is not a Target.
-        let claim=selected_body(m,r,c,output,subject,"workflow-outcome-claim",&["ledger-workflow-outcome-claim/1"])?;
-        let target_ref=parse_owned_reference(m,&arena,&claim["target_ref"])?;
-        let target=selected_body(m,r,c,output,target_ref.reference(),"workflow-target",&["ledger-workflow-component-target/1"])?;
-        let original=parse_owned_reference(m,&arena,&target["work_ref"])?;shape::same_ref(m,original.reference(),work)?
-    }else if shape::same_text(m,&subject.kind,"workflow-cost")?{
-        let claim=selected_body(m,r,c,output,subject,"workflow-cost",&["ledger-workflow-app-cost-claim/1"])?;
-        let original=parse_owned_reference(m,&arena,&claim["subject"]["original_work_ref"])?;shape::same_ref(m,original.reference(),work)?
-    }else{return Err(fail("unsupported app funding decision subject"));};
-    if !related{return Ok(0.into());}
-    let original=parse_owned_reference(m,&arena,&value["original_terms_ref"])?;if !shape::same_ref(m,original.reference(),binding)?{return Err(fail("same-work funding original Binding association"));}
-    let actions=shape::array(m,&value,"active_action_refs")?;if crate::validation_work::compare(m,actions.len(),128usize)?.is_gt(){return Err(fail("funding active action count"));}
-    let mut total=BigInt::from(0);
-    for(i,action)in actions.iter().enumerate(){
-        m.visit("funding.actual_active_action")?;for previous in &actions[..i]{m.visit("funding.active_action_unique")?;if shape::same(m,previous,action)?{return Err(fail("funding duplicate active action"));}}
-        let reference=parse_owned_reference(m,&arena,action)?;let action=selected_body(m,r,c,output,reference.reference(),"workflow-action",&["ledger-workflow-action/1"])?;
-        shape::equal(m,&action["decision_id"],&value["decision_id"])?;
-        let role=shape::text(m,&action,"posting_role")?;if !shape::same_text(m,role,"original")?&&!shape::same_text(m,role,"replacement")?{return Err(fail("funding active inverse forbidden"));}
-        let book=shape::text(m,&action,"book")?;if !shape::same_text(m,book,"retail")?{return Err(fail("app funding cannot include AP action"));}
-        let currency=shape::text(m,&action["amount"],"currency")?;if !shape::same_text(m,currency,"USD")?||!shape::same(m,&action["amount"]["scale"],&json!(18))?{return Err(fail("funding current Amount units"));}
-        let atom_text=shape::text(m,&action["amount"],"atoms")?;
-        let atoms=arithmetic::integer(m,atom_text,true)?;total=meter::add(m,&total,&atoms)?;
-    }Ok(total)
+        let claim = selected_body(
+            m,
+            r,
+            c,
+            output,
+            subject,
+            "workflow-outcome-claim",
+            &["ledger-workflow-outcome-claim/1"],
+        )?;
+        let target_ref = parse_owned_reference(m, &arena, &claim["target_ref"])?;
+        let target = selected_body(
+            m,
+            r,
+            c,
+            output,
+            target_ref.reference(),
+            "workflow-target",
+            &["ledger-workflow-component-target/1"],
+        )?;
+        let original = parse_owned_reference(m, &arena, &target["work_ref"])?;
+        shape::same_ref(m, original.reference(), work)?
+    } else if shape::same_text(m, &subject.kind, "workflow-cost")? {
+        let claim = selected_body(
+            m,
+            r,
+            c,
+            output,
+            subject,
+            "workflow-cost",
+            &["ledger-workflow-app-cost-claim/1"],
+        )?;
+        let original = parse_owned_reference(m, &arena, &claim["subject"]["original_work_ref"])?;
+        shape::same_ref(m, original.reference(), work)?
+    } else {
+        return Err(fail("unsupported app funding decision subject"));
+    };
+    if !related {
+        return Ok(0.into());
+    }
+    let original = parse_owned_reference(m, &arena, &value["original_terms_ref"])?;
+    if !shape::same_ref(m, original.reference(), binding)? {
+        return Err(fail("same-work funding original Binding association"));
+    }
+    let actions = shape::array(m, &value, "active_action_refs")?;
+    if crate::validation_work::compare(m, actions.len(), 128usize)?.is_gt() {
+        return Err(fail("funding active action count"));
+    }
+    let mut total = BigInt::from(0);
+    for (i, action) in actions.iter().enumerate() {
+        m.visit("funding.actual_active_action")?;
+        for previous in &actions[..i] {
+            m.visit("funding.active_action_unique")?;
+            if shape::same(m, previous, action)? {
+                return Err(fail("funding duplicate active action"));
+            }
+        }
+        let reference = parse_owned_reference(m, &arena, action)?;
+        let action = selected_body(
+            m,
+            r,
+            c,
+            output,
+            reference.reference(),
+            "workflow-action",
+            &["ledger-workflow-action/1"],
+        )?;
+        shape::equal(m, &action["decision_id"], &value["decision_id"])?;
+        let role = shape::text(m, &action, "posting_role")?;
+        if !shape::same_text(m, role, "original")? && !shape::same_text(m, role, "replacement")? {
+            return Err(fail("funding active inverse forbidden"));
+        }
+        let book = shape::text(m, &action, "book")?;
+        if !shape::same_text(m, book, "retail")? {
+            return Err(fail("app funding cannot include AP action"));
+        }
+        let currency = shape::text(m, &action["amount"], "currency")?;
+        if !shape::same_text(m, currency, "USD")?
+            || !shape::same(m, &action["amount"]["scale"], &json!(18))?
+        {
+            return Err(fail("funding current Amount units"));
+        }
+        let atom_text = shape::text(m, &action["amount"], "atoms")?;
+        let atoms = arithmetic::integer(m, atom_text, true)?;
+        total = meter::add(m, &total, &atoms)?;
+    }
+    Ok(total)
 }
 /// Update the same per-original-work projection using actual effective heads:
 /// newly produced decisions replace their exact old heads; independent work
 /// rows do not spend this work's exposure. Complete head/absence provenance is
 /// still the caller's held-prefix and final role/capacity proof obligation.
-pub(super) fn construction_effect(m:&mut CoreMeter,p:&SelectedProgram,c:&super::data::DraftContextData,state:&super::data::EconomicStateData,t:&mut super::data::Construction)->Result<OwnedFundingEffects>{
-    if m.check("funding.original_work_introduction",||matches!(&t.economic.original_work,super::data::OriginalWorkPayload::New(_)))?{return initial_construction_effect(m,p,t)?.ok_or_else(||fail("initial work funding effect missing"));}
-    let work=match &t.economic.original_work{super::data::OriginalWorkPayload::Retained(work)=>work.clone(),_=>return Err(fail("retained funding work selection"))};
-    let arena=m.representation_arena().ok_or_else(||fail("owning per-work funding update"))?;
-    let _references=arena.reserve_external_payload(2*(std::mem::size_of::<ExactRef>()+64+128+71),m)?;
-    let claim_id=shape::text(m,&work,"claim_id")?;let(claim_ref,claim)=t.records.by_identity(m,&c.key,"workflow-work-claim",claim_id,"ledger-workflow-work-claim/1")?;
-    super::outcome::original_claim_association(m,&claim,&work)?;
-    let work_ref=super::working_value::parse_owned_reference(m,&arena,&claim["work_ref"])?;
-    let binding_ref=super::working_value::parse_owned_reference(m,&arena,&work["payload"]["binding_ref"])?;
-    let bound=derive_per_work_bound(m,p,&work["payload"],&claim_ref,&t.economic.terms)?;
-    let root_seed=arena.string_value(&claim_ref.id,m)?;let discriminator=arena.string_value("work",m)?;let root_tuple=arena.array_from_values(&[root_seed.value(),discriminator.value()],m)?;
-    let root_id=super::body::semantic_id(m,"wdecision_","workflow-decision",root_tuple.value())?;
-    let total=held_work_total(m,&mut t.records,c,&t.new_envelopes,state.financial,&t.proposed_heads,work_ref.reference(),binding_ref.reference(),&root_id)?;
-    let effect=work_effect(&arena,m,binding_ref.reference(),&t.economic.terms,&bound,Some(&total))?;
-    let vector=arena.reserve_external_payload(std::mem::size_of::<super::candidate::CustomerLocalFundingEffect>()+std::mem::size_of::<OwnedFundingEffects>(),m)?;
-    let mut effects=Vec::new();effects.try_reserve_exact(1).map_err(|_|fail("per-work funding effect vector"))?;effects.push(effect);
-    Ok(OwnedFundingEffects{effects,_vector:vector})
-}
-pub(super) fn held_work_total(m:&mut CoreMeter,r:&mut super::records::Records,c:&super::data::DraftContextData,outputs:&[super::emitted_record::ConstructedEnvelope],state:&super::data::DraftStateData,proposed:&super::data::ProposedHeads,work:&ExactRef,binding:&ExactRef,root_id:&str)->Result<BigInt>{
-    let mut root_seen=false;let mut total=BigInt::from(0);
-    for head in &state.decision_heads{
-        m.visit("funding.held_work_decision")?;let mut selected=&head.reference;
-        for(id,_,reference)in &proposed.decision{m.visit("funding.replaced_decision_head")?;if shape::same_text(m,id,&head.decision_id)?{selected=reference;}}
-        if shape::same_text(m,&head.decision_id,root_id)?{if root_seen{return Err(fail("funding duplicate original work root head"));}root_seen=true;}
-        let amount=active_work_total(m,r,c,outputs,selected,work,binding)?;total=meter::add(m,&total,&amount)?;
+pub(super) fn construction_effect(
+    m: &mut CoreMeter,
+    p: &SelectedProgram,
+    c: &super::data::DraftContextData,
+    state: &super::data::EconomicStateData,
+    t: &mut super::data::Construction,
+) -> Result<OwnedFundingEffects> {
+    if m.check("funding.original_work_introduction", || {
+        matches!(
+            &t.economic.original_work,
+            super::data::OriginalWorkPayload::New(_)
+        )
+    })? {
+        return initial_construction_effect(m, p, t)?
+            .ok_or_else(|| fail("initial work funding effect missing"));
     }
-    if !root_seen{return Err(fail("funding original work current root head missing"));}
-    for(id,_,reference)in &proposed.decision{
-        m.visit("funding.new_work_decision")?;let mut existed=false;for head in &state.decision_heads{if shape::same_text(m,id,&head.decision_id)?{existed=true;}}
-        if !existed{let amount=active_work_total(m,r,c,outputs,reference,work,binding)?;total=meter::add(m,&total,&amount)?;}
+    let work = match &t.economic.original_work {
+        super::data::OriginalWorkPayload::Retained(work) => work.clone(),
+        _ => return Err(fail("retained funding work selection")),
+    };
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| fail("owning per-work funding update"))?;
+    let _references =
+        arena.reserve_external_payload(2 * (std::mem::size_of::<ExactRef>() + 64 + 128 + 71), m)?;
+    let claim_id = shape::text(m, &work, "claim_id")?;
+    let (claim_ref, claim) = t.records.by_identity(
+        m,
+        &c.key,
+        "workflow-work-claim",
+        claim_id,
+        "ledger-workflow-work-claim/1",
+    )?;
+    super::outcome::original_claim_association(m, &claim, &work)?;
+    let work_ref = super::working_value::parse_owned_reference(m, &arena, &claim["work_ref"])?;
+    let binding_ref =
+        super::working_value::parse_owned_reference(m, &arena, &work["payload"]["binding_ref"])?;
+    let bound = derive_per_work_bound(m, p, &work["payload"], &claim_ref, &t.economic.terms)?;
+    let root_seed = arena.string_value(&claim_ref.id, m)?;
+    let discriminator = arena.string_value("work", m)?;
+    let root_tuple = arena.array_from_values(&[root_seed.value(), discriminator.value()], m)?;
+    let root_id =
+        super::body::semantic_id(m, "wdecision_", "workflow-decision", root_tuple.value())?;
+    let total = held_work_total(
+        m,
+        &mut t.records,
+        c,
+        &t.new_envelopes,
+        state.financial,
+        &t.proposed_heads,
+        work_ref.reference(),
+        binding_ref.reference(),
+        &root_id,
+    )?;
+    let effect = work_effect(
+        &arena,
+        m,
+        binding_ref.reference(),
+        &t.economic.terms,
+        &bound,
+        Some(&total),
+    )?;
+    let vector = arena.reserve_external_payload(
+        std::mem::size_of::<super::candidate::CustomerLocalFundingEffect>()
+            + std::mem::size_of::<OwnedFundingEffects>(),
+        m,
+    )?;
+    let mut effects = Vec::new();
+    effects
+        .try_reserve_exact(1)
+        .map_err(|_| fail("per-work funding effect vector"))?;
+    effects.push(effect);
+    Ok(OwnedFundingEffects {
+        effects,
+        _vector: vector,
+    })
+}
+pub(super) fn held_work_total(
+    m: &mut CoreMeter,
+    r: &mut super::records::Records,
+    c: &super::data::DraftContextData,
+    outputs: &[super::emitted_record::ConstructedEnvelope],
+    state: &super::data::DraftStateData,
+    proposed: &super::data::ProposedHeads,
+    work: &ExactRef,
+    binding: &ExactRef,
+    root_id: &str,
+) -> Result<BigInt> {
+    let mut root_seen = false;
+    let mut total = BigInt::from(0);
+    for head in &state.decision_heads {
+        m.visit("funding.held_work_decision")?;
+        let mut selected = &head.reference;
+        for (id, _, reference) in &proposed.decision {
+            m.visit("funding.replaced_decision_head")?;
+            if shape::same_text(m, id, &head.decision_id)? {
+                selected = reference;
+            }
+        }
+        if shape::same_text(m, &head.decision_id, root_id)? {
+            if root_seen {
+                return Err(fail("funding duplicate original work root head"));
+            }
+            root_seen = true;
+        }
+        let amount = active_work_total(m, r, c, outputs, selected, work, binding)?;
+        total = meter::add(m, &total, &amount)?;
+    }
+    if !root_seen {
+        return Err(fail("funding original work current root head missing"));
+    }
+    for (id, _, reference) in &proposed.decision {
+        m.visit("funding.new_work_decision")?;
+        let mut existed = false;
+        for head in &state.decision_heads {
+            if shape::same_text(m, id, &head.decision_id)? {
+                existed = true;
+            }
+        }
+        if !existed {
+            let amount = active_work_total(m, r, c, outputs, reference, work, binding)?;
+            total = meter::add(m, &total, &amount)?;
+        }
     }
     Ok(total)
 }
@@ -299,9 +559,17 @@ pub(super) fn derive_per_work_bound(
     claim: &ExactRef,
     t: &Terms,
 ) -> Result<WorkExposureBound> {
-    let schema=if p.uses_app_cost_causal_recipe(){"ledger-workflow-slot-binding-terms/7"}else if p.uses_app_owned_cost_recipe(){"ledger-workflow-slot-binding-terms/6"}else{"ledger-workflow-slot-binding-terms/3"};
-    let actual=shape::text(m,&t.slot_terms,"schema")?;
-    if !shape::same_text(m,actual,schema)?{return Err(fail("original exposure terms recipe"));}
+    let schema = if p.uses_app_cost_causal_recipe() {
+        "ledger-workflow-slot-binding-terms/7"
+    } else if p.uses_app_owned_cost_recipe() {
+        "ledger-workflow-slot-binding-terms/6"
+    } else {
+        "ledger-workflow-slot-binding-terms/3"
+    };
+    let actual = shape::text(m, &t.slot_terms, "schema")?;
+    if !shape::same_text(m, actual, schema)? {
+        return Err(fail("original exposure terms recipe"));
+    }
     same(m, &t.slot_terms["exposure_scope"], &json!("original_work"))?;
     same(m, &t.slot_terms["book"], &json!("retail"))?;
     let activity = shape::text(m, payload, "activity")?;
@@ -404,31 +672,57 @@ pub(super) fn derive_per_work_bound(
                 meter::add(m, &roots[index].corrected_positive, &atoms)?;
         }
     }
-    if p.uses_app_owned_cost_recipe(){
-        for declaration in shape::array(m,p.original_policy_value(),"app_delayed_costs")?{
+    if p.uses_app_owned_cost_recipe() {
+        for declaration in shape::array(m, p.original_policy_value(), "app_delayed_costs")? {
             m.visit("funding.original_app_cost_maximum")?;
-            if !shape::same(m,&declaration["activity"],&payload["activity"])?{continue;}
-            let key=shape::text(m,declaration,"component_key")?;
-            let accepted=shape::array(m,&t.slot_terms,"app_cost_terms")?;
-            let mut found=false;
-            for row in accepted{
+            if !shape::same(m, &declaration["activity"], &payload["activity"])? {
+                continue;
+            }
+            let key = shape::text(m, declaration, "component_key")?;
+            let accepted = shape::array(m, &t.slot_terms, "app_cost_terms")?;
+            let mut found = false;
+            for row in accepted {
                 m.visit("funding.original_app_maximum_assent")?;
-                if shape::same(m,&row["component_key"],&declaration["component_key"])?&&shape::same(m,&row["activity"],&declaration["activity"])?{
-                    if found{return Err(fail("duplicate accepted app maximum"));}
-                    shape::equal(m,row,declaration)?;found=true;
+                if shape::same(m, &row["component_key"], &declaration["component_key"])?
+                    && shape::same(m, &row["activity"], &declaration["activity"])?
+                {
+                    if found {
+                        return Err(fail("duplicate accepted app maximum"));
+                    }
+                    shape::equal(m, row, declaration)?;
+                    found = true;
                 }
             }
-            if !found{return Err(fail("app maximum not covered by original terms"));}
-            let raw=shape::text(m,&declaration["maximum_final_amount"],"atoms")?;
-            let maximum=arithmetic::integer(m,raw,false)?;
-            let prices=pricing::app_final_cost(p,activity,key,&payload["facts"],&maximum,m)?;
-            if !crate::validation_work::compare(m,prices.len(),1usize)?.is_eq(){return Err(fail("app prospective producer cardinality"));}
-            for price in prices{
-                if !shape::same_text(m,&price.binding_slot,&binding_slot)?{return Err(fail("app maximum customer binding association"));}
-                if root_position(m,&roots,&price.root_key)?.is_some(){return Err(fail("app cost cannot alias an already booked root"));}
-                if meter::cmp(m,&price.atoms.into(),&0.into())?.is_lt(){return Err(fail("negative prospective app obligation"));}
-                m.scan_bytes(price.root_key.len())?;m.write_bytes(price.root_key.len())?;
-                roots.push(RootExposureBound{root_key:price.root_key,original_positive:0.into(),original_net:0.into(),simultaneous_family_premium:0.into(),corrected_positive:price.atoms.into(),corrected_net:price.atoms.into(),positive_bound:0.into()});
+            if !found {
+                return Err(fail("app maximum not covered by original terms"));
+            }
+            let raw = shape::text(m, &declaration["maximum_final_amount"], "atoms")?;
+            let maximum = arithmetic::integer(m, raw, false)?;
+            let prices = pricing::app_final_cost(p, activity, key, &payload["facts"], &maximum, m)?;
+            if !crate::validation_work::compare(m, prices.len(), 1usize)?.is_eq() {
+                return Err(fail("app prospective producer cardinality"));
+            }
+            for price in prices {
+                if !shape::same_text(m, &price.binding_slot, &binding_slot)? {
+                    return Err(fail("app maximum customer binding association"));
+                }
+                if root_position(m, &roots, &price.root_key)?.is_some() {
+                    return Err(fail("app cost cannot alias an already booked root"));
+                }
+                if meter::cmp(m, &price.atoms.into(), &0.into())?.is_lt() {
+                    return Err(fail("negative prospective app obligation"));
+                }
+                m.scan_bytes(price.root_key.len())?;
+                m.write_bytes(price.root_key.len())?;
+                roots.push(RootExposureBound {
+                    root_key: price.root_key,
+                    original_positive: 0.into(),
+                    original_net: 0.into(),
+                    simultaneous_family_premium: 0.into(),
+                    corrected_positive: price.atoms.into(),
+                    corrected_net: price.atoms.into(),
+                    positive_bound: 0.into(),
+                });
             }
         }
     }
@@ -542,11 +836,15 @@ pub(super) fn initial_work_effect(
     t: &Terms,
     bound: &WorkExposureBound,
 ) -> Result<super::candidate::CustomerLocalFundingEffect> {
-    work_effect(arena,m,binding_ref,t,bound,None)
+    work_effect(arena, m, binding_ref, t, bound, None)
 }
 fn work_effect(
-    arena:&crate::canonical::audit_arena::AuditArena,m:&mut CoreMeter,binding_ref:&ExactRef,
-    t:&Terms,bound:&WorkExposureBound,current_after:Option<&BigInt>,
+    arena: &crate::canonical::audit_arena::AuditArena,
+    m: &mut CoreMeter,
+    binding_ref: &ExactRef,
+    t: &Terms,
+    bound: &WorkExposureBound,
+    current_after: Option<&BigInt>,
 ) -> Result<super::candidate::CustomerLocalFundingEffect> {
     use crate::validation_work::{self as w, ArithmeticOperation as Op, ValidationWork};
     use num_traits::ToPrimitive;
@@ -621,11 +919,15 @@ fn work_effect(
     bytes = add(m, bytes, 172)?; // two complete (8+16+32+30) allocation sums
     let ownership = arena.reserve_external_payload(bytes, m)?;
     let mut current = BigInt::from(0);
-    if let Some(after)=current_after{m.visit("funding.actual_post_transition_total")?;current=meter::add(m,&current,after)?;}
-    else{for root in &bound.roots {
-        m.visit("funding.current_original_root")?;
-        current = meter::add(m, &current, &root.original_net)?;
-    }}
+    if let Some(after) = current_after {
+        m.visit("funding.actual_post_transition_total")?;
+        current = meter::add(m, &current, after)?;
+    } else {
+        for root in &bound.roots {
+            m.visit("funding.current_original_root")?;
+            current = meter::add(m, &current, &root.original_net)?;
+        }
+    }
     let original_limit = arithmetic::integer(m, "999999999999999999999999999999", false)?;
     if meter::cmp(m, &current, &0.into())?.is_lt()
         || meter::cmp(m, &current, &original_limit)?.is_gt()
@@ -676,7 +978,7 @@ mod tests {
     use super::*;
     use crate::canonical;
     use crate::policy::workflow::selected_program::{
-        SelectedCompilerSupport, SelectedSourceInput, compile_selected_program,
+        compile_selected_program, SelectedCompilerSupport, SelectedSourceInput,
     };
     #[test]
     fn original_work_bound_covers_future_quantity_without_summing_exclusive_or_closed_branches() {

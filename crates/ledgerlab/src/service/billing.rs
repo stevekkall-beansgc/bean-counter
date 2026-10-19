@@ -16,8 +16,8 @@ pub(crate) mod adjustment;
 pub(crate) mod control;
 mod history;
 pub(crate) mod permissions;
-mod setup_policy;
 pub(crate) mod setup_owned;
+mod setup_policy;
 
 /// Trusted local control input. Event input never supplies these values.
 #[derive(Clone, Debug, Serialize, Deserialize)]

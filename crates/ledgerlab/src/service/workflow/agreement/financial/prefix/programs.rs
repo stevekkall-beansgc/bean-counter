@@ -219,8 +219,8 @@ mod tests {
     use ledgerlab_core::{
         canonical::{self, audit_arena::AuditArena},
         policy::workflow::selected_program::{
-            SelectedCompilerSupport, SelectedSourceInput, compile_selected_publication,
-            rehydrate_selected_execution,
+            compile_selected_publication, rehydrate_selected_execution, SelectedCompilerSupport,
+            SelectedSourceInput,
         },
     };
     fn source() -> SelectedSourceInput {

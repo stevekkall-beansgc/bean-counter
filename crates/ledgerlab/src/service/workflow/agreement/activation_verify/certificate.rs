@@ -206,12 +206,10 @@ pub(in crate::service::workflow::agreement) async fn retained_local(
             || a["assent_refs"] != binding["assent_refs"]
             || a["source_revision"] != source.state().revision().to_string().as_str()
             || one(&a["source_grant_refs"], "workflow-source-grant")?
-                != reference(&json!(
-                    source
-                        .state()
-                        .current_grant_ref()
-                        .ok_or(ServiceError::IntegrityFailure)?
-                ))?
+                != reference(&json!(source
+                    .state()
+                    .current_grant_ref()
+                    .ok_or(ServiceError::IntegrityFailure)?))?
         {
             return Err(ServiceError::IntegrityFailure);
         }

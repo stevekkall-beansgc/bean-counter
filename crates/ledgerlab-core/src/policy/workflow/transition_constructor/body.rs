@@ -2,12 +2,12 @@
 //! the authority-data resolver supplies the immutable original slot operands.
 use super::emitted_record::ConstructedEnvelope;
 use super::{
-    CoreMeter, codec,
+    codec,
     data::{ExactRef, OperationKey},
-    records,
+    records, CoreMeter,
 };
 use crate::{Error, Result};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 pub(super) fn semantic_id(
     m: &mut CoreMeter,
     prefix: &str,
@@ -22,7 +22,11 @@ pub(super) fn semantic_id(
 pub(super) fn document(m: &mut CoreMeter, kind: &str, body: Value) -> Result<ConstructedEnvelope> {
     document_borrowed(m, kind, &body)
 }
-pub(super) fn document_borrowed(m: &mut CoreMeter, kind: &str, body: &Value) -> Result<ConstructedEnvelope> {
+pub(super) fn document_borrowed(
+    m: &mut CoreMeter,
+    kind: &str,
+    body: &Value,
+) -> Result<ConstructedEnvelope> {
     let schema = body["schema"]
         .as_str()
         .ok_or_else(|| Error::new("INTEGRITY_FAILURE", "draft schema"))?;
@@ -51,8 +55,10 @@ pub(super) fn document_borrowed(m: &mut CoreMeter, kind: &str, body: &Value) -> 
         // Ref/control allocation remains in the enclosing emitter's admitted
         // header. Pay these actual string payload copies before constructing
         // them; the hash producer's digest bytes do not pay a second ID copy.
-        m.scan_bytes(kind.len())?;m.write_bytes(kind.len())?;
-        m.scan_bytes(digest.len()-7)?;m.write_bytes(5+digest.len()-7)?;
+        m.scan_bytes(kind.len())?;
+        m.write_bytes(kind.len())?;
+        m.scan_bytes(digest.len() - 7)?;
+        m.write_bytes(5 + digest.len() - 7)?;
         let reference = ExactRef {
             kind: kind.to_owned(),
             id: format!("wdoc_{}", &digest[7..]),
@@ -79,10 +85,14 @@ pub(super) fn record(
     id: String,
     body: Value,
 ) -> Result<ConstructedEnvelope> {
-    record_borrowed(m,key,kind,id,&body)
+    record_borrowed(m, key, kind, id, &body)
 }
 pub(super) fn record_borrowed(
-    m:&mut CoreMeter,key:&OperationKey,kind:&str,id:String,body:&Value,
+    m: &mut CoreMeter,
+    key: &OperationKey,
+    kind: &str,
+    id: String,
+    body: &Value,
 ) -> Result<ConstructedEnvelope> {
     if let Some(arena) = m.representation_arena() {
         let class = crate::validation_work::RepresentationKind::Record;
@@ -113,7 +123,8 @@ pub(super) fn record_borrowed(
             &[kind_bytes.bytes(), scope.bytes(), bytes.bytes()],
             true,
         )?;
-        m.scan_bytes(kind.len())?;m.write_bytes(kind.len())?;
+        m.scan_bytes(kind.len())?;
+        m.write_bytes(kind.len())?;
         return ConstructedEnvelope::from_owned(
             ExactRef {
                 kind: kind.to_owned(),

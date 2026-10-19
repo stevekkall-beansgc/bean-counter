@@ -1,7 +1,7 @@
 //! One bounded acceptance coordinator over concrete durable stores.
 #![forbid(unsafe_code)]
 pub use service::accept::adjudication::SqliteComparison;
-pub use service::workflow::{LocalWorkflowLedger,WorkflowReply};
+pub use service::workflow::{LocalWorkflowLedger, WorkflowReply};
 pub mod billing;
 pub mod central;
 pub mod gateway;
@@ -85,7 +85,11 @@ pub enum PreviewResult {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServiceError {
     Retryable,
-    ResourceLimit { setting: &'static str, limit:u64, observed:u64 },
+    ResourceLimit {
+        setting: &'static str,
+        limit: u64,
+        observed: u64,
+    },
     #[doc(hidden)]
     ReadBudgetExhausted,
     OutcomeUnknown {

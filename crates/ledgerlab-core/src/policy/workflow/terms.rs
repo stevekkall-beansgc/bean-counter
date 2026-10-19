@@ -1,13 +1,13 @@
 //! Normalized agreement constraint assertions, not authenticated acceptance,
 //! funding, grants, spend reservations or execution authority.
 use super::{
-    AgreementRef, Product, RoleAssignment, TemplateBook,
     facts::{name, reject_null},
+    AgreementRef, Product, RoleAssignment, TemplateBook,
 };
 use crate::{
-    Error, Result,
     canonical::{self, CanonicalBytes},
     domain::Timestamp,
+    Error, Result,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -16,7 +16,10 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if !resource_compare(session, version, 15)?.is_eq() && !resource_compare(session, version, 16)?.is_eq() && !resource_compare(session, version, 17)?.is_eq() {
+        if !resource_compare(session, version, 15)?.is_eq()
+            && !resource_compare(session, version, 16)?.is_eq()
+            && !resource_compare(session, version, 17)?.is_eq()
+        {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
         let (store, expected_kind, sql, parts): (&str, &str, &'static str, [&str; 5]) = match claim
@@ -352,9 +355,12 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned app observation").into());
         }
         self.failed = true;
-        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.app_claim_inner(key, session))
-            .await
-            .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
+            self.app_claim_inner(key, session),
+        )
+        .await
+        .map_err(|_| FinancialReadError::Store(StoreError::Deadline))?;
         if result.is_ok() {
             session.semantic_work().visit(ValidationVisit::Constraint)?;
             session.check_cancelled()?;
@@ -380,7 +386,10 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if !resource_compare(session, version, 15)?.is_eq() && !resource_compare(session, version, 16)?.is_eq() && !resource_compare(session, version, 17)?.is_eq() {
+        if !resource_compare(session, version, 15)?.is_eq()
+            && !resource_compare(session, version, 16)?.is_eq()
+            && !resource_compare(session, version, 17)?.is_eq()
+        {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
         let values = [

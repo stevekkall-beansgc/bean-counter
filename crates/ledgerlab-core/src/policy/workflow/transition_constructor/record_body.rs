@@ -2,9 +2,9 @@
 //! Owned framing establishes only the properties checked by Records::get;
 //! per-kind semantic and contextual consumers still execute their paid guards.
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, AuditedValue, ExternalBufferLease},
     validation_work::ValidationWork,
+    Result,
 };
 use serde::{Serialize, Serializer};
 use serde_json::Value;
@@ -21,7 +21,7 @@ pub(super) enum RecordBody {
 }
 impl RecordBody {
     /// Exact immutable owning representation identity, not value equality or origin.
-    pub(super) fn is_same_owning_value(&self,value:&Value)->bool {
+    pub(super) fn is_same_owning_value(&self, value: &Value) -> bool {
         matches!(self,Self::Owned(v) if std::ptr::eq(v.value.value(),value))
     }
     pub(super) fn owned(

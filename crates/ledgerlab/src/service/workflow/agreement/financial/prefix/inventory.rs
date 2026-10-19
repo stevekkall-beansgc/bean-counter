@@ -1470,7 +1470,7 @@ impl Inventory {
         copied(ENTRY_BYTES, s)?;
         let mut entry = record;
         copied(KEY_BYTES, s)?;
-        entry.0[..KEY_BYTES].copy_from_slice(&key.0.0);
+        entry.0[..KEY_BYTES].copy_from_slice(&key.0 .0);
         self.tree.replace_control(&entry, s)
     }
 }
@@ -1654,7 +1654,7 @@ impl Inventory {
             .map_err(core_error)?;
         let mut entry = Entry([0; ENTRY_BYTES]);
         copied(KEY_BYTES, s)?;
-        entry.0[..KEY_BYTES].copy_from_slice(&key.0.0);
+        entry.0[..KEY_BYTES].copy_from_slice(&key.0 .0);
         for (position, bytes) in [
             (216, offset.to_le_bytes().as_slice()),
             (224, (body.len() as u32).to_le_bytes().as_slice()),

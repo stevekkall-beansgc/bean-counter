@@ -3,20 +3,20 @@
 //! They retain exact evidence, permanent claim and original invocation identity;
 //! completed capacity/authority is required by the enclosing candidate factory.
 use super::super::{
-    CoreMeter, body, data::*, emitted_record::ConstructedEnvelope, meter, shape,
-    working_value::owning_reference,
+    body, data::*, emitted_record::ConstructedEnvelope, meter, shape,
+    working_value::owning_reference, CoreMeter,
 };
 use super::{
-    InvocationAmounts,
     operands::{self, FinalEvidence, InvocationSelection},
+    InvocationAmounts,
 };
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, AuditedValue, ExternalBufferLease},
     validation_work::{self as w, RepresentationKind},
+    Result,
 };
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub(in crate::policy::workflow::transition_constructor) struct CostLineage {
     pub allocation: ConstructedEnvelope,

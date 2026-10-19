@@ -6,11 +6,11 @@ use sqlx::Connection;
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, atomic::Ordering},
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 use tokio::{
-    sync::{OwnedRwLockWriteGuard, OwnedSemaphorePermit, oneshot},
+    sync::{oneshot, OwnedRwLockWriteGuard, OwnedSemaphorePermit},
     time::Instant,
 };
 
@@ -169,9 +169,12 @@ impl SqliteTx {
         // Reset can return a prior step error before clearing bindings. The
         // explicit queued ClearCache command finalizes BOTH persistent and
         // temporary handles before its ACK, regardless of reset outcome.
-        crate::store::sqlite::workflow::until(self.workflow_deadline(), self.conn().clear_cached_statements())
-            .await
-            .map_err(|_| FinancialReadError::Store(StoreError::Deadline))??;
+        crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
+            self.conn().clear_cached_statements(),
+        )
+        .await
+        .map_err(|_| FinancialReadError::Store(StoreError::Deadline))??;
         self.financial_io.take();
         session.check_cancelled()?;
         Ok(())
@@ -397,13 +400,11 @@ mod tests {
             .unwrap();
         tx.financial_reserve_io(&mut session, 1048576).unwrap();
         let payload = vec![b'x'; 262144];
-        assert!(
-            sqlx::query("SELECT json_extract(CAST(? AS TEXT), '$')")
-                .bind(payload.as_slice())
-                .fetch_one(tx.conn())
-                .await
-                .is_err()
-        );
+        assert!(sqlx::query("SELECT json_extract(CAST(? AS TEXT), '$')")
+            .bind(payload.as_slice())
+            .fetch_one(tx.conn())
+            .await
+            .is_err());
         assert!(tx.conn().cached_statements_size() > 0);
         drop(payload);
         tx.financial_finish_io(&mut session).await.unwrap();
@@ -434,10 +435,10 @@ mod tests {
 #[cfg(test)]
 mod statement_source_tests {
     use super::super::append::{
-        FinancialDocument, INSERT_DOCUMENT, INSERT_OPERATION, MATCH_DOCUMENT, insert_document,
+        insert_document, FinancialDocument, INSERT_DOCUMENT, INSERT_OPERATION, MATCH_DOCUMENT,
     };
     use ledgerlab_core::policy::workflow::transition_constructor::ExactRef;
-    use sqlx::{Connection, Executor, Row, SqliteConnection, sqlite::SqliteConnectOptions};
+    use sqlx::{sqlite::SqliteConnectOptions, Connection, Executor, Row, SqliteConnection};
     #[tokio::test]
     async fn direct_document_values_keep_preflight_and_check_failures() {
         let mut conn = SqliteConnection::connect_with(
@@ -486,8 +487,8 @@ mod statement_source_tests {
             .await
             .unwrap();
         assert_eq!(different, Some(false)); // caller's immutable preflight refuses
-        // ON CONFLICT(id) must not suppress kind or byte-size CHECK failures,
-        // including when that id already exists.
+                                            // ON CONFLICT(id) must not suppress kind or byte-size CHECK failures,
+                                            // including when that id already exists.
         for (kind, bytes) in [
             ("workflow-unknown", &[1u8][..]),
             ("workflow-product", &[][..]),

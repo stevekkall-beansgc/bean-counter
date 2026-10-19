@@ -1,9 +1,9 @@
 //! Example-local durable artifact transport. Digests detect accidental changes,
 //! not a hostile editor rewriting the complete synthetic archive.
-use super::{CLASSIFICATION, Result, engine, input, require};
+use super::{engine, input, require, Result, CLASSIFICATION};
 use ledgerlab_core::canonical;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,

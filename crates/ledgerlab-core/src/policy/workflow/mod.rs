@@ -14,10 +14,10 @@ mod compiler;
 pub mod selected_program;
 pub mod transition_constructor;
 pub use compiler::{
-    CompilerDescriptor, DefinitionDocument, DefinitionRef, NormalizedDefinition,
-    NormalizedPublicationSources, PreparedPublication, VerifiedCompilerSupport,
     candidate_dependency_refs, compile_publication, normalize_definition,
-    normalize_publication_sources, normalize_retained_definition,
+    normalize_publication_sources, normalize_retained_definition, CompilerDescriptor,
+    DefinitionDocument, DefinitionRef, NormalizedDefinition, NormalizedPublicationSources,
+    PreparedPublication, VerifiedCompilerSupport,
 };
 
 fn document_digest(schema: &str, body: &serde_json::Value) -> crate::Result<String> {

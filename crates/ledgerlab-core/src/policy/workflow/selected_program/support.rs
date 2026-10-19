@@ -1,19 +1,23 @@
 //! Binary-owned, non-admitting support. No request/retained descriptor becomes
 //! executable support. All catalog membership and raw artifact pins are checked.
 use super::super::DefinitionRef;
-use crate::{Error, Result, canonical};
-use serde_json::{Value, json};
+use crate::{canonical, Error, Result};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 #[derive(Clone, Debug)]
 pub struct SelectedCompilerSupport {
-    document:SupportDocument,
+    document: SupportDocument,
     // Set only by an exact code-owned capability/saved-verifier, never by
     // parsing a caller or retained Descriptor DATA dictionary.
-    execution_registry:Option<&'static str>,
+    execution_registry: Option<&'static str>,
 }
-#[derive(Clone,Debug)]
-enum SupportDocument{
-    Legacy{body:Value,reference:DefinitionRef,bytes:Vec<u8>},
+#[derive(Clone, Debug)]
+enum SupportDocument {
+    Legacy {
+        body: Value,
+        reference: DefinitionRef,
+        bytes: Vec<u8>,
+    },
     Owned(super::compiler::SelectedDocument),
 }
 fn raw(bytes: &[u8]) -> String {
@@ -24,14 +28,24 @@ impl SelectedCompilerSupport {
     /// finite guards and financial rights; it makes no universal future
     /// resource or whole-history audit promise. Caller descriptors cannot
     /// select or widen this capability.
-    pub fn local_execution_with_session(session:&mut crate::validation_work::OriginalAuditSession)->Result<Self>{
-        let document=super::local::local_compiler_descriptor_with_session(session)?;
-        Ok(Self{document:SupportDocument::Owned(document),execution_registry:Some(super::local::REGISTRY)})
+    pub fn local_execution_with_session(
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        let document = super::local::local_compiler_descriptor_with_session(session)?;
+        Ok(Self {
+            document: SupportDocument::Owned(document),
+            execution_registry: Some(super::local::REGISTRY),
+        })
     }
     #[cfg(test)]
-    pub(super) fn legacy_local_for_test(session:&mut crate::validation_work::OriginalAuditSession)->Result<Self>{
-        let document=super::local::legacy_descriptor_for_test(session)?;
-        Ok(Self{document:SupportDocument::Owned(document),execution_registry:Some(super::local::REGISTRY)})
+    pub(super) fn legacy_local_for_test(
+        session: &mut crate::validation_work::OriginalAuditSession,
+    ) -> Result<Self> {
+        let document = super::local::legacy_descriptor_for_test(session)?;
+        Ok(Self {
+            document: SupportDocument::Owned(document),
+            execution_registry: Some(super::local::REGISTRY),
+        })
     }
     pub fn builtin() -> Result<Self> {
         let limits = canonical::parse(include_bytes!(
@@ -162,8 +176,12 @@ impl SelectedCompilerSupport {
         )?;
         let bytes = canonical::CanonicalBytes::from_value(&body)?.into_vec();
         Ok(Self {
-            document:SupportDocument::Legacy{body,reference,bytes},
-            execution_registry:None,
+            document: SupportDocument::Legacy {
+                body,
+                reference,
+                bytes,
+            },
+            execution_registry: None,
         })
     }
     /// Exact historical binary-owned recipe selection. A retained arbitrary
@@ -177,27 +195,55 @@ impl SelectedCompilerSupport {
         const DIGEST: &str =
             "sha256:f232fc8619efbde13546b3cf6f514ac98e495f0f4de77d1ffc70dd1f79fd057b";
         const ID: &str = "wdoc_f232fc8619efbde13546b3cf6f514ac98e495f0f4de77d1ffc70dd1f79fd057b";
-        if let Some(arena)=m.representation_arena(){
-            let body=m.parse_owned_representation(&arena,saved,crate::validation_work::RepresentationKind::SourceDefinition)?;
-            codec::validate_selected_types(m,body.value())?;
+        if let Some(arena) = m.representation_arena() {
+            let body = m.parse_owned_representation(
+                &arena,
+                saved,
+                crate::validation_work::RepresentationKind::SourceDefinition,
+            )?;
+            codec::validate_selected_types(m, body.value())?;
             // Preserve canonicality-before-recipe refusal even for a saved
             // unknown schema. Both actual owning emission calls are charged;
             // no codec credit is inferred from this first equality check.
-            let canonical=m.canonical_owned_representation(&arena,body.value(),crate::validation_work::RepresentationKind::SourceDefinition)?;
-            if !same_bytes(m,saved,canonical.bytes())?{
-                return Err(Error::new("INTEGRITY_FAILURE","noncanonical saved compiler descriptor"));
+            let canonical = m.canonical_owned_representation(
+                &arena,
+                body.value(),
+                crate::validation_work::RepresentationKind::SourceDefinition,
+            )?;
+            if !same_bytes(m, saved, canonical.bytes())? {
+                return Err(Error::new(
+                    "INTEGRITY_FAILURE",
+                    "noncanonical saved compiler descriptor",
+                ));
             }
             drop(canonical);
-            let schema=body.value().get("schema").and_then(Value::as_str).unwrap_or("");
-            if !super::compiler::same_literal(m,schema,"ledger-workflow-compiler-descriptor/1")?{
-                return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","saved selected compiler recipe unavailable"));
+            let schema = body
+                .value()
+                .get("schema")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if !super::compiler::same_literal(m, schema, "ledger-workflow-compiler-descriptor/1")? {
+                return Err(Error::new(
+                    "ORIGINAL_VERIFIER_UNAVAILABLE",
+                    "saved selected compiler recipe unavailable",
+                ));
             }
-            let document=super::compiler::finish_owned_document(m,body,false)?;
-            if !same_bytes(m,document.reference().digest().as_bytes(),DIGEST.as_bytes())?
-                ||!same_bytes(m,document.reference().id().as_bytes(),ID.as_bytes())?{
-                return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","saved selected compiler recipe unavailable"));
+            let document = super::compiler::finish_owned_document(m, body, false)?;
+            if !same_bytes(
+                m,
+                document.reference().digest().as_bytes(),
+                DIGEST.as_bytes(),
+            )? || !same_bytes(m, document.reference().id().as_bytes(), ID.as_bytes())?
+            {
+                return Err(Error::new(
+                    "ORIGINAL_VERIFIER_UNAVAILABLE",
+                    "saved selected compiler recipe unavailable",
+                ));
             }
-            return Ok(Self{document:SupportDocument::Owned(document),execution_registry:None});
+            return Ok(Self {
+                document: SupportDocument::Owned(document),
+                execution_registry: None,
+            });
         }
         let body = codec::parse(m, saved, 262144)?;
         let bytes = codec::encode(m, &body, 262144)?;
@@ -238,19 +284,34 @@ impl SelectedCompilerSupport {
         }
         let reference = DefinitionRef::new("workflow-compiler-descriptor", ID, DIGEST)?;
         Ok(Self {
-            document:SupportDocument::Legacy{body,reference,bytes},
-            execution_registry:None,
+            document: SupportDocument::Legacy {
+                body,
+                reference,
+                bytes,
+            },
+            execution_registry: None,
         })
     }
     pub fn reference(&self) -> &DefinitionRef {
-        match &self.document{SupportDocument::Legacy{reference,..}=>reference,SupportDocument::Owned(doc)=>doc.reference()}
+        match &self.document {
+            SupportDocument::Legacy { reference, .. } => reference,
+            SupportDocument::Owned(doc) => doc.reference(),
+        }
     }
-    pub(super) fn execution_registry(&self)->Option<&'static str>{self.execution_registry}
+    pub(super) fn execution_registry(&self) -> Option<&'static str> {
+        self.execution_registry
+    }
     pub fn canonical_value(&self) -> &Value {
-        match &self.document{SupportDocument::Legacy{body,..}=>body,SupportDocument::Owned(doc)=>doc.canonical_value()}
+        match &self.document {
+            SupportDocument::Legacy { body, .. } => body,
+            SupportDocument::Owned(doc) => doc.canonical_value(),
+        }
     }
     pub fn canonical_bytes(&self) -> &[u8] {
-        match &self.document{SupportDocument::Legacy{bytes,..}=>bytes,SupportDocument::Owned(doc)=>doc.canonical_bytes()}
+        match &self.document {
+            SupportDocument::Legacy { bytes, .. } => bytes,
+            SupportDocument::Owned(doc) => doc.canonical_bytes(),
+        }
     }
 }
 

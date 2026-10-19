@@ -1,8 +1,8 @@
-use super::super::{CoreMeter, arithmetic, data::*, meter, records::Records, shape};
+use super::super::{arithmetic, data::*, meter, records::Records, shape, CoreMeter};
 use super::{binding, check::*};
-use crate::{Error, Result, domain::Timestamp};
+use crate::{domain::Timestamp, Error, Result};
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 pub(in crate::policy::workflow::transition_constructor) fn validate(
     m: &mut CoreMeter,
     c: &DraftContextData,
@@ -24,9 +24,15 @@ fn validate_data(
     p: &Value,
     state: &DraftStateData,
 ) -> Result<()> {
-    context(m,c)?;validate_body(m,c,p,state)
+    context(m, c)?;
+    validate_body(m, c, p, state)
 }
-fn validate_body(m:&mut CoreMeter,c:&DraftContextData,p:&Value,state:&DraftStateData)->Result<()> {
+fn validate_body(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    p: &Value,
+    state: &DraftStateData,
+) -> Result<()> {
     for name in ["activity"] {
         invoke!(qualified, m, invoke!(shape::text, m, p, name)?)?;
     }
@@ -108,16 +114,43 @@ fn validate_body(m:&mut CoreMeter,c:&DraftContextData,p:&Value,state:&DraftState
     }
     Ok(())
 }
-pub(in crate::policy::workflow::transition_constructor) fn validate_selected(m:&mut CoreMeter,c:&DraftContextData,p:&Value,state:&DraftStateData,program:&crate::policy::workflow::selected_program::SelectedProgram)->Result<()>{
-    if !program.uses_local_execution_recipe(){return validate(m,c,p,state);}
-    local_context(m,c)?;validate_body(m,c,p,state)
+pub(in crate::policy::workflow::transition_constructor) fn validate_selected(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    p: &Value,
+    state: &DraftStateData,
+    program: &crate::policy::workflow::selected_program::SelectedProgram,
+) -> Result<()> {
+    if !program.uses_local_execution_recipe() {
+        return validate(m, c, p, state);
+    }
+    local_context(m, c)?;
+    validate_body(m, c, p, state)
 }
-pub(in crate::policy::workflow::transition_constructor) fn context_selected(m:&mut CoreMeter,c:&DraftContextData,program:&crate::policy::workflow::selected_program::SelectedProgram)->Result<()>{
-    if program.uses_local_execution_recipe(){local_context(m,c)}else{context(m,c)}
+pub(in crate::policy::workflow::transition_constructor) fn context_selected(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    program: &crate::policy::workflow::selected_program::SelectedProgram,
+) -> Result<()> {
+    if program.uses_local_execution_recipe() {
+        local_context(m, c)
+    } else {
+        context(m, c)
+    }
 }
-pub(in crate::policy::workflow::transition_constructor) fn context(m:&mut CoreMeter,c:&DraftContextData)->Result<()>{context_data(m,c,true)}
-pub(in crate::policy::workflow::transition_constructor) fn local_context(m:&mut CoreMeter,c:&DraftContextData)->Result<()>{context_data(m,c,false)}
-fn context_data(m:&mut CoreMeter,c:&DraftContextData,require_observation:bool)->Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn context(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+) -> Result<()> {
+    context_data(m, c, true)
+}
+pub(in crate::policy::workflow::transition_constructor) fn local_context(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+) -> Result<()> {
+    context_data(m, c, false)
+}
+fn context_data(m: &mut CoreMeter, c: &DraftContextData, require_observation: bool) -> Result<()> {
     for value in [&c.key.logical_store_id, &c.key.operation_id, &c.actor] {
         binding::id(m, &json!(value), 128)?;
     }
@@ -132,24 +165,39 @@ fn context_data(m:&mut CoreMeter,c:&DraftContextData,require_observation:bool)->
         &c.installation_mode,
         &["real_local", "isolated_synthetic"],
     )?;
-    bounds(m, c.authorities.len(), 1, if require_observation{1}else{32})?;
-    for a in &c.authorities{
-    qualified(m, &a.source_slot)?;
-    for r in [
-        &a.enrollment_ref,
-        &a.current_state_ref,
-        &a.current_grant_ref,
-        &a.binding_ref,
-        &a.accepted_agreement_ref,
-        &a.activation_ref,
-    ] {
-        shape::reference(m, &json!(r))?;
+    bounds(
+        m,
+        c.authorities.len(),
+        1,
+        if require_observation { 1 } else { 32 },
+    )?;
+    for a in &c.authorities {
+        qualified(m, &a.source_slot)?;
+        for r in [
+            &a.enrollment_ref,
+            &a.current_state_ref,
+            &a.current_grant_ref,
+            &a.binding_ref,
+            &a.accepted_agreement_ref,
+            &a.activation_ref,
+        ] {
+            shape::reference(m, &json!(r))?;
+        }
+        if require_observation {
+            shape::reference(m, &json!(a.required_observation_ref()?))?;
+        } else if a.authority_observation_ref.is_some() {
+            return Err(super::super::shape::fail(
+                "local context cannot carry an experimental observation",
+            ));
+        }
+        binding::refs(m, &json!(a.original_grant_refs), 1, 32)?;
     }
-    if require_observation{shape::reference(m,&json!(a.required_observation_ref()?))?;}
-    else if a.authority_observation_ref.is_some(){return Err(super::super::shape::fail("local context cannot carry an experimental observation"));}
-    binding::refs(m, &json!(a.original_grant_refs), 1, 32)?;
-    }
-    bounds(m, c.source_observation_inputs.len(), 0, if require_observation{2}else{0})?;
+    bounds(
+        m,
+        c.source_observation_inputs.len(),
+        0,
+        if require_observation { 2 } else { 0 },
+    )?;
     for input in &c.source_observation_inputs {
         one_of(
             m,
@@ -417,15 +465,25 @@ pub(in crate::policy::workflow::transition_constructor) fn work_claim(
     reference: &ExactRef,
     old: &Value,
 ) -> Result<()> {
-    work_claim_namespace(m,c,reference,old,&c.canonical_economic_namespace)
+    work_claim_namespace(m, c, reference, old, &c.canonical_economic_namespace)
 }
 pub(in crate::policy::workflow::transition_constructor) fn historical_work_claim(
-    m:&mut CoreMeter,c:&DraftContextData,reference:&ExactRef,old:&Value,work:&Value,
-)->Result<()> {
-    let namespace=shape::text(m,work,"source_namespace")?;
-    work_claim_namespace(m,c,reference,old,namespace)
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    reference: &ExactRef,
+    old: &Value,
+    work: &Value,
+) -> Result<()> {
+    let namespace = shape::text(m, work, "source_namespace")?;
+    work_claim_namespace(m, c, reference, old, namespace)
 }
-fn work_claim_namespace(m:&mut CoreMeter,c:&DraftContextData,reference:&ExactRef,old:&Value,namespace:&str)->Result<()> {
+fn work_claim_namespace(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    reference: &ExactRef,
+    old: &Value,
+    namespace: &str,
+) -> Result<()> {
     shape::closed(
         m,
         old,

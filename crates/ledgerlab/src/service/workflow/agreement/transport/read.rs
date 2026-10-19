@@ -2,7 +2,7 @@
 //! Wire responses use their separate eight-MiB ceiling, not the record encoder.
 use super::*;
 use crate::{
-    service::workflow::local::{LocalWorkflowLedger, deadline},
+    service::workflow::local::{deadline, LocalWorkflowLedger},
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
 use serde::Deserialize;

@@ -3,7 +3,6 @@
 //! independently completes that exact origin before any candidate can be prepared.
 use super::super::super::selected_program::SelectedProgram;
 use super::super::{
-    CoreMeter,
     authority::{self, EconomicMode},
     body,
     data::*,
@@ -14,15 +13,16 @@ use super::super::{
     representation::InvocationToken,
     shape,
     working_value::owning_reference,
+    CoreMeter,
 };
 use super::{operands::InvocationSelection, plan::CostPlan};
 use crate::{
-    Error, Result,
     canonical::audit_arena::{AuditedValue, ExternalBufferLease},
     domain::Timestamp,
     validation_work::{self as w, RepresentationKind},
+    Error, Result,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub(super) use super::super::source_authority::SourceSelection;
 fn eq(m: &mut CoreMeter, a: &Value, b: &Value) -> Result<()> {
@@ -40,8 +40,29 @@ fn load(
     let body = r.get(m, &c.key, &reference, kind, schema)?;
     Ok((reference, body))
 }
-pub(super) fn source(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&SelectedProgram,selected:&InvocationSelection,source_slot:&str,mode:EconomicMode)->Result<SourceSelection>{
-    super::super::source_authority::source(m,r,c,program,super::super::source_authority::OriginalSourceSubject{binding_ref:&selected.binding_ref,binding:&selected.binding,terms:&selected.terms,payload:&selected.work["payload"]},source_slot,mode)
+pub(super) fn source(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    program: &SelectedProgram,
+    selected: &InvocationSelection,
+    source_slot: &str,
+    mode: EconomicMode,
+) -> Result<SourceSelection> {
+    super::super::source_authority::source(
+        m,
+        r,
+        c,
+        program,
+        super::super::source_authority::OriginalSourceSubject {
+            binding_ref: &selected.binding_ref,
+            binding: &selected.binding,
+            terms: &selected.terms,
+            payload: &selected.work["payload"],
+        },
+        source_slot,
+        mode,
+    )
 }
 
 /// Construct the cost authority DATA from the actual selected current source,

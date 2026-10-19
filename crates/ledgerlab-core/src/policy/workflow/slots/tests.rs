@@ -202,12 +202,10 @@ fn owning_role_normalizer_preserves_legacy_bytes_grammar_and_lease_lifetime() {
                 assert_eq!(arena.usage().unwrap().live_bytes, baseline);
             }
             (Err(_), Err(_)) => {
-                assert!(
-                    session
-                        .semantic_work()
-                        .visit(ValidationVisit::Constraint)
-                        .is_err()
-                );
+                assert!(session
+                    .semantic_work()
+                    .visit(ValidationVisit::Constraint)
+                    .is_err());
                 assert_eq!(arena.usage().unwrap().live_bytes, baseline);
             }
             _ => panic!("role normalization changed legacy acceptance"),

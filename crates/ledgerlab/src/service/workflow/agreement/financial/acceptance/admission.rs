@@ -54,13 +54,37 @@ pub(super) fn authority(
     operation: &'static str,
     s: &mut OriginalAuditSession,
 ) -> Result<wire::SourceRecord> {
-    let refs=wire::RefSet::new(consents.verification_refs(),consents.verification_refs().len(),true,s)?.encode(s)?;
-    authority_with_refs(input,source,refs.bytes(),root,key,actor,at,operation,s)
+    let refs = wire::RefSet::new(
+        consents.verification_refs(),
+        consents.verification_refs().len(),
+        true,
+        s,
+    )?
+    .encode(s)?;
+    authority_with_refs(
+        input,
+        source,
+        refs.bytes(),
+        root,
+        key,
+        actor,
+        at,
+        operation,
+        s,
+    )
 }
 #[allow(clippy::too_many_arguments)]
-pub(super) fn authority_with_refs(input:&AppAcceptanceInput, source:&current::source::ObservedSource,
- verification_refs:&[u8],root:&wire::SourceRecord,key:&OperationKey,actor:&str,at:&Timestamp,
- operation:&'static str,s:&mut OriginalAuditSession)->Result<wire::SourceRecord>{
+pub(super) fn authority_with_refs(
+    input: &AppAcceptanceInput,
+    source: &current::source::ObservedSource,
+    verification_refs: &[u8],
+    root: &wire::SourceRecord,
+    key: &OperationKey,
+    actor: &str,
+    at: &Timestamp,
+    operation: &'static str,
+    s: &mut OriginalAuditSession,
+) -> Result<wire::SourceRecord> {
     require(acceptance_operation(operation, s)?, "INVALID_SHAPE")?;
     let operation = wire::string(operation, s)?;
     let grant = source

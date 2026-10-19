@@ -2,11 +2,11 @@
 //! Structural counts alone are NOT a resource proof or a capacity record.
 //! Every family stays in the union regardless of unclaimed/none/zero/expired;
 //! only a separately proved permanent retirement may omit an edge upstream.
-use super::super::{CoreMeter, meter, shape};
+use super::super::{meter, shape, CoreMeter};
 use crate::{
-    Error, Result,
     canonical::audit_arena::{AuditArena, ExternalBufferLease},
     validation_work::{self as w, ArithmeticOperation, ValidationWork},
+    Error, Result,
 };
 use std::mem;
 

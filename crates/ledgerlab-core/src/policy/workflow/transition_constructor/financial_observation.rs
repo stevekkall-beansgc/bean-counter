@@ -1,12 +1,12 @@
 //! Closed financial-observation DATA and exact immediate/history partition.
 //! This validates serialized relationships, NOT authenticated prefix custody,
 //! pointer completeness, earliest introductions or the claimed audit digest.
-use super::{CoreMeter, arithmetic, body, codec, data::*, meter, records::Records, shape};
-use crate::{Result, canonical};
-use serde_json::{Value, json};
+use super::{arithmetic, body, codec, data::*, meter, records::Records, shape, CoreMeter};
+use crate::{canonical, Result};
+use serde_json::{json, Value};
+pub(super) mod audit_stream;
 pub(super) mod complete;
 pub(super) mod containment;
-pub(super) mod audit_stream;
 macro_rules! call {
     ($f:path,$m:expr,$a:expr) => {{
         let a = $a;

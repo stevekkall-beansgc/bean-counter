@@ -390,11 +390,11 @@ pub(super) fn party(
     party_with_registry(req, pending, registry, s)
 }
 pub(super) fn local_party(
-    req:&ingress::IncomingRequest,
-    pending:&current::party::produce::PendingPartyOperation,
-    s:&mut OriginalAuditSession,
-)->Result<RequestEvidence> {
-    party_with_registry(req,pending,wrappers::LOCAL_REGISTRY,s)
+    req: &ingress::IncomingRequest,
+    pending: &current::party::produce::PendingPartyOperation,
+    s: &mut OriginalAuditSession,
+) -> Result<RequestEvidence> {
+    party_with_registry(req, pending, wrappers::LOCAL_REGISTRY, s)
 }
 fn party_with_registry(
     req: &ingress::IncomingRequest,

@@ -30,7 +30,11 @@ pub(in crate::policy::workflow) fn sort<T>(
 }
 pub(super) fn check(work: &mut dyn ValidationWork, valid: bool, detail: &str) -> Result<()> {
     work.visit(Visit::Constraint)?;
-    if valid { Ok(()) } else { Err(fail(detail)) }
+    if valid {
+        Ok(())
+    } else {
+        Err(fail(detail))
+    }
 }
 pub(in crate::policy::workflow) fn compare_text(
     a: &str,

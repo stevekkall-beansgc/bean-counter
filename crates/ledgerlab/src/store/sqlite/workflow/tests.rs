@@ -2,10 +2,10 @@
 use super::*;
 use crate::store::{
     ports::{AcceptanceStore, AcceptanceTx},
-    sqlite::{SqliteStore, tests::installation},
+    sqlite::{tests::installation, SqliteStore},
 };
 use ledgerlab_core::canonical::CanonicalBytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -21,7 +21,10 @@ async fn per_kind_sql_byte_guard_accepts_four_mib_only_for_compiled_plan() {
         ("workflow-policy", 1048576, true),
         ("workflow-policy", 1048577, false),
         ("workflow-build-manifest", 1048577, false),
-    ].into_iter().enumerate() {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let result = sqlx::query("INSERT INTO workflow_documents(kind,id,digest,schema_name,canonical_bytes) VALUES(?,?,?,?,?)")
             .bind(kind).bind(format!("mechanical-byte-bound-{index}")).bind("diagnostic-only")
             .bind("diagnostic-only").bind(vec![b'a'; size]).execute(tx.conn()).await;
@@ -148,24 +151,32 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
     // This old mechanical fixture installs schema12 without migration/open.
     // Enable the existing conservative commit guard explicitly so this check
     // exercises its actual equations; this grants no origin/admission proof.
-    store.inner.workflow_guard_enabled.store(true,std::sync::atomic::Ordering::Release);
+    store
+        .inner
+        .workflow_guard_enabled
+        .store(true, std::sync::atomic::Ordering::Release);
     let p = fixture();
     // Resource failure is surfaced only after an acknowledged rollback; a
     // staged mechanical journal cannot become durable on that branch.
-    let mut failed=store.begin(deadline()).await.unwrap();
+    let mut failed = store.begin(deadline()).await.unwrap();
     failed.workflow_append(&p).await.unwrap();
-    let failed_arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-    let mut failed_session=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&failed_arena).unwrap();
+    let failed_arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+    let mut failed_session =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(
+            &failed_arena,
+        )
+        .unwrap();
     failed_session.invalidate();
-    assert!(matches!(failed.commit_with_resource_session(failed_session).await,
-        Err(crate::store::sqlite::FinancialCommitError::Resource(_))));
+    assert!(matches!(
+        failed.commit_with_resource_session(failed_session).await,
+        Err(crate::store::sqlite::FinancialCommitError::Resource(_))
+    ));
     let mut tx = store.begin(deadline()).await.unwrap();
-    assert!(
-        tx.workflow_lookup(&p.operation.identity)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(tx
+        .workflow_lookup(&p.operation.identity)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(tx.workflow_sequence().await.unwrap(), 1);
     tx.workflow_append(&p).await.unwrap();
     assert_eq!(
@@ -179,27 +190,72 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
     // Compare it against the existing writer's actual committed row dimensions;
     // a rejected prospective delta is a read and leaves those rows unchanged.
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut session =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
     assert_eq!(
-        capacity::check_with_session(tx.conn(), 0, 0, &mut session,None).await.unwrap(),
-        capacity::WorkflowMeter { operations: 1, payload_bytes: 30258 },
+        capacity::check_with_session(tx.conn(), 0, 0, &mut session, None)
+            .await
+            .unwrap(),
+        capacity::WorkflowMeter {
+            operations: 1,
+            payload_bytes: 30258
+        },
     );
     assert!(matches!(
-        capacity::check_with_session(tx.conn(), 100000, 0, &mut session,None).await,
-        Err(financial::FinancialReadError::Store(crate::store::errors::StoreError::BillingHistoryLimit)),
+        capacity::check_with_session(tx.conn(), 100000, 0, &mut session, None).await,
+        Err(financial::FinancialReadError::Store(
+            crate::store::errors::StoreError::BillingHistoryLimit
+        )),
     ));
     assert_eq!(
-        capacity::check_with_session(tx.conn(), 0, 0, &mut session,None).await.unwrap(),
-        capacity::WorkflowMeter { operations: 1, payload_bytes: 30258 },
+        capacity::check_with_session(tx.conn(), 0, 0, &mut session, None)
+            .await
+            .unwrap(),
+        capacity::WorkflowMeter {
+            operations: 1,
+            payload_bytes: 30258
+        },
     );
     // Lowered quotas do not prohibit the existing receipt or zero-growth
     // integrity check; prospective growth names the selected exhausted setting.
-    let low=Some(OperatorStorage{operations:Some(1),bytes:Some(1),deadline:None});
-    assert!(capacity::check_with_session(tx.conn(),0,0,&mut session,low).await.is_ok());
-    assert!(matches!(capacity::check_with_session(tx.conn(),1,0,&mut session,low).await,
-      Err(financial::FinancialReadError::Store(crate::store::errors::StoreError::ResourceQuota{setting:"retained_operations",limit:1,observed:2}))));
-    assert!(capacity::check_with_session(tx.conn(),100000,300000000,&mut session,Some(OperatorStorage{operations:None,bytes:None,deadline:None})).await.is_ok());
-    assert!(store.inner.workflow_guard_enabled.load(std::sync::atomic::Ordering::Acquire));
+    let low = Some(OperatorStorage {
+        operations: Some(1),
+        bytes: Some(1),
+        deadline: None,
+    });
+    assert!(
+        capacity::check_with_session(tx.conn(), 0, 0, &mut session, low)
+            .await
+            .is_ok()
+    );
+    assert!(matches!(
+        capacity::check_with_session(tx.conn(), 1, 0, &mut session, low).await,
+        Err(financial::FinancialReadError::Store(
+            crate::store::errors::StoreError::ResourceQuota {
+                setting: "retained_operations",
+                limit: 1,
+                observed: 2
+            }
+        ))
+    ));
+    assert!(capacity::check_with_session(
+        tx.conn(),
+        100000,
+        300000000,
+        &mut session,
+        Some(OperatorStorage {
+            operations: None,
+            bytes: None,
+            deadline: None
+        })
+    )
+    .await
+    .is_ok());
+    assert!(store
+        .inner
+        .workflow_guard_enabled
+        .load(std::sync::atomic::Ordering::Acquire));
     tx.commit_with_resource_session(session).await.unwrap();
     // Simulate a response lost after real durable commit. Lookup returns the
     // original retained bytes without any compiler or current policy selection.
@@ -239,14 +295,13 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
         p.operation.publication_id
     );
     let d = &p.documents[0];
-    assert!(
-        tx.workflow_document(&d.reference, "wrong-store", &p.tenant, &p.environment, None)
-            .await
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        tx.workflow_document(
+    assert!(tx
+        .workflow_document(&d.reference, "wrong-store", &p.tenant, &p.environment, None)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(tx
+        .workflow_document(
             &d.reference,
             &p.store_id,
             "wrong-tenant",
@@ -255,16 +310,14 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
         )
         .await
         .unwrap()
-        .is_none()
-    );
-    assert!(
-        tx.workflow_document(&d.reference, &p.store_id, &p.tenant, "wrong-env", None)
-            .await
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        tx.workflow_document(
+        .is_none());
+    assert!(tx
+        .workflow_document(&d.reference, &p.store_id, &p.tenant, "wrong-env", None)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(tx
+        .workflow_document(
             &d.reference,
             &p.store_id,
             &p.tenant,
@@ -273,14 +326,12 @@ async fn exact_fixture_commit_identity_and_cache_free_database_reopen() {
         )
         .await
         .unwrap()
-        .is_none()
-    );
-    assert!(
-        tx.workflow_document(&d.reference, &p.store_id, &p.tenant, &p.environment, None)
-            .await
-            .unwrap()
-            .is_some()
-    );
+        .is_none());
+    assert!(tx
+        .workflow_document(&d.reference, &p.store_id, &p.tenant, &p.environment, None)
+        .await
+        .unwrap()
+        .is_some());
     tx.rollback().await.unwrap();
     store.close().await;
     // Migration12 registration belongs to integration. This narrowly proves

@@ -2,7 +2,7 @@
 //! check. This grouping creates no authority, merged grant or completion flag.
 use super::*;
 use ledgerlab_core::policy::workflow::transition_constructor::{
-    ExactRef, NominatedSourceFrame, NominatedSourceGrant, validate_app_nominated_sources,
+    validate_app_nominated_sources, ExactRef, NominatedSourceFrame, NominatedSourceGrant,
 };
 
 struct Grants<'a> {
@@ -59,7 +59,16 @@ pub(super) fn validate(
     accepted_at: &str,
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
-    validate_selected(sources, documents, input, publication, binding, accepted_at, false, s)
+    validate_selected(
+        sources,
+        documents,
+        input,
+        publication,
+        binding,
+        accepted_at,
+        false,
+        s,
+    )
 }
 
 pub(super) fn validate_local_admission(
@@ -71,7 +80,16 @@ pub(super) fn validate_local_admission(
     accepted_at: &str,
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
-    validate_selected(sources, documents, input, publication, binding, accepted_at, true, s)
+    validate_selected(
+        sources,
+        documents,
+        input,
+        publication,
+        binding,
+        accepted_at,
+        true,
+        s,
+    )
 }
 
 fn validate_selected(
@@ -228,20 +246,40 @@ fn validate_selected(
         .map_err(core_error)?;
         if local_admission {
             require_local_source_shape(binding, &frames.values, s)?;
-            let catalog=documents.body(request_wrapper::field(binding,"slot_catalog_ref",s)?,s)?;
-            let families=request_wrapper::field(catalog,"families",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
-            s.semantic_work().arithmetic(Op::Compare,&[&families.len().into(),&1usize.into()]).map_err(core_error)?;
-            require(families.len()==1,"UNSUPPORTED_COMPOSITION")?;
-            let mut policy=None;
-            for document in publication.program().source_documents(){
-                s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-                if equal(document.reference().id(),publication.program().root_policy_ref().id(),s)? { policy=Some(document.canonical_value()); }
+            let catalog =
+                documents.body(request_wrapper::field(binding, "slot_catalog_ref", s)?, s)?;
+            let families = request_wrapper::field(catalog, "families", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            s.semantic_work()
+                .arithmetic(Op::Compare, &[&families.len().into(), &1usize.into()])
+                .map_err(core_error)?;
+            require(families.len() == 1, "UNSUPPORTED_COMPOSITION")?;
+            let mut policy = None;
+            for document in publication.program().source_documents() {
+                s.semantic_work()
+                    .visit(Visit::Element)
+                    .map_err(core_error)?;
+                if equal(
+                    document.reference().id(),
+                    publication.program().root_policy_ref().id(),
+                    s,
+                )? {
+                    policy = Some(document.canonical_value());
+                }
             }
-            let policy=policy.ok_or(ServiceError::IntegrityFailure)?;
-            let policy_families=request_wrapper::field(policy,"families",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
-            s.semantic_work().arithmetic(Op::Compare,&[&policy_families.len().into(),&1usize.into()]).map_err(core_error)?;
-            require(policy_families.len()==1,"UNSUPPORTED_COMPOSITION")?;
-            require_local_causal_clause(terms,&families[0],&policy_families[0],s)?;
+            let policy = policy.ok_or(ServiceError::IntegrityFailure)?;
+            let policy_families = request_wrapper::field(policy, "families", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            s.semantic_work()
+                .arithmetic(
+                    Op::Compare,
+                    &[&policy_families.len().into(), &1usize.into()],
+                )
+                .map_err(core_error)?;
+            require(policy_families.len() == 1, "UNSUPPORTED_COMPOSITION")?;
+            require_local_causal_clause(terms, &families[0], &policy_families[0], s)?;
         }
     }
     Ok(())
@@ -256,27 +294,71 @@ fn require_local_source_shape(
     frames: &[NominatedSourceFrame<'_>],
     s: &mut OriginalAuditSession,
 ) -> Result<()> {
-    s.semantic_work().arithmetic(Op::Compare, &[&frames.len().into(), &1usize.into()]).map_err(core_error)?;
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&frames.len().into(), &1usize.into()])
+        .map_err(core_error)?;
     require(frames.len() == 1, "UNSUPPORTED_COMPOSITION")?;
     let frame = &frames[0];
-    let first = frame.original_grants.first().ok_or(ServiceError::IntegrityFailure)?;
+    let first = frame
+        .original_grants
+        .first()
+        .ok_or(ServiceError::IntegrityFailure)?;
     let source = request_wrapper::text(first.body, "source", s)?;
     let principal = request_wrapper::text(first.body, "principal_id", s)?;
-    for nomination in request_wrapper::field(binding, "source_slots", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
-        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-        for nominee in request_wrapper::field(nomination, "sources", s)?.as_array().ok_or(ServiceError::IntegrityFailure)? {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            require(equal(nominee.as_str().ok_or(ServiceError::IntegrityFailure)?, source, s)?, "UNSUPPORTED_COMPOSITION")?;
+    for nomination in request_wrapper::field(binding, "source_slots", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?
+    {
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        for nominee in request_wrapper::field(nomination, "sources", s)?
+            .as_array()
+            .ok_or(ServiceError::IntegrityFailure)?
+        {
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            require(
+                equal(
+                    nominee.as_str().ok_or(ServiceError::IntegrityFailure)?,
+                    source,
+                    s,
+                )?,
+                "UNSUPPORTED_COMPOSITION",
+            )?;
         }
     }
     for grant in frame.original_grants {
-        s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-        require(equal(request_wrapper::text(grant.body, "source", s)?, source, s)?
-            && equal(request_wrapper::text(grant.body, "principal_id", s)?, principal, s)?, "UNSUPPORTED_COMPOSITION")?;
+        s.semantic_work()
+            .visit(Visit::Element)
+            .map_err(core_error)?;
+        require(
+            equal(request_wrapper::text(grant.body, "source", s)?, source, s)?
+                && equal(
+                    request_wrapper::text(grant.body, "principal_id", s)?,
+                    principal,
+                    s,
+                )?,
+            "UNSUPPORTED_COMPOSITION",
+        )?;
         let reference = request_wrapper::field(grant.body, "original_ceiling_ref", s)?;
-        require(equal(request_wrapper::text(reference, "kind", s)?, &frame.enrollment_ref.kind, s)?
-            && equal(request_wrapper::text(reference, "id", s)?, &frame.enrollment_ref.id, s)?
-            && equal(request_wrapper::text(reference, "digest", s)?, &frame.enrollment_ref.digest, s)?, "UNSUPPORTED_COMPOSITION")?;
+        require(
+            equal(
+                request_wrapper::text(reference, "kind", s)?,
+                &frame.enrollment_ref.kind,
+                s,
+            )? && equal(
+                request_wrapper::text(reference, "id", s)?,
+                &frame.enrollment_ref.id,
+                s,
+            )? && equal(
+                request_wrapper::text(reference, "digest", s)?,
+                &frame.enrollment_ref.digest,
+                s,
+            )?,
+            "UNSUPPORTED_COMPOSITION",
+        )?;
     }
     Ok(())
 }
@@ -284,26 +366,58 @@ fn require_local_source_shape(
 // Existing slot projection already validates clause shape/mode/nomination and
 // exact app terms. NEW admission also requires the original family clause;
 // the compiler's policy declaration never supplies missing assent.
-fn require_local_causal_clause(terms:&Value,family:&Value,policy_family:&Value,s:&mut OriginalAuditSession)->Result<()> {
-    let corrector=request_wrapper::text(policy_family,"correction_source_slot",s)?;
-    let selector=request_wrapper::field(policy_family,"selector",s)?;
-    let work=request_wrapper::text(selector,"target_activity",s)?;
-    let outcome=request_wrapper::text(policy_family,"trigger_activity",s)?;
-    let allowed=request_wrapper::field(terms,"allowed_activities",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
-    for expected in [work,outcome] {
-        let mut found=false;
+fn require_local_causal_clause(
+    terms: &Value,
+    family: &Value,
+    policy_family: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let corrector = request_wrapper::text(policy_family, "correction_source_slot", s)?;
+    let selector = request_wrapper::field(policy_family, "selector", s)?;
+    let work = request_wrapper::text(selector, "target_activity", s)?;
+    let outcome = request_wrapper::text(policy_family, "trigger_activity", s)?;
+    let allowed = request_wrapper::field(terms, "allowed_activities", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    for expected in [work, outcome] {
+        let mut found = false;
         for actual in allowed {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            found |= equal(actual.as_str().ok_or(ServiceError::IntegrityFailure)?,expected,s)?;
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            found |= equal(
+                actual.as_str().ok_or(ServiceError::IntegrityFailure)?,
+                expected,
+                s,
+            )?;
         }
-        require(found,"UNSUPPORTED_COMPOSITION")?;
+        require(found, "UNSUPPORTED_COMPOSITION")?;
     }
-    let clauses=request_wrapper::field(terms,"causal_reversal_clauses",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
-    s.semantic_work().arithmetic(Op::Compare,&[&clauses.len().into(),&1usize.into()]).map_err(core_error)?;
-    require(clauses.len()==1,"UNSUPPORTED_COMPOSITION")?;
-    let clause=&clauses[0];
-    for (field,expected) in [("family_slot",request_wrapper::text(family,"slot_id",s)?),("root_component_slot",request_wrapper::text(family,"target_component_slot",s)?),("correction_source_slot",corrector),("mode","exact_inverse_and_permanent_close"),("standalone_deadline_effect","does_not_expire_preaccepted_causal_reversal")] {
-        require(equal(request_wrapper::text(clause,field,s)?,expected,s)?,"UNSUPPORTED_COMPOSITION")?;
+    let clauses = request_wrapper::field(terms, "causal_reversal_clauses", s)?
+        .as_array()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    s.semantic_work()
+        .arithmetic(Op::Compare, &[&clauses.len().into(), &1usize.into()])
+        .map_err(core_error)?;
+    require(clauses.len() == 1, "UNSUPPORTED_COMPOSITION")?;
+    let clause = &clauses[0];
+    for (field, expected) in [
+        ("family_slot", request_wrapper::text(family, "slot_id", s)?),
+        (
+            "root_component_slot",
+            request_wrapper::text(family, "target_component_slot", s)?,
+        ),
+        ("correction_source_slot", corrector),
+        ("mode", "exact_inverse_and_permanent_close"),
+        (
+            "standalone_deadline_effect",
+            "does_not_expire_preaccepted_causal_reversal",
+        ),
+    ] {
+        require(
+            equal(request_wrapper::text(clause, field, s)?, expected, s)?,
+            "UNSUPPORTED_COMPOSITION",
+        )?;
     }
     Ok(())
 }
@@ -314,44 +428,110 @@ mod local_admission_tests {
     use serde_json::json;
     #[test]
     fn local_admission_requires_original_exact_family_causal_assent() {
-        let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-        let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let family=json!({"slot_id":"family","target_component_slot":"service"});
-        let policy=json!({"selector":{"target_activity":"complete"},"trigger_activity":"assess","correction_source_slot":"assessor"});
-        let terms=json!({"allowed_activities":["assess","complete"],"causal_reversal_clauses":[{"family_slot":"family","root_component_slot":"service","correction_source_slot":"assessor","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}]});
-        require_local_causal_clause(&terms,&family,&policy,&mut s).unwrap();
-        assert_eq!(require_local_causal_clause(&json!({"allowed_activities":["assess","complete"],"causal_reversal_clauses":[]}),&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
-        let mut wrong=terms.clone();wrong["causal_reversal_clauses"][0]["correction_source_slot"]=json!("other");
-        assert_eq!(require_local_causal_clause(&wrong,&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
-        let mut work_only=terms.clone();work_only["allowed_activities"]=json!(["complete"]);
-        assert_eq!(require_local_causal_clause(&work_only,&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
-        wrong=terms;wrong["causal_reversal_clauses"][0]["root_component_slot"]=json!("app-cost");
-        assert_eq!(require_local_causal_clause(&wrong,&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let family = json!({"slot_id":"family","target_component_slot":"service"});
+        let policy = json!({"selector":{"target_activity":"complete"},"trigger_activity":"assess","correction_source_slot":"assessor"});
+        let terms = json!({"allowed_activities":["assess","complete"],"causal_reversal_clauses":[{"family_slot":"family","root_component_slot":"service","correction_source_slot":"assessor","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}]});
+        require_local_causal_clause(&terms, &family, &policy, &mut s).unwrap();
+        assert_eq!(
+            require_local_causal_clause(
+                &json!({"allowed_activities":["assess","complete"],"causal_reversal_clauses":[]}),
+                &family,
+                &policy,
+                &mut s
+            ),
+            Err(reject("UNSUPPORTED_COMPOSITION"))
+        );
+        let mut wrong = terms.clone();
+        wrong["causal_reversal_clauses"][0]["correction_source_slot"] = json!("other");
+        assert_eq!(
+            require_local_causal_clause(&wrong, &family, &policy, &mut s),
+            Err(reject("UNSUPPORTED_COMPOSITION"))
+        );
+        let mut work_only = terms.clone();
+        work_only["allowed_activities"] = json!(["complete"]);
+        assert_eq!(
+            require_local_causal_clause(&work_only, &family, &policy, &mut s),
+            Err(reject("UNSUPPORTED_COMPOSITION"))
+        );
+        wrong = terms;
+        wrong["causal_reversal_clauses"][0]["root_component_slot"] = json!("app-cost");
+        assert_eq!(
+            require_local_causal_clause(&wrong, &family, &policy, &mut s),
+            Err(reject("UNSUPPORTED_COMPOSITION"))
+        );
     }
 
     #[test]
     fn local_admission_uses_nominated_frame_not_accepting_actor() {
-        let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-        let enrollment=ExactRef{kind:"workflow-source-enrollment".into(),id:format!("wdoc_{}","a".repeat(64)),digest:format!("sha256:{}","a".repeat(64))};
-        let grant_ref=ExactRef{kind:"workflow-source-grant".into(),id:format!("wdoc_{}","b".repeat(64)),digest:format!("sha256:{}","b".repeat(64))};
-        let empty=json!({});
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let enrollment = ExactRef {
+            kind: "workflow-source-enrollment".into(),
+            id: format!("wdoc_{}", "a".repeat(64)),
+            digest: format!("sha256:{}", "a".repeat(64)),
+        };
+        let grant_ref = ExactRef {
+            kind: "workflow-source-grant".into(),
+            id: format!("wdoc_{}", "b".repeat(64)),
+            digest: format!("sha256:{}", "b".repeat(64)),
+        };
+        let empty = json!({});
         // Production calls this support check only after graph/origin validation.
         // A different accepting administrator is intentionally not an operand.
-        let grant=json!({"source":"future-worker","principal_id":"worker-principal","original_ceiling_ref":enrollment});
-        let grants=[NominatedSourceGrant{reference:&grant_ref,body:&grant}];
-        let frame=NominatedSourceFrame{enrollment_ref:&enrollment,enrollment:&empty,current_state_ref:&enrollment,current_state:&empty,current_grant_ref:&grant_ref,current_grant:&grant,original_grants:&grants};
-        let binding=json!({"source_slots":[{"name":"worker","sources":["future-worker"]},{"name":"assessor","sources":["future-worker"]}]});
-        let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        require_local_source_shape(&binding,std::slice::from_ref(&frame),&mut s).unwrap();
-        let mismatched=json!({"source_slots":[{"name":"assessor","sources":["other-source"]}]});
-        assert_eq!(require_local_source_shape(&mismatched,std::slice::from_ref(&frame),&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
-        let other_principal=json!({"source":"future-worker","principal_id":"another-principal","original_ceiling_ref":enrollment});
-        let mixed=[NominatedSourceGrant{reference:&grant_ref,body:&grant},NominatedSourceGrant{reference:&grant_ref,body:&other_principal}];
-        let mixed_frame=NominatedSourceFrame{original_grants:&mixed,..frame};
-        assert_eq!(require_local_source_shape(&binding,std::slice::from_ref(&mixed_frame),&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
-        let wrong_enrollment=json!({"source":"future-worker","principal_id":"worker-principal","original_ceiling_ref":{"kind":enrollment.kind,"id":enrollment.id,"digest":format!("sha256:{}","c".repeat(64))}});
-        let wrong=[NominatedSourceGrant{reference:&grant_ref,body:&wrong_enrollment}];
-        let wrong_frame=NominatedSourceFrame{original_grants:&wrong,..mixed_frame};
-        assert_eq!(require_local_source_shape(&binding,std::slice::from_ref(&wrong_frame),&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
+        let grant = json!({"source":"future-worker","principal_id":"worker-principal","original_ceiling_ref":enrollment});
+        let grants = [NominatedSourceGrant {
+            reference: &grant_ref,
+            body: &grant,
+        }];
+        let frame = NominatedSourceFrame {
+            enrollment_ref: &enrollment,
+            enrollment: &empty,
+            current_state_ref: &enrollment,
+            current_state: &empty,
+            current_grant_ref: &grant_ref,
+            current_grant: &grant,
+            original_grants: &grants,
+        };
+        let binding = json!({"source_slots":[{"name":"worker","sources":["future-worker"]},{"name":"assessor","sources":["future-worker"]}]});
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        require_local_source_shape(&binding, std::slice::from_ref(&frame), &mut s).unwrap();
+        let mismatched = json!({"source_slots":[{"name":"assessor","sources":["other-source"]}]});
+        assert_eq!(
+            require_local_source_shape(&mismatched, std::slice::from_ref(&frame), &mut s),
+            Err(reject("UNSUPPORTED_COMPOSITION"))
+        );
+        let other_principal = json!({"source":"future-worker","principal_id":"another-principal","original_ceiling_ref":enrollment});
+        let mixed = [
+            NominatedSourceGrant {
+                reference: &grant_ref,
+                body: &grant,
+            },
+            NominatedSourceGrant {
+                reference: &grant_ref,
+                body: &other_principal,
+            },
+        ];
+        let mixed_frame = NominatedSourceFrame {
+            original_grants: &mixed,
+            ..frame
+        };
+        assert_eq!(
+            require_local_source_shape(&binding, std::slice::from_ref(&mixed_frame), &mut s),
+            Err(reject("UNSUPPORTED_COMPOSITION"))
+        );
+        let wrong_enrollment = json!({"source":"future-worker","principal_id":"worker-principal","original_ceiling_ref":{"kind":enrollment.kind,"id":enrollment.id,"digest":format!("sha256:{}","c".repeat(64))}});
+        let wrong = [NominatedSourceGrant {
+            reference: &grant_ref,
+            body: &wrong_enrollment,
+        }];
+        let wrong_frame = NominatedSourceFrame {
+            original_grants: &wrong,
+            ..mixed_frame
+        };
+        assert_eq!(
+            require_local_source_shape(&binding, std::slice::from_ref(&wrong_frame), &mut s),
+            Err(reject("UNSUPPORTED_COMPOSITION"))
+        );
     }
 }

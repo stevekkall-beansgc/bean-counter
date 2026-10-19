@@ -5,8 +5,8 @@ use crate::store::errors::StoreError;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tokio::time::timeout_at;
-pub(crate) mod capacity;
 pub(crate) mod agreement;
+pub(crate) mod capacity;
 pub(crate) mod financial;
 
 impl super::SqliteStore {
@@ -115,9 +115,12 @@ impl SqliteTx {
     ) -> Result<capacity::WorkflowMeter, StoreError> {
         let prior = self.failed;
         self.failed = true;
-        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), capacity::check(self.conn(), 0, 0))
-            .await
-            .map_err(|_| self.workflow_timeout_error())?;
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
+            capacity::check(self.conn(), 0, 0),
+        )
+        .await
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = prior;
         }
@@ -153,7 +156,13 @@ impl SqliteTx {
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if version != 12 && version != 13 && version != 14 && version != 15 && version != 16 && version != 17 {
+        if version != 12
+            && version != 13
+            && version != 14
+            && version != 15
+            && version != 16
+            && version != 17
+        {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -185,7 +194,9 @@ impl SqliteTx {
             }
             Ok(Some(kind))
         }).await.map_err(|_| self.workflow_timeout_error())?;
-        if result.is_ok() { self.failed = prior; }
+        if result.is_ok() {
+            self.failed = prior;
+        }
         result
     }
     pub(crate) async fn workflow_lookup(
@@ -295,9 +306,12 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned workflow transaction"));
         }
         self.failed = true;
-        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.workflow_append_inner(p))
-            .await
-            .map_err(|_| self.workflow_timeout_error())?;
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
+            self.workflow_append_inner(p),
+        )
+        .await
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = false;
         }
@@ -372,8 +386,8 @@ impl SqliteTx {
                 }
             }
         }
-        let limits=self.workflow_operator;
-        let meter = capacity::check_with_limits(self.conn(), 1, additional,limits).await?;
+        let limits = self.workflow_operator;
+        let meter = capacity::check_with_limits(self.conn(), 1, additional, limits).await?;
         if o.sequence != meter.operations + 1 {
             return Err(StoreError::Integrity("workflow sequence gap"));
         }
@@ -464,6 +478,18 @@ impl SqliteTx {
 #[cfg(test)]
 pub(crate) mod tests;
 
-#[derive(Clone,Copy)]
-pub(crate) struct OperatorStorage {pub operations:Option<i64>,pub bytes:Option<i64>,pub deadline:Option<tokio::time::Instant>}
-pub(crate) async fn until<D:Into<Option<tokio::time::Instant>>,F:std::future::Future>(deadline:D,future:F)->Result<F::Output,tokio::time::error::Elapsed>{match deadline.into(){Some(d)=>tokio::time::timeout_at(d,future).await,None=>Ok(future.await)}}
+#[derive(Clone, Copy)]
+pub(crate) struct OperatorStorage {
+    pub operations: Option<i64>,
+    pub bytes: Option<i64>,
+    pub deadline: Option<tokio::time::Instant>,
+}
+pub(crate) async fn until<D: Into<Option<tokio::time::Instant>>, F: std::future::Future>(
+    deadline: D,
+    future: F,
+) -> Result<F::Output, tokio::time::error::Elapsed> {
+    match deadline.into() {
+        Some(d) => tokio::time::timeout_at(d, future).await,
+        None => Ok(future.await),
+    }
+}

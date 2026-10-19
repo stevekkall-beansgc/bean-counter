@@ -1,16 +1,15 @@
 //! Production pure engines perform every monetary calculation. Saved results are
 //! comparison evidence only; the example never deserializes an outcome Decision.
 use super::{
-    CLASSIFICATION, Result,
     input::{self, Input, Prepared},
-    require,
+    require, Result, CLASSIFICATION,
 };
 use ledgerlab_core::{
     domain::{self, Event},
-    money::{Money, add_atoms},
+    money::{add_atoms, Money},
     policy::chaining::{self as c, outcomes as o},
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub struct Execution {
     pub base_bytes: Vec<u8>,

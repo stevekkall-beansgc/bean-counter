@@ -3,10 +3,10 @@
 pub(crate) mod economic_meter;
 mod original_audit;
 pub(crate) mod resource_limits;
-pub use resource_limits::ResourceLimits;
 pub use original_audit::{
     OriginalAuditSession, OriginalAuditUsage, RepresentationKind, ResourceVectorUsage,
 };
+pub use resource_limits::ResourceLimits;
 
 use crate::Result;
 // Same existing operand type across the pure/facade callback boundary.

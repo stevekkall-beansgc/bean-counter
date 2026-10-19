@@ -3,19 +3,21 @@
 //! enters replacement pricing. Authority/capacity completes in the enclosing
 //! factory, never through an expected-output or caller-verified parameter.
 use super::super::super::selected_program::SelectedProgram;
+use super::super::cost_postings::{
+    amount, exact_inverse, operation_key as key, original_cost_posting, scalar, OriginalCostPosting,
+};
 use super::super::{
-    CoreMeter, arithmetic, body, data::*, emitted_record::ConstructedEnvelope, meter, pricing,
-    record_body::RecordBody, records::Records, shape, working_value::owning_reference,
+    arithmetic, body, data::*, emitted_record::ConstructedEnvelope, meter, pricing,
+    record_body::RecordBody, records::Records, shape, working_value::owning_reference, CoreMeter,
 };
 use super::{plan::CostPlan, records};
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, AuditedValue, ExternalBufferLease},
     validation_work::{self as w, ArithmeticOperation, RepresentationKind, ValidationWork},
+    Result,
 };
 use num_bigint::BigInt;
-use serde_json::{Value, json};
-use super::super::cost_postings::{scalar,amount,operation_key as key,exact_inverse,original_cost_posting,OriginalCostPosting};
+use serde_json::{json, Value};
 
 pub(super) struct CostEvaluation {
     pub new_claim: Option<ConstructedEnvelope>,
@@ -469,28 +471,47 @@ pub(super) fn evaluate(
         .map_err(|_| shape::fail("cost active capacity"))?;
     // Reverse the original actual posting order, never arbitrary Ref/JCS order.
     // verify_active returns the original compiled instruction order.
-    for (reference,prior,price) in old.iter().rev(){
+    for (reference, prior, price) in old.iter().rev() {
         m.visit("cost.inverse_original_action")?;
-        let inverse=exact_inverse(m,c,reference,prior,price,&plan.next_revision)?;
-        let action=inverse.action.ok_or_else(||shape::fail("missing exact inverse posting"))?;
-        steps.push(inverse.step);actions.push(action);
+        let inverse = exact_inverse(m, c, reference, prior, price, &plan.next_revision)?;
+        let action = inverse
+            .action
+            .ok_or_else(|| shape::fail("missing exact inverse posting"))?;
+        steps.push(inverse.step);
+        actions.push(action);
     }
     for price in &prices {
         m.visit("cost.original_price_posting")?;
-        let mapping=price_slot(m,&inst,price)?;
-        let slot=shape::text(m,mapping,"slot_id")?;
-        let component_map=shape::array(m,&inst,"component_map")?;
-        let root_mapping=shape::named(m,component_map,"template_key",&price.root_key)?;
-        let catalog_rows=shape::array(m,&catalog,"components")?;
-        let component=shape::named(m,catalog_rows,"slot_id",slot)?;
-        let (terms_ref,terms,role_ref)=posting_terms(m,r,c,plan,price,component)?;
-        let posting=original_cost_posting(m,c,OriginalCostPosting{
-            binding:&plan.selected.binding,original_work_claim:&plan.original_work_claim_ref,
-            component_slot:&mapping["slot_id"],root_slot:&root_mapping["slot_id"],book:&component["book"],
-            terms_ref:&terms_ref,terms:&terms,role_ref:&role_ref,decision_id:&plan.decision_id,
-            revision:&plan.next_revision,replacement:plan.current.is_some(),basis_refs:None,
-        },price)?;
-        if let Some(action)=posting.action{active.push(action.reference.clone());actions.push(action);}
+        let mapping = price_slot(m, &inst, price)?;
+        let slot = shape::text(m, mapping, "slot_id")?;
+        let component_map = shape::array(m, &inst, "component_map")?;
+        let root_mapping = shape::named(m, component_map, "template_key", &price.root_key)?;
+        let catalog_rows = shape::array(m, &catalog, "components")?;
+        let component = shape::named(m, catalog_rows, "slot_id", slot)?;
+        let (terms_ref, terms, role_ref) = posting_terms(m, r, c, plan, price, component)?;
+        let posting = original_cost_posting(
+            m,
+            c,
+            OriginalCostPosting {
+                binding: &plan.selected.binding,
+                original_work_claim: &plan.original_work_claim_ref,
+                component_slot: &mapping["slot_id"],
+                root_slot: &root_mapping["slot_id"],
+                book: &component["book"],
+                terms_ref: &terms_ref,
+                terms: &terms,
+                role_ref: &role_ref,
+                decision_id: &plan.decision_id,
+                revision: &plan.next_revision,
+                replacement: plan.current.is_some(),
+                basis_refs: None,
+            },
+            price,
+        )?;
+        if let Some(action) = posting.action {
+            active.push(action.reference.clone());
+            actions.push(action);
+        }
         steps.push(posting.step);
     }
     let subject = owning_reference(m, &arena, &claim_ref)?;

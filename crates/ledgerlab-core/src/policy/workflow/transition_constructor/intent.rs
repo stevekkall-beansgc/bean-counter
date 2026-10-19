@@ -2,12 +2,12 @@
 //! policy, clock, grants, pricing, saved money or new economic child is consulted.
 //! The host must first authenticate/recompute the original candidate and then
 //! compare the returned normalized bytes before attempting fresh selection.
-use super::super::{FactSchema, selected_program::SelectedProgram};
-use super::{CoreMeter, codec, owned_facts, shape};
+use super::super::{selected_program::SelectedProgram, FactSchema};
+use super::{codec, owned_facts, shape, CoreMeter};
 use crate::{
-    Error, Result,
     canonical::audit_arena::{AuditedBytes, AuditedValue},
     validation_work::{self as w, ArithmeticOperation, OriginalAuditSession, RepresentationKind},
+    Error, Result,
 };
 use serde_json::Value;
 use std::mem;
@@ -68,31 +68,32 @@ fn multiply(m: &mut CoreMeter, a: usize, b: usize) -> Result<usize> {
 }
 /// SAME insertion ordering as the constructor's named-proof and nomination
 /// normalization, with owned key bytes and moves instead of Value clones.
-fn sort_set(payload:&mut AuditedValue,key:&str,field_key:bool,session:&mut OriginalAuditSession)->Result<()> {
-    let arena=session.arena().shared_handle();
-    sort_owned_set(payload,key,field_key,session.meter_mut(),&arena)
+fn sort_set(
+    payload: &mut AuditedValue,
+    key: &str,
+    field_key: bool,
+    session: &mut OriginalAuditSession,
+) -> Result<()> {
+    let arena = session.arena().shared_handle();
+    sort_owned_set(payload, key, field_key, session.meter_mut(), &arena)
 }
 pub(super) fn sort_owned_set(
     payload: &mut AuditedValue,
     key: &str,
     field_key: bool,
-    m:&mut CoreMeter,
-    arena:&crate::canonical::audit_arena::AuditArena,
+    m: &mut CoreMeter,
+    arena: &crate::canonical::audit_arena::AuditArena,
 ) -> Result<()> {
     let items = shape::array(m, payload.value(), key)?;
     let n = items.len();
-    let vector = multiply(
-        m,
-        n,
-        mem::size_of::<(usize, AuditedBytes)>(),
-    )?;
+    let vector = multiply(m, n, mem::size_of::<(usize, AuditedBytes)>())?;
     let permutation = multiply(m, n, mem::size_of::<usize>())?;
     let bytes = w::usize_add(m, vector, permutation)?;
     let headers = multiply(m, 2, mem::size_of::<Vec<usize>>())?;
     let bytes = w::usize_add(m, bytes, headers)?;
     // Declare the lease before owned vectors; reverse local drop order destroys
     // all metadata/key owners first on every error and successful return.
-    let _metadata = arena.reserve_external_payload(bytes,m)?;
+    let _metadata = arena.reserve_external_payload(bytes, m)?;
     // Vector controls and first insert/zero initialization must remain paid
     // even when an allocation or a later member refuses. Moves still pay
     // their separate actual scans/writes below.
@@ -108,7 +109,8 @@ pub(super) fn sort_owned_set(
         } else {
             item
         };
-        let bytes = m.canonical_owned_representation(arena,value, RepresentationKind::OriginalRequest)?;
+        let bytes =
+            m.canonical_owned_representation(arena, value, RepresentationKind::OriginalRequest)?;
         let mut at = ordered.len();
         for (i, (_, prior)) in ordered.iter().enumerate() {
             m.visit("intent.normalized_set_compare")?;
@@ -187,34 +189,84 @@ fn normalized(
         // these complete object sets. No pricing or current authority occurs.
         sort_set(incoming, "dependent_reversals", false, session)?;
         sort_set(incoming, "family_closures", false, session)?;
-    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-finalize/2")?
-        ||shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-correct/2")?
-        ||shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-app-observe/1")?
-        ||shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-app-cost-attest/1")? {
-        super::app_cost::normalize_intent(program,incoming,session.meter_mut())?;
-    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-finalize/1")?
-        || shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-cost-correct/1")? {
-        if !program.uses_owner_local_cost_recipe(){return Err(conflict());}
-        let mut value=super::working_value::WorkingValue::copy(session.meter_mut(),incoming.value())?;
-        super::cost::normalize_request(session.meter_mut(),&mut value)?;
-        *incoming=value.into_owned()?;
-    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-outcome-close/2")? {
-        if !program.uses_family_close_recipe(){return Err(conflict());}
-        let revision=shape::text(session.meter_mut(),incoming.value(),"expected_revision")?;
-        let revision=super::super::facts::counter_with_work(revision,session.meter_mut())?;
-        if !w::compare(session.meter_mut(),revision,0u64)?.is_gt(){return Err(shape::fail("positive close intent revision"));}
-        let arena=session.arena().shared_handle();
-        let value=super::close::counter_value(session.meter_mut(),&arena,revision)?;
-        incoming.replace_existing_owned("expected_revision",value,session.meter_mut())?;
-        sort_set(incoming,"evidence_refs",false,session)?;
-    } else if shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-fact-attest/1")?
-        || shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-family-close-attest/1")? {
-        let close=shape::same_text(session.meter_mut(),old_schema,"ledger-workflow-family-close-attest/1")?;
-        if close && !program.uses_family_close_recipe(){return Err(conflict());}
-        let att=shape::field(session.meter_mut(),incoming.value(),"attestation")?;
-        let arena=session.arena().shared_handle();
-        let normalized=super::retention::normalize_assertion(session.meter_mut(),&arena,program,att,close)?;
-        incoming.replace_existing_owned("attestation",normalized,session.meter_mut())?;
+    } else if shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-cost-finalize/2",
+    )? || shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-cost-correct/2",
+    )? || shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-app-observe/1",
+    )? || shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-app-cost-attest/1",
+    )? {
+        super::app_cost::normalize_intent(program, incoming, session.meter_mut())?;
+    } else if shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-cost-finalize/1",
+    )? || shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-cost-correct/1",
+    )? {
+        if !program.uses_owner_local_cost_recipe() {
+            return Err(conflict());
+        }
+        let mut value =
+            super::working_value::WorkingValue::copy(session.meter_mut(), incoming.value())?;
+        super::cost::normalize_request(session.meter_mut(), &mut value)?;
+        *incoming = value.into_owned()?;
+    } else if shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-outcome-close/2",
+    )? {
+        if !program.uses_family_close_recipe() {
+            return Err(conflict());
+        }
+        let revision = shape::text(session.meter_mut(), incoming.value(), "expected_revision")?;
+        let revision = super::super::facts::counter_with_work(revision, session.meter_mut())?;
+        if !w::compare(session.meter_mut(), revision, 0u64)?.is_gt() {
+            return Err(shape::fail("positive close intent revision"));
+        }
+        let arena = session.arena().shared_handle();
+        let value = super::close::counter_value(session.meter_mut(), &arena, revision)?;
+        incoming.replace_existing_owned("expected_revision", value, session.meter_mut())?;
+        sort_set(incoming, "evidence_refs", false, session)?;
+    } else if shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-fact-attest/1",
+    )? || shape::same_text(
+        session.meter_mut(),
+        old_schema,
+        "ledger-workflow-family-close-attest/1",
+    )? {
+        let close = shape::same_text(
+            session.meter_mut(),
+            old_schema,
+            "ledger-workflow-family-close-attest/1",
+        )?;
+        if close && !program.uses_family_close_recipe() {
+            return Err(conflict());
+        }
+        let att = shape::field(session.meter_mut(), incoming.value(), "attestation")?;
+        let arena = session.arena().shared_handle();
+        let normalized = super::retention::normalize_assertion(
+            session.meter_mut(),
+            &arena,
+            program,
+            att,
+            close,
+        )?;
+        incoming.replace_existing_owned("attestation", normalized, session.meter_mut())?;
     } else if !shape::same_text(
         session.meter_mut(),
         old_schema,
@@ -258,12 +310,27 @@ pub fn normalize_saved_intent(
 /// verifies the actual saved local10 normalized original, descriptor/registry,
 /// committed operation/manifest/receipt/results and targeted original program
 /// and terms. This DATA helper does not rerate or grant current mutation rights.
-pub fn normalize_local_saved_intent(program:&SelectedProgram,original_normalized_payload:&[u8],incoming_raw:&[u8],session:&mut OriginalAuditSession)->Result<AuditedBytes>{
- let result=(||{
-  session.check_cancelled()?;program.require_attempt_owner(session.meter_mut())?;
-  if !program.uses_local_execution_recipe(){return Err(Error::new("ORIGINAL_VERIFIER_UNAVAILABLE","local original intent requires exact original local program"));}
-  normalize_saved_intent(program,original_normalized_payload,incoming_raw,session)
- })();if result.is_err(){session.invalidate();}result
+pub fn normalize_local_saved_intent(
+    program: &SelectedProgram,
+    original_normalized_payload: &[u8],
+    incoming_raw: &[u8],
+    session: &mut OriginalAuditSession,
+) -> Result<AuditedBytes> {
+    let result = (|| {
+        session.check_cancelled()?;
+        program.require_attempt_owner(session.meter_mut())?;
+        if !program.uses_local_execution_recipe() {
+            return Err(Error::new(
+                "ORIGINAL_VERIFIER_UNAVAILABLE",
+                "local original intent requires exact original local program",
+            ));
+        }
+        normalize_saved_intent(program, original_normalized_payload, incoming_raw, session)
+    })();
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
 }
 
 #[cfg(test)]
@@ -272,7 +339,7 @@ mod tests {
     use crate::{
         canonical::{self, audit_arena::AuditArena},
         policy::workflow::selected_program::{
-            SelectedCompilerSupport, SelectedSourceInput, compile_selected_program,
+            compile_selected_program, SelectedCompilerSupport, SelectedSourceInput,
         },
     };
     use serde_json::json;
@@ -356,15 +423,13 @@ mod tests {
         incoming["fact_schema_ref"] = reference.clone();
         incoming["facts"][field] = json!("-0");
         let invalid_raw = canonical::CanonicalBytes::from_value(&incoming).unwrap();
-        assert!(
-            normalize_saved_intent(
-                &p,
-                original.as_slice(),
-                invalid_raw.as_slice(),
-                &mut invalid
-            )
-            .is_err()
-        );
+        assert!(normalize_saved_intent(
+            &p,
+            original.as_slice(),
+            invalid_raw.as_slice(),
+            &mut invalid
+        )
+        .is_err());
         assert_eq!(arena.usage().unwrap().live_bytes, baseline);
     }
     #[test]

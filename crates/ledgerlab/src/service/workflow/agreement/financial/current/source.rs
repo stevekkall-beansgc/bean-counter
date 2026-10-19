@@ -4,7 +4,7 @@
 //! ceiling/subset/rights checks remain separate mandatory obligations.
 use super::*;
 use crate::store::sqlite::workflow::financial::{RetainedDocument, SourceHeadLocator};
-use ledgerlab_core::policy::workflow::{AgreementRef, transition_constructor::EconomicRecordView};
+use ledgerlab_core::policy::workflow::{transition_constructor::EconomicRecordView, AgreementRef};
 use sha2::{Digest, Sha256};
 pub(in super::super) struct SourceRecord {
     parsed: AuditedValue,
@@ -55,9 +55,14 @@ impl ObservedSource {
     pub(in super::super) fn current_grant_body(&self) -> Option<&Value> {
         self.grant.as_ref().map(SourceRecord::body)
     }
-    pub(in super::super) fn record_refs(&self)->impl Iterator<Item=&ExactRef> {
-        [&self.original.reference,&self.enrollment.reference,&self.state.reference].into_iter()
-            .chain(self.grant.iter().map(|r|&r.reference))
+    pub(in super::super) fn record_refs(&self) -> impl Iterator<Item = &ExactRef> {
+        [
+            &self.original.reference,
+            &self.enrollment.reference,
+            &self.state.reference,
+        ]
+        .into_iter()
+        .chain(self.grant.iter().map(|r| &r.reference))
     }
     pub(in super::super) fn records(&self) -> impl Iterator<Item = EconomicRecordView<'_>> {
         [&self.original, &self.enrollment, &self.state]
@@ -177,10 +182,10 @@ async fn load(
         .await
         .map_err(prefix::read_error)?
         .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
-    load_stored(key,stored, reference, lease, schema, s)
+    load_stored(key, stored, reference, lease, schema, s)
 }
 fn load_stored(
-    key:&OperationKey,
+    key: &OperationKey,
     stored: RetainedDocument,
     reference: ExactRef,
     lease: ExternalBufferLease,
@@ -204,13 +209,29 @@ fn load_stored(
     let schema = s
         .canonical_representation(schema_value, RepresentationKind::SourceDefinition)
         .map_err(core_error)?;
-    if ["workflow-source-state","workflow-accepted-agreement","workflow-head-transition","workflow-activation"].contains(&reference.kind.as_str()) {
+    if [
+        "workflow-source-state",
+        "workflow-accepted-agreement",
+        "workflow-head-transition",
+        "workflow-activation",
+    ]
+    .contains(&reference.kind.as_str())
+    {
         let kind = super::super::wire::string(&reference.kind, s)?;
-        let scope_value=serde_json::to_value(&key.scope).map_err(|_|ServiceError::IntegrityFailure)?;
-        let scope_value=if reference.kind=="workflow-source-state" {
-            super::super::request_wrapper::field(super::super::request_wrapper::field(parsed.value(),"operation_key",s)?,"scope",s)?
-        }else{&scope_value};
-        let scope=s.canonical_representation(scope_value,RepresentationKind::SourceDefinition).map_err(core_error)?;
+        let scope_value =
+            serde_json::to_value(&key.scope).map_err(|_| ServiceError::IntegrityFailure)?;
+        let scope_value = if reference.kind == "workflow-source-state" {
+            super::super::request_wrapper::field(
+                super::super::request_wrapper::field(parsed.value(), "operation_key", s)?,
+                "scope",
+                s,
+            )?
+        } else {
+            &scope_value
+        };
+        let scope = s
+            .canonical_representation(scope_value, RepresentationKind::SourceDefinition)
+            .map_err(core_error)?;
         hash_check(
             b"bean-counter/workflow-record/1\0",
             &[
@@ -605,16 +626,34 @@ pub(in super::super) async fn assent_record(
             "ledger-workflow-party-assent/1"
         }
     };
-    load_stored(key,stored, reference, lease, expected, s).map(Some)
+    load_stored(key, stored, reference, lease, expected, s).map(Some)
 }
 
 /// Local selected-record locator syntax. This does not validate body, origin,
 /// currentness or permission; the targeted consumer still checks each of those.
-pub(in super::super) fn from_value_local(v:&Value,s:&mut OriginalAuditSession)->Result<(ExactRef,ExternalBufferLease)>{
- let k=super::super::request_wrapper::text(v,"kind",s)?;let id=super::super::request_wrapper::text(v,"id",s)?;let d=super::super::request_wrapper::text(v,"digest",s)?;
- super::super::request_wrapper::closed(v,&["kind","id","digest"],s)?;
- let lease=s.reserve_external_payload(std::mem::size_of::<ExactRef>()+k.len()+id.len()+d.len()).map_err(core_error)?;
- for t in[k,id,d]{s.semantic_work().scan_bytes(t.len()).map_err(core_error)?;s.semantic_work().write_bytes(t.len()).map_err(core_error)?;}
- let r=ExactRef{kind:k.to_owned(),id:id.to_owned(),digest:d.to_owned()};
- ledgerlab_core::policy::workflow::transition_constructor::validate_local_record_reference(&r,s).map_err(core_error)?;Ok((r,lease))
+pub(in super::super) fn from_value_local(
+    v: &Value,
+    s: &mut OriginalAuditSession,
+) -> Result<(ExactRef, ExternalBufferLease)> {
+    let k = super::super::request_wrapper::text(v, "kind", s)?;
+    let id = super::super::request_wrapper::text(v, "id", s)?;
+    let d = super::super::request_wrapper::text(v, "digest", s)?;
+    super::super::request_wrapper::closed(v, &["kind", "id", "digest"], s)?;
+    let lease = s
+        .reserve_external_payload(std::mem::size_of::<ExactRef>() + k.len() + id.len() + d.len())
+        .map_err(core_error)?;
+    for t in [k, id, d] {
+        s.semantic_work().scan_bytes(t.len()).map_err(core_error)?;
+        s.semantic_work().write_bytes(t.len()).map_err(core_error)?;
+    }
+    let r = ExactRef {
+        kind: k.to_owned(),
+        id: id.to_owned(),
+        digest: d.to_owned(),
+    };
+    ledgerlab_core::policy::workflow::transition_constructor::validate_local_record_reference(
+        &r, s,
+    )
+    .map_err(core_error)?;
+    Ok((r, lease))
 }

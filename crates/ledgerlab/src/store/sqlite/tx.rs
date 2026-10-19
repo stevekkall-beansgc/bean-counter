@@ -1,4 +1,4 @@
-use super::{Inner, read, write};
+use super::{read, write, Inner};
 use crate::store::{
     errors::{CommitError, StoreError},
     ports::AcceptanceTx,
@@ -6,12 +6,12 @@ use crate::store::{
 };
 use sqlx::{Connection as _, Sqlite, SqliteConnection, Transaction};
 use std::{
-    sync::{Arc, atomic::Ordering},
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 use tokio::{
-    sync::{OwnedRwLockWriteGuard, OwnedSemaphorePermit, oneshot},
-    time::{Instant, timeout_at},
+    sync::{oneshot, OwnedRwLockWriteGuard, OwnedSemaphorePermit},
+    time::{timeout_at, Instant},
 };
 
 // Set the poison bit before every database await. If its future is dropped the
@@ -21,7 +21,10 @@ macro_rules! checked_read {
         let failed = $this.failed;
         $this.failed = true;
         let result = timeout_at(
-            $this.workflow_deadline().map(|d|d.min(Instant::now()+Duration::from_secs(2))).unwrap_or_else(||Instant::now()+Duration::from_secs(2)),
+            $this
+                .workflow_deadline()
+                .map(|d| d.min(Instant::now() + Duration::from_secs(2)))
+                .unwrap_or_else(|| Instant::now() + Duration::from_secs(2)),
             $read,
         )
         .await
@@ -46,19 +49,30 @@ macro_rules! checked_read {
 #[derive(Clone)]
 pub(crate) struct WorkflowProofFailureHandle(Arc<WorkflowProofFailureControl>);
 pub(super) struct WorkflowProofFailureControl {
-    failed:std::sync::atomic::AtomicBool,
-    _storage:Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    failed: std::sync::atomic::AtomicBool,
+    _storage: Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
 }
 impl WorkflowProofFailureHandle {
-    pub(super) fn new(storage:Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>)->Self {
-        Self(Arc::new(WorkflowProofFailureControl{failed:std::sync::atomic::AtomicBool::new(false),_storage:storage}))
+    pub(super) fn new(
+        storage: Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    ) -> Self {
+        Self(Arc::new(WorkflowProofFailureControl {
+            failed: std::sync::atomic::AtomicBool::new(false),
+            _storage: storage,
+        }))
     }
-    pub(crate) fn same_instance(&self,other:&Self)->bool {Arc::ptr_eq(&self.0,&other.0)}
-    pub(crate) fn identity(&self)->usize {Arc::as_ptr(&self.0) as usize}
+    pub(crate) fn same_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+    pub(crate) fn identity(&self) -> usize {
+        Arc::as_ptr(&self.0) as usize
+    }
 }
 impl std::ops::Deref for WorkflowProofFailureHandle {
-    type Target=std::sync::atomic::AtomicBool;
-    fn deref(&self)->&Self::Target {&self.0.failed}
+    type Target = std::sync::atomic::AtomicBool;
+    fn deref(&self) -> &Self::Target {
+        &self.0.failed
+    }
 }
 /// Drop queues SQLx's tracked rollback; before_acquire verifies tracked cleanup.
 /// A failed or cancelled write poisons this handle so a partial plan cannot commit.
@@ -67,12 +81,12 @@ pub(crate) struct SqliteTx {
     pub(super) store: Arc<Inner>,
     pub(super) slot: Option<OwnedSemaphorePermit>,
     pub(super) deadline: Instant,
-    pub(super) workflow_operator:Option<super::workflow::OperatorStorage>,
-    pub(crate) workflow_snapshot:Option<crate::service::workflow::resources::Snapshot>,
-    pub(crate) workflow_read_session:Option<ledgerlab_core::validation_work::OriginalAuditSession>,
-    pub(crate) workflow_read_cancellation:Option<crate::service::workflow::AttemptCancellation>,
-    pub(crate) workflow_read_active:bool,
-    pub(crate) workflow_main_session:bool,
+    pub(super) workflow_operator: Option<super::workflow::OperatorStorage>,
+    pub(crate) workflow_snapshot: Option<crate::service::workflow::resources::Snapshot>,
+    pub(crate) workflow_read_session: Option<ledgerlab_core::validation_work::OriginalAuditSession>,
+    pub(crate) workflow_read_cancellation: Option<crate::service::workflow::AttemptCancellation>,
+    pub(crate) workflow_read_active: bool,
+    pub(crate) workflow_main_session: bool,
     pub(super) failed: bool,
     pub(super) financial_io: Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
     // Service proof scopes can poison this transaction on pure failure/cancel.
@@ -90,14 +104,40 @@ pub(crate) struct SqliteTx {
 }
 impl SqliteTx {
     pub(crate) fn workflow_deadline(&self) -> Option<Instant> {
-        self.workflow_operator.map(|s|s.deadline).unwrap_or(Some(self.deadline))
+        self.workflow_operator
+            .map(|s| s.deadline)
+            .unwrap_or(Some(self.deadline))
     }
-    pub(crate) fn workflow_arena(&self)->ledgerlab_core::Result<ledgerlab_core::canonical::audit_arena::AuditArena>{
-        if let Some(snapshot)=&self.workflow_snapshot{snapshot.core_arena()}else{ledgerlab_core::canonical::audit_arena::AuditArena::new()}
+    pub(crate) fn workflow_arena(
+        &self,
+    ) -> ledgerlab_core::Result<ledgerlab_core::canonical::audit_arena::AuditArena> {
+        if let Some(snapshot) = &self.workflow_snapshot {
+            snapshot.core_arena()
+        } else {
+            ledgerlab_core::canonical::audit_arena::AuditArena::new()
+        }
     }
-    pub(crate) fn workflow_bind_resources(&mut self,operations:Option<i64>,bytes:Option<i64>,deadline:Option<Instant>){self.workflow_operator=Some(super::workflow::OperatorStorage{operations,bytes,deadline});}
-    pub(super) fn workflow_timeout_error(&self)->StoreError {self.workflow_snapshot.as_ref().and_then(|s|s.timeout_error()).unwrap_or(StoreError::Deadline)}
-    pub(super) fn workflow_in_time(&self)->bool{self.workflow_deadline().is_none_or(|d|Instant::now()<d)}
+    pub(crate) fn workflow_bind_resources(
+        &mut self,
+        operations: Option<i64>,
+        bytes: Option<i64>,
+        deadline: Option<Instant>,
+    ) {
+        self.workflow_operator = Some(super::workflow::OperatorStorage {
+            operations,
+            bytes,
+            deadline,
+        });
+    }
+    pub(super) fn workflow_timeout_error(&self) -> StoreError {
+        self.workflow_snapshot
+            .as_ref()
+            .and_then(|s| s.timeout_error())
+            .unwrap_or(StoreError::Deadline)
+    }
+    pub(super) fn workflow_in_time(&self) -> bool {
+        self.workflow_deadline().is_none_or(|d| Instant::now() < d)
+    }
     pub(crate) fn workflow_proof_failure_handle(&self) -> WorkflowProofFailureHandle {
         self.workflow_proof_failed.clone()
     }
@@ -645,7 +685,7 @@ impl AcceptanceTx for SqliteTx {
         }
     }
     async fn commit(self) -> Result<(), CommitError> {
-        self.commit_internal(None,&mut None).await
+        self.commit_internal(None, &mut None).await
     }
 }
 #[derive(Debug)]
@@ -657,18 +697,20 @@ pub(crate) enum FinancialCommitError {
 /// worker with live resource I/O terminally retains its writer/physical lane and
 /// OS owner, using the same fail-closed disposition as financial Drain.
 struct CommitResourceOwner {
-    resource:Option<ledgerlab_core::validation_work::OriginalAuditSession>,
-    lease:Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
-    slot:Option<OwnedSemaphorePermit>,
-    physical_lane:Option<OwnedRwLockWriteGuard<()>>,
-    store:Arc<Inner>,
-    completed:bool,
+    resource: Option<ledgerlab_core::validation_work::OriginalAuditSession>,
+    lease: Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    slot: Option<OwnedSemaphorePermit>,
+    physical_lane: Option<OwnedRwLockWriteGuard<()>>,
+    store: Arc<Inner>,
+    completed: bool,
 }
 impl Drop for CommitResourceOwner {
     fn drop(&mut self) {
         if !self.completed && self.resource.is_some() {
-            self.store.disabled.store(true,Ordering::Release);
-            self.store.financial_drain_failed.store(true,Ordering::Release);
+            self.store.disabled.store(true, Ordering::Release);
+            self.store
+                .financial_drain_failed
+                .store(true, Ordering::Release);
             std::mem::forget(self.resource.take());
             std::mem::forget(self.lease.take());
             std::mem::forget(self.slot.take());
@@ -679,44 +721,66 @@ impl Drop for CommitResourceOwner {
 }
 impl SqliteTx {
     /// Resource ownership only; does not qualify a journal or permit append.
-    pub(crate) async fn commit_with_resource_session(self,session:ledgerlab_core::validation_work::OriginalAuditSession)->Result<(),FinancialCommitError> {
-        let mut resource_error=None;
-        let result=self.commit_internal(Some(session),&mut resource_error).await;
-        match (result,resource_error) {
-            (Err(CommitError::RolledBack(_)),Some(error))=>Err(FinancialCommitError::Resource(error)),
-            (result,_)=>result.map_err(FinancialCommitError::Commit),
+    pub(crate) async fn commit_with_resource_session(
+        self,
+        session: ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<(), FinancialCommitError> {
+        let mut resource_error = None;
+        let result = self
+            .commit_internal(Some(session), &mut resource_error)
+            .await;
+        match (result, resource_error) {
+            (Err(CommitError::RolledBack(_)), Some(error)) => {
+                Err(FinancialCommitError::Resource(error))
+            }
+            (result, _) => result.map_err(FinancialCommitError::Commit),
         }
     }
-    async fn commit_internal(mut self,mut resource:Option<ledgerlab_core::validation_work::OriginalAuditSession>,resource_error:&mut Option<ledgerlab_core::Error>) -> Result<(), CommitError> {
-        if let Some(session)=resource.as_mut() {
-            if let Err(error)=session.check_cancelled() {
-                *resource_error=Some(error);
-                self.failed=true;
+    async fn commit_internal(
+        mut self,
+        mut resource: Option<ledgerlab_core::validation_work::OriginalAuditSession>,
+        resource_error: &mut Option<ledgerlab_core::Error>,
+    ) -> Result<(), CommitError> {
+        if let Some(session) = resource.as_mut() {
+            if let Err(error) = session.check_cancelled() {
+                *resource_error = Some(error);
+                self.failed = true;
             }
         }
         self.failed |=
             self.workflow_proof_failed.load(Ordering::Acquire) || self.financial_io.is_some();
-        if let Some(snapshot)=&self.workflow_snapshot {self.failed|=snapshot.recheck().is_err();}
+        if let Some(snapshot) = &self.workflow_snapshot {
+            self.failed |= snapshot.recheck().is_err();
+        }
         if !self.failed && self.workflow_in_time() && self.adjudication.is_none() {
             if let Some(before) = self.physical_start_pages {
                 self.failed = true;
-                let result = super::workflow::until(
-                    self.workflow_deadline(),
-                    async {
-                        if let Some(session)=resource.as_mut() {
-                            let paid=async {
-                                self.financial_reserve_io(session,super::adjudication::LEGACY_COMMIT_IO_BYTES)?;
-                                super::adjudication::charge_legacy_with_session(self.conn(),before,session).await?;
-                                self.financial_finish_io(session).await
-                            }.await;
-                            return paid.map_err(|error|match error {
-                                super::workflow::financial::FinancialReadError::Store(error)=>error,
-                                super::workflow::financial::FinancialReadError::Resource(error)=>{*resource_error=Some(error);StoreError::ReadBudgetExhausted},
-                            });
+                let result = super::workflow::until(self.workflow_deadline(), async {
+                    if let Some(session) = resource.as_mut() {
+                        let paid = async {
+                            self.financial_reserve_io(
+                                session,
+                                super::adjudication::LEGACY_COMMIT_IO_BYTES,
+                            )?;
+                            super::adjudication::charge_legacy_with_session(
+                                self.conn(),
+                                before,
+                                session,
+                            )
+                            .await?;
+                            self.financial_finish_io(session).await
                         }
-                        super::adjudication::charge_legacy(self.conn(),before).await
-                    },
-                )
+                        .await;
+                        return paid.map_err(|error| match error {
+                            super::workflow::financial::FinancialReadError::Store(error) => error,
+                            super::workflow::financial::FinancialReadError::Resource(error) => {
+                                *resource_error = Some(error);
+                                StoreError::ReadBudgetExhausted
+                            }
+                        });
+                    }
+                    super::adjudication::charge_legacy(self.conn(), before).await
+                })
                 .await
                 .map_err(|_| self.workflow_timeout_error())
                 .and_then(|r| r);
@@ -736,14 +800,17 @@ impl SqliteTx {
             self.failed = true;
             let before = self.start_changes;
             let result = super::workflow::until(self.workflow_deadline(), async {
-                if let Some(session)=resource.as_mut() {
-                    return self.workflow_management_commit_guard(before,session).await.map_err(|error|match error {
-                        super::workflow::financial::FinancialReadError::Store(error)=>error,
-                        super::workflow::financial::FinancialReadError::Resource(error)=>{
-                            *resource_error=Some(error);
-                            StoreError::ReadBudgetExhausted
-                        },
-                    });
+                if let Some(session) = resource.as_mut() {
+                    return self
+                        .workflow_management_commit_guard(before, session)
+                        .await
+                        .map_err(|error| match error {
+                            super::workflow::financial::FinancialReadError::Store(error) => error,
+                            super::workflow::financial::FinancialReadError::Resource(error) => {
+                                *resource_error = Some(error);
+                                StoreError::ReadBudgetExhausted
+                            }
+                        });
                 }
                 let after: i64 = sqlx::query_scalar("SELECT total_changes()")
                     .fetch_one(self.conn())
@@ -777,30 +844,42 @@ impl SqliteTx {
             self.failed = false;
         }
         if self.failed || !self.workflow_in_time() {
-            let error=if !self.workflow_in_time(){self.workflow_timeout_error()}else{StoreError::Integrity("failed or cancelled transaction")};
+            let error = if !self.workflow_in_time() {
+                self.workflow_timeout_error()
+            } else {
+                StoreError::Integrity("failed or cancelled transaction")
+            };
             return match self.rollback().await {
                 Ok(()) => Err(CommitError::RolledBack(error)),
                 Err(_) => Err(CommitError::OutcomeUnknown),
             };
         }
-        if let Some(session)=resource.as_mut() {
-            const CONTROLS:usize=std::mem::size_of::<CommitResourceOwner>()+2*std::mem::size_of::<ledgerlab_core::validation_work::OriginalAuditSession>();
-            let reserve=self.financial_reserve_io(session,262144+CONTROLS)
-                .and_then(|()|session.semantic_work().write_bytes(CONTROLS).map_err(super::workflow::financial::FinancialReadError::Resource))
-                .map_err(|error|match error {
-                super::workflow::financial::FinancialReadError::Store(error)=>error,
-                super::workflow::financial::FinancialReadError::Resource(error)=>{
-                    *resource_error=Some(error);StoreError::ReadBudgetExhausted
-                },
-            });
-            if let Err(error)=reserve {
+        if let Some(session) = resource.as_mut() {
+            const CONTROLS: usize = std::mem::size_of::<CommitResourceOwner>()
+                + 2 * std::mem::size_of::<ledgerlab_core::validation_work::OriginalAuditSession>();
+            let reserve = self
+                .financial_reserve_io(session, 262144 + CONTROLS)
+                .and_then(|()| {
+                    session
+                        .semantic_work()
+                        .write_bytes(CONTROLS)
+                        .map_err(super::workflow::financial::FinancialReadError::Resource)
+                })
+                .map_err(|error| match error {
+                    super::workflow::financial::FinancialReadError::Store(error) => error,
+                    super::workflow::financial::FinancialReadError::Resource(error) => {
+                        *resource_error = Some(error);
+                        StoreError::ReadBudgetExhausted
+                    }
+                });
+            if let Err(error) = reserve {
                 return match self.rollback().await {
-                    Ok(())=>Err(CommitError::RolledBack(error)),
-                    Err(_)=>Err(CommitError::OutcomeUnknown),
+                    Ok(()) => Err(CommitError::RolledBack(error)),
+                    Err(_) => Err(CommitError::OutcomeUnknown),
                 };
             }
         }
-        let resource_lease=self.financial_io.take();
+        let resource_lease = self.financial_io.take();
         let mut tx = self.transaction.take().expect("live transaction");
         let store = Arc::clone(&self.store);
         let fence_start_changes = self.fence_start_changes;
@@ -811,46 +890,70 @@ impl SqliteTx {
         // the task. The task retains the writer permit and ownership until cleanup.
         // Construct the Drop guard BEFORE spawn. A task aborted before its
         // first poll must retain the complete writer/resource ownership too.
-        let owner=CommitResourceOwner {
-            resource,lease:resource_lease,slot,physical_lane,
-            store:Arc::clone(&store),completed:false,
+        let owner = CommitResourceOwner {
+            resource,
+            lease: resource_lease,
+            slot,
+            physical_lane,
+            store: Arc::clone(&store),
+            completed: false,
         };
         let handle = tokio::spawn(async move {
-            let mut owner=owner;
+            let mut owner = owner;
             let drain_deadline = Instant::now() + Duration::from_secs(5);
             let publication = async {
                 let new = if let (Some(fence), Some(before)) =
                     (&store._owner.fence, fence_start_changes)
                 {
-                    if let Some(s)=owner.resource.as_mut() {
-                        s.semantic_work().write_bytes(std::mem::size_of::<i64>()).map_err(|_|StoreError::ReadBudgetExhausted)?;
-                        s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup).map_err(|_|StoreError::ReadBudgetExhausted)?;
+                    if let Some(s) = owner.resource.as_mut() {
+                        s.semantic_work()
+                            .write_bytes(std::mem::size_of::<i64>())
+                            .map_err(|_| StoreError::ReadBudgetExhausted)?;
+                        s.semantic_work()
+                            .visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)
+                            .map_err(|_| StoreError::ReadBudgetExhausted)?;
                     }
                     let after: i64 = sqlx::query_scalar("SELECT total_changes()")
                         .fetch_one(&mut *tx)
                         .await?;
-                    if let Some(s)=owner.resource.as_mut() {
-                        s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare,&[&after.into(),&before.into()]).map_err(|_|StoreError::ReadBudgetExhausted)?;
+                    if let Some(s) = owner.resource.as_mut() {
+                        s.semantic_work()
+                            .arithmetic(
+                                ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                                &[&after.into(), &before.into()],
+                            )
+                            .map_err(|_| StoreError::ReadBudgetExhausted)?;
                     }
                     if after != before {
-                        if let Some(s)=owner.resource.as_mut() {
-                            Some(Ok(fence.prepare_with_session(&mut tx,s).await.map_err(|error|match error {
-                                super::workflow::financial::FinancialReadError::Store(error)=>error,
-                                super::workflow::financial::FinancialReadError::Resource(_)=>StoreError::ReadBudgetExhausted,
-                            })?))
-                        } else {Some(Err(fence.prepare(&mut tx).await?))}
+                        if let Some(s) = owner.resource.as_mut() {
+                            Some(Ok(fence.prepare_with_session(&mut tx, s).await.map_err(
+                                |error| match error {
+                                    super::workflow::financial::FinancialReadError::Store(
+                                        error,
+                                    ) => error,
+                                    super::workflow::financial::FinancialReadError::Resource(_) => {
+                                        StoreError::ReadBudgetExhausted
+                                    }
+                                },
+                            )?))
+                        } else {
+                            Some(Err(fence.prepare(&mut tx).await?))
+                        }
                     } else {
                         None
                     }
                 } else {
                     None
                 };
-                if let Some(s)=owner.resource.as_mut() {
+                if let Some(s) = owner.resource.as_mut() {
                     // Finalize the actual fence/total_changes statements before
                     // their worker workspace can be released at COMMIT ACK.
-                    s.semantic_work().visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup).map_err(|_|StoreError::ReadBudgetExhausted)?;
+                    s.semantic_work()
+                        .visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)
+                        .map_err(|_| StoreError::ReadBudgetExhausted)?;
                     tx.clear_cached_statements().await?;
-                    s.check_cancelled().map_err(|_|StoreError::ReadBudgetExhausted)?;
+                    s.check_cancelled()
+                        .map_err(|_| StoreError::ReadBudgetExhausted)?;
                 }
                 #[cfg(test)]
                 if store.fence_cut.load(Ordering::Acquire) == 11 {
@@ -871,11 +974,20 @@ impl SqliteTx {
                 }
                 if let (Some(fence), Some(new)) = (&store._owner.fence, new) {
                     match new {
-                        Ok(new)=>fence.finish_with_session(new,owner.resource.as_mut().expect("same consuming owner")).map_err(|error|match error {
-                            super::workflow::financial::FinancialReadError::Store(error)=>error,
-                            super::workflow::financial::FinancialReadError::Resource(_)=>StoreError::ReadBudgetExhausted,
-                        })?,
-                        Err(new)=>fence.finish(new)?,
+                        Ok(new) => fence
+                            .finish_with_session(
+                                new,
+                                owner.resource.as_mut().expect("same consuming owner"),
+                            )
+                            .map_err(|error| match error {
+                                super::workflow::financial::FinancialReadError::Store(error) => {
+                                    error
+                                }
+                                super::workflow::financial::FinancialReadError::Resource(_) => {
+                                    StoreError::ReadBudgetExhausted
+                                }
+                            })?,
+                        Err(new) => fence.finish(new)?,
                     }
                 }
                 #[cfg(test)]
@@ -889,13 +1001,19 @@ impl SqliteTx {
                 Ok::<(), StoreError>(())
             };
             let result = match timeout_at(drain_deadline, publication).await {
-                Ok(Ok(())) => {owner.completed=true;Ok(())},
+                Ok(Ok(())) => {
+                    owner.completed = true;
+                    Ok(())
+                }
                 _ => {
                     store.disabled.store(true, Ordering::Release);
                     // An expired/aborted close is not a worker ACK. The owner
                     // retains all live resources terminally on that path.
-                    if timeout_at(drain_deadline, store.writer.close()).await.is_ok() {
-                        owner.completed=true;
+                    if timeout_at(drain_deadline, store.writer.close())
+                        .await
+                        .is_ok()
+                    {
+                        owner.completed = true;
                     }
                     Err(CommitError::OutcomeUnknown)
                 }

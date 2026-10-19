@@ -4,9 +4,9 @@
 //! are separate obligations. The connected factory refuses until complete derivation closes.
 use super::data::{ExactRef, OperationKey};
 use crate::canonical::audit_arena::ExternalBufferLease;
+pub(super) mod assembly;
 pub(super) mod heads;
 pub(super) mod introductions;
-pub(super) mod assembly;
 pub(super) mod reservations;
 
 pub enum FinancialHeadKey {
@@ -26,13 +26,23 @@ pub enum FinancialHeadKey {
     Capacity {
         root_decision_id: String,
     },
-    AppCost { cost_claim_ref: ExactRef },
-    Invocation { invocation_id: String },
-    Cost { cost_claim_ref: ExactRef },
-    CostConsumption { cost_claim_ref: ExactRef },
+    AppCost {
+        cost_claim_ref: ExactRef,
+    },
+    Invocation {
+        invocation_id: String,
+    },
+    Cost {
+        cost_claim_ref: ExactRef,
+    },
+    CostConsumption {
+        cost_claim_ref: ExactRef,
+    },
     /// Installation-global immutable provider line identity. The host must
     /// not prefix this projection key with the operation's policy scope.
-    CostOwner { line_key: CostLineKey },
+    CostOwner {
+        line_key: CostLineKey,
+    },
 }
 pub struct ProviderAccountIdentity {
     provider_namespace: String,
@@ -40,9 +50,15 @@ pub struct ProviderAccountIdentity {
     environment: String,
 }
 impl ProviderAccountIdentity {
-    pub fn provider_namespace(&self)->&str {&self.provider_namespace}
-    pub fn provider_account_id(&self)->&str {&self.provider_account_id}
-    pub fn environment(&self)->&str {&self.environment}
+    pub fn provider_namespace(&self) -> &str {
+        &self.provider_namespace
+    }
+    pub fn provider_account_id(&self) -> &str {
+        &self.provider_account_id
+    }
+    pub fn environment(&self) -> &str {
+        &self.environment
+    }
 }
 pub struct CostLineKey {
     cost_authority_id: String,
@@ -51,23 +67,37 @@ pub struct CostLineKey {
     original_line_id: String,
 }
 impl CostLineKey {
-    pub fn cost_authority_id(&self)->&str {&self.cost_authority_id}
-    pub fn provider_account_identity(&self)->&ProviderAccountIdentity {&self.provider_account_identity}
-    pub fn original_document_id(&self)->&str {&self.original_document_id}
-    pub fn original_line_id(&self)->&str {&self.original_line_id}
+    pub fn cost_authority_id(&self) -> &str {
+        &self.cost_authority_id
+    }
+    pub fn provider_account_identity(&self) -> &ProviderAccountIdentity {
+        &self.provider_account_identity
+    }
+    pub fn original_document_id(&self) -> &str {
+        &self.original_document_id
+    }
+    pub fn original_line_id(&self) -> &str {
+        &self.original_line_id
+    }
 }
 /// A distinct installation-global enrollment effect, before any provider line
 /// exists. It is derived from actual CostAuthority/OwnerActivation output and
 /// does not claim external account discovery or authorize owner replacement.
 pub struct AccountEnrollmentEffect {
-    account:ProviderAccountIdentity,
-    cost_authority_ref:ExactRef,
-    owner_activation_ref:ExactRef,
+    account: ProviderAccountIdentity,
+    cost_authority_ref: ExactRef,
+    owner_activation_ref: ExactRef,
 }
 impl AccountEnrollmentEffect {
-    pub fn account(&self)->&ProviderAccountIdentity {&self.account}
-    pub fn cost_authority_ref(&self)->&ExactRef {&self.cost_authority_ref}
-    pub fn owner_activation_ref(&self)->&ExactRef {&self.owner_activation_ref}
+    pub fn account(&self) -> &ProviderAccountIdentity {
+        &self.account
+    }
+    pub fn cost_authority_ref(&self) -> &ExactRef {
+        &self.cost_authority_ref
+    }
+    pub fn owner_activation_ref(&self) -> &ExactRef {
+        &self.owner_activation_ref
+    }
 }
 pub struct HeadEffect {
     key: FinancialHeadKey,
@@ -79,7 +109,9 @@ pub struct HeadEffect {
     introduced_position: usize,
 }
 impl HeadEffect {
-    pub fn introduced_position(&self)->usize {self.introduced_position}
+    pub fn introduced_position(&self) -> usize {
+        self.introduced_position
+    }
     pub fn key(&self) -> &FinancialHeadKey {
         &self.key
     }
@@ -97,7 +129,12 @@ pub enum PermanentClaimKey {
     /// Shared fact-attestation kind, including family no-success assertions.
     /// ECONOMIC-BOUNDARY§6 fixes store/scope/source/id; schema/recipe changes
     /// do not create another assertion namespace within that identity.
-    Assertion { logical_store_id:String,scope:[String;2],verified_source:String,attestation_id:String },
+    Assertion {
+        logical_store_id: String,
+        scope: [String; 2],
+        verified_source: String,
+        attestation_id: String,
+    },
     Work {
         logical_store_id: String,
         scope: [String; 2],
@@ -115,18 +152,42 @@ pub enum PermanentClaimKey {
     },
     /// App keys are installation-wide; scope, chain and policy labels do not
     /// partition actual call attribution or permit evidence consumption twice.
-    AppCall { logical_store_id:String, source_namespace:String, call_id:String },
-    AppComponentObservation { logical_store_id:String, original_work_ref:ExactRef, component_slot:String },
-    AppProviderCall { logical_store_id:String, provider:String, account:String, request_id:String },
-    AppCostComponent { logical_store_id:String, original_work_ref:ExactRef, component_slot:String },
-    AppFinalEvidence { logical_store_id:String, final_evidence_ref:ExactRef },
-    AppObservationRevision { logical_store_id:String, observation_ref:ExactRef, cost_revision:String },
+    AppCall {
+        logical_store_id: String,
+        source_namespace: String,
+        call_id: String,
+    },
+    AppComponentObservation {
+        logical_store_id: String,
+        original_work_ref: ExactRef,
+        component_slot: String,
+    },
+    AppProviderCall {
+        logical_store_id: String,
+        provider: String,
+        account: String,
+        request_id: String,
+    },
+    AppCostComponent {
+        logical_store_id: String,
+        original_work_ref: ExactRef,
+        component_slot: String,
+    },
+    AppFinalEvidence {
+        logical_store_id: String,
+        final_evidence_ref: ExactRef,
+    },
+    AppObservationRevision {
+        logical_store_id: String,
+        observation_ref: ExactRef,
+        cost_revision: String,
+    },
     /// Independent of scope/agreement/invocation/version/credential labels.
     CostLine { line_key: CostLineKey },
     /// Separate once-only delayed component coverage. It does not replace the
     /// installation-global CostLine uniqueness check.
     CostComponent {
-        scope: [String;2],
+        scope: [String; 2],
         original_work_claim_id: String,
         supplier_component_slot: String,
     },
@@ -136,7 +197,9 @@ pub struct ClaimEffect {
     record_ref: ExactRef,
 }
 impl ClaimEffect {
-    pub(super) fn derived(key:PermanentClaimKey,record_ref:ExactRef)->Self {Self{key,record_ref}}
+    pub(super) fn derived(key: PermanentClaimKey, record_ref: ExactRef) -> Self {
+        Self { key, record_ref }
+    }
     pub fn key(&self) -> &PermanentClaimKey {
         &self.key
     }
@@ -345,36 +408,68 @@ pub struct ObservationAssociation {
     verifier_ref: ExactRef,
 }
 impl ObservationAssociation {
-    pub fn observation_ref(&self) -> &ExactRef { &self.observation_ref }
-    pub fn verifier_ref(&self) -> &ExactRef { &self.verifier_ref }
+    pub fn observation_ref(&self) -> &ExactRef {
+        &self.observation_ref
+    }
+    pub fn verifier_ref(&self) -> &ExactRef {
+        &self.verifier_ref
+    }
 }
 /// Wrapper operands fixed by complete construction. Reused members belong to
 /// the manifest closure, while result_refs names exactly this recipe's newly
 /// produced authoritative results. The combined digest binds the separately
 /// checked source and financial witnesses; it cannot replace either audit.
 pub struct ExperimentalAuditMetadata {
-    source_observations:Vec<ObservationAssociation>,
-    financial_observation:ObservationAssociation,
-    combined_audit_digest:String,
+    source_observations: Vec<ObservationAssociation>,
+    financial_observation: ObservationAssociation,
+    combined_audit_digest: String,
 }
 impl ExperimentalAuditMetadata {
-    pub fn source_observations(&self)->&[ObservationAssociation]{&self.source_observations}
-    pub fn source_observation_refs(&self)->impl ExactSizeIterator<Item=&ExactRef>{self.source_observations.iter().map(|x|&x.observation_ref)}
-    pub fn financial_observation(&self)->&ObservationAssociation{&self.financial_observation}
-    pub fn financial_observation_ref(&self)->&ExactRef{&self.financial_observation.observation_ref}
-    pub fn combined_audit_digest(&self)->&str{&self.combined_audit_digest}
+    pub fn source_observations(&self) -> &[ObservationAssociation] {
+        &self.source_observations
+    }
+    pub fn source_observation_refs(&self) -> impl ExactSizeIterator<Item = &ExactRef> {
+        self.source_observations.iter().map(|x| &x.observation_ref)
+    }
+    pub fn financial_observation(&self) -> &ObservationAssociation {
+        &self.financial_observation
+    }
+    pub fn financial_observation_ref(&self) -> &ExactRef {
+        &self.financial_observation.observation_ref
+    }
+    pub fn combined_audit_digest(&self) -> &str {
+        &self.combined_audit_digest
+    }
 }
-enum CandidateExecutionMetadata {ExperimentalAudit9(ExperimentalAuditMetadata),LocalSelected1}
+enum CandidateExecutionMetadata {
+    ExperimentalAudit9(ExperimentalAuditMetadata),
+    LocalSelected1,
+}
 pub struct CandidateResultMetadata {
-    kind:CandidateResultKind,result_refs:Vec<ExactRef>,authority_ref:ExactRef,
-    execution:CandidateExecutionMetadata,
+    kind: CandidateResultKind,
+    result_refs: Vec<ExactRef>,
+    authority_ref: ExactRef,
+    execution: CandidateExecutionMetadata,
 }
 impl CandidateResultMetadata {
-    pub fn result_kind(&self)->&'static str{self.kind.as_str()}
-    pub fn result_refs(&self)->&[ExactRef]{&self.result_refs}
-    pub fn authority_ref(&self)->&ExactRef{&self.authority_ref}
-    pub fn experimental_audit(&self)->Option<&ExperimentalAuditMetadata>{match &self.execution{CandidateExecutionMetadata::ExperimentalAudit9(v)=>Some(v),CandidateExecutionMetadata::LocalSelected1=>None}}
-    pub fn is_local_execution(&self)->bool{matches!(self.execution,CandidateExecutionMetadata::LocalSelected1)}
+    pub fn result_kind(&self) -> &'static str {
+        self.kind.as_str()
+    }
+    pub fn result_refs(&self) -> &[ExactRef] {
+        &self.result_refs
+    }
+    pub fn authority_ref(&self) -> &ExactRef {
+        &self.authority_ref
+    }
+    pub fn experimental_audit(&self) -> Option<&ExperimentalAuditMetadata> {
+        match &self.execution {
+            CandidateExecutionMetadata::ExperimentalAudit9(v) => Some(v),
+            CandidateExecutionMetadata::LocalSelected1 => None,
+        }
+    }
+    pub fn is_local_execution(&self) -> bool {
+        matches!(self.execution, CandidateExecutionMetadata::LocalSelected1)
+    }
 }
 pub struct EconomicCandidate {
     key: OperationKey,
@@ -386,13 +481,17 @@ pub struct EconomicCandidate {
     links: Vec<LinkEffect>,
     dependencies: Vec<DependencyEffect>,
     funding: Vec<CustomerLocalFundingEffect>,
-    account_enrollments:Vec<AccountEnrollmentEffect>,
+    account_enrollments: Vec<AccountEnrollmentEffect>,
     result: CandidateResultMetadata,
     _ownership: assembly::CandidateOwnership,
 }
 impl EconomicCandidate {
-    pub fn account_enrollments(&self)->&[AccountEnrollmentEffect] {&self.account_enrollments}
-    pub fn result_metadata(&self) -> &CandidateResultMetadata { &self.result }
+    pub fn account_enrollments(&self) -> &[AccountEnrollmentEffect] {
+        &self.account_enrollments
+    }
+    pub fn result_metadata(&self) -> &CandidateResultMetadata {
+        &self.result
+    }
     pub fn key(&self) -> &OperationKey {
         &self.key
     }

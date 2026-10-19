@@ -110,7 +110,7 @@ fn matching_input(
     Ok(index)
 }
 fn closed_lineage(
-    program:&SelectedProgram,
+    program: &SelectedProgram,
     m: &mut CoreMeter,
     r: &mut Records,
     c: &DraftContextData,
@@ -152,7 +152,13 @@ fn closed_lineage(
         c,
         &cause["authority_ref"],
         "workflow-economic-authority",
-        if program.uses_local_execution_recipe(){"ledger-workflow-economic-authority/8"}else if program.uses_app_cost_causal_recipe(){"ledger-workflow-economic-authority/7"}else{"ledger-workflow-economic-authority/3"},
+        if program.uses_local_execution_recipe() {
+            "ledger-workflow-economic-authority/8"
+        } else if program.uses_app_cost_causal_recipe() {
+            "ledger-workflow-economic-authority/7"
+        } else {
+            "ledger-workflow-economic-authority/3"
+        },
     )?;
     equal(m, &authority["scope"], &json!(c.key.scope))?;
     equal(
@@ -284,14 +290,18 @@ pub(super) fn prepare(
     plan: &RootPlan,
     request: &mut super::super::working_value::WorkingValue,
     state: &DraftStateData,
-    app_reversals:&[usize],
+    app_reversals: &[usize],
 ) -> Result<Vec<FamilyPlan>> {
-    let closures=shape::field(m,request,"family_closures")?;
-    let closures_owner=super::super::working_value::WorkingValue::copy(m,closures)?;
-    let closures=closures_owner.as_array().ok_or_else(||shape::fail("family closures array"))?;
-    let reversals=shape::field(m,request,"dependent_reversals")?;
-    let reversals_owner=super::super::working_value::WorkingValue::copy(m,reversals)?;
-    let reversals=reversals_owner.as_array().ok_or_else(||shape::fail("dependent reversals array"))?;
+    let closures = shape::field(m, request, "family_closures")?;
+    let closures_owner = super::super::working_value::WorkingValue::copy(m, closures)?;
+    let closures = closures_owner
+        .as_array()
+        .ok_or_else(|| shape::fail("family closures array"))?;
+    let reversals = shape::field(m, request, "dependent_reversals")?;
+    let reversals_owner = super::super::working_value::WorkingValue::copy(m, reversals)?;
+    let reversals = reversals_owner
+        .as_array()
+        .ok_or_else(|| shape::fail("dependent reversals array"))?;
     if meter::cmp(m, &closures.len().into(), &64.into())?.is_gt()
         || meter::cmp(m, &reversals.len().into(), &31.into())?.is_gt()
     {
@@ -299,7 +309,10 @@ pub(super) fn prepare(
     }
     let mut used_closures = vec![];
     let mut used_reversals = vec![];
-    for index in app_reversals{m.visit("root.app_reversal_partition")?;used_reversals.push(*index);}
+    for index in app_reversals {
+        m.visit("root.app_reversal_partition")?;
+        used_reversals.push(*index);
+    }
     let mut out = vec![];
     let instructions = shape::array(
         m,
@@ -573,7 +586,7 @@ pub(super) fn prepare(
                 &prior["schema"],
                 &json!("ledger-workflow-family-state/2"),
             )?;
-            closed_lineage(program,m, r, c, plan, &prior, &head.reference)?;
+            closed_lineage(program, m, r, c, plan, &prior, &head.reference)?;
             continue;
         }
         equal(
@@ -590,7 +603,13 @@ pub(super) fn prepare(
         )?;
         equal(m, &closures[fi]["expected_revision"], &prior["revision"])?;
         let evidence = references(m, &closures[fi]["authority_evidence_refs"], 1, 16)?;
-        request.replace_reference_array_field(m,"family_closures",fi,"authority_evidence_refs",&evidence)?;
+        request.replace_reference_array_field(
+            m,
+            "family_closures",
+            fi,
+            "authority_evidence_refs",
+            &evidence,
+        )?;
         let source = text(m, family, "correction_source_slot")?;
         clause(m, &plan.operands.slot_terms, root_slot, slot, source)?;
         let dependent = match (prior.get("claim_ref"), prior.get("decision_ref")) {
@@ -629,7 +648,13 @@ pub(super) fn prepare(
                 }
                 equal(m, &decision["revision"], &json!(current.revision))?;
                 let dep_evidence = references(m, &reversals[di]["authority_evidence_refs"], 1, 16)?;
-                request.replace_reference_array_field(m,"dependent_reversals",di,"authority_evidence_refs",&dep_evidence)?;
+                request.replace_reference_array_field(
+                    m,
+                    "dependent_reversals",
+                    di,
+                    "authority_evidence_refs",
+                    &dep_evidence,
+                )?;
                 // Each explicit nomination is independently checked later against
                 // current source and exact original terms; equality of two user
                 // lists is not a substitute for either authority resolution.

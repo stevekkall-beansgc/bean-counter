@@ -1,5 +1,5 @@
 //! Mechanical administrative journal persistence; no assent or grant decisions.
-use super::{Document, RecordRef, capacity};
+use super::{capacity, Document, RecordRef};
 use crate::store::{errors::StoreError, sqlite::SqliteTx};
 use ledgerlab_core::canonical::CanonicalBytes;
 use serde_json::json;
@@ -399,9 +399,12 @@ impl SqliteTx {
             return Err(StoreError::Integrity("poisoned agreement transaction"));
         }
         self.failed = true;
-        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), self.workflow_agreement_append_inner(p))
-            .await
-            .map_err(|_| self.workflow_timeout_error())?;
+        let result = crate::store::sqlite::workflow::until(
+            self.workflow_deadline(),
+            self.workflow_agreement_append_inner(p),
+        )
+        .await
+        .map_err(|_| self.workflow_timeout_error())?;
         if result.is_ok() {
             self.failed = false;
         }

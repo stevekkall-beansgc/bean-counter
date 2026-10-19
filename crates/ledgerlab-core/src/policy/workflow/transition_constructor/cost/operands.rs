@@ -2,17 +2,18 @@
 //! These are checked DATA associations. Host completed origins, owner custody,
 //! current source authorization and complete capacity remain separate gates.
 use super::super::{
-    CoreMeter, arithmetic, body, data::*, meter, record_body::RecordBody, records::Records, shape,
+    arithmetic, body, data::*, meter, record_body::RecordBody, records::Records, shape, CoreMeter,
 };
-use super::{InvocationAmounts, conserved, nonnegative};
+use super::{conserved, nonnegative, InvocationAmounts};
 use crate::{
-    Error, Result, canonical,
+    canonical,
     canonical::audit_arena::ExternalBufferLease,
     domain::Timestamp,
     validation_work::{self as w, ValidationWork},
+    Error, Result,
 };
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 pub(in crate::policy::workflow::transition_constructor) struct InvocationSelection {
@@ -44,7 +45,7 @@ pub(in crate::policy::workflow::transition_constructor) struct FinalEvidence {
 
 #[cfg(test)]
 mod lineage_tests {
-    use super::super::{InvocationAmounts, records};
+    use super::super::{records, InvocationAmounts};
     use super::*;
     use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
     fn reference(kind: &str, id: &str) -> ExactRef {

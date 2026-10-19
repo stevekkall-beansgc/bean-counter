@@ -6,7 +6,7 @@ mod workflow;
 #[cfg(feature = "zen-charge-candidate")]
 mod zen_candidate;
 use ledgerlab::local::{self, ExplainTarget, LocalError, LocalLedger};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     env,
     path::{Path, PathBuf},
@@ -167,9 +167,13 @@ fn error(code: &str, message: &str, exit: u8) -> (Value, u8) {
         exit,
     )
 }
-async fn run(a:&Args)->Result<(workflow::CommandOutput,u8),LocalError> {
-    if a.command=="workflow" {return workflow::run(a).await;}
-    run_legacy(a).await.map(|(value,code)|(workflow::CommandOutput::Legacy(value),code))
+async fn run(a: &Args) -> Result<(workflow::CommandOutput, u8), LocalError> {
+    if a.command == "workflow" {
+        return workflow::run(a).await;
+    }
+    run_legacy(a)
+        .await
+        .map(|(value, code)| (workflow::CommandOutput::Legacy(value), code))
 }
 async fn run_legacy(a: &Args) -> Result<(Value, u8), LocalError> {
     #[cfg(feature = "zen-charge-candidate")]
@@ -331,10 +335,14 @@ fn main() -> ExitCode {
                 .enable_all()
                 .build()
             {
-                Ok(runtime) => runtime
-                    .block_on(run(&a))
-                    .unwrap_or_else(|e|{let (v,c)=output::local_error(e);(workflow::CommandOutput::Legacy(v),c)}),
-                Err(_) => {let(v,c)=error("UNAVAILABLE","could not start local runtime",7);(workflow::CommandOutput::Legacy(v),c)},
+                Ok(runtime) => runtime.block_on(run(&a)).unwrap_or_else(|e| {
+                    let (v, c) = output::local_error(e);
+                    (workflow::CommandOutput::Legacy(v), c)
+                }),
+                Err(_) => {
+                    let (v, c) = error("UNAVAILABLE", "could not start local runtime", 7);
+                    (workflow::CommandOutput::Legacy(v), c)
+                }
             };
             (
                 result.0,
@@ -344,14 +352,16 @@ fn main() -> ExitCode {
             )
         }
     };
-    let result=match result {
-        workflow::CommandOutput::Workflow(reply)=>{
+    let result = match result {
+        workflow::CommandOutput::Workflow(reply) => {
             // All formatting is already paid/owned by the original host
             // attempt. Retain its actual output/native leases through write.
-            if reply.write_stdout(!json_output).is_err() {return ExitCode::from(7);}
+            if reply.write_stdout(!json_output).is_err() {
+                return ExitCode::from(7);
+            }
             return ExitCode::from(code);
         }
-        workflow::CommandOutput::Legacy(value)=>value,
+        workflow::CommandOutput::Legacy(value) => value,
     };
     if json_output {
         println!("{}", serde_json::to_string(&result).expect("JSON output"));

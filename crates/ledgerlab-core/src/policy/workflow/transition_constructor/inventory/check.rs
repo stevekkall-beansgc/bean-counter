@@ -50,16 +50,16 @@ macro_rules! invoke {
 // Paid DATA predicates. These never confer host authentication or admission.
 use super::super::record_body::RecordBody;
 use super::super::{
-    CoreMeter, arithmetic,
+    arithmetic,
     data::*,
     meter,
     records::Records,
     representation::{InvocationToken, ParsedRef},
-    shape,
+    shape, CoreMeter,
 };
-use crate::{Result, domain::Timestamp};
+use crate::{domain::Timestamp, Result};
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 pub(super) fn eq(m: &mut CoreMeter, v: &Value, k: &str, w: &Value) -> Result<()> {
     let got = invoke!(shape::field, m, v, k)?;
     invoke!(shape::equal, m, got, w)
@@ -114,13 +114,30 @@ pub(super) fn time(m: &mut CoreMeter, v: &Value, k: &str) -> Result<BigInt> {
     .micros()
     .into())
 }
-pub(in crate::policy::workflow::transition_constructor) fn time_owned(m:&mut CoreMeter,o:&InvocationToken,v:&Value,k:&str)->Result<BigInt>{
-    let raw=shape::text(m,v,k)?;
-    Ok(o.timestamp(m,raw,super::super::meter::timestamp_site(k))?.micros().into())
+pub(in crate::policy::workflow::transition_constructor) fn time_owned(
+    m: &mut CoreMeter,
+    o: &InvocationToken,
+    v: &Value,
+    k: &str,
+) -> Result<BigInt> {
+    let raw = shape::text(m, v, k)?;
+    Ok(o.timestamp(m, raw, super::super::meter::timestamp_site(k))?
+        .micros()
+        .into())
 }
-pub(super) fn before_owned(m:&mut CoreMeter,o:&InvocationToken,a:&Value,ak:&str,b:&Value,bk:&str)->Result<()>{
-    let a=time_owned(m,o,a,ak)?;let b=time_owned(m,o,b,bk)?;
-    if meter::cmp(m,&a,&b)?.is_gt(){return Err(shape::fail("captured time order"));}
+pub(super) fn before_owned(
+    m: &mut CoreMeter,
+    o: &InvocationToken,
+    a: &Value,
+    ak: &str,
+    b: &Value,
+    bk: &str,
+) -> Result<()> {
+    let a = time_owned(m, o, a, ak)?;
+    let b = time_owned(m, o, b, bk)?;
+    if meter::cmp(m, &a, &b)?.is_gt() {
+        return Err(shape::fail("captured time order"));
+    }
     Ok(())
 }
 pub(super) fn decimal(m: &mut CoreMeter, v: &Value, k: &str) -> Result<arithmetic::Ratio> {

@@ -50,7 +50,11 @@ pub(in crate::policy::workflow) fn integer(
         let digit = meter::sub(m, &d.into(), &b'0'.into())?;
         n = meter::add(m, &product, &digit)?;
     }
-    if negative { meter::neg(m, &n) } else { Ok(n) }
+    if negative {
+        meter::neg(m, &n)
+    } else {
+        Ok(n)
+    }
 }
 pub(in crate::policy::workflow) fn decimal(m: &mut Meter, text: &str) -> Result<Ratio> {
     m.visit("scalar.decimal")?;

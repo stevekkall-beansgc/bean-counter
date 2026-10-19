@@ -39,12 +39,10 @@ fn actual_scalar_rational_function_reexecutes_exact_work_and_one_less_refuses_wi
         compute(usage.semantic_work - 1).unwrap_err().code,
         "PROGRAM_BUDGET_EXCEEDED"
     );
-    assert!(
-        usage
-            .trace
-            .iter()
-            .all(|charge| charge.phase == Phase::Pricing)
-    );
+    assert!(usage
+        .trace
+        .iter()
+        .all(|charge| charge.phase == Phase::Pricing));
 }
 #[test]
 fn signed_ties_away_and_512bit_refusal_are_executed_before_a_result() {
@@ -149,10 +147,10 @@ fn exact_resolved_document_detects_conflicting_input_and_corrupt_body() {
 #[test]
 fn selected_fixed_unit_and_named_additive_discount_execute_the_actual_pricing_path() {
     use super::super::selected_program::{
-        SelectedCompilerSupport, SelectedSourceInput, compile_selected_program,
+        compile_selected_program, SelectedCompilerSupport, SelectedSourceInput,
     };
     use crate::canonical;
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
     let source: Value = canonical::parse(include_bytes!(
         "../../../../../../contracts/candidates/full-suite-v1/core/r2-foundation/source-input.json"
     ))
@@ -252,32 +250,55 @@ fn private_pricing_algorithm_keeps_distinct_binding_bases_separate() {
     ];
     // Algorithm-only defensive data; the selected source compiler rejects a
     // second retail binding. This does not mint an unchecked SelectedProgram.
-    let instructions=[
-        base("example:a", "1", "0"),base("example:b", "2", "1"),
-        discount("example:a", "2"),discount("example:b", "3"),
+    let instructions = [
+        base("example:a", "1", "0"),
+        base("example:b", "2", "1"),
+        discount("example:a", "2"),
+        discount("example:b", "3"),
     ];
-    let facts=json!({"example:quantity":"1"});
+    let facts = json!({"example:quantity":"1"});
     let mut meter = CoreMeter::new(65536).unwrap();
-    let result=pricing::price_instructions(&instructions,&components,"example:work",&facts,&mut meter).unwrap();
+    let result = pricing::price_instructions(
+        &instructions,
+        &components,
+        "example:work",
+        &facts,
+        &mut meter,
+    )
+    .unwrap();
     assert_eq!(result[2].atoms, -200_000_000_000_000_000);
     assert_eq!(result[3].atoms, -400_000_000_000_000_000);
     // Same evaluator under its actual owning ledger. Popping a row must keep
     // its String/rational owner after the result-vector owner is released.
-    let arena=crate::canonical::audit_arena::AuditArena::new().unwrap();
-    let before=arena.usage().unwrap().live_bytes;
-    let mut original=crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let mut child=original.meter_mut().original_economic_meter().unwrap();
-    let mut owned=pricing::price_instructions(&instructions,&components,"example:work",&facts,&mut child).unwrap();
-    for(a,b)in owned.iter().zip(result.iter()){
-        assert_eq!(a.atoms,b.atoms);assert_eq!(a.rational,b.rational);
-        assert_eq!(a.basis_components,b.basis_components);
+    let arena = crate::canonical::audit_arena::AuditArena::new().unwrap();
+    let before = arena.usage().unwrap().live_bytes;
+    let mut original =
+        crate::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut child = original.meter_mut().original_economic_meter().unwrap();
+    let mut owned = pricing::price_instructions(
+        &instructions,
+        &components,
+        "example:work",
+        &facts,
+        &mut child,
+    )
+    .unwrap();
+    for (a, b) in owned.iter().zip(result.iter()) {
+        assert_eq!(a.atoms, b.atoms);
+        assert_eq!(a.rational, b.rational);
+        assert_eq!(a.basis_components, b.basis_components);
         assert!(a._ownership.is_some());
     }
-    let row=owned.pop().unwrap();drop(owned);
-    assert_eq!(row.atoms,-400_000_000_000_000_000);
-    assert!(arena.usage().unwrap().live_bytes>before);
-    drop(row);original.meter_mut().finish_original_economic(child).unwrap();
-    assert_eq!(arena.usage().unwrap().live_bytes,before);
+    let row = owned.pop().unwrap();
+    drop(owned);
+    assert_eq!(row.atoms, -400_000_000_000_000_000);
+    assert!(arena.usage().unwrap().live_bytes > before);
+    drop(row);
+    original
+        .meter_mut()
+        .finish_original_economic(child)
+        .unwrap();
+    assert_eq!(arena.usage().unwrap().live_bytes, before);
 }
 
 #[test]

@@ -2,19 +2,19 @@
 //! claim is produced here; the actual candidate supplies normalized intent.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    CoreMeter,
     candidate::EconomicCandidate,
     data::*,
     shape,
     working_value::{owning_definition, owning_reference},
+    CoreMeter,
 };
 use crate::{
-    Result,
     canonical::{
         self,
         audit_arena::{AuditArena, AuditedBytes, AuditedValue, ExternalBufferLease},
     },
     validation_work::{OriginalAuditSession, RepresentationKind as Kind, ValidationWork},
+    Result,
 };
 use serde_json::Value;
 use std::mem;
@@ -751,10 +751,12 @@ fn selected_anchor(
             | "ledger-workflow-party-management-authority/1"
             | "ledger-workflow-party-authorization/1",
         )
-        | ("workflow-economic-authority", "ledger-workflow-economic-authority/8"|"ledger-workflow-app-causal-authority/2"|"ledger-workflow-app-pending-causal-authority/2")
- => {
-            ("authority", "direct", 0, false)
-        }
+        | (
+            "workflow-economic-authority",
+            "ledger-workflow-economic-authority/8"
+            | "ledger-workflow-app-causal-authority/2"
+            | "ledger-workflow-app-pending-causal-authority/2",
+        ) => ("authority", "direct", 0, false),
         ("workflow-source-enrollment", "ledger-workflow-source-enrollment/1") => {
             ("source_enrollment", "source_enrollment", 0, false)
         }
@@ -831,7 +833,9 @@ fn selected_anchor(
         }
         (
             "workflow-assent",
-            "ledger-workflow-assent/1" | "ledger-workflow-party-assent/1" | "ledger-workflow-party-assent/2",
+            "ledger-workflow-assent/1"
+            | "ledger-workflow-party-assent/1"
+            | "ledger-workflow-party-assent/2",
         ) => ("assent", "agreement_input", 0, false),
         ("workflow-activation", "ledger-workflow-activation-transition/1") => {
             ("activation_target", "activation_target", 0, false)
@@ -890,7 +894,9 @@ fn selected_anchor(
         | ("workflow-verified-fact", "ledger-workflow-verified-fact/1")
         | (
             "workflow-evidence",
-            "ledger-workflow-retained-evidence/1" | "ledger-workflow-party-evidence/1" | "ledger-workflow-party-evidence/2",
+            "ledger-workflow-retained-evidence/1"
+            | "ledger-workflow-party-evidence/1"
+            | "ledger-workflow-party-evidence/2",
         )
         | (
             "workflow-verification",
@@ -901,14 +907,22 @@ fn selected_anchor(
         | ("workflow-acceptance-terms", "ledger-workflow-acceptance-terms/2")
         | ("workflow-agreement-intent", "ledger-workflow-agreement-intent/1")
         | ("workflow-roles", "ledger-workflow-role-assignment/1")
-        | ("workflow-compiled-plan", "ledger-workflow-compiled-plan/6"|"ledger-workflow-compiled-plan/7"|"ledger-workflow-compiled-plan/8")
+        | (
+            "workflow-compiled-plan",
+            "ledger-workflow-compiled-plan/6"
+            | "ledger-workflow-compiled-plan/7"
+            | "ledger-workflow-compiled-plan/8",
+        )
         | ("workflow-build-manifest", "ledger-workflow-build-manifest/1")
         | ("workflow-slot-template", "ledger-workflow-slot-template/1") => {
             ("evidence", "evidence_input", 0, true)
         }
-        ("workflow-compiler-descriptor", "ledger-workflow-compiler-descriptor/6"|"ledger-workflow-compiler-descriptor/7"|"ledger-workflow-compiler-descriptor/8") => {
-            ("evidence", "evidence_input", 3, true)
-        }
+        (
+            "workflow-compiler-descriptor",
+            "ledger-workflow-compiler-descriptor/6"
+            | "ledger-workflow-compiler-descriptor/7"
+            | "ledger-workflow-compiler-descriptor/8",
+        ) => ("evidence", "evidence_input", 3, true),
         _ => {
             return Err(shape::fail(
                 "selected local semantic operand has no exact descriptor mapping",
@@ -1181,17 +1195,15 @@ mod tests {
         assert_eq!(array.value().as_array().unwrap().len(), 1);
         assert_eq!(array.value()[0]["descriptor_refs"], json!([first, second]));
         assert_eq!(anchors.locators.rows.len(), 1);
-        assert!(
-            anchors
-                .add(
-                    s.meter_mut(),
-                    &a,
-                    "binding",
-                    "direct",
-                    &reference,
-                    &json!([])
-                )
-                .is_err()
-        );
+        assert!(anchors
+            .add(
+                s.meter_mut(),
+                &a,
+                "binding",
+                "direct",
+                &reference,
+                &json!([])
+            )
+            .is_err());
     }
 }

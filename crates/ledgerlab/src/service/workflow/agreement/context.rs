@@ -127,11 +127,10 @@ pub(super) async fn observe_source_at(
                 || grant.revision() != state.revision()
                 || grant.original_ceiling_ref() != enrollment.reference()
                 || !grant.ceiling().is_subset_of(enrollment.ceiling())
-                || json!(
-                    grant
-                        .canonical_value()
-                        .map_err(|_| ServiceError::IntegrityFailure)?
-                ) != canonical_body(&d)?
+                || json!(grant
+                    .canonical_value()
+                    .map_err(|_| ServiceError::IntegrityFailure)?)
+                    != canonical_body(&d)?
             {
                 return Err(ServiceError::IntegrityFailure);
             }

@@ -3,7 +3,7 @@ use super::{
     representation::{InvocationToken, ParsedDraftTimes, ParsedGrantInterval, ParsedRef},
     shape, *,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 #[test]
 fn private_parsed_references_require_owner_and_preserve_raw_validation() {
     let owner = InvocationToken::new();
@@ -26,8 +26,8 @@ fn private_parsed_references_require_owner_and_preserve_raw_validation() {
         operation_id: "operation".into(),
     };
     let mut r = records::Records::new(&mut m, &[input]).unwrap();
-    assert!(
-        r.get_parsed(
+    assert!(r
+        .get_parsed(
             &mut m,
             &other,
             &key,
@@ -35,8 +35,7 @@ fn private_parsed_references_require_owner_and_preserve_raw_validation() {
             "workflow-evidence",
             "ledger-workflow-retained-evidence/1"
         )
-        .is_err()
-    );
+        .is_err());
     let a = r
         .get_parsed(
             &mut m,
@@ -57,8 +56,8 @@ fn private_parsed_references_require_owner_and_preserve_raw_validation() {
         )
         .unwrap();
     assert_eq!(a, b);
-    assert!(
-        r.get_parsed(
+    assert!(r
+        .get_parsed(
             &mut m,
             &owner,
             &key,
@@ -66,8 +65,7 @@ fn private_parsed_references_require_owner_and_preserve_raw_validation() {
             "workflow-roles",
             "ledger-workflow-retained-evidence/1"
         )
-        .is_err()
-    );
+        .is_err());
     for edit in 0..4 {
         let mut bad = raw.clone();
         match edit {
@@ -105,15 +103,18 @@ fn private_times_parse_once_but_reject_cross_invocation_and_bad_dates() {
     .unwrap();
     assert!(g.get(&mut m, &b).is_err());
     g.get(&mut m, &a).unwrap();
-    assert!(ParsedGrantInterval::parse(&mut m,&a,&json!({"starts_at":"2026-02-30T00:00:00.000000Z","ends_at":"2027-01-01T00:00:00.000000Z"})).is_err());
-    assert!(
-        ParsedGrantInterval::parse(
-            &mut m,
-            &a,
-            &json!({"starts_at":"2026-10-12T00:00:00.000000Z"})
-        )
-        .is_err()
-    );
+    assert!(ParsedGrantInterval::parse(
+        &mut m,
+        &a,
+        &json!({"starts_at":"2026-02-30T00:00:00.000000Z","ends_at":"2027-01-01T00:00:00.000000Z"})
+    )
+    .is_err());
+    assert!(ParsedGrantInterval::parse(
+        &mut m,
+        &a,
+        &json!({"starts_at":"2026-10-12T00:00:00.000000Z"})
+    )
+    .is_err());
 }
 #[test]
 fn nested_equality_membership_and_subset_are_paid_and_short_circuit() {
@@ -146,13 +147,11 @@ fn nested_equality_membership_and_subset_are_paid_and_short_circuit() {
     let mut meter = CoreMeter::new(65536).unwrap();
     assert!(shape::member(&mut meter, &[json!(false), value.clone()], &value).unwrap());
     shape::subset(&mut meter, &[value.clone()], &[value]).unwrap();
-    assert!(
-        meter
-            .usage()
-            .trace
-            .iter()
-            .any(|x| x.kind == "compare.descent")
-    );
+    assert!(meter
+        .usage()
+        .trace
+        .iter()
+        .any(|x| x.kind == "compare.descent"));
 }
 
 #[test]
@@ -345,46 +344,71 @@ fn connected_causal_repairs_chain_validates_actual_nonempty_immutable_links() {
         prior.clone(),
     )
     .unwrap();
-    assert!(
-        inventory::entry::chain_head_with_links(
-            &mut m,
-            &mut r,
-            &c,
-            &p,
-            &rebound.reference,
-            &prior,
-            &[link.reference]
-        )
-        .is_err()
-    );
+    assert!(inventory::entry::chain_head_with_links(
+        &mut m,
+        &mut r,
+        &c,
+        &p,
+        &rebound.reference,
+        &prior,
+        &[link.reference]
+    )
+    .is_err());
 }
 
 #[test]
-fn rp01_timestamp_memo_exact_bytes_owner_fallback_and_legacy_parity(){
-    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession,domain::Timestamp};
-    let arena=AuditArena::new().unwrap();
-    let before=arena.usage().unwrap();
-    let token=InvocationToken::new();
-    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let raw="2026-10-18T01:00:00.000000Z";
-    let first=token.timestamp(session.meter_mut(),raw,"test.timestamp").unwrap().micros();
-    assert_eq!(first,Timestamp::parse(raw).unwrap().micros());
-    let parsed=Some(token.memo_len());
-    assert_eq!(parsed,Some(1));
-    assert_eq!(token.timestamp(session.meter_mut(),raw,"test.timestamp").unwrap().micros(),first);
-    assert_eq!(token.memo_len(),1);
-    assert!(token.timestamp(session.meter_mut(),"2026-02-30T00:00:00.000000Z","test.timestamp").is_err());
-    assert_eq!(token.memo_len(),1);
+fn rp01_timestamp_memo_exact_bytes_owner_fallback_and_legacy_parity() {
+    use crate::{
+        canonical::audit_arena::AuditArena, domain::Timestamp,
+        validation_work::OriginalAuditSession,
+    };
+    let arena = AuditArena::new().unwrap();
+    let before = arena.usage().unwrap();
+    let token = InvocationToken::new();
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let raw = "2026-10-18T01:00:00.000000Z";
+    let first = token
+        .timestamp(session.meter_mut(), raw, "test.timestamp")
+        .unwrap()
+        .micros();
+    assert_eq!(first, Timestamp::parse(raw).unwrap().micros());
+    let parsed = Some(token.memo_len());
+    assert_eq!(parsed, Some(1));
+    assert_eq!(
+        token
+            .timestamp(session.meter_mut(), raw, "test.timestamp")
+            .unwrap()
+            .micros(),
+        first
+    );
+    assert_eq!(token.memo_len(), 1);
+    assert!(token
+        .timestamp(
+            session.meter_mut(),
+            "2026-02-30T00:00:00.000000Z",
+            "test.timestamp"
+        )
+        .is_err());
+    assert_eq!(token.memo_len(), 1);
     // Fill the optimization and execute the ordinary parser beyond it: no
     // otherwise-valid timestamp is refused because the memo has no room.
     for second in 1..=33 {
-        let text=format!("2026-10-18T01:00:{second:02}.000000Z");
-        assert_eq!(token.timestamp(session.meter_mut(),&text,"test.timestamp").unwrap().micros(),Timestamp::parse(&text).unwrap().micros());
+        let text = format!("2026-10-18T01:00:{second:02}.000000Z");
+        assert_eq!(
+            token
+                .timestamp(session.meter_mut(), &text, "test.timestamp")
+                .unwrap()
+                .micros(),
+            Timestamp::parse(&text).unwrap().micros()
+        );
     }
-    assert_eq!(token.memo_len(),32);
-    let other=AuditArena::new().unwrap();
-    let mut other_session=OriginalAuditSession::for_resource_profile_v2(&other).unwrap();
-    assert!(token.timestamp(other_session.meter_mut(),raw,"test.timestamp").is_err());
-    drop(token);drop(session);
-    assert_eq!(arena.usage().unwrap().live_bytes,before.live_bytes);
+    assert_eq!(token.memo_len(), 32);
+    let other = AuditArena::new().unwrap();
+    let mut other_session = OriginalAuditSession::for_resource_profile_v2(&other).unwrap();
+    assert!(token
+        .timestamp(other_session.meter_mut(), raw, "test.timestamp")
+        .is_err());
+    drop(token);
+    drop(session);
+    assert_eq!(arena.usage().unwrap().live_bytes, before.live_bytes);
 }

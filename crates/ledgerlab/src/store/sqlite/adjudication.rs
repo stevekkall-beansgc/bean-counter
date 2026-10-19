@@ -17,7 +17,10 @@ use ledgerlab_core::adjudication::{
     runtime::index_key,
     types::{Count, Digest},
 };
-pub(super) use physical::{charge_legacy, charge_legacy_with_session, LEGACY_COMMIT_IO_BYTES, physical_usage, physical_usage_with_work};
+pub(super) use physical::{
+    charge_legacy, charge_legacy_with_session, physical_usage, physical_usage_with_work,
+    LEGACY_COMMIT_IO_BYTES,
+};
 pub(super) use provision::verify_stored_profile;
 use serde_json::json;
 use sqlx::{Row, SqliteConnection};

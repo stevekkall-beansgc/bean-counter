@@ -7,7 +7,7 @@ use super::emitted_record::ConstructedEnvelope;
 use super::record_body::RecordBody;
 use super::records::SuppliedRecords;
 use super::{
-    CoreMeter, arithmetic,
+    arithmetic,
     authority::{self, EconomicMode},
     body, codec,
     data::*,
@@ -15,11 +15,11 @@ use super::{
     meter, outcome, outcome_proofs, pricing,
     records::{self, Records},
     representation::{InvocationToken, ParsedDraftTimes},
-    shape, targets,
+    shape, targets, CoreMeter,
 };
-use crate::{Error, Result, domain::Timestamp};
+use crate::{domain::Timestamp, Error, Result};
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 macro_rules! call {
     ($function:path,$work:expr,$a0:expr $(,)?) => {{
         let (a0,) = ($a0,);
@@ -111,18 +111,47 @@ fn field_copy(m: &mut CoreMeter, v: &Value, k: &str) -> Result<Value> {
     // this slice remains noncommittable until that composition is complete.
     Ok(value.clone())
 }
-pub(super) fn verify_original_claim_namespace(m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,claim_ref:&ExactRef,claim:&Value,decision_id:&str,binding:&Value)->Result<()> {
-    let first_id=body::semantic_id(m,"wdrev_","workflow-decision-revision",&json!([decision_id,"1"]))?;
-    let (_,first)=r.by_identity(m,&c.key,"workflow-decision",&first_id,"ledger-workflow-decision-revision/1")?;
-    dictionary_decision(m,&first)?;
-    equal(m,&first["decision_id"],&json!(decision_id))?;
-    equal(m,&first["revision"],&json!("1"))?;
-    equal(m,&first["kind"],&json!("outcome"))?;
-    equal(m,&first["transition"],&json!("initial"))?;
-    equal(m,&first["subject_ref"],&json!(claim_ref))?;
-    equal(m,&first["original_terms_ref"],binding)?;
-    equal(m,&first["accepted_at"],&claim["accepted_at"])?;
-    authority::historical_namespace(m,r,c,&first["authority_ref"],&claim["source_namespace"],None,"outcome.submit",binding,&claim["accepted_at"])
+pub(super) fn verify_original_claim_namespace(
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    claim_ref: &ExactRef,
+    claim: &Value,
+    decision_id: &str,
+    binding: &Value,
+) -> Result<()> {
+    let first_id = body::semantic_id(
+        m,
+        "wdrev_",
+        "workflow-decision-revision",
+        &json!([decision_id, "1"]),
+    )?;
+    let (_, first) = r.by_identity(
+        m,
+        &c.key,
+        "workflow-decision",
+        &first_id,
+        "ledger-workflow-decision-revision/1",
+    )?;
+    dictionary_decision(m, &first)?;
+    equal(m, &first["decision_id"], &json!(decision_id))?;
+    equal(m, &first["revision"], &json!("1"))?;
+    equal(m, &first["kind"], &json!("outcome"))?;
+    equal(m, &first["transition"], &json!("initial"))?;
+    equal(m, &first["subject_ref"], &json!(claim_ref))?;
+    equal(m, &first["original_terms_ref"], binding)?;
+    equal(m, &first["accepted_at"], &claim["accepted_at"])?;
+    authority::historical_namespace(
+        m,
+        r,
+        c,
+        &first["authority_ref"],
+        &claim["source_namespace"],
+        None,
+        "outcome.submit",
+        binding,
+        &claim["accepted_at"],
+    )
 }
 fn load(
     m: &mut CoreMeter,
@@ -148,6 +177,48 @@ fn at(m: &mut CoreMeter, v: &Value, k: &str) -> Result<BigInt> {
     let raw = call!(shape::text, m, v, k)?;
     Ok(Timestamp::parse_with_work(raw, m)?.micros().into())
 }
+/// The original frozen window, not a later decision/family revision, owns
+/// standalone correction time. Keep the existing equality, trusted-time and
+/// history checks in their original paid order for both execution branches.
+fn original_correction_clock<'inv>(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    window: &Value,
+    work_ref: &ExactRef,
+    old: &Value,
+    old_family: &Value,
+    owner: &'inv InvocationToken,
+) -> Result<(ParsedDraftTimes<'inv>, BigInt)> {
+    call!(equal, m, &old_family["window"], window)?;
+    call!(equal, m, &old_family["anchor_work_ref"], &json!(work_ref))?;
+    let times = call!(
+        ParsedDraftTimes::parse,
+        m,
+        owner,
+        &c.received_at,
+        &c.accepted_at
+    )?;
+    let (received, accepted) = times.get(m, owner)?;
+    let received = BigInt::from(received.micros());
+    let accepted = BigInt::from(accepted.micros());
+    let deadline = call!(at, m, window, "correction_until")?;
+    if call!(meter::cmp, m, &received, &accepted)?.is_gt()
+        || call!(meter::cmp, m, &accepted, &deadline)?.is_gt()
+    {
+        return Err(Error::new(
+            "CORRECTION_WINDOW_CLOSED",
+            "original correction horizon",
+        ));
+    }
+    for v in [old, old_family] {
+        let previous = call!(at, m, v, "accepted_at")?;
+        if call!(meter::cmp, m, &accepted, &previous)?.is_lt() {
+            return Err(Error::new("CLOCK_REGRESSION", "correction history time"));
+        }
+    }
+    Ok((times, received))
+}
+
 fn amount(n: &BigInt) -> Value {
     json!({"currency":"USD","scale":18,"atoms":n.to_string()})
 }
@@ -280,7 +351,7 @@ pub(super) fn execute<'inv, 'raw>(
         &[&'inv super::intrinsic_record::IntrinsicRecord<'inv>],
     )>,
 ) -> Result<Construction<'inv, 'raw>> {
-    entry::context_selected(m,c,program)?;
+    entry::context_selected(m, c, program)?;
     call!(
         shape::closed,
         m,
@@ -332,8 +403,8 @@ pub(super) fn execute<'inv, 'raw>(
         &[]
     )?;
     call!(equal, m, &claim["scope"], &json!(c.key.scope))?;
-    let original_value=call!(shape::field,m,&claim,"original_payload")?;
-    let original=super::working_value::WorkingValue::copy(m,original_value)?;
+    let original_value = call!(shape::field, m, &claim, "original_payload")?;
+    let original = super::working_value::WorkingValue::copy(m, original_value)?;
     call!(dictionary_outcome, m, &original)?;
     for k in ["family_slot", "target_ref", "business_outcome_token"] {
         call!(equal, m, &claim[k], &original[k])?;
@@ -356,12 +427,14 @@ pub(super) fn execute<'inv, 'raw>(
     // V1 preserves its old selected restriction. RP01 binds the permanent
     // claim's namespace to its actual original authority below, independently
     // of the current corrector's source/enrollment namespace.
-    if m.representation_arena().is_none() && !call!(
-        shape::same_text,
-        m,
-        call!(shape::text, m, &claim, "source_namespace")?,
-        &c.canonical_economic_namespace
-    )? {
+    if m.representation_arena().is_none()
+        && !call!(
+            shape::same_text,
+            m,
+            call!(shape::text, m, &claim, "source_namespace")?,
+            &c.canonical_economic_namespace
+        )?
+    {
         return Err(unsupported("distinct historical assessor namespace"));
     }
     let none = request["replacement"].get("kind").is_some();
@@ -381,9 +454,20 @@ pub(super) fn execute<'inv, 'raw>(
         {
             return Err(shape::fail("correction none reason"));
         }
-        original.with_fields(m,&[("facts",&json!({})),("fact_proofs",&json!([])),("evidence_refs",&replacement["evidence_refs"])])?
+        original.with_fields(
+            m,
+            &[
+                ("facts", &json!({})),
+                ("fact_proofs", &json!([])),
+                ("evidence_refs", &replacement["evidence_refs"]),
+            ],
+        )?
     } else {
-        call!(super::working_value::WorkingValue::copy,m,call!(shape::field,m,&request,"replacement")?)?
+        call!(
+            super::working_value::WorkingValue::copy,
+            m,
+            call!(shape::field, m, &request, "replacement")?
+        )?
     };
     call!(dictionary_outcome, m, &p)?;
     for k in [
@@ -410,7 +494,8 @@ pub(super) fn execute<'inv, 'raw>(
         return Err(unsupported("supplemental correction evidence validation"));
     }
     if !call!(meter::cmp, m, &state.family_heads.len().into(), &1.into())?.is_eq()
-        || (!program.uses_local_execution_recipe() && !call!(meter::cmp, m, &state.decision_heads.len().into(), &2.into())?.is_eq())
+        || (!program.uses_local_execution_recipe()
+            && !call!(meter::cmp, m, &state.decision_heads.len().into(), &2.into())?.is_eq())
     {
         return Err(unsupported("selected root and outcome heads only"));
     }
@@ -529,12 +614,39 @@ pub(super) fn execute<'inv, 'raw>(
     {
         return Err(Error::new("TARGET_CLOSED", "original root changed"));
     }
-    if program.uses_local_execution_recipe(){
-        let(binding_ref,binding)=load(m,&mut r,c,&target["binding_ref"],"workflow-binding","ledger-workflow-binding/2")?;
-        let(_,instantiation)=load(m,&mut r,c,&binding["slot_instantiation_ref"],"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
-        let root_id=shape::text(m,&root,"decision_id")?;
-        let ordinary=outcome::local_ordinary_head_count(m,&mut r,c,program,&work_ref,&work["payload"],root_id,&binding_ref,&instantiation,&state.decision_heads)?;
-        if !call!(meter::cmp,m,&ordinary.into(),&2.into())?.is_eq(){return Err(unsupported("selected root and outcome heads only"));}
+    if program.uses_local_execution_recipe() {
+        let (binding_ref, binding) = load(
+            m,
+            &mut r,
+            c,
+            &target["binding_ref"],
+            "workflow-binding",
+            "ledger-workflow-binding/2",
+        )?;
+        let (_, instantiation) = load(
+            m,
+            &mut r,
+            c,
+            &binding["slot_instantiation_ref"],
+            "workflow-slot-instantiation",
+            "ledger-workflow-slot-instantiation/1",
+        )?;
+        let root_id = shape::text(m, &root, "decision_id")?;
+        let ordinary = outcome::local_ordinary_head_count(
+            m,
+            &mut r,
+            c,
+            program,
+            &work_ref,
+            &work["payload"],
+            root_id,
+            &binding_ref,
+            &instantiation,
+            &state.decision_heads,
+        )?;
+        if !call!(meter::cmp, m, &ordinary.into(), &2.into())?.is_eq() {
+            return Err(unsupported("selected root and outcome heads only"));
+        }
     }
     let mut net = BigInt::from(0);
     let mut basis = vec![];
@@ -687,8 +799,16 @@ pub(super) fn execute<'inv, 'raw>(
     call!(equal, m, &old["kind"], &json!("outcome"))?;
     call!(equal, m, &old["original_terms_ref"], &p["binding_ref"])?;
     let old_revision = call!(counter, m, &old, "revision")?;
-    if m.representation_arena().is_some(){
-        verify_original_claim_namespace(m,&mut r,c,&claim_ref,&claim,&decision_id,&p["binding_ref"])?;
+    if m.representation_arena().is_some() {
+        verify_original_claim_namespace(
+            m,
+            &mut r,
+            c,
+            &claim_ref,
+            &claim,
+            &decision_id,
+            &p["binding_ref"],
+        )?;
     }
     if !call!(meter::cmp, m, &old_revision, &expected)?.is_eq() {
         return Err(Error::new("STALE_REVISION", "outcome decision revision"));
@@ -722,34 +842,9 @@ pub(super) fn execute<'inv, 'raw>(
         call!(shape::text, m, &target, "original_work_accepted_at")?
     )?
     .ok_or_else(|| unsupported("predecessor anchored correction"))?;
-    call!(equal, m, &old_family["window"], &window)?;
-    call!(equal, m, &old_family["anchor_work_ref"], &json!(work_ref))?;
     let owner = InvocationToken::new();
-    let times = call!(
-        ParsedDraftTimes::parse,
-        m,
-        &owner,
-        &c.received_at,
-        &c.accepted_at
-    )?;
-    let (received, accepted) = times.get(m, &owner)?;
-    let received = BigInt::from(received.micros());
-    let accepted = BigInt::from(accepted.micros());
-    let deadline = call!(at, m, &window, "correction_until")?;
-    if call!(meter::cmp, m, &received, &accepted)?.is_gt()
-        || call!(meter::cmp, m, &accepted, &deadline)?.is_gt()
-    {
-        return Err(Error::new(
-            "CORRECTION_WINDOW_CLOSED",
-            "original correction horizon",
-        ));
-    }
-    for v in [&old, &old_family] {
-        let previous = call!(at, m, v, "accepted_at")?;
-        if call!(meter::cmp, m, &accepted, &previous)?.is_lt() {
-            return Err(Error::new("CLOCK_REGRESSION", "correction history time"));
-        }
-    }
+    let (times, received) =
+        original_correction_clock(m, c, &window, &work_ref, &old, &old_family, &owner)?;
     if !none {
         let occurrence = call!(at, m, &p, "occurred_at")?;
         let start = call!(at, m, &window, "starts_at")?;
@@ -783,8 +878,8 @@ pub(super) fn execute<'inv, 'raw>(
             introduced: vec![],
         }
     } else {
-        let normalized = super::working_value::NormalizedInput::normalize(m,schema,&p["facts"])?;
-        p.replace(m,"facts",normalized.canonical_value())?;
+        let normalized = super::working_value::NormalizedInput::normalize(m, schema, &p["facts"])?;
+        p.replace(m, "facts", normalized.canonical_value())?;
         call!(
             outcome_proofs::resolve,
             m,
@@ -796,28 +891,46 @@ pub(super) fn execute<'inv, 'raw>(
             state
         )?
     };
-    p.normalize_set(m,"fact_proofs",true)?;
-    let mut admin_payload = p.with_fields(m,&[("customer",&work["payload"]["customer"])])?;
-    if none {admin_payload.replace(m,"evidence_refs",&request["replacement"]["evidence_refs"])?;}
-    let correction_activity = super::working_value::WorkingValue::copy(m,activity)?;
-    let correction_activity=correction_activity.with_fields(m,&[("source_slot",&family["correction_source_slot"])])?;
-    let namespace=shape::text(m,&work,"source_namespace")?;
-    let operands = if m.representation_arena().is_some(){authority::economic_original(
-        m,&mut r,c,&admin_payload,&correction_activity,product,&owner,&times,program,EconomicMode::OutcomeCorrect,&proofs.references,namespace,
-    )?}else{call!(
-        authority::economic,
-        m,
-        &mut r,
-        c,
-        &admin_payload,
-        &correction_activity,
-        product,
-        &owner,
-        &times,
-        program,
-        EconomicMode::OutcomeCorrect,
-        &proofs.references
-    )?};
+    p.normalize_set(m, "fact_proofs", true)?;
+    let mut admin_payload = p.with_fields(m, &[("customer", &work["payload"]["customer"])])?;
+    if none {
+        admin_payload.replace(m, "evidence_refs", &request["replacement"]["evidence_refs"])?;
+    }
+    let correction_activity = super::working_value::WorkingValue::copy(m, activity)?;
+    let correction_activity = correction_activity
+        .with_fields(m, &[("source_slot", &family["correction_source_slot"])])?;
+    let namespace = shape::text(m, &work, "source_namespace")?;
+    let operands = if m.representation_arena().is_some() {
+        authority::economic_original(
+            m,
+            &mut r,
+            c,
+            &admin_payload,
+            &correction_activity,
+            product,
+            &owner,
+            &times,
+            program,
+            EconomicMode::OutcomeCorrect,
+            &proofs.references,
+            namespace,
+        )?
+    } else {
+        call!(
+            authority::economic,
+            m,
+            &mut r,
+            c,
+            &admin_payload,
+            &correction_activity,
+            product,
+            &owner,
+            &times,
+            program,
+            EconomicMode::OutcomeCorrect,
+            &proofs.references
+        )?
+    };
     call!(
         outcome::original_target_association,
         m,
@@ -1068,7 +1181,7 @@ pub(super) fn execute<'inv, 'raw>(
         json!({"schema":"ledger-workflow-chain-state/1","logical_store_id":c.key.logical_store_id,"scope":c.key.scope,"customer":chain_payload["customer"],"chain":chain_payload["chain"],"binding_ref":p["binding_ref"],"accepted_agreement_ref":c.authorities[0].accepted_agreement_ref,"activation_ref":c.authorities[0].activation_ref,"revision":crevision,"admitted_events":admitted.to_string(),"links_root":old_chain["links_root"],"operation_key":c.key,"accepted_at":c.accepted_at,"prior_ref":old_chain_ref})
     )?;
     if !none {
-        request.replace(m,"replacement",&p)?;
+        request.replace(m, "replacement", &p)?;
     }
     let normalized_payload = request.bytes(m)?;
     let mut envelopes = operands.introduced;
@@ -1090,13 +1203,15 @@ pub(super) fn execute<'inv, 'raw>(
     envelopes.push(next_family);
     envelopes.push(chain);
     Ok(Construction {
-        original_reservations: None,financial_reservations:None,
+        original_reservations: None,
+        financial_reservations: None,
         economic: EconomicConstruction {
             terms: operands.terms,
             original_work: OriginalWorkPayload::Retained(work),
         },
         normalized_payload,
-        new_envelopes: envelopes,reused_result:None,
+        new_envelopes: envelopes,
+        reused_result: None,
         evaluation_steps: steps,
         proposed_heads: heads,
         claim_introductions: vec![],
@@ -1104,8 +1219,14 @@ pub(super) fn execute<'inv, 'raw>(
         prospective_obligations: vec![],
         records: r,
         history_edges: vec![],
-        app_effects:None,app_causal:None,current_capacity:None,
-        candidate_heads:None,candidate_introductions:None,financial_observation:None,funding_effects:None,control_owners:[None,None,None,None,None],
+        app_effects: None,
+        app_causal: None,
+        current_capacity: None,
+        candidate_heads: None,
+        candidate_introductions: None,
+        financial_observation: None,
+        funding_effects: None,
+        control_owners: [None, None, None, None, None],
     })
 }
 fn inverse_value(m: &mut CoreMeter, v: &ConstructedEnvelope) -> Result<Value> {
@@ -1347,3 +1468,7 @@ pub(super) fn verify_current(
     }
     Ok(out)
 }
+
+#[cfg(test)]
+#[path = "correction_clock_tests.rs"]
+mod correction_clock_tests;

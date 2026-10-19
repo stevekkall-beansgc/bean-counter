@@ -1,8 +1,8 @@
 use crate::store::errors::StoreError;
 use sha2::{Digest, Sha256};
 use sqlx::{
-    SqlSafeStr, SqliteConnection,
     migrate::{Migration, MigrationType, Migrator},
+    SqlSafeStr, SqliteConnection,
 };
 const SQL: &str = include_str!("../../../migrations/sqlite/0001_first_slice.sql");
 const OUTBOX: &str = include_str!("../../../migrations/sqlite/0002_outbox.sql");
@@ -28,9 +28,23 @@ const FINANCIAL_WORKFLOW: &str = include_str!("workflow/financial/schema.sql");
 const SUPPLIER_WORKFLOW: &str = include_str!("workflow/financial/supplier_schema.sql");
 const APP_WORKFLOW: &str = include_str!("workflow/financial/app_schema.sql");
 const ASSERTION_WORKFLOW: &str = include_str!("workflow/financial/assertion_schema.sql");
-fn resource_workflow_migration()->Migration { Migration::new(17,"operator workflow resource quotas".into(),MigrationType::Simple,include_str!("workflow/resource_schema.sql").into_sql_str(),false) }
+fn resource_workflow_migration() -> Migration {
+    Migration::new(
+        17,
+        "operator workflow resource quotas".into(),
+        MigrationType::Simple,
+        include_str!("workflow/resource_schema.sql").into_sql_str(),
+        false,
+    )
+}
 fn assertion_workflow_migration() -> Migration {
-    Migration::new(16,"workflow assertion identity projection".into(),MigrationType::Simple,ASSERTION_WORKFLOW.into_sql_str(),false)
+    Migration::new(
+        16,
+        "workflow assertion identity projection".into(),
+        MigrationType::Simple,
+        ASSERTION_WORKFLOW.into_sql_str(),
+        false,
+    )
 }
 fn app_workflow_migration() -> Migration {
     Migration::new(
@@ -1639,9 +1653,11 @@ impl super::SqliteTx {
     /// New local projection storage only. Existing experimental financial
     /// records need their separately verified compatibility/rebuild route;
     /// this empty-index upgrade cannot silently declare them absent.
-    pub(crate) async fn workflow_enable_assertion_schema(&mut self) -> Result<(),StoreError> {
-        if self.failed {return Err(StoreError::InvalidStore("poisoned assertion upgrade"));}
-        self.failed=true;
+    pub(crate) async fn workflow_enable_assertion_schema(&mut self) -> Result<(), StoreError> {
+        if self.failed {
+            return Err(StoreError::InvalidStore("poisoned assertion upgrade"));
+        }
+        self.failed = true;
         let result=tokio::time::timeout_at(self.deadline,async {
             let from=version(self.conn()).await?;
             if from==16 || from==17 {return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
@@ -1665,7 +1681,9 @@ impl super::SqliteTx {
             super::connect::integrity(self.conn()).await?;
             Ok::<_,StoreError>(())
         }).await.map_err(|_|StoreError::Deadline)?;
-        if result.is_ok() {self.failed=false;}
+        if result.is_ok() {
+            self.failed = false;
+        }
         result
     }
 
@@ -1720,10 +1738,12 @@ impl super::SqliteTx {
 }
 
 impl super::SqliteTx {
- pub(crate) async fn workflow_enable_resource_schema(&mut self)->Result<(),StoreError>{
-  if self.failed{return Err(StoreError::InvalidStore("poisoned resource schema upgrade"));}
-  self.failed=true;
-  let result=async{
+    pub(crate) async fn workflow_enable_resource_schema(&mut self) -> Result<(), StoreError> {
+        if self.failed {
+            return Err(StoreError::InvalidStore("poisoned resource schema upgrade"));
+        }
+        self.failed = true;
+        let result=async{
    let from=version(self.conn()).await?;
    if from==17{return super::workflow::capacity::check(self.conn(),0,0).await.map(|_|());}
    if from!=16{return Err(StoreError::BillingUpgradeRequired);}
@@ -1737,6 +1757,9 @@ impl super::SqliteTx {
    sqlx::query("PRAGMA user_version=17").execute(self.conn()).await?;
    version(self.conn()).await?;super::connect::integrity(self.conn()).await?;Ok(())
   }.await;
-  if result.is_ok(){self.failed=false;}result
- }
+        if result.is_ok() {
+            self.failed = false;
+        }
+        result
+    }
 }

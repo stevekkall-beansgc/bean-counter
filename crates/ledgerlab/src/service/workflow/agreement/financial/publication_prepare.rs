@@ -5,11 +5,11 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::{AuditedBytes, ExternalBufferLease},
     policy::workflow::{
-        DefinitionRef,
         selected_program::{
-            SelectedCompilerSupport, SelectedProgram, SelectedSourceInput,
-            compile_selected_publication,
+            compile_selected_publication, SelectedCompilerSupport, SelectedProgram,
+            SelectedSourceInput,
         },
+        DefinitionRef,
     },
     validation_work::{
         ArithmeticOperation as Op, OriginalAuditSession, RepresentationKind as Kind,
@@ -166,20 +166,28 @@ pub(super) async fn compile_request(
                     .map_err(core_error)?
             } else {
                 let kind = request_wrapper::text(candidate, "kind", s)?;
-                let compiler_schema = if acceptance::same_recipe_text(request_wrapper::text(support.canonical_value(),"schema",s)?,"ledger-workflow-compiler-descriptor/8",s)? {"ledger-workflow-compiler-descriptor/8"} else if acceptance::same_recipe_text(
+                let compiler_schema = if acceptance::same_recipe_text(
                     request_wrapper::text(support.canonical_value(), "schema", s)?,
-                    "ledger-workflow-compiler-descriptor/7", s,
-                )? { "ledger-workflow-compiler-descriptor/7" } else { "ledger-workflow-compiler-descriptor/6" };
+                    "ledger-workflow-compiler-descriptor/8",
+                    s,
+                )? {
+                    "ledger-workflow-compiler-descriptor/8"
+                } else if acceptance::same_recipe_text(
+                    request_wrapper::text(support.canonical_value(), "schema", s)?,
+                    "ledger-workflow-compiler-descriptor/7",
+                    s,
+                )? {
+                    "ledger-workflow-compiler-descriptor/7"
+                } else {
+                    "ledger-workflow-compiler-descriptor/6"
+                };
                 let mut schema = None;
                 for (k, v) in [
                     ("workflow-product", "ledger-workflow-product/1"),
                     ("workflow-fact-schema", "ledger-workflow-fact-schema/1"),
                     ("workflow-slot-template", "ledger-workflow-slot-template/1"),
                     ("workflow-policy", "ledger-workflow-policy/4"),
-                    (
-                        "workflow-compiler-descriptor",
-                        compiler_schema,
-                    ),
+                    ("workflow-compiler-descriptor", compiler_schema),
                 ] {
                     if acceptance::same_recipe_text(kind, k, s)? {
                         schema = Some(v);
@@ -252,9 +260,11 @@ pub(super) async fn compile_request(
         .map_err(core_error)?;
         // The actual compiled program inherits only its private support's
         // exact execution identity. Public descriptor data cannot select it.
-        let registry=program.execution_registry().ok_or(ServiceError::Unavailable)?;
-        if !acceptance::same_recipe_text(registry,wrappers::LOCAL_REGISTRY,s)? {
-            request_wrapper::same_text(registry,REGISTRY,s)?;
+        let registry = program
+            .execution_registry()
+            .ok_or(ServiceError::Unavailable)?;
+        if !acceptance::same_recipe_text(registry, wrappers::LOCAL_REGISTRY, s)? {
+            request_wrapper::same_text(registry, REGISTRY, s)?;
         }
         request_wrapper::same_text(
             request_wrapper::text(payload, "expected_plan_digest", s)?,
@@ -315,10 +325,14 @@ pub(super) async fn compile_request(
 
 impl SelectedPublicationData {
     pub(super) async fn verify_local_retained(
-        &self,tx:&mut SqliteTx,key:&OperationKey,before:i64,s:&mut OriginalAuditSession,
-    )->Result<()> {
+        &self,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        before: i64,
+        s: &mut OriginalAuditSession,
+    ) -> Result<()> {
         for record in &self.retained {
-            prefix::verify_selected_association(tx,key,record.reference(),before,s).await?;
+            prefix::verify_selected_association(tx, key, record.reference(), before, s).await?;
         }
         Ok(())
     }

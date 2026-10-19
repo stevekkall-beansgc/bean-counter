@@ -2,16 +2,17 @@
 use super::emitted_record::ConstructedEnvelope;
 use super::record_body::RecordBody;
 use super::{
-    CoreMeter, Phase, arithmetic, body,
+    arithmetic, body,
     data::{DraftContextData, ExactRef},
     meter,
     records::Records,
     representation::{InvocationToken, ParsedDraftTimes, ParsedGrantInterval, ParsedRef},
     shape::{self, *},
+    CoreMeter, Phase,
 };
-use crate::{Result, domain::Timestamp};
+use crate::{domain::Timestamp, Result};
 use num_bigint::BigInt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 macro_rules! invoke {
     ($f:ident,$m:expr,$v0:expr) => {{
         let (v0,) = ($v0,);
@@ -55,7 +56,7 @@ macro_rules! invoke {
         $f($m, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9)
     }};
 }
-#[derive(Clone, Copy,PartialEq,Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum EconomicMode {
     Work,
     OutcomeSubmit,
@@ -81,21 +82,26 @@ impl EconomicMode {
             Self::EvidenceRetain => "evidence.retain",
             Self::OutcomeClose => "outcome.close",
             Self::DeadlineClose => "outcome.close",
-            Self::CostFinalize=>"cost.finalize",
-            Self::CostCorrect=>"cost.correct",
-            Self::InvocationAuthorize=>"invocation.authorize",
-            Self::InvocationClose=>"invocation.close",
+            Self::CostFinalize => "cost.finalize",
+            Self::CostCorrect => "cost.correct",
+            Self::InvocationAuthorize => "invocation.authorize",
+            Self::InvocationClose => "invocation.close",
         }
     }
     pub(super) fn rights(self) -> &'static [&'static str] {
         match self {
-            Self::Work | Self::OutcomeSubmit | Self::EvidenceRetain | Self::OutcomeClose | Self::CostFinalize => &["read", "submit"],
+            Self::Work
+            | Self::OutcomeSubmit
+            | Self::EvidenceRetain
+            | Self::OutcomeClose
+            | Self::CostFinalize => &["read", "submit"],
             Self::DeadlineClose => &["close", "read"],
-            Self::OutcomeCorrect | Self::QuantityCorrect | Self::WorkReverse | Self::CostCorrect => {
-                &["correct", "read"]
-            }
-            Self::InvocationAuthorize=>&["invocation","read"],
-            Self::InvocationClose=>&["close","read"],
+            Self::OutcomeCorrect
+            | Self::QuantityCorrect
+            | Self::WorkReverse
+            | Self::CostCorrect => &["correct", "read"],
+            Self::InvocationAuthorize => &["invocation", "read"],
+            Self::InvocationClose => &["close", "read"],
         }
     }
 }
@@ -124,42 +130,94 @@ pub(super) struct ResolvedOperands {
     pub terms: Terms,
     pub introduced: Vec<ConstructedEnvelope>,
     authority_body: super::working_value::WorkingValue,
-    _metadata:Option<crate::canonical::audit_arena::ExternalBufferLease>,
+    _metadata: Option<crate::canonical::audit_arena::ExternalBufferLease>,
 }
 /// Historical identity association only. The host still completes this exact
 /// authority's original recipe; a present record or matching namespace is not
 /// an origin proof. Today's assessor/corrector namespace is deliberately absent
 /// from this relation.
 pub(super) fn historical_namespace(
-    m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,authority_ref:&Value,
-    namespace:&Value,source:Option<&Value>,operation:&str,binding:&Value,at:&Value,
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    authority_ref: &Value,
+    namespace: &Value,
+    source: Option<&Value>,
+    operation: &str,
+    binding: &Value,
+    at: &Value,
 ) -> Result<()> {
-    let reference=super::shape::reference(m,authority_ref)?;
-    let local=c.authorities.first().is_some_and(|a|a.authority_observation_ref.is_none());
-    let schemas:&[&str]=if local{&["ledger-workflow-economic-authority/8"]}else{&["ledger-workflow-economic-authority/2","ledger-workflow-economic-authority/3","ledger-workflow-economic-authority/5","ledger-workflow-economic-authority/6","ledger-workflow-economic-authority/7"]};
-    let original=r.get_schemas(m,&c.key,&reference,"workflow-economic-authority",schemas)?;
-    equal(m,&original["scope"],&json!(c.key.scope))?;
-    equal(m,&original["operation"],&json!(operation))?;
-    equal(m,&original["canonical_economic_namespace"],namespace)?;
-    equal(m,&original["original_binding_ref"],binding)?;
-    equal(m,&original["observed_at"],at)?;
-    if let Some(source)=source{equal(m,&original["source"],source)?;}
-    let enrollment_ref=super::shape::reference(m,&original["enrollment_ref"])?;
-    let enrollment=r.get(m,&c.key,&enrollment_ref,"workflow-source-enrollment","ledger-workflow-source-enrollment/1")?;
-    let ceiling=field(m,&enrollment,"ceiling")?;
-    for (name,expected) in [("source",&original["source"]),("principal_id",&original["actor"]),("canonical_economic_namespace",namespace)] {
-        equal(m,&ceiling[name],expected)?;
+    let reference = super::shape::reference(m, authority_ref)?;
+    let local = c
+        .authorities
+        .first()
+        .is_some_and(|a| a.authority_observation_ref.is_none());
+    let schemas: &[&str] = if local {
+        &["ledger-workflow-economic-authority/8"]
+    } else {
+        &[
+            "ledger-workflow-economic-authority/2",
+            "ledger-workflow-economic-authority/3",
+            "ledger-workflow-economic-authority/5",
+            "ledger-workflow-economic-authority/6",
+            "ledger-workflow-economic-authority/7",
+        ]
+    };
+    let original = r.get_schemas(
+        m,
+        &c.key,
+        &reference,
+        "workflow-economic-authority",
+        schemas,
+    )?;
+    equal(m, &original["scope"], &json!(c.key.scope))?;
+    equal(m, &original["operation"], &json!(operation))?;
+    equal(m, &original["canonical_economic_namespace"], namespace)?;
+    equal(m, &original["original_binding_ref"], binding)?;
+    equal(m, &original["observed_at"], at)?;
+    if let Some(source) = source {
+        equal(m, &original["source"], source)?;
     }
-    let grant_ref=super::shape::reference(m,&original["current_grant_ref"])?;
-    let grant=r.get(m,&c.key,&grant_ref,"workflow-source-grant","ledger-workflow-source-grant/1")?;
-    equal(m,&grant["original_ceiling_ref"],&json!(enrollment_ref))?;
-    equal(m,&grant["grant_id"],&enrollment["enrollment_id"])?;
-    for name in ["source","principal_id","canonical_economic_namespace"]{equal(m,&grant[name],&ceiling[name])?;}
-    let at_raw=at.as_str().ok_or_else(||fail("historical source accepted time"))?;
-    let at=Timestamp::parse_with_work(at_raw,m)?.micros();
-    let starts=Timestamp::parse_with_work(text(m,&grant,"starts_at")?,m)?.micros();
-    let ends=Timestamp::parse_with_work(text(m,&grant,"ends_at")?,m)?.micros();
-    if meter::cmp(m,&at.into(),&starts.into())?.is_lt() || !meter::cmp(m,&at.into(),&ends.into())?.is_lt(){return Err(fail("historical source grant at original acceptance"));}
+    let enrollment_ref = super::shape::reference(m, &original["enrollment_ref"])?;
+    let enrollment = r.get(
+        m,
+        &c.key,
+        &enrollment_ref,
+        "workflow-source-enrollment",
+        "ledger-workflow-source-enrollment/1",
+    )?;
+    let ceiling = field(m, &enrollment, "ceiling")?;
+    for (name, expected) in [
+        ("source", &original["source"]),
+        ("principal_id", &original["actor"]),
+        ("canonical_economic_namespace", namespace),
+    ] {
+        equal(m, &ceiling[name], expected)?;
+    }
+    let grant_ref = super::shape::reference(m, &original["current_grant_ref"])?;
+    let grant = r.get(
+        m,
+        &c.key,
+        &grant_ref,
+        "workflow-source-grant",
+        "ledger-workflow-source-grant/1",
+    )?;
+    equal(m, &grant["original_ceiling_ref"], &json!(enrollment_ref))?;
+    equal(m, &grant["grant_id"], &enrollment["enrollment_id"])?;
+    for name in ["source", "principal_id", "canonical_economic_namespace"] {
+        equal(m, &grant[name], &ceiling[name])?;
+    }
+    let at_raw = at
+        .as_str()
+        .ok_or_else(|| fail("historical source accepted time"))?;
+    let at = Timestamp::parse_with_work(at_raw, m)?.micros();
+    let starts = Timestamp::parse_with_work(text(m, &grant, "starts_at")?, m)?.micros();
+    let ends = Timestamp::parse_with_work(text(m, &grant, "ends_at")?, m)?.micros();
+    if meter::cmp(m, &at.into(), &starts.into())?.is_lt()
+        || !meter::cmp(m, &at.into(), &ends.into())?.is_lt()
+    {
+        return Err(fail("historical source grant at original acceptance"));
+    }
     Ok(())
 }
 impl std::ops::Deref for ResolvedOperands {
@@ -169,21 +227,53 @@ impl std::ops::Deref for ResolvedOperands {
     }
 }
 impl ResolvedOperands {
-    pub(super) fn owning(terms:Terms,introduced:Vec<ConstructedEnvelope>,value:crate::canonical::audit_arena::AuditedValue,metadata:crate::canonical::audit_arena::ExternalBufferLease)->Self {
-        Self{terms,introduced,authority_body:super::working_value::WorkingValue::Owned(value),_metadata:Some(metadata)}
+    pub(super) fn owning(
+        terms: Terms,
+        introduced: Vec<ConstructedEnvelope>,
+        value: crate::canonical::audit_arena::AuditedValue,
+        metadata: crate::canonical::audit_arena::ExternalBufferLease,
+    ) -> Self {
+        Self {
+            terms,
+            introduced,
+            authority_body: super::working_value::WorkingValue::Owned(value),
+            _metadata: Some(metadata),
+        }
     }
-    pub(super) fn app_authority_value(&self,m:&mut CoreMeter,checks:&[Value])->Result<crate::canonical::audit_arena::AuditedValue>{
-        let arena=m.representation_arena().ok_or_else(||fail("owning app parent authority"))?;
-        let super::working_value::WorkingValue::Owned(base)=&self.authority_body else{return Err(fail("app parent requires owning resolved authority"))};
-        crate::validation_work::ValidationWork::arithmetic(m,crate::validation_work::ArithmeticOperation::Multiply,&[&checks.len().into(),&std::mem::size_of::<&Value>().into()])?;
-        let bytes=checks.len().checked_mul(std::mem::size_of::<&Value>()).ok_or_else(||fail("app parent family check product"))?;
-        let _lease=arena.reserve_external_payload(bytes,m)?;
-        let mut fields=Vec::new();fields.try_reserve_exact(checks.len()).map_err(|_|fail("app parent family checks"))?;
-        for check in checks{m.visit("app.parent_family_check")?;fields.push(check);}
-        let checks=arena.array_from_values(&fields,m)?;
-        let value=super::working_value::WorkingValue::copy(m,base.value())?.with_fields(m,&[("causal_closure_checks",checks.value())])?;
-        let mut value=value.into_owned()?;
-        super::intent::sort_owned_set(&mut value,"causal_closure_checks",false,m,&arena)?;
+    pub(super) fn app_authority_value(
+        &self,
+        m: &mut CoreMeter,
+        checks: &[Value],
+    ) -> Result<crate::canonical::audit_arena::AuditedValue> {
+        let arena = m
+            .representation_arena()
+            .ok_or_else(|| fail("owning app parent authority"))?;
+        let super::working_value::WorkingValue::Owned(base) = &self.authority_body else {
+            return Err(fail("app parent requires owning resolved authority"));
+        };
+        crate::validation_work::ValidationWork::arithmetic(
+            m,
+            crate::validation_work::ArithmeticOperation::Multiply,
+            &[&checks.len().into(), &std::mem::size_of::<&Value>().into()],
+        )?;
+        let bytes = checks
+            .len()
+            .checked_mul(std::mem::size_of::<&Value>())
+            .ok_or_else(|| fail("app parent family check product"))?;
+        let _lease = arena.reserve_external_payload(bytes, m)?;
+        let mut fields = Vec::new();
+        fields
+            .try_reserve_exact(checks.len())
+            .map_err(|_| fail("app parent family checks"))?;
+        for check in checks {
+            m.visit("app.parent_family_check")?;
+            fields.push(check);
+        }
+        let checks = arena.array_from_values(&fields, m)?;
+        let value = super::working_value::WorkingValue::copy(m, base.value())?
+            .with_fields(m, &[("causal_closure_checks", checks.value())])?;
+        let mut value = value.into_owned()?;
+        super::intent::sort_owned_set(&mut value, "causal_closure_checks", false, m, &arena)?;
         Ok(value)
     }
     pub(super) fn authority_document(
@@ -191,11 +281,16 @@ impl ResolvedOperands {
         m: &mut CoreMeter,
         causal_checks: Option<&[Value]>,
     ) -> Result<ConstructedEnvelope> {
-        if let super::working_value::WorkingValue::Owned(value)=&self.authority_body {
-            if let Some(checks)=causal_checks{let value=self.app_authority_value(m,checks)?;return body::document_borrowed(m,"workflow-economic-authority",value.value());}
-            return body::document_borrowed(m,"workflow-economic-authority",value.value());
+        if let super::working_value::WorkingValue::Owned(value) = &self.authority_body {
+            if let Some(checks) = causal_checks {
+                let value = self.app_authority_value(m, checks)?;
+                return body::document_borrowed(m, "workflow-economic-authority", value.value());
+            }
+            return body::document_borrowed(m, "workflow-economic-authority", value.value());
         }
-        let super::working_value::WorkingValue::Legacy(original)=&self.authority_body else{unreachable!()};
+        let super::working_value::WorkingValue::Legacy(original) = &self.authority_body else {
+            unreachable!()
+        };
         let mut value = original.clone();
         if let Some(checks) = causal_checks {
             let operation = shape::text(m, &value, "operation")?;
@@ -272,12 +367,26 @@ pub(super) fn grant(
     at: &BigInt,
     mode: EconomicMode,
 ) -> Result<()> {
-    grant_shape(m,g)?;
-    grant_identity(m,g,ceiling,c)?;
-    grant_intersection(m,owner,g,ceiling,at)?;
-    grant_coverage(m,g,customer,activity,product,slot,mode.operation(),mode.rights())
+    grant_shape(m, g)?;
+    grant_identity(m, g, ceiling, c)?;
+    grant_intersection(m, owner, g, ceiling, at)?;
+    grant_coverage(
+        m,
+        g,
+        customer,
+        activity,
+        product,
+        slot,
+        mode.operation(),
+        mode.rights(),
+    )
 }
-pub(super) fn grant_identity(m:&mut CoreMeter,g:&Value,ceiling:&Value,c:&DraftContextData)->Result<()> {
+pub(super) fn grant_identity(
+    m: &mut CoreMeter,
+    g: &Value,
+    ceiling: &Value,
+    c: &DraftContextData,
+) -> Result<()> {
     for (k, want) in [
         ("principal_id", json!(c.actor)),
         ("source", json!(c.key.source)),
@@ -291,7 +400,7 @@ pub(super) fn grant_identity(m:&mut CoreMeter,g:&Value,ceiling:&Value,c:&DraftCo
     }
     Ok(())
 }
-pub(super) fn grant_shape(m:&mut CoreMeter,g:&Value)->Result<()> {
+pub(super) fn grant_shape(m: &mut CoreMeter, g: &Value) -> Result<()> {
     closed(
         m,
         g,
@@ -317,7 +426,13 @@ pub(super) fn grant_shape(m:&mut CoreMeter,g:&Value)->Result<()> {
     )?;
     Ok(())
 }
-pub(super) fn grant_intersection(m:&mut CoreMeter,owner:&InvocationToken,g:&Value,ceiling:&Value,at:&BigInt)->Result<()> {
+pub(super) fn grant_intersection(
+    m: &mut CoreMeter,
+    owner: &InvocationToken,
+    g: &Value,
+    ceiling: &Value,
+    at: &BigInt,
+) -> Result<()> {
     super::inventory::source::current_sets(m, g)?;
     for k in [
         "customer_scope",
@@ -346,15 +461,24 @@ pub(super) fn grant_intersection(m:&mut CoreMeter,owner:&InvocationToken,g:&Valu
     let (gs, ge) = prepared.get(m, owner)?;
     let gs = BigInt::from(gs.micros());
     let ge = BigInt::from(ge.micros());
-    let cs = super::inventory::check::time_owned(m,owner,ceiling,"starts_at")?;
-    let ce = super::inventory::check::time_owned(m,owner,ceiling,"ends_at")?;
+    let cs = super::inventory::check::time_owned(m, owner, ceiling, "starts_at")?;
+    let ce = super::inventory::check::time_owned(m, owner, ceiling, "ends_at")?;
     if meter::cmp(m, &gs, &cs)?.is_lt() || meter::cmp(m, &ge, &ce)?.is_gt() {
         return Err(fail("original ceiling time"));
     }
     invoke!(interval, m, owner, &prepared, at)?;
     Ok(())
 }
-pub(super) fn grant_coverage(m:&mut CoreMeter,g:&Value,customer:&Value,activity:&str,product:&str,slot:&str,operation:&str,rights:&[&str])->Result<()> {
+pub(super) fn grant_coverage(
+    m: &mut CoreMeter,
+    g: &Value,
+    customer: &Value,
+    activity: &str,
+    product: &str,
+    slot: &str,
+    operation: &str,
+    rights: &[&str],
+) -> Result<()> {
     invoke!(
         contains,
         m,
@@ -385,32 +509,47 @@ pub(super) fn grant_coverage(m:&mut CoreMeter,g:&Value,customer:&Value,activity:
     invoke!(selector, m, g, "product_selectors", product)?;
     Ok(())
 }
-fn selector_allows(m:&mut CoreMeter,g:&Value,field:&str,name:&str)->Result<bool>{
-    let selectors=shape::array(m,g,field)?;
-    let mut covered=false;
+fn selector_allows(m: &mut CoreMeter, g: &Value, field: &str, name: &str) -> Result<bool> {
+    let selectors = shape::array(m, g, field)?;
+    let mut covered = false;
     for selector in selectors {
         m.visit("close.deadline_selector")?;
-        shape::closed(m,selector,&["names"],&[])?;
-        let names=shape::array(m,selector,"names")?;
-        covered|=shape::member(m,names,&json!(name))?;
+        shape::closed(m, selector, &["names"], &[])?;
+        let names = shape::array(m, selector, "names")?;
+        covered |= shape::member(m, names, &json!(name))?;
     }
     Ok(covered)
 }
 /// SAME closed deadline permission/selector/time predicate. Identity is checked
 /// by the containing caller against its actual source, never an invented actor.
-pub(super) fn deadline_grant_scope(m:&mut CoreMeter,g:&Value,slot:&Value,customer:&Value,activity:&str,product:&str,at:i64)->Result<bool>{
-    let mut eligible=true;
-    for (field,want) in [("operations",json!("outcome.close")),("permissions",json!("close")),("permissions",json!("read"))]{
-        let values=shape::array(m,g,field)?;
-        eligible&=shape::member(m,values,&want)?;
+pub(super) fn deadline_grant_scope(
+    m: &mut CoreMeter,
+    g: &Value,
+    slot: &Value,
+    customer: &Value,
+    activity: &str,
+    product: &str,
+    at: i64,
+) -> Result<bool> {
+    let mut eligible = true;
+    for (field, want) in [
+        ("operations", json!("outcome.close")),
+        ("permissions", json!("close")),
+        ("permissions", json!("read")),
+    ] {
+        let values = shape::array(m, g, field)?;
+        eligible &= shape::member(m, values, &want)?;
     }
-    let slots=shape::array(m,g,"source_slots")?;eligible&=shape::member(m,slots,slot)?;
-    let customers=shape::array(m,g,"customer_scope")?;eligible&=shape::member(m,customers,customer)?;
-    eligible&=selector_allows(m,g,"activity_selectors",activity)?;
-    eligible&=selector_allows(m,g,"product_selectors",product)?;
-    let starts=time(m,g,"starts_at")?;let ends=time(m,g,"ends_at")?;
-    eligible&=!meter::cmp(m,&at.into(),&starts.into())?.is_lt();
-    eligible&=meter::cmp(m,&at.into(),&ends.into())?.is_lt();
+    let slots = shape::array(m, g, "source_slots")?;
+    eligible &= shape::member(m, slots, slot)?;
+    let customers = shape::array(m, g, "customer_scope")?;
+    eligible &= shape::member(m, customers, customer)?;
+    eligible &= selector_allows(m, g, "activity_selectors", activity)?;
+    eligible &= selector_allows(m, g, "product_selectors", product)?;
+    let starts = time(m, g, "starts_at")?;
+    let ends = time(m, g, "ends_at")?;
+    eligible &= !meter::cmp(m, &at.into(), &starts.into())?.is_lt();
+    eligible &= meter::cmp(m, &at.into(), &ends.into())?.is_lt();
     Ok(eligible)
 }
 pub(super) fn work(
@@ -424,9 +563,9 @@ pub(super) fn work(
     times: &ParsedDraftTimes<'_>,
     program: &super::super::selected_program::SelectedProgram,
 ) -> Result<Operands> {
-    if program.uses_app_owned_cost_recipe(){
-        let slot=shape::text(m,activity,"source_slot")?;
-        return super::app_cost::work_operands(m,r,c,p,program,slot);
+    if program.uses_app_owned_cost_recipe() {
+        let slot = shape::text(m, activity, "source_slot")?;
+        return super::app_cost::work_operands(m, r, c, p, program, slot);
     }
     economic(
         m,
@@ -476,13 +615,39 @@ pub(super) fn economic(
     })
 }
 pub(super) fn economic_original(
-    m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,p:&Value,activity:&Value,product:&Value,
-    owner:&InvocationToken,times:&ParsedDraftTimes<'_>,program:&super::super::selected_program::SelectedProgram,
-    mode:EconomicMode,verified_facts:&[ExactRef],original_namespace:&str,
-)->Result<Operands>{
-    let resolved=resolve_economic_original(m,r,c,p,activity,product,owner,times,program,mode,verified_facts,original_namespace)?;
-    let authority=resolved.authority_document(m,None)?;
-    Ok(Operands{terms:resolved.terms,authority,introduced:resolved.introduced})
+    m: &mut CoreMeter,
+    r: &mut Records,
+    c: &DraftContextData,
+    p: &Value,
+    activity: &Value,
+    product: &Value,
+    owner: &InvocationToken,
+    times: &ParsedDraftTimes<'_>,
+    program: &super::super::selected_program::SelectedProgram,
+    mode: EconomicMode,
+    verified_facts: &[ExactRef],
+    original_namespace: &str,
+) -> Result<Operands> {
+    let resolved = resolve_economic_original(
+        m,
+        r,
+        c,
+        p,
+        activity,
+        product,
+        owner,
+        times,
+        program,
+        mode,
+        verified_facts,
+        original_namespace,
+    )?;
+    let authority = resolved.authority_document(m, None)?;
+    Ok(Operands {
+        terms: resolved.terms,
+        authority,
+        introduced: resolved.introduced,
+    })
 }
 pub(super) fn resolve_economic(
     m: &mut CoreMeter,
@@ -497,7 +662,20 @@ pub(super) fn resolve_economic(
     mode: EconomicMode,
     verified_facts: &[ExactRef],
 ) -> Result<ResolvedOperands> {
-    resolve_economic_identity(m,r,c,p,activity,product,owner,times,program,mode,verified_facts,&c.canonical_economic_namespace)
+    resolve_economic_identity(
+        m,
+        r,
+        c,
+        p,
+        activity,
+        product,
+        owner,
+        times,
+        program,
+        mode,
+        verified_facts,
+        &c.canonical_economic_namespace,
+    )
 }
 /// Historical subject identity is distinct from today's assessor/corrector
 /// grant namespace. Its operand comes from the original WorkRecord/claim; the
@@ -514,9 +692,22 @@ pub(super) fn resolve_economic_original(
     program: &super::super::selected_program::SelectedProgram,
     mode: EconomicMode,
     verified_facts: &[ExactRef],
-    original_namespace:&str,
+    original_namespace: &str,
 ) -> Result<ResolvedOperands> {
-    resolve_economic_identity(m,r,c,p,activity,product,owner,times,program,mode,verified_facts,original_namespace)
+    resolve_economic_identity(
+        m,
+        r,
+        c,
+        p,
+        activity,
+        product,
+        owner,
+        times,
+        program,
+        mode,
+        verified_facts,
+        original_namespace,
+    )
 }
 fn resolve_economic_identity(
     m: &mut CoreMeter,
@@ -530,19 +721,31 @@ fn resolve_economic_identity(
     program: &super::super::selected_program::SelectedProgram,
     mode: EconomicMode,
     verified_facts: &[ExactRef],
-    original_namespace:&str,
+    original_namespace: &str,
 ) -> Result<ResolvedOperands> {
     m.phase(Phase::OriginalAuthority);
-    if program.uses_app_owned_cost_recipe(){
-        let source_slot=shape::text(m,activity,"source_slot")?;
-        return super::app_cost::binding_resolved(m,r,c,p,program,mode,source_slot,verified_facts,original_namespace);
+    if program.uses_app_owned_cost_recipe() {
+        let source_slot = shape::text(m, activity, "source_slot")?;
+        return super::app_cost::binding_resolved(
+            m,
+            r,
+            c,
+            p,
+            program,
+            mode,
+            source_slot,
+            verified_facts,
+            original_namespace,
+        );
     }
     if !meter::cmp(m, &c.authorities.len().into(), &1usize.into())?.is_eq() {
         return Err(fail("one required nominated work slot"));
     }
     let a = &c.authorities[0];
     let source_slot = invoke!(text, m, activity, "source_slot")?;
-    if mode!=EconomicMode::DeadlineClose{invoke!(equal, m, &json!(a.source_slot), &json!(source_slot))?;}
+    if mode != EconomicMode::DeadlineClose {
+        invoke!(equal, m, &json!(a.source_slot), &json!(source_slot))?;
+    }
     invoke!(
         equal,
         m,
@@ -1422,8 +1625,8 @@ fn resolve_economic_identity(
             slot_terms_ref,
             role_ref,
         },
-        authority_body:super::working_value::WorkingValue::Legacy(authority_body),
-        _metadata:None,
+        authority_body: super::working_value::WorkingValue::Legacy(authority_body),
+        _metadata: None,
         introduced,
     })
 }

@@ -84,13 +84,11 @@ fn terms_context_and_copied_identities_cannot_be_substituted() {
     assert!(AcceptanceTerms::parse(&serde_json::to_vec(&value).unwrap(), &context()).is_err());
     let facts =
         super::super::FactSchema::parse(&serde_json::to_vec(&source("facts")).unwrap()).unwrap();
-    assert!(
-        AcceptanceTerms::parse(
-            &serde_json::to_vec(&record("A.terms")["body"]).unwrap(),
-            &facts
-        )
-        .is_err()
-    );
+    assert!(AcceptanceTerms::parse(
+        &serde_json::to_vec(&record("A.terms")["body"]).unwrap(),
+        &facts
+    )
+    .is_err());
 }
 #[test]
 fn quantities_money_and_role_ownership_are_data_constraints_only() {
@@ -401,14 +399,12 @@ fn supplier_terms_and_descriptor_are_additive_data_not_legacy_support() {
         .as_array_mut()
         .unwrap()
         .push(offer["body"]["source_slots"][0].clone());
-    assert!(
-        SupplierOffer::parse(
-            canonical::CanonicalBytes::from_value(&duplicate_offer)
-                .unwrap()
-                .as_slice()
-        )
-        .is_err()
-    );
+    assert!(SupplierOffer::parse(
+        canonical::CanonicalBytes::from_value(&duplicate_offer)
+            .unwrap()
+            .as_slice()
+    )
+    .is_err());
     let row = &frozen["records"]["supplier_terms"];
     let raw = canonical::CanonicalBytes::from_value(&row["body"]).unwrap();
     let parsed = SlotBindingTerms::parse(raw.as_slice()).unwrap();
@@ -425,14 +421,12 @@ fn supplier_terms_and_descriptor_are_additive_data_not_legacy_support() {
     ] {
         let mut bad = row["body"].clone();
         bad[field] = value;
-        assert!(
-            SlotBindingTerms::parse(
-                canonical::CanonicalBytes::from_value(&bad)
-                    .unwrap()
-                    .as_slice()
-            )
-            .is_err()
-        );
+        assert!(SlotBindingTerms::parse(
+            canonical::CanonicalBytes::from_value(&bad)
+                .unwrap()
+                .as_slice()
+        )
+        .is_err());
     }
     let old = record("A.slot_terms");
     let old_parsed = SlotBindingTerms::parse(&serde_json::to_vec(&old["body"]).unwrap()).unwrap();
@@ -460,14 +454,12 @@ fn supplier_terms_and_descriptor_are_additive_data_not_legacy_support() {
     assert!(super::super::normalize_definition(raw.as_slice(), &[], &support).is_err());
     assert_eq!(support.descriptor().canonical_bytes(), old_descriptor);
     descriptor["plan_schema"] = json!("ledger-workflow-compiled-plan/2");
-    assert!(
-        super::super::CompilerDescriptor::parse(
-            canonical::CanonicalBytes::from_value(&descriptor)
-                .unwrap()
-                .as_slice()
-        )
-        .is_err()
-    );
+    assert!(super::super::CompilerDescriptor::parse(
+        canonical::CanonicalBytes::from_value(&descriptor)
+            .unwrap()
+            .as_slice()
+    )
+    .is_err());
 }
 
 #[test]
@@ -649,11 +641,9 @@ fn app_terms7_keeps_explicit_anchor_and_optional_exact_causal_clause_separate_fr
         .unwrap()
         .remove("causal_reversal");
     let parsed = SlotBindingTerms::parse(&serde_json::to_vec(&absent).unwrap()).unwrap();
-    assert!(
-        parsed.canonical_value()["app_cost_terms"][0]
-            .get("causal_reversal")
-            .is_none()
-    );
+    assert!(parsed.canonical_value()["app_cost_terms"][0]
+        .get("causal_reversal")
+        .is_none());
     let mut old = row["body"].clone();
     old["schema"] = json!("ledger-workflow-slot-binding-terms/6");
     assert!(SlotBindingTerms::parse(&serde_json::to_vec(&old).unwrap()).is_err());
@@ -699,34 +689,28 @@ fn owning_app_terms_refuses_duplicate_changed_subject_and_terminal_cancel() {
         let arena = AuditArena::new().unwrap();
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let baseline = arena.usage().unwrap().live_bytes;
-        assert!(
-            OwnedAcceptanceTerms::parse(
-                &serde_json::to_vec(&body).unwrap(),
-                &context(),
-                &mut session
-            )
-            .is_err()
-        );
+        assert!(OwnedAcceptanceTerms::parse(
+            &serde_json::to_vec(&body).unwrap(),
+            &context(),
+            &mut session
+        )
+        .is_err());
         assert_eq!(arena.usage().unwrap().live_bytes, baseline);
-        assert!(
-            session
-                .semantic_work()
-                .visit(crate::validation_work::ValidationVisit::Constraint)
-                .is_err()
-        );
+        assert!(session
+            .semantic_work()
+            .visit(crate::validation_work::ValidationVisit::Constraint)
+            .is_err());
     }
     let arena = AuditArena::new().unwrap();
     let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
     let baseline = arena.usage().unwrap().live_bytes;
     arena.cancellation_handle().cancel();
-    assert!(
-        OwnedAcceptanceTerms::parse(
-            &serde_json::to_vec(&original).unwrap(),
-            &context(),
-            &mut session
-        )
-        .is_err()
-    );
+    assert!(OwnedAcceptanceTerms::parse(
+        &serde_json::to_vec(&original).unwrap(),
+        &context(),
+        &mut session
+    )
+    .is_err());
     assert_eq!(arena.usage().unwrap().live_bytes, baseline);
 }
 
@@ -750,13 +734,11 @@ fn owning_slot_terms7_preserves_scalar_set_counter_normalization_and_lease() {
     drop(owned);
     assert_eq!(arena.usage().unwrap().live_bytes, baseline);
     body["quantity_ceilings"][0]["activity"] = json!("support:undeclared");
-    assert!(
-        SlotBindingTerms::normalize_private_with_session(
-            &serde_json::to_vec(&body).unwrap(),
-            &mut session
-        )
-        .is_err()
-    );
+    assert!(SlotBindingTerms::normalize_private_with_session(
+        &serde_json::to_vec(&body).unwrap(),
+        &mut session
+    )
+    .is_err());
 }
 
 #[test]

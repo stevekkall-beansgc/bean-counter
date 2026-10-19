@@ -38,13 +38,21 @@ impl SqliteTx {
     /// The caller still verifies that operation/manifest/receipt and the body;
     /// this derived lookup is not an original-recipe completion certificate.
     pub(crate) async fn workflow_selected_association_sequence(
-        &mut self,reference:&ExactRef,store:&str,scope:&[String;2],before:i64,
-        session:&mut OriginalAuditSession,
-    )->Result<Option<i64>,FinancialReadError> {
-        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) {
+        &mut self,
+        reference: &ExactRef,
+        store: &str,
+        scope: &[String; 2],
+        before: i64,
+        session: &mut OriginalAuditSession,
+    ) -> Result<Option<i64>, FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
             return Err(StoreError::Integrity("poisoned selected association read").into());
         }
-        self.failed=true;
+        self.failed = true;
         let result=crate::store::sqlite::workflow::until(self.workflow_deadline(),async {
             let bindings=[reference.kind.as_bytes(),reference.id.as_bytes(),reference.digest.as_bytes(),store.as_bytes(),scope[0].as_bytes(),scope[1].as_bytes()];
             let payload=io::binding_payload(&bindings,&[],0,0,session)?;
@@ -61,8 +69,14 @@ impl SqliteTx {
         }).await.map_err(|_|FinancialReadError::Store(self.workflow_timeout_error()))?;
         if result.is_ok() {
             session.check_cancelled()?;
-            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {return Err(invalid());}
-            self.failed=false;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(invalid());
+            }
+            self.failed = false;
         }
         result
     }

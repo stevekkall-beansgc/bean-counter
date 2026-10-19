@@ -1,14 +1,14 @@
 use super::super::super::selected_program::SelectedProgram;
 use super::super::{
-    CoreMeter, body,
+    body,
     data::*,
     records::{self, Records},
     representation::InvocationToken,
-    shape,
+    shape, CoreMeter,
 };
 use super::check::*;
 use crate::Result;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 /// Exact original program/source/context DATA; no current support substitution.
 pub(in crate::policy::workflow::transition_constructor) fn validate(
     m: &mut CoreMeter,
@@ -172,10 +172,16 @@ fn validate_data(
         |m| schema.validate_context_schema_with_work(m),
     )?;
     let facts = data_field!(m, context, "facts");
-    if let Some(arena)=m.representation_arena(){
-        let normalized=super::super::owned_facts::normalize(&arena,m,schema,facts)?;
-        invoke!(eq,m,context,"facts",normalized.facts().canonical_value())?;
-    }else{
+    if let Some(arena) = m.representation_arena() {
+        let normalized = super::super::owned_facts::normalize(&arena, m, schema, facts)?;
+        invoke!(
+            eq,
+            m,
+            context,
+            "facts",
+            normalized.facts().canonical_value()
+        )?;
+    } else {
         let normalized = m.scoped(
             "FactSchema::normalize_value_with_work.accepted_context",
             |m| schema.normalize_value_with_work(facts, m),

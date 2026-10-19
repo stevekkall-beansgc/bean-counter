@@ -1,8 +1,8 @@
 //! Reviewed publication record encoding and immutable retained verification.
 use super::*;
 use crate::store::sqlite::{
-    SqliteTx,
     workflow::{Document, RecordRef, StoredOperation},
+    SqliteTx,
 };
 use ledgerlab_core::canonical::{self, CanonicalBytes};
 use serde_json::json;
@@ -22,7 +22,6 @@ pub(super) fn hash(domain: &str, version: u8, v: &Value) -> Result<String> {
     h.update(bytes(v)?);
     Ok(format!("sha256:{}", canonical::hex(&h.finalize())))
 }
-
 
 fn text<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
     v[key].as_str().ok_or(ServiceError::IntegrityFailure)
@@ -519,12 +518,35 @@ mod tests {
     use super::*;
     #[test]
     fn retained_plan_limit_matches_canonical_bundle_without_widening_source_kinds() {
-        let body = format!("{{\"pad\":\"{}\"}}", "a".repeat(canonical::BUNDLE_LIMIT - 10));
+        let body = format!(
+            "{{\"pad\":\"{}\"}}",
+            "a".repeat(canonical::BUNDLE_LIMIT - 10)
+        );
         assert_eq!(body.len(), canonical::BUNDLE_LIMIT);
-        assert!(checked(body.as_bytes(), document_byte_limit("workflow-compiled-plan")).is_ok());
-        let too_large = format!("{{\"pad\":\"{}\"}}", "a".repeat(canonical::BUNDLE_LIMIT - 9));
-        assert!(checked(too_large.as_bytes(), document_byte_limit("workflow-compiled-plan")).is_err());
-        for kind in ["workflow-product", "workflow-fact-schema", "workflow-slot-template", "workflow-policy", "workflow-compiler-descriptor", "workflow-authority", "workflow-publication", "workflow-build-manifest"] {
+        assert!(checked(
+            body.as_bytes(),
+            document_byte_limit("workflow-compiled-plan")
+        )
+        .is_ok());
+        let too_large = format!(
+            "{{\"pad\":\"{}\"}}",
+            "a".repeat(canonical::BUNDLE_LIMIT - 9)
+        );
+        assert!(checked(
+            too_large.as_bytes(),
+            document_byte_limit("workflow-compiled-plan")
+        )
+        .is_err());
+        for kind in [
+            "workflow-product",
+            "workflow-fact-schema",
+            "workflow-slot-template",
+            "workflow-policy",
+            "workflow-compiler-descriptor",
+            "workflow-authority",
+            "workflow-publication",
+            "workflow-build-manifest",
+        ] {
             assert_eq!(document_byte_limit(kind), 1024 * 1024);
             assert!(checked(body.as_bytes(), document_byte_limit(kind)).is_err());
         }
@@ -555,29 +577,25 @@ mod tests {
                 closure.as_object_mut().unwrap().remove("closure_digest");
                 resolution["closure_digest"] =
                     json!(hash("descriptor-closure", 1, &closure).unwrap());
-                evidence["schema_bundle_digest"] = json!(
-                    hash(
-                        "schema-bundle",
-                        1,
-                        &evidence["descriptor_resolution"]["descriptors"]
-                    )
-                    .unwrap()
-                );
+                evidence["schema_bundle_digest"] = json!(hash(
+                    "schema-bundle",
+                    1,
+                    &evidence["descriptor_resolution"]["descriptors"]
+                )
+                .unwrap());
             } else {
                 evidence["normalized_request"]["payload"]["expected_plan_digest"] =
                     json!(format!("sha256:{}", "0".repeat(64)));
             }
-            evidence["request_hash"] = json!(
-                hash(
-                    "operation-request",
-                    2,
-                    &json!([
-                        evidence["descriptor_resolution"]["closure_digest"],
-                        evidence["normalized_request"]
-                    ])
-                )
-                .unwrap()
-            );
+            evidence["request_hash"] = json!(hash(
+                "operation-request",
+                2,
+                &json!([
+                    evidence["descriptor_resolution"]["closure_digest"],
+                    evidence["normalized_request"]
+                ])
+            )
+            .unwrap());
             let old_ref = p.operation.operation_ref.clone();
             p.operation.operation_ref =
                 record_reference("workflow-operation", &key.scope, &op).unwrap();
@@ -653,7 +671,8 @@ mod tests {
         );
         assert_eq!(
             result["request_evidence"],
-            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()["request_evidence"]
+            canonical::parse_bounded(&p.operation.operation_bytes, 8 * 1024 * 1024).unwrap()
+                ["request_evidence"]
         );
         let mut tampered = original.clone();
         tampered.receipt_bytes[8] = b'x';

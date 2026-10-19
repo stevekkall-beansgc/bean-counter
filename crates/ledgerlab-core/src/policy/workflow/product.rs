@@ -1,11 +1,11 @@
 //! Closed reusable activity/unit/link declarations. These definitions supply
 //! no source rights, customer bindings, event links or economic authorization.
 mod source;
-use super::FactSchema;
 use super::facts::{
     counter_with_work, has_control, map_lookup, member_compare, name_with_work, reject_null,
     reject_null_with_work,
 };
+use super::FactSchema;
 use crate::canonical::{self, CanonicalBytes};
 use crate::money::ExactRatio;
 use crate::validation_work::{

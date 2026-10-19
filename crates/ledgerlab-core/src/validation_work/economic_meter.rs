@@ -7,8 +7,8 @@ use num_traits::Signed;
 use std::{
     collections::BTreeMap,
     sync::{
-        Arc,
         atomic::{AtomicU8, Ordering as AtomicOrdering},
+        Arc,
     },
 };
 
@@ -164,9 +164,15 @@ impl Meter {
     }
     /// AUTH02 original-recipe framing domain. It cannot enter compile/draft.
     /// No caller-selected maximum or production admission is exposed.
-    pub(crate) fn original_audit() -> Result<Self> { Self::original_audit_with_limits(None) }
-    pub(crate) fn original_audit_with_limits(limits: Option<super::ResourceLimits>) -> Result<Self> {
-        if let Some(limits) = limits { limits.validate()?; }
+    pub(crate) fn original_audit() -> Result<Self> {
+        Self::original_audit_with_limits(None)
+    }
+    pub(crate) fn original_audit_with_limits(
+        limits: Option<super::ResourceLimits>,
+    ) -> Result<Self> {
+        if let Some(limits) = limits {
+            limits.validate()?;
+        }
         let mut meter = Self::new(MAXIMUM_WORK)?;
         meter.domain = BudgetDomain::OriginalAudit;
         meter.original_owner = Some(Arc::new(AtomicU8::new(0)));
@@ -175,25 +181,82 @@ impl Meter {
         meter.work_limit = limits.map_or(Some(1_048_576), |l| l.semantic_work);
         Ok(meter)
     }
-    pub(crate) fn original_remaining_work(&self) -> u64 { self.maximum.saturating_sub(self.usage.semantic_work) }
-    pub(crate) fn original_remaining_budget(&self) -> Option<u64> { self.work_limit.map(|n| n.saturating_sub(self.usage.semantic_work)) }
-    pub(crate) fn original_total_work(&self) -> u64 { self.usage.semantic_work + self.completed_child_work }
-    pub(crate) fn resource_limits(&self) -> Option<&super::ResourceLimits> { self.resource_limits.as_ref() }
-    fn work_refusal(&self, next:u64)->Error {
-        if let Some(limits)=self.resource_limits {
-            let (limit,observed)=if self.work_setting=="compile_work" {(limits.compile_work,next)}else{(limits.semantic_work,match next.checked_add(self.work_offset).and_then(|n|n.checked_add(self.completed_child_work)){Some(n)=>n,None=>return Error::new("PROGRAM_BUDGET_EXCEEDED","semantic counter overflow")})};
-            if let Some(limit)=limit { return super::resource_limits::refusal(self.work_setting,limit,observed); }
-        }
-        Error::new("PROGRAM_BUDGET_EXCEEDED","selected semantic work exhausted or counter overflow")
+    pub(crate) fn original_remaining_work(&self) -> u64 {
+        self.maximum.saturating_sub(self.usage.semantic_work)
     }
-    fn exhausted(&self, next: u64) -> bool { self.completed_child_work.checked_add(next).and_then(|n|n.checked_add(self.work_offset)).is_none() || self.work_limit.is_some_and(|limit| next > limit) }
+    pub(crate) fn original_remaining_budget(&self) -> Option<u64> {
+        self.work_limit
+            .map(|n| n.saturating_sub(self.usage.semantic_work))
+    }
+    pub(crate) fn original_total_work(&self) -> u64 {
+        self.usage.semantic_work + self.completed_child_work
+    }
+    pub(crate) fn resource_limits(&self) -> Option<&super::ResourceLimits> {
+        self.resource_limits.as_ref()
+    }
+    fn work_refusal(&self, next: u64) -> Error {
+        if let Some(limits) = self.resource_limits {
+            let (limit, observed) = if self.work_setting == "compile_work" {
+                (limits.compile_work, next)
+            } else {
+                (
+                    limits.semantic_work,
+                    match next
+                        .checked_add(self.work_offset)
+                        .and_then(|n| n.checked_add(self.completed_child_work))
+                    {
+                        Some(n) => n,
+                        None => {
+                            return Error::new(
+                                "PROGRAM_BUDGET_EXCEEDED",
+                                "semantic counter overflow",
+                            )
+                        }
+                    },
+                )
+            };
+            if let Some(limit) = limit {
+                return super::resource_limits::refusal(self.work_setting, limit, observed);
+            }
+        }
+        Error::new(
+            "PROGRAM_BUDGET_EXCEEDED",
+            "selected semantic work exhausted or counter overflow",
+        )
+    }
+    fn exhausted(&self, next: u64) -> bool {
+        self.completed_child_work
+            .checked_add(next)
+            .and_then(|n| n.checked_add(self.work_offset))
+            .is_none()
+            || self.work_limit.is_some_and(|limit| next > limit)
+    }
     pub(crate) fn resolved_limits(&self) -> (Option<usize>, Option<usize>) {
-        self.resource_limits.map_or((Some(4096),Some(8388608)), |l| (l.resolved_records,l.resolved_bytes))
+        self.resource_limits
+            .map_or((Some(4096), Some(8388608)), |l| {
+                (l.resolved_records, l.resolved_bytes)
+            })
     }
     pub(crate) fn check_resolved_dimensions(&mut self, records: usize, bytes: usize) -> Result<()> {
-        let (record_limit,byte_limit)=self.resolved_limits();
-        if let Some(limit)=record_limit { if crate::validation_work::compare(self, records, limit)?.is_gt() { return Err(super::resource_limits::refusal("resolved_records",limit as u64,records as u64)); } }
-        if let Some(limit)=byte_limit { if crate::validation_work::compare(self, bytes, limit)?.is_gt() { return Err(super::resource_limits::refusal("resolved_bytes",limit as u64,bytes as u64)); } }
+        let (record_limit, byte_limit) = self.resolved_limits();
+        if let Some(limit) = record_limit {
+            if crate::validation_work::compare(self, records, limit)?.is_gt() {
+                return Err(super::resource_limits::refusal(
+                    "resolved_records",
+                    limit as u64,
+                    records as u64,
+                ));
+            }
+        }
+        if let Some(limit) = byte_limit {
+            if crate::validation_work::compare(self, bytes, limit)?.is_gt() {
+                return Err(super::resource_limits::refusal(
+                    "resolved_bytes",
+                    limit as u64,
+                    bytes as u64,
+                ));
+            }
+        }
         Ok(())
     }
     /// Reserve a single tighter original economic invocation inside this audit.
@@ -216,7 +279,9 @@ impl Meter {
                 "original economic phase already consumed",
             ));
         }
-        let remaining = self.original_remaining_budget().unwrap_or(MAXIMUM_COMPILE_WORK);
+        let remaining = self
+            .original_remaining_budget()
+            .unwrap_or(MAXIMUM_COMPILE_WORK);
         let mut inner = Self::new(remaining.min(MAXIMUM_WORK))?;
         if flavor == EconomicChildFlavor::Local {
             inner.maximum = remaining;
@@ -224,7 +289,10 @@ impl Meter {
             inner.resource_limits = self.resource_limits;
             inner.work_offset = self.original_total_work();
         } else if self.resource_limits.is_some() {
-            return Err(Error::new("UNSUPPORTED_SCHEMA_PROFILE", "operator resources require local child"));
+            return Err(Error::new(
+                "UNSUPPORTED_SCHEMA_PROFILE",
+                "operator resources require local child",
+            ));
         }
         inner.economic_child_flavor = Some(flavor);
         let owner = self
@@ -264,16 +332,24 @@ impl Meter {
                 "original compiler phase already consumed",
             ));
         }
-        let remaining = self.original_remaining_budget().unwrap_or(MAXIMUM_COMPILE_WORK);
+        let remaining = self
+            .original_remaining_budget()
+            .unwrap_or(MAXIMUM_COMPILE_WORK);
         let mut inner = Self::for_compile(remaining.min(MAXIMUM_COMPILE_WORK))?;
         if let Some(limits) = self.resource_limits {
             inner.resource_limits = Some(limits);
             inner.work_offset = self.original_total_work();
-            if limits.compile_work.is_some_and(|n|self.original_remaining_budget().is_none_or(|remaining|n<remaining)) {
-                inner.work_setting="compile_work";
+            if limits.compile_work.is_some_and(|n| {
+                self.original_remaining_budget()
+                    .is_none_or(|remaining| n < remaining)
+            }) {
+                inner.work_setting = "compile_work";
             }
-            inner.work_limit = match (self.original_remaining_budget(),limits.compile_work) {
-                (Some(a),Some(b))=>Some(a.min(b)), (Some(a),None)=>Some(a), (None,Some(b))=>Some(b), (None,None)=>None
+            inner.work_limit = match (self.original_remaining_budget(), limits.compile_work) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (Some(a), None) => Some(a),
+                (None, Some(b)) => Some(b),
+                (None, None) => None,
             };
         }
         let owner = self
@@ -322,8 +398,20 @@ impl Meter {
                 "wrong original compiler meter",
             ));
         }
-        let remaining_limit = match self.work_limit { Some(n)=>Some(n.checked_sub(inner.usage.semantic_work).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work"))?), None=>None };
-        let allowance = if self.resource_limits.is_none() { self.maximum.checked_sub(inner.usage.semantic_work).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work"))? } else { self.maximum };
+        let remaining_limit =
+            match self.work_limit {
+                Some(n) => Some(n.checked_sub(inner.usage.semantic_work).ok_or_else(|| {
+                    Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work")
+                })?),
+                None => None,
+            };
+        let allowance = if self.resource_limits.is_none() {
+            self.maximum
+                .checked_sub(inner.usage.semantic_work)
+                .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work"))?
+        } else {
+            self.maximum
+        };
         if remaining_limit.is_some_and(|n| self.usage.semantic_work > n) {
             return Err(Error::new(
                 "PROGRAM_BUDGET_EXCEEDED",
@@ -347,7 +435,10 @@ impl Meter {
         }
         self.maximum = allowance;
         self.work_limit = remaining_limit;
-        self.completed_child_work = self.completed_child_work.checked_add(inner.usage.semantic_work).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "composed usage overflow"))?;
+        self.completed_child_work = self
+            .completed_child_work
+            .checked_add(inner.usage.semantic_work)
+            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "composed usage overflow"))?;
         let mut inner = inner;
         self.resource_vector = inner.resource_vector.take();
         Ok(inner.finish())
@@ -373,7 +464,10 @@ impl Meter {
             || inner.economic_child_flavor != Some(flavor)
             || match flavor {
                 EconomicChildFlavor::Original => inner.maximum > MAXIMUM_WORK,
-                EconomicChildFlavor::Local => self.original_remaining_budget() != inner.work_limit || self.resource_limits != inner.resource_limits,
+                EconomicChildFlavor::Local => {
+                    self.original_remaining_budget() != inner.work_limit
+                        || self.resource_limits != inner.resource_limits
+                }
             }
         {
             if let Some(owner) = &self.original_owner {
@@ -384,8 +478,20 @@ impl Meter {
                 "wrong original economic meter",
             ));
         }
-        let remaining_limit = match self.work_limit { Some(n)=>Some(n.checked_sub(inner.usage.semantic_work).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work"))?), None=>None };
-        let allowance = if self.resource_limits.is_none() { self.maximum.checked_sub(inner.usage.semantic_work).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work"))? } else { self.maximum };
+        let remaining_limit =
+            match self.work_limit {
+                Some(n) => Some(n.checked_sub(inner.usage.semantic_work).ok_or_else(|| {
+                    Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work")
+                })?),
+                None => None,
+            };
+        let allowance = if self.resource_limits.is_none() {
+            self.maximum
+                .checked_sub(inner.usage.semantic_work)
+                .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "original composed work"))?
+        } else {
+            self.maximum
+        };
         if remaining_limit.is_some_and(|n| self.usage.semantic_work > n) {
             return Err(Error::new(
                 "PROGRAM_BUDGET_EXCEEDED",
@@ -409,7 +515,10 @@ impl Meter {
         }
         self.maximum = allowance;
         self.work_limit = remaining_limit;
-        self.completed_child_work = self.completed_child_work.checked_add(inner.usage.semantic_work).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "composed usage overflow"))?;
+        self.completed_child_work = self
+            .completed_child_work
+            .checked_add(inner.usage.semantic_work)
+            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "composed usage overflow"))?;
         let mut inner = inner;
         self.resource_vector = inner.resource_vector.take();
         Ok(inner.finish())
@@ -512,11 +621,17 @@ impl Meter {
     /// Parent-paid DATA selection before the sole economic child. This grants
     /// no borrowed-economic-inventory claim, new quota, phase credit or child
     /// continuation. Every callback still uses this original's current ledger.
-    pub(crate) fn require_original_data_selection(&mut self)->Result<()> {
+    pub(crate) fn require_original_data_selection(&mut self) -> Result<()> {
         self.visit("resolve.parent_data_selection")?;
-        if !self.resource_v2||self.domain!=BudgetDomain::OriginalAudit||self.original_inner_started{
+        if !self.resource_v2
+            || self.domain != BudgetDomain::OriginalAudit
+            || self.original_inner_started
+        {
             self.fail_original();
-            return Err(Error::new("AUDIT_INTEGRITY_OR_PROFILE_FAILURE","parent DATA selection lifecycle"));
+            return Err(Error::new(
+                "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+                "parent DATA selection lifecycle",
+            ));
         }
         Ok(())
     }
@@ -537,8 +652,15 @@ impl Meter {
         let old_refs = self.usage.unique_resolved_refs;
         let next = crate::validation_work::usize_add(self, old_bytes, bytes.len())?;
         if self.resource_limits.is_some() {
-            let refs = old_refs.checked_add(1).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED","resolved count overflow"))?;
-            self.check_resolved_dimensions(usize::try_from(refs).map_err(|_|Error::new("PROGRAM_BUDGET_EXCEEDED","resolved count overflow"))?, next)?;
+            let refs = old_refs
+                .checked_add(1)
+                .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved count overflow"))?;
+            self.check_resolved_dimensions(
+                usize::try_from(refs).map_err(|_| {
+                    Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved count overflow")
+                })?,
+                next,
+            )?;
         } else if crate::validation_work::compare(self, next, 8_388_608usize)?.is_gt()
             || !crate::validation_work::compare(self, old_refs, 4096u64)?.is_lt()
         {
@@ -568,14 +690,28 @@ impl Meter {
             .checked_add(bytes.len() as u64)
             .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved byte overflow"))?;
         if self.resource_limits.is_some() {
-            let refs=self.usage.unique_resolved_refs.checked_add(1).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED","resolved count overflow"))?;
-            self.check_resolved_dimensions(usize::try_from(refs).map_err(|_| Error::new("PROGRAM_BUDGET_EXCEEDED","resolved count overflow"))?,usize::try_from(next).map_err(|_| Error::new("PROGRAM_BUDGET_EXCEEDED","resolved byte overflow"))?)?;
+            let refs = self
+                .usage
+                .unique_resolved_refs
+                .checked_add(1)
+                .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved count overflow"))?;
+            self.check_resolved_dimensions(
+                usize::try_from(refs).map_err(|_| {
+                    Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved count overflow")
+                })?,
+                usize::try_from(next)
+                    .map_err(|_| Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved byte overflow"))?,
+            )?;
         } else if next > 8388608 || self.usage.unique_resolved_refs >= 4096 {
             return Err(Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved closure"));
         }
         self.resolved.insert(identity.to_owned(), bytes.to_vec());
         self.usage.unique_resolved_bytes = next;
-        self.usage.unique_resolved_refs = self.usage.unique_resolved_refs.checked_add(1).ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED","resolved count overflow"))?;
+        self.usage.unique_resolved_refs = self
+            .usage
+            .unique_resolved_refs
+            .checked_add(1)
+            .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "resolved count overflow"))?;
         Ok(())
     }
     pub fn scan_bytes(&mut self, n: usize) -> Result<()> {
@@ -617,8 +753,12 @@ impl Meter {
         result
     }
     pub(crate) fn remaining_new_body(&self) -> Result<Option<usize>> {
-        let limit=self.resource_limits.map_or(Some(8388608), |l| l.new_body_bytes);
-        let Some(limit)=limit else { return Ok(None); };
+        let limit = self
+            .resource_limits
+            .map_or(Some(8388608), |l| l.new_body_bytes);
+        let Some(limit) = limit else {
+            return Ok(None);
+        };
         (limit as u64)
             .checked_sub(self.usage.new_body_bytes)
             .and_then(|n| usize::try_from(n).ok())
@@ -631,8 +771,20 @@ impl Meter {
             .new_body_bytes
             .checked_add(n as u64)
             .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "new body overflow"))?;
-        if self.resource_limits.map_or(Some(8388608u64), |l| l.new_body_bytes.map(|n|n as u64)).is_some_and(|limit|next>limit) {
-            return Err(if let Some(limits)=self.resource_limits {super::resource_limits::refusal("new_body_bytes",limits.new_body_bytes.expect("finite exceeded limit") as u64,next)}else{Error::new("PROGRAM_BUDGET_EXCEEDED", "new body bytes")});
+        if self
+            .resource_limits
+            .map_or(Some(8388608u64), |l| l.new_body_bytes.map(|n| n as u64))
+            .is_some_and(|limit| next > limit)
+        {
+            return Err(if let Some(limits) = self.resource_limits {
+                super::resource_limits::refusal(
+                    "new_body_bytes",
+                    limits.new_body_bytes.expect("finite exceeded limit") as u64,
+                    next,
+                )
+            } else {
+                Error::new("PROGRAM_BUDGET_EXCEEDED", "new body bytes")
+            });
         }
         self.usage.new_body_bytes = next;
         Ok(())
@@ -659,7 +811,13 @@ impl Meter {
             ));
         }
         self.resource_v2 = true;
-        self.resource_vector = Some(if let Some(limits)=self.resource_limits{super::original_audit::representation::ResourceLedger::with_semantic_limit(limits.semantic_work)}else{super::original_audit::representation::ResourceLedger::new()});
+        self.resource_vector = Some(if let Some(limits) = self.resource_limits {
+            super::original_audit::representation::ResourceLedger::with_semantic_limit(
+                limits.semantic_work,
+            )
+        } else {
+            super::original_audit::representation::ResourceLedger::new()
+        });
         Ok(())
     }
     pub(crate) fn begin_representation(&mut self) -> Result<()> {
@@ -715,7 +873,14 @@ impl Meter {
             .ok_or_else(|| Error::new("PROGRAM_BUDGET_EXCEEDED", "work overflow"))?;
         if self.exhausted(next) {
             self.fail_original();
-            return Err(if self.resource_limits.is_some(){self.work_refusal(next)}else{Error::new("PROGRAM_BUDGET_EXCEEDED","selected semantic work exhausted")});
+            return Err(if self.resource_limits.is_some() {
+                self.work_refusal(next)
+            } else {
+                Error::new(
+                    "PROGRAM_BUDGET_EXCEEDED",
+                    "selected semantic work exhausted",
+                )
+            });
         }
         let result = self
             .resource_vector
@@ -835,7 +1000,7 @@ impl Meter {
                     next,
                 ));
             }
-            if self.work_limit.is_some_and(|limit|next>limit) {
+            if self.work_limit.is_some_and(|limit| next > limit) {
                 diagnostic.refusal = Some(diagnostic.attempt(
                     location,
                     self.phase,
@@ -859,7 +1024,14 @@ impl Meter {
         }
         if self.exhausted(next) {
             self.fail_original();
-            return Err(if self.resource_limits.is_some(){self.work_refusal(next)}else{Error::new("PROGRAM_BUDGET_EXCEEDED","selected semantic work exhausted")});
+            return Err(if self.resource_limits.is_some() {
+                self.work_refusal(next)
+            } else {
+                Error::new(
+                    "PROGRAM_BUDGET_EXCEEDED",
+                    "selected semantic work exhausted",
+                )
+            });
         }
         self.usage.semantic_work = next;
         self.usage.trace.push(Charge {
@@ -1351,12 +1523,10 @@ mod diagnostic_tests {
         assert!(m.diagnostic.as_ref().unwrap().usage_copy_bytes > 0);
         let mut blocked = Meter::calibration(8).unwrap();
         blocked.diagnostic.as_mut().unwrap().storage = DIAGNOSTIC_STORAGE;
-        assert!(
-            blocked
-                .scoped("test.refusal", |m| m
-                    .arithmetic("test.refused", &[&1.into()]))
-                .is_err()
-        );
+        assert!(blocked
+            .scoped("test.refusal", |m| m
+                .arithmetic("test.refused", &[&1.into()]))
+            .is_err());
         assert!(blocked.usage.trace.is_empty());
         assert!(blocked.diagnostic.as_ref().unwrap().callers.is_empty());
         assert!(blocked.diagnostic.as_ref().unwrap().refusal.is_some());
@@ -1375,15 +1545,13 @@ mod diagnostic_tests {
             })
             .unwrap();
         assert_eq!(ordinary.usage, diagnosed.usage);
-        assert!(
-            diagnosed
-                .diagnostic
-                .as_ref()
-                .unwrap()
-                .callers
-                .iter()
-                .all(|c| c.sites == ["Timestamp::parse_with_work.accepted_at"])
-        );
+        assert!(diagnosed
+            .diagnostic
+            .as_ref()
+            .unwrap()
+            .callers
+            .iter()
+            .all(|c| c.sites == ["Timestamp::parse_with_work.accepted_at"]));
     }
 }
 
@@ -1468,71 +1636,135 @@ mod original_audit_domain_tests {
 #[cfg(test)]
 mod operator_resource_tests {
     use super::*;
-    use crate::{canonical::audit_arena::AuditArena, validation_work::{OriginalAuditSession, ResourceLimits, ValidationVisit, ValidationWork}};
+    use crate::{
+        canonical::audit_arena::AuditArena,
+        validation_work::{OriginalAuditSession, ResourceLimits, ValidationVisit, ValidationWork},
+    };
     #[test]
     fn operator_unlimited_and_finite_limits_share_one_child_and_checked_accounting() {
-        let limits=ResourceLimits::unlimited();
-        let arena=AuditArena::with_resource_limits(limits).unwrap();
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let limits = ResourceLimits::unlimited();
+        let arena = AuditArena::with_resource_limits(limits).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         session.work().visit(ValidationVisit::Constraint).unwrap();
-        let mut child=session.meter_mut().local_economic_meter().unwrap();
+        let mut child = session.meter_mut().local_economic_meter().unwrap();
         // One event through the actual v2 semantic+vector accounting path; this
         // is a boundary/lifecycle test, not a measured execution envelope.
-        child.v2_semantic_event("test.operator_boundary",1_048_577,std::iter::empty()).unwrap();
-        child.check_resolved_dimensions(4097,8_388_609).unwrap();
+        child
+            .v2_semantic_event("test.operator_boundary", 1_048_577, std::iter::empty())
+            .unwrap();
+        child.check_resolved_dimensions(4097, 8_388_609).unwrap();
         child.new_body(8_388_609).unwrap();
-        assert_eq!(child.remaining_new_body().unwrap(),None);
+        assert_eq!(child.remaining_new_body().unwrap(), None);
         session.meter_mut().finish_local_economic(child).unwrap();
         session.work().visit(ValidationVisit::Constraint).unwrap();
-        assert_eq!(session.usage().semantic_work,1_048_579);
-        assert_eq!(session.usage().remaining_work,None);
-        assert_eq!(session.resource_usage().unwrap().semantic_work,1_048_579);
+        assert_eq!(session.usage().semantic_work, 1_048_579);
+        assert_eq!(session.usage().remaining_work, None);
+        assert_eq!(session.resource_usage().unwrap().semantic_work, 1_048_579);
         assert!(session.meter_mut().local_economic_meter().is_err());
-        assert_eq!(arena.resource_limits(),Some(&limits));
-        let lease=session.reserve_external_payload(64*1024*1024+1).unwrap();
-        assert!(arena.usage().unwrap().live_bytes>64*1024*1024);
+        assert_eq!(arena.resource_limits(), Some(&limits));
+        let lease = session
+            .reserve_external_payload(64 * 1024 * 1024 + 1)
+            .unwrap();
+        assert!(arena.usage().unwrap().live_bytes > 64 * 1024 * 1024);
         drop(lease);
-        let limits=ResourceLimits{semantic_work:Some(7),..limits};
-        let arena=AuditArena::with_resource_limits(limits).unwrap();
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let limits = ResourceLimits {
+            semantic_work: Some(7),
+            ..limits
+        };
+        let arena = AuditArena::with_resource_limits(limits).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         session.work().visit(ValidationVisit::Constraint).unwrap();
-        let mut child=session.meter_mut().local_economic_meter().unwrap();
-        child.v2_semantic_event("test.operator_finite",6,std::iter::empty()).unwrap();
+        let mut child = session.meter_mut().local_economic_meter().unwrap();
+        child
+            .v2_semantic_event("test.operator_finite", 6, std::iter::empty())
+            .unwrap();
         session.meter_mut().finish_local_economic(child).unwrap();
-        assert_eq!(session.usage().semantic_work,7);
-        assert_eq!(session.usage().remaining_work,Some(0));
-        assert_eq!(session.work().visit(ValidationVisit::Constraint).unwrap_err().detail,"resource limit: semantic_work limit=7 observed=8");
-        assert!(ResourceLimits{arena_bytes:Some(0),..limits}.validate().is_err());
-        let limits=ResourceLimits{resolved_records:Some(2),resolved_bytes:Some(10),new_body_bytes:Some(8),arena_bytes:Some(1100),..ResourceLimits::unlimited()};
-        let arena=AuditArena::with_resource_limits(limits).unwrap();
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        assert_eq!(session.meter_mut().check_resolved_dimensions(3,0).unwrap_err().detail,"resource limit: resolved_records limit=2 observed=3");
-        assert_eq!(session.meter_mut().check_resolved_dimensions(2,11).unwrap_err().detail,"resource limit: resolved_bytes limit=10 observed=11");
-        assert_eq!(session.meter_mut().new_body(9).unwrap_err().detail,"resource limit: new_body_bytes limit=8 observed=9");
-        assert_eq!(session.reserve_external_payload(77).err().unwrap().detail,"resource limit: arena_bytes limit=1100 observed=1101");
+        assert_eq!(session.usage().semantic_work, 7);
+        assert_eq!(session.usage().remaining_work, Some(0));
+        assert_eq!(
+            session
+                .work()
+                .visit(ValidationVisit::Constraint)
+                .unwrap_err()
+                .detail,
+            "resource limit: semantic_work limit=7 observed=8"
+        );
+        assert!(ResourceLimits {
+            arena_bytes: Some(0),
+            ..limits
+        }
+        .validate()
+        .is_err());
+        let limits = ResourceLimits {
+            resolved_records: Some(2),
+            resolved_bytes: Some(10),
+            new_body_bytes: Some(8),
+            arena_bytes: Some(1100),
+            ..ResourceLimits::unlimited()
+        };
+        let arena = AuditArena::with_resource_limits(limits).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert_eq!(
+            session
+                .meter_mut()
+                .check_resolved_dimensions(3, 0)
+                .unwrap_err()
+                .detail,
+            "resource limit: resolved_records limit=2 observed=3"
+        );
+        assert_eq!(
+            session
+                .meter_mut()
+                .check_resolved_dimensions(2, 11)
+                .unwrap_err()
+                .detail,
+            "resource limit: resolved_bytes limit=10 observed=11"
+        );
+        assert_eq!(
+            session.meter_mut().new_body(9).unwrap_err().detail,
+            "resource limit: new_body_bytes limit=8 observed=9"
+        );
+        assert_eq!(
+            session.reserve_external_payload(77).err().unwrap().detail,
+            "resource limit: arena_bytes limit=1100 observed=1101"
+        );
     }
     #[test]
     fn operator_compile_limits_and_cancellation_do_not_create_extra_allowance() {
-        let limits=ResourceLimits{compile_work:Some(3),semantic_work:Some(10),..ResourceLimits::unlimited()};
-        let arena=AuditArena::with_resource_limits(limits).unwrap();
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut child=session.meter_mut().original_compile_meter().unwrap();
+        let limits = ResourceLimits {
+            compile_work: Some(3),
+            semantic_work: Some(10),
+            ..ResourceLimits::unlimited()
+        };
+        let arena = AuditArena::with_resource_limits(limits).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut child = session.meter_mut().original_compile_meter().unwrap();
         child.enter_compile().unwrap();
-        child.v2_semantic_event("test.compile",3,std::iter::empty()).unwrap();
-        assert_eq!(child.v2_semantic_event("test.compile",1,std::iter::empty()).unwrap_err().detail,"resource limit: compile_work limit=3 observed=4");
+        child
+            .v2_semantic_event("test.compile", 3, std::iter::empty())
+            .unwrap();
+        assert_eq!(
+            child
+                .v2_semantic_event("test.compile", 1, std::iter::empty())
+                .unwrap_err()
+                .detail,
+            "resource limit: compile_work limit=3 observed=4"
+        );
         assert!(session.meter_mut().finish_original_compile(child).is_err());
-        let arena=AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut child=session.meter_mut().original_compile_meter().unwrap();
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut child = session.meter_mut().original_compile_meter().unwrap();
         child.enter_compile().unwrap();
-        child.v2_semantic_event("test.unlimited_compile",1_048_577,std::iter::empty()).unwrap();
+        child
+            .v2_semantic_event("test.unlimited_compile", 1_048_577, std::iter::empty())
+            .unwrap();
         session.meter_mut().finish_original_compile(child).unwrap();
-        assert_eq!(session.usage().semantic_work,1_048_577);
-        assert_eq!(session.usage().remaining_work,None);
+        assert_eq!(session.usage().semantic_work, 1_048_577);
+        assert_eq!(session.usage().remaining_work, None);
         assert!(session.meter_mut().original_compile_meter().is_err());
-        let arena=AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut child=session.meter_mut().local_economic_meter().unwrap();
+        let arena = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut child = session.meter_mut().local_economic_meter().unwrap();
         arena.cancellation_handle().cancel();
         assert!(child.visit("test.cancel").is_err());
         assert!(session.meter_mut().finish_local_economic(child).is_err());

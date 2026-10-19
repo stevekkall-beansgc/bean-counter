@@ -1,6 +1,6 @@
 //! Private non-admitting calibration. Never selected by ordinary focused filters.
 use super::*;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::io::{self, Write};
 struct Capped<W> {
     inner: W,
@@ -78,13 +78,12 @@ fn private_calibration_domain_and_first_crossing_remain_non_admitting() {
     assert_eq!((crossing.before, crossing.after), (65536, 65537));
     assert_eq!(crossing.sites, vec!["test.threshold"]);
     executed = false;
-    assert!(
-        m.check("test.refused", || {
+    assert!(m
+        .check("test.refused", || {
             executed = true;
             true
         })
-        .is_err()
-    );
+        .is_err());
     assert!(!executed);
     assert_eq!(m.usage().trace.len(), m.diagnostic().unwrap().callers.len());
     let mut writer = Capped {

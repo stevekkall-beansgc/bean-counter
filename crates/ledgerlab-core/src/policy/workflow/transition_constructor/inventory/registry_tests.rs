@@ -1,7 +1,7 @@
 //! Framing witnesses only; no constructor, origin auditor or calibration runs.
 use super::{super::*, *};
 use crate::canonical::CanonicalBytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 const READY: &str = "sha256:e023e7bf17aeed815f30b6fdce35fc0bf68cc9efcc0612a019b0b109494ac169";
 const CAUSAL: &str = "sha256:b9397d8545fccefeb32ff9c320f1f70c96b1c89d6bd58f7aba37068862ab6d54";
@@ -234,16 +234,14 @@ fn saved_operation_and_admit_authority_forbid_wrong_framing_and_economic_closure
         context.key = serde_json::from_value(op["key"].clone()).unwrap();
         let mut m = CoreMeter::new(65536).unwrap();
         let mut records = super::super::super::records::Records::new(&mut m, &[input]).unwrap();
-        assert!(
-            transitions::operation(
-                &mut m,
-                &mut records,
-                &context,
-                &op["key"],
-                "agreement.activate"
-            )
-            .is_err()
-        );
+        assert!(transitions::operation(
+            &mut m,
+            &mut records,
+            &context,
+            &op["key"],
+            "agreement.activate"
+        )
+        .is_err());
     }
     for change in 0..2 {
         let mut op = current("A.activate.operation");
@@ -253,18 +251,17 @@ fn saved_operation_and_admit_authority_forbid_wrong_framing_and_economic_closure
             op["authority_snapshot"]["closure_profile"] = json!("absent");
         }
         rebound(&mut op);
-        let error =
-            transitions::admission(
-                &mut CoreMeter::new(65536).unwrap(),
-                &op["authority_snapshot"],
-                &op["key"],
-                &current("A.accept.operation")["request_evidence"]["normalized_request"]["payload"]
-                    ["binding_inputs"],
-                &op["accepted_at"],
-                &json!("fixture-admin"),
-                "agreement.activate",
-            )
-            .unwrap_err();
+        let error = transitions::admission(
+            &mut CoreMeter::new(65536).unwrap(),
+            &op["authority_snapshot"],
+            &op["key"],
+            &current("A.accept.operation")["request_evidence"]["normalized_request"]["payload"]
+                ["binding_inputs"],
+            &op["accepted_at"],
+            &json!("fixture-admin"),
+            "agreement.activate",
+        )
+        .unwrap_err();
         assert_eq!(
             error.detail,
             if change == 0 {

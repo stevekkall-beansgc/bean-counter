@@ -79,10 +79,9 @@ fn integer_limits_and_signed_bounds_are_exact() {
     );
     error(s.normalize(br#"{"example:quantity":"-1"}"#), "FACT_RANGE");
     for value in ["-0", "-00", "1.0", "+1", "1e1"] {
-        assert!(
-            s.normalize(&serde_json::to_vec(&json!({"example:quantity":value})).unwrap())
-                .is_err()
-        );
+        assert!(s
+            .normalize(&serde_json::to_vec(&json!({"example:quantity":value})).unwrap())
+            .is_err());
     }
     let s = schema(json!([field(
         "example:delta",
@@ -371,12 +370,10 @@ fn executing_signed_scalar_preserves_normalization_and_exact_budget() {
         assert_eq!(scalar.as_str(), expected);
         assert_eq!(scalar, SignedScalar::parse(raw, scale).unwrap());
         if expected != "0" {
-            assert!(
-                probe
-                    .operations
-                    .iter()
-                    .any(|(kind, _)| *kind == Op::Multiply)
-            );
+            assert!(probe
+                .operations
+                .iter()
+                .any(|(kind, _)| *kind == Op::Multiply));
         }
         let mut exact = CountingWork::new(probe.used);
         assert_eq!(
@@ -426,13 +423,11 @@ fn executing_scalar_comparison_and_reduction_use_actual_operands() {
         serde_json::to_value(ratio).unwrap(),
         json!({"numerator":"-6","denominator":"5"})
     );
-    assert!(
-        ratio_work
-            .operations
-            .iter()
-            .any(|(kind, operands)| *kind == Op::DivideRemainder
-                && operands == &[BigInt::from(12), BigInt::from(10)])
-    );
+    assert!(ratio_work
+        .operations
+        .iter()
+        .any(|(kind, operands)| *kind == Op::DivideRemainder
+            && operands == &[BigInt::from(12), BigInt::from(10)]));
     let mut short = CountingWork::new(ratio_work.used - 1);
     assert_eq!(
         a.ratio_with_work(&mut short).unwrap_err().code,
@@ -460,11 +455,10 @@ fn executing_schema_and_facts_cover_selected_types_without_redecoding() {
         json!(["example:a", "example:z"])
     );
     assert!(work.visits.contains(&Visit::SortMove));
-    assert!(
-        work.operations
-            .iter()
-            .any(|(op, _)| *op == Op::DivideRemainder)
-    );
+    assert!(work
+        .operations
+        .iter()
+        .any(|(op, _)| *op == Op::DivideRemainder));
     let mut exact = CountingWork::new(work.used);
     assert_eq!(
         FactSchema::parse_with_work(&raw, &mut exact).unwrap().body,

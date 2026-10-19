@@ -189,12 +189,10 @@ async fn agreement_explicit_attestation_requires_prior_exact_subject_terms_and_a
         .as_object_mut()
         .unwrap()
         .remove("statement");
-    assert!(
-        ledger
-            .prerequisite(&records::bytes(&invented).unwrap())
-            .await
-            .is_err()
-    );
+    assert!(ledger
+        .prerequisite(&records::bytes(&invented).unwrap())
+        .await
+        .is_err());
     ledger.close().await;
 }
 
@@ -233,17 +231,15 @@ async fn corrupt_origin(path: &std::path::Path, original: &JournalOperation, mod
             let evidence = &mut operation["request_evidence"];
             evidence["normalized_request"]["payload"]["metadata"]["acceptor"] =
                 json!("test-acceptor-B");
-            evidence["request_hash"] = json!(
-                records::hash(
-                    "operation-request",
-                    2,
-                    &json!([
-                        evidence["descriptor_resolution"]["closure_digest"],
-                        evidence["normalized_request"]
-                    ])
-                )
-                .unwrap()
-            );
+            evidence["request_hash"] = json!(records::hash(
+                "operation-request",
+                2,
+                &json!([
+                    evidence["descriptor_resolution"]["closure_digest"],
+                    evidence["normalized_request"]
+                ])
+            )
+            .unwrap());
             changed.request_hash = text(evidence, "request_hash").unwrap().into();
             // Rehash all enclosing operation/manifest/receipt copies, but preserve
             // the original raw request and the genuine retained result document.
@@ -716,12 +712,10 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
     assert_eq!(observed.state().revision(), 1);
     assert_eq!(observed.grant().unwrap().revision(), 1);
     assert_eq!(observed.enrollment().enrollment_id(), "source-enrollment-A");
-    assert!(
-        observed
-            .documents()
-            .iter()
-            .any(|d| d.reference == initial_grant)
-    );
+    assert!(observed
+        .documents()
+        .iter()
+        .any(|d| d.reference == initial_grant));
     tx.rollback().await.unwrap();
     let mut narrowed = ceiling.clone();
     narrowed["operations"] = json!(["quantity.correct"]);
@@ -841,12 +835,10 @@ async fn agreement_actual_source_enrollment_narrow_revoke_aliases_cas_and_reopen
     );
     // Prior active grants remain verification history, never a fake current
     // grant when the actual latest source state is revoked.
-    assert!(
-        observed
-            .documents()
-            .iter()
-            .any(|d| d.reference == initial_grant)
-    );
+    assert!(observed
+        .documents()
+        .iter()
+        .any(|d| d.reference == initial_grant));
     observed_tx.rollback().await.unwrap();
     let restrict_identity = records::bytes(&restrict["key"]).unwrap();
     for mode in 0..5 {

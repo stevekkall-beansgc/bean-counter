@@ -1,9 +1,9 @@
 //! Exact retained bytes are distinct from trusted source-head authentication.
 use super::{
-    SEGMENT_BYTES, Validate,
     commands::{ExpectedPrefix, Proof, RetainedObject},
     ensure, raw_sha256,
     types::Digest,
+    Validate, SEGMENT_BYTES,
 };
 use crate::{Error, Result};
 
@@ -292,7 +292,7 @@ pub fn object_digest(object: &RetainedObject) -> Result<Digest> {
 #[cfg(test)]
 mod sink_tests {
     use super::*;
-    use crate::validation_work::{ValidationWork, tests::CountingWork};
+    use crate::validation_work::{tests::CountingWork, ValidationWork};
 
     #[derive(Default)]
     struct Sink {

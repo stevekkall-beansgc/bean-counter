@@ -79,44 +79,82 @@ fn modified_input(edit: impl FnOnce(&mut Value), extra: bool) -> SelectedSourceI
 }
 
 #[test]
-fn owning_publication_compiler_keeps_original_source_plan_identity(){
-    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
-    let support=SelectedCompilerSupport::builtin().unwrap();
-    let mut legacy=CoreMeter::for_compile(1048576).unwrap();
-    let expected=compile_selected_program(modified_input(|_|{},false),&support,&mut legacy).unwrap();
-    let arena=AuditArena::new().unwrap();let before=arena.usage().unwrap().live_bytes;
-    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let actual=compile_selected_publication(modified_input(|_|{},false),&support,&mut session).unwrap();
+fn owning_publication_compiler_keeps_original_source_plan_identity() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let support = SelectedCompilerSupport::builtin().unwrap();
+    let mut legacy = CoreMeter::for_compile(1048576).unwrap();
+    let expected =
+        compile_selected_program(modified_input(|_| {}, false), &support, &mut legacy).unwrap();
+    let arena = AuditArena::new().unwrap();
+    let before = arena.usage().unwrap().live_bytes;
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let actual =
+        compile_selected_publication(modified_input(|_| {}, false), &support, &mut session)
+            .unwrap();
     actual.require_attempt_owner(session.meter_mut()).unwrap();
-    let other_arena=AuditArena::new().unwrap();let mut other=OriginalAuditSession::for_resource_profile_v2(&other_arena).unwrap();
+    let other_arena = AuditArena::new().unwrap();
+    let mut other = OriginalAuditSession::for_resource_profile_v2(&other_arena).unwrap();
     assert!(actual.require_attempt_owner(other.meter_mut()).is_err());
-    assert_eq!(actual.execution_registry(),None); // Draft recipe remains non-admitting.
-    assert_eq!(actual.root_policy_ref(),expected.root_policy_ref());
-    assert_eq!(actual.compiled_plan().reference(),expected.compiled_plan().reference());
-    assert_eq!(actual.compiled_plan().canonical_bytes(),expected.compiled_plan().canonical_bytes());
-    for (left,right) in actual.source_documents().iter().zip(expected.source_documents()){
-        assert_eq!(left.reference(),right.reference());assert_eq!(left.canonical_bytes(),right.canonical_bytes());
+    assert_eq!(actual.execution_registry(), None); // Draft recipe remains non-admitting.
+    assert_eq!(actual.root_policy_ref(), expected.root_policy_ref());
+    assert_eq!(
+        actual.compiled_plan().reference(),
+        expected.compiled_plan().reference()
+    );
+    assert_eq!(
+        actual.compiled_plan().canonical_bytes(),
+        expected.compiled_plan().canonical_bytes()
+    );
+    for (left, right) in actual
+        .source_documents()
+        .iter()
+        .zip(expected.source_documents())
+    {
+        assert_eq!(left.reference(), right.reference());
+        assert_eq!(left.canonical_bytes(), right.canonical_bytes());
     }
-    let document=actual.compiled_plan().clone();let held=arena.usage().unwrap().live_bytes;
-    drop(actual);let partial=arena.usage().unwrap().live_bytes;
-    assert!(partial>before);assert!(partial<held);
-    assert_eq!(document.canonical_bytes(),expected.compiled_plan().canonical_bytes());
-    drop(document);assert_eq!(arena.usage().unwrap().live_bytes,before);
+    let document = actual.compiled_plan().clone();
+    let held = arena.usage().unwrap().live_bytes;
+    drop(actual);
+    let partial = arena.usage().unwrap().live_bytes;
+    assert!(partial > before);
+    assert!(partial < held);
+    assert_eq!(
+        document.canonical_bytes(),
+        expected.compiled_plan().canonical_bytes()
+    );
+    drop(document);
+    assert_eq!(arena.usage().unwrap().live_bytes, before);
 }
 #[test]
-fn owning_source_identity_refuses_duplicate_descriptor_with_legacy_error(){
-    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
-    fn input()->SelectedSourceInput{
-        let mut input=modified_input(|_|{},false);
-        let descriptor=input.documents.iter().find(|raw|canonical::parse(raw).unwrap()["schema"]=="ledger-workflow-compiler-descriptor/1").unwrap().clone();
-        input.documents.push(descriptor);input
+fn owning_source_identity_refuses_duplicate_descriptor_with_legacy_error() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    fn input() -> SelectedSourceInput {
+        let mut input = modified_input(|_| {}, false);
+        let descriptor = input
+            .documents
+            .iter()
+            .find(|raw| {
+                canonical::parse(raw).unwrap()["schema"] == "ledger-workflow-compiler-descriptor/1"
+            })
+            .unwrap()
+            .clone();
+        input.documents.push(descriptor);
+        input
     }
-    let support=SelectedCompilerSupport::builtin().unwrap();let mut legacy=CoreMeter::for_compile(1048576).unwrap();
-    let expected=compile_selected_program(input(),&support,&mut legacy).err().unwrap();
-    let arena=AuditArena::new().unwrap();let baseline=arena.usage().unwrap().live_bytes;
-    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let actual=compile_selected_publication(input(),&support,&mut session).err().unwrap();
-    assert_eq!(actual,expected);assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+    let support = SelectedCompilerSupport::builtin().unwrap();
+    let mut legacy = CoreMeter::for_compile(1048576).unwrap();
+    let expected = compile_selected_program(input(), &support, &mut legacy)
+        .err()
+        .unwrap();
+    let arena = AuditArena::new().unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let actual = compile_selected_publication(input(), &support, &mut session)
+        .err()
+        .unwrap();
+    assert_eq!(actual, expected);
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline);
 }
 #[test]
 fn selected_rules_use_phase_order_and_refuse_cross_activity_or_duplicate_effects() {
@@ -347,69 +385,153 @@ fn historical_selected_recipe_recomputes_saved_plan_and_refuses_substitution() {
 }
 
 #[test]
-fn rp01_saved_descriptor_restore_owns_same_legacy_recipe_and_refusals(){
-    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
-    let support=SelectedCompilerSupport::builtin().unwrap();
-    let expected=compile_selected_program(modified_input(|_|{},false),&support,&mut CoreMeter::for_compile(1048576).unwrap()).unwrap();
-    let arena=AuditArena::new().unwrap();let baseline=arena.usage().unwrap().live_bytes;
-    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let program=restore_selected_program(modified_input(|_|{},false),support.canonical_bytes(),expected.compiled_plan().canonical_bytes(),&mut session).unwrap();
-    assert_eq!(program.compiled_plan().reference(),expected.compiled_plan().reference());
-    assert_eq!(program.compiled_plan().canonical_bytes(),expected.compiled_plan().canonical_bytes());
-    assert_eq!(program.execution_registry(),None);drop(program);assert_eq!(arena.usage().unwrap().live_bytes,baseline);
-    for canonical in [true,false]{
-        let mut changed=support.canonical_value().clone();changed["schema"]=serde_json::json!("unregistered-schema/1");
-        let mut raw=canonical::CanonicalBytes::from_value(&changed).unwrap().into_vec();if !canonical{raw.insert(0,b' ');}
-        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let error=restore_selected_program(modified_input(|_|{},false),&raw,expected.compiled_plan().canonical_bytes(),&mut session).err().unwrap();
-        assert_eq!(error.code,if canonical{"ORIGINAL_VERIFIER_UNAVAILABLE"}else{"INTEGRITY_FAILURE"});
-        assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+fn rp01_saved_descriptor_restore_owns_same_legacy_recipe_and_refusals() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let support = SelectedCompilerSupport::builtin().unwrap();
+    let expected = compile_selected_program(
+        modified_input(|_| {}, false),
+        &support,
+        &mut CoreMeter::for_compile(1048576).unwrap(),
+    )
+    .unwrap();
+    let arena = AuditArena::new().unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let program = restore_selected_program(
+        modified_input(|_| {}, false),
+        support.canonical_bytes(),
+        expected.compiled_plan().canonical_bytes(),
+        &mut session,
+    )
+    .unwrap();
+    assert_eq!(
+        program.compiled_plan().reference(),
+        expected.compiled_plan().reference()
+    );
+    assert_eq!(
+        program.compiled_plan().canonical_bytes(),
+        expected.compiled_plan().canonical_bytes()
+    );
+    assert_eq!(program.execution_registry(), None);
+    drop(program);
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+    for canonical in [true, false] {
+        let mut changed = support.canonical_value().clone();
+        changed["schema"] = serde_json::json!("unregistered-schema/1");
+        let mut raw = canonical::CanonicalBytes::from_value(&changed)
+            .unwrap()
+            .into_vec();
+        if !canonical {
+            raw.insert(0, b' ');
+        }
+        let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let error = restore_selected_program(
+            modified_input(|_| {}, false),
+            &raw,
+            expected.compiled_plan().canonical_bytes(),
+            &mut session,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            error.code,
+            if canonical {
+                "ORIGINAL_VERIFIER_UNAVAILABLE"
+            } else {
+                "INTEGRITY_FAILURE"
+            }
+        );
+        assert_eq!(arena.usage().unwrap().live_bytes, baseline);
     }
 }
 
 #[test]
-fn execution_reload_reuses_actual_owning_compilation_without_a_compiler_child(){
-    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
-    let support=SelectedCompilerSupport::builtin().unwrap();
-    let arena=AuditArena::new().unwrap();let baseline=arena.usage().unwrap().live_bytes;
-    let mut origin=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let program=compile_selected_publication(modified_input(|_|{},false),&support,&mut origin).unwrap();
-    let input=SelectedSourceInput{documents:program.source_documents().iter().map(|d|d.canonical_bytes().to_vec()).collect(),root_policy_ref:program.root_policy_ref().clone()};
-    let plan=program.compiled_plan().canonical_bytes().to_vec();
-    let old_analysis=program.static_analysis().clone();
-    let key=program.execution_reload_key_with_work(&mut origin).unwrap();
-    let key_bytes=std::mem::size_of::<SelectedExecutionReloadKey>();
-    drop(program);assert_eq!(arena.usage().unwrap().live_bytes,baseline+key_bytes);
-    let mut consuming=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let reloaded=rehydrate_selected_execution(input,&plan,&key,&mut consuming).unwrap();
-    assert_eq!(reloaded.compiled_plan().canonical_bytes(),plan);
-    assert_eq!(reloaded.static_analysis().compile_work,old_analysis.compile_work);
-    assert_eq!(reloaded.static_analysis().fields,old_analysis.fields);
-    assert_eq!(reloaded.execution_registry(),None);
+fn execution_reload_reuses_actual_owning_compilation_without_a_compiler_child() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    let support = SelectedCompilerSupport::builtin().unwrap();
+    let arena = AuditArena::new().unwrap();
+    let baseline = arena.usage().unwrap().live_bytes;
+    let mut origin = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let program =
+        compile_selected_publication(modified_input(|_| {}, false), &support, &mut origin).unwrap();
+    let input = SelectedSourceInput {
+        documents: program
+            .source_documents()
+            .iter()
+            .map(|d| d.canonical_bytes().to_vec())
+            .collect(),
+        root_policy_ref: program.root_policy_ref().clone(),
+    };
+    let plan = program.compiled_plan().canonical_bytes().to_vec();
+    let old_analysis = program.static_analysis().clone();
+    let key = program.execution_reload_key_with_work(&mut origin).unwrap();
+    let key_bytes = std::mem::size_of::<SelectedExecutionReloadKey>();
+    drop(program);
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline + key_bytes);
+    let mut consuming = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let reloaded = rehydrate_selected_execution(input, &plan, &key, &mut consuming).unwrap();
+    assert_eq!(reloaded.compiled_plan().canonical_bytes(), plan);
+    assert_eq!(
+        reloaded.static_analysis().compile_work,
+        old_analysis.compile_work
+    );
+    assert_eq!(reloaded.static_analysis().fields, old_analysis.fields);
+    assert_eq!(reloaded.execution_registry(), None);
     // Exercise the actual consuming typed schema lookup after reloading.
-    let schema=reloaded.context_schema_with_work(consuming.work()).unwrap();
-    schema.validate_context_schema_with_work(consuming.work()).unwrap();
-    reloaded.require_attempt_owner(consuming.meter_mut()).unwrap();
-    assert!(reloaded.execution_reload_key_with_work(&mut consuming).is_err());
-    drop(reloaded);assert_eq!(arena.usage().unwrap().live_bytes,baseline+key_bytes);
-    drop(key);assert_eq!(arena.usage().unwrap().live_bytes,baseline);
+    let schema = reloaded.context_schema_with_work(consuming.work()).unwrap();
+    schema
+        .validate_context_schema_with_work(consuming.work())
+        .unwrap();
+    reloaded
+        .require_attempt_owner(consuming.meter_mut())
+        .unwrap();
+    assert!(reloaded
+        .execution_reload_key_with_work(&mut consuming)
+        .is_err());
+    drop(reloaded);
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline + key_bytes);
+    drop(key);
+    assert_eq!(arena.usage().unwrap().live_bytes, baseline);
 }
 
 #[test]
-fn execution_reload_refuses_foreign_attempt_and_substituted_artifacts(){
-    use crate::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
-    for case in 0..3{
-        let support=SelectedCompilerSupport::builtin().unwrap();let arena=AuditArena::new().unwrap();
-        let mut original=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let program=compile_selected_publication(modified_input(|_|{},false),&support,&mut original).unwrap();
-        let mut input=SelectedSourceInput{documents:program.source_documents().iter().map(|d|d.canonical_bytes().to_vec()).collect(),root_policy_ref:program.root_policy_ref().clone()};
-        let mut plan=program.compiled_plan().canonical_bytes().to_vec();let key=program.execution_reload_key_with_work(&mut original).unwrap();drop(program);
-        if case==1{input.documents.pop();}
-        if case==2{let mut value=canonical::parse(&plan).unwrap();value["worst_case"]["runtime_work"]=serde_json::json!("65535");plan=canonical::CanonicalBytes::from_value(&value).unwrap().into_vec();}
-        let other=AuditArena::new().unwrap();let consuming_arena=if case==0{&other}else{&arena};
-        let before=consuming_arena.usage().unwrap().live_bytes;
-        let mut consuming=OriginalAuditSession::for_resource_profile_v2(consuming_arena).unwrap();
-        assert!(rehydrate_selected_execution(input,&plan,&key,&mut consuming).is_err());
-        assert_eq!(consuming_arena.usage().unwrap().live_bytes,before);
+fn execution_reload_refuses_foreign_attempt_and_substituted_artifacts() {
+    use crate::{canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession};
+    for case in 0..3 {
+        let support = SelectedCompilerSupport::builtin().unwrap();
+        let arena = AuditArena::new().unwrap();
+        let mut original = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let program =
+            compile_selected_publication(modified_input(|_| {}, false), &support, &mut original)
+                .unwrap();
+        let mut input = SelectedSourceInput {
+            documents: program
+                .source_documents()
+                .iter()
+                .map(|d| d.canonical_bytes().to_vec())
+                .collect(),
+            root_policy_ref: program.root_policy_ref().clone(),
+        };
+        let mut plan = program.compiled_plan().canonical_bytes().to_vec();
+        let key = program
+            .execution_reload_key_with_work(&mut original)
+            .unwrap();
+        drop(program);
+        if case == 1 {
+            input.documents.pop();
+        }
+        if case == 2 {
+            let mut value = canonical::parse(&plan).unwrap();
+            value["worst_case"]["runtime_work"] = serde_json::json!("65535");
+            plan = canonical::CanonicalBytes::from_value(&value)
+                .unwrap()
+                .into_vec();
+        }
+        let other = AuditArena::new().unwrap();
+        let consuming_arena = if case == 0 { &other } else { &arena };
+        let before = consuming_arena.usage().unwrap().live_bytes;
+        let mut consuming = OriginalAuditSession::for_resource_profile_v2(consuming_arena).unwrap();
+        assert!(rehydrate_selected_execution(input, &plan, &key, &mut consuming).is_err());
+        assert_eq!(consuming_arena.usage().unwrap().live_bytes, before);
     }
 }

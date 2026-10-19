@@ -1,7 +1,7 @@
 //! Raw-input structural checks and one executing capped output emitter.
 //! Output has no separate count/prevalidation traversal.
 use super::meter::Meter;
-use crate::{Error, Result, canonical};
+use crate::{canonical, Error, Result};
 use num_traits::ToPrimitive;
 use serde_json::Value;
 fn limit() -> Error {
@@ -29,23 +29,42 @@ fn string_count(m: &mut Meter, s: &str, total: &mut usize, maximum: usize) -> Re
     }
     Ok(())
 }
-fn count(m: &mut Meter, v: &Value, total: &mut usize, maximum: usize, depth: usize, formatting:bool) -> Result<()> {
+fn count(
+    m: &mut Meter,
+    v: &Value,
+    total: &mut usize,
+    maximum: usize,
+    depth: usize,
+    formatting: bool,
+) -> Result<()> {
     m.visit("codec.value")?;
     if super::meter::cmp(m, &depth.into(), &32usize.into())?.is_gt() {
         return Err(limit());
     }
     match v {
         Value::Null => return Err(Error::new("INVALID_SHAPE", "null selected body")),
-        Value::Bool(b) => {if formatting{plus(total, if *b { 4 } else { 5 }, maximum)?;}},
+        Value::Bool(b) => {
+            if formatting {
+                plus(total, if *b { 4 } else { 5 }, maximum)?;
+            }
+        }
         Value::Number(n) => {
             if m.check("codec.integer", || !n.is_i64() && !n.is_u64())? {
                 return Err(Error::new("INVALID_SCALAR", "noninteger JSON"));
             }
-            if formatting{plus(total, n.to_string().len(), maximum)?;}
+            if formatting {
+                plus(total, n.to_string().len(), maximum)?;
+            }
         }
-        Value::String(s) => {if formatting{string_count(m, s, total, maximum)?;}},
+        Value::String(s) => {
+            if formatting {
+                string_count(m, s, total, maximum)?;
+            }
+        }
         Value::Array(a) => {
-            if formatting{plus(total, 2, maximum)?;}
+            if formatting {
+                plus(total, 2, maximum)?;
+            }
             for (i, v) in a.iter().enumerate() {
                 m.visit("codec.element")?;
                 if formatting && i > 0 {
@@ -58,13 +77,18 @@ fn count(m: &mut Meter, v: &Value, total: &mut usize, maximum: usize, depth: usi
             }
         }
         Value::Object(o) => {
-            if formatting{plus(total, 2, maximum)?;}
+            if formatting {
+                plus(total, 2, maximum)?;
+            }
             for (i, (k, v)) in o.iter().enumerate() {
                 m.visit("codec.field")?;
                 if formatting && i > 0 {
                     plus(total, 1, maximum)?;
                 }
-                if formatting{string_count(m, k, total, maximum)?;plus(total, 1, maximum)?;}
+                if formatting {
+                    string_count(m, k, total, maximum)?;
+                    plus(total, 1, maximum)?;
+                }
                 let next = super::meter::add(m, &depth.into(), &1usize.into())?
                     .to_usize()
                     .ok_or_else(limit)?;
@@ -84,9 +108,12 @@ pub(super) fn validate_selected_value(m: &mut Meter, value: &Value, maximum: usi
 /// Records' private owning path must complete the SAME capped canonical emit
 /// and exact raw equality before making the parsed body usable. Legacy and
 /// standalone maximum-enforcing guards keep their original formatting walk.
-pub(in crate::policy::workflow) fn validate_selected_types(m:&mut Meter,value:&Value)->Result<()> {
-    let mut unused=0;
-    count(m,value,&mut unused,usize::MAX,0,false)
+pub(in crate::policy::workflow) fn validate_selected_types(
+    m: &mut Meter,
+    value: &Value,
+) -> Result<()> {
+    let mut unused = 0;
+    count(m, value, &mut unused, usize::MAX, 0, false)
 }
 pub(in crate::policy::workflow) fn encode(
     m: &mut Meter,
@@ -122,7 +149,11 @@ pub(in crate::policy::workflow) fn encode_new(
     v: &Value,
     maximum: usize,
 ) -> Result<Vec<u8>> {
-    let remaining = if m.resource_limits().is_some(){None}else{m.remaining_new_body()?};
+    let remaining = if m.resource_limits().is_some() {
+        None
+    } else {
+        m.remaining_new_body()?
+    };
     let bound = remaining.map_or(maximum, |remaining| maximum.min(remaining));
     let bytes = m
         .scoped("CanonicalBytes::emit.new_body", |m| {

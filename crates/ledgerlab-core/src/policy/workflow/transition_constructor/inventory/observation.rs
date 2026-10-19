@@ -1,7 +1,7 @@
-use super::super::{CoreMeter, data::*, meter, shape};
+use super::super::{data::*, meter, shape, CoreMeter};
 use super::{check::*, publication::digest};
 use crate::Result;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 /// Closed observation/verifier DATA, not authentication of the asserted prefix.
 pub(in crate::policy::workflow::transition_constructor) fn validate(
     m: &mut CoreMeter,
@@ -27,7 +27,7 @@ fn validate_data(
     ob: &Value,
     verifier: &Value,
     root: &Value,
-    app_catalog:bool,
+    app_catalog: bool,
 ) -> Result<()> {
     invoke!(
         shape::closed,
@@ -125,7 +125,9 @@ fn validate_data(
         "canonical_economic_namespace",
         &json!(c.canonical_economic_namespace)
     )?;
-    if app_catalog{return super::super::audit_metadata::check_source(m,verifier);}
+    if app_catalog {
+        return super::super::audit_metadata::check_source(m, verifier);
+    }
     invoke!(
         shape::closed,
         m,
@@ -230,7 +232,10 @@ fn validate_data(
     // authenticating their physical/code-owned origin belongs to the host auditor.
     Ok(())
 }
-pub(in crate::policy::workflow::transition_constructor) const SUPPORTED_ARTIFACTS: &[(&str, &str)] = &[
+pub(in crate::policy::workflow::transition_constructor) const SUPPORTED_ARTIFACTS: &[(
+    &str,
+    &str,
+)] = &[
     (
         "AUTHORITY-AUDIT-03.md",
         "760f97f7dc7281bc01c6ca462f0c4c55f9460fca85a8d7a6bb08b4448acd5087",
@@ -261,6 +266,13 @@ pub(in crate::policy::workflow::transition_constructor) const SUPPORTED_ARTIFACT
     ),
 ];
 
-pub(in crate::policy::workflow::transition_constructor) fn validate_app_catalog(m:&mut CoreMeter,c:&DraftContextData,state:&Value,ob:&Value,verifier:&Value,root:&Value)->Result<()>{
-    validate_data(m,c,state,ob,verifier,root,true)
+pub(in crate::policy::workflow::transition_constructor) fn validate_app_catalog(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    state: &Value,
+    ob: &Value,
+    verifier: &Value,
+    root: &Value,
+) -> Result<()> {
+    validate_data(m, c, state, ob, verifier, root, true)
 }

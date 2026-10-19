@@ -440,7 +440,14 @@ mod tests {
             .unwrap();
         assert_eq!(ledger.resource_settings().await.unwrap()["resources"], low);
         let old = ledger.resource_snapshot().unwrap();
-        assert!(matches!(old.arena(),Err(ServiceError::ResourceLimit{setting:"arena_bytes",limit:1,observed:1024})));
+        assert!(matches!(
+            old.arena(),
+            Err(ServiceError::ResourceLimit {
+                setting: "arena_bytes",
+                limit: 1,
+                observed: 1024
+            })
+        ));
         let value = unlimited();
         ledger
             .set_resource_settings(
@@ -472,8 +479,12 @@ mod tests {
             "not_observed"
         );
         ledger.close().await;
-        let ordinary=BillingLedger::open(&path).await.unwrap();
-        ordinary.permission_status("customer-1","urn:example:work").await.unwrap();ordinary.close().await;
+        let ordinary = BillingLedger::open(&path).await.unwrap();
+        ordinary
+            .permission_status("customer-1", "urn:example:work")
+            .await
+            .unwrap();
+        ordinary.close().await;
         let reopened = local::LocalWorkflowLedger::open_local(&path).await.unwrap();
         assert_eq!(
             reopened.resource_settings().await.unwrap()["resources"],
@@ -484,8 +495,13 @@ mod tests {
 }
 
 /// Shared strict extension accepted by ordinary billing opens and workflow.
-pub(crate) fn installation_shape(v:&Value)->bool {
- v.as_object().is_some_and(|o|o.len()==3+usize::from(o.contains_key("resources"))&&["schema","store_id","scope"].iter().all(|k|o.contains_key(*k)))
- &&v["schema"]=="ledger-billing-installation/1"
- &&v.get("resources").is_none_or(|r|Settings::parse(r).is_ok())
+pub(crate) fn installation_shape(v: &Value) -> bool {
+    v.as_object().is_some_and(|o| {
+        o.len() == 3 + usize::from(o.contains_key("resources"))
+            && ["schema", "store_id", "scope"]
+                .iter()
+                .all(|k| o.contains_key(*k))
+    }) && v["schema"] == "ledger-billing-installation/1"
+        && v.get("resources")
+            .is_none_or(|r| Settings::parse(r).is_ok())
 }

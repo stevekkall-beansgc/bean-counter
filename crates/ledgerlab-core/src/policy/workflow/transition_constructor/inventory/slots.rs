@@ -1,26 +1,36 @@
 use super::super::super::selected_program::SelectedProgram;
-use super::super::{CoreMeter, arithmetic, data::*, meter, shape};
+use super::super::{arithmetic, data::*, meter, shape, CoreMeter};
 use super::check::*;
 use crate::Result;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 /// Match the existing shared document normalizers, not whole-object JCS
 /// ordering: catalog IDs use UTF16, mapping template Names use Rust text order.
-pub(super) fn keyed_order(m:&mut CoreMeter,rows:&[Value],key:&str,utf16:bool)->Result<()> {
-    let mut previous:Option<&str>=None;
+pub(super) fn keyed_order(m: &mut CoreMeter, rows: &[Value], key: &str, utf16: bool) -> Result<()> {
+    let mut previous: Option<&str> = None;
     for row in rows {
         m.visit("inventory.slot_key_order")?;
-        let current=shape::text(m,row,key)?;
-        if let Some(prior)=previous {
-            let bytes=crate::validation_work::usize_add(m,prior.len(),current.len())?;
+        let current = shape::text(m, row, key)?;
+        if let Some(prior) = previous {
+            let bytes = crate::validation_work::usize_add(m, prior.len(), current.len())?;
             // Reserve both possible operand passes before the SAME existing
             // ordering algorithm; no copied key, emitter or JSON sort occurs.
             m.scan_bytes(bytes)?;
-            crate::validation_work::ValidationWork::visit(m,crate::validation_work::ValidationVisit::MemberCompare)?;
-            let order=if utf16 {prior.encode_utf16().cmp(current.encode_utf16())}else{prior.cmp(current)};
-            if !order.is_lt(){return Err(shape::fail("noncanonical slot key order or duplicate"));}
+            crate::validation_work::ValidationWork::visit(
+                m,
+                crate::validation_work::ValidationVisit::MemberCompare,
+            )?;
+            let order = if utf16 {
+                prior.encode_utf16().cmp(current.encode_utf16())
+            } else {
+                prior.cmp(current)
+            };
+            if !order.is_lt() {
+                return Err(shape::fail("noncanonical slot key order or duplicate"));
+            }
         }
-        previous=Some(current);
-    }Ok(())
+        previous = Some(current);
+    }
+    Ok(())
 }
 /// Complete initial catalog/template projection, without equating policy binding
 /// names with economic role names.
@@ -115,10 +125,10 @@ fn validate_data(
         let original = invoke!(shape::array, m, template, kind)?;
         let maps = invoke!(shape::array, m, inst, mapping)?;
         let targets = invoke!(shape::array, m, catalog, items)?;
-        if m.resource_vector_usage().is_some(){
-            keyed_order(m,maps,"template_key",false)?;
-            keyed_order(m,targets,"slot_id",true)?;
-        }else{
+        if m.resource_vector_usage().is_some() {
+            keyed_order(m, maps, "template_key", false)?;
+            keyed_order(m, targets, "slot_id", true)?;
+        } else {
             super::binding::ordered(m, maps)?;
             super::binding::ordered(m, targets)?;
         }
@@ -203,11 +213,20 @@ fn validate_data(
         }
     }
     let terms_schema = shape::text(m, t, "schema")?;
-    let app=program.uses_app_owned_cost_recipe();
-    let original_work_scope = if app{
-        let expected=if program.uses_app_cost_causal_recipe(){"ledger-workflow-slot-binding-terms/7"}else{"ledger-workflow-slot-binding-terms/6"};
-        if !shape::same_text(m,terms_schema,expected)?{return Err(shape::fail("original app terms recipe"));}true
-    }else{shape::same_text(m, terms_schema, "ledger-workflow-slot-binding-terms/3")?};
+    let app = program.uses_app_owned_cost_recipe();
+    let original_work_scope = if app {
+        let expected = if program.uses_app_cost_causal_recipe() {
+            "ledger-workflow-slot-binding-terms/7"
+        } else {
+            "ledger-workflow-slot-binding-terms/6"
+        };
+        if !shape::same_text(m, terms_schema, expected)? {
+            return Err(shape::fail("original app terms recipe"));
+        }
+        true
+    } else {
+        shape::same_text(m, terms_schema, "ledger-workflow-slot-binding-terms/3")?
+    };
     let mut required = vec![
         "schema",
         "scope",
@@ -228,7 +247,9 @@ fn validate_data(
     if original_work_scope {
         required.push("exposure_scope");
     }
-    if app{required.push("app_cost_terms");}
+    if app {
+        required.push("app_cost_terms");
+    }
     shape::closed(m, t, &required, &[])?;
     if original_work_scope {
         eq(m, t, "exposure_scope", &json!("original_work"))?;
@@ -496,26 +517,34 @@ fn validate_data(
     )?;
     invoke!(copy, m, &exposures[0], "binding_slot", t, "slot")?;
     invoke!(amount, m, &exposures[0]["maximum"])?;
-    if app{
-        let declarations=shape::array(m,policy,"app_delayed_costs")?;
-        let accepted=shape::array(m,t,"app_cost_terms")?;
-        bounds(m,accepted.len(),1,64)?;super::binding::ordered(m,accepted)?;
-        count(m,accepted,declarations.len())?;
-        for declaration in declarations{
+    if app {
+        let declarations = shape::array(m, policy, "app_delayed_costs")?;
+        let accepted = shape::array(m, t, "app_cost_terms")?;
+        bounds(m, accepted.len(), 1, 64)?;
+        super::binding::ordered(m, accepted)?;
+        count(m, accepted, declarations.len())?;
+        for declaration in declarations {
             m.visit("inventory.original_app_terms_declaration")?;
-            let mut matched=false;
-            for row in accepted{
-                if shape::same(m,&row["component_key"],&declaration["component_key"])?&&shape::same(m,&row["activity"],&declaration["activity"])?{
-                    if matched{return Err(shape::fail("duplicate original app terms declaration"));}
-                    shape::equal(m,row,declaration)?;matched=true;
+            let mut matched = false;
+            for row in accepted {
+                if shape::same(m, &row["component_key"], &declaration["component_key"])?
+                    && shape::same(m, &row["activity"], &declaration["activity"])?
+                {
+                    if matched {
+                        return Err(shape::fail("duplicate original app terms declaration"));
+                    }
+                    shape::equal(m, row, declaration)?;
+                    matched = true;
                 }
             }
-            if !matched{return Err(shape::fail("original app declaration lacks exact assent"));}
+            if !matched {
+                return Err(shape::fail("original app declaration lacks exact assent"));
+            }
         }
     }
     match current_grant {
-        Some(grant)=>validate_causal_clauses(m,b,catalog,t,grant),
-        None=>validate_causal_projection(m,b,catalog,t,None),
+        Some(grant) => validate_causal_clauses(m, b, catalog, t, grant),
+        None => validate_causal_projection(m, b, catalog, t, None),
     }
 }
 fn validate_causal_clauses(
@@ -525,25 +554,39 @@ fn validate_causal_clauses(
     t: &Value,
     current_grant: &Value,
 ) -> Result<()> {
-    validate_causal_projection(m,b,catalog,t,Some(current_grant))
+    validate_causal_projection(m, b, catalog, t, Some(current_grant))
 }
-fn validate_causal_projection(m:&mut CoreMeter,b:&Value,catalog:&Value,t:&Value,current_grant:Option<&Value>)->Result<()> {
+fn validate_causal_projection(
+    m: &mut CoreMeter,
+    b: &Value,
+    catalog: &Value,
+    t: &Value,
+    current_grant: Option<&Value>,
+) -> Result<()> {
     // The exact preaccepted inverse clauses name existing roots/families and their
     // immutable correction nomination; they never mint an economic capability.
     let clauses = invoke!(shape::array, m, t, "causal_reversal_clauses")?;
     let schema = shape::text(m, t, "schema")?;
-    let minimum = if shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/3")? || shape::same_text(m,schema,"ledger-workflow-slot-binding-terms/6")? || shape::same_text(m,schema,"ledger-workflow-slot-binding-terms/7")? {
+    let minimum = if shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/3")?
+        || shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/6")?
+        || shape::same_text(m, schema, "ledger-workflow-slot-binding-terms/7")?
+    {
         0
     } else {
         1
     };
     bounds(m, clauses.len(), minimum, 64)?;
     super::binding::ordered(m, clauses)?;
-    for (index,clause) in clauses.iter().enumerate() {
-        if m.resource_vector_usage().is_some(){
-            for previous in &clauses[..index]{
+    for (index, clause) in clauses.iter().enumerate() {
+        if m.resource_vector_usage().is_some() {
+            for previous in &clauses[..index] {
                 m.visit("inventory.causal_clause_semantic_key")?;
-                if shape::same(m,&clause["root_component_slot"],&previous["root_component_slot"])? && shape::same(m,&clause["family_slot"],&previous["family_slot"])?{
+                if shape::same(
+                    m,
+                    &clause["root_component_slot"],
+                    &previous["root_component_slot"],
+                )? && shape::same(m, &clause["family_slot"], &previous["family_slot"])?
+                {
                     return Err(shape::fail("duplicate root/family causal clause"));
                 }
             }
@@ -597,12 +640,14 @@ fn validate_causal_projection(m:&mut CoreMeter,b:&Value,catalog:&Value,t:&Value,
             "name",
             invoke!(shape::text, m, clause, "correction_source_slot")?
         )?;
-        if let Some(current_grant)=current_grant {invoke!(
-            shape::contains,
-            m,
-            invoke!(shape::array, m, current_grant, "source_slots")?,
-            &data_field!(m, &nomination, "name")
-        )?;}
+        if let Some(current_grant) = current_grant {
+            invoke!(
+                shape::contains,
+                m,
+                invoke!(shape::array, m, current_grant, "source_slots")?,
+                &data_field!(m, &nomination, "name")
+            )?;
+        }
     }
     Ok(())
 }
@@ -664,63 +709,116 @@ mod clause_tests {
 /// original consent and the owning argument/control buffers in the one attempt.
 /// It cannot select a compiler support capability from a saved plan schema.
 pub fn validate_app_slot_projection(
-    program:&SelectedProgram,scope:&[String;2],binding:&Value,catalog:&Value,
-    instantiation:&Value,slot_terms:&Value,role:&Value,
-    session:&mut crate::validation_work::OriginalAuditSession,
-)->Result<()> {
-    let result=(||{
-        if !program.uses_app_owned_cost_recipe(){return Err(shape::fail("app projection requires actual selected app program"));}
-        let m=session.meter_mut();
-        for document in [slot_terms,role]{
-            let actual=shape::array(m,document,"scope")?;
-            if !crate::validation_work::compare(m,actual.len(),scope.len())?.is_eq(){return Err(shape::fail("app projection scope length"));}
-            for (part,expected) in actual.iter().zip(scope){
+    program: &SelectedProgram,
+    scope: &[String; 2],
+    binding: &Value,
+    catalog: &Value,
+    instantiation: &Value,
+    slot_terms: &Value,
+    role: &Value,
+    session: &mut crate::validation_work::OriginalAuditSession,
+) -> Result<()> {
+    let result = (|| {
+        if !program.uses_app_owned_cost_recipe() {
+            return Err(shape::fail(
+                "app projection requires actual selected app program",
+            ));
+        }
+        let m = session.meter_mut();
+        for document in [slot_terms, role] {
+            let actual = shape::array(m, document, "scope")?;
+            if !crate::validation_work::compare(m, actual.len(), scope.len())?.is_eq() {
+                return Err(shape::fail("app projection scope length"));
+            }
+            for (part, expected) in actual.iter().zip(scope) {
                 m.visit("inventory.app_projection_scope_part")?;
-                let part=part.as_str().ok_or_else(||shape::fail("app projection scope string"))?;
-                if !shape::same_text(m,part,expected)?{return Err(shape::fail("app projection scope association"));}
+                let part = part
+                    .as_str()
+                    .ok_or_else(|| shape::fail("app projection scope string"))?;
+                if !shape::same_text(m, part, expected)? {
+                    return Err(shape::fail("app projection scope association"));
+                }
             }
         }
-        for document in [slot_terms,role,catalog,instantiation]{
-            for field in ["agreement_id","customer"]{shape::equal(m,&document[field],&binding[field])?;}
+        for document in [slot_terms, role, catalog, instantiation] {
+            for field in ["agreement_id", "customer"] {
+                shape::equal(m, &document[field], &binding[field])?;
+            }
         }
         // Preattaccept is structural projection. Each original/current source
         // intersection is independently resolved for its exact nomination;
         // there is no selected all-slots grant to substitute or synthesize.
-        validate_data(m,program,binding,catalog,instantiation,slot_terms,role,None)?;
-        validate_app_funding_projection(m,program,binding,slot_terms,role)
+        validate_data(
+            m,
+            program,
+            binding,
+            catalog,
+            instantiation,
+            slot_terms,
+            role,
+            None,
+        )?;
+        validate_app_funding_projection(m, program, binding, slot_terms, role)
     })();
-    if result.is_err(){session.invalidate();}result
+    if result.is_err() {
+        session.invalidate();
+    }
+    result
 }
 
-fn funding_literal(m:&mut CoreMeter,v:&Value,k:&str,wanted:&str)->Result<()>{let actual=shape::text(m,v,k)?;if !shape::same_text(m,actual,wanted)?{return Err(shape::fail("app funding projection literal"));}Ok(())}
+fn funding_literal(m: &mut CoreMeter, v: &Value, k: &str, wanted: &str) -> Result<()> {
+    let actual = shape::text(m, v, k)?;
+    if !shape::same_text(m, actual, wanted)? {
+        return Err(shape::fail("app funding projection literal"));
+    }
+    Ok(())
+}
 /// SAME funding-leg projection for original consumption and pre-accept checks.
 /// Evidence provenance and actual original/current consent are separate callers.
-pub(in crate::policy::workflow::transition_constructor) fn validate_app_funding_projection(m:&mut CoreMeter,program:&SelectedProgram,binding:&Value,slot_terms:&Value,role:&Value)->Result<()> {
- let funding=shape::array(m,binding,"funding_legs")?;
- let name=shape::text(m,slot_terms,"funding_leg")?;
- let retail=shape::named(m,funding,"name",name)?;funding_literal(m,retail,"mode","customer_local")?;
- for field in ["payer","resource_owner"]{shape::equal(m,&retail[field],&binding["customer"])?;}
- shape::equal(m,&role["payer"],&binding["customer"])?;
- // Every funding leg is consumed as either the actual customer retail leg or
- // an exact original app declaration resource leg. No hidden AP leg is used.
- for leg in funding{
-   m.visit("app.original_funding_leg_usage")?;
-   if shape::same(m,&leg["name"],&retail["name"])?{continue;}
-   funding_literal(m,leg,"mode","platform")?;
-   if leg.get("supplier_binding_slot").is_some(){return Err(shape::fail("app cannot assert supplier funding"));}
-   shape::equal(m,&leg["resource_owner"],&leg["payer"])?;
+pub(in crate::policy::workflow::transition_constructor) fn validate_app_funding_projection(
+    m: &mut CoreMeter,
+    program: &SelectedProgram,
+    binding: &Value,
+    slot_terms: &Value,
+    role: &Value,
+) -> Result<()> {
+    let funding = shape::array(m, binding, "funding_legs")?;
+    let name = shape::text(m, slot_terms, "funding_leg")?;
+    let retail = shape::named(m, funding, "name", name)?;
+    funding_literal(m, retail, "mode", "customer_local")?;
+    for field in ["payer", "resource_owner"] {
+        shape::equal(m, &retail[field], &binding["customer"])?;
+    }
+    shape::equal(m, &role["payer"], &binding["customer"])?;
+    // Every funding leg is consumed as either the actual customer retail leg or
+    // an exact original app declaration resource leg. No hidden AP leg is used.
+    for leg in funding {
+        m.visit("app.original_funding_leg_usage")?;
+        if shape::same(m, &leg["name"], &retail["name"])? {
+            continue;
+        }
+        funding_literal(m, leg, "mode", "platform")?;
+        if leg.get("supplier_binding_slot").is_some() {
+            return Err(shape::fail("app cannot assert supplier funding"));
+        }
+        shape::equal(m, &leg["resource_owner"], &leg["payer"])?;
 
-   let mut selected=false;
-   for declaration in shape::array(m,program.original_policy_value(),"app_delayed_costs")?{
-      m.visit("app.original_resource_funding_nomination")?;
-      if shape::same(m,&declaration["resource_funding_leg"],&leg["name"])?{selected=true;}
-   }
-   if !selected{return Err(shape::fail("unconsumed app funding declaration"));}
- }
- for declaration in shape::array(m,program.original_policy_value(),"app_delayed_costs")?{
-   m.visit("app.required_resource_funding")?;
-   let name=shape::text(m,declaration,"resource_funding_leg")?;
-   let leg=shape::named(m,funding,"name",name)?;funding_literal(m,leg,"mode","platform")?;
- }
- Ok(())
+        let mut selected = false;
+        for declaration in shape::array(m, program.original_policy_value(), "app_delayed_costs")? {
+            m.visit("app.original_resource_funding_nomination")?;
+            if shape::same(m, &declaration["resource_funding_leg"], &leg["name"])? {
+                selected = true;
+            }
+        }
+        if !selected {
+            return Err(shape::fail("unconsumed app funding declaration"));
+        }
+    }
+    for declaration in shape::array(m, program.original_policy_value(), "app_delayed_costs")? {
+        m.visit("app.required_resource_funding")?;
+        let name = shape::text(m, declaration, "resource_funding_leg")?;
+        let leg = shape::named(m, funding, "name", name)?;
+        funding_literal(m, leg, "mode", "platform")?;
+    }
+    Ok(())
 }

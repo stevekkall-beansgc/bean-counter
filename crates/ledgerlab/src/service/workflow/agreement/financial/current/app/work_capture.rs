@@ -4,8 +4,8 @@ use super::*;
 use ledgerlab_core::{
     canonical::audit_arena::AuditedBytes,
     policy::workflow::transition_constructor::{
-        EconomicCapture, EconomicRecordView, OperationKey as CoreKey, SourceAuthorityCapture,
-        WorkHeadLocators, select_work_head_locators, select_work_input_seeds,
+        select_work_head_locators, select_work_input_seeds, EconomicCapture, EconomicRecordView,
+        OperationKey as CoreKey, SourceAuthorityCapture, WorkHeadLocators,
     },
 };
 use std::mem;
@@ -49,7 +49,12 @@ pub(super) fn with_capture<T>(
     source_index: usize,
     received_at: &Timestamp,
     s: &mut OriginalAuditSession,
-    run:impl FnOnce(&EconomicCapture<'_>,&InputPool<'_>,&[u8],&mut OriginalAuditSession)->Result<T>,
+    run: impl FnOnce(
+        &EconomicCapture<'_>,
+        &InputPool<'_>,
+        &[u8],
+        &mut OriginalAuditSession,
+    ) -> Result<T>,
 ) -> Result<T> {
     let _controls = s
         .reserve_external_payload(
@@ -157,43 +162,90 @@ pub(super) fn with_capture<T>(
     frames
         .try_reserve_exact(slots.len())
         .map_err(|_| ServiceError::Unavailable)?;
-    let selected_slot=observed.work_source_slot.as_ref().map(|v|s.parse_representation(v.bytes(),RepresentationKind::Record).map_err(core_error)).transpose()?;
-    let payload_schema=check::text(payload,"schema",s)?;
-    let selecting_work=payload_schema=="ledger-workflow-work/1"&&selected_slot.is_none();
+    let selected_slot = observed
+        .work_source_slot
+        .as_ref()
+        .map(|v| {
+            s.parse_representation(v.bytes(), RepresentationKind::Record)
+                .map_err(core_error)
+        })
+        .transpose()?;
+    let payload_schema = check::text(payload, "schema", s)?;
+    let selecting_work = payload_schema == "ledger-workflow-work/1" && selected_slot.is_none();
     // Exact operation-derived original slots are DATA from the same owning
     // locator. The final interpreter independently rechecks every authority.
-    let required_slots=observed.local_locators.as_ref().map(|l|l.required_authority_slots()).filter(|slots|!slots.is_empty());
-    let mut fact_slot=None;
-    if payload_schema=="ledger-workflow-fact-attest/1" {
-        let att=check::field(payload,"attestation",s)?;
-        let schema_ref=check::field(att,"subject_schema_ref",s)?;
-        for document in observed.original.publication.program().source_documents(){
-            let reference=document.reference();
-            if reference.kind()!=check::text(schema_ref,"kind",s)?||reference.id()!=check::text(schema_ref,"id",s)?||reference.digest()!=check::text(schema_ref,"digest",s)?{continue;}
-            let fields=check::field(document.canonical_value(),"fields",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
-            for claim in check::field(att,"claims",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?{
-                let name=check::text(claim,"field",s)?;
-                let field=fields.iter().find(|field|field.get("name").and_then(Value::as_str)==Some(name)).ok_or(ServiceError::IntegrityFailure)?;
-                let provenance=check::field(field,"provenance",s)?;
-                check::same_text(check::text(provenance,"kind",s)?,"attested",s)?;
-                let slot=check::text(provenance,"source_slot",s)?;
-                if let Some(old)=fact_slot{check::same_text(old,slot,s)?;}else{fact_slot=Some(slot);}
+    let required_slots = observed
+        .local_locators
+        .as_ref()
+        .map(|l| l.required_authority_slots())
+        .filter(|slots| !slots.is_empty());
+    let mut fact_slot = None;
+    if payload_schema == "ledger-workflow-fact-attest/1" {
+        let att = check::field(payload, "attestation", s)?;
+        let schema_ref = check::field(att, "subject_schema_ref", s)?;
+        for document in observed.original.publication.program().source_documents() {
+            let reference = document.reference();
+            if reference.kind() != check::text(schema_ref, "kind", s)?
+                || reference.id() != check::text(schema_ref, "id", s)?
+                || reference.digest() != check::text(schema_ref, "digest", s)?
+            {
+                continue;
+            }
+            let fields = check::field(document.canonical_value(), "fields", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            for claim in check::field(att, "claims", s)?
+                .as_array()
+                .ok_or(ServiceError::IntegrityFailure)?
+            {
+                let name = check::text(claim, "field", s)?;
+                let field = fields
+                    .iter()
+                    .find(|field| field.get("name").and_then(Value::as_str) == Some(name))
+                    .ok_or(ServiceError::IntegrityFailure)?;
+                let provenance = check::field(field, "provenance", s)?;
+                check::same_text(check::text(provenance, "kind", s)?, "attested", s)?;
+                let slot = check::text(provenance, "source_slot", s)?;
+                if let Some(old) = fact_slot {
+                    check::same_text(old, slot, s)?;
+                } else {
+                    fact_slot = Some(slot);
+                }
             }
         }
-        require(fact_slot.is_some(),"INVALID_REFERENCE")?;
+        require(fact_slot.is_some(), "INVALID_REFERENCE")?;
     }
     for slot in slots {
         s.semantic_work()
             .visit(ValidationVisit::Element)
             .map_err(core_error)?;
         let name = check::text(slot, "name", s)?;
-        if let Some(required)=required_slots {
-            let mut selected=false;
-            for wanted in required {if equal(name,wanted,s)?{selected=true;}}
-            if !selected{continue;}
+        if let Some(required) = required_slots {
+            let mut selected = false;
+            for wanted in required {
+                if equal(name, wanted, s)? {
+                    selected = true;
+                }
+            }
+            if !selected {
+                continue;
+            }
         }
-        if let Some(fact_slot)=fact_slot {if !equal(name,fact_slot,s)?{continue;}}
-        if let Some(selected)=selected_slot.as_ref(){if name!=selected.value().as_str().ok_or(ServiceError::IntegrityFailure)?{continue;}}
+        if let Some(fact_slot) = fact_slot {
+            if !equal(name, fact_slot, s)? {
+                continue;
+            }
+        }
+        if let Some(selected) = selected_slot.as_ref() {
+            if name
+                != selected
+                    .value()
+                    .as_str()
+                    .ok_or(ServiceError::IntegrityFailure)?
+            {
+                continue;
+            }
+        }
         let nominees = check::field(slot, "sources", s)?
             .as_array()
             .ok_or(ServiceError::IntegrityFailure)?;
@@ -216,7 +268,9 @@ pub(super) fn with_capture<T>(
         s.semantic_work()
             .write_bytes(mem::size_of::<SourceAuthorityCapture<'_>>())
             .map_err(core_error)?;
-        if required_slots.is_none()&&!selecting_work&&!frames.is_empty(){continue;}
+        if required_slots.is_none() && !selecting_work && !frames.is_empty() {
+            continue;
+        }
         frames.push(SourceAuthorityCapture {
             source_slot: name,
             source: &key.source,
@@ -233,9 +287,11 @@ pub(super) fn with_capture<T>(
             activation_ref: activation.activation.reference(),
         });
     }
-    if let Some(required)=required_slots {
-        s.semantic_work().arithmetic(Op::Compare,&[&frames.len().into(),&required.len().into()]).map_err(core_error)?;
-        require(frames.len()==required.len(),"AUTHORITY_REQUIRED")?;
+    if let Some(required) = required_slots {
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&frames.len().into(), &required.len().into()])
+            .map_err(core_error)?;
+        require(frames.len() == required.len(), "AUTHORITY_REQUIRED")?;
     }
     let capture = EconomicCapture {
         key: &core_key,
@@ -253,7 +309,7 @@ pub(super) fn with_capture<T>(
         .canonical_representation(payload, RepresentationKind::OriginalRequest)
         .map_err(core_error)?;
     let pool = input_pool(observed, s)?;
-    run(&capture,&pool,raw.bytes(),s)
+    run(&capture, &pool, raw.bytes(), s)
 }
 
 pub(super) fn select(
@@ -264,33 +320,41 @@ pub(super) fn select(
     received_at: &Timestamp,
     s: &mut OriginalAuditSession,
 ) -> Result<(AuditedBytes, AuditedBytes, WorkHeadLocators)> {
-    with_capture(observed,key,payload,source_index,received_at,s,|capture,pool,raw,s|{
-    let located = select_work_input_seeds(
-        observed.original.publication.program(),
-        capture,
-        raw,
-        &pool.rows,
+    with_capture(
+        observed,
+        key,
+        payload,
+        source_index,
+        received_at,
         s,
+        |capture, pool, raw, s| {
+            let located = select_work_input_seeds(
+                observed.original.publication.program(),
+                capture,
+                raw,
+                &pool.rows,
+                s,
+            )
+            .map_err(core_error)?;
+            let slot = wire::string(located.source().source_slot(), s)?;
+            let refs = wire::RefSet::new(
+                located.direct_refs().iter(),
+                located.direct_refs().len(),
+                true,
+                s,
+            )?
+            .encode(s)?;
+            let heads = select_work_head_locators(
+                observed.original.publication.program(),
+                capture,
+                raw,
+                &pool.rows,
+                s,
+            )
+            .map_err(core_error)?;
+            Ok((slot, refs, heads))
+        },
     )
-    .map_err(core_error)?;
-    let slot = wire::string(located.source().source_slot(), s)?;
-    let refs = wire::RefSet::new(
-        located.direct_refs().iter(),
-        located.direct_refs().len(),
-        true,
-        s,
-    )?
-    .encode(s)?;
-    let heads = select_work_head_locators(
-        observed.original.publication.program(),
-        capture,
-        raw,
-        &pool.rows,
-        s,
-    )
-    .map_err(core_error)?;
-    Ok((slot, refs, heads))
-    })
 }
 
 pub(super) fn source_index(
@@ -517,20 +581,85 @@ pub(super) async fn retained_root(
     Ok(root)
 }
 
-pub(super) fn construct_local(observed:&ObservedAppBinding,key:&OperationKey,payload:&Value,raw_request:&[u8],s:&mut OriginalAuditSession)->Result<(ledgerlab_core::policy::workflow::transition_constructor::EconomicCandidate,ledgerlab_core::policy::workflow::transition_constructor::LocalFinancialRequestEvidence)>{
- use ledgerlab_core::policy::workflow::transition_constructor::{EconomicStateData,construct_local_financial_candidate,produce_local_financial_request_evidence};
- let index=observed.work_source_index.ok_or(ServiceError::IntegrityFailure)?;
- let received=observed.work_received_at.as_ref().ok_or(ServiceError::IntegrityFailure)?;
- with_capture(observed,key,payload,index,received,s,|capture,_locator,raw,s|{
-  let state=observed.work_state.as_ref().ok_or(ServiceError::IntegrityFailure)?;
-  let inputs=observed.local_input_bodies.as_ref().ok_or(ServiceError::IntegrityFailure)?.views();
-  let extra=observed.local_extra.as_ref();
-  let app=extra.map(|e|ledgerlab_core::policy::workflow::transition_constructor::AppStateData{cost_heads:&e.costs,observation_refs:&e.observations,cost_claim_refs:&e.claims,evidence_consumption_refs:&e.consumed});
-  let state=EconomicStateData{retained_assertion:extra.and_then(|e|e.assertion.as_ref()),financial:&state.financial,capacity_heads:&state.capacities,supplier:None,app:app.as_ref(),current_party_authorizations:&state.parties,observation:None,audit:None,initial_source_correspondences:&[]};
-  let candidate=construct_local_financial_candidate(observed.original.publication.program(),capture,raw,&inputs,&state,s).map_err(local_construction_error)?;
-  let evidence=produce_local_financial_request_evidence(observed.original.publication.program(),raw_request,&candidate,&inputs,&state,s).map_err(core_error)?;
-  Ok((candidate,evidence))
- })
+pub(super) fn construct_local(
+    observed: &ObservedAppBinding,
+    key: &OperationKey,
+    payload: &Value,
+    raw_request: &[u8],
+    s: &mut OriginalAuditSession,
+) -> Result<(
+    ledgerlab_core::policy::workflow::transition_constructor::EconomicCandidate,
+    ledgerlab_core::policy::workflow::transition_constructor::LocalFinancialRequestEvidence,
+)> {
+    use ledgerlab_core::policy::workflow::transition_constructor::{
+        construct_local_financial_candidate, produce_local_financial_request_evidence,
+        EconomicStateData,
+    };
+    let index = observed
+        .work_source_index
+        .ok_or(ServiceError::IntegrityFailure)?;
+    let received = observed
+        .work_received_at
+        .as_ref()
+        .ok_or(ServiceError::IntegrityFailure)?;
+    with_capture(
+        observed,
+        key,
+        payload,
+        index,
+        received,
+        s,
+        |capture, _locator, raw, s| {
+            let state = observed
+                .work_state
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?;
+            let inputs = observed
+                .local_input_bodies
+                .as_ref()
+                .ok_or(ServiceError::IntegrityFailure)?
+                .views();
+            let extra = observed.local_extra.as_ref();
+            let app = extra.map(|e| {
+                ledgerlab_core::policy::workflow::transition_constructor::AppStateData {
+                    cost_heads: &e.costs,
+                    observation_refs: &e.observations,
+                    cost_claim_refs: &e.claims,
+                    evidence_consumption_refs: &e.consumed,
+                }
+            });
+            let state = EconomicStateData {
+                retained_assertion: extra.and_then(|e| e.assertion.as_ref()),
+                financial: &state.financial,
+                capacity_heads: &state.capacities,
+                supplier: None,
+                app: app.as_ref(),
+                current_party_authorizations: &state.parties,
+                observation: None,
+                audit: None,
+                initial_source_correspondences: &[],
+            };
+            let candidate = construct_local_financial_candidate(
+                observed.original.publication.program(),
+                capture,
+                raw,
+                &inputs,
+                &state,
+                s,
+            )
+            .map_err(local_construction_error)?;
+            let evidence = produce_local_financial_request_evidence(
+                observed.original.publication.program(),
+                raw_request,
+                &candidate,
+                &inputs,
+                &state,
+                s,
+            )
+            .map_err(core_error)?;
+            Ok((candidate, evidence))
+        },
+    )
 }
 
 // This factory selects the local recipe, whose registry includes this refusal.
@@ -585,26 +714,70 @@ mod local_error_tests {
             "../../../../../../../../../contracts/candidates/full-suite-v1/core/local-execution-01/registry.json"
         )).unwrap();
         for code in LOCAL_CONSTRUCTION_ERRORS {
-            assert!(registry["errors"].as_array().unwrap().iter().any(|v|v.as_str()==Some(*code)));
-            assert_eq!(local_construction_error(ledgerlab_core::Error { code, detail: "fixture".into() }), ServiceError::Rejection((*code).into()));
-            assert_eq!(core_error(ledgerlab_core::Error { code, detail: "fixture".into() }), ServiceError::Unavailable);
+            assert!(registry["errors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|v| v.as_str() == Some(*code)));
+            assert_eq!(
+                local_construction_error(ledgerlab_core::Error {
+                    code,
+                    detail: "fixture".into()
+                }),
+                ServiceError::Rejection((*code).into())
+            );
+            assert_eq!(
+                core_error(ledgerlab_core::Error {
+                    code,
+                    detail: "fixture".into()
+                }),
+                ServiceError::Unavailable
+            );
         }
-        let ceiling = || ledgerlab_core::Error {code:"EXPOSURE_CEILING_EXCEEDED",detail:"actual app final amount above original maximum".into()};
-        assert_eq!(local_construction_error(ceiling()), ServiceError::Rejection("EXPOSURE_EXCEEDED".into()));
+        let ceiling = || ledgerlab_core::Error {
+            code: "EXPOSURE_CEILING_EXCEEDED",
+            detail: "actual app final amount above original maximum".into(),
+        };
+        assert_eq!(
+            local_construction_error(ceiling()),
+            ServiceError::Rejection("EXPOSURE_EXCEEDED".into())
+        );
         assert_eq!(core_error(ceiling()), ServiceError::Unavailable);
-        let resource = ledgerlab_core::Error {code:"PROGRAM_BUDGET_EXCEEDED",detail:"resource limit: semantic_work limit=1 observed=2".into()};
-        assert_eq!(local_construction_error(resource), ServiceError::ResourceLimit {setting:"semantic_work",limit:1,observed:2});
+        let resource = ledgerlab_core::Error {
+            code: "PROGRAM_BUDGET_EXCEEDED",
+            detail: "resource limit: semantic_work limit=1 observed=2".into(),
+        };
+        assert_eq!(
+            local_construction_error(resource),
+            ServiceError::ResourceLimit {
+                setting: "semantic_work",
+                limit: 1,
+                observed: 2
+            }
+        );
     }
 
     #[test]
     fn local_outcome_window_error_uses_its_declared_vocabulary() {
-        let error = |code| ledgerlab_core::Error { code, detail: "mapping fixture".into() };
+        let error = |code| ledgerlab_core::Error {
+            code,
+            detail: "mapping fixture".into(),
+        };
         assert_eq!(
             local_construction_error(error("CORRECTION_WINDOW_CLOSED")),
             ServiceError::Rejection("CORRECTION_WINDOW_CLOSED".into())
         );
-        assert_eq!(core_error(error("CORRECTION_WINDOW_CLOSED")), ServiceError::Unavailable);
-        assert_eq!(local_construction_error(error("FUTURE_INTERNAL_FAILURE")), ServiceError::Unavailable);
-        assert_eq!(local_construction_error(error("STALE_REVISION")), core_error(error("STALE_REVISION")));
+        assert_eq!(
+            core_error(error("CORRECTION_WINDOW_CLOSED")),
+            ServiceError::Unavailable
+        );
+        assert_eq!(
+            local_construction_error(error("FUTURE_INTERNAL_FAILURE")),
+            ServiceError::Unavailable
+        );
+        assert_eq!(
+            local_construction_error(error("STALE_REVISION")),
+            core_error(error("STALE_REVISION"))
+        );
     }
 }

@@ -2,15 +2,15 @@
 //! retained through capacity/funding and final candidate assembly. This does
 //! not cover upstream json!/reference/vector producers or confer admission.
 use super::{
-    CoreMeter, codec,
+    codec,
     data::{DraftEnvelope, ExactRef},
     record_body::RecordBody,
-    shape,
+    shape, CoreMeter,
 };
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, AuditedBytes, ExternalBufferLease},
     validation_work::{self as w, RepresentationKind, ValidationWork},
+    Result,
 };
 use std::{mem, ops::Deref, sync::Arc};
 

@@ -70,7 +70,11 @@ impl SqliteTx {
     ) -> Result<Option<OriginalLocator>, FinancialReadError> {
         let prior = self.failed;
         self.failed = true;
-        let through_max=if session.resource_limits().is_some(){i64::MAX}else{100000};
+        let through_max = if session.resource_limits().is_some() {
+            i64::MAX
+        } else {
+            100000
+        };
         for (left, right, permitted) in [(after, 0, false), (through, through_max, true)] {
             let comparison = resource_compare(session, left, right)?;
             if if permitted {

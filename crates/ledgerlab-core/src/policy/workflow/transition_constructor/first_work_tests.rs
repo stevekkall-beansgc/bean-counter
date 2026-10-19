@@ -1,9 +1,9 @@
 use super::super::selected_program::{
-    SelectedCompilerSupport, SelectedSourceInput, compile_selected_program,
+    compile_selected_program, SelectedCompilerSupport, SelectedSourceInput,
 };
 use super::*;
 use crate::canonical;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 fn decode(s: &str) -> Vec<u8> {
     s.as_bytes()
         .chunks_exact(2)
@@ -91,11 +91,11 @@ pub(super) fn test_inputs() -> (
             .as_str()
             .unwrap()
             .into(),
-        canonical_economic_namespace:
-            audit["trusted_context"]["local_authority_basis"]["canonical_economic_namespace"]
-                .as_str()
-                .unwrap()
-                .into(),
+        canonical_economic_namespace: audit["trusted_context"]["local_authority_basis"]
+            ["canonical_economic_namespace"]
+            .as_str()
+            .unwrap()
+            .into(),
         installation_mode: audit["trusted_context"]["installation_mode"]
             .as_str()
             .unwrap()

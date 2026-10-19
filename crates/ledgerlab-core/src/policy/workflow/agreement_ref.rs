@@ -3,7 +3,7 @@
 use crate::validation_work::{
     self as vw, NoopValidationWork, ValidationVisit as Visit, ValidationWork,
 };
-use crate::{Error, Result, canonical};
+use crate::{canonical, Error, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

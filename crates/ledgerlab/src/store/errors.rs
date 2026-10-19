@@ -3,7 +3,11 @@ use std::{error::Error, fmt};
 /// Classification never turns a database conflict into an economic duplicate.
 #[derive(Debug)]
 pub(crate) enum StoreError {
-    ResourceQuota { setting:&'static str, limit:u64, observed:u64 },
+    ResourceQuota {
+        setting: &'static str,
+        limit: u64,
+        observed: u64,
+    },
     Io(std::io::Error),
     Database(sqlx::Error),
     Postgres(tokio_postgres::Error),

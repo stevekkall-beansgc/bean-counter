@@ -142,7 +142,10 @@ pub(in crate::policy::workflow) fn closed(
     }
     Ok(())
 }
-pub(in crate::policy::workflow) fn text<'a>(v: &'a Value, work: &mut dyn ValidationWork) -> Result<&'a str> {
+pub(in crate::policy::workflow) fn text<'a>(
+    v: &'a Value,
+    work: &mut dyn ValidationWork,
+) -> Result<&'a str> {
     work.visit(Visit::Constraint)?;
     v.as_str().ok_or_else(|| fail("terms string"))
 }

@@ -4,7 +4,7 @@ use super::*;
 use ledgerlab_core::{
     policy::workflow::{
         selected_program::SelectedProgram,
-        transition_constructor::{EconomicCandidate, normalize_saved_intent},
+        transition_constructor::{normalize_saved_intent, EconomicCandidate},
     },
     validation_work::{
         ArithmeticOperation, BigInt, OriginalAuditSession, RepresentationKind, ValidationVisit,
@@ -55,11 +55,20 @@ impl OriginalQuery<'_> {
                 return Ok(());
             };
             let payload = incoming.payload(session)?;
-            let incoming_schema = request_wrapper::text(payload, "schema", session)
-                .map_err(party_intent_error)?;
-            session.semantic_work().visit(ValidationVisit::MemberCompare).map_err(core_error)?;
-            session.semantic_work().scan_bytes(schema.len()).map_err(core_error)?;
-            session.semantic_work().scan_bytes(incoming_schema.len()).map_err(core_error)?;
+            let incoming_schema =
+                request_wrapper::text(payload, "schema", session).map_err(party_intent_error)?;
+            session
+                .semantic_work()
+                .visit(ValidationVisit::MemberCompare)
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(schema.len())
+                .map_err(core_error)?;
+            session
+                .semantic_work()
+                .scan_bytes(incoming_schema.len())
+                .map_err(core_error)?;
             require(schema == incoming_schema, "IDENTITY_CONFLICT")?;
             request_wrapper::same_text(
                 request_wrapper::text(normalized, "kind", session)?,
@@ -71,11 +80,8 @@ impl OriginalQuery<'_> {
                 incoming.key(),
                 session,
             )?;
-            let actual = current::party::normalize::payload(
-                payload,
-                incoming.key(),
-                session,
-            ).map_err(party_intent_error)?;
+            let actual = current::party::normalize::payload(payload, incoming.key(), session)
+                .map_err(party_intent_error)?;
             let expected = session
                 .canonical_representation(saved, RepresentationKind::OriginalRequest)
                 .map_err(core_error)?;
@@ -211,10 +217,16 @@ pub(super) fn party_reply(
     session: &mut OriginalAuditSession,
 ) -> Result<ledgerlab_core::canonical::audit_arena::AuditedValue> {
     let result = (|| {
-        let controls = 3 * std::mem::size_of::<ledgerlab_core::canonical::audit_arena::AuditedBytes>()
+        let controls = 3
+            * std::mem::size_of::<ledgerlab_core::canonical::audit_arena::AuditedBytes>()
             + 4 * std::mem::size_of::<(&str, &[u8])>();
-        let _control = session.reserve_external_payload(controls).map_err(core_error)?;
-        session.semantic_work().write_bytes(controls).map_err(core_error)?;
+        let _control = session
+            .reserve_external_payload(controls)
+            .map_err(core_error)?;
+        session
+            .semantic_work()
+            .write_bytes(controls)
+            .map_err(core_error)?;
         let receipt = session
             .canonical_representation(
                 original.wrappers().receipt(),
@@ -248,9 +260,14 @@ pub(super) fn party_reply(
 fn party_intent_error(error: ServiceError) -> ServiceError {
     match error {
         ServiceError::IntegrityFailure => reject("IDENTITY_CONFLICT"),
-        ServiceError::Rejection(ref code) if matches!(code.as_str(),
-            "INVALID_SCALAR" | "INVALID_SHAPE" | "INVALID_REFERENCE" | "AUTHORITY_REQUIRED"
-        ) => reject("IDENTITY_CONFLICT"),
+        ServiceError::Rejection(ref code)
+            if matches!(
+                code.as_str(),
+                "INVALID_SCALAR" | "INVALID_SHAPE" | "INVALID_REFERENCE" | "AUTHORITY_REQUIRED"
+            ) =>
+        {
+            reject("IDENTITY_CONFLICT")
+        }
         _ => error,
     }
 }

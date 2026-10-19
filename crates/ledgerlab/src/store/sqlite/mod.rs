@@ -40,7 +40,7 @@ use tokio::{
     task::JoinHandle,
     time::{timeout_at, Instant},
 };
-pub(crate) use tx::{SqliteTx, FinancialCommitError, WorkflowProofFailureHandle};
+pub(crate) use tx::{FinancialCommitError, SqliteTx, WorkflowProofFailureHandle};
 
 struct Inner {
     writer: SqlitePool,
@@ -209,7 +209,14 @@ impl SqliteStore {
                 disabled: AtomicBool::new(false),
                 commit_task: Mutex::new(None),
                 financial_drain_failed: AtomicBool::new(false),
-                workflow_guard_enabled: AtomicBool::new(schema_version == 12 || schema_version == 13 || schema_version == 14 || schema_version == 15 || schema_version == 16 || schema_version == 17),
+                workflow_guard_enabled: AtomicBool::new(
+                    schema_version == 12
+                        || schema_version == 13
+                        || schema_version == 14
+                        || schema_version == 15
+                        || schema_version == 16
+                        || schema_version == 17,
+                ),
                 adjudication_enabled: Arc::clone(&owner.adjudication_enabled),
                 adjudication_gate: Arc::clone(&owner.adjudication_gate),
                 #[cfg(test)]
@@ -336,13 +343,24 @@ impl SqliteStore {
     /// Mandatory R3 work has a reserved admission slot that optional callers
     /// cannot consume. Both lanes still share the same fair physical writer gate.
     async fn begin_lane(&self, deadline: Instant, mandatory: bool) -> Result<SqliteTx, StoreError> {
-        let mut work=ledgerlab_core::validation_work::NoopValidationWork;
-        self.begin_lane_work(deadline,mandatory,&mut work,&mut false,&mut None).await.map_err(|error|match error {
-            workflow::financial::FinancialReadError::Store(error)=>error,
-            workflow::financial::FinancialReadError::Resource(_)=>StoreError::Integrity("legacy begin resource callback"),
-        })
+        let mut work = ledgerlab_core::validation_work::NoopValidationWork;
+        self.begin_lane_work(deadline, mandatory, &mut work, &mut false, &mut None)
+            .await
+            .map_err(|error| match error {
+                workflow::financial::FinancialReadError::Store(error) => error,
+                workflow::financial::FinancialReadError::Resource(_) => {
+                    StoreError::Integrity("legacy begin resource callback")
+                }
+            })
     }
-    async fn begin_lane_work<W:ledgerlab_core::validation_work::ValidationWork+Send>(&self, deadline:Instant, mandatory:bool, work:&mut W,io_started:&mut bool,retained_control:&mut Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>)->Result<SqliteTx,workflow::financial::FinancialReadError> {
+    async fn begin_lane_work<W: ledgerlab_core::validation_work::ValidationWork + Send>(
+        &self,
+        deadline: Instant,
+        mandatory: bool,
+        work: &mut W,
+        io_started: &mut bool,
+        retained_control: &mut Option<ledgerlab_core::canonical::audit_arena::ExternalBufferLease>,
+    ) -> Result<SqliteTx, workflow::financial::FinancialReadError> {
         work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
         if self.inner.disabled.load(Ordering::Acquire) {
             return Err(StoreError::WritesDisabled.into());
@@ -372,21 +390,27 @@ impl SqliteStore {
             .map_err(|_| StoreError::Deadline)?;
             // The gate excludes every admitted profile reader/writer. SQLx first
             // drains a cancelled prior transaction before this acquisition.
-            *io_started=true;
+            *io_started = true;
             let mut connection = timeout_at(wait, self.inner.writer.acquire())
                 .await
                 .map_err(|_| StoreError::Deadline)??;
-            work.write_bytes(std::mem::size_of::<(i64,i64,i64)>())?;
+            work.write_bytes(std::mem::size_of::<(i64, i64, i64)>())?;
             work.visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)?;
             let (busy, log, checkpointed): (i64, i64, i64) =
                 sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
                     .fetch_one(&mut *connection)
                     .await?;
-            fn nonzero(work:&mut dyn ledgerlab_core::validation_work::ValidationWork,value:i64)->ledgerlab_core::Result<bool> {
-                work.arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare,&[&value.into(),&0i64.into()])?;
-                Ok(value!=0)
+            fn nonzero(
+                work: &mut dyn ledgerlab_core::validation_work::ValidationWork,
+                value: i64,
+            ) -> ledgerlab_core::Result<bool> {
+                work.arithmetic(
+                    ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+                    &[&value.into(), &0i64.into()],
+                )?;
+                Ok(value != 0)
             }
-            if nonzero(work,busy)? || nonzero(work,log)? || nonzero(work,checkpointed)? {
+            if nonzero(work, busy)? || nonzero(work, log)? || nonzero(work, checkpointed)? {
                 return Err(StoreError::Overloaded.into());
             }
             Some(lane)
@@ -398,7 +422,7 @@ impl SqliteStore {
             reached.notify_one();
         }
         work.visit(ledgerlab_core::validation_work::ValidationVisit::RefLookup)?;
-        *io_started=true;
+        *io_started = true;
         let mut transaction = timeout_at(wait, self.inner.writer.begin_with("BEGIN IMMEDIATE"))
             .await
             .map_err(|_| StoreError::Deadline)??;
@@ -415,16 +439,25 @@ impl SqliteStore {
                 pause.release.notified().await;
             }
         }
-        let max_pages=self.inner._owner.adjudication_max_pages.load(Ordering::Acquire);
-        work.arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Compare,&[&u64::from(max_pages).into(),&0u64.into()])?;
-        let physical_start_pages = if max_pages>0 {
-            Some(adjudication::physical_usage_with_work(&mut transaction,work).await?)
+        let max_pages = self
+            .inner
+            ._owner
+            .adjudication_max_pages
+            .load(Ordering::Acquire);
+        work.arithmetic(
+            ledgerlab_core::validation_work::ArithmeticOperation::Compare,
+            &[&u64::from(max_pages).into(), &0u64.into()],
+        )?;
+        let physical_start_pages = if max_pages > 0 {
+            Some(adjudication::physical_usage_with_work(&mut transaction, work).await?)
         } else {
             None
         };
         work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
-        let fenced=self.inner._owner.fence.is_some();
-        let guarded=if fenced {true} else {
+        let fenced = self.inner._owner.fence.is_some();
+        let guarded = if fenced {
+            true
+        } else {
             work.visit(ledgerlab_core::validation_work::ValidationVisit::Constraint)?;
             self.inner.workflow_guard_enabled.load(Ordering::Acquire)
         };
@@ -450,12 +483,12 @@ impl SqliteStore {
             store: Arc::clone(&self.inner),
             slot: Some(slot),
             deadline,
-            workflow_operator:None,
-            workflow_snapshot:None,
-            workflow_read_session:None,
-            workflow_read_cancellation:None,
-            workflow_read_active:false,
-            workflow_main_session:false,
+            workflow_operator: None,
+            workflow_snapshot: None,
+            workflow_read_session: None,
+            workflow_read_cancellation: None,
+            workflow_read_active: false,
+            workflow_main_session: false,
             failed: false,
             financial_io: None,
             workflow_proof_failed: WorkflowProofFailureHandle::new(retained_control.take()),
@@ -484,8 +517,8 @@ pub(crate) struct BeginPause {
 #[cfg(test)]
 mod adjudication_tests;
 
-pub(crate) mod workflow;
 mod resource_begin;
+pub(crate) mod workflow;
 
 #[cfg(test)]
 mod workflow_integration_tests;

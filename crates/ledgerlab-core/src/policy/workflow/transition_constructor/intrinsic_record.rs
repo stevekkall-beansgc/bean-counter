@@ -6,17 +6,17 @@
 //! and reference grammar. Its subject/root/time/terms associations are NOT
 //! proved; they remain consuming-context obligations. Other kinds fail closed.
 use super::{
-    CoreMeter,
     data::{ExactRef, RecordInput},
     inventory::evidence,
+    CoreMeter,
 };
 use crate::{
-    Error, Result,
     canonical::{self, CanonicalBytes},
     domain::Timestamp,
     validation_work::{self as w, ValidationWork},
+    Error, Result,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 
@@ -794,18 +794,14 @@ mod tests {
         assert!(pool.evidence_facts(&mut m, &substituted).unwrap().is_none());
         let mut wrong_key = key.clone();
         wrong_key.scope[1] = "other-sandbox".into();
-        assert!(
-            Records::new(&mut m, std::slice::from_ref(&input))
-                .unwrap()
-                .with_intrinsic_evidence(&mut m, &wrong_key, &owner, &[&parsed])
-                .is_err()
-        );
-        assert!(
-            Records::new(&mut m, std::slice::from_ref(&input))
-                .unwrap()
-                .with_intrinsic_evidence(&mut m, &key, &owner, &[&parsed, &parsed])
-                .is_err()
-        );
+        assert!(Records::new(&mut m, std::slice::from_ref(&input))
+            .unwrap()
+            .with_intrinsic_evidence(&mut m, &wrong_key, &owner, &[&parsed])
+            .is_err());
+        assert!(Records::new(&mut m, std::slice::from_ref(&input))
+            .unwrap()
+            .with_intrinsic_evidence(&mut m, &key, &owner, &[&parsed, &parsed])
+            .is_err());
     }
     #[test]
     fn checked_evidence_still_checks_current_subject_time_and_historical_root() {

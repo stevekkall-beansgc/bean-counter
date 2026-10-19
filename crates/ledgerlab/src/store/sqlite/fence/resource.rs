@@ -74,7 +74,11 @@ fn number(out: &mut AuditedByteBuilder, value: u8, s: &mut Session) -> Result<()
     } else {
         s.semantic_work()
             .arithmetic(Op::Compare, &[&value.into(), &10u8.into()])?;
-        if value >= 10 { 2 } else { 1 }
+        if value >= 10 {
+            2
+        } else {
+            1
+        }
     };
     let mut n = value;
     for digit in digits[..used].iter_mut().rev() {

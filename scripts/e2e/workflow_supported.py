@@ -8,11 +8,23 @@ response and actual argv is retained. A failure stops this invocation; --resume
 is an explicit operator action and never changes an accepted request.
 """
 from pathlib import Path
-import argparse, base64, copy, datetime as dt, hashlib, json, sqlite3, subprocess, sys, time
+import argparse, base64, copy, datetime as dt, hashlib, json, shutil, sqlite3, subprocess, sys, time
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "examples/workflow-supported"
 ATOMS = 10**18
+
+def source_commit():
+    # Evidence metadata only; it grants no workflow authority.
+    if (REPO / ".git").exists():
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
+    info = REPO / "BUILD-INFO.txt"
+    if info.is_file():
+        return dict(line.split("=", 1) for line in info.read_text().splitlines() if "=" in line)["source_commit"]
+    captured = REPO.parent / "build-inputs.json"
+    if captured.is_file():
+        return json.loads(captured.read_bytes())["source"]["base_commit"]
+    raise RuntimeError("Missing source checkout or package/capture build identity")
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
@@ -70,7 +82,7 @@ class Journey:
         self.meta = json.loads(self.log.read_bytes()) if self.log.exists() else {
             "classification": "Public synthetic example; no live customer, invoice or payment",
             "binary": str(self.binary), "binary_sha256": sha(self.binary.read_bytes()),
-            "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+            "source_commit": source_commit(),
             "installation": str(self.installation), "commands": [], "checks": []}
         # Pin each actual executable used across an explicit resumed run;
         # the initial binary field remains the original observation.
@@ -82,7 +94,7 @@ class Journey:
                 command.setdefault("executable_sha256", digest)
         build = self.binary.parents[3] if len(self.binary.parents) > 3 else self.binary.parent
         execution = {"path": str(self.binary), "sha256": sha(self.binary.read_bytes()),
-                     "runner_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+                     "runner_commit": source_commit(),
                      "fixtures": {name: sha((FIXTURES / name).read_bytes()) for name in ["source.json", "business.json"]}}
         for name in ["inventory.json", "build-inputs.json", "qualified.json"]:
             if (build / name).is_file():
@@ -321,7 +333,7 @@ class Journey:
             "component_slot": "support:model-retail", "component_key": "support:model-retail",
             "app_call": {"source_namespace": self.source, "call_id": w["prefix"] + "-call"}}
 
-    def app_cost(self, w):
+    def app_cost(self, w, finalize=True):
         prefix = w["prefix"]
         observation = self.submit(prefix + "-observation", "evidence.retain", {"schema": "ledger-workflow-app-observe/1",
             "attestation": {"schema": "ledger-workflow-app-observation/1", "attestation_id": prefix + "-observation", "source": self.source,
@@ -331,6 +343,9 @@ class Journey:
                 "material": material("Synthetic same-call usage")}})
         w["observation"] = proof(observation)
         final = self.final_evidence(w, 1, 2 * ATOMS)
+        w["final_evidence"] = final
+        if not finalize:
+            return
         result = self.submit(prefix + "-finalize", "cost.finalize", {"schema": "ledger-workflow-cost-finalize/2",
             "original_work_ref": w["work_ref"], "component_slot": "support:model-retail", "observation_proof": w["observation"],
             "final_cost_proof": final, "evidence_refs": []})
@@ -410,6 +425,15 @@ class Journey:
             "original_cost_claim_ref": w["cost_claim_ref"], "expected_revision": revision,
             "replacement_final_cost_proof": final, "dependent_reversals": [], "evidence_refs": []})
         self.main_total("main-cost-correct", 240 * ATOMS // 100)
+        fixture = self.root / "pre-reverse-fixture"
+        if not fixture.exists() and not (self.root / "main-reverse.committed.json").exists():
+            fixture.mkdir(mode=0o700)
+            shutil.copytree(self.installation, fixture / "installation", copy_function=shutil.copy2)
+            shutil.copytree(self.inputs, fixture / "inputs", copy_function=shutil.copy2)
+            for pattern in ["*.request.json", "*.committed.json"]:
+                for path in self.root.glob(pattern):
+                    shutil.copy2(path, fixture / path.name)
+            shutil.copy2(self.log, fixture / "PARENT-RUN.json")
         self.reverse(w, "main-reverse")
         self.main_total("main-reverse", 0)
         self.reopen_retry(["main-work", "main-finalize", "main-success", "main-none", "main-discount", "main-cost-correct", "main-reverse"])
@@ -438,8 +462,20 @@ class Journey:
         w = self.work("pending")
         if not (self.root / "pending-reverse.committed.json").exists():
             self.total("pending", ATOMS)
+        if self.args.pending_finalize_check:
+            self.app_cost(w, finalize=False)
         self.reverse(w, "pending-reverse")
         self.total("pending", 0)
+        if self.args.pending_finalize_check:
+            before = self.snapshot()
+            request = self.write("pending-post-close-finalize.request.json", {"schema": "ledger-operation/1", "contract": "workflow/1",
+                "kind": "cost.finalize", "key": self.key("pending-post-close-finalize"), "payload": {
+                    "schema": "ledger-workflow-cost-finalize/2", "original_work_ref": w["work_ref"], "component_slot": "support:model-retail",
+                    "observation_proof": w["observation"], "final_cost_proof": w["final_evidence"], "evidence_refs": []}})
+            response = self.workflow("pending-post-close-finalize", "submit", request, expected=3)
+            assert response["code"] == "TARGET_CLOSED", response
+            assert self.snapshot() == before
+            self.meta["checks"].append({"check": "N7-unconsumed-app-proof-after-root-reversal", "code": response["code"], "no_append": True})
         self.reopen_retry(["pending-work", "pending-reverse"])
 
     def close_family(self, deadline=False):
@@ -489,15 +525,50 @@ def main():
     parser.add_argument("--terms-helper", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--case", choices=["main", "pending", "no-success", "deadline"], default="main")
+    parser.add_argument("--case", choices=["main", "pending", "no-success", "deadline", "restore"], default="main")
     parser.add_argument("--deadline-seconds", type=int, default=0)
+    parser.add_argument("--pending-finalize-check", action="store_true")
+    parser.add_argument("--restore-from", type=Path)
+    parser.add_argument("--restore-operations", nargs="+")
     args = parser.parse_args()
+    if args.pending_finalize_check and args.case != "pending":
+        parser.error("--pending-finalize-check requires the pending case")
     if args.case == "deadline":
         args.deadline_seconds = args.deadline_seconds or 5
     elif args.deadline_seconds:
         parser.error("--deadline-seconds is only valid for the separate deadline case")
+    if args.case == "restore":
+        if not args.restore_from or not args.restore_operations or args.output.exists():
+            parser.error("restore requires --restore-from, --restore-operations and a new output")
+        # The orchestrator has closed every source process. Copy the WHOLE
+        # installation, including any quiescent WAL, and verify stable bytes.
+        source_files = [args.restore_from / "installation/.ledger" / n for n in ["local.db", "local.db-wal"]]
+        source_hashes = {str(p): sha(p.read_bytes()) for p in source_files if p.exists()}
+        args.output.mkdir(mode=0o700, parents=True)
+        shutil.copytree(args.restore_from / "installation", args.output / "installation", copy_function=shutil.copy2)
+        assert source_hashes == {str(p): sha(p.read_bytes()) for p in source_files if p.exists()}, "source changed during copy"
+        for name in args.restore_operations:
+            for suffix in [".request.json", ".committed.json"]:
+                shutil.copy2(args.restore_from / (name + suffix), args.output / (name + suffix))
+        args.resume = True
+    elif args.restore_from or args.restore_operations:
+        parser.error("restore arguments require --case restore")
     journey = Journey(args)
     try:
+        if args.case == "restore":
+            original = json.loads((args.output / (args.restore_operations[0] + ".request.json")).read_bytes())
+            journey.store, journey.scope, journey.source = (original["key"][k] for k in ["logical_store_id", "scope", "source"])
+            restored = journey.snapshot()
+            copied = journey.installation
+            journey.installation = args.restore_from / "installation"
+            assert journey.snapshot() == restored, "whole-installation copy differs from quiescent source"
+            journey.installation = copied
+            journey.reopen_retry(args.restore_operations)
+            journey.meta["restore_source"] = str(args.restore_from.resolve())
+            journey.meta["restore_source_files"] = source_hashes
+            journey.meta["status"] = "whole_installation_restore_complete"
+            journey.save()
+            return
         journey.setup()
         if args.case == "main":
             journey.main_sequence()

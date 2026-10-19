@@ -260,14 +260,12 @@ fn private_binding_data_unknowns_null_and_lexical_ambiguity_refuse() {
 fn exact_template_collection_and_alias_limits() {
     let mut value = initial().body.clone();
     value["families"] = json!([]);
-    value["components"] = json!(
-        (0..128)
-            .map(|i| component(
-                &format!("review.measure:c{i}"),
-                &format!("review.measure:c{i}")
-            ))
-            .collect::<Vec<_>>()
-    );
+    value["components"] = json!((0..128)
+        .map(|i| component(
+            &format!("review.measure:c{i}"),
+            &format!("review.measure:c{i}")
+        ))
+        .collect::<Vec<_>>());
     parse(&value, None).unwrap();
     value["components"].as_array_mut().unwrap().push(component(
         "review.measure:overflow",
@@ -275,11 +273,9 @@ fn exact_template_collection_and_alias_limits() {
     ));
     error(parse(&value, None), "TEMPLATE_LIMIT");
     value = initial().body.clone();
-    value["components"][0]["aliases"] = json!(
-        (0..64)
-            .map(|i| format!("review.measure:a{i}"))
-            .collect::<Vec<_>>()
-    );
+    value["components"][0]["aliases"] = json!((0..64)
+        .map(|i| format!("review.measure:a{i}"))
+        .collect::<Vec<_>>());
     parse(&value, None).unwrap();
     value["components"][0]["aliases"]
         .as_array_mut()
@@ -291,15 +287,13 @@ fn exact_template_collection_and_alias_limits() {
     error(parse(&value, None), "TEMPLATE_LIMIT");
     value = initial().body.clone();
     let family = value["families"][0].clone();
-    value["families"] = json!(
-        (0..64)
-            .map(|i| {
-                let mut next = family.clone();
-                next["key"] = json!(format!("review.measure:f{i}"));
-                next
-            })
-            .collect::<Vec<_>>()
-    );
+    value["families"] = json!((0..64)
+        .map(|i| {
+            let mut next = family.clone();
+            next["key"] = json!(format!("review.measure:f{i}"));
+            next
+        })
+        .collect::<Vec<_>>());
     parse(&value, None).unwrap();
     let mut overflow = family;
     overflow["key"] = json!("review.measure:overflow");
@@ -403,12 +397,10 @@ fn executing_named_lookup_charges_each_real_candidate_and_stops() {
         "TEST_EXHAUSTED",
     );
     let mut missing = CountingWork::new(2);
-    assert!(
-        template
-            .component_with_work("review.measure:absent", &mut missing)
-            .unwrap()
-            .is_none()
-    );
+    assert!(template
+        .component_with_work("review.measure:absent", &mut missing)
+        .unwrap()
+        .is_none());
     let mut family = CountingWork::new(3);
     template
         .family_named_with_work(

@@ -66,8 +66,20 @@ impl LocatedAppAcceptance {
             let parsed = s
                 .parse_representation(expected.bytes(), RepresentationKind::Record)
                 .map_err(core_error)?;
-            let sequence=if let Some(prefix)=self._prefix.as_mut(){prefix._inventory.introduction_sequence(parsed.value(),s)?}
-            else{tx.workflow_selected_association_sequence(enrollment,&key.logical_store_id,&key.scope,before,s).await.map_err(read_error)?.ok_or(ServiceError::IntegrityFailure)?};
+            let sequence = if let Some(prefix) = self._prefix.as_mut() {
+                prefix._inventory.introduction_sequence(parsed.value(), s)?
+            } else {
+                tx.workflow_selected_association_sequence(
+                    enrollment,
+                    &key.logical_store_id,
+                    &key.scope,
+                    before,
+                    s,
+                )
+                .await
+                .map_err(read_error)?
+                .ok_or(ServiceError::IntegrityFailure)?
+            };
             s.semantic_work()
                 .arithmetic(Op::Subtract, &[&sequence.into(), &1i64.into()])
                 .map_err(core_error)?;
@@ -109,7 +121,10 @@ impl LocatedAppAcceptance {
             origin.require_member(grant_ref, s)?;
             // This inventory consists only of already completed earlier
             // originals. Literal wrapper outputs alone confer no completion.
-            if let Some(prefix)=self._prefix.as_mut(){prefix._inventory.require_value(state_ref,s)?;prefix._inventory.require_value(grant_ref,s)?;}
+            if let Some(prefix) = self._prefix.as_mut() {
+                prefix._inventory.require_value(state_ref, s)?;
+                prefix._inventory.require_value(grant_ref, s)?;
+            }
             let state = current::source::retained_record(
                 tx,
                 key,
@@ -130,8 +145,18 @@ impl LocatedAppAcceptance {
                 s,
             )
             .await?;
-            if let Some(prefix)=self._prefix.as_mut(){prefix._inventory.compare_record(state.reference(),state.canonical_body(),s)?;prefix._inventory.compare_record(grant.reference(),grant.canonical_body(),s)?;}
-            else {for r in [state.reference(),grant.reference()]{verify_selected_association(tx,key,r,before,s).await?;}}
+            if let Some(prefix) = self._prefix.as_mut() {
+                prefix
+                    ._inventory
+                    .compare_record(state.reference(), state.canonical_body(), s)?;
+                prefix
+                    ._inventory
+                    .compare_record(grant.reference(), grant.canonical_body(), s)?;
+            } else {
+                for r in [state.reference(), grant.reference()] {
+                    verify_selected_association(tx, key, r, before, s).await?;
+                }
+            }
             request_wrapper::same_text(
                 request_wrapper::text(state.body(), "revision", s)?,
                 "1",

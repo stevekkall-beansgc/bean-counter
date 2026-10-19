@@ -31,12 +31,10 @@ pub(super) fn normalize_request(
 ) -> Result<Value> {
     let mut v = req.value()?;
     if req.inline_documents().is_some() {
-        v["payload"]["documents"] = json!(
-            sources
-                .documents()
-                .map(|d| d.canonical_value())
-                .collect::<Vec<_>>()
-        );
+        v["payload"]["documents"] = json!(sources
+            .documents()
+            .map(|d| d.canonical_value())
+            .collect::<Vec<_>>());
     } else {
         let mut refs = req
             .retained_refs()

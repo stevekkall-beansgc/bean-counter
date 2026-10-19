@@ -40,7 +40,9 @@ pub(super) enum CommandOutput {
     Legacy(Value),
     Workflow(ledgerlab::WorkflowReply),
 }
-fn legacy((value,code):(Value,u8))->(CommandOutput,u8) {(CommandOutput::Legacy(value),code)}
+fn legacy((value, code): (Value, u8)) -> (CommandOutput, u8) {
+    (CommandOutput::Legacy(value), code)
+}
 pub async fn run(args: &Args) -> Result<(CommandOutput, u8), LocalError> {
     if args.config != Path::new("ledger.json") {
         return Ok(legacy(error(
@@ -53,11 +55,29 @@ pub async fn run(args: &Args) -> Result<(CommandOutput, u8), LocalError> {
         Ok(parsed) => parsed,
         Err(message) => return Ok(legacy(error("USAGE", message, 2))),
     };
-    if words.first()==Some(&"resources") {
-        let update=match words.as_slice(){["resources","show"]=>None,["resources","set",file]=>Some(local::read_file(Path::new(file),local::CONFIG_LIMIT)?),_=>return Ok(legacy(error("USAGE","use workflow resources show|set FILE",2)))};
-        let ledger=LocalWorkflowLedger::open_local(&directory).await?;
-        let result=match update{Some(raw)=>ledger.set_resource_settings(&raw).await,None=>ledger.resource_settings().await};
-        ledger.close().await;return result.map(|v|(CommandOutput::Legacy(v),0)).map_err(LocalError::from);
+    if words.first() == Some(&"resources") {
+        let update = match words.as_slice() {
+            ["resources", "show"] => None,
+            ["resources", "set", file] => {
+                Some(local::read_file(Path::new(file), local::CONFIG_LIMIT)?)
+            }
+            _ => {
+                return Ok(legacy(error(
+                    "USAGE",
+                    "use workflow resources show|set FILE",
+                    2,
+                )))
+            }
+        };
+        let ledger = LocalWorkflowLedger::open_local(&directory).await?;
+        let result = match update {
+            Some(raw) => ledger.set_resource_settings(&raw).await,
+            None => ledger.resource_settings().await,
+        };
+        ledger.close().await;
+        return result
+            .map(|v| (CommandOutput::Legacy(v), 0))
+            .map_err(LocalError::from);
     }
     let (command, input) = match words.as_slice() {
         ["enable"] => ("enable", None),
@@ -105,7 +125,11 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutpu
         .and_then(|p| p.get("schema"))
         .and_then(Value::as_str);
     let kind = match header.get("kind").and_then(Value::as_str) {
-        Some("policy.publish") if payload_schema==Some("ledger-workflow-policy-publication/6") => "local-publication",
+        Some("policy.publish")
+            if payload_schema == Some("ledger-workflow-policy-publication/6") =>
+        {
+            "local-publication"
+        }
         Some("policy.publish") => "policy.publish",
         Some("evidence.retain")
             if matches!(
@@ -164,10 +188,19 @@ async fn submit(ledger: &LocalWorkflowLedger, raw: &[u8]) -> Result<CommandOutpu
 
     match kind {
         "policy.publish" => ledger.publish(raw).await.map(CommandOutput::Legacy),
-        "local-publication" => ledger.publish_local_owned(raw).await.map(CommandOutput::Workflow),
+        "local-publication" => ledger
+            .publish_local_owned(raw)
+            .await
+            .map(CommandOutput::Workflow),
         "prerequisite" => ledger.prerequisite(raw).await.map(CommandOutput::Legacy),
-        "agreement" => match ledger.local_activation_owned(raw).await? {Some(reply)=>Ok(CommandOutput::Workflow(reply)),None=>ledger.agreement(raw).await.map(CommandOutput::Legacy)},
-        "financial" => ledger.financial_owned_reply(raw).await.map(CommandOutput::Workflow),
+        "agreement" => match ledger.local_activation_owned(raw).await? {
+            Some(reply) => Ok(CommandOutput::Workflow(reply)),
+            None => ledger.agreement(raw).await.map(CommandOutput::Legacy),
+        },
+        "financial" => ledger
+            .financial_owned_reply(raw)
+            .await
+            .map(CommandOutput::Workflow),
         _ => Err(ServiceError::IntegrityFailure),
     }
 }

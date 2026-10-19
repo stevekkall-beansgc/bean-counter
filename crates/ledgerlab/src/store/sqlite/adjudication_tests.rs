@@ -530,12 +530,20 @@ async fn r3_optional_legacy_quota_rejects_growth_and_freelist_reuse_atomically()
             )
             .await
             .unwrap();
-        let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-        let mut original=ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let mut tx=if reuse {
-            store.begin_with_resource_session(Instant::now()+Duration::from_secs(5),&mut original).await.unwrap()
+        let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
+        let mut original =
+            ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+                .unwrap();
+        let mut tx = if reuse {
+            store
+                .begin_with_resource_session(Instant::now() + Duration::from_secs(5), &mut original)
+                .await
+                .unwrap()
         } else {
-            store.begin(Instant::now()+Duration::from_secs(5)).await.unwrap()
+            store
+                .begin(Instant::now() + Duration::from_secs(5))
+                .await
+                .unwrap()
         };
         let before = super::adjudication::physical_usage(tx.conn())
             .await
@@ -566,10 +574,17 @@ async fn r3_optional_legacy_quota_rejects_growth_and_freelist_reuse_atomically()
             assert!(file_after > file_before);
         }
         if reuse {
-            assert!(matches!(tx.commit_with_resource_session(original).await,
-                Err(super::FinancialCommitError::Commit(CommitError::RolledBack(StoreError::Overloaded)))));
+            assert!(matches!(
+                tx.commit_with_resource_session(original).await,
+                Err(super::FinancialCommitError::Commit(
+                    CommitError::RolledBack(StoreError::Overloaded)
+                ))
+            ));
         } else {
-            assert!(matches!(tx.commit().await,Err(CommitError::RolledBack(StoreError::Overloaded))));
+            assert!(matches!(
+                tx.commit().await,
+                Err(CommitError::RolledBack(StoreError::Overloaded))
+            ));
         }
         let mut read = store.inner.readers.acquire().await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT count(*) FROM outcome_records")

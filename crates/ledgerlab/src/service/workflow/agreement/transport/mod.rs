@@ -8,8 +8,8 @@ pub(super) mod service;
 use super::super::request::OperationKey;
 use super::*;
 use crate::store::sqlite::workflow::{
-    RegistryEntry,
     agreement::transport::{Part, Upload},
+    RegistryEntry,
 };
 use ledgerlab_core::policy::workflow as core;
 #[cfg(test)]

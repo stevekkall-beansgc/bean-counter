@@ -1,72 +1,139 @@
 //! Selected semantic relations; data validation supplies no host authentication.
 use super::super::{
-    FactSchema, Product, SlotTemplate,
     product::{BindingRelation, MissingDependency, Primitive},
     template::TemplateBook,
-    transition_constructor::{CoreMeter, arithmetic, meter},
+    transition_constructor::{arithmetic, meter, CoreMeter},
+    FactSchema, Product, SlotTemplate,
 };
-use super::model::{Effect, Formula, Policy,Rule,Amount};
+use super::model::{Amount, Effect, Formula, Policy, Rule};
 use crate::{Error, Result};
 use num_bigint::BigInt;
 use std::cmp::Ordering;
 fn bad(s: &str) -> Error {
     Error::new("UNSUPPORTED_SCHEMA_PROFILE", s)
 }
-fn cost_component(m:&mut CoreMeter,r:&Rule,book:TemplateBook,slot_book:&str,root:&str,key:&str,evidence_slot:&str,ceiling:&Amount)->Result<()> {
-    name(m,evidence_slot)?;
-    if !super::compiler::same_literal(m,&r.phase,"cost")? || !super::compiler::same_literal(m,root,key)? {return Err(bad("cost phase/direct root"));}
-    let expected=match book{TemplateBook::Retail=>"retail",TemplateBook::Supplier=>"supplier",_=>return Err(bad("payable cost component book"))};
-    if !super::compiler::same_literal(m,expected,slot_book)?{return Err(bad("cost slot book"));}
-    if !super::compiler::same_literal(m,&ceiling.currency,"USD")? || !crate::validation_work::compare(m,ceiling.scale,18u8)?.is_eq(){return Err(bad("cost ceiling currency/scale"));}
-    let n=arithmetic::integer(m,&ceiling.atoms,false)?;
-    let max=arithmetic::integer(m,"999999999999999999999999999999",false)?;
-    if meter::cmp(m,&n,&0.into())?.is_lt() || meter::cmp(m,&n,&max)?.is_gt(){return Err(bad("cost ceiling amount"));}
+fn cost_component(
+    m: &mut CoreMeter,
+    r: &Rule,
+    book: TemplateBook,
+    slot_book: &str,
+    root: &str,
+    key: &str,
+    evidence_slot: &str,
+    ceiling: &Amount,
+) -> Result<()> {
+    name(m, evidence_slot)?;
+    if !super::compiler::same_literal(m, &r.phase, "cost")?
+        || !super::compiler::same_literal(m, root, key)?
+    {
+        return Err(bad("cost phase/direct root"));
+    }
+    let expected = match book {
+        TemplateBook::Retail => "retail",
+        TemplateBook::Supplier => "supplier",
+        _ => return Err(bad("payable cost component book")),
+    };
+    if !super::compiler::same_literal(m, expected, slot_book)? {
+        return Err(bad("cost slot book"));
+    }
+    if !super::compiler::same_literal(m, &ceiling.currency, "USD")?
+        || !crate::validation_work::compare(m, ceiling.scale, 18u8)?.is_eq()
+    {
+        return Err(bad("cost ceiling currency/scale"));
+    }
+    let n = arithmetic::integer(m, &ceiling.atoms, false)?;
+    let max = arithmetic::integer(m, "999999999999999999999999999999", false)?;
+    if meter::cmp(m, &n, &0.into())?.is_lt() || meter::cmp(m, &n, &max)?.is_gt() {
+        return Err(bad("cost ceiling amount"));
+    }
     Ok(())
 }
-fn delayed_costs(m:&mut CoreMeter,p:&Policy)->Result<()> {
+fn delayed_costs(m: &mut CoreMeter, p: &Policy) -> Result<()> {
     use super::compiler::same_literal as same;
-    if crate::validation_work::compare(m,p.delayed_costs.len(),64usize)?.is_gt(){return Err(bad("delayed cost declarations"));}
-    for (i,declaration) in p.delayed_costs.iter().enumerate(){
+    if crate::validation_work::compare(m, p.delayed_costs.len(), 64usize)?.is_gt() {
+        return Err(bad("delayed cost declarations"));
+    }
+    for (i, declaration) in p.delayed_costs.iter().enumerate() {
         m.visit("cost.delayed_declaration")?;
-        name(m,&declaration.component_key)?;name(m,&declaration.evidence_source_slot)?;
-        if !same(m,&declaration.on_missing,"wait")?{return Err(bad("delayed cost missing rule"));}
-        arithmetic::integer(m,&declaration.finalize_within_us,false)?;
-        for previous in &p.delayed_costs[..i]{if same(m,&previous.component_key,&declaration.component_key)?{return Err(bad("duplicate delayed cost component"));}}
-        let mut producer=None;
-        for rule in &p.rules {
-            m.visit("cost.delayed_supplier_producer")?;
-            if !same(m,&rule.component_key,&declaration.component_key)?{continue;}
-            if producer.is_some(){return Err(bad("ambiguous delayed cost producer"));}
-            match &rule.formula{
-                Formula::SupplierFinalCost{evidence_slot,..}=>{
-                    if !same(m,evidence_slot,&declaration.evidence_source_slot)?{return Err(bad("delayed cost evidence nomination"));}
-                    producer=Some(rule);
-                },
-                _=>return Err(bad("delayed cost must name supplier final producer")),
+        name(m, &declaration.component_key)?;
+        name(m, &declaration.evidence_source_slot)?;
+        if !same(m, &declaration.on_missing, "wait")? {
+            return Err(bad("delayed cost missing rule"));
+        }
+        arithmetic::integer(m, &declaration.finalize_within_us, false)?;
+        for previous in &p.delayed_costs[..i] {
+            if same(m, &previous.component_key, &declaration.component_key)? {
+                return Err(bad("duplicate delayed cost component"));
             }
         }
-        if producer.is_none(){return Err(bad("missing delayed supplier producer"));}
+        let mut producer = None;
+        for rule in &p.rules {
+            m.visit("cost.delayed_supplier_producer")?;
+            if !same(m, &rule.component_key, &declaration.component_key)? {
+                continue;
+            }
+            if producer.is_some() {
+                return Err(bad("ambiguous delayed cost producer"));
+            }
+            match &rule.formula {
+                Formula::SupplierFinalCost { evidence_slot, .. } => {
+                    if !same(m, evidence_slot, &declaration.evidence_source_slot)? {
+                        return Err(bad("delayed cost evidence nomination"));
+                    }
+                    producer = Some(rule);
+                }
+                _ => return Err(bad("delayed cost must name supplier final producer")),
+            }
+        }
+        if producer.is_none() {
+            return Err(bad("missing delayed supplier producer"));
+        }
     }
     for rule in &p.rules {
-        match &rule.formula{
-            Formula::SupplierFinalCost{..}=>{
-                let mut count=0usize;
-                for declaration in &p.delayed_costs{m.visit("cost.required_delayed_reservation")?;if same(m,&declaration.component_key,&rule.component_key)?{count=crate::validation_work::usize_add(m,count,1)?;}}
-                if !crate::validation_work::compare(m,count,1usize)?.is_eq(){return Err(bad("supplier producer needs exact delayed declaration"));}
-            },
-            Formula::FinalCost{supplier_slot,evidence_slot,..}=>{
-                let mut count=0usize;
-                for supplier in &p.rules{
-                    m.visit("cost.original_pass_through_supplier_join")?;
-                    if !same(m,&supplier.activity,&rule.activity)? || !same(m,&supplier.binding_slot,supplier_slot)?{continue;}
-                    if let Formula::SupplierFinalCost{evidence_slot:source,..}=&supplier.formula{
-                        if !same(m,source,evidence_slot)?{return Err(bad("pass through and supplier evidence differ"));}
-                        count=crate::validation_work::usize_add(m,count,1)?;
+        match &rule.formula {
+            Formula::SupplierFinalCost { .. } => {
+                let mut count = 0usize;
+                for declaration in &p.delayed_costs {
+                    m.visit("cost.required_delayed_reservation")?;
+                    if same(m, &declaration.component_key, &rule.component_key)? {
+                        count = crate::validation_work::usize_add(m, count, 1)?;
                     }
                 }
-                if !crate::validation_work::compare(m,count,1usize)?.is_eq(){return Err(bad("pass through needs unique original supplier obligation"));}
-            },
-            _=>{},
+                if !crate::validation_work::compare(m, count, 1usize)?.is_eq() {
+                    return Err(bad("supplier producer needs exact delayed declaration"));
+                }
+            }
+            Formula::FinalCost {
+                supplier_slot,
+                evidence_slot,
+                ..
+            } => {
+                let mut count = 0usize;
+                for supplier in &p.rules {
+                    m.visit("cost.original_pass_through_supplier_join")?;
+                    if !same(m, &supplier.activity, &rule.activity)?
+                        || !same(m, &supplier.binding_slot, supplier_slot)?
+                    {
+                        continue;
+                    }
+                    if let Formula::SupplierFinalCost {
+                        evidence_slot: source,
+                        ..
+                    } = &supplier.formula
+                    {
+                        if !same(m, source, evidence_slot)? {
+                            return Err(bad("pass through and supplier evidence differ"));
+                        }
+                        count = crate::validation_work::usize_add(m, count, 1)?;
+                    }
+                }
+                if !crate::validation_work::compare(m, count, 1usize)?.is_eq() {
+                    return Err(bad(
+                        "pass through needs unique original supplier obligation",
+                    ));
+                }
+            }
+            _ => {}
         }
     }
     Ok(())
@@ -97,14 +164,18 @@ pub(super) fn policy(
     product: &Product,
     template: &SlotTemplate,
     schemas: &[FactSchema],
-    owner_local_cost:bool,
+    owner_local_cost: bool,
 ) -> Result<()> {
     name(m, &p.policy_id)?;
     if !m.check("policy.bounds", || {
         !p.rules.is_empty()
             && p.rules.len() <= 64
             && p.families.len() <= 64
-            && (if owner_local_cost{!p.binding_slots.is_empty()&&p.binding_slots.len()<=16}else{p.binding_slots.len()==1})
+            && (if owner_local_cost {
+                !p.binding_slots.is_empty() && p.binding_slots.len() <= 16
+            } else {
+                p.binding_slots.len() == 1
+            })
     })? {
         return Err(bad("policy count"));
     }
@@ -118,7 +189,9 @@ pub(super) fn policy(
         for n in [&s.name, &s.funding_leg, &s.correction_source_slot] {
             name(m, n)?;
         }
-        if !m.check("slot.book", || s.book == "retail" || owner_local_cost&&s.book=="supplier")? {
+        if !m.check("slot.book", || {
+            s.book == "retail" || owner_local_cost && s.book == "supplier"
+        })? {
             return Err(bad("selected book"));
         }
         for prior in &p.binding_slots[..i] {
@@ -167,10 +240,17 @@ pub(super) fn policy(
             .find(|s| s.name == r.binding_slot)
             .ok_or_else(|| bad("binding slot"))?;
         if !m.check("rule.role_book_funding", || {
-            (c.book() == TemplateBook::Retail&&slot.book=="retail" || owner_local_cost&&c.book()==TemplateBook::Supplier&&slot.book=="supplier")
-                && (owner_local_cost||a.funding_leg() == Some(slot.funding_leg.as_str()))
+            (c.book() == TemplateBook::Retail && slot.book == "retail"
+                || owner_local_cost
+                    && c.book() == TemplateBook::Supplier
+                    && slot.book == "supplier")
+                && (owner_local_cost || a.funding_leg() == Some(slot.funding_leg.as_str()))
                 && slot.allowed_activities.contains(&r.activity)
-                && (r.dependency == "on_missing_refuse" || (p.schema=="ledger-workflow-policy/3"||p.schema=="ledger-workflow-policy/4") && matches!(r.formula,Formula::AppFinalCost{..}) && r.dependency=="on_missing_wait")
+                && (r.dependency == "on_missing_refuse"
+                    || (p.schema == "ledger-workflow-policy/3"
+                        || p.schema == "ledger-workflow-policy/4")
+                        && matches!(r.formula, Formula::AppFinalCost { .. })
+                        && r.dependency == "on_missing_wait")
         })? {
             return Err(bad("rule role/book/funding/dependency"));
         }
@@ -211,46 +291,119 @@ pub(super) fn policy(
                 }
                 percentage(m, &amount.percent)?;
             }
-            Formula::AppFinalCost{evidence_slot,multiplier,markup,ceiling}=>{
-                if !super::compiler::same_literal(m,&p.schema,"ledger-workflow-policy/3")? && !super::compiler::same_literal(m,&p.schema,"ledger-workflow-policy/4")?{return Err(bad("app cost recipe"));}
-                cost_component(m,r,c.book(),slot.book.as_str(),c.root_key(),c.key(),evidence_slot,ceiling)?;
-                if !super::compiler::same_literal(m,&slot.book,"retail")?{return Err(bad("app cost retail book"));}
-                let n=arithmetic::integer(m,&multiplier.numerator,false)?;
-                let d=arithmetic::integer(m,&multiplier.denominator,false)?;
-                if meter::cmp(m,&n,&0.into())?.is_lt()||!meter::cmp(m,&d,&0.into())?.is_gt(){return Err(bad("app cost original multiplier"));}
-                let value=arithmetic::decimal(m,markup)?;
-                if meter::cmp(m,&value.numerator,&0.into())?.is_lt(){return Err(bad("negative app cost markup"));}
-            },
-            Formula::FinalCost{evidence_slot,supplier_slot,multiplier,markup,ceiling}=>{
-                if !owner_local_cost{return Err(bad("final_cost recipe"));}
-                cost_component(m,r,c.book(),slot.book.as_str(),c.root_key(),c.key(),evidence_slot,ceiling)?;
-                if slot.book!="retail"{return Err(bad("retail final_cost book"));}
-                name(m,supplier_slot)?;
-                let mut supplier=None;
-                for original in &p.binding_slots{
+            Formula::AppFinalCost {
+                evidence_slot,
+                multiplier,
+                markup,
+                ceiling,
+            } => {
+                if !super::compiler::same_literal(m, &p.schema, "ledger-workflow-policy/3")?
+                    && !super::compiler::same_literal(m, &p.schema, "ledger-workflow-policy/4")?
+                {
+                    return Err(bad("app cost recipe"));
+                }
+                cost_component(
+                    m,
+                    r,
+                    c.book(),
+                    slot.book.as_str(),
+                    c.root_key(),
+                    c.key(),
+                    evidence_slot,
+                    ceiling,
+                )?;
+                if !super::compiler::same_literal(m, &slot.book, "retail")? {
+                    return Err(bad("app cost retail book"));
+                }
+                let n = arithmetic::integer(m, &multiplier.numerator, false)?;
+                let d = arithmetic::integer(m, &multiplier.denominator, false)?;
+                if meter::cmp(m, &n, &0.into())?.is_lt() || !meter::cmp(m, &d, &0.into())?.is_gt() {
+                    return Err(bad("app cost original multiplier"));
+                }
+                let value = arithmetic::decimal(m, markup)?;
+                if meter::cmp(m, &value.numerator, &0.into())?.is_lt() {
+                    return Err(bad("negative app cost markup"));
+                }
+            }
+            Formula::FinalCost {
+                evidence_slot,
+                supplier_slot,
+                multiplier,
+                markup,
+                ceiling,
+            } => {
+                if !owner_local_cost {
+                    return Err(bad("final_cost recipe"));
+                }
+                cost_component(
+                    m,
+                    r,
+                    c.book(),
+                    slot.book.as_str(),
+                    c.root_key(),
+                    c.key(),
+                    evidence_slot,
+                    ceiling,
+                )?;
+                if slot.book != "retail" {
+                    return Err(bad("retail final_cost book"));
+                }
+                name(m, supplier_slot)?;
+                let mut supplier = None;
+                for original in &p.binding_slots {
                     m.visit("cost.original_supplier_binding_slot")?;
-                    if super::compiler::same_literal(m,&original.name,supplier_slot)?{
-                        if supplier.is_some(){return Err(bad("duplicate supplier binding slot"));}
-                        supplier=Some(original);
+                    if super::compiler::same_literal(m, &original.name, supplier_slot)? {
+                        if supplier.is_some() {
+                            return Err(bad("duplicate supplier binding slot"));
+                        }
+                        supplier = Some(original);
                     }
                 }
-                let supplier=supplier.ok_or_else(||bad("missing original supplier binding slot"))?;
-                if supplier.book!="supplier" || !supplier.allowed_activities.contains(&r.activity){return Err(bad("supplier slot activity/book"));}
-                let n=arithmetic::integer(m,&multiplier.numerator,false)?;
-                let d=arithmetic::integer(m,&multiplier.denominator,false)?;
-                if meter::cmp(m,&n,&0.into())?.is_lt() || !meter::cmp(m,&d,&0.into())?.is_gt(){return Err(bad("final_cost multiplier"));}
-                let markup=arithmetic::decimal(m,markup)?;
-                if meter::cmp(m,&markup.numerator,&0.into())?.is_lt(){return Err(bad("negative final_cost markup"));}
-            },
-            Formula::SupplierFinalCost{evidence_slot,ceiling}=>{
-                if !owner_local_cost{return Err(bad("supplier_final_cost recipe"));}
-                cost_component(m,r,c.book(),slot.book.as_str(),c.root_key(),c.key(),evidence_slot,ceiling)?;
-                if slot.book!="supplier"{return Err(bad("supplier_final_cost book"));}
-            },
+                let supplier =
+                    supplier.ok_or_else(|| bad("missing original supplier binding slot"))?;
+                if supplier.book != "supplier" || !supplier.allowed_activities.contains(&r.activity)
+                {
+                    return Err(bad("supplier slot activity/book"));
+                }
+                let n = arithmetic::integer(m, &multiplier.numerator, false)?;
+                let d = arithmetic::integer(m, &multiplier.denominator, false)?;
+                if meter::cmp(m, &n, &0.into())?.is_lt() || !meter::cmp(m, &d, &0.into())?.is_gt() {
+                    return Err(bad("final_cost multiplier"));
+                }
+                let markup = arithmetic::decimal(m, markup)?;
+                if meter::cmp(m, &markup.numerator, &0.into())?.is_lt() {
+                    return Err(bad("negative final_cost markup"));
+                }
+            }
+            Formula::SupplierFinalCost {
+                evidence_slot,
+                ceiling,
+            } => {
+                if !owner_local_cost {
+                    return Err(bad("supplier_final_cost recipe"));
+                }
+                cost_component(
+                    m,
+                    r,
+                    c.book(),
+                    slot.book.as_str(),
+                    c.root_key(),
+                    c.key(),
+                    evidence_slot,
+                    ceiling,
+                )?;
+                if slot.book != "supplier" {
+                    return Err(bad("supplier_final_cost book"));
+                }
+            }
         }
     }
-    if owner_local_cost{delayed_costs(m,p)?;}
-    if p.schema=="ledger-workflow-policy/3" || p.schema=="ledger-workflow-policy/4" {super::app_declarations::validate(m,p,product,schemas)?;}
+    if owner_local_cost {
+        delayed_costs(m, p)?;
+    }
+    if p.schema == "ledger-workflow-policy/3" || p.schema == "ledger-workflow-policy/4" {
+        super::app_declarations::validate(m, p, product, schemas)?;
+    }
     for (i, f) in p.families.iter().enumerate() {
         for n in [
             &f.family_name,
@@ -270,9 +423,14 @@ pub(super) fn policy(
                 return Err(bad("duplicate selected target family"));
             }
         }
-        if let Some(close)=&f.no_success_close {
-            name(m,&close.close_source_slot)?;
-            if p.schema!="ledger-workflow-policy/2" && p.schema!="ledger-workflow-policy/3" && p.schema!="ledger-workflow-policy/4" {return Err(bad("old family dictionary cannot nominate close"));}
+        if let Some(close) = &f.no_success_close {
+            name(m, &close.close_source_slot)?;
+            if p.schema != "ledger-workflow-policy/2"
+                && p.schema != "ledger-workflow-policy/3"
+                && p.schema != "ledger-workflow-policy/4"
+            {
+                return Err(bad("old family dictionary cannot nominate close"));
+            }
         }
         let tf = template.family_named_with_work(&f.family_key, &f.family_name, m)?;
         let a = product

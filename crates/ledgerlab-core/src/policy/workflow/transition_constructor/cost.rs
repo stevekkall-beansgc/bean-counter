@@ -2,7 +2,7 @@
 //! line evidence, permanent claim, complete invocation consumption set and
 //! original/current terms before these private monetary operations execute.
 //! These derived numbers are not custody or a prepared financial mutation.
-use super::{CoreMeter, arithmetic, meter, shape};
+use super::{arithmetic, meter, shape, CoreMeter};
 use crate::{Error, Result};
 use num_bigint::BigInt;
 
@@ -44,8 +44,13 @@ pub(super) fn produce<'program, 'raw>(
         .representation_arena()
         .ok_or_else(|| shape::fail("owning cost execution"))?;
     let request = super::working_value::WorkingValue::parse(m, payload)?;
-    let mut records =
-        super::records::Records::borrowed_ap(m, &arena, &c.key, inputs, &c.source_observation_inputs)?;
+    let mut records = super::records::Records::borrowed_ap(
+        m,
+        &arena,
+        &c.key,
+        inputs,
+        &c.source_observation_inputs,
+    )?;
     let plan = plan::prepare(m, &mut records, c, program, request, state)?;
     let normalized_payload = plan.request.bytes(m)?;
     let authority = authority::document(

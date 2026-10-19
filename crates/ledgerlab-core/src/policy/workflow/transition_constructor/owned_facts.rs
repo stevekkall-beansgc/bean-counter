@@ -2,11 +2,11 @@
 //! two typed maps, copied strings, proof-name vector and scalar string scratch.
 //! It is not an origin, contextual attestation or whole-interpreter arena proof.
 use super::super::{FactSchema, FactValue, NormalizedFacts};
-use super::{CoreMeter, shape};
+use super::{shape, CoreMeter};
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, ExternalBufferLease},
     validation_work::{self as w, ArithmeticOperation, ValidationVisit, ValidationWork},
+    Result,
 };
 use serde_json::Value;
 use std::mem;

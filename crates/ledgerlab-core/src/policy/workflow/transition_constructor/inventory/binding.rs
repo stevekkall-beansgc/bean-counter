@@ -1,8 +1,8 @@
 //! Closed selected Binding/Terms declarations, distinct from host authentication.
-use super::super::{CoreMeter, codec, data::*, meter, shape};
+use super::super::{codec, data::*, meter, shape, CoreMeter};
 use super::check::*;
 use crate::Result;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 const INPUTS: &[&str] = &[
     "agreement_id",
     "version",
@@ -19,11 +19,19 @@ const INPUTS: &[&str] = &[
     "quantity_ceilings",
     "exposure_ceilings",
 ];
-pub(in crate::policy::workflow::transition_constructor) fn string(m: &mut CoreMeter, v: &Value, maximum: usize) -> Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn string(
+    m: &mut CoreMeter,
+    v: &Value,
+    maximum: usize,
+) -> Result<()> {
     let text = v.as_str().ok_or_else(|| shape::fail("bounded string"))?;
     bounds(m, text.len(), 1, maximum)
 }
-pub(in crate::policy::workflow::transition_constructor) fn id(m: &mut CoreMeter, v: &Value, maximum: usize) -> Result<()> {
+pub(in crate::policy::workflow::transition_constructor) fn id(
+    m: &mut CoreMeter,
+    v: &Value,
+    maximum: usize,
+) -> Result<()> {
     string(m, v, maximum)?;
     for ch in v.as_str().expect("string checked").chars() {
         m.scan_bytes(ch.len_utf8())?;
@@ -45,17 +53,28 @@ pub(super) fn refs(m: &mut CoreMeter, v: &Value, min: usize, max: usize) -> Resu
     }
     Ok(())
 }
-pub(in crate::policy::workflow::transition_constructor) fn ordered(m: &mut CoreMeter, a: &[Value]) -> Result<()> {
-    if let Some(arena)=m.representation_arena(){
+pub(in crate::policy::workflow::transition_constructor) fn ordered(
+    m: &mut CoreMeter,
+    a: &[Value],
+) -> Result<()> {
+    if let Some(arena) = m.representation_arena() {
         // SAME canonical serialization/order, now an actually executing named
         // RP01 owning operation. Semantic set/type/association checks stay S.
         // At most the current and preceding member encodings coexist.
-        let mut previous:Option<crate::canonical::audit_arena::AuditedBytes>=None;
-        for member in a{
+        let mut previous: Option<crate::canonical::audit_arena::AuditedBytes> = None;
+        for member in a {
             m.visit("inventory.canonical_set_member")?;
-            let bytes=m.canonical_owned_representation(&arena,member,crate::validation_work::RepresentationKind::Record)?;
-            if let Some(prior)=&previous{if !shape::byte_order(m,prior.bytes(),bytes.bytes())?.is_lt(){return Err(shape::fail("noncanonical declared set"));}}
-            previous=Some(bytes);
+            let bytes = m.canonical_owned_representation(
+                &arena,
+                member,
+                crate::validation_work::RepresentationKind::Record,
+            )?;
+            if let Some(prior) = &previous {
+                if !shape::byte_order(m, prior.bytes(), bytes.bytes())?.is_lt() {
+                    return Err(shape::fail("noncanonical declared set"));
+                }
+            }
+            previous = Some(bytes);
         }
         return Ok(());
     }
@@ -82,7 +101,7 @@ pub(super) fn inputs(m: &mut CoreMeter, v: &Value, assented: bool) -> Result<()>
     #[cfg(not(test))]
     inputs_data(m, v, assented, false)
 }
-fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result<()> {
+fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app: bool) -> Result<()> {
     let mut required = INPUTS.to_vec();
     if !assented {
         required.extend(["assent_refs", "authority_refs"]);
@@ -110,7 +129,11 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
     bounds(m, sources.len(), 1, 32)?;
     // App Binding2 shares the actual AcceptanceTerms source-slot normalizer:
     // explicit named rows order by name, rather than whole-object JCS bytes.
-    if app {super::slots::keyed_order(m,sources,"name",false)?;} else {ordered(m,sources)?;}
+    if app {
+        super::slots::keyed_order(m, sources, "name", false)?;
+    } else {
+        ordered(m, sources)?;
+    }
     for source in sources {
         shape::closed(m, source, &["name", "sources", "evidence_kinds"], &[])?;
         invoke!(qualified, m, invoke!(shape::text, m, source, "name")?)?;
@@ -131,8 +154,30 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
         bounds(m, kinds.len(), 0, 5)?;
         ordered(m, kinds)?;
         for kind in kinds {
-            let allowed=if app{&["occurrence","outcome","supplier_final_cost","meter_quantity","allocation_input","app_usage","app_final_cost"][..]}else{&["occurrence","outcome","supplier_final_cost","meter_quantity","allocation_input"][..]};
-            one_of(m,kind.as_str().ok_or_else(||shape::fail("evidence kind"))?,allowed)?;
+            let allowed = if app {
+                &[
+                    "occurrence",
+                    "outcome",
+                    "supplier_final_cost",
+                    "meter_quantity",
+                    "allocation_input",
+                    "app_usage",
+                    "app_final_cost",
+                ][..]
+            } else {
+                &[
+                    "occurrence",
+                    "outcome",
+                    "supplier_final_cost",
+                    "meter_quantity",
+                    "allocation_input",
+                ][..]
+            };
+            one_of(
+                m,
+                kind.as_str().ok_or_else(|| shape::fail("evidence kind"))?,
+                allowed,
+            )?;
         }
     }
     let bindings = invoke!(shape::array, m, v, "bindings")?;
@@ -144,7 +189,11 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
     }
     let funding = invoke!(shape::array, m, v, "funding_legs")?;
     bounds(m, funding.len(), 1, 16)?;
-    if app {super::slots::keyed_order(m,funding,"name",false)?;} else {ordered(m,funding)?;}
+    if app {
+        super::slots::keyed_order(m, funding, "name", false)?;
+    } else {
+        ordered(m, funding)?;
+    }
     for leg in funding {
         shape::closed(
             m,
@@ -153,11 +202,15 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
             &["provider", "supplier_binding_slot"],
         )?;
         invoke!(qualified, m, invoke!(shape::text, m, leg, "name")?)?;
-        if app{
-            let mode=shape::text(m,leg,"mode")?;
-            one_of(m,mode,&["customer_local","platform"])?;
-            if leg.get("supplier_binding_slot").is_some(){return Err(shape::fail("app funding cannot introduce AP slot"));}
-        }else{eq(m, leg, "mode", &json!("customer_local"))?;}
+        if app {
+            let mode = shape::text(m, leg, "mode")?;
+            one_of(m, mode, &["customer_local", "platform"])?;
+            if leg.get("supplier_binding_slot").is_some() {
+                return Err(shape::fail("app funding cannot introduce AP slot"));
+            }
+        } else {
+            eq(m, leg, "mode", &json!("customer_local"))?;
+        }
         invoke!(
             shape::named,
             m,
@@ -177,7 +230,13 @@ fn inputs_data(m: &mut CoreMeter, v: &Value, assented: bool, app:bool) -> Result
                 slot.as_str().ok_or_else(|| shape::fail("supplier slot"))?,
             )?;
         }
-        invoke!(refs, m, data_field!(m, leg, "evidence_refs"), if app {0}else{1}, 16)?;
+        invoke!(
+            refs,
+            m,
+            data_field!(m, leg, "evidence_refs"),
+            if app { 0 } else { 1 },
+            16
+        )?;
     }
     let start = time(m, v, "starts_at")?;
     if v.get("ends_at").is_some() {
@@ -224,35 +283,64 @@ pub(in crate::policy::workflow::transition_constructor) fn validate(
     #[cfg(not(test))]
     validate_data(m, b, terms, false)
 }
-pub(in crate::policy::workflow::transition_constructor) fn validate_app(m:&mut CoreMeter,b:&Value,terms:&Value)->Result<()> {
-    let schema=shape::text(m,b,"schema")?;
-    if !shape::same_text(m,schema,"ledger-workflow-binding/2")?{return Err(shape::fail("app binding schema"));}
-    let schema=shape::text(m,terms,"schema")?;
-    if !shape::same_text(m,schema,"ledger-workflow-acceptance-terms/2")?{return Err(shape::fail("app acceptance terms schema"));}
-    validate_data(m,b,terms,true)
+pub(in crate::policy::workflow::transition_constructor) fn validate_app(
+    m: &mut CoreMeter,
+    b: &Value,
+    terms: &Value,
+) -> Result<()> {
+    let schema = shape::text(m, b, "schema")?;
+    if !shape::same_text(m, schema, "ledger-workflow-binding/2")? {
+        return Err(shape::fail("app binding schema"));
+    }
+    let schema = shape::text(m, terms, "schema")?;
+    if !shape::same_text(m, schema, "ledger-workflow-acceptance-terms/2")? {
+        return Err(shape::fail("app acceptance terms schema"));
+    }
+    validate_data(m, b, terms, true)
 }
-fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app:bool) -> Result<()> {
+fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app: bool) -> Result<()> {
     // Projection creates no trusted document. Every consumed input field still
     // enters the paid closed declaration validator and exact terms comparison.
-    if let Some(arena)=m.representation_arena(){
-        use crate::validation_work::{self as w,ArithmeticOperation,ValidationWork};
-        let n=w::usize_add(m,INPUTS.len(),3)?;
-        let item=std::mem::size_of::<(&str,&Value)>();
-        ValidationWork::arithmetic(m,ArithmeticOperation::Multiply,&[&n.into(),&item.into()])?;
-        let bytes=n.checked_mul(item).ok_or_else(||shape::fail("binding projection metadata"))?;
-        let _metadata=arena.reserve_external_payload(bytes,m)?;
-        let mut fields=Vec::new();fields.try_reserve_exact(n).map_err(|_|shape::fail("binding projection allocation"))?;
-        for field in INPUTS.iter().copied().chain(["assent_refs","authority_refs","ends_at"]){
+    if let Some(arena) = m.representation_arena() {
+        use crate::validation_work::{self as w, ArithmeticOperation, ValidationWork};
+        let n = w::usize_add(m, INPUTS.len(), 3)?;
+        let item = std::mem::size_of::<(&str, &Value)>();
+        ValidationWork::arithmetic(m, ArithmeticOperation::Multiply, &[&n.into(), &item.into()])?;
+        let bytes = n
+            .checked_mul(item)
+            .ok_or_else(|| shape::fail("binding projection metadata"))?;
+        let _metadata = arena.reserve_external_payload(bytes, m)?;
+        let mut fields = Vec::new();
+        fields
+            .try_reserve_exact(n)
+            .map_err(|_| shape::fail("binding projection allocation"))?;
+        for field in INPUTS
+            .iter()
+            .copied()
+            .chain(["assent_refs", "authority_refs", "ends_at"])
+        {
             m.visit("inventory.binding_input_projection")?;
-            if let Some(value)=b.get(field){fields.push((field,value));}
+            if let Some(value) = b.get(field) {
+                fields.push((field, value));
+            }
         }
-        let projected=arena.object_from_fields(&fields,m)?;
-        if app{inputs_data(m,projected.value(),false,true)?;}else{inputs(m,projected.value(),false)?;}
-    }else{
+        let projected = arena.object_from_fields(&fields, m)?;
+        if app {
+            inputs_data(m, projected.value(), false, true)?;
+        } else {
+            inputs(m, projected.value(), false)?;
+        }
+    } else {
         let mut projected = serde_json::Map::new();
-        for field in INPUTS.iter().copied().chain(["assent_refs", "authority_refs", "ends_at"]){
+        for field in INPUTS
+            .iter()
+            .copied()
+            .chain(["assent_refs", "authority_refs", "ends_at"])
+        {
             m.visit("inventory.binding_input_projection")?;
-            if let Some(value) = b.get(field) {projected.insert(field.into(), value.clone());}
+            if let Some(value) = b.get(field) {
+                projected.insert(field.into(), value.clone());
+            }
         }
         inputs(m, &Value::Object(projected), false)?;
     }
@@ -271,7 +359,11 @@ fn validate_data(m: &mut CoreMeter, b: &Value, terms: &Value, app:bool) -> Resul
         &[],
     )?;
     let signed = data_field!(m, terms, "binding_inputs");
-    if app{inputs_data(m,signed,true,true)?;}else{inputs(m, signed, true)?;}
+    if app {
+        inputs_data(m, signed, true, true)?;
+    } else {
+        inputs(m, signed, true)?;
+    }
     for field in INPUTS {
         invoke!(copy, m, signed, field, b, field)?;
     }

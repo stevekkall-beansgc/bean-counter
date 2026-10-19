@@ -72,12 +72,10 @@ async fn transport_public_direct_fragments_finalize_reply_loss_alias_read_reopen
         .unwrap();
     let mut finalize = actual(inputs[3].clone());
     finalize["payload"]["fragment_refs"] = json!([reference(&first)]);
-    assert!(
-        ledger
-            .prerequisite(&records::bytes(&finalize).unwrap())
-            .await
-            .is_err()
-    );
+    assert!(ledger
+        .prerequisite(&records::bytes(&finalize).unwrap())
+        .await
+        .is_err());
     let second = ledger
         .prerequisite(&records::bytes(&fragments[1]).unwrap())
         .await
@@ -148,12 +146,10 @@ async fn transport_public_direct_fragments_finalize_reply_loss_alias_read_reopen
     let mut spoof = direct.clone();
     spoof["key"]["operation_id"] = json!("private-role-source-spoof");
     spoof["payload"]["document"] = json!({"schema":"ledger-workflow-roles/1"});
-    assert!(
-        ledger
-            .prerequisite(&records::bytes(&spoof).unwrap())
-            .await
-            .is_err()
-    );
+    assert!(ledger
+        .prerequisite(&records::bytes(&spoof).unwrap())
+        .await
+        .is_err());
     let mut tx = ledger
         .store
         .begin(crate::service::workflow::local::deadline())
@@ -674,12 +670,10 @@ async fn transport_upload_and_finalize_projection_cuts_leave_no_partial_history(
     finalize["payload"]["fragment_refs"] = json!(parts);
     let baseline = transport_counts(&path).await;
     transport_test_sql(&path, "CREATE TRIGGER transport_cut BEFORE INSERT ON workflow_definition_registry BEGIN SELECT RAISE(ABORT,'finalized definition registry cut'); END").await;
-    assert!(
-        ledger
-            .prerequisite(&records::bytes(&finalize).unwrap())
-            .await
-            .is_err()
-    );
+    assert!(ledger
+        .prerequisite(&records::bytes(&finalize).unwrap())
+        .await
+        .is_err());
     transport_test_sql(&path, "DROP TRIGGER transport_cut").await;
     assert_eq!(transport_counts(&path).await, baseline);
     let saved = ledger

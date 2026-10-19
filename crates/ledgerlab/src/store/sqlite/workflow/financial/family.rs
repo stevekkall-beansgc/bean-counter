@@ -2,7 +2,7 @@
 //! returned full Target/head Ref is actual projection DATA, never a candidate
 //! target or authority. Multiple matches are integrity failure, never latest.
 use super::*;
-use heads::{HeadKey, HeadLocator, locator_text};
+use heads::{locator_text, HeadKey, HeadLocator};
 pub(crate) struct FamilyIdentityHead {
     pub target_kind: AuditedBytes,
     pub target_id: AuditedBytes,
@@ -77,7 +77,8 @@ impl SqliteTx {
         if !resource_compare(s, version, 13)?.is_eq()
             && !resource_compare(s, version, 14)?.is_eq()
             && !resource_compare(s, version, 15)?.is_eq()
-            && !resource_compare(s, version, 16)?.is_eq() && !resource_compare(s, version, 17)?.is_eq()
+            && !resource_compare(s, version, 16)?.is_eq()
+            && !resource_compare(s, version, 17)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }

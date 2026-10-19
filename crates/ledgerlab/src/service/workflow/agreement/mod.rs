@@ -1,8 +1,8 @@
 //! Reviewed administrative prerequisites. Customer assent is never inferred.
 mod acceptance;
 mod accepted_verify;
-mod alias04;
 mod activation_verify;
+mod alias04;
 mod context;
 mod descriptor;
 pub(super) mod financial;
@@ -17,16 +17,16 @@ mod service;
 mod source;
 pub(super) mod transport;
 mod verify;
-use super::{Result, ServiceError, records, reject, require};
+use super::{records, reject, require, Result, ServiceError};
 use crate::store::sqlite::{
-    SqliteTx,
     workflow::{
-        Document, RecordRef,
         agreement::{JournalAppend, JournalOperation, Projection},
+        Document, RecordRef,
     },
+    SqliteTx,
 };
 use ledgerlab_core::{canonical, domain::Timestamp};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 fn typed_error(e: ledgerlab_core::Error) -> ServiceError {
     match e.code {

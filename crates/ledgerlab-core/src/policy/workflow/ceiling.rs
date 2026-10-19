@@ -6,9 +6,9 @@ use crate::validation_work::{
 };
 mod owned;
 use crate::{
-    Error, Result,
     canonical::{self, CanonicalBytes},
     domain::Timestamp,
+    Error, Result,
 };
 pub use owned::OwnedSourceCeiling;
 use serde::{Deserialize, Serialize};

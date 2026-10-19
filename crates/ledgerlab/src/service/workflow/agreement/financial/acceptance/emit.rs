@@ -7,8 +7,11 @@ pub(in super::super) struct AcceptanceHeadRecords {
     prior: Option<wire::SourceRecord>,
 }
 impl AcceptanceHeadRecords {
-    pub(super) fn prior_ref(&self)->impl Iterator<Item=&ledgerlab_core::policy::workflow::transition_constructor::ExactRef> {
-        self.prior.iter().map(|r|r.reference())
+    pub(super) fn prior_ref(
+        &self,
+    ) -> impl Iterator<Item = &ledgerlab_core::policy::workflow::transition_constructor::ExactRef>
+    {
+        self.prior.iter().map(|r| r.reference())
     }
     pub(super) async fn match_locked(
         &self,

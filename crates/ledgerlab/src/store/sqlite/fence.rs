@@ -156,10 +156,10 @@ impl Fence {
         file.sync_all()?;
         fs::rename(staging, self.directory.join("state.json"))?;
         File::open(&self.directory)?.sync_all()?;
-        let mut current=self.state.lock().map_err(|_|invalid())?;
-        let mut storage=self.state_storage.lock().map_err(|_|invalid())?;
-        *current=Some(state);
-        *storage=None;
+        let mut current = self.state.lock().map_err(|_| invalid())?;
+        let mut storage = self.state_storage.lock().map_err(|_| invalid())?;
+        *current = Some(state);
+        *storage = None;
         Ok(())
     }
     pub(super) async fn initialize(&self, c: &mut SqliteConnection) -> Result<(), StoreError> {
@@ -325,26 +325,48 @@ mod tests {
     }
     #[tokio::test]
     async fn resource_anchored_commit_recovers_each_existing_cut() {
-        use ledgerlab_core::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
+        use ledgerlab_core::{
+            canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession,
+        };
         for cut in 0..=3 {
-            let (_dir,db,anchor)=locations();
-            let store=SqliteStore::create_fenced(&db,installation(),&anchor).await.unwrap();
-            let arena=AuditArena::new().unwrap();
-            let baseline=arena.usage().unwrap().live_bytes;
-            let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            let mut tx=store.begin_with_resource_session(Instant::now()+Duration::from_secs(5),&mut session).await.unwrap();
+            let (_dir, db, anchor) = locations();
+            let store = SqliteStore::create_fenced(&db, installation(), &anchor)
+                .await
+                .unwrap();
+            let arena = AuditArena::new().unwrap();
+            let baseline = arena.usage().unwrap().live_bytes;
+            let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+            let mut tx = store
+                .begin_with_resource_session(Instant::now() + Duration::from_secs(5), &mut session)
+                .await
+                .unwrap();
             // Existing fence transition fixture: a real mutation under its
             // normal transaction, not a financial input or qualified journal.
-            sqlx::query("UPDATE installation SET generation=generation+1").execute(tx.conn()).await.unwrap();
-            store.inner.fence_cut.store(cut,Ordering::Release);
-            let outcome=tx.commit_with_resource_session(session).await;
-            if cut==0 {assert!(outcome.is_ok());} else {assert!(matches!(outcome,Err(super::super::tx::FinancialCommitError::Commit(CommitError::OutcomeUnknown))));}
+            sqlx::query("UPDATE installation SET generation=generation+1")
+                .execute(tx.conn())
+                .await
+                .unwrap();
+            store.inner.fence_cut.store(cut, Ordering::Release);
+            let outcome = tx.commit_with_resource_session(session).await;
+            if cut == 0 {
+                assert!(outcome.is_ok());
+            } else {
+                assert!(matches!(
+                    outcome,
+                    Err(super::super::tx::FinancialCommitError::Commit(
+                        CommitError::OutcomeUnknown
+                    ))
+                ));
+            }
             store.close().await;
             // Only the stable hash remains owned after the worker ACK/store
             // close; dropping the actual store releases that final owner.
-            assert_eq!(arena.usage().unwrap().live_bytes,baseline);
-            let recovered=SqliteStore::open_fenced(&db,&anchor).await.unwrap();
-            assert_eq!(recovered.local_installation().await.unwrap().generation,if cut==1{0}else{1});
+            assert_eq!(arena.usage().unwrap().live_bytes, baseline);
+            let recovered = SqliteStore::open_fenced(&db, &anchor).await.unwrap();
+            assert_eq!(
+                recovered.local_installation().await.unwrap().generation,
+                if cut == 1 { 0 } else { 1 }
+            );
             recovered.close().await;
         }
     }

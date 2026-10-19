@@ -1,10 +1,10 @@
 use super::super::super::selected_program::SelectedProgram;
 use super::super::{
-    CoreMeter, data::*, meter, records::Records, representation::InvocationToken, shape,
+    data::*, meter, records::Records, representation::InvocationToken, shape, CoreMeter,
 };
 use super::{check::*, evidence, source};
 use crate::{Error, Result};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 fn selector(m: &mut CoreMeter, g: &Value, k: &str, want: &Value) -> Result<()> {
     let mut found = false;
     for s in invoke!(shape::array, m, g, k)? {

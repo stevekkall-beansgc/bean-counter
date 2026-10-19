@@ -1,8 +1,8 @@
 //! Closed saved normalized DATA framing; raw/certificate replay stays a host obligation.
-use super::super::{CoreMeter, shape};
+use super::super::{shape, CoreMeter};
 use super::{binding, check::*, publication};
 use crate::Result;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 const ROLES: &[&str] = &[
     "accepted_binding",
     "activation_target",
@@ -102,13 +102,32 @@ pub(super) fn validate(
     #[cfg(not(test))]
     validate_data(m, e, kind, payload_schema, None)
 }
-pub(super) fn validate_family_close_acceptance(m:&mut CoreMeter,e:&Value,kind:&str,payload_schema:&str)->Result<()> {
-    if !shape::same_text(m,kind,"agreement.accept")? || !shape::same_text(m,payload_schema,"ledger-workflow-agreement-accept/4")? {
+pub(super) fn validate_family_close_acceptance(
+    m: &mut CoreMeter,
+    e: &Value,
+    kind: &str,
+    payload_schema: &str,
+) -> Result<()> {
+    if !shape::same_text(m, kind, "agreement.accept")?
+        || !shape::same_text(m, payload_schema, "ledger-workflow-agreement-accept/4")?
+    {
         return Err(shape::fail("family-close acceptance saved tuple"));
     }
-    validate_data(m,e,kind,payload_schema,Some("sha256:3aae5efefe5a28f8e1bd5382609652e67d9cf710250c8d29874715399f9449dc"))
+    validate_data(
+        m,
+        e,
+        kind,
+        payload_schema,
+        Some("sha256:3aae5efefe5a28f8e1bd5382609652e67d9cf710250c8d29874715399f9449dc"),
+    )
 }
-fn validate_data(m: &mut CoreMeter, e: &Value, kind: &str, payload_schema: &str, fixed_registry:Option<&'static str>) -> Result<()> {
+fn validate_data(
+    m: &mut CoreMeter,
+    e: &Value,
+    kind: &str,
+    payload_schema: &str,
+    fixed_registry: Option<&'static str>,
+) -> Result<()> {
     for field in ["original_request_bytes_sha256"] {
         let raw = invoke!(shape::text, m, e, field)?;
         bounds(m, raw.len(), 64, 64)?;
@@ -163,7 +182,10 @@ fn validate_data(m: &mut CoreMeter, e: &Value, kind: &str, payload_schema: &str,
     )?;
     // Registry and schema bundle are distinct domains; cryptographic replay
     // belongs to the host original-certificate auditor, never false equality.
-    let registry = match fixed_registry {Some(registry)=>registry,None=>recipe(m,kind,payload_schema)?};
+    let registry = match fixed_registry {
+        Some(registry) => registry,
+        None => recipe(m, kind, payload_schema)?,
+    };
     eq(m, descriptors, "registry_digest", &json!(registry))?;
     for field in ["registry_digest", "locator_digest", "closure_digest"] {
         invoke!(publication::digest, m, data_field!(m, descriptors, field))?;

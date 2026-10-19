@@ -494,14 +494,12 @@ async fn lifecycle_acceptances(ledger: &LocalWorkflowLedger) -> AcceptanceStage 
     let a_body = canonical::parse_bounded(&a_operation.operation_bytes, 8388608).unwrap();
     let a_root: RecordRef =
         serde_json::from_value(a_body["authority_snapshot"]["local_admin_ref"].clone()).unwrap();
-    assert!(
-        root_tx
-            .workflow_test_latest_root_candidates(STORE, &a_key.scope)
-            .await
-            .unwrap()
-            .iter()
-            .any(|d| d.reference == a_root)
-    );
+    assert!(root_tx
+        .workflow_test_latest_root_candidates(STORE, &a_key.scope)
+        .await
+        .unwrap()
+        .iter()
+        .any(|d| d.reference == a_root));
     let birth = root_tx
         .workflow_agreement_document_origin(STORE, &a_key.scope, &a_root)
         .await
@@ -618,8 +616,8 @@ async fn lifecycle_acceptances(ledger: &LocalWorkflowLedger) -> AcceptanceStage 
             .unwrap()
             .unwrap();
         assert_eq!(head.revision, 1);
-        assert!(
-            tx.workflow_agreement_head(
+        assert!(tx
+            .workflow_agreement_head(
                 STORE,
                 &["example-company".into(), "local".into()],
                 customer,
@@ -628,8 +626,7 @@ async fn lifecycle_acceptances(ledger: &LocalWorkflowLedger) -> AcceptanceStage 
             )
             .await
             .unwrap()
-            .is_none()
-        );
+            .is_none());
     }
     assert_eq!(tx.workflow_test_meter().await.unwrap().operations, 17);
     tx.rollback().await.unwrap();

@@ -462,7 +462,7 @@ impl SqliteTx {
 mod tests {
     use super::*;
     use crate::store::sqlite::workflow::Document;
-    use serde_json::{Value, json};
+    use serde_json::{json, Value};
     fn document(v: &Value) -> Document {
         Document {
             reference: serde_json::from_value(v["ref"].clone()).unwrap(),

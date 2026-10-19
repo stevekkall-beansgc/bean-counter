@@ -11,10 +11,10 @@ mod consent;
 pub(super) use consent::CurrentPlatformConsents;
 mod customer;
 mod emit;
+mod local;
 mod nominations;
 mod private;
 mod replay;
-mod local;
 pub(super) use local::TargetedAcceptance;
 mod request;
 pub(super) use customer::ObservedCustomerConsent;
@@ -26,7 +26,7 @@ use ledgerlab_core::{
         ValidationVisit as Visit,
     },
 };
-pub(super) use replay::{ReplayedAcceptance, reconstruct as reconstruct_held};
+pub(super) use replay::{reconstruct as reconstruct_held, ReplayedAcceptance};
 use std::{cmp::Ordering as Cmp, mem};
 pub(super) fn same_recipe_text(a: &str, b: &str, s: &mut OriginalAuditSession) -> Result<bool> {
     assents::equal(a, b, s)
@@ -68,7 +68,7 @@ impl AppAcceptanceInput {
             .execution_registry()
             .ok_or(ServiceError::Unavailable)?;
         let commitment = assents::equal(registry, APP_COMMITMENT, session)?
-            ||assents::equal(registry,wrappers::LOCAL_REGISTRY,session)?;
+            || assents::equal(registry, wrappers::LOCAL_REGISTRY, session)?;
         if !commitment {
             request_wrapper::same_text(registry, APP_CAUSAL, session)?;
         }
@@ -231,11 +231,13 @@ impl AppAcceptanceInput {
             authorities,
             expected_revision,
             commitment,
-            local: registry==wrappers::LOCAL_REGISTRY,
+            local: registry == wrappers::LOCAL_REGISTRY,
         })
     }
     fn registry(&self) -> &'static str {
-        if self.local { return wrappers::LOCAL_REGISTRY; }
+        if self.local {
+            return wrappers::LOCAL_REGISTRY;
+        }
         if self.commitment {
             APP_COMMITMENT
         } else {
@@ -613,11 +615,16 @@ pub(super) fn reference_set(
         s.semantic_work()
             .visit(Visit::Element)
             .map_err(core_error)?;
-        if kind=="binding-authority" {
-            let actual=request_wrapper::text(row,"kind",s)?;
-            require(matches!(actual,"workflow-source-grant"|"workflow-authority"),"INVALID_REFERENCE")?;
-            validate_reference(row,actual,s)?;
-        }else{validate_reference(row, kind, s)?;}
+        if kind == "binding-authority" {
+            let actual = request_wrapper::text(row, "kind", s)?;
+            require(
+                matches!(actual, "workflow-source-grant" | "workflow-authority"),
+                "INVALID_REFERENCE",
+            )?;
+            validate_reference(row, actual, s)?;
+        } else {
+            validate_reference(row, kind, s)?;
+        }
         s.semantic_work()
             .write_bytes(mem::size_of::<&Value>())
             .map_err(core_error)?;
@@ -965,7 +972,7 @@ pub(super) struct PendingAppAcceptance {
     pub(super) head_records: emit::AcceptanceHeadRecords,
     pub(super) normalized: request::NormalizedAcceptance,
     _prefix: Option<prefix::FoldedInventory>,
-    local_members:Option<prefix::ResolvedMembers>,
+    local_members: Option<prefix::ResolvedMembers>,
     _sources_storage: ExternalBufferLease,
     _time_storage: ExternalBufferLease,
 }
@@ -986,9 +993,13 @@ impl PendingAppAcceptance {
         &mut self,
         s: &mut OriginalAuditSession,
     ) -> Result<prefix::ResolvedMembers> {
-        if let Some(members)=self.local_members.take(){return Ok(members);}
+        if let Some(members) = self.local_members.take() {
+            return Ok(members);
+        }
         resolve_records(
-            self._prefix.as_mut().ok_or(ServiceError::IntegrityFailure)?,
+            self._prefix
+                .as_mut()
+                .ok_or(ServiceError::IntegrityFailure)?,
             &self.local_root,
             &self.authority,
             &self.binding,
@@ -1026,14 +1037,23 @@ pub(super) async fn prepare(
     incoming: &ingress::IncomingRequest,
     session: &mut OriginalAuditSession,
 ) -> Result<PendingAppAcceptance> {
-    prepare_selected(ledger,tx,incoming,false,session).await
+    prepare_selected(ledger, tx, incoming, false, session).await
 }
-pub(super) async fn prepare_local(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
-    incoming:&ingress::IncomingRequest,session:&mut OriginalAuditSession)->Result<PendingAppAcceptance> {
-    prepare_selected(ledger,tx,incoming,true,session).await
+pub(super) async fn prepare_local(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingAppAcceptance> {
+    prepare_selected(ledger, tx, incoming, true, session).await
 }
-async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
-    incoming:&ingress::IncomingRequest,local:bool,session:&mut OriginalAuditSession)->Result<PendingAppAcceptance> {
+async fn prepare_selected(
+    ledger: &LocalWorkflowLedger,
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    local: bool,
+    session: &mut OriginalAuditSession,
+) -> Result<PendingAppAcceptance> {
     let result = async {
         session.check_cancelled().map_err(core_error)?;
         let setup = ledger
@@ -1054,18 +1074,39 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
             .map_err(core_error)?;
         let at = crate::local::now().map_err(|_| ServiceError::Unavailable)?;
         let payload = incoming.payload(session)?;
-        let (mut prefix,publication)=if local {
-            let publication=prefix::publication_for(tx,incoming.key(),
-                request_wrapper::field(payload,"publication_ref",session)?,before,session).await?;
-            require(publication.program().uses_local_execution_recipe(),"UNSUPPORTED_SCHEMA_PROFILE")?;
-            (None,publication)
-        }else {
-            let (prefix,publication)=prefix::publication_before(ledger,tx,incoming.key(),
-                request_wrapper::field(payload,"publication_ref",session)?,before,session).await?;
-            (Some(prefix),publication)
+        let (mut prefix, publication) = if local {
+            let publication = prefix::publication_for(
+                tx,
+                incoming.key(),
+                request_wrapper::field(payload, "publication_ref", session)?,
+                before,
+                session,
+            )
+            .await?;
+            require(
+                publication.program().uses_local_execution_recipe(),
+                "UNSUPPORTED_SCHEMA_PROFILE",
+            )?;
+            (None, publication)
+        } else {
+            let (prefix, publication) = prefix::publication_before(
+                ledger,
+                tx,
+                incoming.key(),
+                request_wrapper::field(payload, "publication_ref", session)?,
+                before,
+                session,
+            )
+            .await?;
+            (Some(prefix), publication)
         };
         let input = AppAcceptanceInput::normalize(incoming, &publication, session)?;
-        if local { publication.program().require_local_admission_with_session(session).map_err(core_error)?; }
+        if local {
+            publication
+                .program()
+                .require_local_admission_with_session(session)
+                .map_err(core_error)?;
+        }
         let binding = input.binding(&publication, &setup.operator, &at, session)?;
         // SAME local snapshot construction used by actual party management.
         // The source is the held private owner observation, never request DATA.
@@ -1089,7 +1130,9 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
             session,
         )
         .await?;
-        if let Some(prefix)=prefix.as_mut(){private_documents.match_retained(prefix,session)?;}
+        if let Some(prefix) = prefix.as_mut() {
+            private_documents.match_retained(prefix, session)?;
+        }
         private::associate_graph(&private_documents, &input, session)?;
         let binding_value = session
             .parse_representation(binding.bytes(), Kind::SourceDefinition)
@@ -1132,9 +1175,25 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
         // terms. Today's head/body acquisition is shared with work.accept;
         // original custody and exact operation-right intersection remain gates.
         for reference in refs {
-            if request_wrapper::text(reference,"kind",session)?=="workflow-authority" {
-                let mapping=current::source::retained_record(tx,incoming.key(),reference,"workflow-authority","ledger-workflow-party-authorization/1",before,session).await?;
-                super::prefix::verify_selected_association(tx,incoming.key(),mapping.reference(),before,session).await?;
+            if request_wrapper::text(reference, "kind", session)? == "workflow-authority" {
+                let mapping = current::source::retained_record(
+                    tx,
+                    incoming.key(),
+                    reference,
+                    "workflow-authority",
+                    "ledger-workflow-party-authorization/1",
+                    before,
+                    session,
+                )
+                .await?;
+                super::prefix::verify_selected_association(
+                    tx,
+                    incoming.key(),
+                    mapping.reference(),
+                    before,
+                    session,
+                )
+                .await?;
                 continue;
             }
             session
@@ -1144,7 +1203,9 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
             let observed =
                 current::source::observe_value(tx, incoming.key(), reference, before, session)
                     .await?;
-            if let Some(prefix)=prefix.as_mut(){prefix.match_source(&observed,session)?;}
+            if let Some(prefix) = prefix.as_mut() {
+                prefix.match_source(&observed, session)?;
+            }
             // Keep actual revocation DATA too. The exact consuming authority
             // intersection decides which active current grant is mandatory.
             session
@@ -1153,7 +1214,11 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
                 .map_err(core_error)?;
             sources.push(observed);
         }
-        let validate_nominations = if local { nominations::validate_local_admission } else { nominations::validate };
+        let validate_nominations = if local {
+            nominations::validate_local_admission
+        } else {
+            nominations::validate
+        };
         validate_nominations(
             &sources,
             &private_documents,
@@ -1189,7 +1254,9 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
             session,
         )
         .await?;
-        if let Some(prefix)=prefix.as_mut(){consents.match_prefix(prefix,session)?;}
+        if let Some(prefix) = prefix.as_mut() {
+            consents.match_prefix(prefix, session)?;
+        }
         let authority = admission::authority(
             &input,
             source,
@@ -1204,8 +1271,11 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
         let binding_body = binding_value.value();
         let customer = request_wrapper::field(binding_body, "customer", session)?;
         let agreement = request_wrapper::field(binding_body, "agreement_id", session)?;
-        let prior=if let Some(prefix)=prefix.as_mut(){prefix.acceptance_head(customer,agreement,session)?}
-            else {local_prior(tx,incoming,customer,agreement,before,session).await?};
+        let prior = if let Some(prefix) = prefix.as_mut() {
+            prefix.acceptance_head(customer, agreement, session)?
+        } else {
+            local_prior(tx, incoming, customer, agreement, before, session).await?
+        };
         let head_records = emit::build(
             &input,
             &binding,
@@ -1229,14 +1299,41 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
             &consents,
             session,
         )?;
-        let local_members=if local {
-            Some(prefix::ResolvedMembers::local_selected(tx,incoming.key(),before,
-                [&local_root,&authority,&binding,&terms_record,&head_records.accepted,&head_records.head,&normalized.intent]
-                    .into_iter().chain(private_documents.inline_records()).chain(consents.generated_records()),
-                publication.required_refs().chain(private_documents.retained_refs())
-                    .chain(sources.iter().flat_map(current::source::ObservedSource::record_refs))
-                    .chain(consents.selected_refs()).chain(head_records.prior_ref()),session).await?)
-        }else{None};
+        let local_members = if local {
+            Some(
+                prefix::ResolvedMembers::local_selected(
+                    tx,
+                    incoming.key(),
+                    before,
+                    [
+                        &local_root,
+                        &authority,
+                        &binding,
+                        &terms_record,
+                        &head_records.accepted,
+                        &head_records.head,
+                        &normalized.intent,
+                    ]
+                    .into_iter()
+                    .chain(private_documents.inline_records())
+                    .chain(consents.generated_records()),
+                    publication
+                        .required_refs()
+                        .chain(private_documents.retained_refs())
+                        .chain(
+                            sources
+                                .iter()
+                                .flat_map(current::source::ObservedSource::record_refs),
+                        )
+                        .chain(consents.selected_refs())
+                        .chain(head_records.prior_ref()),
+                    session,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
         Ok(PendingAppAcceptance {
             input,
             binding,
@@ -1347,22 +1444,65 @@ fn resolve_records(
     prefix.resolve_members(&records, publication.required_refs(), s)
 }
 
-async fn local_prior(tx:&mut SqliteTx,incoming:&ingress::IncomingRequest,customer:&Value,agreement:&Value,
-    before:i64,s:&mut OriginalAuditSession)->Result<Option<AuditedBytes>> {
-    let customer=customer.as_str().ok_or(ServiceError::IntegrityFailure)?;
-    let agreement=agreement.as_str().ok_or(ServiceError::IntegrityFailure)?;
-    let head=tx.workflow_financial_head(&incoming.key().logical_store_id,&incoming.key().scope,
-        crate::store::sqlite::workflow::financial::HeadKey::AgreementAcceptance{customer,agreement},s)
-        .await.map_err(prefix::read_error)?;
-    let Some(head)=head else{return Ok(None)};
-    let kind=wire::string(std::str::from_utf8(head.kind.bytes()).map_err(|_|ServiceError::IntegrityFailure)?,s)?;
-    let id=wire::string(std::str::from_utf8(head.id.bytes()).map_err(|_|ServiceError::IntegrityFailure)?,s)?;
-    let digest=wire::string(std::str::from_utf8(head.digest.bytes()).map_err(|_|ServiceError::IntegrityFailure)?,s)?;
-    let encoded=wire::object(&[("digest",digest.bytes()),("id",id.bytes()),("kind",kind.bytes())],1024,s)?;
-    let parsed=s.parse_representation(encoded.bytes(),Kind::Record).map_err(core_error)?;
-    let reference=current::source::from_value(parsed.value(),"workflow-head-transition",s)?;
-    prefix::verify_selected_association(tx,incoming.key(),&reference.0,before,s).await?;
-    let body=tx.workflow_financial_document(&reference.0,&incoming.key().logical_store_id,&incoming.key().scope,before,s)
-        .await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;
+async fn local_prior(
+    tx: &mut SqliteTx,
+    incoming: &ingress::IncomingRequest,
+    customer: &Value,
+    agreement: &Value,
+    before: i64,
+    s: &mut OriginalAuditSession,
+) -> Result<Option<AuditedBytes>> {
+    let customer = customer.as_str().ok_or(ServiceError::IntegrityFailure)?;
+    let agreement = agreement.as_str().ok_or(ServiceError::IntegrityFailure)?;
+    let head = tx
+        .workflow_financial_head(
+            &incoming.key().logical_store_id,
+            &incoming.key().scope,
+            crate::store::sqlite::workflow::financial::HeadKey::AgreementAcceptance {
+                customer,
+                agreement,
+            },
+            s,
+        )
+        .await
+        .map_err(prefix::read_error)?;
+    let Some(head) = head else { return Ok(None) };
+    let kind = wire::string(
+        std::str::from_utf8(head.kind.bytes()).map_err(|_| ServiceError::IntegrityFailure)?,
+        s,
+    )?;
+    let id = wire::string(
+        std::str::from_utf8(head.id.bytes()).map_err(|_| ServiceError::IntegrityFailure)?,
+        s,
+    )?;
+    let digest = wire::string(
+        std::str::from_utf8(head.digest.bytes()).map_err(|_| ServiceError::IntegrityFailure)?,
+        s,
+    )?;
+    let encoded = wire::object(
+        &[
+            ("digest", digest.bytes()),
+            ("id", id.bytes()),
+            ("kind", kind.bytes()),
+        ],
+        1024,
+        s,
+    )?;
+    let parsed = s
+        .parse_representation(encoded.bytes(), Kind::Record)
+        .map_err(core_error)?;
+    let reference = current::source::from_value(parsed.value(), "workflow-head-transition", s)?;
+    prefix::verify_selected_association(tx, incoming.key(), &reference.0, before, s).await?;
+    let body = tx
+        .workflow_financial_document(
+            &reference.0,
+            &incoming.key().logical_store_id,
+            &incoming.key().scope,
+            before,
+            s,
+        )
+        .await
+        .map_err(prefix::read_error)?
+        .ok_or(ServiceError::IntegrityFailure)?;
     Ok(Some(body.body))
 }

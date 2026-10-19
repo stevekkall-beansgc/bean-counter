@@ -78,12 +78,20 @@ impl CanonicalBytes {
     }
     /// RP01 owning entry only. Existing public paid recipes retain their
     /// previous callback trace; both paths execute the identical emitter.
-    pub(crate) fn from_representation_with_work(value: &Value, work: &mut dyn ValidationWork, maximum: usize) -> Result<Self> {
+    pub(crate) fn from_representation_with_work(
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        maximum: usize,
+    ) -> Result<Self> {
         let mut destination = Destination::representation(maximum.min(BUNDLE_LIMIT));
         emit(value, &mut destination, 0, work)?;
         Ok(Self(destination.bytes))
     }
-    pub(crate) fn from_representation_container_with_work(value: &Value, work: &mut dyn ValidationWork, bound: CanonicalContainerBound) -> Result<Self> {
+    pub(crate) fn from_representation_container_with_work(
+        value: &Value,
+        work: &mut dyn ValidationWork,
+        bound: CanonicalContainerBound,
+    ) -> Result<Self> {
         let mut destination = Destination::representation(bound.maximum());
         emit(value, &mut destination, 0, work)?;
         Ok(Self(destination.bytes))
@@ -171,16 +179,29 @@ pub fn parse_bounded_with_allocations(
 ) -> Result<Value> {
     parse_bounded_impl(bytes, limit, allocations, true, false)
 }
-pub(crate) fn parse_bounded_with_allocations_complete(bytes: &[u8], limit: usize, allocations: &mut dyn ParseAllocationWork) -> Result<Value> {
+pub(crate) fn parse_bounded_with_allocations_complete(
+    bytes: &[u8],
+    limit: usize,
+    allocations: &mut dyn ParseAllocationWork,
+) -> Result<Value> {
     parse_bounded_impl(bytes, limit, allocations, true, true)
 }
 // Reserve a source-derived whole byte pass before entering opaque or lexical
 // scanning. This is an upper reservation, not measured short-circuit traffic.
-fn byte_pass_bound(work: &mut dyn ValidationWork, n: usize, multiplier: usize, fixed: usize) -> Result<usize> {
+fn byte_pass_bound(
+    work: &mut dyn ValidationWork,
+    n: usize,
+    multiplier: usize,
+    fixed: usize,
+) -> Result<usize> {
     work.arithmetic(Op::Multiply, &[&n.into(), &multiplier.into()])?;
-    let scaled = n.checked_mul(multiplier).ok_or_else(|| Error::new("LIMIT", "JSON byte accounting"))?;
+    let scaled = n
+        .checked_mul(multiplier)
+        .ok_or_else(|| Error::new("LIMIT", "JSON byte accounting"))?;
     work.arithmetic(Op::Add, &[&scaled.into(), &fixed.into()])?;
-    scaled.checked_add(fixed).ok_or_else(|| Error::new("LIMIT", "JSON byte accounting"))
+    scaled
+        .checked_add(fixed)
+        .ok_or_else(|| Error::new("LIMIT", "JSON byte accounting"))
 }
 fn parse_bounded_impl(
     bytes: &[u8],
@@ -264,7 +285,9 @@ impl Parser<'_, '_> {
         }
         let encoded_bytes = if self.complete_representation {
             vw::usize_sub(self.allocations.validation_work(), self.pos, start)?
-        } else { self.pos - start };
+        } else {
+            self.pos - start
+        };
         let request = ParseAllocation::StringDecode { encoded_bytes };
         // serde_json1.0.151 owns escape scratch and the returned String. Admit
         // their complete source-derived live bound before entering that decoder;
@@ -319,13 +342,21 @@ impl Parser<'_, '_> {
                             self.allocations
                                 .validation_work()
                                 .visit(Visit::MemberCompare)?;
-                            key_comparison_bytes(existing, &key, self.allocations.validation_work())?;
+                            key_comparison_bytes(
+                                existing,
+                                &key,
+                                self.allocations.validation_work(),
+                            )?;
                             // A second full candidate pass pre-admits the pinned
                             // BTree insertion search: each stored key can occur at
                             // most once on its unique root-to-leaf search path.
                             // No payload copy occurs when owned keys move into Map.
                             if self.complete_representation {
-                                key_comparison_bytes(existing, &key, self.allocations.validation_work())?;
+                                key_comparison_bytes(
+                                    existing,
+                                    &key,
+                                    self.allocations.validation_work(),
+                                )?;
                             }
                             if existing == &key {
                                 return Err(Error::new(
@@ -439,7 +470,8 @@ impl Parser<'_, '_> {
                     self.pos += 1;
                 }
                 if self.complete_representation {
-                    let token_bytes = vw::usize_sub(self.allocations.validation_work(), self.pos, start)?;
+                    let token_bytes =
+                        vw::usize_sub(self.allocations.validation_work(), self.pos, start)?;
                     self.allocations.validation_work().scan_bytes(token_bytes)?;
                 }
                 let token = std::str::from_utf8(&self.bytes[start..self.pos])
@@ -464,7 +496,9 @@ impl Parser<'_, '_> {
                 work.visit(Visit::Constraint)?;
                 let negative = token.starts_with('-');
                 let mut n = 0i64;
-                if self.complete_representation { work.scan_bytes(digits.len())?; }
+                if self.complete_representation {
+                    work.scan_bytes(digits.len())?;
+                }
                 for digit in digits.bytes() {
                     work.visit(Visit::ScalarDigit)?;
                     work.arithmetic(Op::Multiply, &[&n.into(), &10i64.into()])?;
@@ -534,7 +568,11 @@ impl Destination {
         }
     }
     fn representation(maximum: usize) -> Self {
-        Self { bytes: Vec::new(), maximum: Some(maximum), complete_representation: true }
+        Self {
+            bytes: Vec::new(),
+            maximum: Some(maximum),
+            complete_representation: true,
+        }
     }
     fn prepare(&mut self, n: usize, work: &mut dyn ValidationWork) -> Result<()> {
         if let Some(maximum) = self.maximum {
@@ -546,7 +584,11 @@ impl Destination {
                 .len()
                 .checked_add(n)
                 .ok_or_else(destination_limit)?;
-            let oversized = if self.complete_representation { vw::compare(work, next, maximum)?.is_gt() } else { next > maximum };
+            let oversized = if self.complete_representation {
+                vw::compare(work, next, maximum)?.is_gt()
+            } else {
+                next > maximum
+            };
             if oversized {
                 return Err(destination_limit());
             }
@@ -554,7 +596,11 @@ impl Destination {
             // Avoid Vec's geometric growth crossing the requested destination
             // allowance. The requested capacity is checked before any reserve;
             // allocator bookkeeping is not an installation memory-cap claim.
-            let growth = if self.complete_representation { vw::compare(work, next, self.bytes.capacity())?.is_gt() } else { next > self.bytes.capacity() };
+            let growth = if self.complete_representation {
+                vw::compare(work, next, self.bytes.capacity())?.is_gt()
+            } else {
+                next > self.bytes.capacity()
+            };
             if growth {
                 self.bytes.reserve_exact(n);
             }
@@ -912,12 +958,23 @@ mod executing_work_tests {
 
     #[test]
     fn key_comparison_reservation_is_full_pass_before_unchanged_comparison() {
-        struct Scans { used: usize, maximum: usize }
+        struct Scans {
+            used: usize,
+            maximum: usize,
+        }
         impl ValidationWork for Scans {
-            fn visit(&mut self, _: Visit) -> Result<()> { Ok(()) }
-            fn arithmetic(&mut self, _: Op, _: &[&BigInt]) -> Result<()> { Ok(()) }
-            fn write_bytes(&mut self, _: usize) -> Result<()> { Ok(()) }
-            fn hash_bytes(&mut self, _: usize) -> Result<()> { Ok(()) }
+            fn visit(&mut self, _: Visit) -> Result<()> {
+                Ok(())
+            }
+            fn arithmetic(&mut self, _: Op, _: &[&BigInt]) -> Result<()> {
+                Ok(())
+            }
+            fn write_bytes(&mut self, _: usize) -> Result<()> {
+                Ok(())
+            }
+            fn hash_bytes(&mut self, _: usize) -> Result<()> {
+                Ok(())
+            }
             fn scan_bytes(&mut self, n: usize) -> Result<()> {
                 if n > self.maximum - self.used {
                     return Err(Error::new("TEST_SCAN", "comparison bytes"));
@@ -926,20 +983,37 @@ mod executing_work_tests {
                 Ok(())
             }
         }
-        let mut enough = Scans { used: 0, maximum: 16 };
+        let mut enough = Scans {
+            used: 0,
+            maximum: 16,
+        };
         key_comparison_bytes("a-secret", "b-secret", &mut enough).unwrap();
-        assert_eq!(enough.used,16); // full reserved pass, despite first-byte mismatch
-        let mut short = Scans { used: 0, maximum: 15 };
-        assert_eq!(key_comparison_bytes("a-secret", "b-secret", &mut short).unwrap_err(), Error::new("TEST_SCAN","comparison bytes"));
-        assert_eq!(short.used,0);
+        assert_eq!(enough.used, 16); // full reserved pass, despite first-byte mismatch
+        let mut short = Scans {
+            used: 0,
+            maximum: 15,
+        };
+        assert_eq!(
+            key_comparison_bytes("a-secret", "b-secret", &mut short).unwrap_err(),
+            Error::new("TEST_SCAN", "comparison bytes")
+        );
+        assert_eq!(short.used, 0);
         let value = serde_json::json!({"\u{e000}":1,"😀":2});
         let mut work = CountingWork::new(usize::MAX);
-        assert_eq!(CanonicalBytes::from_value_with_work(&value, &mut work).unwrap().as_slice(), "{\"😀\":2,\"\u{e000}\":1}".as_bytes());
+        assert_eq!(
+            CanonicalBytes::from_value_with_work(&value, &mut work)
+                .unwrap()
+                .as_slice(),
+            "{\"😀\":2,\"\u{e000}\":1}".as_bytes()
+        );
     }
 
     #[test]
     fn journal_container_emitter_preserves_closed_bounds_and_body_limit() {
-        assert_eq!(CanonicalContainerBound::Operation.maximum(), 8 * 1024 * 1024);
+        assert_eq!(
+            CanonicalContainerBound::Operation.maximum(),
+            8 * 1024 * 1024
+        );
         assert_eq!(CanonicalContainerBound::Manifest.maximum(), BUNDLE_LIMIT);
         assert_eq!(CanonicalContainerBound::Receipt.maximum(), 1024 * 1024);
         let value = Value::String("x".repeat(BUNDLE_LIMIT));
@@ -955,12 +1029,8 @@ mod executing_work_tests {
         assert_eq!(encoded.as_slice().last(), Some(&b'"'));
         let mut public_work = CountingWork::new(usize::MAX);
         assert_eq!(
-            CanonicalBytes::from_value_with_work_bounded(
-                &value,
-                &mut public_work,
-                usize::MAX,
-            )
-            .unwrap_err(),
+            CanonicalBytes::from_value_with_work_bounded(&value, &mut public_work, usize::MAX,)
+                .unwrap_err(),
             Error::new("PROGRAM_BUDGET_EXCEEDED", "canonical destination bound"),
         );
     }
@@ -992,7 +1062,8 @@ mod executing_work_tests {
             &value,
             &mut short,
             CanonicalContainerBound::Receipt,
-        ).is_err());
+        )
+        .is_err());
     }
 
     #[test]
@@ -1042,24 +1113,39 @@ mod executing_work_tests {
     #[test]
     fn old_paid_bounded_entry_keeps_its_original_trace() {
         let mut legacy = CountingWork::new(usize::MAX);
-        assert_eq!(CanonicalBytes::from_value_with_work_bounded(&Value::String("a".into()), &mut legacy, 3).unwrap().as_slice(), br#""a""#);
+        assert_eq!(
+            CanonicalBytes::from_value_with_work_bounded(
+                &Value::String("a".into()),
+                &mut legacy,
+                3
+            )
+            .unwrap()
+            .as_slice(),
+            br#""a""#
+        );
         assert_eq!(legacy.visits, vec![Visit::Value]);
         assert!(legacy.operations.is_empty());
-        assert_eq!((legacy.used,legacy.scanned,legacy.written),(1,1,3));
+        assert_eq!((legacy.used, legacy.scanned, legacy.written), (1, 1, 3));
     }
     #[test]
     fn destination_arithmetic_refusal_precedes_reserve() {
         let mut full = CountingWork::new(usize::MAX);
         let mut destination = Destination::representation(1);
         destination.prepare(1, &mut full).unwrap();
-        assert_eq!(full.operations, vec![
-            (Op::Add, vec![0.into(), 1.into()]),
-            (Op::Compare, vec![1.into(), 1.into()]),
-            (Op::Compare, vec![1.into(), 0.into()]),
-        ]);
+        assert_eq!(
+            full.operations,
+            vec![
+                (Op::Add, vec![0.into(), 1.into()]),
+                (Op::Compare, vec![1.into(), 1.into()]),
+                (Op::Compare, vec![1.into(), 0.into()]),
+            ]
+        );
         let mut short = CountingWork::new(full.used - 1);
         let mut refused = Destination::representation(1);
-        assert_eq!(refused.prepare(1, &mut short).unwrap_err().code, "TEST_EXHAUSTED");
+        assert_eq!(
+            refused.prepare(1, &mut short).unwrap_err().code,
+            "TEST_EXHAUSTED"
+        );
         assert_eq!(refused.bytes.capacity(), 0);
         assert!(refused.bytes.is_empty());
     }

@@ -2,7 +2,7 @@
 use super::*;
 use crate::{
     billing::BillingLedger,
-    service::workflow::{LocalWorkflowLedger, local::deadline},
+    service::workflow::{local::deadline, LocalWorkflowLedger},
     store::{
         errors::{CommitError, StoreError},
         ports::{AcceptanceStore, AcceptanceTx},
@@ -101,12 +101,10 @@ async fn every_reference_to_a_shared_origin_is_retained_and_wrong_member_index_r
         .find(|d| d.identity == original.identity)
         .unwrap();
     assert!(first.references.contains(evidence));
-    assert!(
-        first
-            .references
-            .iter()
-            .any(|r| r.kind == "workflow-authority")
-    );
+    assert!(first
+        .references
+        .iter()
+        .any(|r| r.kind == "workflow-authority"));
     assert_eq!(first.references.len(), 2);
     tx.rollback().await.unwrap();
     assert_eq!(

@@ -67,8 +67,8 @@ pub(in crate::service::workflow) fn with_proofs<'a, T: Send + 'a>(
     tx: &'a mut SqliteTx,
     key: &OperationKey,
     run: impl FnOnce(&'a mut SqliteTx) -> Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>
-    + Send
-    + 'a,
+        + Send
+        + 'a,
 ) -> Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>> {
     match present(tx, key) {
         Ok(true) => return run(tx),
@@ -314,14 +314,34 @@ pub(super) fn enter(
             // The installed Profile B operation bound counts both publication
             // and agreement identities; duplicates do not consume this set.
             if state.active.contains(identity) {
-                state.invalidate();return Err(ServiceError::IntegrityFailure);
+                state.invalidate();
+                return Err(ServiceError::IntegrityFailure);
             }
-            let observed=state.active.len().checked_add(state.complete.len()).and_then(|n|n.checked_add(1)).ok_or(ServiceError::Unavailable)?;
-            if let Some(settings)=tx.workflow_snapshot.as_ref().and_then(|s|s.settings.as_ref()) {
-                if let Some(limit)=settings.resolved_records {if observed>limit {
-                    state.invalidate();return Err(ServiceError::ResourceLimit{setting:"resolved_records",limit:limit as u64,observed:observed as u64});
-                }}
-            }else if observed>100_000 {state.invalidate();return Err(ServiceError::IntegrityFailure);}
+            let observed = state
+                .active
+                .len()
+                .checked_add(state.complete.len())
+                .and_then(|n| n.checked_add(1))
+                .ok_or(ServiceError::Unavailable)?;
+            if let Some(settings) = tx
+                .workflow_snapshot
+                .as_ref()
+                .and_then(|s| s.settings.as_ref())
+            {
+                if let Some(limit) = settings.resolved_records {
+                    if observed > limit {
+                        state.invalidate();
+                        return Err(ServiceError::ResourceLimit {
+                            setting: "resolved_records",
+                            limit: limit as u64,
+                            observed: observed as u64,
+                        });
+                    }
+                }
+            } else if observed > 100_000 {
+                state.invalidate();
+                return Err(ServiceError::IntegrityFailure);
+            }
             state.active.insert(identity.to_vec());
             Ok(Entry::Started(Guard {
                 identity: identity.to_vec(),

@@ -1,8 +1,8 @@
 //! Strict raw outer ingress. Payload trust/normalization is a separate typed step.
-use super::super::{Result, records, reject, request::OperationKey, require};
+use super::super::{records, reject, request::OperationKey, require, Result};
 use ledgerlab_core::canonical;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

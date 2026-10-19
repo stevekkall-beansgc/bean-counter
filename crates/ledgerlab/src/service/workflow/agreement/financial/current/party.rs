@@ -15,7 +15,9 @@ pub(in super::super) struct PartyRecord {
     _lease: ExternalBufferLease,
 }
 impl PartyRecord {
-    pub(in super::super) fn canonical_bytes(&self)->&[u8] {self.stored.body.bytes()}
+    pub(in super::super) fn canonical_bytes(&self) -> &[u8] {
+        self.stored.body.bytes()
+    }
     fn body(&self) -> &Value {
         self.parsed.value()
     }

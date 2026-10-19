@@ -3,7 +3,7 @@
 use super::super::*;
 use super::prepare;
 use crate::{
-    service::workflow::local::{LocalWorkflowLedger, deadline},
+    service::workflow::local::{deadline, LocalWorkflowLedger},
     store::ports::{AcceptanceStore, AcceptanceTx},
 };
 

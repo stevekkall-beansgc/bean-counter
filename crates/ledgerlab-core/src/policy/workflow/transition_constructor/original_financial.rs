@@ -4,14 +4,14 @@
 //! descriptor/manifest/receipt/audit witnesses and capacity/funding obligations.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    CoreMeter, arithmetic, body, codec, construct,
+    arithmetic, body, codec, construct,
     data::*,
     meter,
     records::{self, Records},
-    shape,
+    shape, CoreMeter,
 };
-use crate::{Error, Result, canonical, domain::Timestamp};
-use serde_json::{Value, json};
+use crate::{canonical, domain::Timestamp, Error, Result};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 macro_rules! call {
@@ -654,24 +654,20 @@ mod tests {
             canonical_body: value.canonical_body.into_legacy().unwrap(),
         };
         let pool = vec![row.clone()];
-        assert!(
-            partition_inputs(&mut m, &pool, &[], &[])
-                .unwrap()
-                .is_empty()
-        );
+        assert!(partition_inputs(&mut m, &pool, &[], &[])
+            .unwrap()
+            .is_empty());
         let prior =
             partition_inputs(&mut m, &pool, std::slice::from_ref(&row.reference), &[]).unwrap();
         assert_eq!(prior.len(), 1);
         assert_eq!(prior[0].canonical_body, row.canonical_body);
-        assert!(
-            partition_inputs(
-                &mut m,
-                &pool,
-                std::slice::from_ref(&row.reference),
-                std::slice::from_ref(&row)
-            )
-            .is_err()
-        );
+        assert!(partition_inputs(
+            &mut m,
+            &pool,
+            std::slice::from_ref(&row.reference),
+            std::slice::from_ref(&row)
+        )
+        .is_err());
         let mut changed = row.reference.clone();
         changed.digest = format!("sha256:{}", "0".repeat(64));
         assert!(partition_inputs(&mut m, &pool, &[changed], &[]).is_err());
@@ -685,15 +681,13 @@ mod tests {
         assert!(ordinary_tuple(&mut m, "outcome.submit", "ledger-workflow-outcome/1", r).is_ok());
         assert!(ordinary_tuple(&mut m, "work.reverse", "ledger-workflow-work/1", r).is_err());
         assert!(ordinary_tuple(&mut m, "work.accept", "ledger-workflow-outcome/1", r).is_err());
-        assert!(
-            ordinary_tuple(
-                &mut m,
-                "quantity.correct",
-                "ledger-workflow-quantity-correction/2",
-                r
-            )
-            .is_err()
-        );
+        assert!(ordinary_tuple(
+            &mut m,
+            "quantity.correct",
+            "ledger-workflow-quantity-correction/2",
+            r
+        )
+        .is_err());
     }
     #[test]
     fn exact_raw_evidence_rejects_changed_bytes_padding_hash_and_fields() {

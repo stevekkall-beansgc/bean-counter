@@ -67,8 +67,13 @@ pub struct AuthorityContextData {
 impl AuthorityContextData {
     /// Old audit recipes require their real observation. The new local recipe
     /// supplies genuine absence and never manufactures a content-addressed Ref.
-    pub(super) fn required_observation_ref(&self)->crate::Result<&ExactRef>{
-        self.authority_observation_ref.as_ref().ok_or_else(||crate::Error::new("INTEGRITY_FAILURE","experimental source observation is required"))
+    pub(super) fn required_observation_ref(&self) -> crate::Result<&ExactRef> {
+        self.authority_observation_ref.as_ref().ok_or_else(|| {
+            crate::Error::new(
+                "INTEGRITY_FAILURE",
+                "experimental source observation is required",
+            )
+        })
     }
 }
 #[derive(Clone, Debug)]
@@ -90,31 +95,31 @@ pub struct CapacityHead {
     pub revision: String,
     pub reference: ExactRef,
 }
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct InvocationHead {
-    pub invocation_id:String,
-    pub revision:String,
-    pub reference:ExactRef,
+    pub invocation_id: String,
+    pub revision: String,
+    pub reference: ExactRef,
 }
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct CostHead {
-    pub cost_claim_ref:ExactRef,
-    pub revision:String,
-    pub reference:ExactRef,
+    pub cost_claim_ref: ExactRef,
+    pub revision: String,
+    pub reference: ExactRef,
 }
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct CostOwnerHead {
-    pub revision:String,
-    pub reference:ExactRef,
+    pub revision: String,
+    pub reference: ExactRef,
 }
 /// Held-snapshot DATA, not index completeness, owner custody or a caller proof.
 /// Each consumer derives the exact key from actual original records and checks
 /// the selected head's full body/identity/lineage before constructing effects.
 pub struct SupplierStateData<'a> {
-    pub invocation_heads:&'a [InvocationHead],
-    pub cost_heads:&'a [CostHead],
-    pub cost_consumption_heads:&'a [CostHead],
-    pub cost_owner_heads:&'a [CostOwnerHead],
+    pub invocation_heads: &'a [InvocationHead],
+    pub cost_heads: &'a [CostHead],
+    pub cost_consumption_heads: &'a [CostHead],
+    pub cost_owner_heads: &'a [CostOwnerHead],
 }
 /// Actual point-lookup hits selected under the held host snapshot. Lists carry
 /// retained rows, not a completeness/authority bit; each pure consumer checks
@@ -128,19 +133,19 @@ pub struct AppStateData<'a> {
 }
 /// Locked current projection DATA selected by the host, independent of the
 /// original acceptance verification's historical party-reference fields.
-#[derive(Clone,Debug)]
+#[derive(Clone, Debug)]
 pub struct PartyAuthorizationHead {
-    pub authorization_id:String,
-    pub revision:String,
-    pub reference:ExactRef,
+    pub authorization_id: String,
+    pub revision: String,
+    pub reference: ExactRef,
 }
 /// Exact observation/verifier operands. The fresh constructor treats this pair
 /// as its actual pending observation; saved reconstruction treats the historical
 /// pair as retained and compares its original introduction/results separately.
 /// No authenticated/completed boolean or resource credit is represented here.
 pub struct EconomicObservationInput<'a> {
-    pub observation:EconomicRecordView<'a>,
-    pub verification:EconomicRecordView<'a>,
+    pub observation: EconomicRecordView<'a>,
+    pub verification: EconomicRecordView<'a>,
 }
 /// The complete candidate's extra projection DATA. The host must select these
 /// exact capacity heads under the same snapshot/locks as financial heads;
@@ -148,18 +153,19 @@ pub struct EconomicObservationInput<'a> {
 pub struct EconomicStateData<'a> {
     /// Actual locked permanent assertion-key hit for this retention request.
     /// None is meaningful only after host exact-key absence reconciliation.
-    pub retained_assertion:Option<&'a ExactRef>,
+    pub retained_assertion: Option<&'a ExactRef>,
     pub financial: &'a DraftStateData,
     pub capacity_heads: &'a [CapacityHead],
-    pub supplier:Option<&'a SupplierStateData<'a>>,
-    pub app:Option<&'a AppStateData<'a>>,
-    pub current_party_authorizations:&'a [PartyAuthorizationHead],
-    pub observation:Option<&'a EconomicObservationInput<'a>>,
-    pub audit:Option<&'a super::financial_observation::audit_stream::RecomputedAuditDigest<'a>>,
+    pub supplier: Option<&'a SupplierStateData<'a>>,
+    pub app: Option<&'a AppStateData<'a>>,
+    pub current_party_authorizations: &'a [PartyAuthorizationHead],
+    pub observation: Option<&'a EconomicObservationInput<'a>>,
+    pub audit: Option<&'a super::financial_observation::audit_stream::RecomputedAuditDigest<'a>>,
     /// Exact construction facts from the SAME original source record producer.
     /// The chronological host must associate these with completed originals;
     /// this field never supplies source authority or skips retained-body reads.
-    pub initial_source_correspondences:&'a [&'a super::source_records::InitialSourceCorrespondence],
+    pub initial_source_correspondences:
+        &'a [&'a super::source_records::InitialSourceCorrespondence],
 }
 #[derive(Clone, Debug, Default)]
 pub struct DraftStateData {
@@ -212,7 +218,10 @@ pub(super) enum OriginalWorkPayload {
 impl OriginalWorkPayload {
     pub(super) fn payload(&self) -> crate::Result<&serde_json::Value> {
         match self {
-            Self::Unattached=>Err(crate::Error::new("INTEGRITY_FAILURE","unattached evidence has no original work payload")),
+            Self::Unattached => Err(crate::Error::new(
+                "INTEGRITY_FAILURE",
+                "unattached evidence has no original work payload",
+            )),
             Self::New(value) => Ok(value),
             // Every retained constructor path established the closed WorkRecord
             // and its original payload before creating this private variant.
@@ -225,22 +234,22 @@ pub(super) struct EconomicConstruction {
     pub original_work: OriginalWorkPayload,
 }
 pub(super) struct AppHeadProposal {
-    pub claim_ref:ExactRef,
-    pub expected:Option<ExactRef>,
-    pub proposed:ExactRef,
-    pub revision:String,
+    pub claim_ref: ExactRef,
+    pub expected: Option<ExactRef>,
+    pub proposed: ExactRef,
+    pub revision: String,
 }
 pub(super) struct AppEffects {
-    pub claims:Vec<super::candidate::ClaimEffect>,
-    pub heads:Vec<AppHeadProposal>,
+    pub claims: Vec<super::candidate::ClaimEffect>,
+    pub heads: Vec<AppHeadProposal>,
 }
 pub(super) struct Construction<'inv, 'raw> {
     pub economic: EconomicConstruction,
     pub original_reservations: Option<super::capacity::original::OriginalReservations>,
-    pub financial_reservations:Option<super::capacity::original::FinancialReservations>,
+    pub financial_reservations: Option<super::capacity::original::FinancialReservations>,
     pub normalized_payload: super::emitted_record::EncodedBody,
     pub new_envelopes: Vec<super::emitted_record::ConstructedEnvelope>,
-    pub reused_result:Option<ExactRef>,
+    pub reused_result: Option<ExactRef>,
     pub evaluation_steps: Vec<serde_json::Value>,
     pub proposed_heads: ProposedHeads,
     pub claim_introductions: Vec<ExactRef>,
@@ -248,16 +257,16 @@ pub(super) struct Construction<'inv, 'raw> {
     pub prospective_obligations: Vec<super::working_value::WorkingValue>,
     pub records: super::records::Records<'inv, 'raw>,
     pub history_edges: Vec<(ExactRef, ExactRef)>,
-    pub app_effects:Option<AppEffects>,
-    pub app_causal:Option<super::app_cost::causal::CausalBatch>,
-    pub current_capacity:Option<super::capacity::current::CurrentCapacity>,
-    pub candidate_heads:Option<super::candidate::heads::OwnedHeads>,
-    pub candidate_introductions:Option<super::candidate::introductions::OwnedIntroductions>,
-    pub financial_observation:Option<super::financial_observation::complete::CheckedObservation>,
-    pub funding_effects:Option<super::funding::OwnedFundingEffects>,
+    pub app_effects: Option<AppEffects>,
+    pub app_causal: Option<super::app_cost::causal::CausalBatch>,
+    pub current_capacity: Option<super::capacity::current::CurrentCapacity>,
+    pub candidate_heads: Option<super::candidate::heads::OwnedHeads>,
+    pub candidate_introductions: Option<super::candidate::introductions::OwnedIntroductions>,
+    pub financial_observation: Option<super::financial_observation::complete::CheckedObservation>,
+    pub funding_effects: Option<super::funding::OwnedFundingEffects>,
     // Retain each producer's control payload owner after its returned vectors,
     // typed Ref/string fields and body owners. These are memory only.
-    pub control_owners:[Option<crate::canonical::audit_arena::ExternalBufferLease>;5],
+    pub control_owners: [Option<crate::canonical::audit_arena::ExternalBufferLease>; 5],
 }
 impl Construction<'_, '_> {
     pub(super) fn draft_projection(
@@ -275,7 +284,11 @@ impl Construction<'_, '_> {
             proposed_heads: self.proposed_heads,
             claim_introductions: self.claim_introductions,
             link_introductions: self.link_introductions,
-            prospective_obligations: self.prospective_obligations.into_iter().map(super::working_value::WorkingValue::into_legacy).collect::<crate::Result<_>>()?,
+            prospective_obligations: self
+                .prospective_obligations
+                .into_iter()
+                .map(super::working_value::WorkingValue::into_legacy)
+                .collect::<crate::Result<_>>()?,
             consumed_refs: super::body::ref_set(m, self.records.into_legacy_consumed()?)?,
             history_edges: self.history_edges,
             usage: m.snapshot_usage()?,

@@ -3,16 +3,17 @@
 //! This code contains no supplier claim, invocation, owner or consumption step.
 //! Both routes use the SAME pricing::PricedInstruction and existing action IDs.
 use super::{
-    CoreMeter, body,
+    body,
     data::{DraftContextData, ExactRef},
     emitted_record::ConstructedEnvelope,
     meter, pricing, shape,
     working_value::owning_reference,
+    CoreMeter,
 };
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, AuditedValue},
     validation_work::{self as w, RepresentationKind, ValidationWork},
+    Result,
 };
 use num_bigint::BigInt;
 use serde_json::Value;
@@ -60,9 +61,13 @@ pub(super) fn operation_key(
     arena: &AuditArena,
     c: &DraftContextData,
 ) -> Result<AuditedValue> {
-    operation_key_value(m,arena,&c.key)
+    operation_key_value(m, arena, &c.key)
 }
-fn operation_key_value(m:&mut CoreMeter,arena:&AuditArena,key:&super::data::OperationKey)->Result<AuditedValue>{
+fn operation_key_value(
+    m: &mut CoreMeter,
+    arena: &AuditArena,
+    key: &super::data::OperationKey,
+) -> Result<AuditedValue> {
     let store = arena.string_value(&key.logical_store_id, m)?;
     let source = arena.string_value(&key.source, m)?;
     let id = arena.string_value(&key.operation_id, m)?;
@@ -87,9 +92,23 @@ pub(super) fn original_effect(
     original_work_claim: &ExactRef,
     component_slot: &Value,
 ) -> Result<String> {
-    original_effect_key(m,arena,&c.key,binding,original_work_claim,component_slot)
+    original_effect_key(
+        m,
+        arena,
+        &c.key,
+        binding,
+        original_work_claim,
+        component_slot,
+    )
 }
-fn original_effect_key(m:&mut CoreMeter,arena:&AuditArena,key:&super::data::OperationKey,binding:&Value,original_work_claim:&ExactRef,component_slot:&Value)->Result<String>{
+fn original_effect_key(
+    m: &mut CoreMeter,
+    arena: &AuditArena,
+    key: &super::data::OperationKey,
+    binding: &Value,
+    original_work_claim: &ExactRef,
+    component_slot: &Value,
+) -> Result<String> {
     let key = operation_key_value(m, arena, key)?;
     let claim = arena.string_value(&original_work_claim.id, m)?;
     let constants = m.parse_owned_representation(
@@ -149,15 +168,22 @@ pub(super) fn original_cost_posting(
     original: OriginalCostPosting<'_>,
     price: &pricing::PricedInstruction,
 ) -> Result<CostPosting> {
-    original_cost_posting_key(m,&c.key,original,price)
+    original_cost_posting_key(m, &c.key, original, price)
 }
 /// The original-record verifier supplies its actual immutable captured key;
 /// this does not substitute the correcting actor/source or confer authority.
-pub(super) fn original_cost_posting_key(m:&mut CoreMeter,key:&super::data::OperationKey,original:OriginalCostPosting<'_>,price:&pricing::PricedInstruction)->Result<CostPosting>{
+pub(super) fn original_cost_posting_key(
+    m: &mut CoreMeter,
+    key: &super::data::OperationKey,
+    original: OriginalCostPosting<'_>,
+    price: &pricing::PricedInstruction,
+) -> Result<CostPosting> {
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning original cost posting"))?;
-    let supplied_basis=m.check("posting.original_basis_supplied",||original.basis_refs.is_some())?;
+    let supplied_basis = m.check("posting.original_basis_supplied", || {
+        original.basis_refs.is_some()
+    })?;
     if !supplied_basis && !w::compare(m, price.basis_components.len(), 0usize)?.is_eq() {
         return Err(shape::fail("cost formula unexpected action basis"));
     }
@@ -178,7 +204,7 @@ pub(super) fn original_cost_posting_key(m:&mut CoreMeter,key:&super::data::Opera
     let effect = arena.string_value(&effect, m)?;
     let rounded = amount(m, &arena, &price.atoms.into())?;
     let empty = arena.array_from_values(&[], m)?;
-    let basis=original.basis_refs.unwrap_or_else(||empty.value());
+    let basis = original.basis_refs.unwrap_or_else(|| empty.value());
     let nonzero = !meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq();
     let posting = if original.replacement {
         &constants.value()["replacement"]
@@ -250,51 +276,106 @@ pub(super) fn original_cost_posting_key(m:&mut CoreMeter,key:&super::data::Opera
 /// and app costs. Its original effect is selected by the enclosing family
 /// interpreter, including the exact original link and family basis.
 pub(super) struct FamilyPosting<'a> {
-    pub effect_id:&'a str,pub decision_id:&'a str,pub revision:&'a BigInt,
-    pub root_slot:&'a Value,pub family_slot:&'a Value,pub basis_refs:&'a Value,
-    pub role_ref:&'a ExactRef,pub terms_ref:&'a ExactRef,pub terms:&'a Value,
-    pub replacement:bool,
+    pub effect_id: &'a str,
+    pub decision_id: &'a str,
+    pub revision: &'a BigInt,
+    pub root_slot: &'a Value,
+    pub family_slot: &'a Value,
+    pub basis_refs: &'a Value,
+    pub role_ref: &'a ExactRef,
+    pub terms_ref: &'a ExactRef,
+    pub terms: &'a Value,
+    pub replacement: bool,
 }
-pub(super) fn family_posting(m:&mut CoreMeter,c:&DraftContextData,original:FamilyPosting<'_>,price:&pricing::PricedOutcome)->Result<CostPosting>{
-    let arena=m.representation_arena().ok_or_else(||shape::fail("owning original family posting"))?;
+pub(super) fn family_posting(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    original: FamilyPosting<'_>,
+    price: &pricing::PricedOutcome,
+) -> Result<CostPosting> {
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning original family posting"))?;
     let constants=m.parse_owned_representation(&arena,
         br#"{"schema":"ledger-workflow-action/1","original":"original","replacement":"replacement","book":"retail","true":"true","none":"none","posted":"posted","zero":"zero"}"#,
         RepresentationKind::SourceDefinition)?;
-    let effect=arena.string_value(original.effect_id,m)?;
-    let decision=arena.string_value(original.decision_id,m)?;
-    let revision=scalar(m,&arena,original.revision)?;
-    let amount=amount(m,&arena,&price.atoms.into())?;
-    let key=operation_key(m,&arena,c)?;
-    let role=owning_reference(m,&arena,original.role_ref)?;
-    let terms=owning_reference(m,&arena,original.terms_ref)?;
-    let posting=if original.replacement{&constants.value()["replacement"]}else{&constants.value()["original"]};
-    let nonzero=!meter::cmp(m,&price.atoms.into(),&0.into())?.is_eq();
-    let action=if nonzero&&!price.none{
-        let id=action_id(m,&arena,effect.value(),revision.value(),posting)?;
-        let value=arena.object_from_fields(&[
-            ("schema",&constants.value()["schema"]),("effect_id",effect.value()),
-            ("decision_id",decision.value()),("revision",revision.value()),("posting_role",posting),
-            ("book",&constants.value()["book"]),("component_slot",original.root_slot),("root_component_slot",original.root_slot),
-            ("role_ref",role.value()),("slot_terms_ref",terms.value()),("funding_leg",&original.terms["funding_leg"]),
-            ("amount",amount.value()),("basis_refs",original.basis_refs),("operation_key",key.value()),
-        ],m)?;
-        Some(body::record_borrowed(m,&c.key,"workflow-action",id,value.value())?)
-    }else{None};
-    let ordinal=arena.string_value(&price.ordinal,m)?;
-    let numerator=scalar(m,&arena,&price.rational.numerator)?;
-    let denominator=scalar(m,&arena,&price.rational.denominator)?;
-    let disposition=if price.none{&constants.value()["none"]}else if nonzero{&constants.value()["posted"]}else{&constants.value()["zero"]};
-    let step=arena.object_from_fields(&[
-        ("instruction",ordinal.value()),("component_slot",original.root_slot),("family_slot",original.family_slot),
-        ("predicate",&constants.value()["true"]),("basis_refs",original.basis_refs),
-        ("rational_numerator",numerator.value()),("rational_denominator",denominator.value()),
-        ("rounded",amount.value()),("disposition",disposition),
-    ],m)?;
-    let step=if let Some(action)=&action{
-        let reference=owning_reference(m,&arena,&action.reference)?;
-        super::working_value::WorkingValue::Owned(step).with_fields(m,&[("action_ref",reference.value())])?.into_owned()?
-    }else{step};
-    Ok(CostPosting{action,step})
+    let effect = arena.string_value(original.effect_id, m)?;
+    let decision = arena.string_value(original.decision_id, m)?;
+    let revision = scalar(m, &arena, original.revision)?;
+    let amount = amount(m, &arena, &price.atoms.into())?;
+    let key = operation_key(m, &arena, c)?;
+    let role = owning_reference(m, &arena, original.role_ref)?;
+    let terms = owning_reference(m, &arena, original.terms_ref)?;
+    let posting = if original.replacement {
+        &constants.value()["replacement"]
+    } else {
+        &constants.value()["original"]
+    };
+    let nonzero = !meter::cmp(m, &price.atoms.into(), &0.into())?.is_eq();
+    let action = if nonzero && !price.none {
+        let id = action_id(m, &arena, effect.value(), revision.value(), posting)?;
+        let value = arena.object_from_fields(
+            &[
+                ("schema", &constants.value()["schema"]),
+                ("effect_id", effect.value()),
+                ("decision_id", decision.value()),
+                ("revision", revision.value()),
+                ("posting_role", posting),
+                ("book", &constants.value()["book"]),
+                ("component_slot", original.root_slot),
+                ("root_component_slot", original.root_slot),
+                ("role_ref", role.value()),
+                ("slot_terms_ref", terms.value()),
+                ("funding_leg", &original.terms["funding_leg"]),
+                ("amount", amount.value()),
+                ("basis_refs", original.basis_refs),
+                ("operation_key", key.value()),
+            ],
+            m,
+        )?;
+        Some(body::record_borrowed(
+            m,
+            &c.key,
+            "workflow-action",
+            id,
+            value.value(),
+        )?)
+    } else {
+        None
+    };
+    let ordinal = arena.string_value(&price.ordinal, m)?;
+    let numerator = scalar(m, &arena, &price.rational.numerator)?;
+    let denominator = scalar(m, &arena, &price.rational.denominator)?;
+    let disposition = if price.none {
+        &constants.value()["none"]
+    } else if nonzero {
+        &constants.value()["posted"]
+    } else {
+        &constants.value()["zero"]
+    };
+    let step = arena.object_from_fields(
+        &[
+            ("instruction", ordinal.value()),
+            ("component_slot", original.root_slot),
+            ("family_slot", original.family_slot),
+            ("predicate", &constants.value()["true"]),
+            ("basis_refs", original.basis_refs),
+            ("rational_numerator", numerator.value()),
+            ("rational_denominator", denominator.value()),
+            ("rounded", amount.value()),
+            ("disposition", disposition),
+        ],
+        m,
+    )?;
+    let step = if let Some(action) = &action {
+        let reference = owning_reference(m, &arena, &action.reference)?;
+        super::working_value::WorkingValue::Owned(step)
+            .with_fields(m, &[("action_ref", reference.value())])?
+            .into_owned()?
+    } else {
+        step
+    };
+    Ok(CostPosting { action, step })
 }
 
 /// Exact inverse of an ACTUAL current action already checked by the enclosing
@@ -308,14 +389,37 @@ pub(super) fn exact_inverse(
     original_instruction: &pricing::PricedInstruction,
     new_revision: &BigInt,
 ) -> Result<CostPosting> {
-    exact_inverse_selected(m,c,old_ref,old,original_instruction,new_revision,false)
+    exact_inverse_selected(
+        m,
+        c,
+        old_ref,
+        old,
+        original_instruction,
+        new_revision,
+        false,
+    )
 }
 /// Root customer postings can be negative discounts. Their exact inverse uses
 /// the SAME emitter and explanation; the app-cost entry remains positive-only.
-pub(super) fn exact_root_inverse(m:&mut CoreMeter,c:&DraftContextData,old_ref:&ExactRef,old:&Value,original_instruction:&pricing::PricedInstruction,new_revision:&BigInt)->Result<CostPosting>{
-    exact_inverse_selected(m,c,old_ref,old,original_instruction,new_revision,true)
+pub(super) fn exact_root_inverse(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    old_ref: &ExactRef,
+    old: &Value,
+    original_instruction: &pricing::PricedInstruction,
+    new_revision: &BigInt,
+) -> Result<CostPosting> {
+    exact_inverse_selected(m, c, old_ref, old, original_instruction, new_revision, true)
 }
-fn exact_inverse_selected(m:&mut CoreMeter,c:&DraftContextData,old_ref:&ExactRef,old:&Value,original_instruction:&pricing::PricedInstruction,new_revision:&BigInt,signed:bool)->Result<CostPosting>{
+fn exact_inverse_selected(
+    m: &mut CoreMeter,
+    c: &DraftContextData,
+    old_ref: &ExactRef,
+    old: &Value,
+    original_instruction: &pricing::PricedInstruction,
+    new_revision: &BigInt,
+    signed: bool,
+) -> Result<CostPosting> {
     let arena = m
         .representation_arena()
         .ok_or_else(|| shape::fail("owning exact cost inverse"))?;
@@ -359,8 +463,8 @@ fn exact_inverse_selected(m:&mut CoreMeter,c:&DraftContextData,old_ref:&ExactRef
     }
     let atoms = shape::text(m, &old["amount"], "atoms")?;
     let atoms = super::arithmetic::integer(m, atoms, signed)?;
-    let sign=meter::cmp(m, &atoms, &0.into())?;
-    if if signed{sign.is_eq()}else{!sign.is_gt()} {
+    let sign = meter::cmp(m, &atoms, &0.into())?;
+    if if signed { sign.is_eq() } else { !sign.is_gt() } {
         return Err(shape::fail(
             "exact cost inverse requires nonzero actual posting",
         ));
@@ -456,7 +560,7 @@ mod tests {
             basis_components: vec![],
             rational,
             atoms,
-            _ownership:None,
+            _ownership: None,
         }
     }
     #[test]
@@ -507,7 +611,7 @@ mod tests {
                     decision_id: "cost_decision",
                     revision: $revision,
                     replacement: $replacement,
-                    basis_refs:None,
+                    basis_refs: None,
                 }
             };
         }
@@ -521,23 +625,50 @@ mod tests {
         assert_eq!(original_body["amount"]["atoms"], "2000000000000000000");
         // SAME producer also emits an original named-basis work action. The
         // enclosing work selector, not this DATA unit, authenticates its basis.
-        let basis=json!([original.reference]);
-        let revision=num_bigint::BigInt::from(1);
-        let mut named=selection!(&revision,false);named.basis_refs=Some(&basis);
-        let named=original_cost_posting(&mut m,&c,named,&initial_price).unwrap();
-        let named_body=named.action.as_ref().unwrap().decoded(&mut m,4194304).unwrap();
-        assert_eq!(named_body["basis_refs"],basis);
-        assert_eq!(named.step.value()["basis_refs"],basis);
-        drop(named_body);drop(named);
+        let basis = json!([original.reference]);
+        let revision = num_bigint::BigInt::from(1);
+        let mut named = selection!(&revision, false);
+        named.basis_refs = Some(&basis);
+        let named = original_cost_posting(&mut m, &c, named, &initial_price).unwrap();
+        let named_body = named
+            .action
+            .as_ref()
+            .unwrap()
+            .decoded(&mut m, 4194304)
+            .unwrap();
+        assert_eq!(named_body["basis_refs"], basis);
+        assert_eq!(named.step.value()["basis_refs"], basis);
+        drop(named_body);
+        drop(named);
         // Original reconstruction uses the actual captured older key even
         // when a later actor/source is evaluating the retained action.
-        let captured=OperationKey{logical_store_id:c.key.logical_store_id.clone(),scope:c.key.scope.clone(),source:"urn:original-worker".into(),operation_id:"original-work".into()};
-        let replay=original_cost_posting_key(&mut m,&captured,selection!(&revision,false),&initial_price).unwrap();
-        let replay_body=replay.action.as_ref().unwrap().decoded(&mut m,4194304).unwrap();
-        assert_eq!(replay_body["operation_key"],json!(captured));
-        assert_eq!(replay_body["effect_id"],original_body["effect_id"]);
-        assert_ne!(replay.action.as_ref().unwrap().reference,original.reference);
-        drop(replay_body);drop(replay);
+        let captured = OperationKey {
+            logical_store_id: c.key.logical_store_id.clone(),
+            scope: c.key.scope.clone(),
+            source: "urn:original-worker".into(),
+            operation_id: "original-work".into(),
+        };
+        let replay = original_cost_posting_key(
+            &mut m,
+            &captured,
+            selection!(&revision, false),
+            &initial_price,
+        )
+        .unwrap();
+        let replay_body = replay
+            .action
+            .as_ref()
+            .unwrap()
+            .decoded(&mut m, 4194304)
+            .unwrap();
+        assert_eq!(replay_body["operation_key"], json!(captured));
+        assert_eq!(replay_body["effect_id"], original_body["effect_id"]);
+        assert_ne!(
+            replay.action.as_ref().unwrap().reference,
+            original.reference
+        );
+        drop(replay_body);
+        drop(replay);
 
         let inverse = exact_inverse(
             &mut m,
@@ -580,36 +711,127 @@ mod tests {
         // Root discounts invert signed customer amounts through the SAME
         // emitter, while the app-cost entry remains positive-only.
         {
-            let discounted=price(&mut m,-400_000_000_000_000_000);
-            let current=original_cost_posting(&mut m,&c,selection!(&2.into(),true),&discounted).unwrap();
-            let action=current.action.as_ref().unwrap();let actual=action.decoded(&mut m,4194304).unwrap();
-            let reversed=exact_root_inverse(&mut m,&c,&action.reference,&actual,&discounted,&3.into()).unwrap();
-            let inverse=reversed.action.as_ref().unwrap();let view=inverse.decoded(&mut m,4194304).unwrap();
-            assert_eq!(view["amount"]["atoms"],"400000000000000000");
-            assert_eq!(reversed.step.value()["rational_numerator"],"400000000000000000");
-            let mut legacy=CoreMeter::new(65536).unwrap();
-            let id=body::semantic_id(&mut legacy,"waction_","workflow-action",&json!([actual["effect_id"],"3","inverse"])).unwrap();
-            let mut value=(*actual).clone();value["revision"]=json!("3");value["posting_role"]=json!("inverse");value["amount"]=json!({"currency":"USD","scale":18,"atoms":"400000000000000000"});value["operation_key"]=json!(c.key);value["inverse_of"]=json!(action.reference);
-            let expected=body::record(&mut legacy,&c.key,"workflow-action",id,value).unwrap();
-            assert_eq!(inverse.reference,expected.reference);assert_eq!(&*inverse.canonical_body,&*expected.canonical_body);
+            let discounted = price(&mut m, -400_000_000_000_000_000);
+            let current =
+                original_cost_posting(&mut m, &c, selection!(&2.into(), true), &discounted)
+                    .unwrap();
+            let action = current.action.as_ref().unwrap();
+            let actual = action.decoded(&mut m, 4194304).unwrap();
+            let reversed = exact_root_inverse(
+                &mut m,
+                &c,
+                &action.reference,
+                &actual,
+                &discounted,
+                &3.into(),
+            )
+            .unwrap();
+            let inverse = reversed.action.as_ref().unwrap();
+            let view = inverse.decoded(&mut m, 4194304).unwrap();
+            assert_eq!(view["amount"]["atoms"], "400000000000000000");
+            assert_eq!(
+                reversed.step.value()["rational_numerator"],
+                "400000000000000000"
+            );
+            let mut legacy = CoreMeter::new(65536).unwrap();
+            let id = body::semantic_id(
+                &mut legacy,
+                "waction_",
+                "workflow-action",
+                &json!([actual["effect_id"], "3", "inverse"]),
+            )
+            .unwrap();
+            let mut value = (*actual).clone();
+            value["revision"] = json!("3");
+            value["posting_role"] = json!("inverse");
+            value["amount"] = json!({"currency":"USD","scale":18,"atoms":"400000000000000000"});
+            value["operation_key"] = json!(c.key);
+            value["inverse_of"] = json!(action.reference);
+            let expected = body::record(&mut legacy, &c.key, "workflow-action", id, value).unwrap();
+            assert_eq!(inverse.reference, expected.reference);
+            assert_eq!(&*inverse.canonical_body, &*expected.canonical_body);
         }
         // The shared family producer preserves the legacy effect/action
         // bytes and distinguishes an executed none alternative from zero.
-        let link=reference("workflow-link","wlink_",'d');
-        let family_slot=json!("assessment");
-        let mut old_meter=CoreMeter::new(65536).unwrap();
-        let old_effect=super::super::outcome::original_family_effect(&mut old_meter,&c.key.scope,&binding["agreement_id"],"model_component",&work_claim,&family_slot,&link).unwrap();
-        let effect=super::super::outcome::original_family_effect(&mut m,&c.key.scope,&binding["agreement_id"],"model_component",&work_claim,&family_slot,&link).unwrap();
-        assert_eq!(old_effect,effect);
-        for (atoms,none) in [(2_000_000_000_000_000_000i128,false),(0,false),(0,true)]{
-            let family_price=pricing::PricedOutcome{ordinal:"3".into(),root_key:"model:cost".into(),family_key:"assessment".into(),rational:arithmetic::Ratio{numerator:atoms.into(),denominator:1.into()},atoms,none,_ownership:None};
-            let posting=family_posting(&mut m,&c,FamilyPosting{effect_id:&effect,decision_id:"outcome_decision",revision:&1.into(),root_slot:&slot,family_slot:&family_slot,basis_refs:&basis,role_ref:&role_ref,terms_ref:&terms_ref,terms:&terms,replacement:false},&family_price).unwrap();
-            if atoms!=0{
-                let id=body::semantic_id(&mut old_meter,"waction_","workflow-action",&json!([effect,"1","original"])).unwrap();
+        let link = reference("workflow-link", "wlink_", 'd');
+        let family_slot = json!("assessment");
+        let mut old_meter = CoreMeter::new(65536).unwrap();
+        let old_effect = super::super::outcome::original_family_effect(
+            &mut old_meter,
+            &c.key.scope,
+            &binding["agreement_id"],
+            "model_component",
+            &work_claim,
+            &family_slot,
+            &link,
+        )
+        .unwrap();
+        let effect = super::super::outcome::original_family_effect(
+            &mut m,
+            &c.key.scope,
+            &binding["agreement_id"],
+            "model_component",
+            &work_claim,
+            &family_slot,
+            &link,
+        )
+        .unwrap();
+        assert_eq!(old_effect, effect);
+        for (atoms, none) in [
+            (2_000_000_000_000_000_000i128, false),
+            (0, false),
+            (0, true),
+        ] {
+            let family_price = pricing::PricedOutcome {
+                ordinal: "3".into(),
+                root_key: "model:cost".into(),
+                family_key: "assessment".into(),
+                rational: arithmetic::Ratio {
+                    numerator: atoms.into(),
+                    denominator: 1.into(),
+                },
+                atoms,
+                none,
+                _ownership: None,
+            };
+            let posting = family_posting(
+                &mut m,
+                &c,
+                FamilyPosting {
+                    effect_id: &effect,
+                    decision_id: "outcome_decision",
+                    revision: &1.into(),
+                    root_slot: &slot,
+                    family_slot: &family_slot,
+                    basis_refs: &basis,
+                    role_ref: &role_ref,
+                    terms_ref: &terms_ref,
+                    terms: &terms,
+                    replacement: false,
+                },
+                &family_price,
+            )
+            .unwrap();
+            if atoms != 0 {
+                let id = body::semantic_id(
+                    &mut old_meter,
+                    "waction_",
+                    "workflow-action",
+                    &json!([effect, "1", "original"]),
+                )
+                .unwrap();
                 let expected=body::record(&mut old_meter,&c.key,"workflow-action",id,json!({"schema":"ledger-workflow-action/1","effect_id":effect,"decision_id":"outcome_decision","revision":"1","posting_role":"original","book":"retail","component_slot":slot,"root_component_slot":slot,"role_ref":role_ref,"slot_terms_ref":terms_ref,"funding_leg":terms["funding_leg"],"amount":{"currency":"USD","scale":18,"atoms":atoms.to_string()},"basis_refs":basis,"operation_key":c.key})).unwrap();
-                let actual=posting.action.as_ref().unwrap();assert_eq!(actual.reference,expected.reference);assert_eq!(&*actual.canonical_body,&*expected.canonical_body);
-                assert_eq!(posting.step.value()["disposition"],"posted");
-            }else{assert!(posting.action.is_none());assert_eq!(posting.step.value()["disposition"],if none{"none"}else{"zero"});}
+                let actual = posting.action.as_ref().unwrap();
+                assert_eq!(actual.reference, expected.reference);
+                assert_eq!(&*actual.canonical_body, &*expected.canonical_body);
+                assert_eq!(posting.step.value()["disposition"], "posted");
+            } else {
+                assert!(posting.action.is_none());
+                assert_eq!(
+                    posting.step.value()["disposition"],
+                    if none { "none" } else { "zero" }
+                );
+            }
         }
         session.meter_mut().finish_original_economic(m).unwrap();
         // No invocation, supplier claim/owner/allocation/consumption or supplier

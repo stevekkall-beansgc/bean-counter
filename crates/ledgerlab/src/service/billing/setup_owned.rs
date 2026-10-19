@@ -12,7 +12,9 @@ use ledgerlab_core::{
 };
 use std::mem;
 mod permissions;
-pub(crate) use permissions::{InitialPermissions,OwnedPermissionChange, PermissionRecipe, parse_permission};
+pub(crate) use permissions::{
+    parse_permission, InitialPermissions, OwnedPermissionChange, PermissionRecipe,
+};
 
 pub(crate) struct OwnedSetup {
     setup: Setup,
@@ -49,7 +51,11 @@ fn ensure(s: &mut OriginalAuditSession, code: &str, check: impl FnOnce() -> bool
     s.semantic_work()
         .visit(Visit::Constraint)
         .map_err(core_error)?;
-    if check() { Ok(()) } else { Err(fail(code, s)) }
+    if check() {
+        Ok(())
+    } else {
+        Err(fail(code, s))
+    }
 }
 fn compare(
     a: impl Into<ledgerlab_core::validation_work::BigInt>,

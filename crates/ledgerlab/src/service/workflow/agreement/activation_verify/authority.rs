@@ -90,12 +90,10 @@ pub(in crate::service::workflow::agreement) fn source_observation(
     match (source.state().status(), source.grant()) {
         ("revoked", None) => {}
         ("active", Some(grant)) => {
-            v["grant_ref"] = json!(
-                source
-                    .state()
-                    .current_grant_ref()
-                    .ok_or(ServiceError::IntegrityFailure)?
-            );
+            v["grant_ref"] = json!(source
+                .state()
+                .current_grant_ref()
+                .ok_or(ServiceError::IntegrityFailure)?);
             let c = grant.ceiling().canonical_value().map_err(typed_error)?;
             let starts = Timestamp::parse(text(&c, "starts_at")?)
                 .map_err(|_| ServiceError::IntegrityFailure)?;
@@ -269,8 +267,8 @@ pub(in crate::service::workflow::agreement) async fn stop_evidence_dependencies(
 mod tests {
     use super::*;
     #[test]
-    fn complete_bound_projection_allows_unrelated_narrowing_but_keeps_unused_bound_activity_and_correction()
-     {
+    fn complete_bound_projection_allows_unrelated_narrowing_but_keeps_unused_bound_activity_and_correction(
+    ) {
         let terms=records::source_document("workflow-slot-terms",json!({"schema":"ledger-workflow-slot-binding-terms/1","allowed_activities":["used","bound-unused"],"correction_source_slot":"correction"})).unwrap();
         let binding = json!({"source_slots":[{"name":"work","sources":["urn:source"]}],"bindings":[{"binding_ref":terms.reference}]});
         let product = json!({"product_id":"product"});

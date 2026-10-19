@@ -1,9 +1,9 @@
 //! Agreement input preparation only until the private resolver and atomic
 //! coordinator authenticate origins, assent, current grants and head pins.
+mod activation;
 pub(super) mod authority;
 pub(super) mod construct;
 mod execute;
-mod activation;
 mod payload;
 mod prepare;
 mod resolve;

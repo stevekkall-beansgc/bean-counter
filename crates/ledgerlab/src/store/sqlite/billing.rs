@@ -1,11 +1,14 @@
 //! Mechanical storage for the ordinary retail profile. No pricing or authority.
-use super::*;
-use super::workflow::financial::FinancialReadError;
-use ledgerlab_core::validation_work::{ValidationWork, NoopValidationWork, ValidationVisit, ArithmeticOperation as ResourceOp, OriginalAuditSession};
 use super::workflow::capacity::SessionWork;
+use super::workflow::financial::FinancialReadError;
+use super::*;
 use crate::service::billing::{
     ValidatedEntry, MAX_RETAINED_ALIASES, MAX_RETAINED_ALIAS_BYTES, MAX_RETAINED_ENTRIES,
     MAX_RETAINED_ENTRY_BYTES,
+};
+use ledgerlab_core::validation_work::{
+    ArithmeticOperation as ResourceOp, NoopValidationWork, OriginalAuditSession, ValidationVisit,
+    ValidationWork,
 };
 
 fn would_exceed_byte_limit(current: i64, additional: usize, limit: i64) -> bool {
@@ -228,7 +231,15 @@ impl SqliteTx {
     }
     async fn require_m3_billing_schema(&mut self) -> Result<(), StoreError> {
         let version = self.billing_schema_version().await?;
-        if version != 10 && version != 11 && version != 12 && version != 13 && version != 14 && version != 15 && version != 16 && version != 17 {
+        if version != 10
+            && version != 11
+            && version != 12
+            && version != 13
+            && version != 14
+            && version != 15
+            && version != 16
+            && version != 17
+        {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -236,7 +247,14 @@ impl SqliteTx {
 
     async fn require_m5_billing_schema(&mut self) -> Result<(), StoreError> {
         let version = self.billing_schema_version().await?;
-        if version != 11 && version != 12 && version != 13 && version != 14 && version != 15 && version != 16 && version != 17 {
+        if version != 11
+            && version != 12
+            && version != 13
+            && version != 14
+            && version != 15
+            && version != 16
+            && version != 17
+        {
             return Err(StoreError::BillingUpgradeRequired);
         }
         Ok(())
@@ -265,18 +283,23 @@ impl SqliteTx {
     async fn billing_bounds(
         &mut self,
     ) -> Result<(i64, i64, i64, i64, i64, Option<i64>, i64), StoreError> {
-        self.billing_bounds_work(&mut NoopValidationWork).await.map_err(legacy_billing_work_error)
+        self.billing_bounds_work(&mut NoopValidationWork)
+            .await
+            .map_err(legacy_billing_work_error)
     }
-    async fn billing_bounds_work<W:ValidationWork+Send>(&mut self, work:&mut W) -> Result<(i64,i64,i64,i64,i64,Option<i64>,i64),FinancialReadError> {
+    async fn billing_bounds_work<W: ValidationWork + Send>(
+        &mut self,
+        work: &mut W,
+    ) -> Result<(i64, i64, i64, i64, i64, Option<i64>, i64), FinancialReadError> {
         work.visit(ValidationVisit::RefLookup)?;
-        work.write_bytes(std::mem::size_of::<(i64,i64,i64,i64,i64)>())?;
+        work.write_bytes(std::mem::size_of::<(i64, i64, i64, i64, i64)>())?;
         let (guard, entry_count, alias_count, entry_bytes, alias_bytes): (i64, i64, i64, i64, i64) =
             sqlx::query_as("SELECT guard,entry_count,alias_count,entry_bytes,alias_bytes FROM billing_m3_bounds WHERE singleton=1")
                 .fetch_optional(self.conn())
                 .await?
                 .ok_or(StoreError::InvalidStore("billing history meter"))?;
         work.visit(ValidationVisit::RefLookup)?;
-        work.write_bytes(std::mem::size_of::<(i64,i64,i64,i64,i64)>())?;
+        work.write_bytes(std::mem::size_of::<(i64, i64, i64, i64, i64)>())?;
         let counted: (i64, i64, i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT count(*) FROM billing_entries)+(SELECT count(*) FROM billing_m2_entries)+(SELECT count(*) FROM billing_m3_entries),(SELECT count(*) FROM billing_aliases)+(SELECT count(*) FROM billing_m2_aliases)+(SELECT count(*) FROM billing_m3_aliases),(COALESCE((SELECT sum(length(bundle)+length(ingress)+length(facts)+length(semantic_key)) FROM billing_entries),0)+COALESCE((SELECT sum(length(bundle)+length(ingress)+length(facts)+length(semantic_key)) FROM billing_m2_entries),0)+COALESCE((SELECT sum(length(bundle)+length(ingress)+length(facts)+length(semantic_key)) FROM billing_m3_entries),0)),(COALESCE((SELECT sum(length(ingress)) FROM billing_aliases),0)+COALESCE((SELECT sum(length(ingress)) FROM billing_m2_aliases),0)+COALESCE((SELECT sum(length(ingress)) FROM billing_m3_aliases),0)),(SELECT count(*) FROM billing_m3_index)",
         )
@@ -289,16 +312,29 @@ impl SqliteTx {
                 .fetch_one(self.conn())
                 .await?;
         work.arithmetic(ResourceOp::Add, &[&counted.0.into(), &counted.1.into()])?;
-        let total = counted.0.checked_add(counted.1).ok_or(StoreError::InvalidStore("billing history bound"))?;
+        let total = counted
+            .0
+            .checked_add(counted.1)
+            .ok_or(StoreError::InvalidStore("billing history bound"))?;
         let mut invalid = false;
-        for (left,right) in [(guard,total),(entry_count,counted.0),(alias_count,counted.1),(counted.2,entry_bytes),(counted.3,alias_bytes),(counted.4,entry_count)] {
-            if !billing_resource_compare(left,right,work)?.is_eq() {invalid=true;break;}
+        for (left, right) in [
+            (guard, total),
+            (entry_count, counted.0),
+            (alias_count, counted.1),
+            (counted.2, entry_bytes),
+            (counted.3, alias_bytes),
+            (counted.4, entry_count),
+        ] {
+            if !billing_resource_compare(left, right, work)?.is_eq() {
+                invalid = true;
+                break;
+            }
         }
         if invalid
-            || billing_resource_compare(entry_count,MAX_RETAINED_ENTRIES,work)?.is_gt()
-            || billing_resource_compare(alias_count,MAX_RETAINED_ALIASES,work)?.is_gt()
-            || billing_resource_compare(entry_bytes,MAX_RETAINED_ENTRY_BYTES,work)?.is_gt()
-            || billing_resource_compare(alias_bytes,MAX_RETAINED_ALIAS_BYTES,work)?.is_gt()
+            || billing_resource_compare(entry_count, MAX_RETAINED_ENTRIES, work)?.is_gt()
+            || billing_resource_compare(alias_count, MAX_RETAINED_ALIASES, work)?.is_gt()
+            || billing_resource_compare(entry_bytes, MAX_RETAINED_ENTRY_BYTES, work)?.is_gt()
+            || billing_resource_compare(alias_bytes, MAX_RETAINED_ALIAS_BYTES, work)?.is_gt()
         {
             return Err(StoreError::InvalidStore("billing history bound").into());
         }
@@ -314,15 +350,21 @@ impl SqliteTx {
     }
 
     async fn cross_stream_time_max(&mut self, m3: Option<i64>) -> Result<Option<i64>, StoreError> {
-        self.cross_stream_time_max_work(m3,&mut NoopValidationWork).await.map_err(legacy_billing_work_error)
+        self.cross_stream_time_max_work(m3, &mut NoopValidationWork)
+            .await
+            .map_err(legacy_billing_work_error)
     }
-    async fn cross_stream_time_max_work<W:ValidationWork+Send>(&mut self,m3:Option<i64>,work:&mut W)->Result<Option<i64>,FinancialReadError> {
+    async fn cross_stream_time_max_work<W: ValidationWork + Send>(
+        &mut self,
+        m3: Option<i64>,
+        work: &mut W,
+    ) -> Result<Option<i64>, FinancialReadError> {
         work.visit(ValidationVisit::RefLookup)?;
         work.write_bytes(std::mem::size_of::<i64>())?;
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
-        if billing_resource_compare(version,11,work)?.is_lt() {
+        if billing_resource_compare(version, 11, work)?.is_lt() {
             return Ok(m3);
         }
         work.visit(ValidationVisit::RefLookup)?;
@@ -333,33 +375,61 @@ impl SqliteTx {
                 .await?;
         work.visit(ValidationVisit::Constraint)?;
         Ok(match (m3, m5) {
-            (Some(left), Some(right)) => { billing_resource_compare(left,right,work)?; Some(left.max(right)) },
+            (Some(left), Some(right)) => {
+                billing_resource_compare(left, right, work)?;
+                Some(left.max(right))
+            }
             (left, right) => left.or(right),
         })
     }
 
     /// SAME metadata schema/bounds/clock guards under the actual management
     /// parent. Fixed scalar results stay inside the existing256KiB I/O lane.
-    pub(crate) async fn billing_management_guards(&mut self,s:&mut OriginalAuditSession)->Result<(),FinancialReadError> {
-        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) { return Err(StoreError::Integrity("poisoned management guards").into()); }
-        self.failed=true;
-        let result=timeout_at(self.deadline,async {
-            self.financial_reserve_io(s,262144)?;
+    pub(crate) async fn billing_management_guards(
+        &mut self,
+        s: &mut OriginalAuditSession,
+    ) -> Result<(), FinancialReadError> {
+        if self.failed
+            || self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(StoreError::Integrity("poisoned management guards").into());
+        }
+        self.failed = true;
+        let result = timeout_at(self.deadline, async {
+            self.financial_reserve_io(s, 262144)?;
             s.semantic_work().visit(ValidationVisit::RefLookup)?;
             s.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
-            let version=self.billing_schema_version().await?;
-            let mut supported=false;
-            for allowed in [11,12,13,14,15,16,17] { if billing_resource_compare(version,allowed,s.semantic_work())?.is_eq() {supported=true;break;} }
-            if !supported {return Err(StoreError::BillingUpgradeRequired.into());}
-            let bounds=self.billing_bounds_work(&mut SessionWork(s)).await?;
-            self.cross_stream_time_max_work(bounds.5,&mut SessionWork(s)).await?;
+            let version = self.billing_schema_version().await?;
+            let mut supported = false;
+            for allowed in [11, 12, 13, 14, 15, 16, 17] {
+                if billing_resource_compare(version, allowed, s.semantic_work())?.is_eq() {
+                    supported = true;
+                    break;
+                }
+            }
+            if !supported {
+                return Err(StoreError::BillingUpgradeRequired.into());
+            }
+            let bounds = self.billing_bounds_work(&mut SessionWork(s)).await?;
+            self.cross_stream_time_max_work(bounds.5, &mut SessionWork(s))
+                .await?;
             self.financial_finish_io(s).await?;
             Ok(())
-        }).await.map_err(|_|StoreError::Deadline)?;
+        })
+        .await
+        .map_err(|_| StoreError::Deadline)?;
         if result.is_ok() {
             s.check_cancelled()?;
-            if self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) || self.financial_io.is_some() {return Err(StoreError::Integrity("unfinished management guards").into());}
-            self.failed=false;
+            if self
+                .workflow_proof_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+                || self.financial_io.is_some()
+            {
+                return Err(StoreError::Integrity("unfinished management guards").into());
+            }
+            self.failed = false;
         }
         result
     }
@@ -2334,10 +2404,17 @@ mod tests {
     }
 }
 
-fn legacy_billing_work_error(error:FinancialReadError)->StoreError {
-    match error {FinancialReadError::Store(error)=>error,FinancialReadError::Resource(_)=>StoreError::Integrity("noop billing work failed")}
+fn legacy_billing_work_error(error: FinancialReadError) -> StoreError {
+    match error {
+        FinancialReadError::Store(error) => error,
+        FinancialReadError::Resource(_) => StoreError::Integrity("noop billing work failed"),
+    }
 }
-fn billing_resource_compare(a:i64,b:i64,work:&mut dyn ValidationWork)->Result<std::cmp::Ordering,FinancialReadError> {
-    work.arithmetic(ResourceOp::Compare,&[&a.into(),&b.into()])?;
+fn billing_resource_compare(
+    a: i64,
+    b: i64,
+    work: &mut dyn ValidationWork,
+) -> Result<std::cmp::Ordering, FinancialReadError> {
+    work.arithmetic(ResourceOp::Compare, &[&a.into(), &b.into()])?;
     Ok(a.cmp(&b))
 }

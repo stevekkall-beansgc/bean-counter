@@ -357,13 +357,11 @@ mod tests {
         let null = text.replacen("\"documents\":[", "\"documents\":[null,", 1);
         assert!(PublicationRequest::parse(null.as_bytes()).is_err());
         for number in ["18.0", "18e0", "-0", "9007199254740992"] {
-            assert!(
-                PublicationRequest::parse(
-                    text.replace("\"scale\":18", &format!("\"scale\":{number}"))
-                        .as_bytes()
-                )
-                .is_err()
-            );
+            assert!(PublicationRequest::parse(
+                text.replace("\"scale\":18", &format!("\"scale\":{number}"))
+                    .as_bytes()
+            )
+            .is_err());
         }
         let mut bom = vec![0xef, 0xbb, 0xbf];
         bom.extend(&raw);

@@ -1142,7 +1142,7 @@ fn produce_birth_records(
     s: &mut OriginalAuditSession,
 ) -> Result<ledgerlab_core::policy::workflow::transition_constructor::InitialSourceRecords> {
     use ledgerlab_core::policy::workflow::transition_constructor::{
-        OperationKey as CoreKey, produce_initial_source_records,
+        produce_initial_source_records, OperationKey as CoreKey,
     };
     let ceiling = request.ceiling().ok_or(ServiceError::IntegrityFailure)?;
     request_wrapper::key(key_value, key, s)?;
@@ -1996,11 +1996,9 @@ mod successor_tests {
             serde_json::json!([{"names":["a:one"]},{"names":["a:two"]}]);
         narrowed["permissions"] = serde_json::json!(["read"]);
         let normalized = OwnedSourceCeiling::normalize(&narrowed, &mut s).unwrap();
-        assert!(
-            normalized
-                .is_subset_of_with_work(request.ceiling.as_ref().unwrap(), &mut s)
-                .unwrap()
-        );
+        assert!(normalized
+            .is_subset_of_with_work(request.ceiling.as_ref().unwrap(), &mut s)
+            .unwrap());
         let grant = successor_grant(
             normalized.canonical_value(),
             e.enrollment_id(),

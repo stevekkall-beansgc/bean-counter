@@ -708,7 +708,8 @@ impl ObservedWorkHeads {
                 }
                 let reference = copied_exact(reference, s)?;
                 let authorization = check::field(mapping.body(), "authorization", s)?;
-                let authorization_id = copied(check::text(authorization, "authorization_id", s)?, s)?;
+                let authorization_id =
+                    copied(check::text(authorization, "authorization_id", s)?, s)?;
                 let revision = copied(text(mapping.current_head().revision.bytes(), s)?, s)?;
                 s.semantic_work()
                     .write_bytes(mem::size_of::<PartyAuthorizationHead>())
@@ -738,12 +739,39 @@ impl ObservedWorkHeads {
 
 /// No work exists for a pre-work assertion. Only actual current party heads
 /// are represented; absence of financial work/head keys is structural here.
-pub(super) fn unattached_state(parties:&super::super::super::acceptance::CurrentPlatformConsents,s:&mut OriginalAuditSession)->Result<OwnedWorkState>{
- use ledgerlab_core::policy::workflow::transition_constructor::{DraftStateData,PartyAuthorizationHead};
- let mut bytes=mem::size_of::<OwnedWorkState>()+parties.mappings().len()*mem::size_of::<PartyAuthorizationHead>();
- for m in parties.mappings(){let a=check::field(m.body(),"authorization",s)?;bytes+=check::text(a,"authorization_id",s)?.len()+m.current_head().revision.bytes().len()+m.reference().kind.len()+m.reference().id.len()+m.reference().digest.len();}
- let storage=s.reserve_external_payload(bytes).map_err(core_error)?;s.semantic_work().write_bytes(bytes).map_err(core_error)?;
- let mut current=Vec::with_capacity(parties.mappings().len());
- for m in parties.mappings(){let a=check::field(m.body(),"authorization",s)?;let reference=copied_exact(m.reference(),s)?;current.push(PartyAuthorizationHead{authorization_id:copied(check::text(a,"authorization_id",s)?,s)?,revision:copied(text(m.current_head().revision.bytes(),s)?,s)?,reference});}
- Ok(OwnedWorkState{financial:DraftStateData::default(),capacities:Vec::new(),parties:current,_storage:storage})
+pub(super) fn unattached_state(
+    parties: &super::super::super::acceptance::CurrentPlatformConsents,
+    s: &mut OriginalAuditSession,
+) -> Result<OwnedWorkState> {
+    use ledgerlab_core::policy::workflow::transition_constructor::{
+        DraftStateData, PartyAuthorizationHead,
+    };
+    let mut bytes = mem::size_of::<OwnedWorkState>()
+        + parties.mappings().len() * mem::size_of::<PartyAuthorizationHead>();
+    for m in parties.mappings() {
+        let a = check::field(m.body(), "authorization", s)?;
+        bytes += check::text(a, "authorization_id", s)?.len()
+            + m.current_head().revision.bytes().len()
+            + m.reference().kind.len()
+            + m.reference().id.len()
+            + m.reference().digest.len();
+    }
+    let storage = s.reserve_external_payload(bytes).map_err(core_error)?;
+    s.semantic_work().write_bytes(bytes).map_err(core_error)?;
+    let mut current = Vec::with_capacity(parties.mappings().len());
+    for m in parties.mappings() {
+        let a = check::field(m.body(), "authorization", s)?;
+        let reference = copied_exact(m.reference(), s)?;
+        current.push(PartyAuthorizationHead {
+            authorization_id: copied(check::text(a, "authorization_id", s)?, s)?,
+            revision: copied(text(m.current_head().revision.bytes(), s)?, s)?,
+            reference,
+        });
+    }
+    Ok(OwnedWorkState {
+        financial: DraftStateData::default(),
+        capacities: Vec::new(),
+        parties: current,
+        _storage: storage,
+    })
 }

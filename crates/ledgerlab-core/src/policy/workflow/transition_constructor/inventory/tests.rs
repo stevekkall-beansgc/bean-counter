@@ -3,7 +3,7 @@
 use super::super::{records::Records, representation::InvocationToken, *};
 use super::*;
 use crate::canonical::CanonicalBytes;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 fn fixture(name: &str) -> Value {
     let input: Value =

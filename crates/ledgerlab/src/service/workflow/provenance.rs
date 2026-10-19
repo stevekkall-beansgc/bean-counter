@@ -269,39 +269,33 @@ mod tests {
         std::fs::write(&path, body).unwrap();
         let got = observe_file_checked(&path, |_| Ok(()), || {}).unwrap();
         assert_eq!(got, (records::raw_hash(body), body.len() as u64));
-        assert!(
-            observe_file_checked(
-                &path,
-                |_| Ok(()),
-                || std::fs::write(&path, b"changed").unwrap()
-            )
-            .is_err()
-        );
+        assert!(observe_file_checked(
+            &path,
+            |_| Ok(()),
+            || std::fs::write(&path, b"changed").unwrap()
+        )
+        .is_err());
         std::fs::write(&path, body).unwrap();
         let replacement = dir.path().join("replacement");
         std::fs::write(&replacement, body).unwrap();
-        assert!(
-            observe_file_checked(
-                &path,
-                |_| Ok(()),
-                || std::fs::rename(&replacement, &path).unwrap()
-            )
-            .is_err()
-        );
+        assert!(observe_file_checked(
+            &path,
+            |_| Ok(()),
+            || std::fs::rename(&replacement, &path).unwrap()
+        )
+        .is_err());
         std::fs::write(&path, body).unwrap();
         let target = dir.path().join("target");
         std::fs::write(&target, body).unwrap();
-        assert!(
-            observe_file_checked(
-                &path,
-                |_| Ok(()),
-                || {
-                    std::fs::remove_file(&path).unwrap();
-                    symlink(&target, &path).unwrap();
-                }
-            )
-            .is_err()
-        );
+        assert!(observe_file_checked(
+            &path,
+            |_| Ok(()),
+            || {
+                std::fs::remove_file(&path).unwrap();
+                symlink(&target, &path).unwrap();
+            }
+        )
+        .is_err());
         assert!(observe_file_checked(&path, |_| Ok(()), || {}).is_err());
         // The actual entry uses current_exe plus the hardcoded platform identity
         // check; this temporary-file seam claims no executable qualification.

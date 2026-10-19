@@ -1,5 +1,5 @@
 //! Closed example-local artifact inputs; these are not public wire/authority DTOs.
-use super::{CLASSIFICATION, Result, require};
+use super::{require, Result, CLASSIFICATION};
 use ledgerlab_core::{
     canonical::{self, CanonicalBytes, Domain},
     domain::{Revision, Roles, Scope, Timestamp},
@@ -8,7 +8,7 @@ use ledgerlab_core::{
     wire::{EventKind, Relation},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

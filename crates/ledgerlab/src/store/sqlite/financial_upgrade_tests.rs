@@ -1,7 +1,7 @@
 //! Mechanical migration/constraint tests, not authenticated financial histories.
 //! Opaque fixture bytes deliberately carry no semantic/origin qualification.
-use super::{FINANCIAL_WORKFLOW, WORKFLOW, finish_financial_schema};
-use sqlx::{Connection, Executor, SqliteConnection, sqlite::SqliteConnectOptions};
+use super::{finish_financial_schema, FINANCIAL_WORKFLOW, WORKFLOW};
+use sqlx::{sqlite::SqliteConnectOptions, Connection, Executor, SqliteConnection};
 
 async fn prior() -> SqliteConnection {
     let mut c = SqliteConnection::connect_with(
@@ -36,13 +36,11 @@ async fn financial_upgrade_preserves_opaque_original_rows_and_references() {
     tx.execute(sqlx::AssertSqlSafe(FINANCIAL_WORKFLOW))
         .await
         .unwrap();
-    assert!(
-        sqlx::query("PRAGMA foreign_key_check")
-            .fetch_optional(&mut *tx)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(sqlx::query("PRAGMA foreign_key_check")
+        .fetch_optional(&mut *tx)
+        .await
+        .unwrap()
+        .is_none());
     finish_financial_schema(&mut tx).await.unwrap();
     tx.commit().await.unwrap();
     let after: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
@@ -56,11 +54,10 @@ async fn financial_upgrade_preserves_opaque_original_rows_and_references() {
         .fetch_one(&mut c).await.unwrap();
     assert_eq!(linked, 1);
     assert!(c.execute("DELETE FROM workflow_operations").await.is_err());
-    assert!(
-        c.execute("UPDATE workflow_documents SET canonical_bytes=X'00'")
-            .await
-            .is_err()
-    );
+    assert!(c
+        .execute("UPDATE workflow_documents SET canonical_bytes=X'00'")
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -102,11 +99,10 @@ async fn financial_outcome_indices_enforce_both_permanence_and_cross_agreement_t
     // A new token cannot claim an already permanently selected target-family.
     assert!(c.execute("INSERT INTO workflow_financial_outcome_claims VALUES('store','tenant','environment','agreementA','family','targetA','namespace','token2','workflow-outcome-claim','claim3','digest')").await.is_err());
     c.execute("INSERT INTO workflow_financial_outcome_claims VALUES('store','tenant','other','agreementB','family','targetB','namespace','token','workflow-outcome-claim','claim2','digest')").await.unwrap();
-    assert!(
-        c.execute("DELETE FROM workflow_financial_outcome_claims")
-            .await
-            .is_err()
-    );
+    assert!(c
+        .execute("DELETE FROM workflow_financial_outcome_claims")
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -191,11 +187,10 @@ async fn supplier_additive_schema_preserves_history_and_distinct_global_claims()
     tx.execute("INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','cost','workflow-cost','cost1','digest','','1','workflow-cost','cost1','digest')").await.unwrap();
     assert!(tx.execute("INSERT INTO workflow_financial_heads VALUES('store','tenant','environment','cost_consumption','workflow-cost','cost1','digest','','1','workflow-authority','authority1','digest')").await.is_err());
     assert!(tx.execute("INSERT INTO workflow_documents VALUES('workflow-unknown','bad','digest','opaque',X'01')").await.is_err());
-    assert!(
-        tx.execute("DELETE FROM workflow_supplier_cost_line_claims")
-            .await
-            .is_err()
-    );
+    assert!(tx
+        .execute("DELETE FROM workflow_supplier_cost_line_claims")
+        .await
+        .is_err());
     finish_financial_schema(&mut tx).await.unwrap();
     tx.commit().await.unwrap();
     let after: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
@@ -205,13 +200,11 @@ async fn supplier_additive_schema_preserves_history_and_distinct_global_claims()
     .await
     .unwrap();
     assert_eq!(before, after);
-    assert!(
-        sqlx::query("PRAGMA foreign_key_check")
-            .fetch_optional(&mut c)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(sqlx::query("PRAGMA foreign_key_check")
+        .fetch_optional(&mut c)
+        .await
+        .unwrap()
+        .is_none());
 }
 
 // Opaque physical records here prove only migration/FK/uniqueness mechanics;
@@ -284,36 +277,28 @@ async fn app_upgrade_preserves_history_and_enforces_independent_global_consumpti
         assert!(c.execute(sqlx::AssertSqlSafe(sql.as_str())).await.is_err());
     }
     assert!(c.execute("INSERT INTO workflow_app_call_claims VALUES('store','namespace','different','workflow-fact-attestation','missing','missing')").await.is_err());
-    assert!(
-        c.execute(
-            "INSERT INTO workflow_documents VALUES('unknown-kind','bad','bad','opaque',X'01')"
-        )
+    assert!(c
+        .execute("INSERT INTO workflow_documents VALUES('unknown-kind','bad','bad','opaque',X'01')")
         .await
-        .is_err()
-    );
+        .is_err());
     c.execute("INSERT INTO workflow_documents VALUES('workflow-authority','party-one','p1','opaque',X'01'),('workflow-authority','party-two','p2','opaque',X'02')").await.unwrap();
     c.execute("INSERT INTO workflow_party_authorization_heads VALUES('store','tenant','environment','customer','agreement','mapping','1','workflow-authority','party-one','p1')").await.unwrap();
-    assert!(
-        c.execute("UPDATE workflow_party_authorization_heads SET authorization_id='other'")
-            .await
-            .is_err()
-    );
-    assert!(
-        c.execute("UPDATE workflow_party_authorization_heads SET revision='3'")
-            .await
-            .is_err()
-    );
+    assert!(c
+        .execute("UPDATE workflow_party_authorization_heads SET authorization_id='other'")
+        .await
+        .is_err());
+    assert!(c
+        .execute("UPDATE workflow_party_authorization_heads SET revision='3'")
+        .await
+        .is_err());
     c.execute("UPDATE workflow_party_authorization_heads SET revision='2',record_id='party-two',record_digest='p2'").await.unwrap();
-    assert!(
-        c.execute("DELETE FROM workflow_party_authorization_heads")
-            .await
-            .is_err()
-    );
-    assert!(
-        sqlx::query("PRAGMA foreign_key_check")
-            .fetch_optional(&mut c)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(c
+        .execute("DELETE FROM workflow_party_authorization_heads")
+        .await
+        .is_err());
+    assert!(sqlx::query("PRAGMA foreign_key_check")
+        .fetch_optional(&mut c)
+        .await
+        .unwrap()
+        .is_none());
 }

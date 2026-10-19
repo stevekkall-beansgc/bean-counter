@@ -1,19 +1,31 @@
 //! Closed data inspection used by the executing draft path.
-use super::{CoreMeter, data::ExactRef};
+use super::{data::ExactRef, CoreMeter};
 use crate::{Error, Result};
 use serde_json::Value;
 pub(in crate::policy::workflow) fn fail(s: &str) -> Error {
     Error::new("INTEGRITY_FAILURE", s)
 }
-pub(in crate::policy::workflow) fn field<'a>(m: &mut CoreMeter, v: &'a Value, k: &str) -> Result<&'a Value> {
+pub(in crate::policy::workflow) fn field<'a>(
+    m: &mut CoreMeter,
+    v: &'a Value,
+    k: &str,
+) -> Result<&'a Value> {
     m.visit("data.field")?;
     v.get(k)
         .ok_or_else(|| Error::new("INTEGRITY_FAILURE", format!("missing field {k}")))
 }
-pub(in crate::policy::workflow) fn text<'a>(m: &mut CoreMeter, v: &'a Value, k: &str) -> Result<&'a str> {
+pub(in crate::policy::workflow) fn text<'a>(
+    m: &mut CoreMeter,
+    v: &'a Value,
+    k: &str,
+) -> Result<&'a str> {
     field(m, v, k)?.as_str().ok_or_else(|| fail("text field"))
 }
-pub(in crate::policy::workflow) fn array<'a>(m: &mut CoreMeter, v: &'a Value, k: &str) -> Result<&'a [Value]> {
+pub(in crate::policy::workflow) fn array<'a>(
+    m: &mut CoreMeter,
+    v: &'a Value,
+    k: &str,
+) -> Result<&'a [Value]> {
     field(m, v, k)?
         .as_array()
         .map(Vec::as_slice)
@@ -137,7 +149,11 @@ pub(super) fn same_ref(m: &mut CoreMeter, a: &ExactRef, b: &ExactRef) -> Result<
         && same_text(m, &a.digest, &b.digest)?)
 }
 /// Canonical byte order with actual examined-byte accounting, not index order.
-pub(in crate::policy::workflow) fn byte_order(m: &mut CoreMeter, a: &[u8], b: &[u8]) -> Result<std::cmp::Ordering> {
+pub(in crate::policy::workflow) fn byte_order(
+    m: &mut CoreMeter,
+    a: &[u8],
+    b: &[u8],
+) -> Result<std::cmp::Ordering> {
     m.visit("compare.canonical_order")?;
     for (left, right) in a.iter().zip(b) {
         m.scan_bytes(2)?;
@@ -156,7 +172,11 @@ pub(in crate::policy::workflow) fn equal(m: &mut CoreMeter, a: &Value, b: &Value
     }
     Ok(())
 }
-pub(in crate::policy::workflow) fn member(m: &mut CoreMeter, values: &[Value], value: &Value) -> Result<bool> {
+pub(in crate::policy::workflow) fn member(
+    m: &mut CoreMeter,
+    values: &[Value],
+    value: &Value,
+) -> Result<bool> {
     for v in values {
         m.visit("data.member")?;
         if same(m, v, value)? {
@@ -184,12 +204,19 @@ pub(super) fn reference(m: &mut CoreMeter, v: &Value) -> Result<ExactRef> {
         // Ref grammar is semantic. Check borrowed fields BEFORE copying an
         // invalid oversized value; the caller's owning producer-graph covers
         // retained ExactRef payloads, never an after-allocation admission.
-        let kind=text(m,v,"kind")?;
-        let id=text(m,v,"id")?;
-        let digest=text(m,v,"digest")?;
-        super::records::reference_parts(m,kind,id,digest)?;
-        for s in [kind,id,digest] {m.scan_bytes(s.len())?;m.write_bytes(s.len())?;}
-        return Ok(ExactRef{kind:kind.to_owned(),id:id.to_owned(),digest:digest.to_owned()});
+        let kind = text(m, v, "kind")?;
+        let id = text(m, v, "id")?;
+        let digest = text(m, v, "digest")?;
+        super::records::reference_parts(m, kind, id, digest)?;
+        for s in [kind, id, digest] {
+            m.scan_bytes(s.len())?;
+            m.write_bytes(s.len())?;
+        }
+        return Ok(ExactRef {
+            kind: kind.to_owned(),
+            id: id.to_owned(),
+            digest: digest.to_owned(),
+        });
     }
     let r = ExactRef {
         kind: text(m, v, "kind")?.into(),

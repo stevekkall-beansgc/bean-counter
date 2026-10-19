@@ -30,15 +30,27 @@ impl ManagementObservation {
         key_body: &Value,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
-        let held=ledger.admin.fresh_management(&ledger.store,tx,key,s).await?;
-        Self::capture_owned(ledger,tx,key,key_body,held,s).await
+        let held = ledger
+            .admin
+            .fresh_management(&ledger.store, tx, key, s)
+            .await?;
+        Self::capture_owned(ledger, tx, key, key_body, held, s).await
     }
-    pub(super) fn held(&self)->&crate::service::workflow::local::OwnedLocalManagement { &self.held }
+    pub(super) fn held(&self) -> &crate::service::workflow::local::OwnedLocalManagement {
+        &self.held
+    }
     pub(super) async fn capture_owned(
-        ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,key:&OperationKey,key_body:&Value,
-        held:crate::service::workflow::local::OwnedLocalManagement,s:&mut OriginalAuditSession,
-    )->Result<Self> {
-        ledger.admin.recheck_management_fresh(&held,&ledger.store,tx,key,s).await?;
+        ledger: &LocalWorkflowLedger,
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        key_body: &Value,
+        held: crate::service::workflow::local::OwnedLocalManagement,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        ledger
+            .admin
+            .recheck_management_fresh(&held, &ledger.store, tx, key, s)
+            .await?;
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
         request_wrapper::key(key_body, key, s)?;
         let control = s
@@ -80,7 +92,10 @@ impl ManagementObservation {
         }
         require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
         request_wrapper::key(self.key_body.value(), key, s)?;
-        ledger.admin.recheck_management_fresh(&self.held,&ledger.store,tx,key,s).await?;
+        ledger
+            .admin
+            .recheck_management_fresh(&self.held, &ledger.store, tx, key, s)
+            .await?;
         let actual = fingerprint(&self.held, self.key_body.value(), s)?;
         s.semantic_work()
             .visit(Visit::MemberCompare)
@@ -240,7 +255,9 @@ fn fingerprint(
     let installation = held.installation();
     let controls = 12 * mem::size_of::<AuditedBytes>() + 12 * mem::size_of::<&[u8]>();
     let _control = s.reserve_external_payload(controls).map_err(core_error)?;
-    s.semantic_work().write_bytes(controls).map_err(core_error)?;
+    s.semantic_work()
+        .write_bytes(controls)
+        .map_err(core_error)?;
     let key = s
         .canonical_representation(key_body, RepresentationKind::Record)
         .map_err(core_error)?;

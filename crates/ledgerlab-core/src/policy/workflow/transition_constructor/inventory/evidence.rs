@@ -1,16 +1,15 @@
 use super::super::emitted_record::ConstructedEnvelope;
 use super::super::record_body::RecordBody;
 use super::super::{
-    CoreMeter,
     data::*,
     meter,
     records::{self, Records},
     representation::InvocationToken,
-    shape,
+    shape, CoreMeter,
 };
 use super::check::*;
-use crate::{Result, canonical};
-use serde_json::{Value, json};
+use crate::{canonical, Result};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 /// Canonical padded base64 with pre-allocation decoded-byte ceiling. All grammar
 /// checks execute through the meter; this is retained DATA, never a signature.
@@ -224,7 +223,15 @@ fn root_data(
     invoke!(number, m, basis, "source_grant_revision", true)?;
     let digest = invoke!(records::hash, m, "local-authority-basis", basis)?;
     invoke!(eq, m, &root, "basis_digest", &json!(digest))?;
-    invoke!(before_owned, m, o, &root, "verified_at", before_doc, before_key)?;
+    invoke!(
+        before_owned,
+        m,
+        o,
+        &root,
+        "verified_at",
+        before_doc,
+        before_key
+    )?;
     Ok(root)
 }
 pub(in crate::policy::workflow::transition_constructor) fn retained(
@@ -319,17 +326,32 @@ fn retained_data(
     if !text && !invoke!(shape::same_text, m, media, "application/octet-stream")? {
         return Err(shape::fail("evidence media type"));
     }
-    if let Some(arena)=m.representation_arena(){
+    if let Some(arena) = m.representation_arena() {
         use crate::validation_work::RepresentationKind;
-        let encoded=shape::text(m,e,"content_base64")?;
-        let bytes=m.decode_owned_base64_representation(&arena,encoded,RepresentationKind::EvidenceContent)?;
-        if text{m.scan_bytes(bytes.bytes().len())?;m.visit("evidence.utf8_constraint")?;std::str::from_utf8(bytes.bytes()).map_err(|_|shape::fail("evidence text encoding"))?;}
-        let digest=m.hash_owned_representation(&arena,bytes.bytes(),RepresentationKind::EvidenceContent)?;
-        let _scratch=arena.reserve_external_payload(64,m)?;
-        let hash=canonical::hex_with_work(&digest,m)?;
-        let expected=shape::text(m,e,"content_sha256")?;
-        if !shape::same_text(m,&hash,expected)?{return Err(shape::fail("retained evidence raw content digest"));}
-    }else{
+        let encoded = shape::text(m, e, "content_base64")?;
+        let bytes = m.decode_owned_base64_representation(
+            &arena,
+            encoded,
+            RepresentationKind::EvidenceContent,
+        )?;
+        if text {
+            m.scan_bytes(bytes.bytes().len())?;
+            m.visit("evidence.utf8_constraint")?;
+            std::str::from_utf8(bytes.bytes())
+                .map_err(|_| shape::fail("evidence text encoding"))?;
+        }
+        let digest = m.hash_owned_representation(
+            &arena,
+            bytes.bytes(),
+            RepresentationKind::EvidenceContent,
+        )?;
+        let _scratch = arena.reserve_external_payload(64, m)?;
+        let hash = canonical::hex_with_work(&digest, m)?;
+        let expected = shape::text(m, e, "content_sha256")?;
+        if !shape::same_text(m, &hash, expected)? {
+            return Err(shape::fail("retained evidence raw content digest"));
+        }
+    } else {
         let bytes = invoke!(decode, m, invoke!(shape::text, m, e, "content_base64")?)?;
         if text {
             m.scan_bytes(bytes.len())?;

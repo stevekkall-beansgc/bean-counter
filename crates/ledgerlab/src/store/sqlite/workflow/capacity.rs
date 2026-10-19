@@ -44,7 +44,7 @@ pub(super) async fn check_with_session(
     additional_operations: i64,
     additional_bytes: i64,
     session: &mut OriginalAuditSession,
-    limits:Option<super::OperatorStorage>,
+    limits: Option<super::OperatorStorage>,
 ) -> Result<WorkflowMeter, FinancialReadError> {
     check_with_work(
         conn,
@@ -57,7 +57,9 @@ pub(super) async fn check_with_session(
 }
 // The concrete borrow remains Send across SQL awaits. The dyn work view is
 // opened only for each synchronous callback, never held across an await.
-pub(in crate::store::sqlite) struct SessionWork<'a>(pub(in crate::store::sqlite) &'a mut OriginalAuditSession);
+pub(in crate::store::sqlite) struct SessionWork<'a>(
+    pub(in crate::store::sqlite) &'a mut OriginalAuditSession,
+);
 impl ValidationWork for SessionWork<'_> {
     fn visit(&mut self, kind: ValidationVisit) -> ledgerlab_core::Result<()> {
         self.0.semantic_work().visit(kind)
@@ -84,7 +86,7 @@ async fn check_with_work<W: ValidationWork + Send>(
     additional_operations: i64,
     additional_bytes: i64,
     work: &mut W,
-    limits:Option<super::OperatorStorage>,
+    limits: Option<super::OperatorStorage>,
 ) -> Result<WorkflowMeter, FinancialReadError> {
     if compare(additional_operations, 0, work)?.is_lt()
         || compare(additional_bytes, 0, work)?.is_lt()
@@ -183,12 +185,12 @@ fn check_values(
     dw: i64,
     dwb: i64,
 ) -> Result<(), StoreError> {
-    check_values_with_work(e, l, eb, mb, w, wb, dw, dwb, &mut NoopValidationWork,None).map_err(|error| {
-        match error {
+    check_values_with_work(e, l, eb, mb, w, wb, dw, dwb, &mut NoopValidationWork, None).map_err(
+        |error| match error {
             FinancialReadError::Store(error) => error,
             FinancialReadError::Resource(_) => StoreError::Integrity("noop capacity work failed"),
-        }
-    })
+        },
+    )
 }
 #[allow(clippy::too_many_arguments)]
 fn check_values_with_work(
@@ -201,7 +203,7 @@ fn check_values_with_work(
     dw: i64,
     dwb: i64,
     work: &mut dyn ValidationWork,
-    limits:Option<super::OperatorStorage>,
+    limits: Option<super::OperatorStorage>,
 ) -> Result<(), FinancialReadError> {
     for value in [e, l, eb, mb, w, wb, dw, dwb] {
         work.visit(ValidationVisit::Element)?;
@@ -212,16 +214,32 @@ fn check_values_with_work(
     let w = arithmetic(w, dw, Op::Add, work)?;
     let wb = arithmetic(wb, dwb, Op::Add, work)?;
     // Returning old data or checking integrity never consumes append quota.
-    if dw>0 || dwb>0 {
-      let rows=limits.map(|l|l.operations).unwrap_or(Some(ROWS));
-      let bytes=limits.map(|l|l.bytes).unwrap_or(Some(BYTES));
-      for (setting,maximum,values,current) in [("retained_operations",rows,[e,l],w),("retained_bytes",bytes,[eb,mb],wb)] {
-       for value in values {
-        work.visit(ValidationVisit::Element)?;
-        let observed=arithmetic(value,current,Op::Add,work)?;
-        if let Some(maximum)=maximum {if compare(observed,maximum,work)?.is_gt(){return Err(if limits.is_none(){StoreError::BillingHistoryLimit.into()}else{StoreError::ResourceQuota{setting,limit:maximum as u64,observed:observed as u64}.into()});}}
-       }
-      }
+    if dw > 0 || dwb > 0 {
+        let rows = limits.map(|l| l.operations).unwrap_or(Some(ROWS));
+        let bytes = limits.map(|l| l.bytes).unwrap_or(Some(BYTES));
+        for (setting, maximum, values, current) in [
+            ("retained_operations", rows, [e, l], w),
+            ("retained_bytes", bytes, [eb, mb], wb),
+        ] {
+            for value in values {
+                work.visit(ValidationVisit::Element)?;
+                let observed = arithmetic(value, current, Op::Add, work)?;
+                if let Some(maximum) = maximum {
+                    if compare(observed, maximum, work)?.is_gt() {
+                        return Err(if limits.is_none() {
+                            StoreError::BillingHistoryLimit.into()
+                        } else {
+                            StoreError::ResourceQuota {
+                                setting,
+                                limit: maximum as u64,
+                                observed: observed as u64,
+                            }
+                            .into()
+                        });
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -276,6 +294,16 @@ mod tests {
     }
 }
 
-pub(crate) async fn check_with_limits(conn:&mut SqliteConnection,operations:i64,bytes:i64,limits:Option<super::OperatorStorage>)->Result<WorkflowMeter,StoreError>{
- check_with_work(conn,operations,bytes,&mut NoopValidationWork,limits).await.map_err(|e|match e{FinancialReadError::Store(e)=>e,FinancialReadError::Resource(_)=>StoreError::ReadBudgetExhausted})
+pub(crate) async fn check_with_limits(
+    conn: &mut SqliteConnection,
+    operations: i64,
+    bytes: i64,
+    limits: Option<super::OperatorStorage>,
+) -> Result<WorkflowMeter, StoreError> {
+    check_with_work(conn, operations, bytes, &mut NoopValidationWork, limits)
+        .await
+        .map_err(|e| match e {
+            FinancialReadError::Store(e) => e,
+            FinancialReadError::Resource(_) => StoreError::ReadBudgetExhausted,
+        })
 }

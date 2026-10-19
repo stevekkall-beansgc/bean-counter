@@ -1,12 +1,12 @@
 //! Initial private agreement structures only. These values establish no
 //! enrollment, assent, authority, accepted binding, activation or monetary right.
 use super::{
-    SlotTemplate, TemplateBook,
     facts::{counter, name, reject_null},
+    SlotTemplate, TemplateBook,
 };
 use crate::{
-    Error, Result,
     canonical::{self, CanonicalBytes},
+    Error, Result,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -95,7 +95,7 @@ fn role_fields(
     slot: &str,
     work: &mut dyn crate::validation_work::ValidationWork,
 ) -> Result<()> {
-    use crate::validation_work::{ValidationVisit as Visit, compare};
+    use crate::validation_work::{compare, ValidationVisit as Visit};
     if !role_equal(schema, "ledger-workflow-role-assignment/1", work)? {
         return Err(fail("UNSUPPORTED_SCHEMA_PROFILE", "role assignment schema"));
     }
@@ -159,7 +159,7 @@ impl RoleAssignment {
     ) -> Result<crate::canonical::audit_arena::AuditedBytes> {
         let result = (|| {
             use crate::validation_work::{
-                RepresentationKind as Kind, ValidationVisit as Visit, compare,
+                compare, RepresentationKind as Kind, ValidationVisit as Visit,
             };
             if compare(session.semantic_work(), raw.len(), 262144usize)?.is_gt() {
                 return Err(fail("SLOT_LIMIT", "private role byte limit"));

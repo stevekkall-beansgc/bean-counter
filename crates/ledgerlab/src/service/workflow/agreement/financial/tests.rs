@@ -128,36 +128,56 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     // Produce a genuine scoped permissions control through the existing
     // facade, so the new metadata caller exercises its retained association.
     let billing = BillingLedger::open(&path_a).await.unwrap();
-    let base: Value = serde_json::from_slice(include_bytes!("../../../../../../../examples/billing/setup.json")).unwrap();
+    let base: Value = serde_json::from_slice(include_bytes!(
+        "../../../../../../../examples/billing/setup.json"
+    ))
+    .unwrap();
     let customer = base["customer"].as_str().unwrap();
     let source = base["source"].as_str().unwrap();
     let change = json!({"schema":"ledger-billing-permissions/2","customer":customer,"source":source,"change_id":"management-held-snapshot","expected_revision":"1","permissions":["read"],"reason":"Exercise the actual retained local administration control"});
-    billing.permissions(customer,source,&records::bytes(&change).unwrap()).await.unwrap();
+    billing
+        .permissions(customer, source, &records::bytes(&change).unwrap())
+        .await
+        .unwrap();
     // A later legitimate change may restore rights from the ORIGINAL ceiling,
     // even though the immediately preceding current set contains only read.
-    let restored=json!({"schema":"ledger-billing-permissions/2","customer":customer,"source":source,"change_id":"management-original-ceiling-restore","expected_revision":"2","permissions":["read","submit","correct"],"reason":"Preserve the independent original ceiling while moving current state"});
-    billing.permissions(customer,source,&records::bytes(&restored).unwrap()).await.unwrap();
+    let restored = json!({"schema":"ledger-billing-permissions/2","customer":customer,"source":source,"change_id":"management-original-ceiling-restore","expected_revision":"2","permissions":["read","submit","correct"],"reason":"Preserve the independent original ceiling while moving current state"});
+    billing
+        .permissions(customer, source, &records::bytes(&restored).unwrap())
+        .await
+        .unwrap();
     billing.close().await;
     let first = LocalWorkflowLedger::open_local(&path_a).await.unwrap();
     let (_b, second, _path_b) = installation("frame-store").await;
     let key = key("frame-store", "frame-only");
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-    let mut session = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut session =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
     let key_body = serde_json::to_value(&key).unwrap();
     let mut a = first.store.begin(deadline()).await.unwrap();
     let frame = proof_session::with_proofs(&mut a, &key, |tx| {
         Box::pin(async {
-            let frame=ManagementObservation::capture(&first,tx,&key,&key_body,&mut session).await?;
-            frame.recheck(&first,tx,&key,&mut session).await?;
+            let frame =
+                ManagementObservation::capture(&first, tx, &key, &key_body, &mut session).await?;
+            frame.recheck(&first, tx, &key, &mut session).await?;
             // SQLite's held writer does not freeze native filesystem privacy.
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::PermissionsExt;
-                let database=path_a.join(".ledger/local.db");
-                let prior=std::fs::metadata(&database).unwrap().permissions();
-                std::fs::set_permissions(&database,std::fs::Permissions::from_mode(0o644)).unwrap();
-                assert_eq!(frame.recheck(&first,tx,&key,&mut session).await.unwrap_err(),reject("AUTHORITY_REQUIRED"));
-                std::fs::set_permissions(&database,prior).unwrap();
-                frame.recheck(&first,tx,&key,&mut session).await?;
+                let database = path_a.join(".ledger/local.db");
+                let prior = std::fs::metadata(&database).unwrap().permissions();
+                std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o644))
+                    .unwrap();
+                assert_eq!(
+                    frame
+                        .recheck(&first, tx, &key, &mut session)
+                        .await
+                        .unwrap_err(),
+                    reject("AUTHORITY_REQUIRED")
+                );
+                std::fs::set_permissions(&database, prior).unwrap();
+                frame.recheck(&first, tx, &key, &mut session).await?;
             }
             Ok(frame)
         })
@@ -168,48 +188,117 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
     let state = a.load_installation().await.unwrap();
     // Exercise the actual bounded same-snapshot metadata pipeline, not only
     // its leaf decoder. Installation mismatch must not materialize identity.
-    let selected = management::effective_setup(&mut a, &mut session).await.unwrap();
-    assert_eq!(serde_json::to_value(selected.setup()).unwrap(), serde_json::to_value(&setup).unwrap());
-    let selected_installation = a.workflow_management_installation(&setup.store_id, setup.scope.tenant(), setup.scope.environment(), &mut session).await.unwrap().unwrap();
+    let selected = management::effective_setup(&mut a, &mut session)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(selected.setup()).unwrap(),
+        serde_json::to_value(&setup).unwrap()
+    );
+    let selected_installation = a
+        .workflow_management_installation(
+            &setup.store_id,
+            setup.scope.tenant(),
+            setup.scope.environment(),
+            &mut session,
+        )
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(selected_installation.installation(), &state);
-    assert!(a.workflow_management_installation("different-store", setup.scope.tenant(), setup.scope.environment(), &mut session).await.unwrap().is_none());
+    assert!(a
+        .workflow_management_installation(
+            "different-store",
+            setup.scope.tenant(),
+            setup.scope.environment(),
+            &mut session
+        )
+        .await
+        .unwrap()
+        .is_none());
     drop(selected_installation);
     drop(selected);
     let retained_setup = a.billing_meta().await.unwrap().setup;
     let legacy_setup = crate::service::billing::Setup::parse(&retained_setup).unwrap();
-    let owned_setup = crate::service::billing::setup_owned::parse(&retained_setup, &mut session).unwrap();
-    assert_eq!(serde_json::to_value(owned_setup.setup()).unwrap(), serde_json::to_value(legacy_setup).unwrap());
+    let owned_setup =
+        crate::service::billing::setup_owned::parse(&retained_setup, &mut session).unwrap();
+    assert_eq!(
+        serde_json::to_value(owned_setup.setup()).unwrap(),
+        serde_json::to_value(legacy_setup).unwrap()
+    );
     drop(owned_setup);
     // Compare malformed/unsupported prefixes against the preserved legacy
     // decoder, using the actual installation's setup as the source operand.
     let initial: Value = serde_json::from_slice(&retained_setup).unwrap();
     let mut cases = Vec::new();
-    for (name, value) in [("unknown", json!(true)), ("scope", json!(["x"])), ("accepted_at", json!("invalid")), ("permissions", json!(["read","read"])), ("price", json!("0")), ("source", json!("bad\nsource")), ("schema", json!("ledger-local-billing/3"))] {
-        let mut input = initial.clone(); input[name] = value; cases.push(input);
+    for (name, value) in [
+        ("unknown", json!(true)),
+        ("scope", json!(["x"])),
+        ("accepted_at", json!("invalid")),
+        ("permissions", json!(["read", "read"])),
+        ("price", json!("0")),
+        ("source", json!("bad\nsource")),
+        ("schema", json!("ledger-local-billing/3")),
+    ] {
+        let mut input = initial.clone();
+        input[name] = value;
+        cases.push(input);
     }
-    let mut input = initial.clone(); input["outcome_policy"]["families"][0]["ordinary"]["accepted_by"] = json!("invalid"); cases.push(input);
-    let mut input = initial.clone(); input["outcome_policy"]["limits"][0]["premium"]["atoms"] = json!("-0"); cases.push(input);
-    let mut input = initial.clone(); input["outcome_policy"]["families"][0]["replacement_codes"] = json!(["absent"]); cases.push(input);
+    let mut input = initial.clone();
+    input["outcome_policy"]["families"][0]["ordinary"]["accepted_by"] = json!("invalid");
+    cases.push(input);
+    let mut input = initial.clone();
+    input["outcome_policy"]["limits"][0]["premium"]["atoms"] = json!("-0");
+    cases.push(input);
+    let mut input = initial.clone();
+    input["outcome_policy"]["families"][0]["replacement_codes"] = json!(["absent"]);
+    cases.push(input);
     let mut unit_setup = initial.clone();
     unit_setup["schema"] = json!("ledger-local-billing/2");
-    unit_setup["unit"] = json!("call"); unit_setup["maximum_quantity"] = json!("20.000"); unit_setup["price"] = json!("1.2300");
+    unit_setup["unit"] = json!("call");
+    unit_setup["maximum_quantity"] = json!("20.000");
+    unit_setup["price"] = json!("1.2300");
     unit_setup["outcome_policy"]["limits"][0]["premium"]["scale"] = json!(18);
-    for code in unit_setup["outcome_policy"]["families"][0]["codes"].as_array_mut().unwrap() { code["amount"]["money"]["scale"] = json!(18); }
+    for code in unit_setup["outcome_policy"]["families"][0]["codes"]
+        .as_array_mut()
+        .unwrap()
+    {
+        code["amount"]["money"]["scale"] = json!(18);
+    }
     let valid_unit_raw = records::bytes(&unit_setup).unwrap();
     let legacy_unit = crate::service::billing::Setup::parse(&valid_unit_raw).unwrap();
     let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-    let mut unit_attempt = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let owned_unit = crate::service::billing::setup_owned::parse(&valid_unit_raw, &mut unit_attempt).unwrap();
-    assert_eq!(serde_json::to_value(owned_unit.setup()).unwrap(), serde_json::to_value(legacy_unit).unwrap());
-    for (field, value) in [("maximum_quantity", "0"), ("maximum_quantity", "1.5"), ("maximum_quantity", "0.10"), ("maximum_quantity", "1000000000000000000000000000000"), ("price", "1.0000000000000000000"), ("price", "100000000000000000000000000000")] {
-        let mut input = unit_setup.clone(); input[field] = json!(value); cases.push(input);
+    let mut unit_attempt =
+        ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+            .unwrap();
+    let owned_unit =
+        crate::service::billing::setup_owned::parse(&valid_unit_raw, &mut unit_attempt).unwrap();
+    assert_eq!(
+        serde_json::to_value(owned_unit.setup()).unwrap(),
+        serde_json::to_value(legacy_unit).unwrap()
+    );
+    for (field, value) in [
+        ("maximum_quantity", "0"),
+        ("maximum_quantity", "1.5"),
+        ("maximum_quantity", "0.10"),
+        ("maximum_quantity", "1000000000000000000000000000000"),
+        ("price", "1.0000000000000000000"),
+        ("price", "100000000000000000000000000000"),
+    ] {
+        let mut input = unit_setup.clone();
+        input[field] = json!(value);
+        cases.push(input);
     }
     for input in cases {
         let raw = records::bytes(&input).unwrap();
         let legacy = crate::service::billing::Setup::parse(&raw).unwrap_err();
         let arena = ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
-        let mut attempt = ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        let owned = crate::service::billing::setup_owned::parse(&raw, &mut attempt).err().unwrap();
+        let mut attempt =
+            ledgerlab_core::validation_work::OriginalAuditSession::for_resource_profile_v2(&arena)
+                .unwrap();
+        let owned = crate::service::billing::setup_owned::parse(&raw, &mut attempt)
+            .err()
+            .unwrap();
         assert_eq!(owned, legacy);
     }
     let legacy = records::bytes(&json!([
@@ -224,11 +313,15 @@ async fn financial_shell_management_frame_wrong_transaction_poisons_both_handles
         state.dispatch_hold,
         state.dispatch_enabled,
         state.generation.to_string()
-    ])).unwrap();
+    ]))
+    .unwrap();
     assert_eq!(frame.fingerprint_bytes(), legacy);
     let mut b = second.store.begin(deadline()).await.unwrap();
     assert_eq!(
-        frame.recheck(&second, &mut b, &key, &mut session).await.unwrap_err(),
+        frame
+            .recheck(&second, &mut b, &key, &mut session)
+            .await
+            .unwrap_err(),
         ServiceError::IntegrityFailure
     );
     assert!(matches!(a.commit().await, Err(CommitError::RolledBack(_))));
@@ -304,8 +397,8 @@ async fn chronological_owning_frames_follow_actual_public_prerequisite_history()
                             .clone(),
                     )
                     .unwrap();
-                assert!(
-                    tx.workflow_financial_document(
+                assert!(tx
+                    .workflow_financial_document(
                         &reference,
                         &root.logical_store_id,
                         &root.scope,
@@ -314,11 +407,10 @@ async fn chronological_owning_frames_follow_actual_public_prerequisite_history()
                     )
                     .await
                     .map_err(prefix::read_error)?
-                    .is_none()
-                );
+                    .is_none());
                 let foreign = ["foreign-tenant".into(), root.scope[1].clone()];
-                assert!(
-                    tx.workflow_financial_document(
+                assert!(tx
+                    .workflow_financial_document(
                         &reference,
                         &root.logical_store_id,
                         &foreign,
@@ -327,8 +419,7 @@ async fn chronological_owning_frames_follow_actual_public_prerequisite_history()
                     )
                     .await
                     .map_err(prefix::read_error)?
-                    .is_none()
-                );
+                    .is_none());
                 let live_before = arena.usage().unwrap().live_bytes;
                 let retained = tx
                     .workflow_financial_document(
@@ -356,11 +447,9 @@ async fn chronological_owning_frames_follow_actual_public_prerequisite_history()
                 drop(resolved);
             }
             let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            assert!(
-                prefix::next(tx, &root, after, through, &mut session)
-                    .await?
-                    .is_none()
-            );
+            assert!(prefix::next(tx, &root, after, through, &mut session)
+                .await?
+                .is_none());
             Ok(())
         })
     })
@@ -401,11 +490,31 @@ async fn actual_local_party_retention_commits_retries_and_reopens() {
         Box::pin(async {
             let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
             let request = ingress::IncomingRequest::parse(&raw, &mut session)?;
-            let held=ledger.admin.read_management(&ledger.store,tx,request.key(),&mut session).await?;
-            let key_body=request_wrapper::field(request.value(),"key",&mut session)?;
-            let management=ManagementObservation::capture_owned(&ledger,tx,request.key(),key_body,held,&mut session).await?;
-            management.recheck(&ledger,tx,request.key(),&mut session).await?;
-            let pending=current::party::produce::prepare_observed(&ledger,tx,&request,management.held(),&mut session).await?;
+            let held = ledger
+                .admin
+                .read_management(&ledger.store, tx, request.key(), &mut session)
+                .await?;
+            let key_body = request_wrapper::field(request.value(), "key", &mut session)?;
+            let management = ManagementObservation::capture_owned(
+                &ledger,
+                tx,
+                request.key(),
+                key_body,
+                held,
+                &mut session,
+            )
+            .await?;
+            management
+                .recheck(&ledger, tx, request.key(), &mut session)
+                .await?;
+            let pending = current::party::produce::prepare_observed(
+                &ledger,
+                tx,
+                &request,
+                management.held(),
+                &mut session,
+            )
+            .await?;
             for record in [&pending.root, &pending.authority, &pending.result] {
                 let body: Value = serde_json::from_slice(record.bytes()).unwrap();
                 let expected = records::source_document(&record.reference().kind, body).unwrap();
@@ -437,21 +546,21 @@ async fn actual_local_party_retention_commits_retries_and_reopens() {
     .unwrap();
     assert_eq!(tx.workflow_test_meter().await.unwrap(), before);
     tx.rollback().await.unwrap();
-    let committed=ledger.financial(&raw).await.unwrap();
-    let retried=ledger.financial(&raw).await.unwrap();
-    assert_eq!(retried["receipt"],committed["receipt"]);
-    assert_eq!(retried["duplicate_kind"],"identity");
-    let status=ledger.status(&operation.bytes().unwrap()).await.unwrap();
-    assert_eq!(status["schema"],"ledger-operation-status/1");
-    assert_eq!(status["receipt"],committed["receipt"]);
-    let mut tx=ledger.store.begin(deadline()).await.unwrap();
-    let committed_meter=tx.workflow_test_meter().await.unwrap();
-    assert_ne!(committed_meter,before);
+    let committed = ledger.financial(&raw).await.unwrap();
+    let retried = ledger.financial(&raw).await.unwrap();
+    assert_eq!(retried["receipt"], committed["receipt"]);
+    assert_eq!(retried["duplicate_kind"], "identity");
+    let status = ledger.status(&operation.bytes().unwrap()).await.unwrap();
+    assert_eq!(status["schema"], "ledger-operation-status/1");
+    assert_eq!(status["receipt"], committed["receipt"]);
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
+    let committed_meter = tx.workflow_test_meter().await.unwrap();
+    assert_ne!(committed_meter, before);
     tx.rollback().await.unwrap();
     // The empty-prefix case covers only a recipe with no retained operands.
     // A genuine immediate target cannot disappear into that representation.
     let mut missing = input.clone();
-    missing["key"]["operation_id"]=json!("missing-party-target");
+    missing["key"]["operation_id"] = json!("missing-party-target");
     missing["payload"]["metadata"] = json!({
         "purpose":"party_operator_attestation",
         "statement":"operator_verified_party_acceptor_authority",
@@ -468,20 +577,24 @@ async fn actual_local_party_retention_commits_retries_and_reopens() {
     assert_eq!(tx.workflow_test_meter().await.unwrap(), committed_meter);
     tx.rollback().await.unwrap();
     input["payload"]["content_sha256"] = json!("0".repeat(64));
-    assert!(
-        ledger
-            .financial(&records::bytes(&input).unwrap())
-            .await
-            .is_err()
-    );
+    assert!(ledger
+        .financial(&records::bytes(&input).unwrap())
+        .await
+        .is_err());
     assert_eq!(
         ledger.status(&operation.bytes().unwrap()).await.unwrap()["status"],
         "committed"
     );
     ledger.close().await;
-    let reopened=LocalWorkflowLedger::open_local(&path).await.unwrap();
-    assert_eq!(reopened.status(&operation.bytes().unwrap()).await.unwrap()["receipt"],committed["receipt"]);
-    assert_eq!(reopened.financial(&raw).await.unwrap()["receipt"],committed["receipt"]);
+    let reopened = LocalWorkflowLedger::open_local(&path).await.unwrap();
+    assert_eq!(
+        reopened.status(&operation.bytes().unwrap()).await.unwrap()["receipt"],
+        committed["receipt"]
+    );
+    assert_eq!(
+        reopened.financial(&raw).await.unwrap()["receipt"],
+        committed["receipt"]
+    );
     reopened.close().await;
 }
 
@@ -826,14 +939,13 @@ async fn fresh_work_projection_reads_real_empty_installation_without_writes() {
                 business_operation_id: "new-event".into(),
                 completion: "completed".into(),
             };
-            assert!(
-                tx.workflow_work_claim(&claim, &mut s)
-                    .await
-                    .map_err(prefix::read_error)?
-                    .is_none()
-            );
-            assert!(
-                tx.workflow_family_head_by_target_identity(
+            assert!(tx
+                .workflow_work_claim(&claim, &mut s)
+                .await
+                .map_err(prefix::read_error)?
+                .is_none());
+            assert!(tx
+                .workflow_family_head_by_target_identity(
                     &key.logical_store_id,
                     &key.scope,
                     "new-target",
@@ -842,8 +954,7 @@ async fn fresh_work_projection_reads_real_empty_installation_without_writes() {
                 )
                 .await
                 .map_err(prefix::read_error)?
-                .is_none()
-            );
+                .is_none());
             for locator in [
                 HeadKey::Decision("new-decision"),
                 HeadKey::Capacity("new-decision"),
@@ -852,12 +963,11 @@ async fn fresh_work_projection_reads_real_empty_installation_without_writes() {
                     chain: "service",
                 },
             ] {
-                assert!(
-                    tx.workflow_financial_head(&key.logical_store_id, &key.scope, locator, &mut s)
-                        .await
-                        .map_err(prefix::read_error)?
-                        .is_none()
-                );
+                assert!(tx
+                    .workflow_financial_head(&key.logical_store_id, &key.scope, locator, &mut s)
+                    .await
+                    .map_err(prefix::read_error)?
+                    .is_none());
             }
             assert_eq!(
                 tx.workflow_test_meter()
@@ -876,12 +986,14 @@ async fn fresh_work_projection_reads_real_empty_installation_without_writes() {
 
 #[tokio::test]
 async fn held_management_reuse_refuses_actual_same_transaction_mutation() {
-    use ledgerlab_core::{canonical::audit_arena::AuditArena,validation_work::OriginalAuditSession};
-    let (_directory,ledger,_path)=installation("held-management-change").await;
-    let key=key("held-management-change","held-management-change");
-    let arena=AuditArena::new().unwrap();
-    let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-    let mut tx=ledger.store.begin(deadline()).await.unwrap();
+    use ledgerlab_core::{
+        canonical::audit_arena::AuditArena, validation_work::OriginalAuditSession,
+    };
+    let (_directory, ledger, _path) = installation("held-management-change").await;
+    let key = key("held-management-change", "held-management-change");
+    let arena = AuditArena::new().unwrap();
+    let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+    let mut tx = ledger.store.begin(deadline()).await.unwrap();
     let error=proof_session::with_proofs(&mut tx,&key,|tx|Box::pin(async {
         let held=ledger.admin.read_management(&ledger.store,tx,&key,&mut session).await?;
         ledger.admin.recheck_management_fresh(&held,&ledger.store,tx,&key,&mut session).await?;
@@ -894,7 +1006,7 @@ async fn held_management_reuse_refuses_actual_same_transaction_mutation() {
         tx.billing_m2_permissions(&plan.ok_or(ServiceError::IntegrityFailure)?).await.map_err(crate::service::store_error)?;
         ledger.admin.recheck_management_fresh(&held,&ledger.store,tx,&key,&mut session).await
     })).await.unwrap_err();
-    assert_eq!(error,reject("STALE_REVISION"));
-    assert!(matches!(tx.commit().await,Err(CommitError::RolledBack(_))));
+    assert_eq!(error, reject("STALE_REVISION"));
+    assert!(matches!(tx.commit().await, Err(CommitError::RolledBack(_))));
     ledger.close().await;
 }

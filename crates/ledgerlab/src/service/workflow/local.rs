@@ -18,7 +18,7 @@ type PublicationPreparation = (Option<Value>, Option<Vec<Vec<u8>>>);
 /// Private fields and no Deserialize, request/config flag or snapshot constructor.
 pub(super) struct LocalOwnerAdmin {
     instance: SqliteStore,
-    pub(super) configuration:std::path::PathBuf,
+    pub(super) configuration: std::path::PathBuf,
     pub(super) logical_store_id: String,
     pub(super) scope: [String; 2],
     pub(super) operator: String,
@@ -44,8 +44,13 @@ impl LocalWorkflowLedger {
     /// Publish through the journal using only the implemented builtin compiler
     /// and code-owned captured build inputs. Publishing obtains no assent.
     pub async fn publish(&self, raw: &[u8]) -> Result<Value> {
-        if request::PublicationRequest::parse(raw)?.payload_schema()=="ledger-workflow-policy-publication/6" {
-            return self.publish_local_owned(raw).await.map(agreement::WorkflowReply::into_legacy_value);
+        if request::PublicationRequest::parse(raw)?.payload_schema()
+            == "ledger-workflow-policy-publication/6"
+        {
+            return self
+                .publish_local_owned(raw)
+                .await
+                .map(agreement::WorkflowReply::into_legacy_value);
         }
         self.publish_with(raw, || {
             ledgerlab_core::policy::workflow::VerifiedCompilerSupport::builtin()
@@ -89,7 +94,7 @@ impl LocalWorkflowLedger {
             tx.rollback().await.map_err(super::super::store_error)?;
             Ok(LocalOwnerAdmin {
                 instance: store.clone(),
-                configuration:path.join("billing.json"),
+                configuration: path.join("billing.json"),
                 logical_store_id: setup.store_id,
                 scope: [
                     setup.scope.tenant().into(),
@@ -100,16 +105,23 @@ impl LocalWorkflowLedger {
         }
         .await;
         match result {
-            Ok(admin) => { super::resources::Snapshot::capture(&admin.configuration,&admin.logical_store_id,&admin.scope)?; Ok(Self {
-                store,
-                admin,
-                #[cfg(test)]
-                lose_reply: std::sync::atomic::AtomicBool::new(false),
-                #[cfg(test)]
-                preparation_gate: std::sync::Mutex::new(None),
-                #[cfg(test)]
-                preferred_root: std::sync::Mutex::new(None),
-            }) },
+            Ok(admin) => {
+                super::resources::Snapshot::capture(
+                    &admin.configuration,
+                    &admin.logical_store_id,
+                    &admin.scope,
+                )?;
+                Ok(Self {
+                    store,
+                    admin,
+                    #[cfg(test)]
+                    lose_reply: std::sync::atomic::AtomicBool::new(false),
+                    #[cfg(test)]
+                    preparation_gate: std::sync::Mutex::new(None),
+                    #[cfg(test)]
+                    preferred_root: std::sync::Mutex::new(None),
+                })
+            }
             Err(e) => {
                 store.close().await;
                 Err(e)
@@ -289,26 +301,29 @@ impl LocalWorkflowLedger {
             .begin(deadline())
             .await
             .map_err(super::super::store_error)?;
-        let preparation: Result<PublicationPreparation> = proof_session::with_proofs(&mut tx, key, |tx| Box::pin(async {
-            self.admin.read(&self.store, tx, key).await?;
-            if let Some(kind) = tx
-                .workflow_operation_kind(&key.bytes()?)
-                .await
-                .map_err(super::super::store_error)?
-            {
-                require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
-            }
-            if let Some(original) = tx
-                .workflow_lookup(&key.bytes()?)
-                .await
-                .map_err(super::super::store_error)?
-            {
-                return Ok((Some(retry(tx, &req, &original).await?), None));
-            }
-            self.admin.fresh(&self.store, tx, key).await?;
-            Ok((None, Some(resolve_documents(tx, &req).await?)))
-        }))
-        .await;
+        let preparation: Result<PublicationPreparation> =
+            proof_session::with_proofs(&mut tx, key, |tx| {
+                Box::pin(async {
+                    self.admin.read(&self.store, tx, key).await?;
+                    if let Some(kind) = tx
+                        .workflow_operation_kind(&key.bytes()?)
+                        .await
+                        .map_err(super::super::store_error)?
+                    {
+                        require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
+                    }
+                    if let Some(original) = tx
+                        .workflow_lookup(&key.bytes()?)
+                        .await
+                        .map_err(super::super::store_error)?
+                    {
+                        return Ok((Some(retry(tx, &req, &original).await?), None));
+                    }
+                    self.admin.fresh(&self.store, tx, key).await?;
+                    Ok((None, Some(resolve_documents(tx, &req).await?)))
+                })
+            })
+            .await;
         tx.rollback().await.map_err(super::super::store_error)?;
         let (original, raw_documents) = preparation?;
         if let Some(result) = original {
@@ -363,140 +378,142 @@ impl LocalWorkflowLedger {
             .begin(deadline())
             .await
             .map_err(super::super::store_error)?;
-        let written: Result<(Value, bool)> = proof_session::with_proofs(&mut tx, key, |tx| Box::pin(async {
-            self.admin.read(&self.store, tx, key).await?;
-            if let Some(kind) = tx
-                .workflow_operation_kind(&key.bytes()?)
-                .await
-                .map_err(super::super::store_error)?
-            {
-                require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
-            }
-            // A racing commit wins before mutable fresh configuration/support.
-            if let Some(original) = tx
-                .workflow_lookup(&key.bytes()?)
-                .await
-                .map_err(super::super::store_error)?
-            {
-                return Ok((retry(tx, &req, &original).await?, false));
-            }
-            let (prepared, evidence, provenance) = fresh_prepared?;
-            let setup = self.admin.fresh(&self.store, tx, key).await?;
-            if req.retained_refs().is_some() {
-                let locked = resolve_documents(tx, &req).await?;
-                require(locked == raw_documents, "SEMANTIC_CONFLICT")?;
-            }
-            // A supplied predecessor is only a normalization input. Its exact
-            // validated bytes must already belong to a publication in this scope.
-            for template in prepared
-                .source_documents()
-                .iter()
-                .filter(|d| d.kind() == "workflow-slot-template")
-            {
-                if let Some(previous) = template.canonical_value().get("previous") {
-                    let r: crate::store::sqlite::workflow::RecordRef =
-                        serde_json::from_value(previous.clone())
-                            .map_err(|_| reject("INVALID_SHAPE"))?;
-                    let retained = tx
-                        .workflow_document(
-                            &r,
-                            &key.logical_store_id,
-                            &key.scope[0],
-                            &key.scope[1],
-                            None,
-                        )
-                        .await
-                        .map_err(super::super::store_error)?
-                        .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
-                    let supplied = prepared
-                        .source_documents()
-                        .iter()
-                        .find(|d| d.id() == r.id)
-                        .ok_or(ServiceError::IntegrityFailure)?;
-                    if retained.bytes != supplied.canonical_bytes()
-                        || json!(supplied.reference()) != json!(r)
-                    {
-                        return Err(ServiceError::IntegrityFailure);
-                    }
-                }
-            }
-            let sequence = tx
-                .workflow_sequence()
-                .await
-                .map_err(super::super::store_error)?;
-            let pub_hash = records::hash(
-                "workflow-publication",
-                1,
-                &json!([key.logical_store_id, key.scope, req.root()]),
-            )?;
-            let pub_id = format!("wpub_{}", &pub_hash[7..]);
-            let existing = if tx
-                .workflow_publication(pub_id.as_bytes())
-                .await
-                .map_err(super::super::store_error)?
-                .is_some()
-            {
-                let publication = tx
-                    .workflow_document_by_id(
-                        &pub_id,
-                        &key.logical_store_id,
-                        &key.scope[0],
-                        &key.scope[1],
-                    )
+        let written: Result<(Value, bool)> = proof_session::with_proofs(&mut tx, key, |tx| {
+            Box::pin(async {
+                self.admin.read(&self.store, tx, key).await?;
+                if let Some(kind) = tx
+                    .workflow_operation_kind(&key.bytes()?)
                     .await
                     .map_err(super::super::store_error)?
-                    .ok_or(ServiceError::IntegrityFailure)?;
-                let build_ref = tx
-                    .workflow_publication_build_ref(
-                        &pub_id,
-                        &key.logical_store_id,
-                        &key.scope[0],
-                        &key.scope[1],
-                    )
+                {
+                    require(kind == "policy.publish", "IDENTITY_CONFLICT")?;
+                }
+                // A racing commit wins before mutable fresh configuration/support.
+                if let Some(original) = tx
+                    .workflow_lookup(&key.bytes()?)
+                    .await
+                    .map_err(super::super::store_error)?
+                {
+                    return Ok((retry(tx, &req, &original).await?, false));
+                }
+                let (prepared, evidence, provenance) = fresh_prepared?;
+                let setup = self.admin.fresh(&self.store, tx, key).await?;
+                if req.retained_refs().is_some() {
+                    let locked = resolve_documents(tx, &req).await?;
+                    require(locked == raw_documents, "SEMANTIC_CONFLICT")?;
+                }
+                // A supplied predecessor is only a normalization input. Its exact
+                // validated bytes must already belong to a publication in this scope.
+                for template in prepared
+                    .source_documents()
+                    .iter()
+                    .filter(|d| d.kind() == "workflow-slot-template")
+                {
+                    if let Some(previous) = template.canonical_value().get("previous") {
+                        let r: crate::store::sqlite::workflow::RecordRef =
+                            serde_json::from_value(previous.clone())
+                                .map_err(|_| reject("INVALID_SHAPE"))?;
+                        let retained = tx
+                            .workflow_document(
+                                &r,
+                                &key.logical_store_id,
+                                &key.scope[0],
+                                &key.scope[1],
+                                None,
+                            )
+                            .await
+                            .map_err(super::super::store_error)?
+                            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+                        let supplied = prepared
+                            .source_documents()
+                            .iter()
+                            .find(|d| d.id() == r.id)
+                            .ok_or(ServiceError::IntegrityFailure)?;
+                        if retained.bytes != supplied.canonical_bytes()
+                            || json!(supplied.reference()) != json!(r)
+                        {
+                            return Err(ServiceError::IntegrityFailure);
+                        }
+                    }
+                }
+                let sequence = tx
+                    .workflow_sequence()
                     .await
                     .map_err(super::super::store_error)?;
-                let build = if let Some(r) = build_ref {
-                    Some(
-                        tx.workflow_document(
-                            &r,
+                let pub_hash = records::hash(
+                    "workflow-publication",
+                    1,
+                    &json!([key.logical_store_id, key.scope, req.root()]),
+                )?;
+                let pub_id = format!("wpub_{}", &pub_hash[7..]);
+                let existing = if tx
+                    .workflow_publication(pub_id.as_bytes())
+                    .await
+                    .map_err(super::super::store_error)?
+                    .is_some()
+                {
+                    let publication = tx
+                        .workflow_document_by_id(
+                            &pub_id,
                             &key.logical_store_id,
                             &key.scope[0],
                             &key.scope[1],
-                            None,
                         )
                         .await
                         .map_err(super::super::store_error)?
-                        .ok_or(ServiceError::IntegrityFailure)?,
-                    )
+                        .ok_or(ServiceError::IntegrityFailure)?;
+                    let build_ref = tx
+                        .workflow_publication_build_ref(
+                            &pub_id,
+                            &key.logical_store_id,
+                            &key.scope[0],
+                            &key.scope[1],
+                        )
+                        .await
+                        .map_err(super::super::store_error)?;
+                    let build = if let Some(r) = build_ref {
+                        Some(
+                            tx.workflow_document(
+                                &r,
+                                &key.logical_store_id,
+                                &key.scope[0],
+                                &key.scope[1],
+                                None,
+                            )
+                            .await
+                            .map_err(super::super::store_error)?
+                            .ok_or(ServiceError::IntegrityFailure)?,
+                        )
+                    } else {
+                        None
+                    };
+                    Some((publication, build))
                 } else {
                     None
                 };
-                Some((publication, build))
-            } else {
-                None
-            };
-            let at = local_io::now().map_err(|_| ServiceError::Unavailable)?;
-            let append = publication::assemble(
-                &req,
-                &prepared,
-                evidence,
-                &setup,
-                &at,
-                sequence,
-                &provenance,
-                existing,
-            )?;
-            tx.workflow_append(&append).await.map_err(|e| {
-                if matches!(e, crate::store::errors::StoreError::DeliveryConflict) {
-                    reject("SEMANTIC_CONFLICT")
-                } else {
-                    super::super::store_error(e)
-                }
-            })?;
-            proof_session::after_append(tx, key)?;
-            let result = records::verify_retained(tx, key, &append.operation).await?;
-            Ok((result, true))
-        }))
+                let at = local_io::now().map_err(|_| ServiceError::Unavailable)?;
+                let append = publication::assemble(
+                    &req,
+                    &prepared,
+                    evidence,
+                    &setup,
+                    &at,
+                    sequence,
+                    &provenance,
+                    existing,
+                )?;
+                tx.workflow_append(&append).await.map_err(|e| {
+                    if matches!(e, crate::store::errors::StoreError::DeliveryConflict) {
+                        reject("SEMANTIC_CONFLICT")
+                    } else {
+                        super::super::store_error(e)
+                    }
+                })?;
+                proof_session::after_append(tx, key)?;
+                let result = records::verify_retained(tx, key, &append.operation).await?;
+                Ok((result, true))
+            })
+        })
         .await;
         match written {
             Err(e) => {
@@ -621,131 +638,281 @@ pub(super) struct OwnedLocalManagement {
     _control: ledgerlab_core::canonical::audit_arena::ExternalBufferLease,
 }
 impl OwnedLocalManagement {
-    pub(super) fn setup(&self)->&billing::Setup { self.setup.setup() }
-    pub(super) fn installation(&self)->&crate::store::records::Installation { self.installation.installation() }
+    pub(super) fn setup(&self) -> &billing::Setup {
+        self.setup.setup()
+    }
+    pub(super) fn installation(&self) -> &crate::store::records::Installation {
+        self.installation.installation()
+    }
 }
 impl LocalOwnerAdmin {
     /// Same local ownership and current setup predicates, with actual bounded
     /// metadata/typed outputs retained through their consuming preparation.
     /// The enclosing path/fence/commit envelope remains separately required.
     pub(super) async fn read_management(
-        &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
-        s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
-    )->Result<OwnedLocalManagement> {
-        super::resources::Snapshot::capture(&self.configuration,&self.logical_store_id,&self.scope)?.bind(tx).await?;
+        &self,
+        store: &SqliteStore,
+        tx: &mut SqliteTx,
+        key: &request::OperationKey,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<OwnedLocalManagement> {
+        super::resources::Snapshot::capture(
+            &self.configuration,
+            &self.logical_store_id,
+            &self.scope,
+        )?
+        .bind(tx)
+        .await?;
         use ledgerlab_core::validation_work::ValidationVisit as Visit;
-        fn checked(s:&mut ledgerlab_core::validation_work::OriginalAuditSession,condition:impl FnOnce()->bool)->Result<()> {
-            s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-            require(condition(),"AUTHORITY_REQUIRED")
+        fn checked(
+            s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+            condition: impl FnOnce() -> bool,
+        ) -> Result<()> {
+            s.semantic_work()
+                .visit(Visit::Constraint)
+                .map_err(core_error)?;
+            require(condition(), "AUTHORITY_REQUIRED")
         }
-        fn same(a:&str,b:&str,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<bool> {
-            s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        fn same(
+            a: &str,
+            b: &str,
+            s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+        ) -> Result<bool> {
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
             s.semantic_work().scan_bytes(a.len()).map_err(core_error)?;
             s.semantic_work().scan_bytes(b.len()).map_err(core_error)?;
-            Ok(a==b)
+            Ok(a == b)
         }
-        let control=s.reserve_external_payload(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
-        s.semantic_work().write_bytes(std::mem::size_of::<OwnedLocalManagement>()).map_err(core_error)?;
-        checked(s,||self.instance.workflow_same_instance(store))?;
-        self.management_paths(store,s)?;
-        let setup=agreement::financial::effective_setup(tx,s).await?;
-        let body=setup.setup();
-        let installation=tx.workflow_management_installation(&body.store_id,body.scope.tenant(),body.scope.environment(),s).await
-            .map_err(agreement::financial::management_read_error)?.ok_or_else(||reject("AUTHORITY_REQUIRED"))?;
-        let mode=same(&installation.installation().mode,"real",s)?;checked(s,||mode)?;
-        for (a,b) in [(&self.logical_store_id,body.store_id.as_str()),(&self.scope[0],body.scope.tenant()),(&self.scope[1],body.scope.environment()),(&self.operator,body.operator.as_str()),(&key.logical_store_id,self.logical_store_id.as_str()),(&key.scope[0],self.scope[0].as_str()),(&key.scope[1],self.scope[1].as_str())] {
-            let equal=same(a,b,s)?;checked(s,||equal)?;
+        let control = s
+            .reserve_external_payload(std::mem::size_of::<OwnedLocalManagement>())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(std::mem::size_of::<OwnedLocalManagement>())
+            .map_err(core_error)?;
+        checked(s, || self.instance.workflow_same_instance(store))?;
+        self.management_paths(store, s)?;
+        let setup = agreement::financial::effective_setup(tx, s).await?;
+        let body = setup.setup();
+        let installation = tx
+            .workflow_management_installation(
+                &body.store_id,
+                body.scope.tenant(),
+                body.scope.environment(),
+                s,
+            )
+            .await
+            .map_err(agreement::financial::management_read_error)?
+            .ok_or_else(|| reject("AUTHORITY_REQUIRED"))?;
+        let mode = same(&installation.installation().mode, "real", s)?;
+        checked(s, || mode)?;
+        for (a, b) in [
+            (&self.logical_store_id, body.store_id.as_str()),
+            (&self.scope[0], body.scope.tenant()),
+            (&self.scope[1], body.scope.environment()),
+            (&self.operator, body.operator.as_str()),
+            (&key.logical_store_id, self.logical_store_id.as_str()),
+            (&key.scope[0], self.scope[0].as_str()),
+            (&key.scope[1], self.scope[1].as_str()),
+        ] {
+            let equal = same(a, b, s)?;
+            checked(s, || equal)?;
         }
-        let mut key_bytes=0usize;
-        for text in [&key.logical_store_id,&key.scope[0],&key.scope[1],&key.source,&key.operation_id] {
-            s.semantic_work().arithmetic(ledgerlab_core::validation_work::ArithmeticOperation::Add,&[&key_bytes.into(),&text.len().into()]).map_err(core_error)?;
-            key_bytes=key_bytes.checked_add(text.len()).ok_or(ServiceError::Unavailable)?;
-            s.semantic_work().scan_bytes(text.len()).map_err(core_error)?;
+        let mut key_bytes = 0usize;
+        for text in [
+            &key.logical_store_id,
+            &key.scope[0],
+            &key.scope[1],
+            &key.source,
+            &key.operation_id,
+        ] {
+            s.semantic_work()
+                .arithmetic(
+                    ledgerlab_core::validation_work::ArithmeticOperation::Add,
+                    &[&key_bytes.into(), &text.len().into()],
+                )
+                .map_err(core_error)?;
+            key_bytes = key_bytes
+                .checked_add(text.len())
+                .ok_or(ServiceError::Unavailable)?;
+            s.semantic_work()
+                .scan_bytes(text.len())
+                .map_err(core_error)?;
         }
-        let key_storage=s.reserve_external_payload(key_bytes).map_err(core_error)?;
-        s.semantic_work().write_bytes(key_bytes).map_err(core_error)?;
-        let saved_key=key.clone();
-        let changes=tx.workflow_management_changes(s).await.map_err(agreement::financial::management_read_error)?;
-        Ok(OwnedLocalManagement{key:saved_key,owner:tx.workflow_proof_failure_handle(),changes,setup,installation,_key_storage:key_storage,_control:control})
+        let key_storage = s.reserve_external_payload(key_bytes).map_err(core_error)?;
+        s.semantic_work()
+            .write_bytes(key_bytes)
+            .map_err(core_error)?;
+        let saved_key = key.clone();
+        let changes = tx
+            .workflow_management_changes(s)
+            .await
+            .map_err(agreement::financial::management_read_error)?;
+        Ok(OwnedLocalManagement {
+            key: saved_key,
+            owner: tx.workflow_proof_failure_handle(),
+            changes,
+            setup,
+            installation,
+            _key_storage: key_storage,
+            _control: control,
+        })
     }
     pub(super) async fn fresh_management(
-        &self, store:&SqliteStore, tx:&mut SqliteTx, key:&request::OperationKey,
-        s:&mut ledgerlab_core::validation_work::OriginalAuditSession,
-    )->Result<OwnedLocalManagement> {
-        let held=self.read_management(store,tx,key,s).await?;
-        self.management_available(&held,key,s)?;
+        &self,
+        store: &SqliteStore,
+        tx: &mut SqliteTx,
+        key: &request::OperationKey,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<OwnedLocalManagement> {
+        let held = self.read_management(store, tx, key, s).await?;
+        self.management_available(&held, key, s)?;
         Ok(held)
     }
-    fn management_available(&self,held:&OwnedLocalManagement,key:&request::OperationKey,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<()> {
+    fn management_available(
+        &self,
+        held: &OwnedLocalManagement,
+        key: &request::OperationKey,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<()> {
         use ledgerlab_core::validation_work::ValidationVisit as Visit;
-        let setup=held.setup();
-        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-        s.semantic_work().scan_bytes(key.source.len()).map_err(core_error)?;
-        s.semantic_work().scan_bytes(setup.source.len()).map_err(core_error)?;
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        require(key.source==setup.source,"AUTHORITY_REQUIRED")?;
-        let state=held.installation();
-        s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-        s.semantic_work().scan_bytes(state.admission.len()).map_err(core_error)?;
+        let setup = held.setup();
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(key.source.len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(setup.source.len())
+            .map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        require(key.source == setup.source, "AUTHORITY_REQUIRED")?;
+        let state = held.installation();
+        s.semantic_work()
+            .visit(Visit::MemberCompare)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .scan_bytes(state.admission.len())
+            .map_err(core_error)?;
         s.semantic_work().scan_bytes(4).map_err(core_error)?;
-        let open=state.admission=="open";
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        if !open {return Err(ServiceError::Unavailable);}
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        if !state.dispatch_hold {return Err(ServiceError::Unavailable);}
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        if state.dispatch_enabled {return Err(ServiceError::Unavailable);}
+        let open = state.admission == "open";
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        if !open {
+            return Err(ServiceError::Unavailable);
+        }
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        if !state.dispatch_hold {
+            return Err(ServiceError::Unavailable);
+        }
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        if state.dispatch_enabled {
+            return Err(ServiceError::Unavailable);
+        }
         Ok(())
     }
-    fn management_paths(&self,store:&SqliteStore,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<()> {
-        #[cfg(target_os="macos")]
+    fn management_paths(
+        &self,
+        store: &SqliteStore,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<()> {
+        #[cfg(target_os = "macos")]
         {
-            let paths=store.workflow_management_paths(s).map_err(agreement::financial::management_read_error)?;
-            for (path,directory) in [(paths.directory(),true),(paths.database(),false)] {
-                local_io::private_existing_with_work(path,directory,s.semantic_work()).map_err(|error|match error {
-                    local_io::LocalError::Service(error)=>error,
-                    _=>reject("AUTHORITY_REQUIRED"),
-                })?;
+            let paths = store
+                .workflow_management_paths(s)
+                .map_err(agreement::financial::management_read_error)?;
+            for (path, directory) in [(paths.directory(), true), (paths.database(), false)] {
+                local_io::private_existing_with_work(path, directory, s.semantic_work()).map_err(
+                    |error| match error {
+                        local_io::LocalError::Service(error) => error,
+                        _ => reject("AUTHORITY_REQUIRED"),
+                    },
+                )?;
             }
         }
         // Other native targets retain the existing behavior; this fixed-host
         // ownership delta makes no resource qualification for those builds.
-        #[cfg(not(target_os="macos"))]
+        #[cfg(not(target_os = "macos"))]
         {
-            let (directory,database)=store.workflow_owner_paths().map_err(super::super::store_error)?;
-            local_io::private_existing(&directory,true).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
-            local_io::private_existing(&database,false).map_err(|_|reject("AUTHORITY_REQUIRED"))?;
+            let (directory, database) = store
+                .workflow_owner_paths()
+                .map_err(super::super::store_error)?;
+            local_io::private_existing(&directory, true)
+                .map_err(|_| reject("AUTHORITY_REQUIRED"))?;
+            local_io::private_existing(&database, false)
+                .map_err(|_| reject("AUTHORITY_REQUIRED"))?;
         }
         Ok(())
     }
     /// Only immutable normalized DATA is reused. Actual native paths and the
     /// connection mutation baseline are checked again at every consuming stage.
-    pub(super) async fn recheck_management_fresh(&self,held:&OwnedLocalManagement,store:&SqliteStore,tx:&mut SqliteTx,key:&request::OperationKey,s:&mut ledgerlab_core::validation_work::OriginalAuditSession)->Result<()> {
-        use ledgerlab_core::validation_work::{ValidationVisit as Visit,ArithmeticOperation as Op};
+    pub(super) async fn recheck_management_fresh(
+        &self,
+        held: &OwnedLocalManagement,
+        store: &SqliteStore,
+        tx: &mut SqliteTx,
+        key: &request::OperationKey,
+        s: &mut ledgerlab_core::validation_work::OriginalAuditSession,
+    ) -> Result<()> {
+        use ledgerlab_core::validation_work::{
+            ArithmeticOperation as Op, ValidationVisit as Visit,
+        };
         s.check_cancelled().map_err(core_error)?;
-        s.require_external_owner(&held._control).map_err(core_error)?;
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        require(proof_session::present(tx,key)?,"INTEGRITY_FAILURE")?;
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        let owner=tx.workflow_proof_failure_handle();
+        s.require_external_owner(&held._control)
+            .map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        require(proof_session::present(tx, key)?, "INTEGRITY_FAILURE")?;
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        let owner = tx.workflow_proof_failure_handle();
         if !held.owner.same_instance(&owner) {
-            held.owner.store(true,std::sync::atomic::Ordering::Release);
-            owner.store(true,std::sync::atomic::Ordering::Release);
+            held.owner.store(true, std::sync::atomic::Ordering::Release);
+            owner.store(true, std::sync::atomic::Ordering::Release);
             return Err(ServiceError::IntegrityFailure);
         }
-        s.semantic_work().visit(Visit::Constraint).map_err(core_error)?;
-        require(self.instance.workflow_same_instance(store),"AUTHORITY_REQUIRED")?;
-        for (a,b) in [(&held.key.logical_store_id,&key.logical_store_id),(&held.key.scope[0],&key.scope[0]),(&held.key.scope[1],&key.scope[1]),(&held.key.source,&key.source),(&held.key.operation_id,&key.operation_id)] {
-            s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
+        s.semantic_work()
+            .visit(Visit::Constraint)
+            .map_err(core_error)?;
+        require(
+            self.instance.workflow_same_instance(store),
+            "AUTHORITY_REQUIRED",
+        )?;
+        for (a, b) in [
+            (&held.key.logical_store_id, &key.logical_store_id),
+            (&held.key.scope[0], &key.scope[0]),
+            (&held.key.scope[1], &key.scope[1]),
+            (&held.key.source, &key.source),
+            (&held.key.operation_id, &key.operation_id),
+        ] {
+            s.semantic_work()
+                .visit(Visit::MemberCompare)
+                .map_err(core_error)?;
             s.semantic_work().scan_bytes(a.len()).map_err(core_error)?;
             s.semantic_work().scan_bytes(b.len()).map_err(core_error)?;
-            require(a==b,"INTEGRITY_FAILURE")?;
+            require(a == b, "INTEGRITY_FAILURE")?;
         }
-        let actual=tx.workflow_management_changes(s).await.map_err(agreement::financial::management_read_error)?;
-        s.semantic_work().arithmetic(Op::Compare,&[&actual.into(),&held.changes.into()]).map_err(core_error)?;
-        require(actual==held.changes,"STALE_REVISION")?;
-        self.management_paths(store,s)?;
-        self.management_available(held,key,s)
+        let actual = tx
+            .workflow_management_changes(s)
+            .await
+            .map_err(agreement::financial::management_read_error)?;
+        s.semantic_work()
+            .arithmetic(Op::Compare, &[&actual.into(), &held.changes.into()])
+            .map_err(core_error)?;
+        require(actual == held.changes, "STALE_REVISION")?;
+        self.management_paths(store, s)?;
+        self.management_available(held, key, s)
     }
     pub(super) async fn read(
         &self,
@@ -753,7 +920,13 @@ impl LocalOwnerAdmin {
         tx: &mut SqliteTx,
         key: &request::OperationKey,
     ) -> Result<billing::Setup> {
-        super::resources::Snapshot::capture(&self.configuration,&self.logical_store_id,&self.scope)?.bind(tx).await?;
+        super::resources::Snapshot::capture(
+            &self.configuration,
+            &self.logical_store_id,
+            &self.scope,
+        )?
+        .bind(tx)
+        .await?;
         require(
             self.instance.workflow_same_instance(store),
             "AUTHORITY_REQUIRED",

@@ -695,14 +695,12 @@ fn policy_definition_typechecks_quantity_and_binding_references() {
     for key in ["quantity_field", "unit"] {
         let mut bad = policy.clone();
         bad["rules"][0]["formula"][key] = json!("fixture.report:missing");
-        assert!(
-            normalize_definition(
-                CanonicalBytes::from_value(&bad).unwrap().as_slice(),
-                &dependencies,
-                &support
-            )
-            .is_err()
-        );
+        assert!(normalize_definition(
+            CanonicalBytes::from_value(&bad).unwrap().as_slice(),
+            &dependencies,
+            &support
+        )
+        .is_err());
     }
     policy["rules"][0]["binding_slot"] = json!("fixture.report:missing");
     error(
@@ -720,19 +718,17 @@ fn canonical_definition_closure_budget_does_not_charge_root_wire_whitespace() {
     let fixture = runtime_fixture();
     let vectors = fixture["vectors"].as_array().unwrap();
     let support = VerifiedCompilerSupport::builtin().unwrap();
-    let mut dependencies = vec![
-        normalize_definition(
-            vectors[0]["canonical_body_utf8"]
-                .as_str()
-                .unwrap()
-                .as_bytes(),
-            &[],
-            &support,
-        )
-        .unwrap()
-        .document()
-        .clone(),
-    ];
+    let mut dependencies = vec![normalize_definition(
+        vectors[0]["canonical_body_utf8"]
+            .as_str()
+            .unwrap()
+            .as_bytes(),
+        &[],
+        &support,
+    )
+    .unwrap()
+    .document()
+    .clone()];
     let values: Vec<_> = (0..32)
         .map(|i| format!("{}:v{i:02}{}", "n".repeat(60), "x".repeat(58)))
         .collect();
@@ -757,12 +753,10 @@ fn canonical_definition_closure_budget_does_not_charge_root_wire_whitespace() {
             .as_bytes(),
     )
     .unwrap();
-    product["fact_schemas"] = json!(
-        dependencies
-            .iter()
-            .map(DefinitionDocument::reference)
-            .collect::<Vec<_>>()
-    );
+    product["fact_schemas"] = json!(dependencies
+        .iter()
+        .map(DefinitionDocument::reference)
+        .collect::<Vec<_>>());
     let raw = CanonicalBytes::from_value(&product).unwrap().into_vec();
     let canonical = normalize_definition(&raw, &dependencies, &support).unwrap();
     let dependency_bytes: usize = dependencies.iter().map(|d| d.canonical_bytes().len()).sum();

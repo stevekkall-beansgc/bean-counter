@@ -124,9 +124,25 @@ pub(in super::super) async fn reconstruct(
             .try_reserve_exact(refs.len())
             .map_err(|_| ServiceError::Unavailable)?;
         for r in refs {
-            if request_wrapper::text(r,"kind",s)?=="workflow-authority"{
-                let mapping=current::source::retained_record(tx,origin.key(),r,"workflow-authority","ledger-workflow-party-authorization/1",origin.wrappers().sequence(),s).await?;
-                super::super::prefix::verify_selected_association(tx,origin.key(),mapping.reference(),origin.wrappers().sequence(),s).await?;
+            if request_wrapper::text(r, "kind", s)? == "workflow-authority" {
+                let mapping = current::source::retained_record(
+                    tx,
+                    origin.key(),
+                    r,
+                    "workflow-authority",
+                    "ledger-workflow-party-authorization/1",
+                    origin.wrappers().sequence(),
+                    s,
+                )
+                .await?;
+                super::super::prefix::verify_selected_association(
+                    tx,
+                    origin.key(),
+                    mapping.reference(),
+                    origin.wrappers().sequence(),
+                    s,
+                )
+                .await?;
                 continue;
             }
             s.semantic_work()

@@ -67,17 +67,25 @@ impl ResolvedMembers {
     /// Exact semantic operands already read and checked by the local executor.
     /// No recursive history expansion or serialized completeness assertion.
     pub(in super::super) async fn local_selected<'a>(
-        tx:&mut SqliteTx,key:&OperationKey,before:i64,
-        generated:impl Iterator<Item=&'a super::super::wire::SourceRecord>,
-        selected:impl Iterator<Item=&'a ExactRef>,s:&mut OriginalAuditSession,
-    )->Result<Self> {
-        let mut out=Self::new(s)?;
-        for record in generated {out.add_record_ref(record.reference(),s)?;}
-        for reference in selected {
-            super::verify_selected_association(tx,key,reference,before,s).await?;
-            out.add_record_ref(reference,s)?;
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        before: i64,
+        generated: impl Iterator<Item = &'a super::super::wire::SourceRecord>,
+        selected: impl Iterator<Item = &'a ExactRef>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let mut out = Self::new(s)?;
+        for record in generated {
+            out.add_record_ref(record.reference(), s)?;
         }
-        require(compare(out.entries.len(),LIMIT,s)?.is_lt(),"REFERENCE_LIMIT")?;
+        for reference in selected {
+            super::verify_selected_association(tx, key, reference, before, s).await?;
+            out.add_record_ref(reference, s)?;
+        }
+        require(
+            compare(out.entries.len(), LIMIT, s)?.is_lt(),
+            "REFERENCE_LIMIT",
+        )?;
         Ok(out)
     }
 
@@ -86,50 +94,83 @@ impl ResolvedMembers {
     /// is checked by the SAME party record reader. This is not chronological
     /// origin completion and is never used by the old audited recipe.
     pub(in super::super) async fn resolve_local_party<'a>(
-        tx:&mut SqliteTx,key:&OperationKey,before:i64,
-        generated:&[&wire::SourceRecord],old:impl Iterator<Item=&'a ExactRef>,
-        s:&mut OriginalAuditSession,
-    )->Result<Self> {
-        let mut out=Self::new(s)?;
-        let payload=arithmetic(LIMIT,mem::size_of::<Option<&wire::SourceRecord>>(),Op::Multiply,s)?;
-        let _slots=s.reserve_external_payload(payload).map_err(core_error)?;
+        tx: &mut SqliteTx,
+        key: &OperationKey,
+        before: i64,
+        generated: &[&wire::SourceRecord],
+        old: impl Iterator<Item = &'a ExactRef>,
+        s: &mut OriginalAuditSession,
+    ) -> Result<Self> {
+        let mut out = Self::new(s)?;
+        let payload = arithmetic(
+            LIMIT,
+            mem::size_of::<Option<&wire::SourceRecord>>(),
+            Op::Multiply,
+            s,
+        )?;
+        let _slots = s.reserve_external_payload(payload).map_err(core_error)?;
         s.semantic_work().write_bytes(payload).map_err(core_error)?;
-        let mut pending:[Option<&wire::SourceRecord>;LIMIT]=[None;LIMIT];
+        let mut pending: [Option<&wire::SourceRecord>; LIMIT] = [None; LIMIT];
         for record in generated {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            let raw=wire::reference(record.reference(),s)?;
-            let parsed=s.parse_representation(raw.bytes(),RepresentationKind::Record).map_err(core_error)?;
-            let index=out.add(parsed.value(),s)?;
-            if let Some(previous)=pending[index] {
-                s.semantic_work().visit(Visit::MemberCompare).map_err(core_error)?;
-                s.semantic_work().scan_bytes(previous.bytes().len()).map_err(core_error)?;
-                s.semantic_work().scan_bytes(record.bytes().len()).map_err(core_error)?;
-                require(previous.bytes()==record.bytes(),"INTEGRITY_FAILURE")?;
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            let raw = wire::reference(record.reference(), s)?;
+            let parsed = s
+                .parse_representation(raw.bytes(), RepresentationKind::Record)
+                .map_err(core_error)?;
+            let index = out.add(parsed.value(), s)?;
+            if let Some(previous) = pending[index] {
+                s.semantic_work()
+                    .visit(Visit::MemberCompare)
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .scan_bytes(previous.bytes().len())
+                    .map_err(core_error)?;
+                s.semantic_work()
+                    .scan_bytes(record.bytes().len())
+                    .map_err(core_error)?;
+                require(previous.bytes() == record.bytes(), "INTEGRITY_FAILURE")?;
             }
-            pending[index]=Some(*record);
+            pending[index] = Some(*record);
         }
         for reference in old {
-            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
-            out.add_record_ref(reference,s)?;
+            s.semantic_work()
+                .visit(Visit::Element)
+                .map_err(core_error)?;
+            out.add_record_ref(reference, s)?;
         }
-        let mut position=0usize;
-        while compare(position,out.entries.len(),s)?.is_lt() {
+        let mut position = 0usize;
+        while compare(position, out.entries.len(), s)?.is_lt() {
             let loaded;
-            let body=if let Some(record)=pending[position] {
+            let body = if let Some(record) = pending[position] {
                 record.bytes()
             } else {
-                let reference=&out.entries[position].reference;
-                let encoded=wire::reference(reference,s)?;
-                let parsed=s.parse_representation(encoded.bytes(),RepresentationKind::Record).map_err(core_error)?;
-                loaded=current::party::record(tx,key,parsed.value(),&reference.kind,before,s).await?;
-                verify_selected_association(tx,key,reference,before,s).await?;
+                let reference = &out.entries[position].reference;
+                let encoded = wire::reference(reference, s)?;
+                let parsed = s
+                    .parse_representation(encoded.bytes(), RepresentationKind::Record)
+                    .map_err(core_error)?;
+                loaded =
+                    current::party::record(tx, key, parsed.value(), &reference.kind, before, s)
+                        .await?;
+                verify_selected_association(tx, key, reference, before, s).await?;
                 loaded.canonical_bytes()
             };
-            let body=s.parse_representation(body,RepresentationKind::Record).map_err(core_error)?;
-            dependencies::body(body.value(),&mut|reference,s|out.add(reference,s).map(|_|()),s)?;
-            position=arithmetic(position,1,Op::Add,s)?;
+            let body = s
+                .parse_representation(body, RepresentationKind::Record)
+                .map_err(core_error)?;
+            dependencies::body(
+                body.value(),
+                &mut |reference, s| out.add(reference, s).map(|_| ()),
+                s,
+            )?;
+            position = arithmetic(position, 1, Op::Add, s)?;
         }
-        require(compare(out.entries.len(),LIMIT,s)?.is_lt(),"REFERENCE_LIMIT")?;
+        require(
+            compare(out.entries.len(), LIMIT, s)?.is_lt(),
+            "REFERENCE_LIMIT",
+        )?;
         Ok(out)
     }
     fn new(s: &mut OriginalAuditSession) -> Result<Self> {
@@ -398,7 +439,7 @@ impl ResolvedEconomicInputs {
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
         use ledgerlab_core::policy::workflow::transition_constructor::{
-            EconomicRecordView, select_resolved_inputs9_edges,
+            select_resolved_inputs9_edges, EconomicRecordView,
         };
         let result = (|| {
             let rows = seeds.as_array().ok_or(ServiceError::IntegrityFailure)?;
@@ -544,7 +585,13 @@ impl LocatedAppAcceptance {
             s.semantic_work()
                 .write_bytes(mem::size_of::<CoreKey>())
                 .map_err(core_error)?;
-            ResolvedEconomicInputs::select(self._prefix.as_mut().ok_or(ServiceError::Unavailable)?, &key, seeds, head_seeds, s)
+            ResolvedEconomicInputs::select(
+                self._prefix.as_mut().ok_or(ServiceError::Unavailable)?,
+                &key,
+                seeds,
+                head_seeds,
+                s,
+            )
         })();
         if result.is_err() {
             s.invalidate();
@@ -564,11 +611,11 @@ impl LocatedAppAcceptance {
             let value = s
                 .parse_representation(bytes, RepresentationKind::Record)
                 .map_err(core_error)?;
-            if let Some(prefix)=self._prefix.as_mut(){
+            if let Some(prefix) = self._prefix.as_mut() {
                 super::super::acceptance::validate_reference(value.value(), kind, s)?;
-                prefix._inventory.require_value(value.value(),s)
-            }else{
-                validate_local_held_reference(value.value(),kind,s)
+                prefix._inventory.require_value(value.value(), s)
+            } else {
+                validate_local_held_reference(value.value(), kind, s)
             }
         })();
         if result.is_err() {
@@ -596,7 +643,10 @@ impl LocatedAppAcceptance {
         selected: ResolvedEconomicInputs,
         s: &mut OriginalAuditSession,
     ) -> Result<RetainedEconomicBodies> {
-        self._prefix.as_mut().ok_or(ServiceError::Unavailable)?.retain_economic_inputs(selected, s)
+        self._prefix
+            .as_mut()
+            .ok_or(ServiceError::Unavailable)?
+            .retain_economic_inputs(selected, s)
     }
 }
 impl FoldedInventory {
@@ -691,9 +741,13 @@ impl RetainedEconomicBodies {
 
 /// Locator grammar only. The local input pool subsequently verifies the exact
 /// committed body/Ref association, and execution validates current head/CAS.
-fn validate_local_held_reference(value:&Value,kind:&str,s:&mut OriginalAuditSession)->Result<()> {
-    let (reference,_owner)=super::super::current::source::from_value_local(value,s)?;
-    super::super::request_wrapper::same_text(&reference.kind,kind,s)
+fn validate_local_held_reference(
+    value: &Value,
+    kind: &str,
+    s: &mut OriginalAuditSession,
+) -> Result<()> {
+    let (reference, _owner) = super::super::current::source::from_value_local(value, s)?;
+    super::super::request_wrapper::same_text(&reference.kind, kind, s)
 }
 
 #[cfg(test)]
@@ -702,15 +756,23 @@ mod local_held_reference_tests {
     use ledgerlab_core::canonical::audit_arena::AuditArena;
     #[test]
     fn local_held_financial_claim_uses_financial_grammar_and_exact_kind() {
-        let value=serde_json::json!({"kind":"workflow-work-claim","id":"wclaim_56ad39ce26a5343c30297a4088720e1895d2aebf786549611f4cbd6f9a5bb471","digest":"sha256:943fd87d11f196ca1425c715945a8155e88df03c3a9574b49727a980ed9efe83"});
-        let arena=AuditArena::new().unwrap();
-        let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        validate_local_held_reference(&value,"workflow-work-claim",&mut s).unwrap();
-        assert!(validate_local_held_reference(&value,"workflow-decision",&mut s).is_err());
-        let mut old=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        assert!(super::super::super::acceptance::validate_reference(&value,"workflow-work-claim",&mut old).is_err());
-        let mut malformed=value.clone();malformed["id"]=serde_json::json!("wclaim_bad");
-        let mut fresh=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        assert!(validate_local_held_reference(&malformed,"workflow-work-claim",&mut fresh).is_err());
+        let value = serde_json::json!({"kind":"workflow-work-claim","id":"wclaim_56ad39ce26a5343c30297a4088720e1895d2aebf786549611f4cbd6f9a5bb471","digest":"sha256:943fd87d11f196ca1425c715945a8155e88df03c3a9574b49727a980ed9efe83"});
+        let arena = AuditArena::new().unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        validate_local_held_reference(&value, "workflow-work-claim", &mut s).unwrap();
+        assert!(validate_local_held_reference(&value, "workflow-decision", &mut s).is_err());
+        let mut old = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(super::super::super::acceptance::validate_reference(
+            &value,
+            "workflow-work-claim",
+            &mut old
+        )
+        .is_err());
+        let mut malformed = value.clone();
+        malformed["id"] = serde_json::json!("wclaim_bad");
+        let mut fresh = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        assert!(
+            validate_local_held_reference(&malformed, "workflow-work-claim", &mut fresh).is_err()
+        );
     }
 }

@@ -2,8 +2,8 @@
 //! It conveys no source/origin authority. The containing host attempt owns one
 //! arena; each per-origin session shares that SAME quota, never a fresh pool.
 pub(super) mod representation;
-use super::{ValidationWork, economic_meter::Meter};
-use crate::{Result, canonical::audit_arena::AuditArena};
+use super::{economic_meter::Meter, ValidationWork};
+use crate::{canonical::audit_arena::AuditArena, Result};
 pub use representation::{RepresentationKind, ResourceVectorUsage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,7 +23,8 @@ pub struct OriginalAuditSession {
 impl OriginalAuditSession {
     pub fn new(attempt_arena: &AuditArena) -> Result<Self> {
         let _active_arena = attempt_arena.usage()?;
-        let mut meter = Meter::original_audit_with_limits(attempt_arena.resource_limits().copied())?;
+        let mut meter =
+            Meter::original_audit_with_limits(attempt_arena.resource_limits().copied())?;
         meter.set_attempt_cancellation(attempt_arena.cancellation_handle());
         Ok(Self {
             arena: attempt_arena.shared_handle(),
@@ -44,9 +45,13 @@ impl OriginalAuditSession {
             .inspect_err(|_| self.meter.fail_original())
     }
     /// Retained owning DATA must remain charged to this same attempt.
-    pub fn require_external_owner(&mut self, lease:&crate::canonical::audit_arena::ExternalBufferLease)->Result<()> {
-        self.arena.require_external_owner(lease,&mut self.meter)
-            .inspect_err(|_|self.meter.fail_original())
+    pub fn require_external_owner(
+        &mut self,
+        lease: &crate::canonical::audit_arena::ExternalBufferLease,
+    ) -> Result<()> {
+        self.arena
+            .require_external_owner(lease, &mut self.meter)
+            .inspect_err(|_| self.meter.fail_original())
     }
     pub fn parts(&mut self) -> (&AuditArena, &mut dyn ValidationWork) {
         (&self.arena, &mut self.meter)
@@ -54,7 +59,9 @@ impl OriginalAuditSession {
     pub fn work(&mut self) -> &mut dyn ValidationWork {
         &mut self.meter
     }
-    pub fn resource_limits(&self) -> Option<&super::ResourceLimits> { self.arena.resource_limits() }
+    pub fn resource_limits(&self) -> Option<&super::ResourceLimits> {
+        self.arena.resource_limits()
+    }
     pub fn arena(&self) -> &AuditArena {
         &self.arena
     }
@@ -153,18 +160,14 @@ mod tests {
         let mut child = outstanding.meter_mut().original_economic_meter().unwrap();
         assert!(outstanding.work().hash_bytes(1).is_err());
         assert!(child.visit("test.after_parent_violation").is_err());
-        assert!(
-            outstanding
-                .meter_mut()
-                .finish_original_economic(child)
-                .is_err()
-        );
-        assert!(
-            outstanding
-                .work()
-                .visit(ValidationVisit::Constraint)
-                .is_err()
-        );
+        assert!(outstanding
+            .meter_mut()
+            .finish_original_economic(child)
+            .is_err());
+        assert!(outstanding
+            .work()
+            .visit(ValidationVisit::Constraint)
+            .is_err());
         let mut wrong = OriginalAuditSession::new(&arena).unwrap();
         let child = wrong.meter_mut().original_compile_meter().unwrap();
         assert!(wrong.meter_mut().finish_original_economic(child).is_err());

@@ -2,12 +2,12 @@
 //! ValidationWork adapter, supply a budget, or run business validation in C.
 use super::OriginalAuditSession;
 use crate::{
-    Error, Result,
     adjudication::proofs::{self, Base64Sink},
     canonical::audit_arena::{AuditArena, AuditedByteBuilder, AuditedBytes, AuditedValue},
     validation_work::{
-        self as w, ArithmeticOperation, ValidationVisit, ValidationWork, economic_meter::Meter,
+        self as w, economic_meter::Meter, ArithmeticOperation, ValidationVisit, ValidationWork,
     },
+    Error, Result,
 };
 use num_bigint::BigInt;
 use serde_json::Value;
@@ -84,7 +84,11 @@ fn product(a: u64, b: u64) -> Result<u64> {
         .ok_or_else(|| failure("resource envelope overflow"))
 }
 impl ResourceLedger {
-    pub(in crate::validation_work) fn new() -> Self { let mut ledger=Self::with_semantic_limit(Some(1048576));ledger.configured=false;ledger }
+    pub(in crate::validation_work) fn new() -> Self {
+        let mut ledger = Self::with_semantic_limit(Some(1048576));
+        ledger.configured = false;
+        ledger
+    }
     pub(in crate::validation_work) fn with_semantic_limit(semantic_limit: Option<u64>) -> Self {
         Self {
             semantic: 0,
@@ -117,7 +121,15 @@ impl ResourceLedger {
             cost,
         )?;
         if !representation && self.semantic_limit.is_some_and(|limit| next > limit) {
-            return Err(if self.configured{crate::validation_work::resource_limits::refusal("semantic_work",self.semantic_limit.expect("finite exceeded limit"),next)}else{failure("composed original semantic work")});
+            return Err(if self.configured {
+                crate::validation_work::resource_limits::refusal(
+                    "semantic_work",
+                    self.semantic_limit.expect("finite exceeded limit"),
+                    next,
+                )
+            } else {
+                failure("composed original semantic work")
+            });
         }
         let callbacks = sum(
             if representation {
@@ -483,9 +495,16 @@ impl Meter {
         // Operator N-byte quota is checked on the actual canonical size by
         // new_body before the body escapes. Live allocations independently
         // remain on the same arena. Old recipes keep their narrowed emitter.
-        let remaining = if self.resource_limits().is_some(){None}else{self.remaining_new_body()?};
+        let remaining = if self.resource_limits().is_some() {
+            None
+        } else {
+            self.remaining_new_body()?
+        };
         let kind_max = kind.maximum();
-        let bound = match remaining { Some(remaining) if w::compare(self, remaining, kind_max)?.is_lt()=>remaining, _=>kind_max };
+        let bound = match remaining {
+            Some(remaining) if w::compare(self, remaining, kind_max)?.is_lt() => remaining,
+            _ => kind_max,
+        };
         let envelope = OperationEnvelope::canonical(kind_max)?;
         run(arena, self, envelope, |arena, work| {
             arena.canonical_representation_bytes(value, work, bound)
@@ -676,29 +695,21 @@ mod tests {
         }
         for text in ["Zg=", "Zh==", "Zm9=", "Zg==AAAA", "☃==="] {
             let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-            assert!(
-                session
-                    .decode_base64_representation(text, RepresentationKind::EvidenceContent)
-                    .is_err()
-            );
-            assert!(
-                session
-                    .semantic_work()
-                    .visit(ValidationVisit::Constraint)
-                    .is_err()
-            );
+            assert!(session
+                .decode_base64_representation(text, RepresentationKind::EvidenceContent)
+                .is_err());
+            assert!(session
+                .semantic_work()
+                .visit(ValidationVisit::Constraint)
+                .is_err());
         }
         let mut session = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
-        assert!(
-            session
-                .parse_representation(br#"{"same":1,"same":2}"#, RepresentationKind::Record)
-                .is_err()
-        );
-        assert!(
-            session
-                .copy_representation(b"caught", RepresentationKind::Record)
-                .is_err()
-        );
+        assert!(session
+            .parse_representation(br#"{"same":1,"same":2}"#, RepresentationKind::Record)
+            .is_err());
+        assert!(session
+            .copy_representation(b"caught", RepresentationKind::Record)
+            .is_err());
     }
     #[test]
     fn original_raw_maximum_roundtrips_without_semantic_or_trace_growth() {
@@ -720,17 +731,13 @@ mod tests {
         assert_eq!(session.resource_usage().unwrap().representation_calls, 2);
         let mut refused = OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let oversized = [0; 262145];
-        assert!(
-            refused
-                .encode_base64_representation(&oversized, RepresentationKind::OriginalRequest)
-                .is_err()
-        );
-        assert!(
-            refused
-                .semantic_work()
-                .visit(ValidationVisit::Constraint)
-                .is_err()
-        );
+        assert!(refused
+            .encode_base64_representation(&oversized, RepresentationKind::OriginalRequest)
+            .is_err());
+        assert!(refused
+            .semantic_work()
+            .visit(ValidationVisit::Constraint)
+            .is_err());
     }
     #[test]
     fn closed_envelope_refuses_before_unpaid_operation_and_no_artifact_escapes() {
@@ -750,12 +757,10 @@ mod tests {
             } else {
                 assert!(copied.is_err());
                 assert_eq!(arena.usage().unwrap().live_bytes, before);
-                assert!(
-                    session
-                        .semantic_work()
-                        .visit(ValidationVisit::Constraint)
-                        .is_err()
-                );
+                assert!(session
+                    .semantic_work()
+                    .visit(ValidationVisit::Constraint)
+                    .is_err());
             }
         }
     }

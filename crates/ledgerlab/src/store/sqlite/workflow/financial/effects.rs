@@ -391,7 +391,8 @@ impl SqliteTx {
             self.financial_member(identity, r, session).await?;
             match claim.key() {
                 assertion @ PermanentClaimKey::Assertion { .. } => {
-                    self.insert_assertion_claim(candidate, assertion, r, session).await?;
+                    self.insert_assertion_claim(candidate, assertion, r, session)
+                        .await?;
                 }
                 app @ (PermanentClaimKey::AppCall { .. }
                 | PermanentClaimKey::AppComponentObservation { .. }

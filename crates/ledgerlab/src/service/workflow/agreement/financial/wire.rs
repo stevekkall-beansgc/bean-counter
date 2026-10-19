@@ -147,7 +147,7 @@ impl<'a> RefSet<'a> {
         count: usize,
         session: &mut OriginalAuditSession,
     ) -> Result<Self> {
-        reference_count(count,session)?;
+        reference_count(count, session)?;
         let payload = arithmetic(
             count,
             std::mem::size_of::<&ExactRef>(),
@@ -267,7 +267,7 @@ impl<'a> RefSet<'a> {
             }
         }
         out.refs.truncate(retained);
-        reference_count(retained,session)?;
+        reference_count(retained, session)?;
         Ok(out)
     }
     fn sort(&mut self, session: &mut OriginalAuditSession) -> Result<()> {
@@ -448,7 +448,10 @@ pub(super) fn object(
         length = arithmetic(length, name.len(), Op::Add, session)?;
         length = arithmetic(length, value.len(), Op::Add, session)?;
         length = arithmetic(length, 3, Op::Add, session)?;
-        session.semantic_work().arithmetic(Op::Compare,&[&index.into(),&0usize.into()]).map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&index.into(), &0usize.into()])
+            .map_err(core_error)?;
         if index != 0 {
             length = arithmetic(length, 1, Op::Add, session)?;
         }
@@ -460,7 +463,10 @@ pub(super) fn object(
     let mut out = buffer(length, session)?;
     append(&mut out, b"{", session)?;
     for (index, (name, value)) in fields.iter().enumerate() {
-        session.semantic_work().arithmetic(Op::Compare,&[&index.into(),&0usize.into()]).map_err(core_error)?;
+        session
+            .semantic_work()
+            .arithmetic(Op::Compare, &[&index.into(), &0usize.into()])
+            .map_err(core_error)?;
         if index != 0 {
             append(&mut out, b",", session)?;
         }
@@ -569,7 +575,10 @@ pub(super) fn string(text: &str, session: &mut OriginalAuditSession) -> Result<A
         .semantic_work()
         .write_bytes(text.len())
         .map_err(core_error)?;
-    session.semantic_work().write_bytes(std::mem::size_of::<Value>()).map_err(core_error)?;
+    session
+        .semantic_work()
+        .write_bytes(std::mem::size_of::<Value>())
+        .map_err(core_error)?;
     let mut copy = String::new();
     copy.try_reserve_exact(text.len())
         .map_err(|_| ServiceError::Unavailable)?;
@@ -778,7 +787,9 @@ pub(super) struct JournalData<'a> {
     members: RefSet<'a>,
 }
 impl JournalData<'_> {
-    pub(super) fn receipt_bytes(&self)->&[u8]{self.receipt.bytes()}
+    pub(super) fn receipt_bytes(&self) -> &[u8] {
+        self.receipt.bytes()
+    }
     /// Exact borrowed storage operands. This view remains DATA: only the private
     /// service preparation may submit it after original/current authentication,
     /// candidate completion, locked rereads and resource checks have succeeded.
@@ -917,26 +928,37 @@ fn frame_inner<'a>(
     )?;
     require(!results.refs.is_empty(), "INTEGRITY_FAILURE")?;
     let results_bytes = results.encode(session)?;
-    let audit_fields=if metadata.is_local_execution() {
-        request::same_text(request::text(resolution,"registry_digest",session)?,wrappers::LOCAL_REGISTRY,session)?;
-        request::same_text(recipe.operation,"ledger-workflow-economic-operation/10",session)?;
+    let audit_fields = if metadata.is_local_execution() {
+        request::same_text(
+            request::text(resolution, "registry_digest", session)?,
+            wrappers::LOCAL_REGISTRY,
+            session,
+        )?;
+        request::same_text(
+            recipe.operation,
+            "ledger-workflow-economic-operation/10",
+            session,
+        )?;
         None
-    }else {
-        let audit=metadata.experimental_audit().ok_or_else(||reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
-    let observations = RefSet::new(
-        audit.source_observation_refs(),
-        audit.source_observation_refs().len(),
-        true,
-        session,
-    )?;
-    require(
-        !observations.refs.is_empty() && !compare(observations.refs.len(), 32, session)?.is_gt(),
-        "INTEGRITY_FAILURE",
-    )?;
-    let observations_bytes = observations.encode(session)?;
-    let financial = reference(audit.financial_observation_ref(), session)?;
-    let combined = literal(audit.combined_audit_digest(), session)?;
-        Some((observations_bytes,financial,combined))
+    } else {
+        let audit = metadata
+            .experimental_audit()
+            .ok_or_else(|| reject("UNSUPPORTED_SCHEMA_PROFILE"))?;
+        let observations = RefSet::new(
+            audit.source_observation_refs(),
+            audit.source_observation_refs().len(),
+            true,
+            session,
+        )?;
+        require(
+            !observations.refs.is_empty()
+                && !compare(observations.refs.len(), 32, session)?.is_gt(),
+            "INTEGRITY_FAILURE",
+        )?;
+        let observations_bytes = observations.encode(session)?;
+        let financial = reference(audit.financial_observation_ref(), session)?;
+        let combined = literal(audit.combined_audit_digest(), session)?;
+        Some((observations_bytes, financial, combined))
     };
     let kind_value = literal(kind, session)?;
     let received = literal(received_at.as_str(), session)?;
@@ -945,32 +967,46 @@ fn frame_inner<'a>(
     let sequence = sequence_string(sequence, session)?;
     let closure = literal(recipe.closure, session)?;
     let operation_schema = literal(recipe.operation, session)?;
-    let operation = if let Some((observations_bytes,financial,combined))=&audit_fields {object(
-        &[
-            ("accepted_at", at.bytes()),
-            ("authority_snapshot", authority.canonical_body()),
-            ("closure_profile", closure.bytes()),
-            ("combined_audit_digest", combined.bytes()),
-            ("commit_sequence", sequence.bytes()),
-            ("contract", b"\"workflow/1\""),
-            ("financial_observation_ref", financial.bytes()),
-            ("key", key_bytes.bytes()),
-            ("kind", kind_value.bytes()),
-            ("received_at", received.bytes()),
-            ("request_evidence", evidence_bytes.bytes()),
-            ("result_refs", results_bytes.bytes()),
-            ("schema", operation_schema.bytes()),
-            ("source_observation_refs", observations_bytes.bytes()),
-        ],
-        8388608,
-        session,
-    )?}else {object(&[
-        ("accepted_at",at.bytes()),("authority_snapshot",authority.canonical_body()),
-        ("closure_profile",closure.bytes()),("commit_sequence",sequence.bytes()),
-        ("contract",b"\"workflow/1\""),("key",key_bytes.bytes()),("kind",kind_value.bytes()),
-        ("received_at",received.bytes()),("request_evidence",evidence_bytes.bytes()),
-        ("result_refs",results_bytes.bytes()),("schema",operation_schema.bytes()),
-    ],8388608,session)?};
+    let operation = if let Some((observations_bytes, financial, combined)) = &audit_fields {
+        object(
+            &[
+                ("accepted_at", at.bytes()),
+                ("authority_snapshot", authority.canonical_body()),
+                ("closure_profile", closure.bytes()),
+                ("combined_audit_digest", combined.bytes()),
+                ("commit_sequence", sequence.bytes()),
+                ("contract", b"\"workflow/1\""),
+                ("financial_observation_ref", financial.bytes()),
+                ("key", key_bytes.bytes()),
+                ("kind", kind_value.bytes()),
+                ("received_at", received.bytes()),
+                ("request_evidence", evidence_bytes.bytes()),
+                ("result_refs", results_bytes.bytes()),
+                ("schema", operation_schema.bytes()),
+                ("source_observation_refs", observations_bytes.bytes()),
+            ],
+            8388608,
+            session,
+        )?
+    } else {
+        object(
+            &[
+                ("accepted_at", at.bytes()),
+                ("authority_snapshot", authority.canonical_body()),
+                ("closure_profile", closure.bytes()),
+                ("commit_sequence", sequence.bytes()),
+                ("contract", b"\"workflow/1\""),
+                ("key", key_bytes.bytes()),
+                ("kind", kind_value.bytes()),
+                ("received_at", received.bytes()),
+                ("request_evidence", evidence_bytes.bytes()),
+                ("result_refs", results_bytes.bytes()),
+                ("schema", operation_schema.bytes()),
+            ],
+            8388608,
+            session,
+        )?
+    };
     let id_hash = hash(
         b"bean-counter/workflow-operation/1\0",
         &[key_bytes.bytes()],
@@ -1015,20 +1051,32 @@ fn frame_inner<'a>(
     let member_bytes = full.encode(session)?;
     drop(full);
     let manifest_schema = literal(recipe.manifest, session)?;
-    let manifest = if let Some((observations_bytes,financial,combined))=&audit_fields {object(
-        &[
-            ("closure_profile", closure.bytes()),
-            ("combined_audit_digest", combined.bytes()),
-            ("financial_observation_ref", financial.bytes()),
-            ("key", key_bytes.bytes()),
-            ("members", member_bytes.bytes()),
-            ("schema", manifest_schema.bytes()),
-            ("source_observation_refs", observations_bytes.bytes()),
-        ],
-        4194304,
-        session,
-    )?}else {object(&[("closure_profile",closure.bytes()),("key",key_bytes.bytes()),
-        ("members",member_bytes.bytes()),("schema",manifest_schema.bytes())],4194304,session)?};
+    let manifest = if let Some((observations_bytes, financial, combined)) = &audit_fields {
+        object(
+            &[
+                ("closure_profile", closure.bytes()),
+                ("combined_audit_digest", combined.bytes()),
+                ("financial_observation_ref", financial.bytes()),
+                ("key", key_bytes.bytes()),
+                ("members", member_bytes.bytes()),
+                ("schema", manifest_schema.bytes()),
+                ("source_observation_refs", observations_bytes.bytes()),
+            ],
+            4194304,
+            session,
+        )?
+    } else {
+        object(
+            &[
+                ("closure_profile", closure.bytes()),
+                ("key", key_bytes.bytes()),
+                ("members", member_bytes.bytes()),
+                ("schema", manifest_schema.bytes()),
+            ],
+            4194304,
+            session,
+        )?
+    };
     let manifest_hash = hash(
         b"bean-counter/workflow-manifest/1\0",
         &[manifest.bytes()],
@@ -1122,7 +1170,10 @@ fn sequence_string(sequence: i64, session: &mut OriginalAuditSession) -> Result<
         .semantic_work()
         .arithmetic(Op::Compare, &[&sequence.into(), &100000i64.into()])
         .map_err(core_error)?;
-    require(session.resource_limits().is_some() || sequence <= 100000, "INTEGRITY_FAILURE")?;
+    require(
+        session.resource_limits().is_some() || sequence <= 100000,
+        "INTEGRITY_FAILURE",
+    )?;
     let mut digits = [0u8; 20];
     let mut value = sequence as u64;
     let mut start = digits.len();
@@ -1260,8 +1311,8 @@ fn receipt(
 
 mod administrative;
 mod agreement;
-pub(super) use administrative::{PartyJournalData, frame_party};
-pub(super) use agreement::{AgreementJournalData, frame_acceptance, frame_activation};
+pub(super) use administrative::{frame_party, PartyJournalData};
+pub(super) use agreement::{frame_acceptance, frame_activation, AgreementJournalData};
 
 #[cfg(test)]
 mod request_framing_tests {
@@ -1468,8 +1519,23 @@ pub(super) fn agreement_record(
     })
 }
 
-fn reference_count(count:usize,session:&mut OriginalAuditSession)->Result<()> {
- let limit=session.resource_limits().map(|r|r.resolved_records).unwrap_or(Some(4096));
- if let Some(limit)=limit {if compare(count,limit,session)?.is_gt(){return Err(if session.resource_limits().is_some(){ServiceError::ResourceLimit{setting:"resolved_records",limit:limit as u64,observed:count as u64}}else{reject("REFERENCE_LIMIT")});}}
- Ok(())
+fn reference_count(count: usize, session: &mut OriginalAuditSession) -> Result<()> {
+    let limit = session
+        .resource_limits()
+        .map(|r| r.resolved_records)
+        .unwrap_or(Some(4096));
+    if let Some(limit) = limit {
+        if compare(count, limit, session)?.is_gt() {
+            return Err(if session.resource_limits().is_some() {
+                ServiceError::ResourceLimit {
+                    setting: "resolved_records",
+                    limit: limit as u64,
+                    observed: count as u64,
+                }
+            } else {
+                reject("REFERENCE_LIMIT")
+            });
+        }
+    }
+    Ok(())
 }

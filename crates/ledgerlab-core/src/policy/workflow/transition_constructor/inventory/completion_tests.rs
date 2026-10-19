@@ -1,7 +1,7 @@
 //! Focused declarations only. No calibration or admission entry is executed.
-use super::super::{CoreMeter, shape};
+use super::super::{shape, CoreMeter};
 use super::*;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 fn literal(name: &str) -> Value {
     let inputs: Value =
         serde_json::from_slice(include_bytes!("../fixtures/prerequisite-input-data.json")).unwrap();
@@ -74,15 +74,13 @@ fn saved_request_closed_framing_rejects_rebound_descriptor_shapes() {
             &json!(["workflow-operation", ["fixture", "sandbox"], rebound]),
         )
         .unwrap();
-        assert!(
-            request::validate(
-                &mut CoreMeter::new(65536).unwrap(),
-                &bad,
-                "agreement.activate",
-                "ledger-workflow-activation/1"
-            )
-            .is_err()
-        );
+        assert!(request::validate(
+            &mut CoreMeter::new(65536).unwrap(),
+            &bad,
+            "agreement.activate",
+            "ledger-workflow-activation/1"
+        )
+        .is_err());
     }
 }
 #[test]
@@ -100,10 +98,12 @@ fn canonical_order_has_examined_byte_accounting_and_paid_recursive_numeric_limit
     let mut exact = CoreMeter::new(n).unwrap();
     super::super::codec::parse(&mut exact, raw.as_bytes(), 262144).unwrap();
     assert_eq!(full.usage(), exact.usage());
-    assert!(
-        super::super::codec::parse(&mut CoreMeter::new(n - 1).unwrap(), raw.as_bytes(), 262144)
-            .is_err()
-    );
+    assert!(super::super::codec::parse(
+        &mut CoreMeter::new(n - 1).unwrap(),
+        raw.as_bytes(),
+        262144
+    )
+    .is_err());
 }
 
 fn literal_input(name: &str) -> super::super::RecordInput {
@@ -206,14 +206,12 @@ fn original_birth_key_missing_or_rebound_wrong_kind_and_actor_are_refused() {
     let mut head = literal("A.activate.head");
     head["new_revision"] = json!("2");
     super::tests::document_input("workflow-head-transition", &head);
-    assert!(
-        transitions::initial(
-            &mut CoreMeter::new(65536).unwrap(),
-            &head,
-            "agreement_activation"
-        )
-        .is_err()
-    );
+    assert!(transitions::initial(
+        &mut CoreMeter::new(65536).unwrap(),
+        &head,
+        "agreement_activation"
+    )
+    .is_err());
 }
 #[test]
 fn observation_supported_metadata_and_context_refuse_after_rebinding() {
@@ -253,17 +251,15 @@ fn observation_supported_metadata_and_context_refuse_after_rebinding() {
         };
         super::tests::document_input("workflow-authority-prefix-observation", &bad);
         super::tests::document_input("workflow-authority-audit-verifier", &verifier);
-        assert!(
-            observation::validate(
-                &mut CoreMeter::new(65536).unwrap(),
-                &c,
-                &state,
-                &bad,
-                &verifier,
-                &root
-            )
-            .is_err()
-        );
+        assert!(observation::validate(
+            &mut CoreMeter::new(65536).unwrap(),
+            &c,
+            &state,
+            &bad,
+            &verifier,
+            &root
+        )
+        .is_err());
     }
 }
 #[test]

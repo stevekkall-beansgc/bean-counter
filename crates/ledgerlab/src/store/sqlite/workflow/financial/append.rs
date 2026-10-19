@@ -271,7 +271,9 @@ impl SqliteTx {
     ) -> Result<JournalDelta, FinancialReadError> {
         let payload = io::binding_payload(&[], &[], 0, 0, session)?;
         self.financial_reserve_io(session, payload)?;
-        session.semantic_work().write_bytes(std::mem::size_of::<i64>())?;
+        session
+            .semantic_work()
+            .write_bytes(std::mem::size_of::<i64>())?;
         let version: i64 = sqlx::query_scalar("PRAGMA user_version")
             .fetch_one(self.conn())
             .await?;
@@ -279,7 +281,8 @@ impl SqliteTx {
         if !resource_compare(session, version, 13)?.is_eq()
             && !resource_compare(session, version, 14)?.is_eq()
             && !resource_compare(session, version, 15)?.is_eq()
-            && !resource_compare(session, version, 16)?.is_eq() && !resource_compare(session, version, 17)?.is_eq()
+            && !resource_compare(session, version, 16)?.is_eq()
+            && !resource_compare(session, version, 17)?.is_eq()
         {
             return Err(StoreError::BillingUpgradeRequired.into());
         }
@@ -580,10 +583,15 @@ impl SqliteTx {
     ) -> Result<super::super::capacity::WorkflowMeter, FinancialReadError> {
         let payload = io::binding_payload(&[], &[], 0, 0, session)?;
         self.financial_reserve_io(session, payload)?;
-        let limits=self.workflow_operator;
-        let meter =
-            super::super::capacity::check_with_session(self.conn(), operations, bytes, session,limits)
-                .await?;
+        let limits = self.workflow_operator;
+        let meter = super::super::capacity::check_with_session(
+            self.conn(),
+            operations,
+            bytes,
+            session,
+            limits,
+        )
+        .await?;
         self.financial_finish_io(session).await?;
         Ok(meter)
     }

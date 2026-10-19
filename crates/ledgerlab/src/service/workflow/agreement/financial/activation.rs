@@ -9,7 +9,7 @@ use ledgerlab_core::{
     validation_work::{OriginalAuditSession, RepresentationKind, ValidationVisit as Visit},
 };
 pub(super) use replay::reconstruct_initial;
-pub(super) use transition_records::{ActivationRecords, build_records};
+pub(super) use transition_records::{build_records, ActivationRecords};
 
 fn encode(v: &Value, s: &mut OriginalAuditSession) -> Result<AuditedBytes> {
     s.canonical_representation(v, RepresentationKind::SourceDefinition)

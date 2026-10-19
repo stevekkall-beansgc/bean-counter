@@ -317,27 +317,50 @@ pub(crate) fn normalize_path(path: &Path) -> Result<PathBuf> {
     }
     Ok(prefix)
 }
-pub(crate) fn private_existing(path:&Path,directory:bool)->Result<()> {
-    private_existing_with_work(path,directory,&mut ledgerlab_core::validation_work::NoopValidationWork)
+pub(crate) fn private_existing(path: &Path, directory: bool) -> Result<()> {
+    private_existing_with_work(
+        path,
+        directory,
+        &mut ledgerlab_core::validation_work::NoopValidationWork,
+    )
 }
 /// SAME filesystem/type/privacy predicates, with no new supplied state.
-pub(crate) fn private_existing_with_work(path:&Path,directory:bool,work:&mut dyn ledgerlab_core::validation_work::ValidationWork)->Result<()> {
+pub(crate) fn private_existing_with_work(
+    path: &Path,
+    directory: bool,
+    work: &mut dyn ledgerlab_core::validation_work::ValidationWork,
+) -> Result<()> {
     use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
-    work.scan_bytes(path.as_os_str().as_encoded_bytes().len()).map_err(crate::service::workflow::core_error)?;
-    let m=fs::symlink_metadata(path)?;
-    work.visit(Visit::Constraint).map_err(crate::service::workflow::core_error)?;
-    if m.file_type().is_symlink() {return Err(LocalError::Config("invalid local storage path"));}
-    work.visit(Visit::Constraint).map_err(crate::service::workflow::core_error)?;
-    let valid=if directory {m.is_dir()} else {m.is_file()};
-    work.visit(Visit::Constraint).map_err(crate::service::workflow::core_error)?;
-    if !valid {return Err(LocalError::Config("invalid local storage path"));}
-    #[cfg(unix)] {
+    work.scan_bytes(path.as_os_str().as_encoded_bytes().len())
+        .map_err(crate::service::workflow::core_error)?;
+    let m = fs::symlink_metadata(path)?;
+    work.visit(Visit::Constraint)
+        .map_err(crate::service::workflow::core_error)?;
+    if m.file_type().is_symlink() {
+        return Err(LocalError::Config("invalid local storage path"));
+    }
+    work.visit(Visit::Constraint)
+        .map_err(crate::service::workflow::core_error)?;
+    let valid = if directory { m.is_dir() } else { m.is_file() };
+    work.visit(Visit::Constraint)
+        .map_err(crate::service::workflow::core_error)?;
+    if !valid {
+        return Err(LocalError::Config("invalid local storage path"));
+    }
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
-        let mode=m.permissions().mode();
-        work.arithmetic(Op::BitAnd,&[&mode.into(),&0o077u32.into()]).map_err(crate::service::workflow::core_error)?;
-        let public=mode &0o077;
-        work.arithmetic(Op::Compare,&[&public.into(),&0u32.into()]).map_err(crate::service::workflow::core_error)?;
-        if public!=0 {return Err(LocalError::Config("local storage must be private: directories 0700, database 0600"));}
+        let mode = m.permissions().mode();
+        work.arithmetic(Op::BitAnd, &[&mode.into(), &0o077u32.into()])
+            .map_err(crate::service::workflow::core_error)?;
+        let public = mode & 0o077;
+        work.arithmetic(Op::Compare, &[&public.into(), &0u32.into()])
+            .map_err(crate::service::workflow::core_error)?;
+        if public != 0 {
+            return Err(LocalError::Config(
+                "local storage must be private: directories 0700, database 0600",
+            ));
+        }
     }
     Ok(())
 }
@@ -372,24 +395,33 @@ pub(crate) fn now() -> Result<Timestamp> {
 }
 /// Environmental clock capture using the existing paid Gregorian kernel.
 /// It accepts no supplied timestamp. Caller owns the fixed rendering overlap.
-pub(crate) enum LocalClockError { Unavailable, Resource(ledgerlab_core::Error) }
-impl From<ledgerlab_core::Error> for LocalClockError {
-    fn from(error:ledgerlab_core::Error)->Self {Self::Resource(error)}
+pub(crate) enum LocalClockError {
+    Unavailable,
+    Resource(ledgerlab_core::Error),
 }
-pub(crate) fn now_with_work(work:&mut dyn ledgerlab_core::validation_work::ValidationWork)->std::result::Result<Timestamp,LocalClockError> {
+impl From<ledgerlab_core::Error> for LocalClockError {
+    fn from(error: ledgerlab_core::Error) -> Self {
+        Self::Resource(error)
+    }
+}
+pub(crate) fn now_with_work(
+    work: &mut dyn ledgerlab_core::validation_work::ValidationWork,
+) -> std::result::Result<Timestamp, LocalClockError> {
     use ledgerlab_core::validation_work::{ArithmeticOperation as Op, ValidationVisit as Visit};
-    let clock_error=||LocalClockError::Unavailable;
+    let clock_error = || LocalClockError::Unavailable;
     work.visit(Visit::Constraint)?;
-    let elapsed=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|clock_error())?;
-    let seconds=elapsed.as_secs();
-    work.arithmetic(Op::Multiply,&[&seconds.into(),&1_000_000u64.into()])?;
-    let whole=seconds.checked_mul(1_000_000).ok_or_else(clock_error)?;
-    let fraction=u64::from(elapsed.subsec_micros());
-    work.arithmetic(Op::Add,&[&whole.into(),&fraction.into()])?;
-    let micros=whole.checked_add(fraction).ok_or_else(clock_error)?;
-    work.arithmetic(Op::Compare,&[&micros.into(),&(i64::MAX as u64).into()])?;
-    let micros=i64::try_from(micros).map_err(|_|clock_error())?;
-    Ok(Timestamp::from_micros_with_work(micros,work)?)
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| clock_error())?;
+    let seconds = elapsed.as_secs();
+    work.arithmetic(Op::Multiply, &[&seconds.into(), &1_000_000u64.into()])?;
+    let whole = seconds.checked_mul(1_000_000).ok_or_else(clock_error)?;
+    let fraction = u64::from(elapsed.subsec_micros());
+    work.arithmetic(Op::Add, &[&whole.into(), &fraction.into()])?;
+    let micros = whole.checked_add(fraction).ok_or_else(clock_error)?;
+    work.arithmetic(Op::Compare, &[&micros.into(), &(i64::MAX as u64).into()])?;
+    let micros = i64::try_from(micros).map_err(|_| clock_error())?;
+    Ok(Timestamp::from_micros_with_work(micros, work)?)
 }
 fn timestamp(seconds: u64, micros: u32) -> Result<Timestamp> {
     // Gregorian calendar conversion in the environmental facade, never the core.

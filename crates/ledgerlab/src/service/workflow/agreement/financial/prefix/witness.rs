@@ -5,7 +5,7 @@ use super::*;
 use inventory::ConfiguredRoot;
 use ledgerlab_core::policy::workflow::transition_constructor::{
     DraftContextData, EconomicAuditStream, EconomicRecordView, ExactRef, FinancialPrefixInput,
-    ORIGIN_POINTER_MAX_BYTES, ProducedOriginPrefixes, RecomputedAuditDigest, SourcePrefixInput,
+    ProducedOriginPrefixes, RecomputedAuditDigest, SourcePrefixInput, ORIGIN_POINTER_MAX_BYTES,
 };
 use std::{cmp::Ordering, mem};
 mod headers;

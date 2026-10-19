@@ -2,18 +2,18 @@
 //! not pricing, authority, currentness, claim absence or a prepared candidate.
 use super::super::selected_program::SelectedProgram;
 use super::{
-    CoreMeter,
     candidate::PermanentClaimKey,
     data::*,
     input_selection::{EconomicCapture, WorkHeadLocators},
     records::Records,
     shape,
-    working_value::{OwnedExactRef, WorkingKey, parse_owned_reference},
+    working_value::{parse_owned_reference, OwnedExactRef, WorkingKey},
+    CoreMeter,
 };
 use crate::{
-    Result,
     canonical::audit_arena::{AuditArena, ExternalBufferLease},
     validation_work::{self as w, OriginalAuditSession, RepresentationKind},
+    Result,
 };
 use serde_json::Value;
 use std::mem;
@@ -39,7 +39,7 @@ pub struct LocalOperationLocators {
     work: Option<WorkHeadLocators>,
     records: Vec<LocalRecordIdentity>,
     claims: Vec<PermanentClaimKey>,
-    outcome_links: Vec<(ExactRef,String)>,
+    outcome_links: Vec<(ExactRef, String)>,
     required_slots: Vec<String>,
     _copies: Vec<ExternalBufferLease>,
     _ownership: ExternalBufferLease,
@@ -48,7 +48,9 @@ impl LocalOperationLocators {
     /// Original declaration slots needed by root reversal or close retention.
     /// Lookup DATA only: the child independently authenticates every frame and
     /// rejects missing, duplicate and unused nominations.
-    pub fn required_authority_slots(&self) -> &[String] { &self.required_slots }
+    pub fn required_authority_slots(&self) -> &[String] {
+        &self.required_slots
+    }
     pub fn family_slot(&self) -> Option<&str> {
         self.subject.family_slot()
     }
@@ -79,13 +81,15 @@ impl LocalOperationLocators {
     }
     /// Exact immutable original child and selected link slot for a held point
     /// read. The returned DATA establishes neither a link nor its currentness.
-    pub fn original_outcome_link(&self)->Option<(&ExactRef,&str)>{
+    pub fn original_outcome_link(&self) -> Option<(&ExactRef, &str)> {
         self.original_outcome_links().next()
     }
     /// Exact original assesses-link point-read DATA, including each actually
     /// requested claimed family on root reversal. No link presence is asserted.
-    pub fn original_outcome_links(&self)->impl Iterator<Item=(&ExactRef,&str)> {
-        self.outcome_links.iter().map(|(child,slot)|(child,slot.as_str()))
+    pub fn original_outcome_links(&self) -> impl Iterator<Item = (&ExactRef, &str)> {
+        self.outcome_links
+            .iter()
+            .map(|(child, slot)| (child, slot.as_str()))
     }
 }
 fn cp(
@@ -419,8 +423,26 @@ pub fn select_local_operation_locators(
             &mut copies,
             &mut claims,
         )?;
-        let outcome_links=outcome_links(program,m,&a,&mut r,capture.key,v,&subject,&mut copies)?;
-        let required_slots = authority_slots(program,m,&a,&mut r,capture.key,v,&subject,&mut copies)?;
+        let outcome_links = outcome_links(
+            program,
+            m,
+            &a,
+            &mut r,
+            capture.key,
+            v,
+            &subject,
+            &mut copies,
+        )?;
+        let required_slots = authority_slots(
+            program,
+            m,
+            &a,
+            &mut r,
+            capture.key,
+            v,
+            &subject,
+            &mut copies,
+        )?;
         Ok(LocalOperationLocators {
             subject,
             work,
@@ -438,183 +460,471 @@ pub fn select_local_operation_locators(
     result
 }
 
-
 // Select the ORIGINAL family from the retained Target declaration and its
 // original instantiation. Never take a requested source-slot string as authority.
-fn locator_family<'p>(program: &'p SelectedProgram, m: &mut CoreMeter,
-    target: &Value, work: &Value, inst: &Value, slot: &str) -> Result<&'p Value> {
-    shape::equal(m,&target["binding_ref"],&work["payload"]["binding_ref"])?;
-    let arena=m.representation_arena().ok_or_else(||shape::fail("owning locator family"))?;
-    let policy=super::working_value::owning_definition(m,&arena,program.root_policy_ref())?;
-    let plan=super::working_value::owning_definition(m,&arena,program.compiled_plan().reference())?;
-    shape::equal(m,&target["policy_ref"],policy.value())?;
-    shape::equal(m,&target["compiled_plan_ref"],plan.value())?;
-    let declarations=shape::array(m,target,"families")?;
-    let declaration=shape::named(m,declarations,"family_slot",slot)?;
-    let key=txt(m,declaration,"family_key")?;
-    let maps=shape::array(m,inst,"family_map")?;
-    let mapping=shape::named(m,maps,"template_key",key)?;
-    let mapped_slot=txt(m,mapping,"slot_id")?;
-    if !shape::same_text(m,mapped_slot,slot)? {return Err(shape::fail("original family slot mapping"));}
-    let mut found=None;
-    for instruction in shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")? {
-        m.visit("local.authority_slot_family")?;
-        let opcode=txt(m,instruction,"opcode")?;
-        if !shape::same_text(m,opcode,"evaluate_family")? {continue;}
-        let family=&instruction["family"];
-        let family_key=txt(m,family,"family_key")?;
-        if !shape::same_text(m,family_key,key)? {continue;}
-        shape::equal(m,&family["selector"]["target_activity"],&work["payload"]["activity"])?;
-        let components=shape::array(m,inst,"component_map")?;
-        let component_key=txt(m,&family["selector"],"component_key")?;
-        let component=shape::named(m,components,"template_key",component_key)?;
-        shape::equal(m,&target["root_component_slot"],&component["slot_id"])?;
-        if found.is_some(){return Err(shape::fail("duplicate original locator family"));}
-        found=Some(family);
+fn locator_family<'p>(
+    program: &'p SelectedProgram,
+    m: &mut CoreMeter,
+    target: &Value,
+    work: &Value,
+    inst: &Value,
+    slot: &str,
+) -> Result<&'p Value> {
+    shape::equal(m, &target["binding_ref"], &work["payload"]["binding_ref"])?;
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning locator family"))?;
+    let policy = super::working_value::owning_definition(m, &arena, program.root_policy_ref())?;
+    let plan =
+        super::working_value::owning_definition(m, &arena, program.compiled_plan().reference())?;
+    shape::equal(m, &target["policy_ref"], policy.value())?;
+    shape::equal(m, &target["compiled_plan_ref"], plan.value())?;
+    let declarations = shape::array(m, target, "families")?;
+    let declaration = shape::named(m, declarations, "family_slot", slot)?;
+    let key = txt(m, declaration, "family_key")?;
+    let maps = shape::array(m, inst, "family_map")?;
+    let mapping = shape::named(m, maps, "template_key", key)?;
+    let mapped_slot = txt(m, mapping, "slot_id")?;
+    if !shape::same_text(m, mapped_slot, slot)? {
+        return Err(shape::fail("original family slot mapping"));
     }
-    found.ok_or_else(||shape::fail("original locator family missing"))
+    let mut found = None;
+    for instruction in shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "typed_instructions",
+    )? {
+        m.visit("local.authority_slot_family")?;
+        let opcode = txt(m, instruction, "opcode")?;
+        if !shape::same_text(m, opcode, "evaluate_family")? {
+            continue;
+        }
+        let family = &instruction["family"];
+        let family_key = txt(m, family, "family_key")?;
+        if !shape::same_text(m, family_key, key)? {
+            continue;
+        }
+        shape::equal(
+            m,
+            &family["selector"]["target_activity"],
+            &work["payload"]["activity"],
+        )?;
+        let components = shape::array(m, inst, "component_map")?;
+        let component_key = txt(m, &family["selector"], "component_key")?;
+        let component = shape::named(m, components, "template_key", component_key)?;
+        shape::equal(m, &target["root_component_slot"], &component["slot_id"])?;
+        if found.is_some() {
+            return Err(shape::fail("duplicate original locator family"));
+        }
+        found = Some(family);
+    }
+    found.ok_or_else(|| shape::fail("original locator family missing"))
 }
-fn push_authority_slot(m:&mut CoreMeter,a:&AuditArena,owners:&mut Vec<ExternalBufferLease>,out:&mut Vec<String>,slot:&str)->Result<()> {
-    for previous in out.iter(){m.visit("local.authority_slot_dedup")?;if shape::same_text(m,previous,slot)? {return Ok(());}}
-    out.push(cp(m,a,owners,slot)?);Ok(())
+fn push_authority_slot(
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    owners: &mut Vec<ExternalBufferLease>,
+    out: &mut Vec<String>,
+    slot: &str,
+) -> Result<()> {
+    for previous in out.iter() {
+        m.visit("local.authority_slot_dedup")?;
+        if shape::same_text(m, previous, slot)? {
+            return Ok(());
+        }
+    }
+    out.push(cp(m, a, owners, slot)?);
+    Ok(())
 }
-fn authority_slots(program:&SelectedProgram,m:&mut CoreMeter,a:&AuditArena,r:&mut Records,key:&OperationKey,
-    request:&Value,subject:&LocalSubjectBinding,owners:&mut Vec<ExternalBufferLease>)->Result<Vec<String>> {
-    let schema=txt(m,request,"schema")?;
-    let reverse=shape::same_text(m,schema,"ledger-workflow-work-reverse/2")?;
-    let close=shape::same_text(m,schema,"ledger-workflow-family-close-attest/1")?;
-    if !reverse && !close {return Ok(Vec::new());}
-    let count=if reverse{let closures=shape::array(m,request,"family_closures")?;w::usize_add(m,closures.len(),1)?}else{1};
-    let extra=w::usize_add(m,count,1)?;
-    let capacity=w::usize_add(m,owners.capacity(),extra)?;
-    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&count.into(),&mem::size_of::<String>().into()])?;
-    let strings=count.checked_mul(mem::size_of::<String>()).ok_or_else(||shape::fail("authority slot controls"))?;
-    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&capacity.into(),&mem::size_of::<ExternalBufferLease>().into()])?;
-    let leases=capacity.checked_mul(mem::size_of::<ExternalBufferLease>()).ok_or_else(||shape::fail("authority slot lease controls"))?;
-    let bytes=w::usize_add(m,strings,leases)?;
-    let controls=a.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
-    owners.try_reserve_exact(capacity-owners.len()).map_err(|_|shape::fail("authority slot owner allocation"))?;
+fn authority_slots(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    r: &mut Records,
+    key: &OperationKey,
+    request: &Value,
+    subject: &LocalSubjectBinding,
+    owners: &mut Vec<ExternalBufferLease>,
+) -> Result<Vec<String>> {
+    let schema = txt(m, request, "schema")?;
+    let reverse = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?;
+    let close = shape::same_text(m, schema, "ledger-workflow-family-close-attest/1")?;
+    if !reverse && !close {
+        return Ok(Vec::new());
+    }
+    let count = if reverse {
+        let closures = shape::array(m, request, "family_closures")?;
+        w::usize_add(m, closures.len(), 1)?
+    } else {
+        1
+    };
+    let extra = w::usize_add(m, count, 1)?;
+    let capacity = w::usize_add(m, owners.capacity(), extra)?;
+    crate::validation_work::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&count.into(), &mem::size_of::<String>().into()],
+    )?;
+    let strings = count
+        .checked_mul(mem::size_of::<String>())
+        .ok_or_else(|| shape::fail("authority slot controls"))?;
+    crate::validation_work::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[
+            &capacity.into(),
+            &mem::size_of::<ExternalBufferLease>().into(),
+        ],
+    )?;
+    let leases = capacity
+        .checked_mul(mem::size_of::<ExternalBufferLease>())
+        .ok_or_else(|| shape::fail("authority slot lease controls"))?;
+    let bytes = w::usize_add(m, strings, leases)?;
+    let controls = a.reserve_external_payload(bytes, m)?;
+    m.write_bytes(bytes)?;
+    owners
+        .try_reserve_exact(capacity - owners.len())
+        .map_err(|_| shape::fail("authority slot owner allocation"))?;
     owners.push(controls);
-    let mut out=Vec::new();out.try_reserve_exact(count).map_err(|_|shape::fail("authority slot allocation"))?;
-    let work_ref=subject.original_work_ref().ok_or_else(||shape::fail("authority slot original work"))?;
-    let work=r.get(m,key,work_ref,"workflow-work","ledger-workflow-work-record/1")?;
-    let binding=r.get(m,key,subject.original_binding_ref(),"workflow-binding","ledger-workflow-binding/2")?;
-    let binding_value=super::working_value::owning_reference(m,a,subject.original_binding_ref())?;
-    shape::equal(m,&work["payload"]["binding_ref"],binding_value.value())?;
-    let(_,inst)=load_ref(m,a,r,key,&binding["slot_instantiation_ref"],"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
-    let work_value=super::working_value::owning_reference(m,a,work_ref)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(count)
+        .map_err(|_| shape::fail("authority slot allocation"))?;
+    let work_ref = subject
+        .original_work_ref()
+        .ok_or_else(|| shape::fail("authority slot original work"))?;
+    let work = r.get(
+        m,
+        key,
+        work_ref,
+        "workflow-work",
+        "ledger-workflow-work-record/1",
+    )?;
+    let binding = r.get(
+        m,
+        key,
+        subject.original_binding_ref(),
+        "workflow-binding",
+        "ledger-workflow-binding/2",
+    )?;
+    let binding_value =
+        super::working_value::owning_reference(m, a, subject.original_binding_ref())?;
+    shape::equal(m, &work["payload"]["binding_ref"], binding_value.value())?;
+    let (_, inst) = load_ref(
+        m,
+        a,
+        r,
+        key,
+        &binding["slot_instantiation_ref"],
+        "workflow-slot-instantiation",
+        "ledger-workflow-slot-instantiation/1",
+    )?;
+    let work_value = super::working_value::owning_reference(m, a, work_ref)?;
     if reverse {
-        let bindings=shape::array(m,&binding,"bindings")?;
-        if !w::compare(m,bindings.len(),1usize)?.is_eq(){return Err(shape::fail("selected root binding count"));}
-        let(_,terms)=load_ref(m,a,r,key,&bindings[0]["binding_ref"],"workflow-slot-terms","ledger-workflow-slot-binding-terms/7")?;
-        let source_slot=txt(m,&terms,"correction_source_slot")?;
-        push_authority_slot(m,a,owners,&mut out,source_slot)?;
-        for closure in shape::array(m,request,"family_closures")? {
+        let bindings = shape::array(m, &binding, "bindings")?;
+        if !w::compare(m, bindings.len(), 1usize)?.is_eq() {
+            return Err(shape::fail("selected root binding count"));
+        }
+        let (_, terms) = load_ref(
+            m,
+            a,
+            r,
+            key,
+            &bindings[0]["binding_ref"],
+            "workflow-slot-terms",
+            "ledger-workflow-slot-binding-terms/7",
+        )?;
+        let source_slot = txt(m, &terms, "correction_source_slot")?;
+        push_authority_slot(m, a, owners, &mut out, source_slot)?;
+        for closure in shape::array(m, request, "family_closures")? {
             m.visit("local.requested_family_authority_slot")?;
-            let(_,state)=load_ref(m,a,r,key,&closure["family_state_ref"],"workflow-family-state","ledger-workflow-family-state/1")?;
-            shape::equal(m,&closure["expected_revision"],&state["revision"])?;
-            let(_,target)=load_ref(m,a,r,key,&state["target_ref"],"workflow-target","ledger-workflow-component-target/1")?;
-            shape::equal(m,&target["work_ref"],work_value.value())?;
-            let slot=txt(m,&state,"family_slot")?;
-            let family=locator_family(program,m,&target,&work,&inst,slot)?;
-            let source_slot=txt(m,family,"correction_source_slot")?;
-            push_authority_slot(m,a,owners,&mut out,source_slot)?;
+            let (_, state) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &closure["family_state_ref"],
+                "workflow-family-state",
+                "ledger-workflow-family-state/1",
+            )?;
+            shape::equal(m, &closure["expected_revision"], &state["revision"])?;
+            let (_, target) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &state["target_ref"],
+                "workflow-target",
+                "ledger-workflow-component-target/1",
+            )?;
+            shape::equal(m, &target["work_ref"], work_value.value())?;
+            let slot = txt(m, &state, "family_slot")?;
+            let family = locator_family(program, m, &target, &work, &inst, slot)?;
+            let source_slot = txt(m, family, "correction_source_slot")?;
+            push_authority_slot(m, a, owners, &mut out, source_slot)?;
         }
     } else {
-        let target_ref=subject.target_ref().ok_or_else(||shape::fail("close locator target"))?;
-        let target=r.get(m,key,target_ref,"workflow-target","ledger-workflow-component-target/1")?;
-        shape::equal(m,&target["work_ref"],work_value.value())?;
-        let slot=subject.family_slot().ok_or_else(||shape::fail("close locator family slot"))?;
-        let family=locator_family(program,m,&target,&work,&inst,slot)?;
-        let source_slot=txt(m,&family["no_success_close"],"close_source_slot")?;
-        push_authority_slot(m,a,owners,&mut out,source_slot)?;
+        let target_ref = subject
+            .target_ref()
+            .ok_or_else(|| shape::fail("close locator target"))?;
+        let target = r.get(
+            m,
+            key,
+            target_ref,
+            "workflow-target",
+            "ledger-workflow-component-target/1",
+        )?;
+        shape::equal(m, &target["work_ref"], work_value.value())?;
+        let slot = subject
+            .family_slot()
+            .ok_or_else(|| shape::fail("close locator family slot"))?;
+        let family = locator_family(program, m, &target, &work, &inst, slot)?;
+        let source_slot = txt(m, &family["no_success_close"], "close_source_slot")?;
+        push_authority_slot(m, a, owners, &mut out, source_slot)?;
     }
     Ok(out)
 }
 
-
-fn outcome_links(program:&SelectedProgram,m:&mut CoreMeter,a:&AuditArena,r:&mut Records,key:&OperationKey,
-    request:&Value,subject:&LocalSubjectBinding,owners:&mut Vec<ExternalBufferLease>)->Result<Vec<(ExactRef,String)>> {
-    let schema=txt(m,request,"schema")?;
-    let correct=shape::same_text(m,schema,"ledger-workflow-outcome-correction/1")?;
-    let reverse=shape::same_text(m,schema,"ledger-workflow-work-reverse/2")?;
-    if !correct && !reverse{return Ok(Vec::new());}
-    let count=if reverse{shape::array(m,request,"family_closures")?.len()}else{1};
+fn outcome_links(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    r: &mut Records,
+    key: &OperationKey,
+    request: &Value,
+    subject: &LocalSubjectBinding,
+    owners: &mut Vec<ExternalBufferLease>,
+) -> Result<Vec<(ExactRef, String)>> {
+    let schema = txt(m, request, "schema")?;
+    let correct = shape::same_text(m, schema, "ledger-workflow-outcome-correction/1")?;
+    let reverse = shape::same_text(m, schema, "ledger-workflow-work-reverse/2")?;
+    if !correct && !reverse {
+        return Ok(Vec::new());
+    }
+    let count = if reverse {
+        shape::array(m, request, "family_closures")?.len()
+    } else {
+        1
+    };
     // Retain exact Ref/string outputs and the old/new owner-vector allocation
     // overlap before producing any controls or copied locator payloads.
-    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&count.into(),&4usize.into()])?;
-    let extra=count.checked_mul(4).ok_or_else(||shape::fail("outcome link copy count"))?;
-    let extra=w::usize_add(m,extra,1)?;
-    let capacity=w::usize_add(m,owners.capacity(),extra)?;
-    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&count.into(),&mem::size_of::<(ExactRef,String)>().into()])?;
-    let rows=count.checked_mul(mem::size_of::<(ExactRef,String)>()).ok_or_else(||shape::fail("outcome link rows"))?;
-    crate::validation_work::ValidationWork::arithmetic(m,w::ArithmeticOperation::Multiply,&[&capacity.into(),&mem::size_of::<ExternalBufferLease>().into()])?;
-    let controls=capacity.checked_mul(mem::size_of::<ExternalBufferLease>()).ok_or_else(||shape::fail("outcome link controls"))?;
-    let bytes=w::usize_add(m,rows,controls)?;
-    let ownership=a.reserve_external_payload(bytes,m)?;m.write_bytes(bytes)?;
-    owners.try_reserve_exact(capacity-owners.len()).map_err(|_|shape::fail("outcome link owners allocation"))?;
+    crate::validation_work::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&count.into(), &4usize.into()],
+    )?;
+    let extra = count
+        .checked_mul(4)
+        .ok_or_else(|| shape::fail("outcome link copy count"))?;
+    let extra = w::usize_add(m, extra, 1)?;
+    let capacity = w::usize_add(m, owners.capacity(), extra)?;
+    crate::validation_work::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[&count.into(), &mem::size_of::<(ExactRef, String)>().into()],
+    )?;
+    let rows = count
+        .checked_mul(mem::size_of::<(ExactRef, String)>())
+        .ok_or_else(|| shape::fail("outcome link rows"))?;
+    crate::validation_work::ValidationWork::arithmetic(
+        m,
+        w::ArithmeticOperation::Multiply,
+        &[
+            &capacity.into(),
+            &mem::size_of::<ExternalBufferLease>().into(),
+        ],
+    )?;
+    let controls = capacity
+        .checked_mul(mem::size_of::<ExternalBufferLease>())
+        .ok_or_else(|| shape::fail("outcome link controls"))?;
+    let bytes = w::usize_add(m, rows, controls)?;
+    let ownership = a.reserve_external_payload(bytes, m)?;
+    m.write_bytes(bytes)?;
+    owners
+        .try_reserve_exact(capacity - owners.len())
+        .map_err(|_| shape::fail("outcome link owners allocation"))?;
     owners.push(ownership);
-    let mut out=Vec::new();out.try_reserve_exact(count).map_err(|_|shape::fail("outcome link allocation"))?;
-    let bound=r.get(m,key,subject.original_binding_ref(),"workflow-binding","ledger-workflow-binding/2")?;
-    let(_,inst)=load_ref(m,a,r,key,&bound["slot_instantiation_ref"],"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(count)
+        .map_err(|_| shape::fail("outcome link allocation"))?;
+    let bound = r.get(
+        m,
+        key,
+        subject.original_binding_ref(),
+        "workflow-binding",
+        "ledger-workflow-binding/2",
+    )?;
+    let (_, inst) = load_ref(
+        m,
+        a,
+        r,
+        key,
+        &bound["slot_instantiation_ref"],
+        "workflow-slot-instantiation",
+        "ledger-workflow-slot-instantiation/1",
+    )?;
     if correct {
-        let(claim_ref,claim)=load_ref(m,a,r,key,&request["original_claim_ref"],"workflow-outcome-claim","ledger-workflow-outcome-claim/1")?;
-        let target=subject.target_ref().ok_or_else(||shape::fail("outcome correction locator target"))?;
-        let expected=super::working_value::owning_reference(m,a,target)?;
-        shape::equal(m,&claim["target_ref"],expected.value())?;
-        push_outcome_link(program,m,a,owners,&mut out,claim_ref.reference(),&claim,&inst,subject)?;
+        let (claim_ref, claim) = load_ref(
+            m,
+            a,
+            r,
+            key,
+            &request["original_claim_ref"],
+            "workflow-outcome-claim",
+            "ledger-workflow-outcome-claim/1",
+        )?;
+        let target = subject
+            .target_ref()
+            .ok_or_else(|| shape::fail("outcome correction locator target"))?;
+        let expected = super::working_value::owning_reference(m, a, target)?;
+        shape::equal(m, &claim["target_ref"], expected.value())?;
+        push_outcome_link(
+            program,
+            m,
+            a,
+            owners,
+            &mut out,
+            claim_ref.reference(),
+            &claim,
+            &inst,
+            subject,
+        )?;
     } else {
-        let work_ref=subject.original_work_ref().ok_or_else(||shape::fail("outcome link original work"))?;
-        let work=r.get(m,key,work_ref,"workflow-work","ledger-workflow-work-record/1")?;
-        let expected_work=super::working_value::owning_reference(m,a,work_ref)?;
-        for closure in shape::array(m,request,"family_closures")? {
+        let work_ref = subject
+            .original_work_ref()
+            .ok_or_else(|| shape::fail("outcome link original work"))?;
+        let work = r.get(
+            m,
+            key,
+            work_ref,
+            "workflow-work",
+            "ledger-workflow-work-record/1",
+        )?;
+        let expected_work = super::working_value::owning_reference(m, a, work_ref)?;
+        for closure in shape::array(m, request, "family_closures")? {
             m.visit("local.reverse_original_outcome_link")?;
-            let(_,state)=load_ref(m,a,r,key,&closure["family_state_ref"],"workflow-family-state","ledger-workflow-family-state/1")?;
-            shape::equal(m,&closure["expected_revision"],&state["revision"])?;
-            let status=txt(m,&state,"state")?;
-            if !shape::same_text(m,status,"claimed")?{continue;}
-            let(_,target)=load_ref(m,a,r,key,&state["target_ref"],"workflow-target","ledger-workflow-component-target/1")?;
-            shape::equal(m,&target["work_ref"],expected_work.value())?;
-            let slot=txt(m,&state,"family_slot")?;
-            let _family=locator_family(program,m,&target,&work,&inst,slot)?;
-            let(claim_ref,claim)=load_ref(m,a,r,key,&state["claim_ref"],"workflow-outcome-claim","ledger-workflow-outcome-claim/1")?;
-            shape::equal(m,&claim["target_ref"],&state["target_ref"])?;
-            shape::equal(m,&claim["family_slot"],&state["family_slot"])?;
-            push_outcome_link(program,m,a,owners,&mut out,claim_ref.reference(),&claim,&inst,subject)?;
+            let (_, state) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &closure["family_state_ref"],
+                "workflow-family-state",
+                "ledger-workflow-family-state/1",
+            )?;
+            shape::equal(m, &closure["expected_revision"], &state["revision"])?;
+            let status = txt(m, &state, "state")?;
+            if !shape::same_text(m, status, "claimed")? {
+                continue;
+            }
+            let (_, target) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &state["target_ref"],
+                "workflow-target",
+                "ledger-workflow-component-target/1",
+            )?;
+            shape::equal(m, &target["work_ref"], expected_work.value())?;
+            let slot = txt(m, &state, "family_slot")?;
+            let _family = locator_family(program, m, &target, &work, &inst, slot)?;
+            let (claim_ref, claim) = load_ref(
+                m,
+                a,
+                r,
+                key,
+                &state["claim_ref"],
+                "workflow-outcome-claim",
+                "ledger-workflow-outcome-claim/1",
+            )?;
+            shape::equal(m, &claim["target_ref"], &state["target_ref"])?;
+            shape::equal(m, &claim["family_slot"], &state["family_slot"])?;
+            push_outcome_link(
+                program,
+                m,
+                a,
+                owners,
+                &mut out,
+                claim_ref.reference(),
+                &claim,
+                &inst,
+                subject,
+            )?;
         }
     }
     Ok(out)
 }
-fn push_outcome_link(program:&SelectedProgram,m:&mut CoreMeter,a:&AuditArena,owners:&mut Vec<ExternalBufferLease>,out:&mut Vec<(ExactRef,String)>,claim_ref:&ExactRef,claim:&Value,inst:&Value,subject:&LocalSubjectBinding)->Result<()> {
-    let binding=super::working_value::owning_reference(m,a,subject.original_binding_ref())?;
-    shape::equal(m,&claim["original_payload"]["binding_ref"],binding.value())?;
-    let slot=original_outcome_link_slot(program,m,claim,inst)?;
-    for(child,previous)in out.iter(){m.visit("local.original_outcome_link_dedup")?;if shape::same_ref(m,child,claim_ref)?&&shape::same_text(m,previous,slot)?{return Ok(());}}
-    let value=super::working_value::owning_reference(m,a,claim_ref)?;
-    out.push((rf(m,a,owners,value.value())?,cp(m,a,owners,slot)?));Ok(())
+fn push_outcome_link(
+    program: &SelectedProgram,
+    m: &mut CoreMeter,
+    a: &AuditArena,
+    owners: &mut Vec<ExternalBufferLease>,
+    out: &mut Vec<(ExactRef, String)>,
+    claim_ref: &ExactRef,
+    claim: &Value,
+    inst: &Value,
+    subject: &LocalSubjectBinding,
+) -> Result<()> {
+    let binding = super::working_value::owning_reference(m, a, subject.original_binding_ref())?;
+    shape::equal(
+        m,
+        &claim["original_payload"]["binding_ref"],
+        binding.value(),
+    )?;
+    let slot = original_outcome_link_slot(program, m, claim, inst)?;
+    for (child, previous) in out.iter() {
+        m.visit("local.original_outcome_link_dedup")?;
+        if shape::same_ref(m, child, claim_ref)? && shape::same_text(m, previous, slot)? {
+            return Ok(());
+        }
+    }
+    let value = super::working_value::owning_reference(m, a, claim_ref)?;
+    out.push((rf(m, a, owners, value.value())?, cp(m, a, owners, slot)?));
+    Ok(())
 }
 
-fn original_outcome_link_slot<'a>(program:&'a SelectedProgram,m:&mut CoreMeter,claim:&Value,inst:&Value)->Result<&'a str>{
-    let payload=&claim["original_payload"];
-    for field in ["target_ref","family_slot","business_outcome_token"]{shape::equal(m,&claim[field],&payload[field])?;}
-    let arena=m.representation_arena().ok_or_else(||shape::fail("owning original outcome locator"))?;
-    let policy=super::working_value::owning_definition(m,&arena,program.root_policy_ref())?;
-    shape::equal(m,&payload["policy_ref"],policy.value())?;
-    let mut found=None;
-    for instruction in shape::array(m,program.compiled_plan().canonical_value(),"typed_instructions")?{
-        m.visit("local.original_outcome_link_family")?;
-        let opcode=txt(m,instruction,"opcode")?;
-        if !shape::same_text(m,opcode,"evaluate_family")?{continue;}
-        let family=&instruction["family"];
-        if !shape::same(m,&family["trigger_activity"],&payload["activity"])?{continue;}
-        let key=txt(m,family,"family_key")?;
-        let mappings=shape::array(m,inst,"family_map")?;
-        let mapping=shape::named(m,mappings,"template_key",key)?;
-        if !shape::same(m,&mapping["slot_id"],&claim["family_slot"])?{continue;}
-        if found.is_some(){return Err(shape::fail("ambiguous original outcome link family"));}
-        found=Some(txt(m,family,"target_link_slot")?);
+fn original_outcome_link_slot<'a>(
+    program: &'a SelectedProgram,
+    m: &mut CoreMeter,
+    claim: &Value,
+    inst: &Value,
+) -> Result<&'a str> {
+    let payload = &claim["original_payload"];
+    for field in ["target_ref", "family_slot", "business_outcome_token"] {
+        shape::equal(m, &claim[field], &payload[field])?;
     }
-    found.ok_or_else(||shape::fail("original outcome link family missing"))
+    let arena = m
+        .representation_arena()
+        .ok_or_else(|| shape::fail("owning original outcome locator"))?;
+    let policy = super::working_value::owning_definition(m, &arena, program.root_policy_ref())?;
+    shape::equal(m, &payload["policy_ref"], policy.value())?;
+    let mut found = None;
+    for instruction in shape::array(
+        m,
+        program.compiled_plan().canonical_value(),
+        "typed_instructions",
+    )? {
+        m.visit("local.original_outcome_link_family")?;
+        let opcode = txt(m, instruction, "opcode")?;
+        if !shape::same_text(m, opcode, "evaluate_family")? {
+            continue;
+        }
+        let family = &instruction["family"];
+        if !shape::same(m, &family["trigger_activity"], &payload["activity"])? {
+            continue;
+        }
+        let key = txt(m, family, "family_key")?;
+        let mappings = shape::array(m, inst, "family_map")?;
+        let mapping = shape::named(m, mappings, "template_key", key)?;
+        if !shape::same(m, &mapping["slot_id"], &claim["family_slot"])? {
+            continue;
+        }
+        if found.is_some() {
+            return Err(shape::fail("ambiguous original outcome link family"));
+        }
+        found = Some(txt(m, family, "target_link_slot")?);
+    }
+    found.ok_or_else(|| shape::fail("original outcome link family missing"))
 }
 
 fn claim_keys(
@@ -740,21 +1050,35 @@ fn claim_keys(
             });
         }
         "ledger-workflow-outcome-correction/1" => {
-            let (_,claim)=load_ref(m,a,r,c.key,&p["original_claim_ref"],"workflow-outcome-claim","ledger-workflow-outcome-claim/1")?;
-            let scope=super::work_keys::scope(m,c.key)?;shape::equal(m,&claim["scope"],scope.value())?;
-            let target=target.ok_or_else(||shape::fail("outcome correction permanent target"))?;
-            let expected=super::working_value::owning_reference(m,a,target.reference())?;shape::equal(m,&claim["target_ref"],expected.value())?;
-            let agreement=txt(m,&claim,"agreement_id")?;
-            let family=txt(m,&claim,"family_slot")?;
-            let namespace=txt(m,&claim,"source_namespace")?;
-            let token=txt(m,&claim,"business_outcome_token")?;
-            out.push(PermanentClaimKey::Outcome{
-                scope:[cp(m,a,owners,&c.key.scope[0])?,cp(m,a,owners,&c.key.scope[1])?],
-                agreement_id:cp(m,a,owners,agreement)?,
-                family_slot:cp(m,a,owners,family)?,
-                target_id:cp(m,a,owners,&target.reference().id)?,
-                source_namespace:cp(m,a,owners,namespace)?,
-                business_outcome_token:cp(m,a,owners,token)?,
+            let (_, claim) = load_ref(
+                m,
+                a,
+                r,
+                c.key,
+                &p["original_claim_ref"],
+                "workflow-outcome-claim",
+                "ledger-workflow-outcome-claim/1",
+            )?;
+            let scope = super::work_keys::scope(m, c.key)?;
+            shape::equal(m, &claim["scope"], scope.value())?;
+            let target =
+                target.ok_or_else(|| shape::fail("outcome correction permanent target"))?;
+            let expected = super::working_value::owning_reference(m, a, target.reference())?;
+            shape::equal(m, &claim["target_ref"], expected.value())?;
+            let agreement = txt(m, &claim, "agreement_id")?;
+            let family = txt(m, &claim, "family_slot")?;
+            let namespace = txt(m, &claim, "source_namespace")?;
+            let token = txt(m, &claim, "business_outcome_token")?;
+            out.push(PermanentClaimKey::Outcome {
+                scope: [
+                    cp(m, a, owners, &c.key.scope[0])?,
+                    cp(m, a, owners, &c.key.scope[1])?,
+                ],
+                agreement_id: cp(m, a, owners, agreement)?,
+                family_slot: cp(m, a, owners, family)?,
+                target_id: cp(m, a, owners, &target.reference().id)?,
+                source_namespace: cp(m, a, owners, namespace)?,
+                business_outcome_token: cp(m, a, owners, token)?,
             });
         }
         _ => {}
@@ -975,44 +1299,135 @@ pub fn locate_local_subject_binding(
 }
 
 #[cfg(test)]
-mod correction_lookup_tests{
+mod correction_lookup_tests {
     use super::*;
-    use crate::{canonical,policy::workflow::{DefinitionRef,document_digest,selected_program::{SelectedCompilerSupport,SelectedSourceInput,compile_selected_publication}},validation_work::ResourceLimits};
+    use crate::{
+        canonical,
+        policy::workflow::{
+            document_digest,
+            selected_program::{
+                compile_selected_publication, SelectedCompilerSupport, SelectedSourceInput,
+            },
+            DefinitionRef,
+        },
+        validation_work::ResourceLimits,
+    };
     use serde_json::json;
     #[test]
-    fn correction_lookups_retain_original_claim_namespace_and_selected_link(){
-        let a=AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
-        let mut s=OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
-        let support=SelectedCompilerSupport::local_execution_with_session(&mut s).unwrap();
-        let fixture:Value=serde_json::from_slice(include_bytes!("../selected_program/fixtures/local-first-policy-input.json")).unwrap();
-        let mut docs=fixture["documents"].as_array().unwrap().clone();
-        let policy=docs.iter_mut().find(|v|v["schema"]=="ledger-workflow-policy/4").unwrap();
-        policy["compiler_ref"]=json!(support.reference());
-        let digest=document_digest("ledger-workflow-policy/4",policy).unwrap();
-        let root=DefinitionRef::new("workflow-policy",&format!("wdoc_{}",&digest[7..]),&digest).unwrap();
+    fn correction_lookups_retain_original_claim_namespace_and_selected_link() {
+        let a = AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut s = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let support = SelectedCompilerSupport::local_execution_with_session(&mut s).unwrap();
+        let fixture: Value = serde_json::from_slice(include_bytes!(
+            "../selected_program/fixtures/local-first-policy-input.json"
+        ))
+        .unwrap();
+        let mut docs = fixture["documents"].as_array().unwrap().clone();
+        let policy = docs
+            .iter_mut()
+            .find(|v| v["schema"] == "ledger-workflow-policy/4")
+            .unwrap();
+        policy["compiler_ref"] = json!(support.reference());
+        let digest = document_digest("ledger-workflow-policy/4", policy).unwrap();
+        let root = DefinitionRef::new(
+            "workflow-policy",
+            &format!("wdoc_{}", &digest[7..]),
+            &digest,
+        )
+        .unwrap();
         docs.push(support.canonical_value().clone());
-        let program=compile_selected_publication(SelectedSourceInput{documents:docs.iter().map(|v|canonical::CanonicalBytes::from_value(v).unwrap().into_vec()).collect(),root_policy_ref:root},&support,&mut s).unwrap();
-        let key=OperationKey{logical_store_id:"store".into(),scope:["test".into(),"local".into()],source:"new-corrector".into(),operation_id:"correction".into()};
-        let capture=EconomicCapture{key:&key,actor:"corrector",canonical_economic_namespace:"new-corrector-namespace",installation_mode:"isolated_synthetic",received_at:"2026-10-19T00:00:00.000000Z",accepted_at:"2026-10-19T00:00:00.000000Z",sources:&[]};
+        let program = compile_selected_publication(
+            SelectedSourceInput {
+                documents: docs
+                    .iter()
+                    .map(|v| canonical::CanonicalBytes::from_value(v).unwrap().into_vec())
+                    .collect(),
+                root_policy_ref: root,
+            },
+            &support,
+            &mut s,
+        )
+        .unwrap();
+        let key = OperationKey {
+            logical_store_id: "store".into(),
+            scope: ["test".into(), "local".into()],
+            source: "new-corrector".into(),
+            operation_id: "correction".into(),
+        };
+        let capture = EconomicCapture {
+            key: &key,
+            actor: "corrector",
+            canonical_economic_namespace: "new-corrector-namespace",
+            installation_mode: "isolated_synthetic",
+            received_at: "2026-10-19T00:00:00.000000Z",
+            accepted_at: "2026-10-19T00:00:00.000000Z",
+            sources: &[],
+        };
         // Minimal lookup operands only, not a full authority/original replay.
-        let mut producer=CoreMeter::for_compile(1048576).unwrap();
-        let target=super::super::body::record(&mut producer,&key,"workflow-target",format!("wtarget_{}","1".repeat(64)),json!({"schema":"ledger-workflow-component-target/1"})).unwrap();
-        let mut value=json!({"schema":"ledger-workflow-outcome-claim/1","scope":key.scope,"agreement_id":"agreement","family_slot":"support:quality","target_ref":target.reference,"source_namespace":"original-assessor-namespace","business_outcome_token":"original-token","original_payload":{"target_ref":target.reference,"family_slot":"support:quality","business_outcome_token":"original-token","activity":"support:assess","policy_ref":program.root_policy_ref()}});
-        let claim=super::super::body::record(&mut producer,&key,"workflow-outcome-claim",format!("woclaim_{}","2".repeat(64)),value.clone()).unwrap();
-        let views=[EconomicRecordView{reference:&claim.reference,canonical_body:&claim.canonical_body}];
-        let request=json!({"schema":"ledger-workflow-outcome-correction/1","original_claim_ref":claim.reference});
+        let mut producer = CoreMeter::for_compile(1048576).unwrap();
+        let target = super::super::body::record(
+            &mut producer,
+            &key,
+            "workflow-target",
+            format!("wtarget_{}", "1".repeat(64)),
+            json!({"schema":"ledger-workflow-component-target/1"}),
+        )
+        .unwrap();
+        let mut value = json!({"schema":"ledger-workflow-outcome-claim/1","scope":key.scope,"agreement_id":"agreement","family_slot":"support:quality","target_ref":target.reference,"source_namespace":"original-assessor-namespace","business_outcome_token":"original-token","original_payload":{"target_ref":target.reference,"family_slot":"support:quality","business_outcome_token":"original-token","activity":"support:assess","policy_ref":program.root_policy_ref()}});
+        let claim = super::super::body::record(
+            &mut producer,
+            &key,
+            "workflow-outcome-claim",
+            format!("woclaim_{}", "2".repeat(64)),
+            value.clone(),
+        )
+        .unwrap();
+        let views = [EconomicRecordView {
+            reference: &claim.reference,
+            canonical_body: &claim.canonical_body,
+        }];
+        let request = json!({"schema":"ledger-workflow-outcome-correction/1","original_claim_ref":claim.reference});
         // Publication compilation and a later request have distinct original
         // ledgers, retaining the same attempt-owned program/arena.
-        let mut selection=OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
-        let m=selection.meter_mut();let mut r=Records::borrowed_parent_app(m,&a,&key,&views).unwrap();
-        let target_ref=parse_owned_reference(m,&a,&json!(target.reference)).unwrap();
-        let mut owners=Vec::new();let mut keys=Vec::new();
-        claim_keys(m,&a,&mut r,&capture,&request,Some(&target_ref),&mut owners,&mut keys).unwrap();
-        match &keys[0]{PermanentClaimKey::Outcome{source_namespace,business_outcome_token,target_id,..}=>{assert_eq!(source_namespace,"original-assessor-namespace");assert_eq!(business_outcome_token,"original-token");assert_eq!(target_id,&target.reference.id);},_=>panic!("outcome key")}
-        let inst=json!({"family_map":[{"template_key":"support:quality","slot_id":"support:quality"}]});
-        assert_eq!(original_outcome_link_slot(&program,m,&value,&inst).unwrap(),"support:assesses");
-        value["family_slot"]=json!("other:family");value["original_payload"]["family_slot"]=json!("other:family");
-        assert!(original_outcome_link_slot(&program,m,&value,&inst).is_err());
+        let mut selection = OriginalAuditSession::for_resource_profile_v2(&a).unwrap();
+        let m = selection.meter_mut();
+        let mut r = Records::borrowed_parent_app(m, &a, &key, &views).unwrap();
+        let target_ref = parse_owned_reference(m, &a, &json!(target.reference)).unwrap();
+        let mut owners = Vec::new();
+        let mut keys = Vec::new();
+        claim_keys(
+            m,
+            &a,
+            &mut r,
+            &capture,
+            &request,
+            Some(&target_ref),
+            &mut owners,
+            &mut keys,
+        )
+        .unwrap();
+        match &keys[0] {
+            PermanentClaimKey::Outcome {
+                source_namespace,
+                business_outcome_token,
+                target_id,
+                ..
+            } => {
+                assert_eq!(source_namespace, "original-assessor-namespace");
+                assert_eq!(business_outcome_token, "original-token");
+                assert_eq!(target_id, &target.reference.id);
+            }
+            _ => panic!("outcome key"),
+        }
+        let inst =
+            json!({"family_map":[{"template_key":"support:quality","slot_id":"support:quality"}]});
+        assert_eq!(
+            original_outcome_link_slot(&program, m, &value, &inst).unwrap(),
+            "support:assesses"
+        );
+        value["family_slot"] = json!("other:family");
+        value["original_payload"]["family_slot"] = json!("other:family");
+        assert!(original_outcome_link_slot(&program, m, &value, &inst).is_err());
         // Lookup-only bodies exercise original slot selection; these are not
         // complete original authorization/financial replay fixtures.
         let terms=super::super::body::document(&mut producer,"workflow-slot-terms",json!({"schema":"ledger-workflow-slot-binding-terms/7","correction_source_slot":"root:corrector"})).unwrap();
@@ -1021,33 +1436,95 @@ mod correction_lookup_tests{
         let work=super::super::body::record(&mut producer,&key,"workflow-work",format!("wevent_{}","7".repeat(64)),json!({"schema":"ledger-workflow-work-record/1","payload":{"binding_ref":bound.reference,"activity":"support:complete"}})).unwrap();
         let target=super::super::body::record(&mut producer,&key,"workflow-target",format!("wtarget_{}","3".repeat(64)),json!({"schema":"ledger-workflow-component-target/1","work_ref":work.reference,"binding_ref":bound.reference,"policy_ref":program.root_policy_ref(),"compiled_plan_ref":program.compiled_plan().reference(),"root_component_slot":"actual:service","families":[{"family_key":"support:quality","family_slot":"actual:family"}]})).unwrap();
         let family=super::super::body::record(&mut producer,&key,"workflow-family-state",format!("wfamily_{}","8".repeat(64)),json!({"schema":"ledger-workflow-family-state/1","target_ref":target.reference,"family_slot":"actual:family","revision":"3"})).unwrap();
-        let rows=[&terms,&inst,&bound,&work,&target,&family];
-        let views=rows.iter().map(|x|EconomicRecordView{reference:&x.reference,canonical_body:&x.canonical_body}).collect::<Vec<_>>();
-        let mut r=Records::borrowed_parent_app(m,&a,&key,&views).unwrap();
-        let reverse=json!({"schema":"ledger-workflow-work-reverse/2","work_ref":work.reference,"family_closures":[{"family_state_ref":family.reference,"expected_revision":"3"}]});
-        let subject=subject_refs(m,&a,&mut r,&key,&reverse).unwrap();
-        let slots=authority_slots(&program,m,&a,&mut r,&key,&reverse,&subject,&mut owners).unwrap();
-        assert_eq!(slots,["root:corrector","support:assessor"]);
-        let close=json!({"schema":"ledger-workflow-family-close-attest/1","attestation":{"subject":{"target_ref":target.reference,"family_slot":"actual:family"}}});
-        let subject=subject_refs(m,&a,&mut r,&key,&close).unwrap();
-        assert_eq!(authority_slots(&program,m,&a,&mut r,&key,&close,&subject,&mut owners).unwrap(),["support:assessor"]);
-        let mut wrong=reverse.clone();wrong["family_closures"][0]["expected_revision"]=json!("2");
-        assert!(authority_slots(&program,m,&a,&mut r,&key,&wrong,&subject,&mut owners).is_err());
+        let rows = [&terms, &inst, &bound, &work, &target, &family];
+        let views = rows
+            .iter()
+            .map(|x| EconomicRecordView {
+                reference: &x.reference,
+                canonical_body: &x.canonical_body,
+            })
+            .collect::<Vec<_>>();
+        let mut r = Records::borrowed_parent_app(m, &a, &key, &views).unwrap();
+        let reverse = json!({"schema":"ledger-workflow-work-reverse/2","work_ref":work.reference,"family_closures":[{"family_state_ref":family.reference,"expected_revision":"3"}]});
+        let subject = subject_refs(m, &a, &mut r, &key, &reverse).unwrap();
+        let slots = authority_slots(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &reverse,
+            &subject,
+            &mut owners,
+        )
+        .unwrap();
+        assert_eq!(slots, ["root:corrector", "support:assessor"]);
+        let close = json!({"schema":"ledger-workflow-family-close-attest/1","attestation":{"subject":{"target_ref":target.reference,"family_slot":"actual:family"}}});
+        let subject = subject_refs(m, &a, &mut r, &key, &close).unwrap();
+        assert_eq!(
+            authority_slots(&program, m, &a, &mut r, &key, &close, &subject, &mut owners).unwrap(),
+            ["support:assessor"]
+        );
+        let mut wrong = reverse.clone();
+        wrong["family_closures"][0]["expected_revision"] = json!("2");
+        assert!(
+            authority_slots(&program, m, &a, &mut r, &key, &wrong, &subject, &mut owners).is_err()
+        );
         let claim=super::super::body::record(&mut producer,&key,"workflow-outcome-claim",format!("woclaim_{}","9".repeat(64)),json!({"schema":"ledger-workflow-outcome-claim/1","target_ref":target.reference,"family_slot":"actual:family","business_outcome_token":"original-token","original_payload":{"target_ref":target.reference,"family_slot":"actual:family","business_outcome_token":"original-token","activity":"support:assess","binding_ref":bound.reference,"policy_ref":program.root_policy_ref()}})).unwrap();
         let claimed=super::super::body::record(&mut producer,&key,"workflow-family-state",format!("wfamily_{}","a".repeat(64)),json!({"schema":"ledger-workflow-family-state/1","target_ref":target.reference,"family_slot":"actual:family","revision":"3","state":"claimed","claim_ref":claim.reference})).unwrap();
-        let rows=[&terms,&inst,&bound,&work,&target,&claimed,&claim];
-        let views=rows.iter().map(|x|EconomicRecordView{reference:&x.reference,canonical_body:&x.canonical_body}).collect::<Vec<_>>();
-        let mut r=Records::borrowed_parent_app(m,&a,&key,&views).unwrap();
-        let mut reverse=reverse.clone();reverse["family_closures"][0]["family_state_ref"]=json!(claimed.reference);
-        let links=outcome_links(&program,m,&a,&mut r,&key,&reverse,&subject,&mut owners).unwrap();
-        assert_eq!(links.len(),1);assert_eq!(links[0].0,claim.reference);assert_eq!(links[0].1,"support:assesses");
+        let rows = [&terms, &inst, &bound, &work, &target, &claimed, &claim];
+        let views = rows
+            .iter()
+            .map(|x| EconomicRecordView {
+                reference: &x.reference,
+                canonical_body: &x.canonical_body,
+            })
+            .collect::<Vec<_>>();
+        let mut r = Records::borrowed_parent_app(m, &a, &key, &views).unwrap();
+        let mut reverse = reverse.clone();
+        reverse["family_closures"][0]["family_state_ref"] = json!(claimed.reference);
+        let links = outcome_links(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &reverse,
+            &subject,
+            &mut owners,
+        )
+        .unwrap();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].0, claim.reference);
+        assert_eq!(links[0].1, "support:assesses");
         // The exact same immutable original link is selected for standalone
         // outcome correction and for causal reversal of that claimed family.
-        let correction=json!({"schema":"ledger-workflow-outcome-correction/1","original_claim_ref":claim.reference});
-        assert_eq!(outcome_links(&program,m,&a,&mut r,&key,&correction,&subject,&mut owners).unwrap(),links);
-        reverse["family_closures"][0]["expected_revision"]=json!("2");
-        assert!(outcome_links(&program,m,&a,&mut r,&key,&reverse,&subject,&mut owners).is_err());
-
-
+        let correction = json!({"schema":"ledger-workflow-outcome-correction/1","original_claim_ref":claim.reference});
+        assert_eq!(
+            outcome_links(
+                &program,
+                m,
+                &a,
+                &mut r,
+                &key,
+                &correction,
+                &subject,
+                &mut owners
+            )
+            .unwrap(),
+            links
+        );
+        reverse["family_closures"][0]["expected_revision"] = json!("2");
+        assert!(outcome_links(
+            &program,
+            m,
+            &a,
+            &mut r,
+            &key,
+            &reverse,
+            &subject,
+            &mut owners
+        )
+        .is_err());
     }
 }

@@ -2,7 +2,7 @@
 use super::super::DefinitionRef;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, bound(deserialize="R: Deserialize<'de>"))]
+#[serde(deny_unknown_fields, bound(deserialize = "R: Deserialize<'de>"))]
 pub(super) struct Policy<R = DefinitionRef> {
     pub schema: String,
     pub policy_id: String,
@@ -69,53 +69,66 @@ pub(super) enum Formula {
         amount: Percent,
     },
     FinalCost {
-        evidence_slot:String,
-        supplier_slot:String,
+        evidence_slot: String,
+        supplier_slot: String,
         multiplier: CostMultiplier,
-        markup:String,
-        ceiling:Amount,
+        markup: String,
+        ceiling: Amount,
     },
-    SupplierFinalCost { evidence_slot:String, ceiling:Amount },
-    AppFinalCost { evidence_slot:String, multiplier:CostMultiplier, markup:String, ceiling:Amount },
+    SupplierFinalCost {
+        evidence_slot: String,
+        ceiling: Amount,
+    },
+    AppFinalCost {
+        evidence_slot: String,
+        multiplier: CostMultiplier,
+        markup: String,
+        ceiling: Amount,
+    },
 }
-#[derive(Clone,Debug,Serialize,Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CostMultiplier {pub numerator:String,pub denominator:String}
-#[derive(Clone,Debug,Serialize,Deserialize)]
+pub(super) struct CostMultiplier {
+    pub numerator: String,
+    pub denominator: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DelayedCost {
-    pub component_key:String,
-    pub evidence_source_slot:String,
-    pub finalize_within_us:String,
-    pub on_missing:String,
+    pub component_key: String,
+    pub evidence_source_slot: String,
+    pub finalize_within_us: String,
+    pub on_missing: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct AppCostDeclaration {
-    pub component_key:String,
-    pub activity:String,
-    pub resource_funding_leg:String,
-    pub usage_field:String,
-    pub usage_unit:String,
-    pub work_source_slot:String,
-    pub cost_source_slot:String,
-    pub correction_source_slot:String,
-    pub finalize_within_us:String,
-    pub correction_within_us:String,
-    #[serde(default,skip_serializing_if="Option::is_none")]
-    pub correction_anchor:Option<String>,
-    #[serde(default,skip_serializing_if="Option::is_none")]
-    pub causal_reversal:Option<AppCausalClause>,
-    pub maximum_final_amount:Amount,
-    pub on_missing:String,
-    pub cost_basis:String,
-    pub comparable_quantity_rule:String,
-    pub allocation:String,
+    pub component_key: String,
+    pub activity: String,
+    pub resource_funding_leg: String,
+    pub usage_field: String,
+    pub usage_unit: String,
+    pub work_source_slot: String,
+    pub cost_source_slot: String,
+    pub correction_source_slot: String,
+    pub finalize_within_us: String,
+    pub correction_within_us: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction_anchor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_reversal: Option<AppCausalClause>,
+    pub maximum_final_amount: Amount,
+    pub on_missing: String,
+    pub cost_basis: String,
+    pub comparable_quantity_rule: String,
+    pub allocation: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct AppCausalClause {
- pub root_relation:String, pub mode:String, pub standalone_deadline_effect:String,
+    pub root_relation: String,
+    pub mode: String,
+    pub standalone_deadline_effect: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -144,7 +157,7 @@ pub(super) struct Family {
     pub maximum_premium: Amount,
     pub maximum_discount: Amount,
     pub correction_source_slot: String,
-    #[serde(default, skip_serializing_if="Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub no_success_close: Option<NoSuccessClose>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
