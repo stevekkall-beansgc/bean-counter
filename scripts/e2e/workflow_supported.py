@@ -405,7 +405,7 @@ class Journey:
             dependents.append({"decision_ref": ref, "expected_revision": rev, "authority_evidence_refs": [self.grant]})
         if w.get("cost_claim_ref"):
             _, cost_ref = self.head("app_cost", w["cost_claim_ref"]["kind"], w["cost_claim_ref"]["id"], w["cost_claim_ref"]["digest"])
-            decision = self.document(cost_ref)["decision_ref"]
+            decision = self.document(cost_ref)["current_decision_ref"]
             body = self.document(decision)
             rev, ref = self.head("decision", body["decision_id"])
             dependents.append({"decision_ref": ref, "expected_revision": rev, "authority_evidence_refs": [self.grant]})
