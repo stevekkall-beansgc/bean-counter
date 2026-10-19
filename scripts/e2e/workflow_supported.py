@@ -8,7 +8,7 @@ response and actual argv is retained. A failure stops this invocation; --resume
 is an explicit operator action and never changes an accepted request.
 """
 from pathlib import Path
-import argparse, base64, copy, datetime as dt, hashlib, json, sqlite3, subprocess, sys
+import argparse, base64, copy, datetime as dt, hashlib, json, sqlite3, subprocess, sys, time
 
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "examples/workflow-supported"
@@ -406,6 +406,40 @@ class Journey:
             "dependent_reversals": sorted(dependents, key=canonical), "family_closures": [{"family_state_ref": family_ref,
                 "expected_revision": family_revision, "authority_evidence_refs": [self.grant]}]})
 
+    def pending_reverse(self):
+        w = self.work("pending")
+        self.total("pending", ATOMS)
+        self.reverse(w, "pending-reverse")
+        self.total("pending", 0)
+        self.reopen_retry(["pending-work", "pending-reverse"])
+
+    def close_family(self, deadline=False):
+        prefix = "deadline" if deadline else "no-success"
+        w = self.work(prefix)
+        revision, family_ref = self.head("family", w["target_ref"]["kind"], w["target_ref"]["id"], w["target_ref"]["digest"], "support:quality")
+        payload = {"schema": "ledger-workflow-outcome-close/2", "target_ref": w["target_ref"],
+                   "family_slot": "support:quality", "expected_revision": revision,
+                   "reason": "deadline" if deadline else "no_success", "evidence_refs": []}
+        if deadline:
+            accepted_by = self.document(family_ref)["window"]["accepted_by"]
+            cutoff = dt.datetime.fromisoformat(accepted_by.replace("Z", "+00:00"))
+            wait = max(0, (cutoff - dt.datetime.now(dt.timezone.utc)).total_seconds()) + .05
+            assert wait <= 30, "deadline case requires its separately accepted short window"
+            time.sleep(wait)
+            self.meta["checks"].append({"check": "actual_deadline_wait", "accepted_by": accepted_by, "after_wait": now()})
+            self.save()
+        else:
+            result = self.submit(prefix + "-proof", "evidence.retain", {"schema": "ledger-workflow-family-close-attest/1",
+                "attestation": {"schema": "ledger-workflow-family-close-attestation/1", "attestation_id": prefix + "-proof",
+                    "source": self.source, "evidence_kind": "outcome", "purpose": "family_no_success", "assertion": "no_success",
+                    "subject": {"logical_store_id": self.store, "scope": self.scope, "original_binding_ref": self.binding_ref,
+                        "target_ref": w["target_ref"], "family_slot": "support:quality", "expected_family_revision": revision},
+                    "issued_at": now(), "supporting_evidence_refs": []}})
+            payload["close_proof"] = proof(result)
+        self.submit(prefix + "-close", "outcome.close", payload)
+        self.total(prefix, ATOMS)
+        self.reopen_retry([prefix + "-work", prefix + "-close"])
+
     def reopen_retry(self, operations):
         before = self.snapshot()
         for name in operations:
@@ -426,13 +460,23 @@ def main():
     parser.add_argument("--terms-helper", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--case", choices=["main", "pending", "no-success", "deadline"], default="main")
     parser.add_argument("--deadline-seconds", type=int, default=0)
     args = parser.parse_args()
+    if args.case == "deadline":
+        args.deadline_seconds = args.deadline_seconds or 5
+    elif args.deadline_seconds:
+        parser.error("--deadline-seconds is only valid for the separate deadline case")
     journey = Journey(args)
     try:
         journey.setup()
-        journey.main_sequence()
-        journey.meta["status"] = "main_sequence_complete"
+        if args.case == "main":
+            journey.main_sequence()
+        elif args.case == "pending":
+            journey.pending_reverse()
+        else:
+            journey.close_family(deadline=args.case == "deadline")
+        journey.meta["status"] = args.case + "_sequence_complete"
         journey.save()
     except Exception as error:
         journey.meta["status"] = "stopped"

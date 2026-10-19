@@ -72,6 +72,16 @@ pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut
    }
   }
  }
+ // Outcome correction consumes the original immutable claim's fixed link.
+ // The exact held projection is only a locator; pool.complete below verifies
+ // its committed body, and the child repeats every semantic association.
+ if let Some((child,slot))=locators.original_outcome_link(){
+  if let Some(row)=tx.workflow_local_outcome_link(&key.logical_store_id,&key.scope,child,slot,s).await.map_err(prefix::read_error)?{
+   let r=claim_ref(&row,s)?;pool.add(&r,s)?;
+   s.semantic_work().write_bytes(std::mem::size_of::<ExactRef>()).map_err(core_error)?;
+   state.financial.links.push(r);
+  }
+ }
  for r in &extra.claims{
   if let Some(h)=tx.workflow_financial_head(&key.logical_store_id,&key.scope,HeadKey::AppCost(r),s).await.map_err(prefix::read_error)?{
    let reference=head_ref(&h,s)?;pool.add(&reference,s)?;
@@ -86,7 +96,10 @@ pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut
 
  // Named attestation proofs select their real retained verification from the
  // assertion's committed receipt, never a caller verification boolean.
- if let Some(proofs)=payload.get("fact_proofs").and_then(Value::as_array){
+ let proof_payload=if check::text(payload,"schema",s)?=="ledger-workflow-outcome-correction/1"{
+  check::field(payload,"replacement",s)?
+ }else{payload};
+ if let Some(proofs)=proof_payload.get("fact_proofs").and_then(Value::as_array){
   for proof in proofs{
    let att=check::field(proof,"attestation_ref",s)?;let(att_ref,_)=source::from_value_local(att,s)?;
    let seq=tx.workflow_selected_association_sequence(&att_ref,&key.logical_store_id,&key.scope,o.before,s).await.map_err(prefix::read_error)?.ok_or(ServiceError::IntegrityFailure)?;

@@ -128,3 +128,34 @@ impl SqliteTx {
         result
     }
 }
+
+impl SqliteTx {
+    /// The exact existing outcome-derived link projection. A positive row is
+    /// only a locator; the caller verifies its committed canonical body and
+    /// the core rechecks child/slot/predecessor/product/binding associations.
+    pub(crate) async fn workflow_local_outcome_link(
+        &mut self, store: &str, scope: &[String; 2], child: &ledgerlab_core::policy::workflow::transition_constructor::ExactRef,
+        slot: &str, s: &mut OriginalAuditSession,
+    ) -> Result<Option<AppClaimLocator>, FinancialReadError> {
+        if self.failed || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) { return Err(invalid()); }
+        self.failed = true;
+        let result = crate::store::sqlite::workflow::until(self.workflow_deadline(), async {
+            s.semantic_work().visit(ValidationVisit::Constraint)?;
+            if child.kind != "workflow-outcome-claim" { return Err(invalid()); }
+            let values = [store, scope[0].as_str(), scope[1].as_str(), child.kind.as_str(), child.id.as_str(), child.digest.as_str(), slot];
+            for value in values { heads::locator_text(value, 256, s)?; }
+            let bound = values.map(str::as_bytes);
+            self.read_financial_claim_projection(
+                "SELECT octet_length(record_kind),octet_length(record_id),octet_length(record_digest) FROM workflow_financial_links WHERE logical_store_id=? AND tenant=? AND environment=? AND child_kind=? AND child_id=? AND child_digest=? AND slot=?",
+                "SELECT record_kind,record_id,record_digest FROM workflow_financial_links WHERE logical_store_id=? AND tenant=? AND environment=? AND child_kind=? AND child_id=? AND child_digest=? AND slot=?",
+                &values, &bound, s,
+            ).await
+        }).await.map_err(|_| FinancialReadError::Store(self.workflow_timeout_error()))?;
+        if result.is_ok() {
+            s.check_cancelled()?;
+            if self.financial_io.is_some() || self.workflow_proof_failed.load(std::sync::atomic::Ordering::Acquire) { return Err(invalid()); }
+            self.failed = false;
+        }
+        result
+    }
+}
