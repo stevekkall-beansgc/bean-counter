@@ -241,7 +241,7 @@ fn validate_selected(
             let policy_families=request_wrapper::field(policy,"families",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
             s.semantic_work().arithmetic(Op::Compare,&[&policy_families.len().into(),&1usize.into()]).map_err(core_error)?;
             require(policy_families.len()==1,"UNSUPPORTED_COMPOSITION")?;
-            require_local_causal_clause(terms,&families[0],request_wrapper::text(&policy_families[0],"correction_source_slot",s)?,s)?;
+            require_local_causal_clause(terms,&families[0],&policy_families[0],s)?;
         }
     }
     Ok(())
@@ -284,7 +284,20 @@ fn require_local_source_shape(
 // Existing slot projection already validates clause shape/mode/nomination and
 // exact app terms. NEW admission also requires the original family clause;
 // the compiler's policy declaration never supplies missing assent.
-fn require_local_causal_clause(terms:&Value,family:&Value,corrector:&str,s:&mut OriginalAuditSession)->Result<()> {
+fn require_local_causal_clause(terms:&Value,family:&Value,policy_family:&Value,s:&mut OriginalAuditSession)->Result<()> {
+    let corrector=request_wrapper::text(policy_family,"correction_source_slot",s)?;
+    let selector=request_wrapper::field(policy_family,"selector",s)?;
+    let work=request_wrapper::text(selector,"target_activity",s)?;
+    let outcome=request_wrapper::text(policy_family,"trigger_activity",s)?;
+    let allowed=request_wrapper::field(terms,"allowed_activities",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
+    for expected in [work,outcome] {
+        let mut found=false;
+        for actual in allowed {
+            s.semantic_work().visit(Visit::Element).map_err(core_error)?;
+            found |= equal(actual.as_str().ok_or(ServiceError::IntegrityFailure)?,expected,s)?;
+        }
+        require(found,"UNSUPPORTED_COMPOSITION")?;
+    }
     let clauses=request_wrapper::field(terms,"causal_reversal_clauses",s)?.as_array().ok_or(ServiceError::IntegrityFailure)?;
     s.semantic_work().arithmetic(Op::Compare,&[&clauses.len().into(),&1usize.into()]).map_err(core_error)?;
     require(clauses.len()==1,"UNSUPPORTED_COMPOSITION")?;
@@ -304,13 +317,16 @@ mod local_admission_tests {
         let arena=ledgerlab_core::canonical::audit_arena::AuditArena::new().unwrap();
         let mut s=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
         let family=json!({"slot_id":"family","target_component_slot":"service"});
-        let terms=json!({"causal_reversal_clauses":[{"family_slot":"family","root_component_slot":"service","correction_source_slot":"assessor","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}]});
-        require_local_causal_clause(&terms,&family,"assessor",&mut s).unwrap();
-        assert_eq!(require_local_causal_clause(&json!({"causal_reversal_clauses":[]}),&family,"assessor",&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
+        let policy=json!({"selector":{"target_activity":"complete"},"trigger_activity":"assess","correction_source_slot":"assessor"});
+        let terms=json!({"allowed_activities":["assess","complete"],"causal_reversal_clauses":[{"family_slot":"family","root_component_slot":"service","correction_source_slot":"assessor","mode":"exact_inverse_and_permanent_close","standalone_deadline_effect":"does_not_expire_preaccepted_causal_reversal"}]});
+        require_local_causal_clause(&terms,&family,&policy,&mut s).unwrap();
+        assert_eq!(require_local_causal_clause(&json!({"allowed_activities":["assess","complete"],"causal_reversal_clauses":[]}),&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
         let mut wrong=terms.clone();wrong["causal_reversal_clauses"][0]["correction_source_slot"]=json!("other");
-        assert_eq!(require_local_causal_clause(&wrong,&family,"assessor",&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
+        assert_eq!(require_local_causal_clause(&wrong,&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
+        let mut work_only=terms.clone();work_only["allowed_activities"]=json!(["complete"]);
+        assert_eq!(require_local_causal_clause(&work_only,&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
         wrong=terms;wrong["causal_reversal_clauses"][0]["root_component_slot"]=json!("app-cost");
-        assert_eq!(require_local_causal_clause(&wrong,&family,"assessor",&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
+        assert_eq!(require_local_causal_clause(&wrong,&family,&policy,&mut s),Err(reject("UNSUPPORTED_COMPOSITION")));
     }
 
     #[test]

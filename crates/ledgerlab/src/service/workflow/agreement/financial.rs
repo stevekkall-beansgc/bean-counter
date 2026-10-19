@@ -396,9 +396,8 @@ impl LocalWorkflowLedger {
         })).await;
         finish_transaction(tx,req.key(),attempted,session,Some(&resource_snapshot)).await
     }
-    /// Financial admission is disabled. This validates lexical ingress and
-    /// authenticates local management/identity ordering, but creates no receipt,
-    /// financial record, claim, reservation, alias, projection or meter delta.
+    /// Execute the supported private financial preparation/commit route, or
+    /// reconcile an exact original identity without creating another charge.
     pub async fn financial(&self,raw:&[u8])->Result<Value> {
         self.financial_owned_reply(raw).await.map(WorkflowReply::into_legacy_value)
     }
