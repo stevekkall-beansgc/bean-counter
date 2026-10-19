@@ -72,6 +72,23 @@ class Journey:
             "binary": str(self.binary), "binary_sha256": sha(self.binary.read_bytes()),
             "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
             "installation": str(self.installation), "commands": [], "checks": []}
+        # Pin each actual executable used across an explicit resumed run;
+        # the initial binary field remains the original observation.
+        self.executable_hashes = {}
+        for command in self.meta["commands"]:
+            executable = Path(command["argv"][0])
+            if executable.is_file():
+                digest = self.executable_hashes.setdefault(str(executable), sha(executable.read_bytes()))
+                command.setdefault("executable_sha256", digest)
+        build = self.binary.parents[3] if len(self.binary.parents) > 3 else self.binary.parent
+        execution = {"path": str(self.binary), "sha256": sha(self.binary.read_bytes()),
+                     "runner_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+                     "fixtures": {name: sha((FIXTURES / name).read_bytes()) for name in ["source.json", "business.json"]}}
+        for name in ["inventory.json", "build-inputs.json", "qualified.json"]:
+            if (build / name).is_file():
+                execution[name] = {"path": str(build / name), "sha256": sha((build / name).read_bytes())}
+        if execution not in self.meta.setdefault("executions", []):
+            self.meta["executions"].append(execution)
         self.save()
 
     def save(self):
@@ -93,6 +110,9 @@ class Journey:
                  "completed_at": now(), "exit": result.returncode,
                  "stdout": stem.with_suffix(".stdout").name, "stdout_sha256": sha(result.stdout),
                  "stderr": stem.with_suffix(".stderr").name, "stderr_sha256": sha(result.stderr)}
+        executable = Path(argv[0])
+        if executable.is_file():
+            entry["executable_sha256"] = self.executable_hashes.setdefault(str(executable), sha(executable.read_bytes()))
         self.meta["commands"].append(entry)
         self.save()
         print(name, result.returncode, flush=True)
