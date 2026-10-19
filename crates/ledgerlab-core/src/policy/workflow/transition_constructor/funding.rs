@@ -105,22 +105,26 @@ pub(super) fn construction_effect(m:&mut CoreMeter,p:&SelectedProgram,c:&super::
     let bound=derive_per_work_bound(m,p,&work["payload"],&claim_ref,&t.economic.terms)?;
     let root_seed=arena.string_value(&claim_ref.id,m)?;let discriminator=arena.string_value("work",m)?;let root_tuple=arena.array_from_values(&[root_seed.value(),discriminator.value()],m)?;
     let root_id=super::body::semantic_id(m,"wdecision_","workflow-decision",root_tuple.value())?;
-    let mut root_seen=false;let mut total=BigInt::from(0);
-    for head in &state.financial.decision_heads{
-        m.visit("funding.held_work_decision")?;let mut selected=&head.reference;
-        for(id,_,reference)in &t.proposed_heads.decision{m.visit("funding.replaced_decision_head")?;if shape::same_text(m,id,&head.decision_id)?{selected=reference;}}
-        if shape::same_text(m,&head.decision_id,&root_id)?{if root_seen{return Err(fail("funding duplicate original work root head"));}root_seen=true;}
-        let amount=active_work_total(m,&mut t.records,c,&t.new_envelopes,selected,work_ref.reference(),binding_ref.reference())?;total=meter::add(m,&total,&amount)?;
-    }
-    if !root_seen{return Err(fail("funding original work current root head missing"));}
-    for(id,_,reference)in &t.proposed_heads.decision{
-        m.visit("funding.new_work_decision")?;let mut existed=false;for head in &state.financial.decision_heads{if shape::same_text(m,id,&head.decision_id)?{existed=true;}}
-        if !existed{let amount=active_work_total(m,&mut t.records,c,&t.new_envelopes,reference,work_ref.reference(),binding_ref.reference())?;total=meter::add(m,&total,&amount)?;}
-    }
+    let total=held_work_total(m,&mut t.records,c,&t.new_envelopes,state.financial,&t.proposed_heads,work_ref.reference(),binding_ref.reference(),&root_id)?;
     let effect=work_effect(&arena,m,binding_ref.reference(),&t.economic.terms,&bound,Some(&total))?;
     let vector=arena.reserve_external_payload(std::mem::size_of::<super::candidate::CustomerLocalFundingEffect>()+std::mem::size_of::<OwnedFundingEffects>(),m)?;
     let mut effects=Vec::new();effects.try_reserve_exact(1).map_err(|_|fail("per-work funding effect vector"))?;effects.push(effect);
     Ok(OwnedFundingEffects{effects,_vector:vector})
+}
+pub(super) fn held_work_total(m:&mut CoreMeter,r:&mut super::records::Records,c:&super::data::DraftContextData,outputs:&[super::emitted_record::ConstructedEnvelope],state:&super::data::DraftStateData,proposed:&super::data::ProposedHeads,work:&ExactRef,binding:&ExactRef,root_id:&str)->Result<BigInt>{
+    let mut root_seen=false;let mut total=BigInt::from(0);
+    for head in &state.decision_heads{
+        m.visit("funding.held_work_decision")?;let mut selected=&head.reference;
+        for(id,_,reference)in &proposed.decision{m.visit("funding.replaced_decision_head")?;if shape::same_text(m,id,&head.decision_id)?{selected=reference;}}
+        if shape::same_text(m,&head.decision_id,root_id)?{if root_seen{return Err(fail("funding duplicate original work root head"));}root_seen=true;}
+        let amount=active_work_total(m,r,c,outputs,selected,work,binding)?;total=meter::add(m,&total,&amount)?;
+    }
+    if !root_seen{return Err(fail("funding original work current root head missing"));}
+    for(id,_,reference)in &proposed.decision{
+        m.visit("funding.new_work_decision")?;let mut existed=false;for head in &state.decision_heads{if shape::same_text(m,id,&head.decision_id)?{existed=true;}}
+        if !existed{let amount=active_work_total(m,r,c,outputs,reference,work,binding)?;total=meter::add(m,&total,&amount)?;}
+    }
+    Ok(total)
 }
 fn fail(s: &str) -> Error {
     shape::fail(s)

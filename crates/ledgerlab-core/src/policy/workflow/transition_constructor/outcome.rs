@@ -78,6 +78,52 @@ fn positive(m: &mut CoreMeter, v: &Value, key: &str) -> Result<BigInt> {
     }
     Ok(value)
 }
+// An outcome uses its ordinary root head; independently finalized app costs
+// remain in the complete state consumed later by funding/capacity. A sibling
+// is excluded from this local view only after its original identity and bodies
+// are checked in this SAME Records table. No host-provided exclusion is used.
+fn local_ordinary_head_count(
+    m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&SelectedProgram,
+    work_ref:&ExactRef,work_payload:&Value,root_id:&str,binding_ref:&ExactRef,
+    instantiation:&Value,heads:&[DecisionHead],
+)->Result<usize>{
+    let arena=m.representation_arena().ok_or_else(||shape::fail("local outcome head owner"))?;
+    let _scratch=arena.reserve_external_payload(2*(std::mem::size_of::<String>()+128),m)?;
+    let scope=super::work_keys::scope(m,&c.key)?;
+    let work=super::working_value::owning_reference(m,&arena,work_ref)?;
+    let binding=super::working_value::owning_reference(m,&arena,binding_ref)?;
+    let mut ordinary=0usize;
+    for(i,head)in heads.iter().enumerate(){
+        m.visit("outcome.local_ordinary_head")?;
+        for old in &heads[..i]{if shape::same_text(m,&old.decision_id,&head.decision_id)?{return Err(shape::fail("duplicate local outcome decision head"));}}
+        if shape::same_text(m,&head.decision_id,root_id)?{ordinary=crate::validation_work::usize_add(m,ordinary,1)?;continue;}
+        let mut sibling=false;
+        super::input_selection::head_rows(program,work_payload,instantiation,m,&mut |slot,family,m|{
+            if family.is_some(){return Ok(());}
+            let id=super::work_keys::app_decision(m,scope.value(),&work_ref.id,slot)?;
+            if !shape::same_text(m,&id,&head.decision_id)?{return Ok(());}
+            if sibling{return Err(shape::fail("duplicate original app sibling mapping"));}
+            let decision=r.get(m,&c.key,&head.reference,"workflow-decision","ledger-workflow-decision-revision/3")?;
+            for(field,want)in [("kind","cost"),("decision_id",head.decision_id.as_str()),("revision",head.revision.as_str())]{
+                let actual=shape::text(m,&decision,field)?;if !shape::same_text(m,actual,want)?{return Err(shape::fail("local outcome app head association"));}
+            }
+            positive(m,&decision,"revision")?;
+            equal(m,&decision["original_terms_ref"],binding.value())?;
+            let claim_ref=super::working_value::parse_owned_reference(m,&arena,&decision["subject_ref"])?;
+            let claim=r.get(m,&c.key,claim_ref.reference(),"workflow-cost","ledger-workflow-app-cost-claim/1")?;
+            equal(m,&claim["original_terms_ref"],binding.value())?;
+            let subject=shape::field(m,&claim,"subject")?;
+            equal(m,&subject["original_work_ref"],work.value())?;
+            equal(m,&subject["original_binding_ref"],binding.value())?;
+            equal(m,&subject["scope"],scope.value())?;
+            let store=shape::text(m,subject,"logical_store_id")?;let component=shape::text(m,subject,"component_slot")?;
+            if !shape::same_text(m,store,&c.key.logical_store_id)? || !shape::same_text(m,component,slot)?{return Err(shape::fail("local outcome app subject association"));}
+            sibling=true;Ok(())
+        })?;
+        if !sibling{ordinary=crate::validation_work::usize_add(m,ordinary,1)?;}
+    }
+    Ok(ordinary)
+}
 /// Called only after the common entry charges/parses the original request.
 /// It recomputes records from source/program/retained inputs, never saved money.
 pub(super) fn execute<'inv, 'raw>(
@@ -287,7 +333,12 @@ pub(super) fn execute<'inv, 'raw>(
     {
         return Err(Error::new("TARGET_CLOSED", "original root was corrected"));
     }
-    if !call!(meter::cmp, m, &state.decision_heads.len().into(), &1.into())?.is_eq() {
+    let ordinary_heads=if program.uses_local_execution_recipe() && state.decision_heads.len()>1 {
+        let(binding_ref,binding)=load(m,&mut r,c,&target["binding_ref"],"workflow-binding","ledger-workflow-binding/2")?;
+        let(_,instantiation)=load(m,&mut r,c,&binding["slot_instantiation_ref"],"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
+        local_ordinary_head_count(m,&mut r,c,program,&work_ref,work_payload,root_id,&binding_ref,&instantiation,&state.decision_heads)?
+    }else{state.decision_heads.len()};
+    if !call!(meter::cmp, m, &ordinary_heads.into(), &1.into())?.is_eq() {
         return Err(unsupported("extra outcome decision selection"));
     }
     let mut basis_owner=None;
@@ -1963,5 +2014,72 @@ pub(super) fn original_family_effect(
             "original"
         ]),
     )
+    }
+}
+
+#[cfg(test)]
+mod local_head_view_tests {
+    use super::*;
+    use crate::{canonical::{self,audit_arena::AuditArena},policy::workflow::{DefinitionRef,document_digest,selected_program::{SelectedCompilerSupport,SelectedSourceInput,compile_selected_publication}},validation_work::{OriginalAuditSession,ResourceLimits}};
+    #[test]
+    fn local_outcome_view_keeps_app_sibling_in_full_funding_total() {
+        let arena=AuditArena::with_resource_limits(ResourceLimits::unlimited()).unwrap();
+        let mut compilation=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let support=SelectedCompilerSupport::local_execution_with_session(&mut compilation).unwrap();
+        let fixture:Value=serde_json::from_slice(include_bytes!("../selected_program/fixtures/local-first-policy-input.json")).unwrap();
+        let mut documents=fixture["documents"].as_array().unwrap().clone();
+        let policy=documents.iter_mut().find(|d|d["schema"]=="ledger-workflow-policy/4").unwrap();
+        policy["compiler_ref"]=serde_json::to_value(support.reference()).unwrap();
+        let digest=document_digest("ledger-workflow-policy/4",policy).unwrap();
+        let root=DefinitionRef::new("workflow-policy",&format!("wdoc_{}",&digest[7..]),&digest).unwrap();
+        documents.push(support.canonical_value().clone());
+        let program=compile_selected_publication(SelectedSourceInput{documents:documents.iter().map(|v|canonical::CanonicalBytes::from_value(v).unwrap().into_vec()).collect(),root_policy_ref:root},&support,&mut compilation).unwrap();
+        let key=OperationKey{logical_store_id:"test".into(),scope:["test".into(),"local".into()],source:"source".into(),operation_id:"outcome".into()};
+        let c=DraftContextData{key:key.clone(),actor:"operator".into(),canonical_economic_namespace:"source".into(),installation_mode:"isolated_synthetic".into(),received_at:"2026-10-18T00:00:00.000000Z".into(),accepted_at:"2026-10-18T00:00:00.000000Z".into(),authorities:vec![],source_observation_inputs:vec![]};
+        // Small canonical operands for these two kernels, not an admission or
+        // historical-authority fixture and never input to the real CLI.
+        let mut producer=CoreMeter::for_compile(1048576).unwrap();
+        let work_payload=json!({"activity":"support:complete"});
+        let work=body::record(&mut producer,&key,"workflow-work",format!("wevent_{}","1".repeat(64)),json!({"schema":"ledger-workflow-work-record/1","key":key,"payload":work_payload})).unwrap();
+        let binding=body::document(&mut producer,"workflow-binding",json!({"schema":"ledger-workflow-binding/2","scope":key.scope})).unwrap();
+        let inst=json!({"component_map":[{"template_key":"support:service","slot_id":"support:service"},{"template_key":"support:model-retail","slot_id":"support:model-retail"}],"family_map":[{"template_key":"support:quality","slot_id":"support:quality"}]});
+        let target=body::record(&mut producer,&key,"workflow-target",format!("wtarget_{}","2".repeat(64)),json!({"schema":"ledger-workflow-component-target/1","work_ref":work.reference})).unwrap();
+        let claim=body::document(&mut producer,"workflow-cost",json!({"schema":"ledger-workflow-app-cost-claim/1","original_terms_ref":binding.reference,"subject":{"logical_store_id":key.logical_store_id,"scope":key.scope,"original_work_ref":work.reference,"original_binding_ref":binding.reference,"component_slot":"support:model-retail"}})).unwrap();
+        let root_id=format!("wdecision_{}","3".repeat(64));
+        let app_id=body::semantic_id(&mut producer,"wdecision_","workflow-decision",&json!([key.scope,work.reference.id,"support:model-retail","app_cost"])).unwrap();
+        fn action(m:&mut CoreMeter,key:&OperationKey,id:&str,tag:&str,atoms:&str)->ConstructedEnvelope{
+            body::record(m,key,"workflow-action",format!("waction_{}",tag.repeat(64)),json!({"schema":"ledger-workflow-action/1","decision_id":id,"posting_role":"original","book":"retail","amount":{"currency":"USD","scale":18,"atoms":atoms}})).unwrap()
+        }
+        fn decision(m:&mut CoreMeter,key:&OperationKey,id:&str,subject:&ExactRef,binding:&ExactRef,action:&ExactRef,app:bool,tag:&str)->ConstructedEnvelope{
+            body::record(m,key,"workflow-decision",format!("wdrev_{}",tag.repeat(64)),json!({"schema":if app{"ledger-workflow-decision-revision/3"}else{"ledger-workflow-decision-revision/1"},"decision_id":id,"revision":"1","subject_ref":subject,"kind":if app{"cost"}else{"work"},"original_terms_ref":binding,"active_action_refs":[action]})).unwrap()
+        }
+        let root_action=action(&mut producer,&key,&root_id,"4","1000000000000000000");
+        let app_action=action(&mut producer,&key,&app_id,"5","2000000000000000000");
+        let root_decision=decision(&mut producer,&key,&root_id,&work.reference,&binding.reference,&root_action.reference,false,"6");
+        let app_decision=decision(&mut producer,&key,&app_id,&claim.reference,&binding.reference,&app_action.reference,true,"7");
+        let premium_id=format!("wdecision_{}","8".repeat(64));
+        let premium_action=action(&mut producer,&key,&premium_id,"9","250000000000000000");
+        let premium_decision=decision(&mut producer,&key,&premium_id,&target.reference,&binding.reference,&premium_action.reference,false,"a");
+        let old=[work,claim,target,root_action,app_action,root_decision,app_decision];
+        let views=old.iter().map(|v|EconomicRecordView{reference:&v.reference,canonical_body:&v.canonical_body}).collect::<Vec<_>>();
+        let outputs=vec![premium_action,premium_decision];
+        let mut state=DraftStateData{chain_head:None,decision_heads:vec![DecisionHead{decision_id:root_id.clone(),revision:"1".into(),reference:old[5].reference.clone()},DecisionHead{decision_id:app_id,revision:"1".into(),reference:old[6].reference.clone()}],family_heads:vec![],work_claims:vec![],outcome_claims:vec![],links:vec![],evidence_verifications:vec![]};
+        let proposed=ProposedHeads{decision:vec![(premium_id,"1".into(),outputs[1].reference.clone())],family:vec![],chain:None};
+        let mut session=OriginalAuditSession::for_resource_profile_v2(&arena).unwrap();
+        let mut child=session.meter_mut().local_economic_meter().unwrap();
+        let mut records=Records::borrowed_app(&mut child,&arena,&key,&views,&[]).unwrap();
+        assert_eq!(local_ordinary_head_count(&mut child,&mut records,&c,&program,&old[0].reference,&work_payload,&root_id,&binding.reference,&inst,&state.decision_heads).unwrap(),1);
+        assert_eq!(state.decision_heads.len(),2);
+        let before=super::super::funding::held_work_total(&mut child,&mut records,&c,&[],&state,&ProposedHeads{decision:vec![],family:vec![],chain:None},&old[0].reference,&binding.reference,&root_id).unwrap();
+        assert_eq!(before,BigInt::from(3)*BigInt::from(10u8).pow(18));
+        let after=super::super::funding::held_work_total(&mut child,&mut records,&c,&outputs,&state,&proposed,&old[0].reference,&binding.reference,&root_id).unwrap();
+        assert_eq!(after,BigInt::from(325)*BigInt::from(10u8).pow(16));
+        state.decision_heads[1].revision="2".into();
+        assert!(local_ordinary_head_count(&mut child,&mut records,&c,&program,&old[0].reference,&work_payload,&root_id,&binding.reference,&inst,&state.decision_heads).is_err());
+        state.decision_heads[1].revision="1".into();
+        state.decision_heads.push(state.decision_heads[1].clone());
+        assert!(local_ordinary_head_count(&mut child,&mut records,&c,&program,&old[0].reference,&work_payload,&root_id,&binding.reference,&inst,&state.decision_heads).is_err());
+        state.decision_heads.pop();state.decision_heads[1].decision_id="unrecognized-decision".into();
+        assert_eq!(local_ordinary_head_count(&mut child,&mut records,&c,&program,&old[0].reference,&work_payload,&root_id,&binding.reference,&inst,&state.decision_heads).unwrap(),2);
     }
 }
