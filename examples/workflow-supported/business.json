@@ -27,6 +27,7 @@
       "outcome.close",
       "outcome.correct",
       "outcome.submit",
+      "quantity.correct",
       "work.accept",
       "work.reverse"
     ],

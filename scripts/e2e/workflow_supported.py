@@ -375,7 +375,9 @@ class Journey:
             "replacement": self.outcome_payload(w, "support:discount", "discount")})
         self.total("main", 280 * ATOMS // 100)
         revision, _ = self.head("app_cost", w["cost_claim_ref"]["kind"], w["cost_claim_ref"]["id"], w["cost_claim_ref"]["digest"])
-        final = self.final_evidence(w, int(revision) + 1, 160 * ATOMS // 100)
+        saved_correction = self.root / "main-cost-correct.committed.json"
+        final = (json.loads((self.root / "main-cost-correct.request.json").read_bytes())["payload"]["replacement_final_cost_proof"]
+                 if saved_correction.exists() else self.final_evidence(w, int(revision) + 1, 160 * ATOMS // 100))
         self.submit("main-cost-correct", "cost.correct", {"schema": "ledger-workflow-cost-correct/2",
             "original_cost_claim_ref": w["cost_claim_ref"], "expected_revision": revision,
             "replacement_final_cost_proof": final, "dependent_reversals": [], "evidence_refs": []})
