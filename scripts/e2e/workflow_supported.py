@@ -356,25 +356,32 @@ class Journey:
             "fact_schema_ref": self.fact_refs["support:assessment-facts"], "binding_ref": self.binding_ref,
             "facts": {"support:code": code, "support:occurred": occurred}, "fact_proofs": facts, "evidence_refs": [], "occurred_at": occurred}
 
+    def main_total(self, operation, expected):
+        # Explicit resume may already include later immutable actions. Earlier
+        # totals remain in RUN.json; check only the latest completed milestone.
+        order = ["main-work", "main-finalize", "main-success", "main-none", "main-discount", "main-cost-correct", "main-reverse"]
+        if not any((self.root / (name + ".committed.json")).exists() for name in order[order.index(operation) + 1:]):
+            self.total("main", expected)
+
     def main_sequence(self):
         w = self.work("main")
-        self.total("main", ATOMS)
+        self.main_total("main-work", ATOMS)
         self.app_cost(w)
-        self.total("main", 3 * ATOMS)
+        self.main_total("main-finalize", 3 * ATOMS)
         outcome = self.submit("main-success", "outcome.submit", self.outcome_payload(w, "support:success", "success"))
-        self.total("main", 325 * ATOMS // 100)
+        self.main_total("main-success", 325 * ATOMS // 100)
         w["outcome_claim_ref"] = unique(outcome, "workflow-outcome-claim")
         w["outcome_decision_id"] = self.document(unique(outcome, "workflow-decision"))["decision_id"]
         revision, _ = self.head("decision", w["outcome_decision_id"])
         self.submit("main-none", "outcome.correct", {"schema": "ledger-workflow-outcome-correction/1",
             "original_claim_ref": w["outcome_claim_ref"], "expected_revision": revision,
             "replacement": {"kind": "none", "evidence_refs": [], "reason": "Synthetic correction to no adjustment"}})
-        self.total("main", 3 * ATOMS)
+        self.main_total("main-none", 3 * ATOMS)
         revision, _ = self.head("decision", w["outcome_decision_id"])
         self.submit("main-discount", "outcome.correct", {"schema": "ledger-workflow-outcome-correction/1",
             "original_claim_ref": w["outcome_claim_ref"], "expected_revision": revision,
             "replacement": self.outcome_payload(w, "support:discount", "discount")})
-        self.total("main", 280 * ATOMS // 100)
+        self.main_total("main-discount", 280 * ATOMS // 100)
         revision, _ = self.head("app_cost", w["cost_claim_ref"]["kind"], w["cost_claim_ref"]["id"], w["cost_claim_ref"]["digest"])
         saved_correction = self.root / "main-cost-correct.committed.json"
         final = (json.loads((self.root / "main-cost-correct.request.json").read_bytes())["payload"]["replacement_final_cost_proof"]
@@ -382,9 +389,9 @@ class Journey:
         self.submit("main-cost-correct", "cost.correct", {"schema": "ledger-workflow-cost-correct/2",
             "original_cost_claim_ref": w["cost_claim_ref"], "expected_revision": revision,
             "replacement_final_cost_proof": final, "dependent_reversals": [], "evidence_refs": []})
-        self.total("main", 240 * ATOMS // 100)
+        self.main_total("main-cost-correct", 240 * ATOMS // 100)
         self.reverse(w, "main-reverse")
-        self.total("main", 0)
+        self.main_total("main-reverse", 0)
         self.reopen_retry(["main-work", "main-finalize", "main-success", "main-none", "main-discount", "main-cost-correct", "main-reverse"])
         return w
 
@@ -409,7 +416,8 @@ class Journey:
 
     def pending_reverse(self):
         w = self.work("pending")
-        self.total("pending", ATOMS)
+        if not (self.root / "pending-reverse.committed.json").exists():
+            self.total("pending", ATOMS)
         self.reverse(w, "pending-reverse")
         self.total("pending", 0)
         self.reopen_retry(["pending-work", "pending-reverse"])
