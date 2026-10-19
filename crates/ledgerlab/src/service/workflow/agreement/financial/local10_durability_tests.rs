@@ -25,7 +25,7 @@ fn fixture(case:&str)->(tempfile::TempDir,PathBuf,Vec<u8>,OperationKey,Vec<u8>){
     let run:Value=serde_json::from_slice(&fs::read(root.join("RUN.json")).unwrap()).unwrap();
     assert!(run["classification"].as_str().unwrap().to_ascii_lowercase().contains("synthetic"));
     let temporary=tempfile::tempdir().unwrap();
-    let path=temporary.path().join("installation");
+    let path=temporary.path().canonicalize().unwrap().join("installation");
     copy_private_tree(&root.join("installation"),&path);
     let config=fs::read(path.join("billing.json")).unwrap();
     let mut request:Value=serde_json::from_slice(&fs::read(root.join("main-work.request.json")).unwrap()).unwrap();
