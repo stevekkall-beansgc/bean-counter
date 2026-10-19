@@ -546,6 +546,8 @@ impl LocalWorkflowLedger {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod local10_durability_tests;
 
 fn take_read_session(tx:&mut SqliteTx)->Result<ledgerlab_core::validation_work::OriginalAuditSession>{
  if tx.workflow_snapshot.as_ref().is_some_and(|v|v.settings.is_some()) {require(!tx.workflow_main_session&&!tx.workflow_read_active,"INTEGRITY_FAILURE")?;}
