@@ -125,7 +125,7 @@ pub(in super::super::super) async fn observe(ledger:&LocalWorkflowLedger,tx:&mut
   if !state.financial.evidence_verifications.contains(&reference){state.financial.evidence_verifications.push(reference);}
  }
  pool.complete(tx,key,o.before,s).await?;
- o.work_state=Some(state);o.local_input_bodies=Some(pool);o.work_source_index=Some(index);o.work_received_at=Some(received);o.local_extra=Some(extra);
+ o.work_state=Some(state);o.local_input_bodies=Some(pool);o.work_source_index=Some(index);o.work_received_at=Some(received);o.local_extra=Some(extra);o.local_locators=Some(locators);
  Ok(o)
 }
 

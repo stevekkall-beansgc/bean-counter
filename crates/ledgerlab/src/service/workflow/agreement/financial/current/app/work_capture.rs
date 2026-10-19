@@ -160,6 +160,9 @@ pub(super) fn with_capture<T>(
     let selected_slot=observed.work_source_slot.as_ref().map(|v|s.parse_representation(v.bytes(),RepresentationKind::Record).map_err(core_error)).transpose()?;
     let payload_schema=check::text(payload,"schema",s)?;
     let selecting_work=payload_schema=="ledger-workflow-work/1"&&selected_slot.is_none();
+    // Exact operation-derived original slots are DATA from the same owning
+    // locator. The final interpreter independently rechecks every authority.
+    let required_slots=observed.local_locators.as_ref().map(|l|l.required_authority_slots()).filter(|slots|!slots.is_empty());
     let mut fact_slot=None;
     if payload_schema=="ledger-workflow-fact-attest/1" {
         let att=check::field(payload,"attestation",s)?;
@@ -184,6 +187,11 @@ pub(super) fn with_capture<T>(
             .visit(ValidationVisit::Element)
             .map_err(core_error)?;
         let name = check::text(slot, "name", s)?;
+        if let Some(required)=required_slots {
+            let mut selected=false;
+            for wanted in required {if equal(name,wanted,s)?{selected=true;}}
+            if !selected{continue;}
+        }
         if let Some(fact_slot)=fact_slot {if !equal(name,fact_slot,s)?{continue;}}
         if let Some(selected)=selected_slot.as_ref(){if name!=selected.value().as_str().ok_or(ServiceError::IntegrityFailure)?{continue;}}
         let nominees = check::field(slot, "sources", s)?
@@ -208,7 +216,7 @@ pub(super) fn with_capture<T>(
         s.semantic_work()
             .write_bytes(mem::size_of::<SourceAuthorityCapture<'_>>())
             .map_err(core_error)?;
-        if !selecting_work&&!frames.is_empty(){continue;}
+        if required_slots.is_none()&&!selecting_work&&!frames.is_empty(){continue;}
         frames.push(SourceAuthorityCapture {
             source_slot: name,
             source: &key.source,
@@ -224,6 +232,10 @@ pub(super) fn with_capture<T>(
             accepted_agreement_ref: observed.original.acceptance.accepted_reference(),
             activation_ref: activation.activation.reference(),
         });
+    }
+    if let Some(required)=required_slots {
+        s.semantic_work().arithmetic(Op::Compare,&[&frames.len().into(),&required.len().into()]).map_err(core_error)?;
+        require(frames.len()==required.len(),"AUTHORITY_REQUIRED")?;
     }
     let capture = EconomicCapture {
         key: &core_key,
