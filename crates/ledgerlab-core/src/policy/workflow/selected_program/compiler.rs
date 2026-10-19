@@ -122,6 +122,17 @@ pub struct SelectedProgram {
     _control_ownership:Option<ExternalBufferLease>,
 }
 impl SelectedProgram {
+    /// Supported release surface for NEW local promises only. Historical
+    /// source/plan DATA loading and original receipt recovery do not call it.
+    pub fn require_local_admission_with_session(&self,session:&mut crate::validation_work::OriginalAuditSession)->Result<()> {
+        let result=self.require_local_admission(session.meter_mut());
+        if result.is_err(){session.invalidate();}result
+    }
+    pub(in crate::policy::workflow) fn require_local_admission(&self,m:&mut CoreMeter)->Result<()> {
+        self.require_attempt_owner(m)?;
+        if !self.uses_local_execution_recipe(){return Err(err("supported local admission requires local recipe"));}
+        super::local_admission::check(m,&self.policy,&self.sources,&self.schemas)
+    }
     /// Binary recipe identity, not current-support freshness or authority.
     pub fn uses_family_close_recipe(&self)->bool {self.family_close_recipe}
     pub fn uses_owner_local_cost_recipe(&self)->bool {self.owner_local_cost_recipe}
@@ -312,7 +323,9 @@ pub fn compile_selected_program(
 ) -> Result<SelectedProgram> {
     m.enter_compile()?;
     let recipe=require_selected_recipe(support,m)?;
-    compile_selected_recipe(input,support,m,recipe)
+    let program=compile_selected_recipe(input,support,m,recipe)?;
+    if program.uses_local_execution_recipe(){program.require_local_admission(m)?;}
+    Ok(program)
 }
 #[derive(Clone,Copy)]
 enum SelectedRecipe { RetailDraft1,FamilyClose1,OwnerLocalCost1,SupplierScopedConsent1,AppOwnedCost1,AppCostCausal1,LocalParentBudget1,LocalOperator1 }

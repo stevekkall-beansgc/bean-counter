@@ -442,6 +442,7 @@ impl AcceptanceMaterial {
  let (a,b)=match self {Self::Audited(a)=>(Some(a),None),Self::Local(b)=>(None,Some(b))};
  a.into_iter().flat_map(|a|a.work_locator_records()).chain(b.into_iter().flat_map(|a|a.work_locator_records()))
  }
+ pub(super) fn require_local_admission_sources(&self,sources:&[current::source::ObservedSource],publication:&RecompiledPublication,binding:&Value,at:&Timestamp,s:&mut OriginalAuditSession)->Result<()> {match self{Self::Local(a)=>a.require_local_admission_sources(sources,publication,binding,at,s),Self::Audited(_)=>Err(reject("UNSUPPORTED_SCHEMA_PROFILE"))}}
  fn current_activation_source(&self,sources:&[current::source::ObservedSource],publication:&RecompiledPublication,binding:&Value,key:&OperationKey,actor:&str,at:&Timestamp,s:&mut OriginalAuditSession)->Result<usize>{match self{Self::Audited(a)=>a.current_activation_source(sources,publication,binding,key,actor,at,s),Self::Local(a)=>a.current_activation_source(sources,publication,binding,key,actor,at,s)}}
  fn activation_authority(&self,source:&current::source::ObservedSource,root:&wire::SourceRecord,key:&OperationKey,actor:&str,at:&Timestamp,s:&mut OriginalAuditSession)->Result<wire::SourceRecord>{match self{Self::Audited(a)=>a.activation_authority(source,root,key,actor,at,s),Self::Local(a)=>a.activation_authority(source,root,key,actor,at,s)}}
 }

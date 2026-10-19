@@ -533,18 +533,14 @@ impl LocalWorkflowLedger {
                     return Ok(TransactionResult::Appended(reply));
                 }
 
-                // No normalized economic selection is manufactured here. The current
-                // draft DATA layer is noncommittable; typed intrinsic/audit inputs,
-                // full contextual authority, funding/exposure, all-ancestor future
-                // reservation, financial CAS and Profile B prepared-delta proofs must
-                // all precede the first financial append. There is no bypass factory.
+                // Other recognized historical schemas have no local prepared
+                // executor here; registry recognition alone is not support.
                 Err(ServiceError::Unavailable)
             })
         })
         .await;
-        // Fresh admission remains unavailable: no current path can construct
-        // the Appended disposition. Failure always rolls back. The original
-        // path retains its incoming intent and also rolls back read-only work.
+        // Only the private prepared routes above can append. Refusals roll
+        // back; original-identity reconciliation remains read-only.
         finish_transaction(tx, key, attempted, session,Some(&resource_snapshot)).await
     }
 }

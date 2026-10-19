@@ -52,6 +52,9 @@ impl TargetedAcceptance {
   std::iter::once(EconomicRecordView{reference:self.original.binding.reference(),canonical_body:self.original.binding.bytes()})
    .chain(std::iter::once(EconomicRecordView{reference:self.accepted.reference(),canonical_body:self.accepted.canonical_body()})).chain(self.private_documents.record_views())
  }
+ pub(in super::super) fn require_local_admission_sources(&self,sources:&[current::source::ObservedSource],publication:&prefix::RecompiledPublication,binding:&Value,at:&Timestamp,s:&mut OriginalAuditSession)->Result<()> {
+  nominations::validate_local_admission(sources,&self.private_documents,&self.original.input,publication,binding,at.as_str(),s)
+ }
  pub(in super::super) fn current_activation_source(&self,sources:&[current::source::ObservedSource],publication:&prefix::RecompiledPublication,binding:&Value,key:&OperationKey,actor:&str,at:&Timestamp,s:&mut OriginalAuditSession)->Result<usize>{
   nominations::validate(sources,&self.private_documents,&self.original.input,publication,binding,at.as_str(),s)?;
   admission::select(sources,actor,key,s)

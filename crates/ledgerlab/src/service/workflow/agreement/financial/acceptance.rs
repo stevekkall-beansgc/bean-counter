@@ -1065,6 +1065,7 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
             (Some(prefix),publication)
         };
         let input = AppAcceptanceInput::normalize(incoming, &publication, session)?;
+        if local { publication.program().require_local_admission_with_session(session).map_err(core_error)?; }
         let binding = input.binding(&publication, &setup.operator, &at, session)?;
         // SAME local snapshot construction used by actual party management.
         // The source is the held private owner observation, never request DATA.
@@ -1152,7 +1153,8 @@ async fn prepare_selected(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
                 .map_err(core_error)?;
             sources.push(observed);
         }
-        nominations::validate(
+        let validate_nominations = if local { nominations::validate_local_admission } else { nominations::validate };
+        validate_nominations(
             &sources,
             &private_documents,
             &input,

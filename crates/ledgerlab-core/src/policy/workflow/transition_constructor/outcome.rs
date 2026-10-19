@@ -82,7 +82,7 @@ fn positive(m: &mut CoreMeter, v: &Value, key: &str) -> Result<BigInt> {
 // remain in the complete state consumed later by funding/capacity. A sibling
 // is excluded from this local view only after its original identity and bodies
 // are checked in this SAME Records table. No host-provided exclusion is used.
-fn local_ordinary_head_count(
+pub(super) fn local_ordinary_head_count(
     m:&mut CoreMeter,r:&mut Records,c:&DraftContextData,program:&SelectedProgram,
     work_ref:&ExactRef,work_payload:&Value,root_id:&str,binding_ref:&ExactRef,
     instantiation:&Value,heads:&[DecisionHead],
@@ -2075,6 +2075,12 @@ mod local_head_view_tests {
         assert_eq!(before,BigInt::from(3)*BigInt::from(10u8).pow(18));
         let after=super::super::funding::held_work_total(&mut child,&mut records,&c,&outputs,&state,&proposed,&old[0].reference,&binding.reference,&root_id).unwrap();
         assert_eq!(after,BigInt::from(325)*BigInt::from(10u8).pow(16));
+        // A later outcome correction selects root+outcome as its two ordinary
+        // heads while the authenticated app sibling stays in full state.
+        state.decision_heads.push(DecisionHead{decision_id:proposed.decision[0].0.clone(),revision:"1".into(),reference:outputs[1].reference.clone()});
+        assert_eq!(local_ordinary_head_count(&mut child,&mut records,&c,&program,&old[0].reference,&work_payload,&root_id,&binding.reference,&inst,&state.decision_heads).unwrap(),2);
+        assert_eq!(state.decision_heads.len(),3);
+        state.decision_heads.pop();
         state.decision_heads[1].revision="2".into();
         assert!(local_ordinary_head_count(&mut child,&mut records,&c,&program,&old[0].reference,&work_payload,&root_id,&binding.reference,&inst,&state.decision_heads).is_err());
         state.decision_heads[1].revision="1".into();

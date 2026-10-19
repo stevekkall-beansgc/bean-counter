@@ -13,6 +13,9 @@ pub(super) async fn prepare_append(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
  request_wrapper::same_text(request_wrapper::text(parsed.value(),"expected_revision",s)?,"0",s)?;
  let generated=[&admission.root,&admission.authority,&observed.records.intent,&observed.records.head,&observed.records.activation];
  let original=&observed.binding.original;
+ original.publication.program().require_local_admission_with_session(s).map_err(core_error)?;
+ let binding=s.parse_representation(original.acceptance.binding.bytes(),RepresentationKind::Record).map_err(core_error)?;
+ original.acceptance.require_local_admission_sources(&observed.binding.sources,&original.publication,binding.value(),&observed.binding.at,s)?;
  let selected=original.acceptance.work_locator_records().map(|r|r.reference)
    .chain(original.publication.required_refs())
    .chain(observed.binding.sources.iter().flat_map(current::source::ObservedSource::record_refs))
@@ -30,7 +33,7 @@ pub(super) async fn prepare_append(ledger:&LocalWorkflowLedger,tx:&mut SqliteTx,
  let documents:Vec<_>=generated.iter().map(|r|FinancialDocument{reference:r.reference(),schema:r.schema(),canonical_bytes:r.bytes()}).collect();
  let mut refs=Vec::with_capacity(journal.members().len());for i in 0..journal.members().len(){let r=journal.members().at(i,s)?;if r!=journal.operation_reference(){refs.push(r);}}
  let journal_view=journal.storage_view(req,&evidence,&refs,observed.before(),observed.at().micros(),s)?;
- let binding=s.parse_representation(original.acceptance.binding.bytes(),RepresentationKind::Record).map_err(core_error)?;
+
  let activation=s.parse_representation(observed.records.activation.bytes(),RepresentationKind::Record).map_err(core_error)?;
  let effective=Timestamp::parse_with_work(request_wrapper::text(activation.value(),"effective_at",s)?,s.semantic_work()).map_err(core_error)?;
  let append=AppActivationAppend{logical_store_id:&req.key().logical_store_id,scope:&req.key().scope,source:&req.key().source,operation_id:&req.key().operation_id,

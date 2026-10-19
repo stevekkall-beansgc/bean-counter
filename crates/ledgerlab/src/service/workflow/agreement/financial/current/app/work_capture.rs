@@ -523,16 +523,60 @@ pub(super) fn construct_local(observed:&ObservedAppBinding,key:&OperationKey,pay
 
 // This factory selects the local recipe, whose registry includes this refusal.
 // Preserve the released shared mapper for every other diagnostic and recipe.
+const LOCAL_CONSTRUCTION_ERRORS: &[&str] = &[
+    "ACTIVATION_SCHEDULE_CONFLICT",
+    "AGREEMENT_OWNERSHIP_CONFLICT",
+    "ASSENT_TERMS_MISMATCH",
+    "AUDIT_CANCELLED",
+    "AUDIT_INTEGRITY_OR_PROFILE_FAILURE",
+    "AUTHORITY_REVIEW_REQUIRED",
+    "CAPACITY_EXCEEDED",
+    "CLOCK_REGRESSION",
+    "CORRECTION_TERMS_UNSPECIFIED",
+    "CORRECTION_WINDOW_CLOSED",
+    "COST_COVERAGE_CONFLICT",
+    "COST_LINE_OWNED",
+    "EXPOSURE_EXCEEDED",
+    "HISTORICAL_VERIFIER_UNAVAILABLE",
+    "INSTALLATION_MODE_MISMATCH",
+    "INVOCATION_CONFLICT",
+    "INVOCATION_REQUIRED",
+    "LINK_CARDINALITY",
+    "LINK_CYCLE",
+    "MISSING_DEPENDENCY",
+    "MISSING_FINANCIAL_ORIGIN",
+    "OCCURRENCE_EVIDENCE_REQUIRED",
+    "ORIGINAL_TERMS_MISMATCH",
+    "SOURCE_CEILING_EXCEEDED",
+    "TARGET_CLOSED",
+    "WAITING_FINAL_COST",
+];
 fn local_construction_error(error: ledgerlab_core::Error) -> ServiceError {
-    match error.code {
-        "CORRECTION_WINDOW_CLOSED" => ServiceError::Rejection(error.code.into()),
-        _ => core_error(error),
+    if LOCAL_CONSTRUCTION_ERRORS.contains(&error.code) {
+        ServiceError::Rejection(error.code.into())
+    } else {
+        // Includes the existing sanitized operator-resource diagnostics.
+        core_error(error)
     }
 }
 
 #[cfg(test)]
 mod local_error_tests {
     use super::*;
+
+    #[test]
+    fn local_construction_errors_are_declared_without_widening_legacy_mapping() {
+        let registry: Value = serde_json::from_str(include_str!(
+            "../../../../../../../../../contracts/candidates/full-suite-v1/core/local-execution-01/registry.json"
+        )).unwrap();
+        for code in LOCAL_CONSTRUCTION_ERRORS {
+            assert!(registry["errors"].as_array().unwrap().iter().any(|v|v.as_str()==Some(*code)));
+            assert_eq!(local_construction_error(ledgerlab_core::Error { code, detail: "fixture".into() }), ServiceError::Rejection((*code).into()));
+            assert_eq!(core_error(ledgerlab_core::Error { code, detail: "fixture".into() }), ServiceError::Unavailable);
+        }
+        let resource = ledgerlab_core::Error {code:"PROGRAM_BUDGET_EXCEEDED",detail:"resource limit: semantic_work limit=1 observed=2".into()};
+        assert_eq!(local_construction_error(resource), ServiceError::ResourceLimit {setting:"semantic_work",limit:1,observed:2});
+    }
 
     #[test]
     fn local_outcome_window_error_uses_its_declared_vocabulary() {

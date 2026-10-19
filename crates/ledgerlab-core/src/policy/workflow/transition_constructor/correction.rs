@@ -410,7 +410,7 @@ pub(super) fn execute<'inv, 'raw>(
         return Err(unsupported("supplemental correction evidence validation"));
     }
     if !call!(meter::cmp, m, &state.family_heads.len().into(), &1.into())?.is_eq()
-        || !call!(meter::cmp, m, &state.decision_heads.len().into(), &2.into())?.is_eq()
+        || (!program.uses_local_execution_recipe() && !call!(meter::cmp, m, &state.decision_heads.len().into(), &2.into())?.is_eq())
     {
         return Err(unsupported("selected root and outcome heads only"));
     }
@@ -528,6 +528,13 @@ pub(super) fn execute<'inv, 'raw>(
         || !call!(shape::same_text, m, &root_head.revision, "1")?
     {
         return Err(Error::new("TARGET_CLOSED", "original root changed"));
+    }
+    if program.uses_local_execution_recipe(){
+        let(binding_ref,binding)=load(m,&mut r,c,&target["binding_ref"],"workflow-binding","ledger-workflow-binding/2")?;
+        let(_,instantiation)=load(m,&mut r,c,&binding["slot_instantiation_ref"],"workflow-slot-instantiation","ledger-workflow-slot-instantiation/1")?;
+        let root_id=shape::text(m,&root,"decision_id")?;
+        let ordinary=outcome::local_ordinary_head_count(m,&mut r,c,program,&work_ref,&work["payload"],root_id,&binding_ref,&instantiation,&state.decision_heads)?;
+        if !call!(meter::cmp,m,&ordinary.into(),&2.into())?.is_eq(){return Err(unsupported("selected root and outcome heads only"));}
     }
     let mut net = BigInt::from(0);
     let mut basis = vec![];

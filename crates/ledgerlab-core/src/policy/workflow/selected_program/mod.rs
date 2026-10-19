@@ -27,4 +27,5 @@ mod policy_decode;
 pub(in crate::policy::workflow) use compiler::finish_owned_document;
 
 mod local;
+mod local_admission;
 pub use local::local_compiler_descriptor_with_session;

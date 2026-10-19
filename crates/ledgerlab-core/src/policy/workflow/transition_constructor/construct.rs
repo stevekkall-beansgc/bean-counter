@@ -172,6 +172,7 @@ fn execute_parsed<'inv,'raw>(program:&SelectedProgram,c:&'raw DraftContextData,m
             "selected transition branch not implemented yet",
         ));
     }
+    if program.uses_local_execution_recipe(){program.require_local_admission(m)?;}
     shape::closed(
         m,
         &p,
