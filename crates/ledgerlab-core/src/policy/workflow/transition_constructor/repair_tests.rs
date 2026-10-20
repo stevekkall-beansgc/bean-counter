@@ -155,7 +155,7 @@ fn nested_equality_membership_and_subset_are_paid_and_short_circuit() {
 }
 
 #[test]
-fn noninitial_inventory_remains_explicitly_unsupported() {
+fn selected_chain_head_rejects_an_activation_reference() {
     let (_, c, p, _) = super::first_work_tests::test_inputs();
     let payload: serde_json::Value = serde_json::from_slice(&p).unwrap();
     let mut state = super::DraftStateData::default();
@@ -167,9 +167,8 @@ fn noninitial_inventory_remains_explicitly_unsupported() {
             &payload,
             &state
         )
-        .unwrap_err()
-        .code,
-        "UNSUPPORTED_COMPOSITION"
+        .unwrap_err(),
+        crate::Error::new("INTEGRITY_FAILURE", "selected chain head kind")
     );
 }
 

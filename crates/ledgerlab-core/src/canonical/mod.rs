@@ -1124,8 +1124,13 @@ mod executing_work_tests {
             br#""a""#
         );
         assert_eq!(legacy.visits, vec![Visit::Value]);
-        assert!(legacy.operations.is_empty());
-        assert_eq!((legacy.used, legacy.scanned, legacy.written), (1, 1, 3));
+        // The bounded emitter already paid this depth check before RP01.
+        // Destination growth is byte work here; it adds no RP01 arithmetic.
+        assert_eq!(
+            legacy.operations,
+            vec![(Op::Compare, vec![0.into(), 32.into()])]
+        );
+        assert_eq!((legacy.used, legacy.scanned, legacy.written), (4, 1, 3));
     }
     #[test]
     fn destination_arithmetic_refusal_precedes_reserve() {

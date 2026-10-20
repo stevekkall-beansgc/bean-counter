@@ -1622,14 +1622,28 @@ mod original_audit_domain_tests {
         assert_eq!(inner.maximum, 1);
         inner.enter_draft().unwrap();
         inner.visit("test.last_inner_work").unwrap();
-        assert!(inner.visit("test.denied_inner_work").is_err());
-        assert_eq!(inner.usage.semantic_work, 1);
         let inner_usage = outer.finish_original_economic(inner).unwrap();
         assert!(outer.visit("test.denied_later_audit_work").is_err());
         assert_eq!(
             outer.usage.semantic_work + inner_usage.semantic_work,
             1048576
         );
+
+        // Refused child work is terminal, not a successful completion with a
+        // hidden extra allowance. Its paid prefix stays exact and cannot reset.
+        let mut failed = Meter::original_audit().unwrap();
+        failed.usage.semantic_work = 1048575;
+        let mut inner = failed.original_economic_meter().unwrap();
+        inner.enter_draft().unwrap();
+        inner.visit("test.last_inner_work").unwrap();
+        assert!(inner.visit("test.denied_inner_work").is_err());
+        assert_eq!(inner.usage.semantic_work, 1);
+        assert_eq!(
+            failed.finish_original_economic(inner).unwrap_err().detail,
+            "original child did not complete"
+        );
+        assert!(failed.original_economic_meter().is_err());
+        assert!(failed.visit("test.failed_parent_cannot_resume").is_err());
     }
 }
 

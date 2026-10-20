@@ -163,6 +163,13 @@ mod tests {
                     plain_program.compiled_plan().canonical_bytes(),
                     program.compiled_plan().canonical_bytes()
                 );
+                assert_eq!(
+                    plain_program
+                        .require_local_admission(&mut plain)
+                        .unwrap_err()
+                        .detail,
+                    "financial program has no owning compiler output"
+                );
             }
             assert!(program.uses_local_execution_recipe());
             assert_eq!(program.uses_local_parent_budget_recipe(), version >= 7);

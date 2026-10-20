@@ -514,7 +514,10 @@ pub fn compile_selected_program(
     let recipe = require_selected_recipe(support, m)?;
     let program = compile_selected_recipe(input, support, m, recipe)?;
     if program.uses_local_execution_recipe() {
-        program.require_local_admission(m)?;
+        // Compilation also exposes non-owning DATA for source/plan comparison.
+        // Check its supported structure here. Actual promise admission still
+        // calls require_local_admission and requires this attempt's owner.
+        super::local_admission::check(m, &program.policy, &program.sources, &program.schemas)?;
     }
     Ok(program)
 }
