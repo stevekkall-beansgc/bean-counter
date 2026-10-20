@@ -276,35 +276,46 @@ pub(in super::super::super) async fn observe(
     // Complete the actually selected Claim/Revision bodies before deriving
     // their original retention-proof operands. No current/latest substitute.
     pool.complete(tx, key, o.before, s).await?;
+    let payload_schema = check::text(payload, "schema", s)?;
     let mut assertions = Vec::new();
-    for claim in &extra.claims {
-        let body = s
-            .parse_representation(pool.body(claim)?, RepresentationKind::Record)
-            .map_err(core_error)?;
-        let (reference, _) =
-            source::from_value_local(check::field(body.value(), "observation_ref", s)?, s)?;
-        if !assertions.contains(&reference) {
-            assertions.push(reference);
+    // Only app correction and causal root changes consume the original app
+    // proof pairs. Outcome declarations must contain their named facts only.
+    if matches!(
+        payload_schema,
+        "ledger-workflow-cost-correct/2"
+            | "ledger-workflow-work-reverse/2"
+            | "ledger-workflow-quantity-correction/2"
+    ) {
+        for claim in &extra.claims {
+            let body = s
+                .parse_representation(pool.body(claim)?, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let (reference, _) =
+                source::from_value_local(check::field(body.value(), "observation_ref", s)?, s)?;
+            if !assertions.contains(&reference) {
+                assertions.push(reference);
+            }
         }
-    }
-    for head in &extra.costs {
-        let body = s
-            .parse_representation(pool.body(&head.reference)?, RepresentationKind::Record)
-            .map_err(core_error)?;
-        let (reference, _) =
-            source::from_value_local(check::field(body.value(), "current_evidence_ref", s)?, s)?;
-        if !assertions.contains(&reference) {
-            assertions.push(reference);
+        for head in &extra.costs {
+            let body = s
+                .parse_representation(pool.body(&head.reference)?, RepresentationKind::Record)
+                .map_err(core_error)?;
+            let (reference, _) = source::from_value_local(
+                check::field(body.value(), "current_evidence_ref", s)?,
+                s,
+            )?;
+            if !assertions.contains(&reference) {
+                assertions.push(reference);
+            }
         }
     }
     // Named replacement facts use the same committed receipt association as
     // initial outcome facts. Explicit None carries no new assertions.
-    let proof_payload =
-        if check::text(payload, "schema", s)? == "ledger-workflow-outcome-correction/1" {
-            check::field(payload, "replacement", s)?
-        } else {
-            payload
-        };
+    let proof_payload = if payload_schema == "ledger-workflow-outcome-correction/1" {
+        check::field(payload, "replacement", s)?
+    } else {
+        payload
+    };
     if let Some(proofs) = proof_payload.get("fact_proofs").and_then(Value::as_array) {
         for proof in proofs {
             let (reference, _) =
