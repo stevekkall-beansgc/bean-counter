@@ -13,6 +13,7 @@ import argparse, base64, copy, datetime as dt, hashlib, json, shutil, sqlite3, s
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "examples/workflow-supported"
 ATOMS = 10**18
+MAIN_OPERATIONS = ["main-work", "main-finalize", "main-success", "main-none", "main-discount", "main-cost-correct", "main-reverse"]
 
 def source_commit():
     # Evidence metadata only; it grants no workflow authority.
@@ -178,17 +179,78 @@ class Journey:
                 "SELECT operation_id,commit_sequence,receipt_bytes,operation_bytes FROM workflow_operations ORDER BY commit_sequence")]
             documents = [(i, sha(b)) for i, b in db.execute("SELECT id,canonical_bytes FROM workflow_documents ORDER BY id")]
             heads = db.execute("SELECT * FROM workflow_financial_heads ORDER BY head_kind,key_a,key_b,key_c,key_d").fetchall()
-        return {"operations": operations, "documents": documents, "heads": heads}
+            tables = {}
+            for name, in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"):
+                cursor = db.execute('SELECT * FROM "' + name.replace('"', '""') + '"')
+                rows = [canonical([{"bytes": len(v), "sha256": sha(v)} if isinstance(v, bytes) else v for v in row]) for row in cursor]
+                tables[name] = {"columns": [c[0] for c in cursor.description], "rows": len(rows),
+                                "sha256": sha(canonical(sorted(sha(row) for row in rows)))}
+        return {"operations": operations, "documents": documents, "heads": heads, "logical_tables": tables}
 
     def total(self, prefix, expected):
+        # Select immutable postings through the original Work's canonical
+        # subjects and Decision.actions_appended, never operation-name prefixes.
+        request = json.loads((self.root / (prefix + "-work.request.json")).read_bytes())
+        receipt = json.loads((self.root / (prefix + "-work.committed.json")).read_bytes())["receipt"]
+        assert receipt["key"] == request["key"]
+        assert receipt["original_request_bytes_sha256"] == sha((self.root / (prefix + "-work.request.json")).read_bytes())
+        work = unique({"receipt": receipt}, "workflow-work")
+        binding = request["payload"]["binding_ref"]
+        key = request["key"]
+        def same_scope(value):
+            return value["logical_store_id"] == key["logical_store_id"] and value["scope"] == key["scope"]
         with self.connection() as db:
-            actions = [json.loads(b) for b, in db.execute("SELECT canonical_bytes FROM workflow_documents WHERE kind='workflow-action' ORDER BY id")]
-        selected = [v for v in actions if v["operation_key"]["operation_id"].startswith(prefix + "-")]
-        assert all(v["book"] == "retail" for v in selected), "unexpected supplier/AP action"
-        total = sum(int(v["amount"]["atoms"]) for v in selected)
+            row = db.execute("SELECT receipt_bytes FROM workflow_operations WHERE logical_store_id=? AND tenant=? AND environment=? AND source=? AND operation_id=?",
+                             (key["logical_store_id"], *key["scope"], key["source"], key["operation_id"])).fetchone()
+            assert row and json.loads(row[0]) == receipt, "original Work receipt association"
+            decisions = [json.loads(b) for b, in db.execute("SELECT canonical_bytes FROM workflow_documents WHERE kind='workflow-decision' ORDER BY id")]
+        selected = {}
+        for decision in decisions:
+            subject = decision["subject_ref"]
+            if subject["kind"] == "workflow-work":
+                subject_work = subject
+            elif subject["kind"] == "workflow-outcome-claim":
+                claim = self.document(subject)
+                assert claim["schema"] == "ledger-workflow-outcome-claim/1"
+                target = self.document(claim["target_ref"])
+                assert target["schema"] == "ledger-workflow-component-target/1"
+                subject_work = target["work_ref"]
+                if subject_work == work:
+                    assert target["binding_ref"] == binding and claim["original_payload"]["binding_ref"] == binding
+                    assert claim["original_payload"]["target_ref"] == claim["target_ref"]
+                    assert target["scope"] == claim["scope"] == key["scope"]
+            elif subject["kind"] == "workflow-cost":
+                claim = self.document(subject)
+                assert claim["schema"] == "ledger-workflow-app-cost-claim/1", "unsupported cost subject"
+                subject_work = claim["subject"]["original_work_ref"]
+                if subject_work == work:
+                    assert claim["subject"]["original_binding_ref"] == binding and same_scope(claim["subject"])
+            else:
+                raise AssertionError("unsupported decision subject " + subject["kind"])
+            if subject_work != work:
+                continue
+            assert decision["original_terms_ref"] == binding and same_scope(decision["operation_key"])
+            for ref in decision["actions_appended"]:
+                assert ref["kind"] == "workflow-action"
+                action = self.document(ref)
+                assert action["decision_id"] == decision["decision_id"] and action["revision"] == decision["revision"]
+                assert same_scope(action["operation_key"])
+                identity = canonical(ref).decode()
+                assert identity not in selected, "action appended by multiple decisions"
+                selected[identity] = action
+        actions = list(selected.values())
+        assert actions and all(v["book"] == "retail" and v["amount"]["currency"] == "USD" and v["amount"]["scale"] == 18 for v in actions)
+        for action in actions:
+            if "inverse_of" in action:
+                original = selected[canonical(action["inverse_of"]).decode()]
+                assert int(action["amount"]["atoms"]) == -int(original["amount"]["atoms"])
+                assert action["decision_id"] == original["decision_id"]
+                for field in ["basis_refs", "funding_leg", "slot_terms_ref", "role_ref", "component_slot", "root_component_slot", "book"]:
+                    assert action[field] == original[field], ("inverse changed", field)
+        total = sum(int(v["amount"]["atoms"]) for v in actions)
         assert total == expected, (prefix, total, expected)
-        self.meta["checks"].append({"check": "immutable_retail_sum", "prefix": prefix, "atoms": str(total),
-                                    "actions": selected})
+        self.meta["checks"].append({"check": "immutable_retail_sum", "prefix": prefix, "work_ref": work,
+                                    "atoms": str(total), "actions": actions})
         self.save()
 
     def evidence(self, name, schema, subject, metadata, purpose=None):
@@ -394,7 +456,7 @@ class Journey:
     def main_total(self, operation, expected):
         # Explicit resume may already include later immutable actions. Earlier
         # totals remain in RUN.json; check only the latest completed milestone.
-        order = ["main-work", "main-finalize", "main-success", "main-none", "main-discount", "main-cost-correct", "main-reverse"]
+        order = MAIN_OPERATIONS
         if not any((self.root / (name + ".committed.json")).exists() for name in order[order.index(operation) + 1:]):
             self.total("main", expected)
 
@@ -436,7 +498,7 @@ class Journey:
             shutil.copy2(self.log, fixture / "PARENT-RUN.json")
         self.reverse(w, "main-reverse")
         self.main_total("main-reverse", 0)
-        self.reopen_retry(["main-work", "main-finalize", "main-success", "main-none", "main-discount", "main-cost-correct", "main-reverse"])
+        self.reopen_retry(MAIN_OPERATIONS)
         return w
 
     def reverse(self, w, name):
@@ -507,13 +569,18 @@ class Journey:
 
     def reopen_retry(self, operations):
         before = self.snapshot()
+        (self.root / "status-retry-before.json").write_bytes(canonical(before))
         for name in operations:
             key = self.write(name + ".key.json", self.key(name))
             original = json.loads((self.root / (name + ".committed.json")).read_bytes())["receipt"]
+            assert original["key"] == self.key(name)
+            assert original["original_request_bytes_sha256"] == sha((self.root / (name + ".request.json")).read_bytes())
             status = self.workflow(name + "-status", "status", key)
             retried = self.workflow(name + "-retry", "submit", self.root / (name + ".request.json"))
             assert status["receipt"] == original == retried["receipt"]
-        assert self.snapshot() == before, "status or original retry appended or changed data"
+        after = self.snapshot()
+        (self.root / "status-retry-after.json").write_bytes(canonical(after))
+        assert after == before, "status or original retry appended or changed data"
         self.meta["checks"].append({"check": "public_separate_process_status_and_retry", "operations": operations, "no_append": True})
         self.save()
 
@@ -525,9 +592,10 @@ def main():
     parser.add_argument("--terms-helper", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--case", choices=["main", "pending", "no-success", "deadline", "restore"], default="main")
+    parser.add_argument("--case", choices=["main", "pending", "no-success", "deadline", "restore", "verify-main"], default="main")
     parser.add_argument("--deadline-seconds", type=int, default=0)
     parser.add_argument("--pending-finalize-check", action="store_true")
+    parser.add_argument("--verify-from", type=Path, help="verify saved main reconciliation/status/retries only, without new financial work")
     parser.add_argument("--restore-from", type=Path)
     parser.add_argument("--restore-operations", nargs="+")
     args = parser.parse_args()
@@ -553,8 +621,29 @@ def main():
         args.resume = True
     elif args.restore_from or args.restore_operations:
         parser.error("restore arguments require --case restore")
+    if args.case == "verify-main":
+        if not args.verify_from or not args.resume or args.output.exists():
+            parser.error("verify-main requires --verify-from, --resume and a new output directory")
+        args.output.mkdir(mode=0o700, parents=True)
+        for name in MAIN_OPERATIONS:
+            for suffix in [".request.json", ".committed.json"]:
+                shutil.copy2(args.verify_from / (name + suffix), args.output / (name + suffix))
+    elif args.verify_from:
+        parser.error("--verify-from requires --case verify-main")
     journey = Journey(args)
     try:
+        if args.case == "verify-main":
+            original = json.loads((args.output / "main-work.request.json").read_bytes())
+            journey.store, journey.scope, journey.source = (original["key"][k] for k in ["logical_store_id", "scope", "source"])
+            journey.installation = (args.verify_from / "installation").resolve()
+            journey.meta["installation"] = str(journey.installation)
+            journey.meta["original_run"] = {"path": str((args.verify_from / "RUN.json").resolve()),
+                                            "sha256": sha((args.verify_from / "RUN.json").read_bytes())}
+            journey.total("main", 0)
+            journey.reopen_retry(MAIN_OPERATIONS)
+            journey.meta["status"] = "saved_main_reconciliation_and_retry_complete"
+            journey.save()
+            return
         if args.case == "restore":
             original = json.loads((args.output / (args.restore_operations[0] + ".request.json")).read_bytes())
             journey.store, journey.scope, journey.source = (original["key"][k] for k in ["logical_store_id", "scope", "source"])

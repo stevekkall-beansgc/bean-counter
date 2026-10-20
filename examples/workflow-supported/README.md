@@ -31,6 +31,16 @@ python3 scripts/e2e/workflow_supported.py --ledger "$LEDGER" \
   --publication-helper "$PUB" --terms-helper "$TERMS" --output "$OUT/main"
 ```
 
+For an already committed main sequence that stopped during reconciliation, verify only its saved seven original operations in a **new** evidence directory:
+
+```sh
+python3 scripts/e2e/workflow_supported.py --case verify-main --resume \
+  --verify-from "$OUT/main" --output "$OUT/main-verification" \
+  --ledger "$LEDGER" --publication-helper "$PUB" --terms-helper "$TERMS"
+```
+
+This mode reads canonical same-Work decision/action associations and runs only original status and identical-request retries against the existing installation. It does not initialize, create facts, reconstruct current-revision requests or submit new financial work. It preserves the original `RUN.json`, records a separate runner identity, and checks every logical table before and after the tail. Reconciliation sums retained postings; it does not price or balance them.
+
 The main case uses the existing public CLI for initialization, explicit all-null operator settings, source/customer/party evidence, publication, full assent, acceptance and activation. It then checks the fixed service, attributable cost, premium, None/discount/cost corrections and complete causal reversal. It saves a quiescent `main/pre-reverse-fixture` for finite negative checks. Prices come from the source policy and facts, not an output oracle supplied to the evaluator.
 
 Run the three separate cases with the same executable/helper arguments and new output directories:
