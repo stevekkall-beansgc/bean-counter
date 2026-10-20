@@ -120,8 +120,8 @@ pub(super) fn test_inputs() -> (
 #[test]
 fn first_work_executes_source_data_and_matches_independent_complete_bodies() {
     let (program, c, p, records) = test_inputs();
-    let mut m = CoreMeter::new(65536).unwrap();
-    let result = draft_transition(
+    let mut m = CoreMeter::semantic_regression(None).unwrap();
+    let result = construct::semantic_regression(
         &program,
         &c,
         &p,
@@ -130,22 +130,11 @@ fn first_work_executes_source_data_and_matches_independent_complete_bodies() {
         &mut m,
     );
     if let Err(e) = &result {
-        println!(
-            "FIRST_DRAFT_FAILURE {e:?} work={} last={:?}",
-            m.usage().semantic_work,
-            m.usage().trace.last()
+        eprintln!(
+            "SEMANTIC_DRAFT_FAILURE {e:?} phase={:?} work={}",
+            m.diagnostic_phase(),
+            m.usage().semantic_work
         );
-        let mut phases = std::collections::BTreeMap::<String, u64>::new();
-        let mut events = std::collections::BTreeMap::<String, u64>::new();
-        for charge in &m.usage().trace {
-            *phases.entry(format!("{:?}", charge.phase)).or_default() += charge.cost;
-            *events
-                .entry(format!("{:?}:{}", charge.phase, charge.kind))
-                .or_default() += charge.cost;
-        }
-        println!("REFUSAL_PHASES {}", serde_json::to_string(&phases).unwrap());
-        println!("REFUSAL_EVENTS {}", serde_json::to_string(&events).unwrap());
-        println!("REFUSAL_FULL_TRACE {}",serde_json::to_string(&m.usage().trace.iter().map(|x|json!({"phase":format!("{:?}",x.phase),"kind":x.kind,"operand_limbs":x.operands,"cost":x.cost})).collect::<Vec<_>>()).unwrap());
     }
     let draft = result.unwrap();
     println!(
@@ -182,8 +171,8 @@ fn first_work_executes_source_data_and_matches_independent_complete_bodies() {
         assert_eq!(actual.canonical_body, value(&row["body"]));
     }
     let n = draft.usage.semantic_work;
-    let mut exact = CoreMeter::new(n).unwrap();
-    let exact_draft = draft_transition(
+    let mut exact = CoreMeter::semantic_regression(Some(n)).unwrap();
+    let exact_draft = construct::semantic_regression(
         &program,
         &c,
         &p,
@@ -193,9 +182,9 @@ fn first_work_executes_source_data_and_matches_independent_complete_bodies() {
     )
     .unwrap();
     assert_eq!(draft, exact_draft);
-    let mut less = CoreMeter::new(n - 1).unwrap();
+    let mut less = CoreMeter::semantic_regression(Some(n - 1)).unwrap();
     assert_eq!(
-        draft_transition(
+        construct::semantic_regression(
             &program,
             &c,
             &p,
@@ -207,8 +196,8 @@ fn first_work_executes_source_data_and_matches_independent_complete_bodies() {
         .code,
         "PROGRAM_BUDGET_EXCEEDED"
     );
-    let mut replay = CoreMeter::new(65536).unwrap();
-    let replayed = replay_draft(
+    let mut replay = CoreMeter::semantic_regression(None).unwrap();
+    let replayed = construct::semantic_regression_replay(
         &program,
         &c,
         &p,
@@ -220,4 +209,29 @@ fn first_work_executes_source_data_and_matches_independent_complete_bodies() {
     .unwrap();
     assert_eq!(replayed, draft);
     assert!(replay.usage().semantic_work > n);
+}
+
+#[test]
+fn legacy_first_work_retains_ordinary_budget_refusal() {
+    let (program, c, p, records) = test_inputs();
+    let mut meter = CoreMeter::diagnosed_ordinary().unwrap();
+    let error = draft_transition(
+        &program,
+        &c,
+        &p,
+        &records,
+        &DraftStateData::default(),
+        &mut meter,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error,
+        crate::Error::new(
+            "PROGRAM_BUDGET_EXCEEDED",
+            "selected semantic work exhausted"
+        )
+    );
+    assert!(meter.usage().semantic_work <= meter::MAXIMUM_WORK);
+    assert!(meter.diagnostic().unwrap().crossing.is_some());
+    assert!(meter.diagnostic().unwrap().refusal.is_some());
 }

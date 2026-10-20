@@ -1,4 +1,4 @@
-//! Private non-admitting calibration. Never selected by ordinary focused filters.
+//! Separate non-admitting semantic regressions and finite legacy diagnostics.
 use super::*;
 use serde_json::{json, Value};
 use std::io::{self, Write};
@@ -22,37 +22,6 @@ impl<W: Write> Write for Capped<W> {
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
     }
-}
-fn attempt(a: &meter::Attempt) -> Value {
-    json!({"phase":format!("{:?}",a.phase),"kind":a.kind,"operand_limbs":a.operands,"cost":a.cost,"before":a.before,"after":a.after,"caller":{"file":a.file,"line":a.line,"sites":a.sites}})
-}
-fn report(m: &CoreMeter, result: &crate::Result<DraftTransition>) -> Value {
-    let d = m.diagnostic().expect("private calibration");
-    let usage = m.usage();
-    json!({"status":if result.is_ok(){"DATA-projection-completed"}else{"STOP"},"error":result.as_ref().err().map(|e|json!({"code":e.code,"detail":e.detail})),"production_ceiling":meter::MAXIMUM_WORK,"diagnostic_stop":m.diagnostic_work_stop(),"maximum_diagnostic_stop":262144,"semantic_work":usage.semantic_work,"events":usage.trace.len(),"current_phase":format!("{:?}",m.diagnostic_phase()),"last_accepted":usage.trace.last().zip(d.callers.last()).map(|(e,c)|json!({"phase":format!("{:?}",e.phase),"kind":e.kind,"cost":e.cost,"operand_limbs":e.operands,"caller":{"file":c.file,"line":c.line,"sites":c.sites}})),"first_production_crossing":d.crossing.as_ref().map(attempt),"diagnostic_refusal":d.refusal.as_ref().map(attempt),"accounted_event_storage":d.storage,"peak_trace_payload":d.peak,"outer_event_capacity":d.event_capacity,"usage_trace_copy_bytes":d.usage_copy_bytes,"bytes":{"raw":usage.raw_request_bytes,"unique_resolved":usage.unique_resolved_bytes,"unique_refs":usage.unique_resolved_refs,"new_bodies":usage.new_body_bytes,"read":usage.body_bytes_read,"scanned":usage.scanned_bytes,"written":usage.canonical_bytes_written,"hashed":usage.hashed_bytes},"non_admitting":true})
-}
-fn emit(m: &CoreMeter, result: &crate::Result<DraftTransition>, extra: Value) {
-    let mut writer = Capped {
-        inner: io::stdout().lock(),
-        written: 0,
-    };
-    writer.write_all(b"R2_CALIBRATION_REPORT ").unwrap();
-    serde_json::to_writer(&mut writer,&json!({"schema":"bean-counter-r2-calibration-report/1","result":report(m,result),"comparison":extra,"unresolved":data::UNRESOLVED_ADMISSION_OBLIGATIONS})).unwrap();
-    writer.write_all(b"\nR2_CALIBRATION_TRACE [").unwrap();
-    for (i, (event, caller)) in m
-        .usage()
-        .trace
-        .iter()
-        .zip(&m.diagnostic().unwrap().callers)
-        .enumerate()
-    {
-        if i > 0 {
-            writer.write_all(b",").unwrap();
-        }
-        serde_json::to_writer(&mut writer,&json!({"phase":format!("{:?}",event.phase),"kind":event.kind,"operand_limbs":event.operands,"cost":event.cost,"caller":{"file":caller.file,"line":caller.line,"sites":caller.sites}})).unwrap();
-    }
-    writer.write_all(b"]\n").unwrap();
-    writer.flush().unwrap();
 }
 #[test]
 fn private_calibration_domain_and_first_crossing_remain_non_admitting() {
@@ -193,22 +162,40 @@ fn independent(draft: &DraftTransition, expected: &Value, m: &mut CoreMeter) -> 
     // complete independently sealed Action/Evaluation/Decision body equality.
     Ok(())
 }
-fn fail_stage(
-    m: &CoreMeter,
-    result: &crate::Result<DraftTransition>,
-    stage: &str,
-    probe: &CoreMeter,
-    error: &crate::Error,
-) -> ! {
-    emit(
-        m,
-        result,
-        json!({"performed":true,"status":"STOP","stage":stage,"error":{"code":error.code,"detail":error.detail},"probe":report(probe,&Err(error.clone()))}),
-    );
-    panic!("calibration {stage} stopped");
-}
 #[test]
-fn selected_a_setup_non_admitting_calibration() {
+fn selected_a_setup_non_admitting_semantic_regression() {
+    let (program, c, p, inputs) = first_work_tests::test_inputs();
+    let state = DraftStateData::default();
+    let mut m = CoreMeter::semantic_regression(None).unwrap();
+    let draft = construct::semantic_regression(&program, &c, &p, &inputs, &state, &mut m).unwrap();
+    let oracle: Value =
+        serde_json::from_slice(include_bytes!("fixtures/first-work-expected.json")).unwrap();
+    let mut comparison = CoreMeter::semantic_regression(None).unwrap();
+    comparison.enter_semantic_regression().unwrap();
+    independent(&draft, &oracle["expected"], &mut comparison).unwrap();
+
+    // One actual construction fixes exact N; this is not a search for a
+    // larger production budget or a claim about the legacy profile's fit.
+    let n = m.usage().semantic_work;
+    let mut exact = CoreMeter::semantic_regression(Some(n)).unwrap();
+    let replay =
+        construct::semantic_regression(&program, &c, &p, &inputs, &state, &mut exact).unwrap();
+    construct::compare_drafts(&replay, &draft, &mut comparison).unwrap();
+    assert_eq!(m.usage(), exact.usage());
+    let mut less = CoreMeter::semantic_regression(Some(n - 1)).unwrap();
+    let refused = construct::semantic_regression(&program, &c, &p, &inputs, &state, &mut less);
+    assert_eq!(refused.unwrap_err().code, "PROGRAM_BUDGET_EXCEEDED");
+    let used = less.usage();
+    assert!(used.semantic_work <= n - 1);
+    assert_eq!(used.trace, m.usage().trace[..used.trace.len()]);
+    assert_eq!(
+        draft.unresolved_admission_obligations,
+        data::UNRESOLVED_ADMISSION_OBLIGATIONS
+    );
+}
+
+#[test]
+fn selected_a_setup_finite_diagnostic_stops_without_a_projection() {
     let (program, c, p, inputs) = first_work_tests::test_inputs();
     let mut m = CoreMeter::calibration(262144).unwrap();
     let result = construct::calibrate(
@@ -219,124 +206,22 @@ fn selected_a_setup_non_admitting_calibration() {
         &DraftStateData::default(),
         &mut m,
     );
-    let Ok(draft) = &result else {
-        emit(
-            &m,
-            &result,
-            json!({"performed":false,"stage":"fresh","reason":"no DATA projection returned"}),
-        );
-        panic!("calibration stopped");
-    };
-    let oracle: Value =
-        serde_json::from_slice(include_bytes!("fixtures/first-work-expected.json")).unwrap();
-    let mut comparison = CoreMeter::calibration(262144).unwrap();
-    comparison.enter_calibration().unwrap();
-    if let Err(e) = comparison.scoped("independent.DATA-comparison", |m| {
-        independent(draft, &oracle["expected"], m)
-    }) {
-        fail_stage(&m, &result, "independent", &comparison, &e);
-    }
-    let n = m.usage().semantic_work;
-    // Exact-N is also the same-constructor fresh/replay check. No extra recipe,
-    // optimistic budget or second algorithm is used.
-    let mut exact = CoreMeter::calibration(n).unwrap();
-    let replay = construct::calibrate(
-        &program,
-        &c,
-        &p,
-        &inputs,
-        &DraftStateData::default(),
-        &mut exact,
+    assert_eq!(
+        result.unwrap_err(),
+        crate::Error::new(
+            "PROGRAM_BUDGET_EXCEEDED",
+            "selected semantic work exhausted"
+        )
     );
-    let other = match &replay {
-        Ok(v) => v,
-        Err(e) => fail_stage(&m, &result, "exact-N-replay", &exact, e),
-    };
-    if let Err(e) = comparison.scoped("replay.DATA-comparison", |m| {
-        construct::compare_drafts(other, draft, m)
-    }) {
-        fail_stage(&m, &result, "replay-comparison", &comparison, &e);
-    }
-    if m.usage() != exact.usage() {
-        fail_stage(
-            &m,
-            &result,
-            "construction-trace",
-            &exact,
-            &shape::fail("fresh/replay construction counters"),
-        );
-    }
-    let exact_report = report(&exact, &replay);
-    drop(replay);
-    drop(exact);
-    let mut less = CoreMeter::calibration(n - 1).unwrap();
-    let refused = construct::calibrate(
-        &program,
-        &c,
-        &p,
-        &inputs,
-        &DraftStateData::default(),
-        &mut less,
-    );
-    let refusal = match &refused {
-        Err(e) if e.code == "PROGRAM_BUDGET_EXCEEDED" => e,
-        Err(e) => fail_stage(&m, &result, "N-minus-1-unexpected", &less, e),
-        Ok(_) => fail_stage(
-            &m,
-            &result,
-            "N-minus-1-returned-Draft",
-            &less,
-            &shape::fail("N-minus-1 succeeded"),
-        ),
-    };
-    if less.diagnostic().unwrap().refusal.is_none() {
-        fail_stage(&m, &result, "N-minus-1-not-work", &less, refusal);
-    }
-    let less_report = report(&less, &refused);
-    drop(refused);
-    drop(less);
-    let mut ordinary = CoreMeter::diagnosed_ordinary().unwrap();
-    let normal = ordinary.scoped("selected.A.setup", |m| {
-        construct::draft_transition(&program, &c, &p, &inputs, &DraftStateData::default(), m)
-    });
-    if n <= meter::MAXIMUM_WORK {
-        match &normal {
-            Ok(v) => {
-                if let Err(e) = comparison.scoped("ordinary.DATA-comparison", |m| {
-                    construct::compare_drafts(v, draft, m)
-                }) {
-                    fail_stage(&m, &result, "ordinary-comparison", &comparison, &e)
-                }
-            }
-            Err(e) => fail_stage(&m, &result, "ordinary65536", &ordinary, e),
-        };
-    } else {
-        match &normal {
-            Err(e)
-                if e.code == "PROGRAM_BUDGET_EXCEEDED"
-                    && ordinary.diagnostic().unwrap().crossing.is_some() => {}
-            Err(e) => fail_stage(&m, &result, "ordinary-unexpected", &ordinary, e),
-            Ok(_) => fail_stage(
-                &m,
-                &result,
-                "ordinary-widened",
-                &ordinary,
-                &shape::fail("ordinary meter exceeded fixed ceiling"),
-            ),
-        };
-    }
-    let ordinary_report = report(&ordinary, &normal);
-    drop(normal);
-    drop(ordinary);
-    // No more than3 diagnostic meters/projections coexist. Their trace copies
-    // are reserved inside each48MiB per-invocation payload cap; allocator/RSS is
-    // separately sampled by the external runner, not claimed as this bound.
-    emit(
-        &m,
-        &result,
-        json!({"performed":true,"independent_bijection":true,"independent_projections":true,"new_set":draft.new_envelopes.iter().map(|d|&d.reference).collect::<Vec<_>>(),"exact_N_replay":exact_report,"N_minus_1":less_report,"ordinary65536":ordinary_report,"construction_trace_equal":true,"comparison_work_separate":comparison.usage().semantic_work,"comparison_peak_payload":comparison.diagnostic().unwrap().peak,"maximum_live_diagnostic_trace_payload":3*48*1024*1024,"product_would_refuse":n>meter::MAXIMUM_WORK}),
-    );
+    assert_eq!(m.usage().semantic_work, 262144);
+    assert_eq!(m.diagnostic_work_stop(), 262144);
+    let d = m.diagnostic().unwrap();
+    assert_eq!(d.event_capacity, 262144);
+    assert!(d.peak <= 48 * 1024 * 1024);
+    assert!(d.crossing.is_some());
+    assert!(d.refusal.is_some());
 }
+
 #[test]
 fn independent_projection_comparison_rejects_duplicates_and_wrong_heads() {
     let oracle: Value =

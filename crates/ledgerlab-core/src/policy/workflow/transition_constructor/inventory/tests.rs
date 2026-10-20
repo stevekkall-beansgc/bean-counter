@@ -404,23 +404,31 @@ fn initial_birth_locates_original_operation_not_an_alias_result_locator() {
     let a = fixture("A.accepted");
     let t = fixture("A.activation");
     let h = fixture("A.activate.head");
-    let mut m = CoreMeter::new(65536).unwrap();
+    let mut m = CoreMeter::semantic_regression(None).unwrap();
+    m.enter_semantic_regression().unwrap();
     let mut r = Records::new(&mut m, &inputs).unwrap();
     let result = transitions::validate(&mut m, &mut r, &c, &o, &program, &b, &a, &t, &h);
-    if let Err(error) = &result {
-        let usage = m.usage();
-        println!("BIRTH_DIAGNOSTIC {}",serde_json::to_string(&json!({"error":{"code":error.code,"detail":error.detail},"maximum":65536,"semantic_work":usage.semantic_work,"raw_request_bytes":usage.raw_request_bytes,"unique_resolved_bytes":usage.unique_resolved_bytes,"unique_resolved_refs":usage.unique_resolved_refs,"new_body_bytes":usage.new_body_bytes,"scanned_bytes":usage.scanned_bytes,"hashed_bytes":usage.hashed_bytes,"body_bytes_read":usage.body_bytes_read,"canonical_bytes_written":usage.canonical_bytes_written,"trace":usage.trace.iter().map(|x|json!({"phase":format!("{:?}",x.phase),"kind":x.kind,"operand_limbs":x.operands,"cost":x.cost})).collect::<Vec<_>>()})).unwrap());
-        println!(
-            "BIRTH_COMPLETED_REF_INPUTS {}",
-            serde_json::to_string(&r.consumed()).unwrap()
-        );
-    }
     assert!(
         result.is_ok(),
         "{:?} work={} ",
         result,
         m.usage().semantic_work
     );
+    let source: Value =
+        serde_json::from_slice(include_bytes!("../fixtures/prerequisite-input-data.json")).unwrap();
+    for name in ["A.accept.operation", "A.activate.operation"] {
+        let row = source["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == name)
+            .unwrap();
+        let original: ExactRef = serde_json::from_value(row["reference"].clone()).unwrap();
+        assert!(
+            r.consumed().contains(&original),
+            "original operation {name} was not consumed"
+        );
+    }
 }
 
 #[test]

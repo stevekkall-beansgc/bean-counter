@@ -56,6 +56,10 @@ pub enum BudgetDomain {
     OriginalAudit,
     #[cfg(test)]
     Calibration,
+    #[cfg(test)]
+    SemanticRegression,
+    #[cfg(test)]
+    SemanticRegressionRunning,
 }
 // Code-owned lifecycle:0 unused,1 child outstanding,2 consumed,3 failed.
 // Dropping an unfinished child irreversibly closes the parent. No allowance is
@@ -1161,6 +1165,30 @@ pub(crate) struct Diagnostic {
 }
 #[cfg(test)]
 impl Meter {
+    /// Semantic regression only: no new recipe, arena, trusted input or
+    /// admission owner. None removes this test's semantic stop, while the
+    /// SAME charged operations, checked counters and other guards still run.
+    pub(crate) fn semantic_regression(limit: Option<u64>) -> Result<Self> {
+        let mut meter = Self::new(0)?;
+        meter.domain = BudgetDomain::SemanticRegression;
+        meter.maximum = limit.unwrap_or_default(); // Not a ceiling when None.
+        meter.work_limit = limit;
+        Ok(meter)
+    }
+    pub(crate) fn enter_semantic_regression(&mut self) -> Result<()> {
+        if self.domain != BudgetDomain::SemanticRegression
+            || self.usage.semantic_work != 0
+            || !self.resolved.is_empty()
+        {
+            return Err(Error::new(
+                "PROGRAM_BUDGET_EXCEEDED",
+                "fresh semantic regression required",
+            ));
+        }
+        self.domain = BudgetDomain::SemanticRegressionRunning;
+        self.phase = Phase::ParseNormalize;
+        Ok(())
+    }
     // This private domain cannot enter the product constructor. It is only a
     // finite non-admitting experiment over the same executing implementation.
     pub(crate) fn calibration(maximum: u64) -> Result<Self> {
@@ -1506,6 +1534,44 @@ pub(crate) fn timestamp_site(field: &str) -> &'static str {
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
+    #[test]
+    fn semantic_regression_has_optional_work_only_and_no_production_entry() {
+        let mut unlimited = Meter::semantic_regression(None).unwrap();
+        assert!(unlimited.enter_draft().is_err());
+        assert!(unlimited.enter_compile().is_err());
+        assert!(unlimited.enter_calibration().is_err());
+        assert!(unlimited.original_economic_meter().is_err());
+        assert!(unlimited.local_economic_meter().is_err());
+        let mut rejected_inventory = Meter::semantic_regression(None).unwrap();
+        assert!(rejected_inventory.claim_borrowed_inventory().is_err());
+        unlimited.enter_semantic_regression().unwrap();
+        assert!(unlimited.enter_semantic_regression().is_err());
+        unlimited
+            .arithmetic("test.semantic_add", &[&1.into(), &2.into()])
+            .unwrap();
+        unlimited.visit("test.semantic_value").unwrap();
+        assert_eq!(unlimited.usage.semantic_work, 4);
+        assert_eq!(unlimited.usage.trace.len(), 2);
+        assert!(unlimited.resource_limits.is_none());
+        assert!(!unlimited.resource_v2);
+        assert!(unlimited.representation_arena.is_none());
+        assert!(unlimited.original_owner.is_none());
+        assert!(unlimited.diagnostic.is_none());
+        let mut exact = Meter::semantic_regression(Some(4)).unwrap();
+        exact.enter_semantic_regression().unwrap();
+        exact
+            .arithmetic("test.semantic_add", &[&1.into(), &2.into()])
+            .unwrap();
+        exact.visit("test.semantic_value").unwrap();
+        assert_eq!(exact.usage, unlimited.usage);
+        assert!(exact.visit("test.denied").is_err());
+        assert_eq!(exact.usage, unlimited.usage);
+        let mut parent = Meter::original_audit().unwrap();
+        assert!(parent.finish_original_economic(unlimited).is_err());
+        assert!(parent.visit("test.rejected_non_child").is_err());
+        assert!(Meter::new(65537).is_err());
+        assert!(Meter::calibration(262145).is_err());
+    }
     #[test]
     fn trace_capacity_projection_and_transient_payload_are_prechecked() {
         let mut m = Meter::calibration(262144).unwrap();

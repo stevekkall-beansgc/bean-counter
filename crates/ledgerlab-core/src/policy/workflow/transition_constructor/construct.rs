@@ -1358,6 +1358,43 @@ fn execute_parsed<'inv, 'raw>(
         control_owners: construction_owners,
     })
 }
+// Private semantic tests use the same raw-input engine, without making the
+// old profile's fit claim or producing anything beyond an unresolved draft.
+#[cfg(test)]
+pub(super) fn semantic_regression(
+    program: &SelectedProgram,
+    c: &DraftContextData,
+    payload: &[u8],
+    inputs: &[RecordInput],
+    state: &DraftStateData,
+    m: &mut CoreMeter,
+) -> Result<DraftTransition> {
+    m.enter_semantic_regression()?;
+    execute(
+        program,
+        c,
+        payload,
+        SuppliedRecords::Legacy(inputs),
+        state,
+        m,
+        None,
+    )?
+    .draft_projection(m)
+}
+#[cfg(test)]
+pub(super) fn semantic_regression_replay(
+    program: &SelectedProgram,
+    c: &DraftContextData,
+    payload: &[u8],
+    inputs: &[RecordInput],
+    state: &DraftStateData,
+    expected: &DraftTransition,
+    m: &mut CoreMeter,
+) -> Result<DraftTransition> {
+    let draft = semantic_regression(program, c, payload, inputs, state, m)?;
+    compare_drafts(&draft, expected, m)?;
+    Ok(draft)
+}
 #[cfg(test)]
 pub(super) fn calibrate(
     program: &SelectedProgram,
