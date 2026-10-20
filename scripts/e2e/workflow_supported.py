@@ -97,6 +97,11 @@ class Journey:
         execution = {"path": str(self.binary), "sha256": sha(self.binary.read_bytes()),
                      "runner_commit": source_commit(),
                      "fixtures": {name: sha((FIXTURES / name).read_bytes()) for name in ["source.json", "business.json"]}}
+        package_info = self.binary.parent / "BUILD-INFO.txt"
+        if package_info.is_file():
+            fields = dict(line.split("=", 1) for line in package_info.read_text().splitlines() if "=" in line)
+            execution["binary_source_commit"] = fields["source_commit"]
+            execution["binary_build_info_sha256"] = sha(package_info.read_bytes())
         for name in ["inventory.json", "build-inputs.json", "qualified.json"]:
             if (build / name).is_file():
                 execution[name] = {"path": str(build / name), "sha256": sha((build / name).read_bytes())}
