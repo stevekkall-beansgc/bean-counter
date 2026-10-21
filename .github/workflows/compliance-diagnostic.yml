@@ -1,0 +1,61 @@
+name: temporary compliance phase diagnostic
+
+on:
+  push:
+    branches: [codex/bean-counter-wave2a-candidate-20261021]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    # Diagnostic evidence only; this does not replace the released compliance job.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: caller
+      # These are the actual checkouts selected by released gate-kit v0.4.19.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: stevekkall-beansgc/gate-kit
+          ref: v0.4.4
+          path: gate-kit
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: stevekkall-beansgc/qa-kit
+          ref: v0.6.1
+          path: qa-kit
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: stevekkall-beansgc/beanfit
+          ref: v0.4.0
+          path: beanfit
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # captured v6
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Observe unchanged released checker phases
+        env:
+          GATE_RUNNER: ubuntu-latest
+          GATE_EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GATE_EVENT_NAME: ${{ github.event_name }}
+          GATE_REPOSITORY: ${{ github.repository }}
+          GATE_EVENT_REPOSITORY: ${{ github.event.repository.full_name }}
+          GATE_REF: ${{ github.ref }}
+          GATE_PUSH_AFTER: ${{ github.event.after }}
+          QA_KIT_DIR: ${{ github.workspace }}/qa-kit
+          BEANFIT_SRC: ${{ github.workspace }}/beanfit/src
+          GATE_REPO: bean-counter
+          GATE_FULL: "true"
+        run: |
+          set -o pipefail
+          python3 caller/scripts/ci/compliance-phase-diagnostic.py gate-kit/bin/compliance.py --repo bean-counter --root caller --markdown --full | tee diagnostic-gate-report.md

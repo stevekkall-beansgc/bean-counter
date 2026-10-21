@@ -17,12 +17,14 @@ impl PreparedFinancialCommit {
         req: &ingress::IncomingRequest,
         s: &mut OriginalAuditSession,
     ) -> Result<Self> {
+        crate::service::workflow_ci_diagnostic("local.observe.begin");
         let payload = req.payload(s)?;
         let observed = if req.kind() == "work.accept" {
             current::app::observe(ledger, tx, req.key(), payload, s).await?
         } else {
             current::app::observe_nonwork(ledger, tx, req.key(), payload, s).await?
         };
+        crate::service::workflow_ci_diagnostic("local.observe.complete");
         require(
             observed
                 .original
@@ -31,7 +33,9 @@ impl PreparedFinancialCommit {
                 .uses_local_execution_recipe(),
             "UNSUPPORTED_SCHEMA_PROFILE",
         )?;
+        crate::service::workflow_ci_diagnostic("local.construct.begin");
         let (candidate, evidence) = observed.construct_local(req.key(), payload, req.raw(), s)?;
+        crate::service::workflow_ci_diagnostic("local.construct.complete");
         require(
             candidate.result_metadata().is_local_execution(),
             "INTEGRITY_FAILURE",
@@ -50,6 +54,7 @@ impl PreparedFinancialCommit {
         management: &ManagementObservation,
         s: &mut OriginalAuditSession,
     ) -> Result<WorkflowReply> {
+        crate::service::workflow_ci_diagnostic("local.frame.begin");
         let journal = wire::frame_candidate(
             &self.candidate,
             req.key(),
@@ -62,10 +67,13 @@ impl PreparedFinancialCommit {
         )?;
         let reply = WorkflowReply::financial(&journal, &self.evidence, s)?;
         let append = journal.append_view();
+        crate::service::workflow_ci_diagnostic("local.frame.complete");
         management.recheck(ledger, tx, req.key(), s).await?;
+        crate::service::workflow_ci_diagnostic("local.recheck.complete");
         tx.workflow_financial_append(&append, s)
             .await
             .map_err(prefix::read_error)?;
+        crate::service::workflow_ci_diagnostic("local.append.complete");
         Ok(reply)
     }
 }

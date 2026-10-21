@@ -96,6 +96,8 @@ jobs:
           printf '%s\n' "$test_binary" > "$PWD/work/workflow-linux-test-binary.txt"
           sha256sum "$test_binary"
       - name: Qualify installed supported workflow and recovery
+        env:
+          LEDGER_WORKFLOW_CI_DIAGNOSTIC: mapping-only
         shell: bash
         run: |
           set -euo pipefail

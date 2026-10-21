@@ -27,6 +27,7 @@ fn require(ok: bool, code: &str) -> Result<()> {
 // code families; registry-contract.json is the frozen exact closed vocabulary.
 // Core implementation diagnostics do not extend that vocabulary.
 pub(crate) fn core_error(error: ledgerlab_core::Error) -> ServiceError {
+    crate::service::workflow_ci_diagnostic(error.code);
     if let Some(diagnostic) = resources::diagnostic(&error) {
         return diagnostic;
     }
